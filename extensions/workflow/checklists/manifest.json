@@ -1,0 +1,15 @@
+{
+  "name": "checklists",
+  "package": "@zveltio/ext-checklists",
+  "category": "workflow",
+  "displayName": "Checklists",
+  "description": "Attach reusable checklists to any collection record",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "permissions": ["database"],
+  "contributes": {
+    "engine": true,
+    "studio": true,
+    "fieldTypes": []
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "page-builder",
+  "package": "@zveltio/ext-page-builder",
+  "category": "content",
+  "displayName": "Page Builder",
+  "description": "Visual drag-and-drop page builder with block-based content editing",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "permissions": ["database"],
+  "contributes": {
+    "engine": true,
+    "studio": true,
+    "fieldTypes": []
+  }
+}

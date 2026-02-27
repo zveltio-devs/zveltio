@@ -1,0 +1,103 @@
+name: zveltio
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zveltio
+      POSTGRES_PASSWORD: zveltio
+      POSTGRES_DB: zveltio
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zveltio -d zveltio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (optional caching / pub-sub) ────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO (S3-compatible object storage) ──────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console UI
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Zveltio Engine ────────────────────────────────────────────────────────────
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      NODE_ENV: production
+
+      # Database
+      DATABASE_URL: "postgresql://zveltio:zveltio@postgres:5432/zveltio"
+
+      # Auth (change BETTER_AUTH_SECRET in production!)
+      BETTER_AUTH_SECRET: "change-me-in-production-min-32-chars"
+      BETTER_AUTH_URL: "http://localhost:3000"
+
+      # Redis
+      REDIS_URL: "redis://redis:6379"
+
+      # S3 / MinIO
+      S3_ENDPOINT: "http://minio:9000"
+      S3_REGION: "us-east-1"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+      S3_BUCKET: "zveltio"
+      S3_PUBLIC_URL: "http://localhost:9000"
+
+      # Extensions (comma-separated)
+      ZVELTIO_EXTENSIONS: ""
+
+    volumes:
+      - ./extensions:/app/extensions:ro
+
+  # ── Development overrides ─────────────────────────────────────────────────────
+  # Run: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

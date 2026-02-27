@@ -1,0 +1,15 @@
+{
+  "name": "flows",
+  "package": "@zveltio/ext-flows",
+  "category": "automation",
+  "displayName": "Flows",
+  "description": "Visual automation flows — triggers, conditions, and actions",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "permissions": ["database", "webhook"],
+  "contributes": {
+    "engine": true,
+    "studio": true,
+    "fieldTypes": []
+  }
+}

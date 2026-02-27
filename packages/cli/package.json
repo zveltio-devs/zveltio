@@ -1,0 +1,19 @@
+{
+  "name": "@zveltio/cli",
+  "version": "2.0.0",
+  "type": "module",
+  "bin": {
+    "zveltio": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outfile dist/index.js --target bun",
+    "dev": "bun run --watch src/index.ts"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.4.0"
+  }
+}

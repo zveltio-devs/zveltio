@@ -1,0 +1,25 @@
+{
+  "name": "@zveltio/studio",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "embed": "cp -r build ../engine/src/studio-dist"
+  },
+  "dependencies": {
+    "@sveltejs/kit": "^2.5.0",
+    "svelte": "^5.0.0",
+    "@sveltejs/adapter-static": "^3.0.0",
+    "tailwindcss": "^4.0.0",
+    "daisyui": "^4.0.0",
+    "@lucide/svelte": "^0.397.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "vite": "^6.0.0",
+    "typescript": "^5.4.0"
+  }
+}

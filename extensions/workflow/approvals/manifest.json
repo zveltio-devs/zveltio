@@ -1,0 +1,15 @@
+{
+  "name": "approvals",
+  "package": "@zveltio/ext-approvals",
+  "category": "workflow",
+  "displayName": "Approval Workflows",
+  "description": "Multi-step approval workflows for any collection",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "permissions": ["database"],
+  "contributes": {
+    "engine": true,
+    "studio": true,
+    "fieldTypes": []
+  }
+}
