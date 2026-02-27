@@ -8,7 +8,7 @@
   import { extensionRegistry } from '$lib/extension-registry.svelte.js';
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
-    Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList
+    Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot
   } from '@lucide/svelte';
 
   function isActive(href: string): boolean {
@@ -38,6 +38,9 @@
     { href: `${base}/storage`, icon: HardDrive, label: 'Storage' },
     { href: `${base}/api-keys`, icon: Key, label: 'API Keys' },
     { href: `${base}/audit`, icon: ClipboardList, label: 'Audit Log' },
+    { href: `${base}/translations`, icon: Languages, label: 'Translations' },
+    { href: `${base}/import`, icon: Upload, label: 'Import' },
+    { href: `${base}/ai`, icon: Bot, label: 'AI Assistant' },
     { href: `${base}/settings`, icon: Settings, label: 'Settings' },
   ];
 

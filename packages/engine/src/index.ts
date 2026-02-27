@@ -9,6 +9,7 @@ import { extensionLoader } from './lib/extension-loader.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
+import { initAIProviders } from './lib/ai-provider.js';
 
 const app = new Hono();
 
@@ -70,6 +71,13 @@ async function bootstrap() {
   // 6. Extensions
   await extensionLoader.loadAll(app, { db, auth, fieldTypeRegistry });
   console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
+
+  // 6b. AI providers — init after extensions so extension providers can register too
+  await initAIProviders(db);
+  const aiCount = (await import('./lib/ai-provider.js')).aiProviderManager.list().length;
+  if (aiCount > 0) {
+    console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
+  }
 
   // 7. Studio — serve embedded static files at /admin
   app.get('/admin', (c) => c.redirect('/admin/'));

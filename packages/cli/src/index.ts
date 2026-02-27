@@ -2,9 +2,11 @@
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
 import { devCommand } from './commands/dev.js';
+import { startCommand } from './commands/start.js';
 import { migrateCommand } from './commands/migrate.js';
 import { extensionCommand } from './commands/extension.js';
 import { generateTypesCommand } from './commands/generate-types.js';
+import { createGodCommand } from './commands/create-god.js';
 
 const program = new Command();
 
@@ -28,12 +30,29 @@ program
   .option('--no-studio', 'Disable Studio embed (API only)')
   .action(devCommand);
 
+// zveltio start
+program
+  .command('start')
+  .description('Start Zveltio in production mode (uses compiled binary if available)')
+  .option('-p, --port <port>', 'Port to listen on', '3000')
+  .option('--binary <path>', 'Path to compiled binary')
+  .action(startCommand);
+
 // zveltio migrate
 program
   .command('migrate')
   .description('Run pending database migrations')
   .option('--dry-run', 'Show migrations that would run without applying them')
   .action(migrateCommand);
+
+// zveltio create-god
+program
+  .command('create-god')
+  .description('Create the first super-admin (god) user interactively')
+  .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  .option('--email <email>', 'Admin email (skip prompt)')
+  .option('--name <name>', 'Admin name (skip prompt)')
+  .action(createGodCommand);
 
 // zveltio generate-types [collection]
 program

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { collectionsApi, dataApi } from '$lib/api.js';
-  import { ArrowLeft, Plus, Trash2, RefreshCw } from '@lucide/svelte';
+  import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork } from '@lucide/svelte';
   import { base } from '$app/paths';
 
   const collectionName = $derived($page.params.name);
@@ -70,6 +70,14 @@
     >
       Schema
     </button>
+    <a href="{base}/collections/{collectionName}/fields" class="tab gap-1">
+      <Columns size={14} />
+      Fields
+    </a>
+    <a href="{base}/collections/{collectionName}/relations" class="tab gap-1">
+      <GitFork size={14} />
+      Relations
+    </a>
   </div>
 
   {#if activeTab === 'data'}

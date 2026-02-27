@@ -11,6 +11,13 @@ import { settingsRoutes } from './settings.js';
 import { exportRoutes } from './export.js';
 import { adminRoutes } from './admin.js';
 import { wsRoutes } from './ws.js';
+import { relationsRoutes } from './relations.js';
+import { revisionsRoutes } from './revisions.js';
+import { translationsRoutes } from './translations.js';
+import { realtimeRoutes } from './realtime.js';
+import { notificationsRoutes } from './notifications.js';
+import { importRoutes } from './import.js';
+import { aiRoutes } from './ai.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -33,6 +40,9 @@ export function registerCoreRoutes(app: Hono, ctx: RoutesContext): void {
   // Collections schema management (admin)
   app.route('/api/collections', collectionsRoutes(db, auth));
 
+  // Collection relations (admin)
+  app.route('/api/relations', relationsRoutes(db, auth));
+
   // Generic data CRUD (session + API key)
   app.route('/api/data', dataRoutes(db, auth));
 
@@ -51,11 +61,29 @@ export function registerCoreRoutes(app: Hono, ctx: RoutesContext): void {
   // Settings (admin + public subset)
   app.route('/api/settings', settingsRoutes(db, auth));
 
-  // Export / Import (admin)
+  // Export (admin)
   app.route('/api/export', exportRoutes(db, auth));
+
+  // Import CSV/JSON (admin)
+  app.route('/api/import', importRoutes(db, auth));
 
   // Admin utilities: API keys, notifications, audit, types, onboarding
   app.route('/api/admin', adminRoutes(db, auth));
+
+  // Revisions + record comments (authenticated)
+  app.route('/api/revisions', revisionsRoutes(db, auth));
+
+  // i18n translations (admin CRUD, public read)
+  app.route('/api/translations', translationsRoutes(db, auth));
+
+  // In-app notifications + web push (authenticated)
+  app.route('/api/notifications', notificationsRoutes(db, auth));
+
+  // Real-time SSE stream (authenticated)
+  app.route('/api/realtime', realtimeRoutes(db, auth));
+
+  // AI: chat, embeddings, prompt templates, provider management
+  app.route('/api/ai', aiRoutes(db, auth));
 
   // WebSocket info (actual upgrade in Bun.serve)
   app.route('', wsRoutes(db, auth));
