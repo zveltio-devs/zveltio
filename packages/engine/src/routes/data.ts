@@ -14,6 +14,14 @@ import {
   dynamicDelete,
   type FilterCondition,
 } from '../db/dynamic.js';
+import {
+  virtualList,
+  virtualGetOne,
+  virtualCreate,
+  virtualUpdate,
+  virtualDelete,
+  type VirtualConfig,
+} from '../lib/virtual-collection-adapter.js';
 
 const QuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -152,6 +160,15 @@ function processInput(
   return { errors, processed };
 }
 
+/** Returns the parsed VirtualConfig if the collection has source_type='virtual', else null. */
+async function getVirtualConfig(db: Database, collection: string): Promise<VirtualConfig | null> {
+  const meta = await DDLManager.getCollection(db, collection);
+  if (meta?.source_type !== 'virtual' || !meta?.virtual_config) return null;
+  return typeof meta.virtual_config === 'string'
+    ? JSON.parse(meta.virtual_config)
+    : meta.virtual_config;
+}
+
 export function dataRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -172,6 +189,29 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!(await checkAccess(db, user, collection, 'read'))) {
       return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    // Virtual collection: proxy to external API
+    const virtualConfig = await getVirtualConfig(db, collection);
+    if (virtualConfig) {
+      try {
+        const { data, total } = await virtualList(virtualConfig, {
+          page: query.page,
+          limit: query.limit,
+          search: query.search,
+        });
+        return c.json({
+          records: data,
+          pagination: {
+            total,
+            page: query.page,
+            limit: query.limit,
+            pages: Math.ceil(total / query.limit),
+          },
+        });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
+      }
     }
 
     if (!(await DDLManager.tableExists(db, collection))) {
@@ -259,6 +299,18 @@ export function dataRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
+    // Virtual collection: proxy to external API
+    const virtualConfigSingle = await getVirtualConfig(db, collection);
+    if (virtualConfigSingle) {
+      try {
+        const record = await virtualGetOne(virtualConfigSingle, id);
+        if (!record) return c.json({ error: 'Record not found' }, 404);
+        return c.json({ record });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
+      }
+    }
+
     if (!(await DDLManager.tableExists(db, collection))) {
       return c.json({ error: 'Collection not found' }, 404);
     }
@@ -284,6 +336,18 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!(await checkAccess(db, user, collection, 'create'))) {
       return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    // Virtual collection: proxy create to external API
+    const virtualConfigCreate = await getVirtualConfig(db, collection);
+    if (virtualConfigCreate) {
+      try {
+        const body = await c.req.json();
+        const record = await virtualCreate(virtualConfigCreate, body);
+        return c.json({ record }, 201);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
+      }
     }
 
     if (!(await DDLManager.tableExists(db, collection))) {
@@ -328,6 +392,18 @@ export function dataRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
+    // Virtual collection: proxy update to external API
+    const virtualConfigPut = await getVirtualConfig(db, collection);
+    if (virtualConfigPut) {
+      try {
+        const body = await c.req.json();
+        const record = await virtualUpdate(virtualConfigPut, id, body);
+        return c.json({ record });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
+      }
+    }
+
     if (!(await DDLManager.tableExists(db, collection))) {
       return c.json({ error: 'Collection not found' }, 404);
     }
@@ -368,6 +444,18 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!(await checkAccess(db, user, collection, 'update'))) {
       return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    // Virtual collection: proxy patch to external API
+    const virtualConfigPatch = await getVirtualConfig(db, collection);
+    if (virtualConfigPatch) {
+      try {
+        const body = await c.req.json();
+        const record = await virtualUpdate(virtualConfigPatch, id, body);
+        return c.json({ record });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
+      }
     }
 
     if (!(await DDLManager.tableExists(db, collection))) {
@@ -411,6 +499,17 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!(await checkAccess(db, user, collection, 'delete'))) {
       return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    // Virtual collection: proxy delete to external API
+    const virtualConfigDelete = await getVirtualConfig(db, collection);
+    if (virtualConfigDelete) {
+      try {
+        await virtualDelete(virtualConfigDelete, id);
+        return c.json({ success: true });
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
+      }
     }
 
     if (!(await DDLManager.tableExists(db, collection))) {

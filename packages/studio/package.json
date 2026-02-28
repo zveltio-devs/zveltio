@@ -15,7 +15,17 @@
     "@sveltejs/adapter-static": "^3.0.0",
     "tailwindcss": "^4.0.0",
     "daisyui": "^4.0.0",
-    "@lucide/svelte": "^0.575.0"
+    "@lucide/svelte": "^0.575.0",
+    "@tiptap/core": "^2.11.0",
+    "@tiptap/starter-kit": "^2.11.0",
+    "@tiptap/extension-link": "^2.11.0",
+    "@tiptap/extension-image": "^2.11.0",
+    "@tiptap/extension-table": "^2.11.0",
+    "@tiptap/extension-table-row": "^2.11.0",
+    "@tiptap/extension-table-cell": "^2.11.0",
+    "@tiptap/extension-table-header": "^2.11.0",
+    "leaflet": "^1.9.4",
+    "@types/leaflet": "^1.9.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0",

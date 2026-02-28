@@ -3,8 +3,16 @@ import { DDLManager } from './ddl-manager.js';
 
 let _db: Database;
 
-export function initDDLQueue(db: Database): void {
+export async function initDDLQueue(db: Database): Promise<void> {
   _db = db;
+
+  // On startup, reset any jobs left in 'running' (process crashed mid-DDL) so they are retried.
+  await db
+    .updateTable('zv_ddl_jobs' as any)
+    .set({ status: 'pending' } as any)
+    .where('status' as any, '=', 'running')
+    .execute();
+
   // Poll for pending jobs every 2 seconds
   setInterval(() => processNextJob(), 2000);
 }
@@ -30,7 +38,7 @@ export async function getDDLJob(db: Database, jobId: string): Promise<any | null
 async function processNextJob(): Promise<void> {
   if (!_db) return;
 
-  // Grab one pending job
+  // Claim one pending job
   const job = await _db
     .selectFrom('zv_ddl_jobs' as any)
     .selectAll()
@@ -41,42 +49,54 @@ async function processNextJob(): Promise<void> {
 
   if (!job) return;
 
-  // Mark as running
-  await _db
+  // Mark as running (with a guard to avoid two pollers claiming the same job)
+  const claimed = await _db
     .updateTable('zv_ddl_jobs' as any)
     .set({ status: 'running', started_at: new Date() } as any)
     .where('id' as any, '=', (job as any).id)
-    .execute();
+    .where('status' as any, '=', 'pending')
+    .returning('id' as any)
+    .executeTakeFirst();
+
+  if (!claimed) return; // another poller claimed it first
 
   try {
-    const payload = typeof (job as any).payload === 'string'
-      ? JSON.parse((job as any).payload)
-      : (job as any).payload;
+    const payload =
+      typeof (job as any).payload === 'string'
+        ? JSON.parse((job as any).payload)
+        : (job as any).payload;
 
-    switch ((job as any).type) {
-      case 'create_collection':
-        await DDLManager.createCollection(_db, payload);
-        break;
-      case 'drop_collection':
-        await DDLManager.dropCollection(_db, payload.name);
-        break;
-      default:
-        throw new Error(`Unknown DDL job type: ${(job as any).type}`);
-    }
+    // Execute DDL inside a transaction — on failure, everything rolls back atomically
+    await (_db as any).transaction().execute(async (trx: any) => {
+      switch ((job as any).type) {
+        case 'create_collection':
+          await DDLManager.createCollection(trx, payload);
+          break;
+        case 'drop_collection':
+          await DDLManager.dropCollection(trx, payload.name);
+          break;
+        default:
+          throw new Error(`Unknown DDL job type: ${(job as any).type}`);
+      }
 
-    await _db
-      .updateTable('zv_ddl_jobs' as any)
-      .set({ status: 'completed', completed_at: new Date() } as any)
-      .where('id' as any, '=', (job as any).id)
-      .execute();
-
+      // Mark complete inside the same transaction so DDL + status update are atomic
+      await trx
+        .updateTable('zv_ddl_jobs' as any)
+        .set({ status: 'completed', completed_at: new Date() } as any)
+        .where('id' as any, '=', (job as any).id)
+        .execute();
+    });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
+    const retryCount = ((job as any).retry_count ?? 0) + 1;
+
+    // Persist failure and increment retry counter (outside the rolled-back transaction)
     await _db
       .updateTable('zv_ddl_jobs' as any)
-      .set({ status: 'failed', error, completed_at: new Date() } as any)
+      .set({ status: 'failed', error, completed_at: new Date(), retry_count: retryCount } as any)
       .where('id' as any, '=', (job as any).id)
       .execute();
-    console.error(`DDL job ${(job as any).id} failed:`, error);
+
+    console.error(`DDL job ${(job as any).id} failed (attempt ${retryCount}):`, error);
   }
 }

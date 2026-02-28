@@ -9,8 +9,9 @@
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
     Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot,
-    Bell, Download, Workflow, Package, GitBranch
+    Bell, Download, Workflow, Package, GitBranch, Plug, Wand2
   } from '@lucide/svelte';
+  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
   function isActive(href: string): boolean {
     const current = $page.url.pathname;
@@ -47,6 +48,8 @@
     { href: `${base}/ai`, icon: Bot, label: 'AI Assistant' },
     { href: `${base}/marketplace`, icon: Package, label: 'Marketplace' },
     { href: `${base}/schema-branches`, icon: GitBranch, label: 'Schema Branches' },
+    { href: `${base}/virtual-collections`, icon: Plug, label: 'Virtual Collections' },
+    { href: `${base}/prompt-to-schema`, icon: Wand2, label: 'AI Schema Gen' },
     { href: `${base}/settings`, icon: Settings, label: 'Settings' },
   ];
 
@@ -142,3 +145,5 @@
     </div>
   </div>
 {/if}
+
+<ToastContainer />

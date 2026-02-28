@@ -18,6 +18,7 @@ import { realtimeRoutes } from './realtime.js';
 import { notificationsRoutes } from './notifications.js';
 import { importRoutes } from './import.js';
 import { aiRoutes } from './ai.js';
+import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 import { graphqlRoutes } from './graphql.js';
 import { marketplaceRoutes } from './marketplace.js';
 import { schemaBranchesRoutes } from './schema-branches.js';
@@ -30,11 +31,11 @@ interface RoutesContext {
   auth: any;
 }
 
-export function registerCoreRoutes(app: Hono, ctx: RoutesContext): void {
+export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise<void> {
   const { db, auth } = ctx;
 
-  // Initialize DDL job queue
-  initDDLQueue(db);
+  // Initialize DDL job queue (async — resets stale 'running' jobs before polling starts)
+  await initDDLQueue(db);
 
   // Better-Auth handler — handles all /api/auth/** routes
   app.on(['GET', 'POST'], '/api/auth/**', (c) => auth.handler(c.req.raw));
@@ -89,6 +90,9 @@ export function registerCoreRoutes(app: Hono, ctx: RoutesContext): void {
 
   // AI: chat, embeddings, prompt templates, provider management
   app.route('/api/ai', aiRoutes(db, auth));
+
+  // AI Prompt-to-Backend schema generator
+  app.route('/api/ai', aiSchemaGenRoutes(db, auth));
 
   // Extension marketplace (admin)
   app.route('/api/marketplace', marketplaceRoutes(db, app));

@@ -6,6 +6,7 @@ import { checkPermission } from '../lib/permissions.js';
 import { enqueueDDLJob, getDDLJob } from '../lib/ddl-queue.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { dynamicAddColumn, dynamicDropColumn } from '../db/dynamic.js';
+import { SYSTEM_COLLECTIONS } from '../lib/system-collections.js';
 import { z } from 'zod';
 
 // Auth helper — checks session from request headers
@@ -28,10 +29,19 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     await next();
   });
 
-  // GET / — List all collections
+  // GET / — List all collections (user-defined + system)
   app.get('/', async (c) => {
     const collections = await DDLManager.getCollections(db);
-    return c.json({ collections });
+    // Append system collections (Better-Auth tables) so Studio can browse them
+    const systemCollections = SYSTEM_COLLECTIONS.map((sc) => ({
+      name: sc.name,
+      display_name: sc.displayName,
+      icon: sc.icon,
+      is_system: true,
+      readonly: sc.readonly,
+      fields: sc.fields,
+    }));
+    return c.json({ collections: [...collections, ...systemCollections] });
   });
 
   // GET /field-types — Available field types (from registry, including extension types)
