@@ -26,8 +26,10 @@ interface LoadedExtension {
 
 class ExtensionLoader {
   private loaded: Map<string, LoadedExtension> = new Map();
+  private ctx?: ExtensionContext;
 
   async loadAll(app: Hono, ctx: ExtensionContext): Promise<void> {
+    this.ctx = ctx;
     const activeExtensions = this.getActiveExtensionNames();
 
     for (const extName of activeExtensions) {
@@ -161,6 +163,29 @@ class ExtensionLoader {
 
       console.log(`  ✓ Extension migration: ${name}`);
     }
+  }
+
+  async loadFromDB(db: Database, app: Hono): Promise<void> {
+    try {
+      const rows = await (db as any)
+        .selectFrom('zv_extension_registry')
+        .select(['name'])
+        .where('is_enabled' as any, '=', true)
+        .execute();
+
+      for (const row of rows) {
+        if (!this.loaded.has(row.name) && this.ctx) {
+          await this.loadExtension(row.name, app, this.ctx);
+        }
+      }
+    } catch {
+      // Table may not exist on first run — silently skip
+    }
+  }
+
+  async loadDynamic(name: string, app: Hono): Promise<void> {
+    if (!this.ctx) throw new Error('ExtensionLoader not initialized — call loadAll() first');
+    await this.loadExtension(name, app, this.ctx);
   }
 
   getActive(): string[] {

@@ -71,9 +71,13 @@ async function bootstrap() {
   registerCoreRoutes(app, { db, auth });
   console.log('✅ Core routes registered');
 
-  // 6. Extensions
+  // 6. Extensions — env-var configured
   await extensionLoader.loadAll(app, { db, auth, fieldTypeRegistry });
   console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
+
+  // 6b-extra. Extensions enabled via DB marketplace (hot-enable without env var)
+  await extensionLoader.loadFromDB(db, app);
+  console.log(`✅ DB-enabled extensions checked`);
 
   // 6b. AI providers — init after extensions so extension providers can register too
   await initAIProviders(db);

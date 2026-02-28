@@ -19,6 +19,7 @@ import { notificationsRoutes } from './notifications.js';
 import { importRoutes } from './import.js';
 import { aiRoutes } from './ai.js';
 import { graphqlRoutes } from './graphql.js';
+import { marketplaceRoutes } from './marketplace.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -85,6 +86,9 @@ export function registerCoreRoutes(app: Hono, ctx: RoutesContext): void {
 
   // AI: chat, embeddings, prompt templates, provider management
   app.route('/api/ai', aiRoutes(db, auth));
+
+  // Extension marketplace (admin)
+  app.route('/api/marketplace', marketplaceRoutes(db, app));
 
   // GraphQL auto-generated API + Playground
   app.route('/api/graphql', graphqlRoutes(db, auth));

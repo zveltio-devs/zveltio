@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { spawn } from 'child_process';
@@ -218,7 +218,7 @@ async function buildExtension() {
     process.exit(1);
   }
 
-  const manifest = JSON.parse(await Bun.file('manifest.json').text());
+  const manifest = JSON.parse(await readFile('manifest.json', 'utf-8'));
 
   // Build Studio bundle
   if (existsSync('studio')) {

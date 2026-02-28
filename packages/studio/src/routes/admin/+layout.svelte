@@ -9,7 +9,7 @@
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
     Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot,
-    Bell, Download, Workflow
+    Bell, Download, Workflow, Package
   } from '@lucide/svelte';
 
   function isActive(href: string): boolean {
@@ -45,6 +45,7 @@
     { href: `${base}/flows`, icon: Workflow, label: 'Flows' },
     { href: `${base}/notifications`, icon: Bell, label: 'Notifications' },
     { href: `${base}/ai`, icon: Bot, label: 'AI Assistant' },
+    { href: `${base}/marketplace`, icon: Package, label: 'Marketplace' },
     { href: `${base}/settings`, icon: Settings, label: 'Settings' },
   ];
 
