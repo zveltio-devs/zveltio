@@ -20,6 +20,9 @@ import { importRoutes } from './import.js';
 import { aiRoutes } from './ai.js';
 import { graphqlRoutes } from './graphql.js';
 import { marketplaceRoutes } from './marketplace.js';
+import { schemaBranchesRoutes } from './schema-branches.js';
+import { apiDocsRoutes } from './api-docs.js';
+import { databaseRoutes } from './database.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -89,6 +92,15 @@ export function registerCoreRoutes(app: Hono, ctx: RoutesContext): void {
 
   // Extension marketplace (admin)
   app.route('/api/marketplace', marketplaceRoutes(db, app));
+
+  // Schema branches — safe schema development without affecting production
+  app.route('/api/schema', schemaBranchesRoutes(db, auth));
+
+  // API documentation portal — Swagger UI + OpenAPI spec
+  app.route('/api/docs', apiDocsRoutes(db, auth));
+
+  // Database management — functions, triggers, enums, roles, RLS
+  app.route('/api/database', databaseRoutes(db, auth));
 
   // GraphQL auto-generated API + Playground
   app.route('/api/graphql', graphqlRoutes(db, auth));
