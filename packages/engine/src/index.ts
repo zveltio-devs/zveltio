@@ -10,6 +10,9 @@ import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
 import { initAIProviders } from './lib/ai-provider.js';
+import { WebhookManager } from './lib/webhooks.js';
+import { webhookWorker } from './lib/webhook-worker.js';
+import { flowScheduler } from './lib/flow-scheduler.js';
 
 const app = new Hono();
 
@@ -74,6 +77,17 @@ async function bootstrap() {
 
   // 6b. AI providers — init after extensions so extension providers can register too
   await initAIProviders(db);
+
+  // 6c. WebhookManager — init with db so trigger() can query webhooks
+  WebhookManager.init(db);
+
+  // 6d. Webhook worker — processes Redis queue (no-op if Redis not configured)
+  webhookWorker.start(1000);
+  console.log('✅ Webhook worker started');
+
+  // 6e. Flow scheduler — runs cron flows (no-op until automation/flows extension registers executor)
+  await flowScheduler.start();
+  console.log('✅ Flow scheduler started');
   const aiCount = (await import('./lib/ai-provider.js')).aiProviderManager.list().length;
   if (aiCount > 0) {
     console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
@@ -162,6 +176,28 @@ async function bootstrap() {
     extensions: extensionLoader.getActive(),
   }));
 
+  // 11. Prometheus-compatible metrics
+  const startTime = Date.now();
+  let requestCount = 0;
+  app.use('*', async (c, next) => { requestCount++; await next(); });
+  app.get('/metrics', (c) => {
+    const uptime = (Date.now() - startTime) / 1000;
+    const lines = [
+      '# HELP zveltio_uptime_seconds Server uptime in seconds',
+      '# TYPE zveltio_uptime_seconds gauge',
+      `zveltio_uptime_seconds ${uptime.toFixed(3)}`,
+      '# HELP zveltio_requests_total Total HTTP requests received',
+      '# TYPE zveltio_requests_total counter',
+      `zveltio_requests_total ${requestCount}`,
+      '# HELP zveltio_extensions_active Number of active extensions',
+      '# TYPE zveltio_extensions_active gauge',
+      `zveltio_extensions_active ${extensionLoader.getActive().length}`,
+    ];
+    return c.text(lines.join('\n') + '\n', 200, {
+      'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+    });
+  });
+
   // Start server
   const port = parseInt(process.env.PORT || '3000');
   const host = process.env.HOST || '0.0.0.0';
@@ -185,6 +221,16 @@ async function bootstrap() {
   console.log(`   API:    http://localhost:${port}/api`);
   console.log(`   Health: http://localhost:${port}/health\n`);
 }
+
+// Graceful shutdown
+function shutdown() {
+  console.log('\n🛑 Shutting down gracefully...');
+  webhookWorker.stop();
+  flowScheduler.stop();
+  process.exit(0);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 bootstrap().catch((err) => {
   console.error('❌ Bootstrap failed:', err);

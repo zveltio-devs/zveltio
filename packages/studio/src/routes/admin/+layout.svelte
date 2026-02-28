@@ -8,7 +8,8 @@
   import { extensionRegistry } from '$lib/extension-registry.svelte.js';
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
-    Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot
+    Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot,
+    Bell, Download, Workflow
   } from '@lucide/svelte';
 
   function isActive(href: string): boolean {
@@ -40,6 +41,9 @@
     { href: `${base}/audit`, icon: ClipboardList, label: 'Audit Log' },
     { href: `${base}/translations`, icon: Languages, label: 'Translations' },
     { href: `${base}/import`, icon: Upload, label: 'Import' },
+    { href: `${base}/export`, icon: Download, label: 'Export' },
+    { href: `${base}/flows`, icon: Workflow, label: 'Flows' },
+    { href: `${base}/notifications`, icon: Bell, label: 'Notifications' },
     { href: `${base}/ai`, icon: Bot, label: 'AI Assistant' },
     { href: `${base}/settings`, icon: Settings, label: 'Settings' },
   ];
