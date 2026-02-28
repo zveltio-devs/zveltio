@@ -16,5 +16,8 @@
     "turbo": "^2.0.0",
     "bun-types": "latest",
     "typescript": "^5.4.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   }
 }

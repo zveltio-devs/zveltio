@@ -1,126 +1,90 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { collectionsApi, api } from '$lib/api.js';
-  import { Upload, CheckCircle, XCircle, Loader2, FileText } from '@lucide/svelte';
+  import { api, collectionsApi } from '$lib/api.js';
+  import { Upload, CheckCircle, AlertCircle, RefreshCw, Loader2 } from '@lucide/svelte';
 
   let collections = $state<any[]>([]);
   let selectedCollection = $state('');
   let file = $state<File | null>(null);
+  let format = $state<'csv' | 'xlsx' | 'json'>('csv');
   let delimiter = $state(',');
-  let jobs = $state<any[]>([]);
-  let loading = $state(true);
+  let skipHeader = $state(true);
   let importing = $state(false);
-  let activeJob = $state<any>(null);
-  let pollInterval: any = null;
-  let preview = $state<any>(null);
-  let previewing = $state(false);
+  let result = $state<any>(null);
+  let jobs = $state<any[]>([]);
+  let jobsLoading = $state(true);
 
   onMount(async () => {
-    const [colRes, jobsRes] = await Promise.all([
-      collectionsApi.list(),
-      api.get<{ jobs: any[] }>('/api/import/jobs'),
-    ]);
-    collections = colRes.collections || [];
-    jobs = jobsRes.jobs || [];
-    if (collections.length > 0) selectedCollection = collections[0].name;
-    loading = false;
+    const res = await collectionsApi.list();
+    collections = res.collections || [];
+    await loadJobs();
   });
 
-  function handleFileChange(e: Event) {
-    const input = e.target as HTMLInputElement;
-    file = input.files?.[0] || null;
-    preview = null;
+  async function loadJobs() {
+    jobsLoading = true;
+    try {
+      // NOTE: endpoint is /api/import/jobs (not /logs)
+      const data = await api.get<{ jobs: any[] }>('/api/import/jobs');
+      jobs = data.jobs || [];
+    } catch { jobs = []; }
+    finally { jobsLoading = false; }
   }
 
-  async function previewFile() {
-    if (!file || !selectedCollection) return;
-    previewing = true;
+  function handleFile(e: Event) {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    if (!f) return;
+    file = f;
+    const ext = f.name.split('.').pop()?.toLowerCase();
+    if (ext === 'csv') format = 'csv';
+    else if (ext === 'xlsx' || ext === 'xls') format = 'xlsx';
+    else if (ext === 'json') format = 'json';
+    result = null;
+  }
+
+  async function doImport() {
+    if (!selectedCollection || !file) return;
+    importing = true; result = null;
     try {
       const fd = new FormData();
       fd.append('file', file);
+      fd.append('format', format);
+      fd.append('skip_header', String(skipHeader));
       fd.append('delimiter', delimiter);
-      const res = await fetch(`${import.meta.env.VITE_ENGINE_URL || ''}/api/import/${selectedCollection}/preview`, {
-        method: 'POST',
-        credentials: 'include',
-        body: fd,
+      const res = await fetch(`/api/import/${selectedCollection}`, {
+        method: 'POST', credentials: 'include', body: fd,
       });
-      preview = await res.json();
-    } catch (err: any) {
-      alert('Preview failed: ' + err.message);
-    } finally {
-      previewing = false;
-    }
+      result = await res.json();
+      if (res.ok) { file = null; await loadJobs(); }
+    } catch (err) {
+      result = { error: err instanceof Error ? err.message : 'Import failed' };
+    } finally { importing = false; }
   }
 
-  async function runImport() {
-    if (!file || !selectedCollection) return;
-    importing = true;
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('delimiter', delimiter);
-      const res = await fetch(`${import.meta.env.VITE_ENGINE_URL || ''}/api/import/${selectedCollection}`, {
-        method: 'POST',
-        credentials: 'include',
-        body: fd,
-      });
-      const data = await res.json();
-      activeJob = { id: data.job_id, status: 'processing' };
-      jobs = [activeJob, ...jobs];
-      startPolling(data.job_id);
-    } catch (err: any) {
-      alert('Import failed: ' + err.message);
-    } finally {
-      importing = false;
-    }
+  function statusClass(s: string) {
+    return s === 'completed' ? 'badge-success' :
+           s === 'failed' ? 'badge-error' :
+           s === 'partial' ? 'badge-warning' : 'badge-ghost';
   }
 
-  function startPolling(jobId: string) {
-    if (pollInterval) clearInterval(pollInterval);
-    pollInterval = setInterval(async () => {
-      const res = await api.get<{ job: any }>(`/api/import/jobs/${jobId}`);
-      activeJob = res.job;
-      const idx = jobs.findIndex((j) => j.id === jobId);
-      if (idx >= 0) jobs[idx] = res.job;
-      if (['completed', 'failed', 'partial'].includes(res.job.status)) {
-        clearInterval(pollInterval);
-        pollInterval = null;
-      }
-    }, 1500);
-  }
-
-  function statusBadge(status: string) {
-    const map: Record<string, string> = {
-      pending: 'badge-warning',
-      processing: 'badge-info',
-      completed: 'badge-success',
-      partial: 'badge-warning',
-      failed: 'badge-error',
-    };
-    return map[status] || 'badge-ghost';
-  }
-
-  function progress(job: any): number {
-    if (!job.total_rows || job.total_rows === 0) return 0;
-    return Math.round((job.processed_rows / job.total_rows) * 100);
-  }
+  function fmt(s: string) { return new Date(s).toLocaleString(); }
 </script>
 
 <div class="space-y-6">
   <div>
     <h1 class="text-2xl font-bold">Import Data</h1>
-    <p class="text-base-content/60 text-sm">Upload CSV or JSON files to import records into a collection</p>
+    <p class="text-base-content/60 text-sm mt-1">Import CSV, Excel, or JSON into any collection</p>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- Upload form -->
+  <div class="grid gap-6 lg:grid-cols-2">
+    <!-- Import form -->
     <div class="card bg-base-200">
-      <div class="card-body gap-4">
-        <h2 class="font-semibold">Upload File</h2>
+      <div class="card-body space-y-4">
+        <h2 class="font-semibold text-base">New Import</h2>
 
         <div class="form-control">
-          <label class="label" for="col_sel"><span class="label-text">Target collection</span></label>
-          <select id="col_sel" bind:value={selectedCollection} class="select select-bordered select-sm">
+          <label class="label"><span class="label-text font-medium">Target Collection *</span></label>
+          <select class="select select-bordered" bind:value={selectedCollection}>
+            <option value="">— Select collection —</option>
             {#each collections as col}
               <option value={col.name}>{col.display_name || col.name}</option>
             {/each}
@@ -128,169 +92,88 @@
         </div>
 
         <div class="form-control">
-          <label class="label"><span class="label-text">File (CSV or JSON)</span></label>
-          <input
-            type="file"
-            accept=".csv,.json,.txt"
-            class="file-input file-input-bordered file-input-sm w-full"
-            onchange={handleFileChange}
-          />
+          <label class="label"><span class="label-text font-medium">File *</span></label>
+          <input type="file" class="file-input file-input-bordered w-full" accept=".csv,.xlsx,.xls,.json"
+            onchange={handleFile} />
+          {#if file}
+            <p class="text-xs text-success mt-1">✓ {file.name} ({(file.size / 1024).toFixed(1)} KB) — format: {format}</p>
+          {/if}
         </div>
 
-        {#if file?.name?.endsWith('.csv') || file?.name?.endsWith('.txt')}
-          <div class="form-control">
-            <label class="label" for="delim"><span class="label-text">Delimiter</span></label>
-            <select id="delim" bind:value={delimiter} class="select select-bordered select-sm w-32">
-              <option value=",">Comma (,)</option>
-              <option value=";">Semicolon (;)</option>
-              <option value="\t">Tab</option>
-              <option value="|">Pipe (|)</option>
-            </select>
+        {#if format === 'csv'}
+          <div class="grid grid-cols-2 gap-3">
+            <div class="form-control">
+              <label class="label"><span class="label-text">Delimiter</span></label>
+              <select class="select select-bordered select-sm" bind:value={delimiter}>
+                <option value=",">, comma</option>
+                <option value=";">; semicolon</option>
+                <option value="\t">⇥ tab</option>
+                <option value="|">| pipe</option>
+              </select>
+            </div>
+            <div class="form-control justify-end">
+              <label class="label cursor-pointer justify-start gap-2">
+                <input type="checkbox" class="checkbox checkbox-sm" bind:checked={skipHeader} />
+                <span class="label-text text-sm">Skip header row</span>
+              </label>
+            </div>
           </div>
         {/if}
 
-        <div class="flex gap-2 flex-wrap">
-          <button
-            class="btn btn-outline btn-sm"
-            onclick={previewFile}
-            disabled={!file || !selectedCollection || previewing}
-          >
-            {#if previewing}
-              <Loader2 size={14} class="animate-spin" />
-            {:else}
-              <FileText size={14} />
-            {/if}
-            Preview
-          </button>
+        <button class="btn btn-primary" onclick={doImport}
+          disabled={!selectedCollection || !file || importing}>
+          {#if importing}<Loader2 size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
+          {importing ? 'Importing...' : 'Start Import'}
+        </button>
 
-          <button
-            class="btn btn-primary btn-sm"
-            onclick={runImport}
-            disabled={!file || !selectedCollection || importing}
-          >
-            {#if importing}
-              <Loader2 size={14} class="animate-spin" />
-              Starting…
+        {#if result}
+          <div class="alert {result.error ? 'alert-error' : result.error_rows > 0 ? 'alert-warning' : 'alert-success'} text-sm">
+            {#if result.error}
+              <AlertCircle size={18} /><span>{result.error}</span>
             {:else}
-              <Upload size={14} />
-              Import
+              <CheckCircle size={18} />
+              <div>
+                <p class="font-medium">Import {result.status}</p>
+                <p>Total: {result.total_rows ?? 0} | ✓ {result.success_rows ?? 0} | ✗ {result.error_rows ?? 0}</p>
+              </div>
             {/if}
-          </button>
-        </div>
-
-        <!-- Preview table -->
-        {#if preview}
-          <div class="mt-2">
-            <p class="text-xs text-base-content/60 mb-2">
-              Preview: first {preview.preview?.length} of {preview.total_rows} rows
-            </p>
-            <div class="overflow-x-auto max-h-48">
-              <table class="table table-xs">
-                <thead>
-                  <tr>
-                    {#each preview.headers || [] as h}
-                      <th>{h}</th>
-                    {/each}
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each preview.preview || [] as row}
-                    <tr>
-                      {#each preview.headers || [] as h}
-                        <td class="max-w-24 truncate">{row[h] ?? ''}</td>
-                      {/each}
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
           </div>
         {/if}
       </div>
     </div>
 
-    <!-- Active job status -->
-    {#if activeJob}
-      <div class="card bg-base-200">
-        <div class="card-body">
-          <h2 class="font-semibold">Import Progress</h2>
-          <div class="space-y-3">
-            <div class="flex items-center gap-2">
-              <span class="badge badge-sm {statusBadge(activeJob.status)}">{activeJob.status}</span>
-              <span class="text-sm">{activeJob.filename}</span>
-            </div>
-            <progress
-              class="progress progress-primary w-full"
-              value={progress(activeJob)}
-              max="100"
-            ></progress>
-            <div class="grid grid-cols-3 gap-2 text-center">
-              <div class="stat p-2">
-                <div class="stat-title text-xs">Total</div>
-                <div class="stat-value text-lg">{activeJob.total_rows || 0}</div>
+    <!-- Recent jobs -->
+    <div class="card bg-base-200">
+      <div class="card-body">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold text-base">Recent Imports</h2>
+          <button class="btn btn-ghost btn-xs" onclick={loadJobs}><RefreshCw size={14} /></button>
+        </div>
+        {#if jobsLoading}
+          <div class="flex justify-center py-10"><Loader2 size={24} class="animate-spin text-primary" /></div>
+        {:else if jobs.length === 0}
+          <p class="text-center text-base-content/40 py-10 text-sm">No imports yet</p>
+        {:else}
+          <div class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+            {#each jobs as job}
+              <div class="p-3 bg-base-300 rounded-lg">
+                <div class="flex items-center justify-between">
+                  <span class="font-medium text-sm">{job.collection}</span>
+                  <span class="badge badge-sm {statusClass(job.status)}">{job.status}</span>
+                </div>
+                <p class="text-xs text-base-content/50 truncate">{job.filename || '—'}</p>
+                {#if job.total_rows > 0}
+                  <p class="text-xs mt-0.5">
+                    {job.total_rows} rows &nbsp;·&nbsp; <span class="text-success">✓ {job.success_rows}</span>
+                    {#if job.error_rows > 0}&nbsp;·&nbsp; <span class="text-error">✗ {job.error_rows}</span>{/if}
+                  </p>
+                {/if}
+                <p class="text-xs text-base-content/30 mt-0.5">{fmt(job.created_at)}</p>
               </div>
-              <div class="stat p-2">
-                <div class="stat-title text-xs">Success</div>
-                <div class="stat-value text-lg text-success">{activeJob.success_rows || 0}</div>
-              </div>
-              <div class="stat p-2">
-                <div class="stat-title text-xs">Errors</div>
-                <div class="stat-value text-lg text-error">{activeJob.error_rows || 0}</div>
-              </div>
-            </div>
-            {#if activeJob.errors?.length > 0}
-              <div class="overflow-y-auto max-h-32 bg-error/10 rounded p-2 text-xs space-y-1">
-                {#each (typeof activeJob.errors === 'string' ? JSON.parse(activeJob.errors) : activeJob.errors).slice(0, 10) as err}
-                  <div class="text-error">Row {err.row}: {err.error}</div>
-                {/each}
-              </div>
-            {/if}
+            {/each}
           </div>
-        </div>
+        {/if}
       </div>
-    {/if}
-  </div>
-
-  <!-- Import history -->
-  <div class="card bg-base-200">
-    <div class="card-body">
-      <h2 class="font-semibold">Import History</h2>
-      {#if loading}
-        <div class="flex justify-center py-6"><span class="loading loading-spinner"></span></div>
-      {:else if jobs.length === 0}
-        <p class="text-center py-6 text-base-content/40">No imports yet.</p>
-      {:else}
-        <div class="overflow-x-auto">
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Collection</th>
-                <th>Status</th>
-                <th>Total</th>
-                <th>Success</th>
-                <th>Errors</th>
-                <th>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each jobs as job}
-                <tr>
-                  <td class="font-mono text-xs max-w-32 truncate" title={job.filename}>{job.filename}</td>
-                  <td>{job.collection}</td>
-                  <td><span class="badge badge-sm {statusBadge(job.status)}">{job.status}</span></td>
-                  <td>{job.total_rows}</td>
-                  <td class="text-success">{job.success_rows}</td>
-                  <td class="text-error">{job.error_rows}</td>
-                  <td class="text-xs text-base-content/50">
-                    {new Date(job.created_at).toLocaleString()}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/if}
     </div>
   </div>
 </div>

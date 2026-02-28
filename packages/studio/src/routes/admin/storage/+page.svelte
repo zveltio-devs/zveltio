@@ -1,200 +1,169 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Upload, Folder, FolderPlus, Trash2, Download, Image, File, Film, Music } from '@lucide/svelte';
+  import { api } from '$lib/api.js';
+  import { Upload, Trash2, Copy, Check, HardDrive, File, FileText, Image, Loader2 } from '@lucide/svelte';
 
-  const engineUrl = import.meta.env.PUBLIC_ENGINE_URL || '';
-
-  let files = $state<any[]>([]);
-  let folders = $state<any[]>([]);
-  let currentFolderId = $state<string | null>(null);
-  let loading = $state(true);
-  let uploading = $state(false);
-  let showNewFolder = $state(false);
-  let newFolderName = $state('');
-  let selectedFiles = $state<Set<string>>(new Set());
-
-  onMount(() => loadAll());
-
-  async function loadAll() {
-    loading = true;
-    const params = currentFolderId ? `?folder_id=${currentFolderId}` : '';
-    const [filesRes, foldersRes] = await Promise.all([
-      fetch(`${engineUrl}/api/storage${params}`, { credentials: 'include' }).then((r) => r.json()),
-      fetch(`${engineUrl}/api/storage/folders`, { credentials: 'include' }).then((r) => r.json()),
-    ]);
-    files = filesRes.files || [];
-    folders = (foldersRes.folders || []).filter((f: any) =>
-      currentFolderId ? f.parent_id === currentFolderId : !f.parent_id,
-    );
-    loading = false;
+  interface MediaFile {
+    id: string;
+    original_name: string;
+    mime_type: string;
+    size: number;
+    url: string;
+    created_at: string;
   }
 
-  async function uploadFile(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (!input.files?.length) return;
+  let files = $state<MediaFile[]>([]);
+  let loading = $state(true);
+  let uploading = $state(false);
+  let dragging = $state(false);
+  let filter = $state<'all' | 'images' | 'documents'>('all');
+  let copied = $state<string | null>(null);
+
+  const filtered = $derived(
+    filter === 'all' ? files :
+    filter === 'images' ? files.filter(f => f.mime_type.startsWith('image/')) :
+    files.filter(f => !f.mime_type.startsWith('image/'))
+  );
+
+  onMount(loadFiles);
+
+  async function loadFiles() {
+    loading = true;
+    try {
+      const data = await api.get<{ files: MediaFile[] }>('/api/storage/files');
+      files = data.files || [];
+    } catch { files = []; }
+    finally { loading = false; }
+  }
+
+  async function upload(fileList: FileList | null) {
+    if (!fileList?.length) return;
     uploading = true;
     try {
-      for (const file of Array.from(input.files)) {
+      for (const f of Array.from(fileList)) {
         const fd = new FormData();
-        fd.append('file', file);
-        if (currentFolderId) fd.append('folder_id', currentFolderId);
-        await fetch(`${engineUrl}/api/storage/upload`, {
-          method: 'POST',
-          credentials: 'include',
-          body: fd,
+        fd.append('file', f);
+        const res = await fetch('/api/storage/upload', {
+          method: 'POST', credentials: 'include', body: fd,
         });
+        if (!res.ok) throw new Error(`Upload failed: ${f.name}`);
       }
-      await loadAll();
-    } finally {
-      uploading = false;
-      input.value = '';
+      await loadFiles();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Upload failed');
+    } finally { uploading = false; }
+  }
+
+  async function deleteFile(id: string, name: string) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/api/storage/files/${id}`);
+      files = files.filter(f => f.id !== id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Delete failed');
     }
   }
 
-  async function deleteFile(id: string) {
-    if (!confirm('Delete this file?')) return;
-    await fetch(`${engineUrl}/api/storage/${id}`, { method: 'DELETE', credentials: 'include' });
-    await loadAll();
+  async function copyUrl(url: string, id: string) {
+    await navigator.clipboard.writeText(url);
+    copied = id;
+    setTimeout(() => (copied = null), 2000);
   }
 
-  async function createFolder() {
-    if (!newFolderName.trim()) return;
-    await fetch(`${engineUrl}/api/storage/folders`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newFolderName, parent_id: currentFolderId }),
-    });
-    newFolderName = '';
-    showNewFolder = false;
-    await loadAll();
-  }
-
-  function fileIcon(mime: string) {
-    if (mime?.startsWith('image/')) return Image;
-    if (mime?.startsWith('video/')) return Film;
-    if (mime?.startsWith('audio/')) return Music;
-    return File;
-  }
-
-  function formatSize(bytes: number): string {
+  function fmt(bytes: number) {
     if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
   }
+
+  function isImage(mime: string) { return mime.startsWith('image/'); }
+  function isPdf(mime: string) { return mime.includes('pdf'); }
 </script>
 
 <div class="space-y-6">
   <div class="flex items-center justify-between">
     <div>
       <h1 class="text-2xl font-bold">Storage</h1>
-      <p class="text-base-content/60 text-sm mt-1">Media files and folders</p>
+      <p class="text-base-content/60 text-sm mt-1">{files.length} file{files.length !== 1 ? 's' : ''} stored</p>
     </div>
-    <div class="flex gap-2">
-      <button class="btn btn-ghost btn-sm gap-2" onclick={() => (showNewFolder = true)}>
-        <FolderPlus size={16} />New Folder
-      </button>
-      <label class="btn btn-primary btn-sm gap-2 cursor-pointer">
-        <Upload size={16} />
-        {uploading ? 'Uploading...' : 'Upload'}
-        <input type="file" class="hidden" multiple onchange={uploadFile} disabled={uploading} />
-      </label>
-    </div>
+    <label class="btn btn-primary btn-sm cursor-pointer" class:loading={uploading}>
+      {#if uploading}<Loader2 size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
+      Upload
+      <input type="file" class="hidden" multiple
+        onchange={(e) => upload((e.target as HTMLInputElement).files)}
+        disabled={uploading} />
+    </label>
   </div>
 
-  <!-- Breadcrumb -->
-  <div class="breadcrumbs text-sm">
-    <ul>
-      <li><button onclick={() => { currentFolderId = null; loadAll(); }} class="link">Root</button></li>
-      {#if currentFolderId}
-        <li>{folders.find((f) => f.id === currentFolderId)?.name || 'Folder'}</li>
-      {/if}
-    </ul>
+  <!-- Drag & Drop zone -->
+  <div
+    class="border-2 border-dashed rounded-xl p-10 text-center transition-all cursor-default
+           {dragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-base-300 hover:border-base-content/20'}"
+    ondragover={(e) => { e.preventDefault(); dragging = true; }}
+    ondragleave={() => (dragging = false)}
+    ondrop={(e) => { e.preventDefault(); dragging = false; upload(e.dataTransfer?.files || null); }}
+    role="region" aria-label="File drop zone"
+  >
+    <HardDrive size={36} class="mx-auto mb-2 opacity-30" />
+    <p class="text-sm text-base-content/50">Drop files here to upload</p>
+  </div>
+
+  <!-- Filter tabs -->
+  <div class="tabs tabs-bordered">
+    {#each [['all','All'], ['images','Images'], ['documents','Documents']] as [id, label]}
+      <button class="tab {filter === id ? 'tab-active' : ''}" onclick={() => (filter = id as any)}>
+        {label}
+        <span class="ml-1 badge badge-sm badge-ghost">
+          {id === 'all' ? files.length :
+           id === 'images' ? files.filter(f => f.mime_type.startsWith('image/')).length :
+           files.filter(f => !f.mime_type.startsWith('image/')).length}
+        </span>
+      </button>
+    {/each}
   </div>
 
   {#if loading}
-    <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
+    <div class="flex justify-center py-16"><Loader2 size={32} class="animate-spin text-primary" /></div>
+  {:else if filtered.length === 0}
+    <div class="text-center py-16 text-base-content/40">
+      <File size={48} class="mx-auto mb-3" />
+      <p class="text-sm">No {filter === 'all' ? '' : filter} files yet</p>
+    </div>
   {:else}
-    <!-- Folders -->
-    {#if folders.length > 0}
-      <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 mb-2">
-        {#each folders as folder}
-          <button
-            class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-base-200 transition-colors"
-            ondblclick={() => { currentFolderId = folder.id; loadAll(); }}
-          >
-            <Folder size={40} class="text-warning" />
-            <span class="text-xs text-center truncate w-full">{folder.name}</span>
-          </button>
-        {/each}
-      </div>
-      <div class="divider my-2"></div>
-    {/if}
-
-    <!-- Files grid -->
-    {#if files.length === 0}
-      <div class="card bg-base-200 text-center py-16">
-        <p class="text-base-content/60">No files here. Upload some!</p>
-      </div>
-    {:else}
-      <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-        {#each files as file}
-          {@const Icon = fileIcon(file.mimetype)}
-          <div class="group relative rounded-xl overflow-hidden border border-base-300 hover:border-primary transition-colors">
-            {#if file.mimetype?.startsWith('image/')}
-              <img
-                src={file.url}
-                alt={file.original_name}
-                class="w-full aspect-square object-cover"
-                onerror={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-              />
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {#each filtered as file}
+        <div class="card bg-base-200 overflow-hidden">
+          <!-- Thumbnail -->
+          <div class="h-36 bg-base-300 flex items-center justify-center overflow-hidden">
+            {#if isImage(file.mime_type)}
+              <img src={file.url} alt={file.original_name} class="w-full h-full object-cover" loading="lazy" />
+            {:else if isPdf(file.mime_type)}
+              <FileText size={36} class="opacity-30" />
             {:else}
-              <div class="w-full aspect-square flex items-center justify-center bg-base-200">
-                <Icon size={40} class="text-base-content/40" />
-              </div>
+              <File size={36} class="opacity-30" />
             {/if}
-            <div class="p-2">
-              <p class="text-xs font-medium truncate">{file.original_name}</p>
-              <p class="text-xs text-base-content/50">{formatSize(file.size)}</p>
+          </div>
+          <!-- Info -->
+          <div class="p-3 space-y-2">
+            <div>
+              <p class="text-sm font-medium truncate" title={file.original_name}>{file.original_name}</p>
+              <div class="flex justify-between text-xs text-base-content/50">
+                <span>{fmt(file.size)}</span>
+                <span>{new Date(file.created_at).toLocaleDateString()}</span>
+              </div>
             </div>
-            <div class="absolute top-1 right-1 hidden group-hover:flex gap-1">
-              {#if file.url}
-                <a href={file.url} target="_blank" class="btn btn-xs btn-circle btn-ghost bg-base-100/80">
-                  <Download size={12} />
-                </a>
-              {/if}
-              <button class="btn btn-xs btn-circle btn-ghost bg-base-100/80 text-error" onclick={() => deleteFile(file.id)}>
-                <Trash2 size={12} />
+            <div class="flex gap-1">
+              <button class="btn btn-ghost btn-xs flex-1 text-xs" onclick={() => copyUrl(file.url, file.id)}>
+                {#if copied === file.id}<Check size={13} class="text-success" /> Copied!
+                {:else}<Copy size={13} /> Copy URL{/if}
+              </button>
+              <button class="btn btn-ghost btn-xs text-error" onclick={() => deleteFile(file.id, file.original_name)}>
+                <Trash2 size={13} />
               </button>
             </div>
           </div>
-        {/each}
-      </div>
-    {/if}
+        </div>
+      {/each}
+    </div>
   {/if}
 </div>
-
-<!-- New folder modal -->
-{#if showNewFolder}
-  <dialog class="modal modal-open">
-    <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">New Folder</h3>
-      <div class="form-control">
-        <label class="label"><span class="label-text">Folder name</span></label>
-        <input
-          type="text"
-          bind:value={newFolderName}
-          placeholder="My Folder"
-          class="input input-bordered"
-          onkeydown={(e) => e.key === 'Enter' && createFolder()}
-          autofocus
-        />
-      </div>
-      <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showNewFolder = false)}>Cancel</button>
-        <button class="btn btn-primary" onclick={createFolder}>Create</button>
-      </div>
-    </div>
-    <button class="modal-backdrop" onclick={() => (showNewFolder = false)}></button>
-  </dialog>
-{/if}

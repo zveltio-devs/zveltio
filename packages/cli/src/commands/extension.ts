@@ -149,11 +149,18 @@ export default defineConfig({
   build: {
     lib: {
       entry: 'src/index.ts',
-      formats: ['es'],
-      fileName: 'bundle',
+      formats: ['iife'],
+      fileName: () => 'bundle.js',
     },
     rollupOptions: {
       external: ['svelte', 'svelte/internal', 'svelte/store'],
+      output: {
+        globals: {
+          'svelte': 'window.__SvelteRuntime?.svelte',
+          'svelte/internal': 'window.__SvelteRuntime?.internal',
+          'svelte/store': 'window.__SvelteRuntime?.store',
+        },
+      },
     },
   },
 });

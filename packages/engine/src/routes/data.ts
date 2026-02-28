@@ -6,6 +6,7 @@ import type { Database } from '../db/index.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { checkPermission } from '../lib/permissions.js';
+import { WebhookManager } from '../lib/webhooks.js';
 import {
   dynamicSelect,
   dynamicInsert,
@@ -96,30 +97,18 @@ async function checkAccess(
 }
 
 // Broadcast webhook event
-async function broadcastWebhook(db: Database, event: string, collection: string, data: any): Promise<void> {
-  try {
-    const webhooks = await db
-      .selectFrom('zvd_webhooks' as any)
-      .selectAll()
-      .where('active' as any, '=', true)
-      .execute();
-
-    for (const wh of webhooks as any[]) {
-      const events: string[] = wh.events || [];
-      const collections: string[] = wh.collections || [];
-
-      if (!events.includes(event) && !events.includes('*')) continue;
-      if (collections.length > 0 && !collections.includes(collection) && !collections.includes('*')) continue;
-
-      // Fire and forget webhook delivery
-      fetch(wh.url, {
-        method: wh.method || 'POST',
-        headers: { 'Content-Type': 'application/json', ...((wh.headers as object) || {}) },
-        body: JSON.stringify({ event, collection, data, timestamp: new Date().toISOString() }),
-        signal: AbortSignal.timeout(wh.timeout || 5000),
-      }).catch(() => { /* webhook failures are non-fatal */ });
-    }
-  } catch { /* non-fatal */ }
+async function broadcastWebhook(
+  _db: Database,
+  event: string,
+  collection: string,
+  data: { id: string; [key: string]: any },
+): Promise<void> {
+  // WebhookManager.trigger() handles:
+  // - matching active webhooks by event + collection
+  // - queuing via Redis (webhook:queue)
+  // - audit trail in zvd_webhook_deliveries
+  // - retry logic via webhook:retry sorted set
+  await WebhookManager.trigger(event as any, collection, data);
 }
 
 // Serialize a record's field values using the registry

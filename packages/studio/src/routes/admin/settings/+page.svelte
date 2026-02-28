@@ -1,132 +1,175 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { settingsApi } from '$lib/api.js';
-  import { Save, Loader2 } from '@lucide/svelte';
+  import { Globe, Palette, Mail, Shield, Save, Loader2, Eye, EyeOff } from '@lucide/svelte';
 
-  let settings = $state<Record<string, any>>({});
-  let branding = $state({ company_name: '', primary_color: '#570df8', logo_url: '' });
-  let smtp = $state({ host: '', port: 587, user: '', from_email: '', from_name: 'Zveltio' });
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
+  let tab = $state<'general' | 'branding' | 'smtp' | 'security'>('general');
+  let showSmtpPass = $state(false);
+
+  let s = $state({
+    app_name: 'Zveltio',
+    site_url: '',
+    logo_url: '',
+    primary_color: '#570df8',
+    smtp_host: '',
+    smtp_port: 587,
+    smtp_user: '',
+    smtp_pass: '',
+    smtp_from: '',
+    smtp_secure: false,
+    two_factor_enabled: false,
+    session_expiry_hours: 24,
+    api_rate_limit: 100,
+  });
 
   onMount(async () => {
-    const all = await settingsApi.getAll();
-    settings = all;
-    if (all.branding) branding = { ...branding, ...all.branding };
-    if (all.smtp) smtp = { ...smtp, ...all.smtp };
-    loading = false;
+    try {
+      const data = await settingsApi.getAll();
+      for (const [k, v] of Object.entries(data)) {
+        if (k in s) (s as any)[k] = v;
+      }
+    } finally { loading = false; }
   });
 
   async function save() {
-    saving = true;
+    saving = true; saved = false;
     try {
-      await settingsApi.updateBulk({ branding, smtp });
+      await settingsApi.updateBulk(s);
       saved = true;
-      setTimeout(() => (saved = false), 2000);
-    } finally {
-      saving = false;
-    }
+      setTimeout(() => (saved = false), 3000);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Save failed');
+    } finally { saving = false; }
   }
+
+  const TABS = [
+    { id: 'general', label: 'General', icon: Globe },
+    { id: 'branding', label: 'Branding', icon: Palette },
+    { id: 'smtp', label: 'SMTP', icon: Mail },
+    { id: 'security', label: 'Security', icon: Shield },
+  ] as const;
 </script>
 
-<div class="space-y-6 max-w-2xl">
-  <div>
-    <h1 class="text-2xl font-bold">Settings</h1>
-    <p class="text-base-content/60 text-sm mt-1">Configure your Zveltio instance</p>
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold">Settings</h1>
+      <p class="text-base-content/60 text-sm mt-1">Platform configuration</p>
+    </div>
+    <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={save} disabled={saving || loading}>
+      {#if saving}<Loader2 size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
+      {saved ? '✓ Saved' : 'Save Settings'}
+    </button>
+  </div>
+
+  <div class="tabs tabs-bordered">
+    {#each TABS as t}
+      <button class="tab gap-2 {tab === t.id ? 'tab-active' : ''}" onclick={() => (tab = t.id)}>
+        <t.icon size={16} />{t.label}
+      </button>
+    {/each}
   </div>
 
   {#if loading}
-    <div class="flex justify-center py-12">
-      <Loader2 size={32} class="animate-spin text-primary" />
-    </div>
+    <div class="flex justify-center py-16"><Loader2 size={32} class="animate-spin text-primary" /></div>
   {:else}
-    <!-- Branding -->
-    <div class="card bg-base-200">
-      <div class="card-body">
-        <h2 class="card-title text-base">Branding</h2>
-
-        <div class="form-control">
-          <label class="label" for="company_name">
-            <span class="label-text">Company name</span>
-          </label>
-          <input
-            id="company_name"
-            type="text"
-            bind:value={branding.company_name}
-            class="input input-bordered"
-          />
-        </div>
-
-        <div class="form-control">
-          <label class="label" for="primary_color">
-            <span class="label-text">Primary color</span>
-          </label>
-          <div class="flex gap-2">
-            <input
-              id="primary_color"
-              type="color"
-              bind:value={branding.primary_color}
-              class="input input-bordered w-16 p-1"
-            />
-            <input
-              type="text"
-              bind:value={branding.primary_color}
-              class="input input-bordered flex-1 font-mono"
-            />
+    <div class="card bg-base-200 max-w-2xl">
+      <div class="card-body space-y-5">
+        {#if tab === 'general'}
+          <div class="form-control">
+            <label class="label"><span class="label-text font-medium">Application Name</span></label>
+            <input class="input input-bordered" bind:value={s.app_name} placeholder="Zveltio" />
           </div>
-        </div>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Site URL</span>
+              <span class="label-text-alt text-base-content/50">Used in emails and webhooks</span>
+            </label>
+            <input class="input input-bordered font-mono" bind:value={s.site_url} placeholder="https://app.example.com" />
+          </div>
 
-        <div class="form-control">
-          <label class="label" for="logo_url">
-            <span class="label-text">Logo URL</span>
+        {:else if tab === 'branding'}
+          <div class="form-control">
+            <label class="label"><span class="label-text font-medium">Logo URL</span></label>
+            <input class="input input-bordered font-mono" bind:value={s.logo_url} placeholder="https://example.com/logo.svg" />
+            {#if s.logo_url}
+              <div class="mt-2 p-3 bg-base-300 rounded-lg inline-flex">
+                <img src={s.logo_url} alt="Logo preview" class="h-12 object-contain" />
+              </div>
+            {/if}
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text font-medium">Primary Color</span></label>
+            <div class="flex gap-3 items-center">
+              <input type="color" class="w-12 h-10 rounded cursor-pointer border border-base-300 bg-transparent" bind:value={s.primary_color} />
+              <input class="input input-bordered font-mono flex-1" bind:value={s.primary_color} placeholder="#570df8" />
+            </div>
+          </div>
+
+        {:else if tab === 'smtp'}
+          <div class="alert alert-info text-sm py-2">
+            <span>Configure SMTP to enable email notifications, invitations, and password resets.</span>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-control">
+              <label class="label"><span class="label-text font-medium">Host</span></label>
+              <input class="input input-bordered font-mono" bind:value={s.smtp_host} placeholder="smtp.gmail.com" />
+            </div>
+            <div class="form-control">
+              <label class="label"><span class="label-text font-medium">Port</span></label>
+              <input type="number" class="input input-bordered" bind:value={s.smtp_port} placeholder="587" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-control">
+              <label class="label"><span class="label-text font-medium">Username</span></label>
+              <input class="input input-bordered font-mono" bind:value={s.smtp_user} placeholder="user@example.com" />
+            </div>
+            <div class="form-control">
+              <label class="label"><span class="label-text font-medium">Password</span></label>
+              <div class="relative">
+                {#if showSmtpPass}
+                  <input class="input input-bordered w-full pr-10 font-mono" bind:value={s.smtp_pass} />
+                {:else}
+                  <input type="password" class="input input-bordered w-full pr-10 font-mono" bind:value={s.smtp_pass} />
+                {/if}
+                <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs"
+                  onclick={() => (showSmtpPass = !showSmtpPass)}>
+                  {#if showSmtpPass}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text font-medium">From Address</span></label>
+            <input class="input input-bordered font-mono" bind:value={s.smtp_from} placeholder="noreply@example.com" />
+          </div>
+          <label class="label cursor-pointer justify-start gap-3">
+            <input type="checkbox" class="toggle toggle-sm" bind:checked={s.smtp_secure} />
+            <span class="label-text">Use TLS/SSL</span>
           </label>
-          <input
-            id="logo_url"
-            type="url"
-            bind:value={branding.logo_url}
-            placeholder="https://example.com/logo.png"
-            class="input input-bordered"
-          />
-        </div>
+
+        {:else}
+          <label class="label cursor-pointer justify-start gap-3">
+            <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.two_factor_enabled} />
+            <div>
+              <p class="label-text font-medium">Enable Two-Factor Authentication</p>
+              <p class="text-xs text-base-content/50">Users can optionally enable 2FA for their accounts</p>
+            </div>
+          </label>
+          <div class="form-control">
+            <label class="label"><span class="label-text font-medium">Session Expiry (hours)</span></label>
+            <input type="number" class="input input-bordered w-36" bind:value={s.session_expiry_hours} min="1" max="8760" />
+          </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text font-medium">API Rate Limit (requests/minute)</span></label>
+            <input type="number" class="input input-bordered w-36" bind:value={s.api_rate_limit} min="1" max="10000" />
+          </div>
+        {/if}
       </div>
     </div>
-
-    <!-- SMTP -->
-    <div class="card bg-base-200">
-      <div class="card-body">
-        <h2 class="card-title text-base">Email (SMTP)</h2>
-
-        <div class="grid grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="label" for="smtp_host"><span class="label-text">Host</span></label>
-            <input id="smtp_host" type="text" bind:value={smtp.host} class="input input-bordered" />
-          </div>
-          <div class="form-control">
-            <label class="label" for="smtp_port"><span class="label-text">Port</span></label>
-            <input id="smtp_port" type="number" bind:value={smtp.port} class="input input-bordered" />
-          </div>
-          <div class="form-control">
-            <label class="label" for="smtp_user"><span class="label-text">User</span></label>
-            <input id="smtp_user" type="text" bind:value={smtp.user} class="input input-bordered" />
-          </div>
-          <div class="form-control">
-            <label class="label" for="from_email"><span class="label-text">From email</span></label>
-            <input id="from_email" type="email" bind:value={smtp.from_email} class="input input-bordered" />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <button class="btn btn-primary" onclick={save} disabled={saving}>
-      {#if saving}
-        <Loader2 size={16} class="animate-spin" />
-      {:else if saved}
-        ✓ Saved
-      {:else}
-        <Save size={16} />
-        Save Settings
-      {/if}
-    </button>
   {/if}
 </div>
