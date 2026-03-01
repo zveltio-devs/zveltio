@@ -24,6 +24,11 @@ import { marketplaceRoutes } from './marketplace.js';
 import { schemaBranchesRoutes } from './schema-branches.js';
 import { apiDocsRoutes } from './api-docs.js';
 import { databaseRoutes } from './database.js';
+import { tenantsRoutes } from './tenants.js';
+import { flowsRoutes } from './flows.js';
+import { mediaRoutes } from './media.js';
+import { backupRoutes } from './backup.js';
+import { publicPagesRoutes, adminPagesRoutes } from './pages.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -105,6 +110,22 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Database management — functions, triggers, enums, roles, RLS
   app.route('/api/database', databaseRoutes(db, auth));
+
+  // Multi-tenancy — tenant registry, environments, usage
+  app.route('/api/tenants', tenantsRoutes(db, auth));
+
+  // Flows — automation CRUD + manual trigger + step execution
+  app.route('/api/flows', flowsRoutes(db, auth));
+
+  // Media library — folders, files, tags (authenticated)
+  app.route('/api/media', mediaRoutes(db, auth));
+
+  // Database backups (admin)
+  app.route('/api/backup', backupRoutes(db, auth));
+
+  // CMS Pages — public read + admin CRUD
+  app.route('/api/pages', publicPagesRoutes(db));
+  app.route('/api/admin/pages', adminPagesRoutes(db, auth));
 
   // GraphQL auto-generated API + Playground
   app.route('/api/graphql', graphqlRoutes(db, auth));

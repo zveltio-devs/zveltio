@@ -35,6 +35,10 @@ export const flowScheduler = {
     }
   },
 
+  getStatus(): { running: boolean; hasExecutor: boolean } {
+    return { running: _running, hasExecutor: _executeFn !== null };
+  },
+
   async _tick(): Promise<void> {
     if (!_db || !_executeFn) return; // extension not loaded — no-op
 
@@ -42,7 +46,7 @@ export const flowScheduler = {
       const flows: any[] = await (_db as any)
         .selectFrom('zv_flows')
         .selectAll()
-        .where('active', '=', true)
+        .where('is_active', '=', true)
         .where('trigger_type', '=', 'cron')
         .execute()
         .catch(() => []);
@@ -67,7 +71,7 @@ export const flowScheduler = {
         .values({
           id: runId,
           flow_id: flow.id,
-          trigger: 'cron',
+          trigger_data: JSON.stringify({ trigger: 'cron' }),
           status: 'running',
           started_at: new Date(),
         })

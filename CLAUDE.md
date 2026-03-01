@@ -12,7 +12,7 @@ Obiectiv primar: **single binary** (Bun runtime), Studio embedded, PostgreSQL-po
 zveltio/
 ├── packages/
 │   ├── engine/          # Bun + Hono — compilează la single binary
-│   ├── studio/          # SvelteKit 5 — embedded în engine la /admin
+│   ├── studio/          # SvelteKit 2 + Svelte 5 — embedded în engine la /admin
 │   ├── sdk/             # @zveltio/sdk — TypeScript client
 │   └── cli/             # @zveltio/cli — tooling
 └── extensions/          # Feature extensions opționale
@@ -65,9 +65,12 @@ zveltio/
 // ✅
 const file = await Bun.file(path).text();
 const json = await Bun.file(path).json();
+const proc = Bun.spawn(['pg_dump', ...args], { stdout: 'pipe' });
+const output = await new Response(proc.stdout).text();
 
 // ❌
 import { readFile } from 'fs/promises';
+import { spawn } from 'child_process';
 ```
 
 ### 2. Kysely, nu raw SQL concatenat
@@ -119,10 +122,14 @@ const value = fieldTypeRegistry.serialize(field.type, rawValue);
   let { value = $bindable() }: { value: string } = $props();
   $effect(() => { /* side effect */ });
 
+  // ✅ Svelte 5 page state
+  import { page } from '$app/state';
+
   // ❌ Svelte 4 — interzis
   // export let value: string;
   // $: doubled = count * 2;
   // import { writable } from 'svelte/store';
+  // import { page } from '$app/stores';
 </script>
 ```
 
@@ -300,7 +307,7 @@ const extension: ZveltioExtension = {
 export default extension;
 ```
 
-### Convenții răspunsuri
+### Convenții răspunsuri API
 ```typescript
 return c.json({ resource: row });           // item singular
 return c.json({ resources: rows });         // colecție
@@ -317,416 +324,570 @@ zv_{name}      → tabele sistem ale platformei
 0XX_desc.sql   → fișiere migrare (zero-padded, secvențial)
 ```
 
+### Importuri standard Studio
+```typescript
+import { api } from '$lib/api.js';
+import { auth } from '$lib/auth.svelte.js';
+import { ENGINE_URL } from '$lib/config.js';
+import { base } from '$app/paths';
+import { page } from '$app/state';                    // Svelte 5 — NU $app/stores
+import { extensions } from '$lib/extensions.svelte.js';
+import { extensionRegistry } from '$lib/extension-registry.svelte.js';
+```
+
+### Checklist rută nouă (urmează întotdeauna acești pași)
+1. Creează `packages/engine/src/routes/my-feature.ts`
+2. Importă și înregistrează în `packages/engine/src/routes/index.ts`
+3. Dacă e nevoie de tabel nou → migrare SQL în `packages/engine/src/db/migrations/sql/0XX_*.sql`
+4. Creează pagina Studio în `packages/studio/src/routes/admin/my-page/+page.svelte`
+5. Adaugă în `coreNav` din `packages/studio/src/routes/admin/+layout.svelte`
+
 ---
 
 ## Ce este deja implementat — nu reimplementa
 
 - Autentificare completă (Better-Auth) cu OAuth/SSO (Google, GitHub, Microsoft, SAML 2.0)
 - RBAC complet (Casbin) cu 4 scopuri: ALL/ORG/DEPT/OWN
-- Collections CRUD cu DDLManager + ddl-queue
+- Collections CRUD cu DDLManager + ddl-queue tranzacțional
 - 25+ field types în FieldTypeRegistry
 - Relations (m2o, o2m, m2m, m2a)
 - GraphQL auto-generat din schema colecțiilor
-- WebSocket realtime (`ws.ts`, `realtime.ts`)
-- Storage S3 cu presigned URLs
+- WebSocket realtime (`ws.ts`, `realtime.ts`) via LISTEN/NOTIFY
+- Storage S3 cu presigned URLs (SeaweedFS)
 - Webhooks (înregistrare, delivery, retry, worker)
 - AI integration multi-provider (OpenAI, Anthropic, Mistral, local)
 - Email queue cu templates
-- Export CSV/JSON/Excel/PDF
-- Import CSV/JSON
+- Export CSV/JSON/Excel/PDF + Import CSV/JSON
 - Audit log complet
 - Revisions + Time-Travel (`?as_of=`)
-- Schema Branches (git-like pentru DDL)
+- Schema Branches — `packages/engine/src/routes/schema-branches.ts` ✅
 - Data Quality Dashboard (`/api/quality`)
 - API Playground (`packages/studio/src/routes/admin/api-playground/`)
-- OpenAPI per-tenant (`src/routes/api-docs.ts`)
-- Extension Marketplace UI (`packages/studio/src/routes/admin/marketplace/`)
-- Extension Marketplace API (`packages/engine/src/routes/marketplace.ts`)
-- Extension catalog (`packages/engine/src/lib/extension-catalog.ts`)
-- ExtensionLoader cu `loadAll()`, `loadFromDB()`, `loadDynamic()`, `ctx` saved
-- `zv_extension_registry` tabel (migrare `013_extension_registry.sql`)
-- Single Binary — Studio embedded via VFS (`generate-studio-embed.ts`)
-- Prometheus metrics (`/metrics`)
-- Health check (`/health`)
-- Flow scheduler (`lib/flow-scheduler.ts`)
-- Webhook worker (`lib/webhook-worker.ts`)
-- Schema branches routes (`src/routes/schema-branches.ts`)
+- OpenAPI per-tenant (`packages/engine/src/routes/api-docs.ts`) ✅
+- Extension Marketplace UI + API ✅
+- Extension catalog + ExtensionLoader ✅
+- `zv_extension_registry` tabel (migrare `013_extension_registry.sql`) ✅
+- Single Binary — Studio embedded via VFS (`generate-studio-embed.ts`) ✅
+- Database management routes (`packages/engine/src/routes/database.ts`) ✅
+- Prometheus metrics (`/metrics`) + Health check (`/health`)
+- Flow scheduler (`packages/engine/src/lib/flow-scheduler.ts`) ✅
+- Webhook worker (`packages/engine/src/lib/webhook-worker.ts`) ✅
+- System Collections (`packages/engine/src/lib/system-collections.ts`) ✅
+- Virtual Collections adapter (`packages/engine/src/lib/virtual-collection-adapter.ts`) ✅
+- AI Schema Generation (`packages/engine/src/routes/ai-schema-gen.ts`) — `POST /api/ai/generate-schema` ✅
+- Schema Watcher + Type Generation (`packages/sdk/src/schema-watcher.ts`) ✅
+- Edge Functions în Web Workers (`extensions/developer/edge-functions/engine/sandbox.ts`) ✅
+- Field components în Studio (`packages/studio/src/lib/components/fields/`) ✅
+- RecordRevisions, RecordComments, IndexManager, AuditLogList, SavedViews în Studio ✅
 
 ---
 
-## Task-uri imediate (implementează în această ordine)
+## Task-uri de implementat (în această ordine)
 
-### TASK 1 — Înregistrează rutele lipsă în engine
-**Fișier:** `packages/engine/src/routes/index.ts`
+### TASK-1 — Portează Multi-Tenancy
+**Sursa old repo:** `src/middleware/tenant.ts` + `src/lib/tenant-manager.ts` + `src/routes/tenants.ts`
+**Destinația:** `packages/engine/src/`
 
-Adaugă aceste 3 importuri și înregistrări (rutele există, nu sunt conectate):
+Old repo-ul are o implementare **schema-per-tenant** (un PostgreSQL schema separat per tenant — nu `WHERE tenant_id`), cu:
+- Rezolvare tenant din subdomain, header `X-Tenant-Slug`, sau env var fallback
+- Suport environments (prod/staging/dev) per tenant
+- Provisionare automată schema PostgreSQL la creare tenant
+- Cache Valkey pentru tenant lookup
 
-```typescript
-// Import
-import { schemaBranchesRoutes } from './schema-branches.js';
-import { apiDocsRoutes } from './api-docs.js';
-import { databaseRoutes } from './database.js';  // verifică că există în packages/engine/
-
-// Înregistrare (după marketplaceRoutes)
-app.route('/api/schema', schemaBranchesRoutes);
-app.route('/api/docs', apiDocsRoutes);
-app.route('/api/database', databaseRoutes);
-```
-
-**Notă:** Dacă `database.ts` nu există în `packages/engine/src/routes/`, portează-l din `src/routes/database.ts` (old repo). Conține routes pentru PostgreSQL functions, triggers, enums, extensions, RLS.
-
-**Adaugă în coreNav** (`packages/studio/src/routes/admin/+layout.svelte`):
-```typescript
-import { GitBranch } from '@lucide/svelte';
-{ href: `${base}/schema-branches`, icon: GitBranch, label: 'Schema Branches' },
-```
+**Pași:**
+1. Copiază `src/lib/tenant-manager.ts` → `packages/engine/src/lib/tenant-manager.ts`
+   - Adaptează importurile: `db` și `cache` vin din `'../db/index.js'`, elimină importuri Node.js
+2. Copiază `src/middleware/tenant.ts` → `packages/engine/src/middleware/tenant.ts`
+3. Portează `src/routes/tenants.ts` → `packages/engine/src/routes/tenants.ts`
+   - Pattern standard: `export function tenantsRoutes(db: Database, auth: any): Hono`
+4. Aplică middleware în `packages/engine/src/index.ts` înainte de rute:
+   ```typescript
+   import { tenantMiddleware } from './middleware/tenant.js';
+   app.use('*', tenantMiddleware);
+   ```
+5. Înregistrează în `packages/engine/src/routes/index.ts`:
+   ```typescript
+   import { tenantsRoutes } from './tenants.js';
+   app.route('/api/tenants', tenantsRoutes(db, auth));
+   ```
+6. Portează migrarea: `migrations/021_multitenancy.sql` → `packages/engine/src/db/migrations/sql/020_multitenancy.sql`
+7. Portează pagina Studio din `src/routes/admin/tenants/` → `packages/studio/src/routes/admin/tenants/`
 
 ---
 
-### TASK 2 — Portează componentele din old repo în packages/studio
+### TASK-2 — Portează `/api/flows` (execuție flow steps)
+**Sursa old repo:** `src/routes/flows.ts` + `src/lib/flow-executor.ts`
+**Destinația:** `packages/engine/src/`
 
-**Sursa:** `src/lib/components/` (old repo)
+`flow-scheduler.ts` există și pornește flows pe cron, dar NU execută pașii. Old repo-ul are endpoint-uri CRUD + execuție manuală.
+
+**Pași:**
+1. Portează `src/routes/flows.ts` → `packages/engine/src/routes/flows.ts`
+   - Pattern standard: `export function flowsRoutes(db: Database, auth: any): Hono`
+2. Dacă există `src/lib/flow-executor.ts`, portează la `packages/engine/src/lib/flow-executor.ts`
+3. Conectează `flow-scheduler.ts` existent cu executorul portat
+4. Înregistrează:
+   ```typescript
+   import { flowsRoutes } from './flows.js';
+   app.route('/api/flows', flowsRoutes(db, auth));
+   ```
+5. Portează pagina Studio din `src/routes/admin/flows/` → `packages/studio/src/routes/admin/flows/`
+
+---
+
+### TASK-3 — Portează `/api/media` (Media Library)
+**Sursa old repo:** `src/routes/media.ts`
+**Destinația:** `packages/engine/src/routes/media.ts`
+
+**Atenție:** `/api/storage` există deja și e pentru upload/download fișiere. `/api/media` este Media Library cu folders, tags, galerie — funcționalitate distinctă.
+
+**Pași:**
+1. Portează `src/routes/media.ts` → `packages/engine/src/routes/media.ts`
+   - Pattern standard: `export function mediaRoutes(db: Database, auth: any): Hono`
+2. Verifică că tabelele `zv_media_folders` și `zv_media_files` există în migrări — dacă nu, adaugă migrare nouă
+3. Înregistrează:
+   ```typescript
+   import { mediaRoutes } from './media.js';
+   app.route('/api/media', mediaRoutes(db, auth));
+   ```
+4. Portează pagina Studio `src/routes/admin/media/+page.svelte` → `packages/studio/src/routes/admin/media/+page.svelte`
+5. Adaugă în `coreNav`:
+   ```typescript
+   import { Image } from '@lucide/svelte';
+   { href: `${base}/media`, icon: Image, label: 'Media' }
+   ```
+
+---
+
+### TASK-4 — Portează `/api/backup` (Backup & Restore)
+**Sursa old repo:** `src/routes/backup.ts`
+**Destinația:** `packages/engine/src/routes/backup.ts`
+
+**Atenție Bun:** înlocuiește `child_process.spawn` cu `Bun.spawn`:
+```typescript
+// ❌ Node
+import { spawn } from 'child_process';
+spawn('pg_dump', args);
+
+// ✅ Bun
+const proc = Bun.spawn(['pg_dump', ...args], { stdout: 'pipe' });
+const output = await new Response(proc.stdout).text();
+```
+
+**Pași:**
+1. Portează `src/routes/backup.ts` → `packages/engine/src/routes/backup.ts`
+2. Adaugă `BACKUP_DIR` în `.env.example` dacă nu există
+3. Înregistrează:
+   ```typescript
+   import { backupRoutes } from './backup.js';
+   app.route('/api/backup', backupRoutes(db, auth));
+   ```
+4. Portează UI din `src/routes/admin/settings/backup/` → `packages/studio/src/routes/admin/settings/backup/`
+
+---
+
+### TASK-5 — Portează `/api/pages` (CMS Pages + Sitemap)
+**Sursa old repo:** `src/routes/pages.ts` + `src/routes/admin-pages.ts`
+**Destinația:** `packages/engine/src/routes/`
+
+**Pași:**
+1. Portează `src/routes/pages.ts` → `packages/engine/src/routes/pages.ts` (endpoint public)
+2. Portează `src/routes/admin-pages.ts` → `packages/engine/src/routes/admin-pages.ts`
+3. Adaugă generarea `sitemap.xml` ca rută separată sau în admin-pages
+4. Înregistrează:
+   ```typescript
+   import { publicPagesRoutes } from './pages.js';
+   import { adminPagesRoutes } from './admin-pages.js';
+   app.route('/api/pages', publicPagesRoutes(db, auth));
+   app.route('/api/admin/pages', adminPagesRoutes(db, auth));
+   ```
+
+---
+
+### TASK-6 — Portează `/api/gdpr`
+**Sursa old repo:** `src/routes/gdpr.ts`
+**Destinația:** `packages/engine/src/routes/gdpr.ts`
+
+Include: export date utilizator (GDPR Art. 20), ștergere cont (Art. 17), portabilitate date.
+
+**Pași:**
+1. Portează cu pattern standard
+2. Înregistrează:
+   ```typescript
+   import { gdprRoutes } from './gdpr.js';
+   app.route('/api/gdpr', gdprRoutes(db, auth));
+   ```
+
+---
+
+### TASK-7 — Portează `/api/saved-queries`
+**Sursa old repo:** `src/routes/saved-queries.ts`
+**Destinația:** `packages/engine/src/routes/saved-queries.ts`
+
+Salvarea și re-execuția query-urilor din API Playground.
+
+**Pași:**
+1. Portează cu pattern standard
+2. Înregistrează:
+   ```typescript
+   import { savedQueriesRoutes } from './saved-queries.js';
+   app.route('/api/saved-queries', savedQueriesRoutes(db, auth));
+   ```
+
+---
+
+### TASK-8 — Portează `/api/drafts`
+**Sursa old repo:** `src/routes/drafts.ts`
+**Destinația:** `packages/engine/src/routes/drafts.ts`
+
+Sistem de drafts pentru records (salvare înainte de publish).
+
+**Pași:**
+1. Portează cu pattern standard
+2. Înregistrează:
+   ```typescript
+   import { draftsRoutes } from './drafts.js';
+   app.route('/api/drafts', draftsRoutes(db, auth));
+   ```
+
+---
+
+### TASK-9 — Portează `/api/approvals`
+**Sursa old repo:** `src/routes/approvals.ts`
+**Destinația:** `packages/engine/src/routes/approvals.ts`
+
+Workflow de aprobare pentru records (submit → review → approve/reject).
+
+**Pași:**
+1. Portează cu pattern standard
+2. Înregistrează:
+   ```typescript
+   import { approvalsRoutes } from './approvals.js';
+   app.route('/api/approvals', approvalsRoutes(db, auth));
+   ```
+
+---
+
+### TASK-10 — Portează componentele Studio lipsă sau stub
+**Sursa old repo:** `src/lib/components/`
 **Destinația:** `packages/studio/src/lib/components/`
 
-Portează în ordinea aceasta. La portare, înlocuiește `engineClient.request()` cu `api.get/post/patch/delete()` din `$lib/api.js`.
+**La portare:** înlocuiește `engineClient.request()` cu `api.get/post/patch/delete()` din `$lib/api.js`. Înlocuiește orice `$store` reactiv cu `$state`/`$derived`. Înlocuiește `import { page } from '$app/stores'` cu `import { page } from '$app/state'`.
 
-#### 2a. Fields (prioritate maximă — folosite în record edit)
+#### 10a. ConstraintEditor
 ```
-packages/studio/src/lib/components/fields/
-├── RichTextEditor.svelte    ← src/lib/components/fields/RichTextEditor.svelte
-├── JSONEditor.svelte        ← src/lib/components/fields/JSONEditor.svelte
-├── LocationField.svelte     ← src/lib/components/fields/LocationField.svelte
-├── MapPicker.svelte         ← src/lib/components/fields/MapPicker.svelte
-├── ColorPicker.svelte       ← src/lib/components/fields/ColorPicker.svelte
-├── FilePicker.svelte        ← src/lib/components/fields/FilePicker.svelte
-└── index.ts
+packages/studio/src/lib/components/admin/ConstraintEditor.svelte
+← src/lib/components/admin/ConstraintEditor/ConstraintEditor.svelte
 ```
-Adaugă în `packages/studio/package.json` dependențele Tiptap pentru RichTextEditor:
-```json
-"@tiptap/core": "^2.0.0",
-"@tiptap/starter-kit": "^2.0.0",
-"@tiptap/extension-link": "^2.0.0",
-"@tiptap/extension-image": "^2.0.0",
-"@tiptap/extension-table": "^2.0.0",
-"@tiptap/extension-table-row": "^2.0.0",
-"@tiptap/extension-table-cell": "^2.0.0",
-"@tiptap/extension-table-header": "^2.0.0"
-```
+Afișează constrângerile FK ale tabelului curent + buton drop constraint.
 
-#### 2b. Admin components
+#### 10b. RelationshipManager
 ```
-packages/studio/src/lib/components/admin/
-├── RecordRevisions/         ← src/lib/components/admin/RecordRevisions/
-├── RecordComments/          ← src/lib/components/admin/RecordComments/
-├── IndexManager/            ← src/lib/components/admin/IndexManager/
-├── ConstraintEditor/        ← src/lib/components/admin/ConstraintEditor/
-├── OnboardingWizard.svelte  ← src/lib/components/admin/OnboardingWizard.svelte
-└── BrandingSettings/        ← src/lib/components/admin/BrandingSettings/
+packages/studio/src/lib/components/admin/RelationshipManager.svelte
+← src/lib/components/admin/RelationshipManager/RelationshipManager.svelte
+```
+Props: `tableName: string`, `constraints: Constraint[]`. Afișează FK-urile și permite navigare la tabela referită.
+
+#### 10c. MetadataSettings
+```
+packages/studio/src/lib/components/admin/MetadataSettings.svelte
+← src/lib/components/admin/MetadataSettings/MetadataSettings.svelte
+```
+Props: `$bindable<Metadata>` cu `{displayName?, menuGroup?, isLoggable?, icon?}`.
+
+#### 10d. StatsView
+```
+packages/studio/src/lib/components/views/StatsView.svelte
+← src/lib/components/views/StatsView/StatsView.svelte
+```
+Afișează statistici agregate (count, sum, avg, min, max) pe colecțiile selectate.
+
+#### 10e. TableView
+```
+packages/studio/src/lib/components/views/TableView.svelte
+← src/lib/components/views/TableView/TableView.svelte
+```
+Tabel cu sortare, filtrare, selecție rânduri, paginare — componenta principală din Data Studio.
+
+#### 10f. DataCell
+```
+packages/studio/src/lib/components/views/DataCell.svelte
+← src/lib/components/views/DataCell/DataCell.svelte
+```
+Randarea unui câmp individual în tabel în funcție de tipul câmpului (image preview, boolean toggle, date format etc).
+
+#### 10g. OnboardingWizard
+```
+packages/studio/src/lib/components/admin/OnboardingWizard.svelte
+← src/lib/components/admin/OnboardingWizard.svelte
+```
+UI de onboarding cu textarea pentru AI schema generation. Conectează la `POST /api/ai/generate-schema`.
+
+#### 10h. BrandingSettings
+```
+packages/studio/src/lib/components/admin/BrandingSettings/
+← src/lib/components/admin/BrandingSettings/
     ├── ColorPicker.svelte
     ├── LogoUpload.svelte
     ├── FontSelector.svelte
     └── ThemePreview.svelte
 ```
 
-#### 2c. Common components
-```
-packages/studio/src/lib/components/common/
-├── ToastContainer.svelte    ← src/lib/components/common/ToastContainer.svelte
-├── ExportActions.svelte     ← src/lib/components/common/ExportActions/
-└── Pagination.svelte        ← src/lib/components/common/Pagination/
-```
-**Important:** Adaugă `<ToastContainer />` în `packages/studio/src/routes/admin/+layout.svelte`.
-
-#### 2d. Views + Forms + Audit
-```
-packages/studio/src/lib/components/
-├── views/
-│   ├── DataCell.svelte      ← src/lib/components/views/DataCell/
-│   ├── TablePagination.svelte
-│   ├── StatsView.svelte
-│   └── SavedViews.svelte
-├── forms/
-│   └── FormField.svelte     ← src/lib/components/forms/FormField/
-└── audit/
-    └── AuditLogList.svelte  ← src/lib/components/audit/AuditLogList/
-```
-
 ---
 
-### TASK 3 — Edge Functions în Web Workers (izolare)
-**Fișier:** `extensions/developer/edge-functions/engine/sandbox.ts`
+### TASK-11 — Zero-Downtime DDL (Ghost Table)
+**Destinație:** `packages/engine/src/lib/ddl-queue.ts` (extinde implementarea existentă)
 
-Funcțiile custom NU trebuie să ruleze în același thread cu Hono — un `while(true){}` îngheață tot serverul.
+DDL queue există și funcționează tranzacțional. Adaugă tipuri noi de joburi: `'add_column_safe'` și `'alter_column_safe'`.
 
-Implementare corectă cu Bun Web Workers:
-```typescript
-// sandbox.ts
-export async function runFunction(code: string, payload: any): Promise<any> {
-  const worker = new Worker(
-    new URL('./worker-runner.ts', import.meta.url),
-    { type: 'module' }
-  );
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      worker.terminate();
-      reject(new Error('Function timeout (5s)'));
-    }, 5000);
-
-    worker.postMessage({ code, payload });
-    worker.onmessage = (e) => {
-      clearTimeout(timeout);
-      worker.terminate();
-      resolve(e.data);
-    };
-    worker.onerror = (e) => {
-      clearTimeout(timeout);
-      worker.terminate();
-      reject(new Error(e.message));
-    };
-  });
-}
-```
+**Logica:** dacă tabela are > `threshold` rânduri (default 10.000) SAU coloana e `NOT NULL` fără default → ghost table. Altfel → `ALTER TABLE` direct (fast path).
 
 ```typescript
-// worker-runner.ts (rulează în thread separat)
-self.onmessage = async (e) => {
-  const { code, payload } = e.data;
-  try {
-    const fn = new Function('payload', 'require', code);
-    const result = await fn(payload, undefined);
-    self.postMessage({ success: true, result });
-  } catch (err: any) {
-    self.postMessage({ success: false, error: err.message });
-  }
-};
-```
+async function processAddColumnSafe(db: Database, job: DDLJob): Promise<void> {
+  const { collection, column, pgType, notNull, defaultValue, threshold = 10000 } = job.payload;
+  const tableName = DDLManager.getTableName(collection);
 
----
+  const { rows } = await sql`SELECT COUNT(*) as cnt FROM ${sql.id(tableName)}`.execute(db);
+  const rowCount = parseInt((rows[0] as any).cnt);
+  const needsGhost = rowCount > threshold || (notNull && !defaultValue);
 
-### TASK 4 — DDL queue tranzacțional cu retry
-**Fișier:** `packages/engine/src/lib/ddl-queue.ts`
-
-Fiecare job DDL trebuie să fie în `BEGIN/COMMIT` explicit și să poată fi re-încercat la restart:
-
-```typescript
-// La procesarea unui job:
-async function processJob(job: DDLJob): Promise<void> {
-  try {
-    await sql`BEGIN`.execute(db);
-    await executeDDL(job.sql);
-    await markJobComplete(job.id);
-    await sql`COMMIT`.execute(db);
-  } catch (err) {
-    await sql`ROLLBACK`.execute(db);
-    await markJobFailed(job.id, err.message);
-    // La restart, joburile cu status='pending' sau 'failed' (retryable) sunt re-încercate
-    throw err;
-  }
-}
-```
-
-Tabelul de jobs trebuie să aibă `status: 'pending' | 'running' | 'completed' | 'failed'` și `retry_count`.
-La startup, joburile cu `status = 'running'` (crash în mijloc) se resetează la `'pending'` pentru retry.
-
----
-
-### TASK 5 — System Collections (Better-Auth tables în Studio)
-**Scop:** Administratorii să poată vedea/edita utilizatorii direct din Studio ca pe orice colecție.
-
-**Fișier nou:** `packages/engine/src/lib/system-collections.ts`
-
-```typescript
-// Înregistrează tabelele Better-Auth ca System Collections vizibile în Studio
-export const SYSTEM_COLLECTIONS = [
-  {
-    name: 'user',
-    tableName: 'user',
-    displayName: 'Users',
-    icon: 'Users',
-    isSystem: true,
-    readonly: false,
-    fields: [
-      { name: 'id', type: 'uuid', required: true },
-      { name: 'name', type: 'text', required: true },
-      { name: 'email', type: 'email', required: true },
-      { name: 'emailVerified', type: 'boolean', required: false },
-      { name: 'image', type: 'text', required: false },
-      { name: 'createdAt', type: 'datetime', required: true },
-      { name: 'updatedAt', type: 'datetime', required: true },
-      { name: 'role', type: 'text', required: false },
-    ],
-  },
-  {
-    name: 'session',
-    tableName: 'session',
-    displayName: 'Sessions',
-    icon: 'Key',
-    isSystem: true,
-    readonly: true, // sessions sunt read-only
-    fields: [
-      { name: 'id', type: 'uuid', required: true },
-      { name: 'userId', type: 'uuid', required: true },
-      { name: 'token', type: 'text', required: true },
-      { name: 'expiresAt', type: 'datetime', required: true },
-      { name: 'createdAt', type: 'datetime', required: true },
-    ],
-  },
-];
-```
-
-Endpoint-ul `GET /api/collections` trebuie să returneze și System Collections (marcate cu `is_system: true`).
-DDL-ul NU trebuie să fie disponibil pe System Collections — doar CRUD date.
-
----
-
-## Priorități competitive (implementează după task-urile imediate)
-
-### P1 — Zero-Downtime DDL Migrations
-**Scop:** ALTER TABLE pe tabele mari fără lock (diferențiator față de Directus/Supabase).
-
-**Abordare Ghost Table** în `ddl-queue.ts`:
-1. `CREATE TABLE zvd_{name}_ghost LIKE zvd_{name}` cu noua schemă
-2. Copiază datele asincron în batches (nu blochează tabelul original)
-3. Crează un trigger pe tabela originală care sincronizează INSERT/UPDATE/DELETE către ghost
-4. La final: `ALTER TABLE zvd_{name} RENAME TO zvd_{name}_old; ALTER TABLE zvd_{name}_ghost RENAME TO zvd_{name};`
-5. Drop trigger + drop old table
-
-Activare: când coloana adăugată are `NOT NULL` fără default sau când tabelul depășește N rânduri (configurable).
-
-### P2 — Multi-Tenancy nativ
-**Scop:** Toggle în Settings → toate query-urile Kysely injectează automat `WHERE tenant_id = ?`.
-
-**Abordare:**
-- Middleware Hono care extrage `tenant_id` din JWT/header și îl pune în `c.var`
-- Plugin Kysely (sau wrapper peste `db`) care adaugă automat `.where('tenant_id', '=', tenantId)` pe `selectFrom`
-- Migrare care adaugă `tenant_id uuid` pe toate tabelele `zvd_*`
-- UI în Settings: toggle "Enable Multi-Tenancy" + management organizații
-
-### P3 — SDK Local-First
-**Scop:** `zveltio.collection('posts').save()` scrie instant local (zero latency UI), sync în background.
-
-**Abordare:**
-- `@zveltio/sdk` adaugă un store local bazat pe IndexedDB (browser) sau SQLite (Node)
-- Operațiunile returnează instant din local store
-- Un sync engine rulează în background și reconciliează cu serverul
-- Conflict resolution: last-write-wins sau custom merge function
-
-### P4 — Virtual Collections (Data Federation)
-**Scop:** Colecții care fac proxy la API-uri externe (Stripe, Shopify, ERP) — pentru client arată ca tabele normale.
-
-**Abordare:**
-- Tip nou de colecție în Studio: `type: 'virtual'` (în loc de `type: 'table'`)
-- La creare, userul configurează: `source_url`, `auth_type`, `field_mapping` (FieldTypeRegistry mapează câmpurile externe)
-- Tabelul `zvd_collections` primește coloana `virtual_config jsonb`
-- Engine-ul interceptează CRUD pe colecții virtuale și face proxy la API-ul extern în loc de query PostgreSQL
-- `GET /api/data/my_virtual_col` → fetch la `source_url` → mapare câmpuri → răspuns uniform SDK
-
-**Fișier nou:** `packages/engine/src/lib/virtual-collection-adapter.ts`
-```typescript
-export interface VirtualConfig {
-  source_url: string;
-  auth_type: 'none' | 'bearer' | 'api_key' | 'basic';
-  auth_value?: string;
-  field_mapping: Record<string, string>; // zveltio_field_name → external_field_name
-  list_path: string;    // JSONPath în răspuns pentru array de date, ex: "$.data.items"
-  id_field: string;     // câmpul care servește drept id, ex: "id"
-}
-
-export async function virtualFetch(config: VirtualConfig, params: any): Promise<any[]> {
-  // fetch + mapare câmpuri + paginare uniformă
-}
-```
-
-### P5 — AI Prompt-to-Backend (Onboarding)
-**Scop:** Dev-ul descrie aplicația în text → Zveltio generează schema, relațiile, permisiunile și seed data în <10 secunde.
-
-**Abordare:**
-- UI: pagina de onboarding (`packages/studio/src/routes/admin/onboarding/`) cu un textarea mare
-- Engine: endpoint `POST /api/ai/generate-schema` care trimite prompt-ul la LLM configurat
-- Prompt system include: lista de field types disponibile, convențiile de naming (`zvd_*`), tipurile de relații (m2o/o2m/m2m)
-- LLM răspunde cu JSON structurat: `{ collections, fields, relations, permissions, seed_count }`
-- Engine validează JSON-ul prin `CollectionSchema` (Zod) și execută prin DDLManager
-- Seed data: al doilea apel LLM generează `seed_count` rânduri realiste per colecție
-
-**Fișier nou:** `packages/engine/src/routes/ai-schema-gen.ts`
-```typescript
-router.post('/generate-schema', async (c) => {
-  const { description, seed } = await c.req.json();
-
-  // 1. Trimite la LLM cu system prompt care include field types disponibile
-  const schema = await generateSchemaFromDescription(description);
-
-  // 2. Validează și execută fiecare colecție prin DDLManager
-  for (const col of schema.collections) {
-    await DDLManager.createCollection(db, col);
+  if (!needsGhost) {
+    await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.id(column)} ${sql.raw(pgType)}`.execute(db);
+    return;
   }
 
-  // 3. Setează relațiile și permisiunile
-  // 4. Dacă seed=true, generează date sintetice realiste
+  const ghostName = `${tableName}_ghost_${Date.now()}`;
 
-  return c.json({ collections: schema.collections, seed_count: schema.seedData?.length });
-});
-```
+  // 1. Create ghost with new schema
+  await sql`CREATE TABLE ${sql.id(ghostName)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
+  await sql`ALTER TABLE ${sql.id(ghostName)} ADD COLUMN ${sql.id(column)} ${sql.raw(pgType)}`.execute(db);
 
-### P6 — End-to-End Type Safety fără CLI
-**Scop:** Adaugi o coloană în Studio → TypeScript-ul din SDK se actualizează automat, fără `pnpm generate-types`.
-
-**Abordare:**
-- Endpoint existent `GET /api/collections` returnează schema completă cu toate câmpurile și tipurile
-- `@zveltio/sdk` expune un tip generic `ZveltioClient<Schema>` unde `Schema` se inferă din schema endpoint
-- În monorepo (dacă packages/sdk și app sunt în același workspace): un plugin Vite/TypeScript în SDK care face fetch la `/api/collections` la `dev` start și generează `schema.d.ts` în `node_modules/@zveltio/sdk/dist/`
-- **Varianta simplă (fără CLI):** `zveltio.collection<Post>('posts')` — developer declară tipul local, SDK verifică la runtime
-- **Varianta completă:** `zveltio dev --watch` → daemon care ascultă WebSocket pentru schema changes → regenerează `schema.d.ts` la orice modificare DDL din Studio
-
-**Fișier nou:** `packages/sdk/src/schema-watcher.ts`
-```typescript
-// Rulează în background când `zveltio dev --watch` e activ
-export async function watchSchema(engineUrl: string, outputPath: string) {
-  const ws = new WebSocket(`${engineUrl}/ws`);
-  ws.onmessage = async (e) => {
-    const { event, collection } = JSON.parse(e.data);
-    if (event === 'schema:changed') {
-      const schema = await fetch(`${engineUrl}/api/collections`).then(r => r.json());
-      await generateTypesFile(schema, outputPath);
-      console.log(`✓ Types updated for collection: ${collection}`);
+  // 2. Copy data in batches (non-blocking)
+  let lastId: string | null = null;
+  while (true) {
+    const batch = await sql`
+      SELECT * FROM ${sql.id(tableName)}
+      ${lastId ? sql`WHERE id > ${lastId}` : sql``}
+      ORDER BY id LIMIT 1000
+    `.execute(db);
+    if (batch.rows.length === 0) break;
+    for (const row of batch.rows) {
+      await db.insertInto(ghostName as any).values(row as any).onConflict(oc => oc.doNothing()).execute();
     }
-  };
+    lastId = (batch.rows[batch.rows.length - 1] as any).id;
+  }
+
+  // 3. Sync trigger: INSERT/UPDATE/DELETE pe original → propagă pe ghost
+  const triggerFn = `${tableName}_ghost_sync_fn`;
+  const triggerName = `${tableName}_ghost_sync`;
+  await sql`
+    CREATE OR REPLACE FUNCTION ${sql.id(triggerFn)}() RETURNS TRIGGER AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' THEN
+        INSERT INTO ${sql.id(ghostName)} VALUES (NEW.*) ON CONFLICT (id) DO UPDATE SET id = NEW.id;
+      ELSIF TG_OP = 'UPDATE' THEN
+        UPDATE ${sql.id(ghostName)} SET id = NEW.id WHERE id = OLD.id;
+      ELSIF TG_OP = 'DELETE' THEN
+        DELETE FROM ${sql.id(ghostName)} WHERE id = OLD.id;
+      END IF;
+      RETURN NEW;
+    END; $$ LANGUAGE plpgsql;
+  `.execute(db);
+  await sql`
+    CREATE TRIGGER ${sql.id(triggerName)}
+    AFTER INSERT OR UPDATE OR DELETE ON ${sql.id(tableName)}
+    FOR EACH ROW EXECUTE FUNCTION ${sql.id(triggerFn)}()
+  `.execute(db);
+
+  // 4. Atomic swap (lock de milisecunde)
+  const oldName = `${tableName}_old_${Date.now()}`;
+  await sql`ALTER TABLE ${sql.id(tableName)} RENAME TO ${sql.id(oldName)}`.execute(db);
+  await sql`ALTER TABLE ${sql.id(ghostName)} RENAME TO ${sql.id(tableName)}`.execute(db);
+
+  // 5. Cleanup
+  await sql`DROP TRIGGER IF EXISTS ${sql.id(triggerName)} ON ${sql.id(oldName)}`.execute(db);
+  await sql`DROP FUNCTION IF EXISTS ${sql.id(triggerFn)}()`.execute(db);
+  await sql`DROP TABLE IF EXISTS ${sql.id(oldName)}`.execute(db);
 }
+```
+
+Adaugă `case 'add_column_safe': await processAddColumnSafe(db, job); break;` în switch-ul din `processNextJob()`.
+
+---
+
+### TASK-12 — SDK Local-First (IndexedDB + Sync)
+**Destinație:** `packages/sdk/src/local/`
+
+**Fișiere noi:**
+```
+packages/sdk/src/local/
+├── LocalStore.ts    ← IndexedDB (browser) sau Map in-memory (Node/fallback)
+├── SyncEngine.ts    ← sync background cu server
+└── index.ts
+```
+
+**LocalStore.ts:**
+```typescript
+export class LocalStore {
+  private idb: IDBDatabase | null = null;
+  private mem: Map<string, any> = new Map(); // Node fallback
+
+  async open(): Promise<void> {
+    if (typeof indexedDB === 'undefined') return; // Node → mem fallback
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('zveltio-local', 1);
+      req.onupgradeneeded = (e) => {
+        const db = (e.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains('records'))
+          db.createObjectStore('records', { keyPath: '_localKey' });
+        if (!db.objectStoreNames.contains('pending'))
+          db.createObjectStore('pending', { keyPath: 'id', autoIncrement: true });
+      };
+      req.onsuccess = () => { this.idb = req.result; resolve(); };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async get(collection: string, id: string): Promise<any | null> {
+    const key = `${collection}:${id}`;
+    if (!this.idb) return this.mem.get(key) ?? null;
+    return new Promise((res) => {
+      const tx = this.idb!.transaction('records', 'readonly');
+      const req = tx.objectStore('records').get(key);
+      req.onsuccess = () => res(req.result ?? null);
+    });
+  }
+
+  async set(collection: string, id: string, data: any): Promise<void> {
+    const key = `${collection}:${id}`;
+    const record = { ...data, _localKey: key };
+    if (!this.idb) { this.mem.set(key, record); return; }
+    return new Promise((res, rej) => {
+      const tx = this.idb!.transaction('records', 'readwrite');
+      const req = tx.objectStore('records').put(record);
+      req.onsuccess = () => res();
+      req.onerror = () => rej(req.error);
+    });
+  }
+
+  async list(collection: string): Promise<any[]> {
+    if (!this.idb) {
+      return [...this.mem.entries()]
+        .filter(([k]) => k.startsWith(`${collection}:`))
+        .map(([, v]) => v);
+    }
+    return new Promise((res) => {
+      const tx = this.idb!.transaction('records', 'readonly');
+      const req = tx.objectStore('records').getAll();
+      req.onsuccess = () =>
+        res((req.result as any[]).filter(r => r._localKey?.startsWith(`${collection}:`)));
+    });
+  }
+
+  async addPending(op: { type: 'create'|'update'|'delete', collection: string, id: string, data?: any }): Promise<void> {
+    if (!this.idb) return;
+    return new Promise((res) => {
+      const tx = this.idb!.transaction('pending', 'readwrite');
+      tx.objectStore('pending').add(op);
+      tx.oncomplete = () => res();
+    });
+  }
+
+  async getPending(): Promise<any[]> {
+    if (!this.idb) return [];
+    return new Promise((res) => {
+      const tx = this.idb!.transaction('pending', 'readonly');
+      const req = tx.objectStore('pending').getAll();
+      req.onsuccess = () => res(req.result);
+    });
+  }
+
+  async clearPending(id: number): Promise<void> {
+    if (!this.idb) return;
+    return new Promise((res) => {
+      const tx = this.idb!.transaction('pending', 'readwrite');
+      tx.objectStore('pending').delete(id);
+      tx.oncomplete = () => res();
+    });
+  }
+}
+```
+
+**SyncEngine.ts:**
+```typescript
+export class SyncEngine {
+  constructor(
+    private store: LocalStore,
+    private engineUrl: string,
+    private apiKey?: string
+  ) {}
+
+  async sync(): Promise<void> {
+    const pending = await this.store.getPending();
+    for (const op of pending) {
+      try {
+        await this.applyOp(op);
+        await this.store.clearPending(op.id);
+      } catch (err) {
+        console.warn('[zveltio] Sync failed for op', op.id, err);
+        // rămâne în pending, retry la next cycle
+      }
+    }
+  }
+
+  private async applyOp(op: any): Promise<void> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+    const base = `${this.engineUrl}/api/data/${op.collection}`;
+
+    if (op.type === 'create')
+      await fetch(base, { method: 'POST', headers, body: JSON.stringify(op.data) });
+    else if (op.type === 'update')
+      await fetch(`${base}/${op.id}`, { method: 'PATCH', headers, body: JSON.stringify(op.data) });
+    else if (op.type === 'delete')
+      await fetch(`${base}/${op.id}`, { method: 'DELETE', headers });
+  }
+
+  startAutoSync(intervalMs = 5000): () => void {
+    const id = setInterval(() => this.sync(), intervalMs);
+    return () => clearInterval(id);
+  }
+}
+```
+
+**Integrare în ZveltioClient** (`packages/sdk/src/client/ZveltioClient.ts`):
+```typescript
+// În constructor, dacă config.localFirst === true:
+if (config.localFirst) {
+  this.localStore = new LocalStore();
+  await this.localStore.open();
+  this.syncEngine = new SyncEngine(this.localStore, config.engineUrl, config.apiKey);
+  this.syncEngine.startAutoSync();
+}
+// În collection().create() / .update() / .delete():
+// dacă localFirst activ → scrie în localStore + addPending, returnează instant
+// sync-ul se face în background
+```
+
+**Exportă din** `packages/sdk/src/index.ts`:
+```typescript
+export { LocalStore } from './local/LocalStore.js';
+export { SyncEngine } from './local/SyncEngine.js';
 ```
 
 ---
 
 ## Ce NU face niciodată
 
-1. Nu adăuga dependențe Node.js-only în `packages/engine/` (ex: `express`, `multer`, `fs-extra`)
+1. Nu adăuga dependențe Node.js-only în `packages/engine/` (ex: `express`, `multer`, `fs-extra`, `child_process`)
 2. Nu crea rute fără auth guard
-3. Nu modifica tabelele Better-Auth direct (`user`, `session`, `account`, `verification`)
+3. Nu modifica tabelele Better-Auth direct (`user`, `session`, `account`, `verification`) — folosește Better-Auth API
 4. Nu folosi `process.env.*` în Svelte — folosește `import.meta.env.VITE_*`
 5. Nu importa din `packages/engine/` în extensii — extensiile primesc tot prin `ExtensionContext`
 6. Nu folosi `writable()`, `readable()`, `derived()` din `svelte/store` — Svelte 5 runes
-7. Nu adăuga rute direct în `packages/engine/src/index.ts`
+7. Nu adăuga rute direct în `packages/engine/src/index.ts` — toate în `routes/index.ts`
 8. Nu servi fișiere statice cu `Bun.file(absolutePath)` în producție — VFS (studio-embed)
 9. Nu folosi WAL replication slots pentru realtime — LISTEN/NOTIFY
 10. Nu scrie switch/if pe `field.type` — FieldTypeRegistry
-
----
-
-## Importuri standard Studio
-
-```typescript
-import { api } from '$lib/api.js';
-import { auth } from '$lib/auth.svelte.js';
-import { ENGINE_URL } from '$lib/config.js';
-import { base } from '$app/paths';
-import { extensions } from '$lib/extensions.svelte.js';
-import { extensionRegistry } from '$lib/extension-registry.svelte.js';
-```
-
-## Înregistrare rută nouă (checklist)
-
-1. Creează `packages/engine/src/routes/my-feature.ts`
-2. Importă și adaugă în `packages/engine/src/routes/index.ts`
-3. Dacă e nevoie de tabel nou → migrare SQL în `src/db/migrations/sql/0XX_*.sql`
-4. Creează pagina Studio în `packages/studio/src/routes/admin/my-page/+page.svelte`
-5. Adaugă în `coreNav` din `packages/studio/src/routes/admin/+layout.svelte`
+11. Nu concatena SQL manual — Kysely sau `sql` tag
+12. Nu reimplementa ce există deja (verifică secțiunea "Ce este deja implementat")

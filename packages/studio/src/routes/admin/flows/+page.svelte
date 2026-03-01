@@ -1,21 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
-  import { Plus, Play, Pause, Trash2, Loader2, Workflow, Zap, Clock, Webhook } from '@lucide/svelte';
+  import { Plus, Play, Pause, Trash2, Loader2, Workflow, Zap, Clock, Webhook, RefreshCw } from '@lucide/svelte';
 
   interface Flow {
     id: string;
     name: string;
     description: string | null;
-    trigger: string | { type: string; collection?: string; event?: string; cron?: string };
-    steps: any[] | string;
+    trigger_type: string;
+    trigger_config: Record<string, any>;
     is_active: boolean;
+    total_runs?: number;
+    last_run_at?: string;
     created_at: string;
     updated_at: string;
   }
 
   let flows = $state<Flow[]>([]);
   let loading = $state(true);
+  let error = $state('');
   let showModal = $state(false);
   let saving = $state(false);
   let formError = $state('');
@@ -23,9 +26,8 @@
   // Form state
   let name = $state('');
   let description = $state('');
-  let triggerType = $state<'data_event' | 'webhook' | 'cron' | 'manual'>('manual');
+  let triggerType = $state('manual');
   let triggerCollection = $state('');
-  let triggerEvent = $state<'insert' | 'update' | 'delete'>('insert');
   let triggerCron = $state('0 * * * *');
   let isActive = $state(true);
 
@@ -33,11 +35,15 @@
 
   async function loadFlows() {
     loading = true;
+    error = '';
     try {
       const data = await api.get<{ flows: Flow[] }>('/api/flows');
       flows = data.flows || [];
-    } catch { flows = []; }
-    finally { loading = false; }
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
   }
 
   function openModal() {
@@ -45,7 +51,6 @@
     description = '';
     triggerType = 'manual';
     triggerCollection = '';
-    triggerEvent = 'insert';
     triggerCron = '0 * * * *';
     isActive = true;
     formError = '';
@@ -54,27 +59,28 @@
 
   async function createFlow() {
     if (!name.trim()) { formError = 'Name is required'; return; }
-    saving = true; formError = '';
+    saving = true;
+    formError = '';
     try {
-      const trigger: any = { type: triggerType };
-      if (triggerType === 'data_event') {
-        trigger.collection = triggerCollection;
-        trigger.event = triggerEvent;
-      } else if (triggerType === 'cron') {
-        trigger.cron = triggerCron;
-      }
+      const triggerConfig: Record<string, any> = {};
+      if (triggerType === 'cron') triggerConfig.expression = triggerCron;
+      if (['on_create', 'on_update', 'on_delete'].includes(triggerType) && triggerCollection)
+        triggerConfig.collection = triggerCollection;
+
       const data = await api.post<{ flow: Flow }>('/api/flows', {
         name: name.trim(),
         description: description.trim() || undefined,
-        trigger,
-        steps: [],
+        trigger_type: triggerType,
+        trigger_config: triggerConfig,
         is_active: isActive,
       });
       flows = [data.flow, ...flows];
       showModal = false;
-    } catch (err) {
-      formError = err instanceof Error ? err.message : 'Failed to create flow';
-    } finally { saving = false; }
+    } catch (e: any) {
+      formError = e.message;
+    } finally {
+      saving = false;
+    }
   }
 
   async function toggleFlow(flow: Flow) {
@@ -83,7 +89,9 @@
         is_active: !flow.is_active,
       });
       flows = flows.map(f => f.id === flow.id ? data.flow : f);
-    } catch { /* silent */ }
+    } catch (e: any) {
+      error = e.message;
+    }
   }
 
   async function deleteFlow(id: string, flowName: string) {
@@ -91,39 +99,40 @@
     try {
       await api.delete(`/api/flows/${id}`);
       flows = flows.filter(f => f.id !== id);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete flow');
+    } catch (e: any) {
+      error = e.message;
     }
   }
 
-  function parseTrigger(t: any): string {
-    const trigger = typeof t === 'string' ? JSON.parse(t) : t;
-    if (!trigger) return 'Manual';
-    switch (trigger.type) {
-      case 'data_event': return `${trigger.collection || '*'} → ${trigger.event || 'any'}`;
+  async function runFlow(id: string) {
+    try {
+      await api.post(`/api/flows/${id}/run`, {});
+      await loadFlows();
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  function triggerIcon(triggerType: string) {
+    if (triggerType === 'cron') return Clock;
+    if (triggerType === 'webhook') return Webhook;
+    if (['on_create', 'on_update', 'on_delete'].includes(triggerType)) return Zap;
+    return Play;
+  }
+
+  function triggerLabel(flow: Flow): string {
+    switch (flow.trigger_type) {
+      case 'on_create': return `${flow.trigger_config?.collection || '*'} → insert`;
+      case 'on_update': return `${flow.trigger_config?.collection || '*'} → update`;
+      case 'on_delete': return `${flow.trigger_config?.collection || '*'} → delete`;
+      case 'cron': return `Cron: ${flow.trigger_config?.expression || '?'}`;
       case 'webhook': return 'Webhook';
-      case 'cron': return `Cron: ${trigger.cron || '?'}`;
       default: return 'Manual';
     }
   }
 
-  function triggerIcon(t: any) {
-    const trigger = typeof t === 'string' ? JSON.parse(t) : t;
-    if (!trigger) return Zap;
-    switch (trigger.type) {
-      case 'data_event': return Zap;
-      case 'webhook': return Webhook;
-      case 'cron': return Clock;
-      default: return Play;
-    }
-  }
-
-  function stepsCount(steps: any): number {
-    const arr = typeof steps === 'string' ? JSON.parse(steps) : steps;
-    return Array.isArray(arr) ? arr.length : 0;
-  }
-
-  function fmt(s: string) {
+  function fmt(s?: string) {
+    if (!s) return '—';
     return new Date(s).toLocaleDateString();
   }
 </script>
@@ -134,18 +143,28 @@
       <h1 class="text-2xl font-bold">Flows</h1>
       <p class="text-base-content/60 text-sm mt-1">Automate actions with trigger → step pipelines</p>
     </div>
-    <button class="btn btn-primary btn-sm" onclick={openModal}>
-      <Plus size={16} /> New Flow
-    </button>
+    <div class="flex gap-2">
+      <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading}>
+        <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
+      </button>
+      <button class="btn btn-primary btn-sm" onclick={openModal}>
+        <Plus size={16} /> New Flow
+      </button>
+    </div>
   </div>
 
+  {#if error}
+    <div class="alert alert-error text-sm">{error}</div>
+  {/if}
+
   {#if loading}
-    <div class="flex justify-center py-16"><Loader2 size={32} class="animate-spin text-primary" /></div>
+    <div class="flex justify-center py-16">
+      <Loader2 size={32} class="animate-spin text-primary" />
+    </div>
   {:else if flows.length === 0}
     <div class="text-center py-16 text-base-content/40">
       <Workflow size={48} class="mx-auto mb-3" />
       <p class="text-sm">No flows yet.</p>
-      <p class="text-xs mt-1">Create a flow to automate actions on data events, webhooks, or schedules.</p>
       <button class="btn btn-primary btn-sm mt-4" onclick={openModal}>
         <Plus size={14} /> Create First Flow
       </button>
@@ -153,7 +172,7 @@
   {:else}
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {#each flows as flow}
-        {@const TriggerIcon = triggerIcon(flow.trigger)}
+        {@const TriggerIcon = triggerIcon(flow.trigger_type)}
         <div class="card bg-base-200 {!flow.is_active ? 'opacity-60' : ''}">
           <div class="card-body p-4 space-y-3">
             <div class="flex items-start justify-between gap-2">
@@ -170,19 +189,34 @@
 
             <div class="flex items-center gap-1.5 text-xs text-base-content/60">
               <TriggerIcon size={13} />
-              <span>{parseTrigger(flow.trigger)}</span>
-              <span class="ml-auto">{stepsCount(flow.steps)} step{stepsCount(flow.steps) !== 1 ? 's' : ''}</span>
+              <span>{triggerLabel(flow)}</span>
+              {#if flow.total_runs}
+                <span class="ml-auto opacity-50">{flow.total_runs} runs</span>
+              {/if}
             </div>
 
             <div class="text-xs text-base-content/40">Updated {fmt(flow.updated_at)}</div>
 
             <div class="flex gap-1 pt-1 border-t border-base-300">
-              <button class="btn btn-ghost btn-xs flex-1" onclick={() => toggleFlow(flow)}
-                title={flow.is_active ? 'Pause' : 'Resume'}>
+              <button
+                class="btn btn-ghost btn-xs flex-1"
+                onclick={() => toggleFlow(flow)}
+                title={flow.is_active ? 'Pause' : 'Resume'}
+              >
                 {#if flow.is_active}<Pause size={13} />{:else}<Play size={13} />{/if}
                 {flow.is_active ? 'Pause' : 'Resume'}
               </button>
-              <button class="btn btn-ghost btn-xs text-error" onclick={() => deleteFlow(flow.id, flow.name)}>
+              <button
+                class="btn btn-ghost btn-xs"
+                onclick={() => runFlow(flow.id)}
+                title="Run now"
+              >
+                <Play size={13} />
+              </button>
+              <button
+                class="btn btn-ghost btn-xs text-error"
+                onclick={() => deleteFlow(flow.id, flow.name)}
+              >
                 <Trash2 size={13} />
               </button>
             </div>
@@ -213,26 +247,22 @@
           <label class="label"><span class="label-text font-medium">Trigger</span></label>
           <select class="select select-bordered" bind:value={triggerType}>
             <option value="manual">Manual</option>
-            <option value="data_event">Data Event</option>
-            <option value="webhook">Webhook</option>
+            <option value="on_create">On Create</option>
+            <option value="on_update">On Update</option>
+            <option value="on_delete">On Delete</option>
             <option value="cron">Schedule (Cron)</option>
+            <option value="webhook">Webhook</option>
           </select>
         </div>
 
-        {#if triggerType === 'data_event'}
-          <div class="grid grid-cols-2 gap-3">
-            <div class="form-control">
-              <label class="label"><span class="label-text text-xs">Collection</span></label>
-              <input class="input input-bordered input-sm" bind:value={triggerCollection} placeholder="collection_name" />
-            </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text text-xs">Event</span></label>
-              <select class="select select-bordered select-sm" bind:value={triggerEvent}>
-                <option value="insert">Insert</option>
-                <option value="update">Update</option>
-                <option value="delete">Delete</option>
-              </select>
-            </div>
+        {#if ['on_create', 'on_update', 'on_delete'].includes(triggerType)}
+          <div class="form-control">
+            <label class="label"><span class="label-text text-xs">Collection (optional)</span></label>
+            <input
+              class="input input-bordered input-sm"
+              bind:value={triggerCollection}
+              placeholder="collection_name"
+            />
           </div>
         {:else if triggerType === 'cron'}
           <div class="form-control">
@@ -240,8 +270,11 @@
               <span class="label-text text-xs">Cron expression</span>
               <span class="label-text-alt text-xs text-base-content/50">e.g. 0 9 * * 1 (Mon 9am)</span>
             </label>
-            <input class="input input-bordered input-sm font-mono" bind:value={triggerCron}
-              placeholder="0 * * * *" />
+            <input
+              class="input input-bordered input-sm font-mono"
+              bind:value={triggerCron}
+              placeholder="0 * * * *"
+            />
           </div>
         {/if}
 
@@ -257,12 +290,19 @@
 
       <div class="modal-action">
         <button class="btn btn-ghost" onclick={() => (showModal = false)}>Cancel</button>
-        <button class="btn btn-primary" onclick={createFlow} disabled={saving}>
+        <button class="btn btn-primary" onclick={createFlow} disabled={saving || !name}>
           {#if saving}<Loader2 size={16} class="animate-spin" />{/if}
           Create Flow
         </button>
       </div>
     </div>
-    <div class="modal-backdrop" onclick={() => (showModal = false)}></div>
+    <div
+      class="modal-backdrop"
+      role="button"
+      tabindex="0"
+      aria-label="Close"
+      onclick={() => (showModal = false)}
+      onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }}
+    ></div>
   </div>
 {/if}

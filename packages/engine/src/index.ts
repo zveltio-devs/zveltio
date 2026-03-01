@@ -13,6 +13,8 @@ import { initAIProviders } from './lib/ai-provider.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { flowScheduler } from './lib/flow-scheduler.js';
+import { initTenantManager } from './lib/tenant-manager.js';
+import { tenantMiddleware } from './middleware/tenant.js';
 
 const app = new Hono();
 
@@ -45,7 +47,9 @@ app.use('*', logger());
 app.use('/api/*', cors({
   origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
   credentials: true,
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
 }));
+app.use('/api/*', tenantMiddleware);
 
 // ─── Bootstrap ───────────────────────────────────────────────
 async function bootstrap() {
@@ -58,6 +62,10 @@ async function bootstrap() {
   // 2. Auth
   const auth = await initAuth(db);
   console.log('✅ Auth initialized');
+
+  // 2b. Tenant manager — must be initialized before routes handle requests
+  initTenantManager(db);
+  console.log('✅ Tenant manager initialized');
 
   // 3. Permissions
   await initPermissions(db);
