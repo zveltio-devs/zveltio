@@ -1,4 +1,5 @@
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { collectionsRoutes } from './collections.js';
 import { dataRoutes } from './data.js';
@@ -29,6 +30,15 @@ import { flowsRoutes } from './flows.js';
 import { mediaRoutes } from './media.js';
 import { backupRoutes } from './backup.js';
 import { publicPagesRoutes, adminPagesRoutes } from './pages.js';
+import { approvalsRoutes } from './approvals.js';
+import { draftsRoutes } from './drafts.js';
+import { gdprRoutes } from './gdpr.js';
+import { savedQueriesRoutes } from './saved-queries.js';
+import { validationRoutes } from './validation.js';
+import { qualityRoutes } from './quality.js';
+import { insightsRoutes } from './insights.js';
+import { documentTemplatesRoutes } from './document-templates.js';
+import { documentsRoutes } from './documents.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -129,6 +139,65 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // GraphQL auto-generated API + Playground
   app.route('/api/graphql', graphqlRoutes(db, auth));
+
+  // Approval Workflows
+  app.route('/api/approvals', approvalsRoutes(db, auth));
+
+  // Content Draft/Publish Workflow
+  app.route('/api/drafts', draftsRoutes(db, auth));
+
+  // GDPR Compliance
+  app.route('/api/gdpr', gdprRoutes(db, auth));
+
+  // Saved Queries + Query Builder
+  app.route('/api/saved-queries', savedQueriesRoutes(db, auth));
+
+  // Data Validation Rules
+  app.route('/api/validation', validationRoutes(db, auth));
+
+  // Data Quality Dashboard
+  app.route('/api/quality', qualityRoutes(db, auth));
+
+  // Analytics Insights (dashboards + panels)
+  app.route('/api/insights', insightsRoutes(db, auth));
+
+  // Document Templates (admin-managed HTML/PDF templates)
+  app.route('/api/document-templates', documentTemplatesRoutes(db, auth));
+
+  // Documents Management (RO compliance doc generation)
+  app.route('/api/documents', documentsRoutes(db, auth));
+
+  // Sitemap (public)
+  app.get('/api/sitemap.xml', async (c) => {
+    const siteUrl = process.env.SITE_URL || 'https://example.com';
+    try {
+      const pages = await sql<{ slug: string; updated_at: Date }>`
+        SELECT slug, updated_at FROM zv_pages WHERE is_published = true ORDER BY slug
+      `.execute(db).catch(() => ({ rows: [] }));
+
+      const urls = pages.rows
+        .map((p) => `  <url>
+    <loc>${siteUrl}/${p.slug}</loc>
+    <lastmod>${new Date(p.updated_at).toISOString().split('T')[0]}</lastmod>
+    <changefreq>weekly</changefreq>
+  </url>`)
+        .join('\n');
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${siteUrl}/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+${urls}
+</urlset>`;
+
+      return c.text(xml, 200, { 'Content-Type': 'application/xml; charset=utf-8' });
+    } catch {
+      return c.text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>', 200, { 'Content-Type': 'application/xml; charset=utf-8' });
+    }
+  });
 
   // WebSocket info (actual upgrade in Bun.serve)
   app.route('', wsRoutes(db, auth));

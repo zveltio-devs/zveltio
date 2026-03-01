@@ -97,8 +97,8 @@ async function bootstrap() {
   webhookWorker.start(1000);
   console.log('✅ Webhook worker started');
 
-  // 6e. Flow scheduler — runs cron flows (no-op until automation/flows extension registers executor)
-  await flowScheduler.start();
+  // 6e. Flow scheduler — runs cron flows using flow-executor.ts
+  await flowScheduler.start(db);
   console.log('✅ Flow scheduler started');
   const aiCount = (await import('./lib/ai-provider.js')).aiProviderManager.list().length;
   if (aiCount > 0) {
@@ -216,11 +216,8 @@ async function bootstrap() {
 
   Bun.serve({
     fetch(req, server) {
-      // Upgrade WebSocket connections at /api/ws
-      if (req.headers.get('upgrade') === 'websocket' && new URL(req.url).pathname === '/api/ws') {
-        const upgraded = server.upgrade(req);
-        if (upgraded) return undefined as any;
-      }
+      // Pass `server` through env so Hono's /api/ws route can call server.upgrade().
+      // Auth is checked inside the /api/ws Hono handler before upgrading.
       return app.fetch(req, { server });
     },
     websocket: websocketHandler,

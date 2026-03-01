@@ -1,0 +1,264 @@
+/**
+ * Flow Executor — runs the steps of a Zveltio automation flow.
+ *
+ * Supports step types:
+ *   query_db          — execute a raw SQL query and pass rows as output
+ *   run_script        — run sandboxed JS via script-runner
+ *   send_email        — send email via email lib (graceful no-op if not configured)
+ *   webhook           — HTTP call to an external URL
+ *   send_notification — in-app notification to a user or role
+ *   export_collection — export collection rows to CSV/Excel, optionally email the file
+ *
+ * Called by:
+ *   - flowsRoutes POST /:id/run   (manual trigger via API)
+ *   - flowScheduler._executeFlow  (cron trigger)
+ */
+
+import { sql } from 'kysely';
+import type { Database } from '../db/index.js';
+import { runScript } from './script-runner.js';
+import { sendNotification } from '../routes/notifications.js';
+
+export interface FlowRunResult {
+  runId: string;
+  status: 'success' | 'failed';
+  output: any;
+  error?: string;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Resolve user IDs that belong to a Casbin role (ptype='g'). */
+async function getUsersForRole(db: Database, role: string): Promise<string[]> {
+  try {
+    const rows = await sql<{ v0: string }>`
+      SELECT v0 FROM zvd_permissions WHERE ptype = 'g' AND v1 = ${role}
+    `.execute(db);
+    return rows.rows.map((r) => r.v0);
+  } catch {
+    return [];
+  }
+}
+
+// ── Step executor ─────────────────────────────────────────────────────────────
+
+async function executeStep(
+  db: Database,
+  step: any,
+  prevOutput: any,
+): Promise<{ output: any; logs?: string[] }> {
+  const cfg = step.config ?? {};
+
+  switch (step.type) {
+    // ── query_db ──
+    case 'query_db': {
+      if (!cfg.query) return { output: prevOutput };
+      const result = await sql.raw(cfg.query).execute(db);
+      return { output: result.rows };
+    }
+
+    // ── run_script ──
+    case 'run_script': {
+      if (!cfg.code) return { output: prevOutput };
+      const scriptResult = await runScript(
+        cfg.code,
+        cfg.input ?? prevOutput,
+        cfg.timeout_ms ?? 30_000,
+      );
+      if (scriptResult.error) {
+        throw new Error(`Script error in step "${step.name}": ${scriptResult.error}`);
+      }
+      return { output: scriptResult.output, logs: scriptResult.logs };
+    }
+
+    // ── send_email ──
+    case 'send_email': {
+      if (!cfg.to) return { output: prevOutput };
+      try {
+        const { sendEmailDirectly } = await import('./email.js');
+        await sendEmailDirectly({
+          recipient: cfg.to,
+          subject: cfg.subject ?? 'Flow notification',
+          bodyHtml: cfg.body_html ?? cfg.body ?? '',
+          bodyText: cfg.body ?? '',
+        });
+        return { output: { sent: true, to: cfg.to } };
+      } catch {
+        return { output: { sent: false, error: 'Email service not configured' } };
+      }
+    }
+
+    // ── webhook ──
+    case 'webhook': {
+      if (!cfg.url) return { output: prevOutput };
+      const response = await fetch(cfg.url, {
+        method: cfg.method ?? 'POST',
+        headers: { 'Content-Type': 'application/json', ...(cfg.headers ?? {}) },
+        body: JSON.stringify(cfg.body ?? prevOutput),
+      });
+      return { output: { status: response.status, ok: response.ok } };
+    }
+
+    // ── send_notification ──
+    case 'send_notification': {
+      const notifBase = {
+        title: cfg.title ?? 'Flow notification',
+        message: cfg.message ?? '',
+        type: cfg.type ?? 'info',
+        action_url: cfg.action_url,
+        source: 'flow',
+      } as const;
+
+      if (cfg.role) {
+        const userIds = await getUsersForRole(db, cfg.role);
+        if (userIds.length > 0) {
+          await sendNotification(db, { ...notifBase, user_id: userIds });
+        }
+        return { output: { sent: true, sent_to: 'role', role: cfg.role, count: userIds.length } };
+      }
+
+      if (cfg.user_id) {
+        await sendNotification(db, { ...notifBase, user_id: cfg.user_id });
+        return { output: { sent: true, sent_to: 'user', user_id: cfg.user_id } };
+      }
+
+      return { output: { sent: false, error: 'No role or user_id specified' } };
+    }
+
+    // ── export_collection ──
+    case 'export_collection': {
+      if (!cfg.collection) return { output: prevOutput };
+      try {
+        const { ExportManager } = await import('./export-manager.js');
+        const tableName = cfg.collection.startsWith('zvd_')
+          ? cfg.collection
+          : `zvd_${cfg.collection}`;
+
+        const rows = await sql<any>`
+          SELECT * FROM ${sql.raw(tableName)}
+          LIMIT ${cfg.limit ?? 1000}
+        `.execute(db);
+
+        const exportResult = await ExportManager.export(rows.rows, {
+          format: cfg.format ?? 'csv',
+          filename: cfg.filename ?? `${cfg.collection}-export`,
+          columns: cfg.columns,
+        });
+
+        if (cfg.email_to && exportResult?.buffer) {
+          const { sendEmailWithAttachment } = await import('./email.js');
+          const ext = cfg.format === 'excel' ? 'xlsx' : (cfg.format ?? 'csv');
+          await sendEmailWithAttachment({
+            recipient: cfg.email_to,
+            subject: cfg.email_subject ?? `Report: ${cfg.collection}`,
+            bodyHtml: cfg.email_body ?? '<p>Please find the attached report.</p>',
+            bodyText: cfg.email_body ?? 'Please find the attached report.',
+            attachment: {
+              filename: `${cfg.filename ?? cfg.collection}.${ext}`,
+              content: exportResult.buffer,
+              contentType: cfg.format === 'excel'
+                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                : 'text/csv',
+            },
+          });
+          return { output: { exported: true, sent_to: cfg.email_to, rows: rows.rows.length } };
+        }
+
+        return { output: { exported: true, rows: rows.rows.length } };
+      } catch {
+        return { output: { exported: false, error: 'Export service not configured' } };
+      }
+    }
+
+    default:
+      return { output: prevOutput };
+  }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Execute a flow by ID.
+ * Creates a run record, executes all steps in order, and updates the record.
+ * Respects `on_error: 'continue' | 'stop'` per step.
+ */
+export async function executeFlow(
+  db: Database,
+  flowId: string,
+  triggerData: any = {},
+): Promise<FlowRunResult> {
+  // Create run record
+  let runId: string;
+  try {
+    const runRow = await sql<{ id: string }>`
+      INSERT INTO zv_flow_runs (flow_id, status, trigger_data)
+      VALUES (${flowId}, 'running', ${JSON.stringify(triggerData)}::jsonb)
+      RETURNING id::text
+    `.execute(db);
+    runId = runRow.rows[0]?.id;
+    if (!runId) throw new Error('Failed to create run record');
+  } catch (err) {
+    return { runId: '', status: 'failed', output: {}, error: String(err) };
+  }
+
+  // Load steps
+  let steps: any[] = [];
+  try {
+    const stepsResult = await sql<any>`
+      SELECT * FROM zv_flow_steps
+      WHERE flow_id = ${flowId}
+      ORDER BY step_order
+    `.execute(db);
+    steps = stepsResult.rows;
+  } catch (err) {
+    await sql`
+      UPDATE zv_flow_runs
+      SET status = 'failed', error = ${String(err)}, finished_at = NOW()
+      WHERE id = ${runId}
+    `.execute(db).catch(() => {});
+    return { runId, status: 'failed', output: {}, error: String(err) };
+  }
+
+  // Execute steps
+  let output: any = {};
+  const stepLogs: Record<string, string[]> = {};
+
+  try {
+    for (const step of steps) {
+      try {
+        const result = await executeStep(db, step, output);
+        output = result.output;
+        if (result.logs?.length) stepLogs[step.id] = result.logs;
+      } catch (stepErr) {
+        if (step.on_error === 'continue') {
+          output = { error: String(stepErr), step: step.name };
+          continue;
+        }
+        // on_error === 'stop' (default): propagate
+        throw stepErr;
+      }
+    }
+
+    const finalOutput = Object.keys(stepLogs).length > 0
+      ? { ...output, _step_logs: stepLogs }
+      : output;
+
+    await sql`
+      UPDATE zv_flow_runs
+      SET status = 'success',
+          output = ${JSON.stringify(finalOutput)}::jsonb,
+          finished_at = NOW()
+      WHERE id = ${runId}
+    `.execute(db).catch(() => {});
+
+    return { runId, status: 'success', output: finalOutput };
+  } catch (err) {
+    await sql`
+      UPDATE zv_flow_runs
+      SET status = 'failed', error = ${String(err)}, finished_at = NOW()
+      WHERE id = ${runId}
+    `.execute(db).catch(() => {});
+
+    return { runId, status: 'failed', output, error: String(err) };
+  }
+}

@@ -238,15 +238,19 @@ export function schemaBranchesRoutes(db: Database, _auth: any): Hono {
           try {
             if (change.type === 'add_collection') {
               const { enqueueDDLJob } = await import('../lib/ddl-queue.js');
-              await enqueueDDLJob('create_collection', change.payload);
+              await enqueueDDLJob(db, 'create_collection', change.payload);
               applied.push(`Add collection: ${change.payload.name}`);
             } else if (change.type === 'add_field') {
-              const { enqueueDDLJob } = await import('../lib/ddl-queue.js');
-              await enqueueDDLJob('add_field', change.payload);
+              const { dynamicAddColumn } = await import('../db/dynamic.js');
+              const { fieldTypeRegistry } = await import('../lib/field-type-registry.js');
+              const tableName = DDLManager.getTableName(change.payload.collection);
+              const colDDL = fieldTypeRegistry.getColumnDDL(change.payload.field);
+              if (colDDL) await dynamicAddColumn(db, tableName, colDDL);
               applied.push(`Add field: ${change.payload.field.name} to ${change.payload.collection}`);
             } else if (change.type === 'remove_field') {
-              const { enqueueDDLJob } = await import('../lib/ddl-queue.js');
-              await enqueueDDLJob('remove_field', change.payload);
+              const { dynamicDropColumn } = await import('../db/dynamic.js');
+              const tableName = DDLManager.getTableName(change.payload.collection);
+              await dynamicDropColumn(db, tableName, change.payload.field);
               applied.push(`Remove field: ${change.payload.field} from ${change.payload.collection}`);
             }
           } catch (err) {

@@ -1,26 +1,31 @@
-import type { Database } from '../db/index.js';
+/**
+ * Flow Scheduler — polls for cron-triggered flows that are due and executes them.
+ *
+ * Uses a simple 60-second interval and compares `next_run_at` against NOW().
+ * After each execution, `next_run_at` is advanced by trigger_config.interval_seconds
+ * (defaults to 60 s). Step execution is delegated to flow-executor.ts so that
+ * manual triggers (flows.ts POST /:id/run) and cron triggers share identical behaviour.
+ */
 
-type FlowExecuteFn = (db: Database, flow: any, triggerData: any) => Promise<any>;
+import type { Database } from '../db/index.js';
+import { executeFlow } from './flow-executor.js';
 
 let _db: Database | null = null;
-let _executeFn: FlowExecuteFn | null = null;
 let _running = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
 
 export const flowScheduler = {
   /**
-   * Called by the automation/flows extension during register() to inject
-   * the db instance and execution function. If never called, _tick() is a no-op.
+   * Start the scheduling loop.
+   * Optionally accepts a db reference; if omitted the scheduler uses whatever
+   * was previously set (for extension back-compat).
    */
-  setExecutor(db: Database, fn: FlowExecuteFn): void {
-    _db = db;
-    _executeFn = fn;
-  },
-
-  async start(): Promise<void> {
+  async start(db?: Database): Promise<void> {
     if (_running) return;
+    if (db) _db = db;
     _running = true;
-    // Immediate first tick, then every 60s
+
+    // Immediate first tick, then every 60 s
     await this._tick().catch(() => {});
     _timer = setInterval(() => {
       this._tick().catch(() => {});
@@ -35,14 +40,15 @@ export const flowScheduler = {
     }
   },
 
-  getStatus(): { running: boolean; hasExecutor: boolean } {
-    return { running: _running, hasExecutor: _executeFn !== null };
+  getStatus(): { running: boolean; active: boolean } {
+    return { running: _running, active: _db !== null };
   },
 
   async _tick(): Promise<void> {
-    if (!_db || !_executeFn) return; // extension not loaded — no-op
+    if (!_db) return;
 
     try {
+      const now = new Date();
       const flows: any[] = await (_db as any)
         .selectFrom('zv_flows')
         .selectAll()
@@ -51,67 +57,38 @@ export const flowScheduler = {
         .execute()
         .catch(() => []);
 
-      const now = new Date();
       for (const flow of flows) {
         const nextRun = flow.next_run_at ? new Date(flow.next_run_at) : null;
         if (!nextRun || nextRun <= now) {
-          this._executeFlow(flow).catch(() => {});
+          this._executeScheduledFlow(flow).catch(() => {});
         }
       }
-    } catch { /* non-fatal — extension may not be active */ }
+    } catch { /* non-fatal */ }
   },
 
-  async _executeFlow(flow: any): Promise<void> {
-    if (!_db || !_executeFn) return;
+  async _executeScheduledFlow(flow: any): Promise<void> {
+    if (!_db) return;
 
-    const runId = crypto.randomUUID();
-    try {
-      await (_db as any)
-        .insertInto('zv_flow_runs')
-        .values({
-          id: runId,
-          flow_id: flow.id,
-          trigger_data: JSON.stringify({ trigger: 'cron' }),
-          status: 'running',
-          started_at: new Date(),
-        })
-        .execute()
-        .catch(() => {});
+    console.log(`⚡ FlowScheduler: executing "${flow.name}"`);
 
-      const output = await _executeFn!(_db!, flow, { trigger: 'cron', flow_id: flow.id });
+    const result = await executeFlow(_db, flow.id, { trigger: 'cron', flow_id: flow.id });
 
-      await (_db as any)
-        .updateTable('zv_flow_runs')
-        .set({
-          status: 'completed',
-          finished_at: new Date(),
-          output: JSON.stringify(output ?? {}),
-        })
-        .where('id', '=', runId)
-        .execute()
-        .catch(() => {});
-
-      // Advance next_run_at (simple +60s; a real impl would parse the cron expression)
-      await (_db as any)
-        .updateTable('zv_flows')
-        .set({
-          last_run_at: new Date(),
-          next_run_at: new Date(Date.now() + 60_000),
-        })
-        .where('id', '=', flow.id)
-        .execute()
-        .catch(() => {});
-    } catch (err) {
-      await (_db as any)
-        .updateTable('zv_flow_runs')
-        .set({
-          status: 'failed',
-          finished_at: new Date(),
-          error: String(err),
-        })
-        .where('id', '=', runId)
-        .execute()
-        .catch(() => {});
+    if (result.status === 'success') {
+      console.log(`⚡ FlowScheduler: "${flow.name}" completed`);
+    } else {
+      console.error(`⚡ FlowScheduler: "${flow.name}" failed:`, result.error);
     }
+
+    // Advance next_run_at — use trigger_config.interval_seconds if set, else 60 s
+    const intervalMs = ((flow.trigger_config?.interval_seconds ?? 60) as number) * 1_000;
+    await (_db as any)
+      .updateTable('zv_flows')
+      .set({
+        last_run_at: new Date(),
+        next_run_at: new Date(Date.now() + intervalMs),
+      })
+      .where('id', '=', flow.id)
+      .execute()
+      .catch(() => {});
   },
 };

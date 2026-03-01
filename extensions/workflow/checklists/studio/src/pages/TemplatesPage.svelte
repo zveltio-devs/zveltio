@@ -7,12 +7,21 @@
   let loading = $state(true);
   let showCreateModal = $state(false);
   let creating = $state(false);
+  let editTemplate = $state<any>(null);
+  let saving = $state(false);
 
   let form = $state({
     name: '',
     description: '',
     collection: '',
     items: [{ label: '', required: false, order_idx: 0 }],
+  });
+
+  let editForm = $state({
+    name: '',
+    description: '',
+    collection: '',
+    items: [] as { label: string; required: boolean; order_idx: number }[],
   });
 
   onMount(async () => {
@@ -36,6 +45,54 @@
 
   function removeItem(i: number) {
     form.items = form.items.filter((_, idx) => idx !== i);
+  }
+
+  function addEditItem() {
+    editForm.items = [...editForm.items, { label: '', required: false, order_idx: editForm.items.length }];
+  }
+
+  function removeEditItem(i: number) {
+    editForm.items = editForm.items.filter((_, idx) => idx !== i);
+  }
+
+  async function openEdit(tpl: any) {
+    const res = await fetch(`${engineUrl}/api/checklists/templates/${tpl.id}`, { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    editTemplate = data.template;
+    editForm = {
+      name: data.template.name,
+      description: data.template.description || '',
+      collection: data.template.collection || '',
+      items: (data.template.items || []).map((it: any) => ({
+        label: it.label,
+        required: it.required,
+        order_idx: it.order_idx,
+      })),
+    };
+  }
+
+  async function saveTemplate() {
+    if (!editForm.name || editForm.items.some((i) => !i.label)) return;
+    saving = true;
+    try {
+      const res = await fetch(`${engineUrl}/api/checklists/templates/${editTemplate.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editForm.name,
+          description: editForm.description || undefined,
+          collection: editForm.collection || null,
+          items: editForm.items.map((it, idx) => ({ ...it, order_idx: idx })),
+        }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      editTemplate = null;
+      await loadTemplates();
+    } finally {
+      saving = false;
+    }
   }
 
   async function createTemplate() {
@@ -100,7 +157,10 @@
                   <p class="text-sm text-base-content/50 mt-1">{tpl.description}</p>
                 {/if}
               </div>
-              <button onclick={() => deleteTemplate(tpl.id)} class="btn btn-ghost btn-xs text-error">Delete</button>
+              <div class="flex gap-1">
+                <button onclick={() => openEdit(tpl)} class="btn btn-ghost btn-xs">Edit</button>
+                <button onclick={() => deleteTemplate(tpl.id)} class="btn btn-ghost btn-xs text-error">Delete</button>
+              </div>
             </div>
           </div>
         </div>
@@ -155,5 +215,56 @@
       </div>
     </div>
     <button class="modal-backdrop" onclick={() => (showCreateModal = false)}></button>
+  </dialog>
+{/if}
+
+{#if editTemplate}
+  <dialog class="modal modal-open">
+    <div class="modal-box w-11/12 max-w-xl">
+      <h3 class="font-bold text-lg mb-4">Edit Template</h3>
+
+      <div class="space-y-3 mb-4">
+        <div class="form-control">
+          <label class="label"><span class="label-text">Template name</span></label>
+          <input type="text" bind:value={editForm.name} class="input input-bordered" />
+        </div>
+        <div class="form-control">
+          <label class="label"><span class="label-text">Description (optional)</span></label>
+          <input type="text" bind:value={editForm.description} class="input input-bordered input-sm" />
+        </div>
+        <div class="form-control">
+          <label class="label"><span class="label-text">Collection (optional)</span></label>
+          <input type="text" bind:value={editForm.collection} placeholder="Leave blank for global" class="input input-bordered input-sm" />
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <label class="label-text font-medium">Items</label>
+          <button class="btn btn-ghost btn-xs" onclick={addEditItem}>+ Add item</button>
+        </div>
+        <div class="space-y-2">
+          {#each editForm.items as item, i}
+            <div class="flex gap-2 items-center">
+              <input type="text" bind:value={item.label} placeholder="Item label" class="input input-bordered input-sm flex-1" />
+              <label class="label cursor-pointer gap-1">
+                <span class="label-text text-xs">Required</span>
+                <input type="checkbox" bind:checked={item.required} class="checkbox checkbox-xs" />
+              </label>
+              <button onclick={() => removeEditItem(i)} class="btn btn-ghost btn-xs text-error">✕</button>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <div class="modal-action">
+        <button class="btn btn-ghost" onclick={() => (editTemplate = null)}>Cancel</button>
+        <button class="btn btn-primary" onclick={saveTemplate} disabled={saving}>
+          {#if saving}<span class="loading loading-spinner loading-sm"></span>{/if}
+          Save
+        </button>
+      </div>
+    </div>
+    <button class="modal-backdrop" onclick={() => (editTemplate = null)}></button>
   </dialog>
 {/if}

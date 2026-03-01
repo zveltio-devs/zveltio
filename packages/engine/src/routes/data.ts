@@ -7,6 +7,7 @@ import { DDLManager } from '../lib/ddl-manager.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { checkPermission } from '../lib/permissions.js';
 import { WebhookManager } from '../lib/webhooks.js';
+import { broadcastEvent } from './ws.js';
 import {
   dynamicSelect,
   dynamicInsert,
@@ -378,6 +379,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       .catch(() => { /* non-fatal */ });
 
     await broadcastWebhook(db, 'insert', collection, record);
+    broadcastEvent(collection, 'insert', record);
 
     return c.json({ record: serializeRecord(record, collectionDef) }, 201);
   });
@@ -432,6 +434,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       .catch(() => { /* non-fatal */ });
 
     await broadcastWebhook(db, 'update', collection, record);
+    broadcastEvent(collection, 'update', record);
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -487,6 +490,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       .catch(() => { /* non-fatal */ });
 
     await broadcastWebhook(db, 'update', collection, record);
+    broadcastEvent(collection, 'update', record);
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -543,6 +547,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       .catch(() => { /* non-fatal */ });
 
     await broadcastWebhook(db, 'delete', collection, { id });
+    broadcastEvent(collection, 'delete', { id });
 
     return c.json({ success: true, id });
   });

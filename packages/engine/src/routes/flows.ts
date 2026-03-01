@@ -5,6 +5,7 @@ import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
 import { runScript } from '../lib/script-runner.js';
 import { flowScheduler } from '../lib/flow-scheduler.js';
+import { executeFlow } from '../lib/flow-executor.js';
 import type { Database } from '../db/index.js';
 
 export function flowsRoutes(db: Database, _auth: any): Hono {
@@ -149,143 +150,12 @@ export function flowsRoutes(db: Database, _auth: any): Hono {
     const id = c.req.param('id');
     const triggerData = await c.req.json().catch(() => ({}));
 
-    const runResult = await sql<{ id: string }>`
-      INSERT INTO zv_flow_runs (flow_id, status, trigger_data)
-      VALUES (${id}, 'running', ${JSON.stringify(triggerData)})
-      RETURNING id
-    `.execute(db);
-    const runId = runResult.rows[0].id;
+    const result = await executeFlow(db, id, { ...triggerData, trigger: 'manual' });
 
-    try {
-      const steps = await sql<any>`
-        SELECT * FROM zv_flow_steps WHERE flow_id = ${id} ORDER BY step_order
-      `.execute(db);
-
-      let output: any = {};
-
-      for (const step of steps.rows) {
-        if (step.type === 'query_db' && step.config?.query) {
-          const result = await sql.raw(step.config.query).execute(db);
-          output = result.rows;
-
-        } else if (step.type === 'run_script' && step.config?.code) {
-          const scriptResult = await runScript(
-            step.config.code,
-            step.config.input || output,
-            step.config.timeout_ms || 30000,
-          );
-          if (scriptResult.error) {
-            throw new Error(`Script error in step "${step.name}": ${scriptResult.error}`);
-          }
-          output = scriptResult.output;
-
-        } else if (step.type === 'send_email' && step.config?.to) {
-          try {
-            const { sendEmailDirectly } = await import('../lib/email.js');
-            await sendEmailDirectly({
-              recipient: step.config.to,
-              subject: step.config.subject || 'Flow notification',
-              bodyHtml: step.config.body_html || step.config.body || '',
-              bodyText: step.config.body || '',
-            });
-            output = { sent: true, to: step.config.to };
-          } catch {
-            output = { sent: false, error: 'Email service not configured' };
-          }
-
-        } else if (step.type === 'webhook' && step.config?.url) {
-          const response = await fetch(step.config.url, {
-            method: step.config.method || 'POST',
-            headers: { 'Content-Type': 'application/json', ...(step.config.headers || {}) },
-            body: JSON.stringify(step.config.body || output),
-          });
-          output = { status: response.status, ok: response.ok };
-
-        } else if (step.type === 'send_notification') {
-          try {
-            const { createNotification, notifyRole } = await import('../lib/notifications.js');
-            if (step.config.role) {
-              await notifyRole(step.config.role, {
-                title: step.config.title,
-                message: step.config.message,
-                type: step.config.type || 'info',
-                source: 'flow',
-                action_url: step.config.action_url,
-              });
-              output = { sent: true, sent_to: 'role', role: step.config.role };
-            } else if (step.config.user_id) {
-              const notifId = await createNotification({
-                user_id: step.config.user_id,
-                title: step.config.title,
-                message: step.config.message,
-                type: step.config.type || 'info',
-                source: 'flow',
-                action_url: step.config.action_url,
-              });
-              output = { sent: true, id: notifId, sent_to: 'user', user_id: step.config.user_id };
-            } else {
-              output = { sent: false, error: 'No role or user_id specified' };
-            }
-          } catch {
-            output = { sent: false, error: 'Notifications service not configured' };
-          }
-
-        } else if (step.type === 'export_collection' && step.config?.collection) {
-          try {
-            const { ExportManager } = await import('../lib/export-manager.js');
-            const tableName = step.config.collection.startsWith('zvd_')
-              ? step.config.collection
-              : `zvd_${step.config.collection}`;
-            const rows = await sql<any>`
-              SELECT * FROM ${sql.raw(tableName)}
-              LIMIT ${step.config.limit || 1000}
-            `.execute(db);
-            const exportResult = await ExportManager.export(rows.rows, {
-              format: step.config.format || 'csv',
-              filename: step.config.filename || `${step.config.collection}-export`,
-              columns: step.config.columns,
-            });
-            if (step.config.email_to && exportResult?.buffer) {
-              const { sendEmailWithAttachment } = await import('../lib/email.js');
-              const ext = step.config.format === 'excel' ? 'xlsx' : (step.config.format || 'csv');
-              await sendEmailWithAttachment({
-                recipient: step.config.email_to,
-                subject: step.config.email_subject || `Report: ${step.config.collection}`,
-                bodyHtml: step.config.email_body || '<p>Please find the attached report.</p>',
-                bodyText: step.config.email_body || 'Please find the attached report.',
-                attachment: {
-                  filename: `${step.config.filename || step.config.collection}.${ext}`,
-                  content: exportResult.buffer,
-                  contentType: step.config.format === 'excel'
-                    ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                    : 'text/csv',
-                },
-              });
-              output = { exported: true, sent_to: step.config.email_to, rows: rows.rows.length };
-            } else {
-              output = { exported: true, rows: rows.rows.length };
-            }
-          } catch {
-            output = { exported: false, error: 'Export service not configured' };
-          }
-        }
-      }
-
-      await sql`
-        UPDATE zv_flow_runs
-        SET status = 'success', output = ${JSON.stringify(output)}, finished_at = NOW()
-        WHERE id = ${runId}
-      `.execute(db);
-
-      return c.json({ run_id: runId, status: 'success', output });
-    } catch (error) {
-      await sql`
-        UPDATE zv_flow_runs
-        SET status = 'failed', error = ${String(error)}, finished_at = NOW()
-        WHERE id = ${runId}
-      `.execute(db);
-      return c.json({ error: String(error) }, 500);
+    if (result.status === 'failed') {
+      return c.json({ run_id: result.runId, status: 'failed', error: result.error }, 500);
     }
+    return c.json({ run_id: result.runId, status: result.status, output: result.output });
   });
 
   // GET /api/flows/:id/runs

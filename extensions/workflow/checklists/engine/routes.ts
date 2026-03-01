@@ -76,6 +76,103 @@ export function checklistsRoutes(db: any, auth: any): Hono {
     }
   );
 
+  // GET /templates/:id — single template with its items
+  app.get('/templates/:id', async (c) => {
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const template = await db
+      .selectFrom('zv_checklist_templates')
+      .selectAll()
+      .where('id', '=', c.req.param('id'))
+      .executeTakeFirst();
+
+    if (!template) return c.json({ error: 'Template not found' }, 404);
+
+    const items = await db
+      .selectFrom('zv_checklist_template_items')
+      .selectAll()
+      .where('template_id', '=', template.id)
+      .orderBy('order_idx', 'asc')
+      .execute();
+
+    return c.json({ template: { ...template, items } });
+  });
+
+  // PATCH /templates/:id — update template and optionally replace items
+  app.patch(
+    '/templates/:id',
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().min(1).optional(),
+        description: z.string().optional(),
+        collection: z.string().nullable().optional(),
+        is_active: z.boolean().optional(),
+        items: z.array(
+          z.object({
+            label: z.string().min(1),
+            description: z.string().optional(),
+            required: z.boolean().default(false),
+            order_idx: z.number().default(0),
+          })
+        ).optional(),
+      })
+    ),
+    async (c) => {
+      const user = await getUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const id = c.req.param('id');
+      const { items, ...fields } = c.req.valid('json');
+
+      const existing = await db
+        .selectFrom('zv_checklist_templates')
+        .select('id')
+        .where('id', '=', id)
+        .executeTakeFirst();
+
+      if (!existing) return c.json({ error: 'Template not found' }, 404);
+
+      const updateFields: Record<string, any> = { updated_at: new Date() };
+      if (fields.name !== undefined) updateFields.name = fields.name;
+      if (fields.description !== undefined) updateFields.description = fields.description;
+      if ('collection' in fields) updateFields.collection = fields.collection;
+      if (fields.is_active !== undefined) updateFields.is_active = fields.is_active;
+
+      const template = await db
+        .updateTable('zv_checklist_templates')
+        .set(updateFields)
+        .where('id', '=', id)
+        .returningAll()
+        .executeTakeFirst();
+
+      if (items !== undefined) {
+        await db.deleteFrom('zv_checklist_template_items').where('template_id', '=', id).execute();
+        if (items.length > 0) {
+          await db.insertInto('zv_checklist_template_items')
+            .values(items.map((item, i) => ({
+              template_id: id,
+              label: item.label,
+              description: item.description,
+              required: item.required,
+              order_idx: item.order_idx ?? i,
+            })))
+            .execute();
+        }
+      }
+
+      const templateItems = await db
+        .selectFrom('zv_checklist_template_items')
+        .selectAll()
+        .where('template_id', '=', id)
+        .orderBy('order_idx', 'asc')
+        .execute();
+
+      return c.json({ template: { ...template, items: templateItems } });
+    }
+  );
+
   app.delete('/templates/:id', async (c) => {
     const user = await getUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);

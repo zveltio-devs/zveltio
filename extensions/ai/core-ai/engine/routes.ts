@@ -1,11 +1,27 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { sql } from 'kysely';
 import { aiProviderManager, OpenAIProvider, AnthropicProvider, OllamaProvider } from './ai-provider.js';
 
 async function requireAuth(c: any, auth: any) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   return session?.user ?? null;
+}
+
+async function requireAdmin(c: any, auth: any, db: any) {
+  const user = await requireAuth(c, auth);
+  if (!user) return null;
+  const rule = await db
+    .selectFrom('casbin_rule')
+    .selectAll()
+    .where('ptype', '=', 'p')
+    .where('v0', '=', user.id)
+    .where('v1', '=', '*')
+    .where('v2', '=', '*')
+    .executeTakeFirst()
+    .catch(() => null);
+  return rule ? user : null;
 }
 
 export function aiRoutes(db: any, auth: any): Hono {
@@ -34,7 +50,7 @@ export function aiRoutes(db: any, auth: any): Hono {
     });
   });
 
-  // PUT /providers/:name — configure a provider
+  // PUT /providers/:name — configure a provider (upsert)
   app.put(
     '/providers/:name',
     zValidator(
@@ -49,8 +65,8 @@ export function aiRoutes(db: any, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await requireAuth(c, auth);
-      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+      const user = await requireAdmin(c, auth, db);
+      if (!user) return c.json({ error: 'Admin access required' }, 403);
 
       const name = c.req.param('name');
       const body = c.req.valid('json');
@@ -95,14 +111,14 @@ export function aiRoutes(db: any, auth: any): Hono {
           .execute();
       }
 
-      // Hot-reload provider
+      // Hot-reload provider in memory
       const updated = await db
         .selectFrom('zv_ai_providers')
         .selectAll()
         .where('name', '=', name)
         .executeTakeFirst();
 
-      if (updated?.is_active && updated.api_key) {
+      if (updated?.is_active && (updated.api_key || name === 'ollama')) {
         let provider = null;
         if (name === 'openai') provider = new OpenAIProvider(updated.api_key, updated.base_url, updated.default_model);
         else if (name === 'anthropic') provider = new AnthropicProvider(updated.api_key, updated.default_model);
@@ -113,6 +129,20 @@ export function aiRoutes(db: any, auth: any): Hono {
       return c.json({ success: true });
     },
   );
+
+  // DELETE /providers/:name — remove provider
+  app.delete('/providers/:name', async (c) => {
+    const user = await requireAdmin(c, auth, db);
+    if (!user) return c.json({ error: 'Admin access required' }, 403);
+
+    const name = c.req.param('name');
+    const result = await sql`
+      DELETE FROM zv_ai_providers WHERE name = ${name} RETURNING id
+    `.execute(db);
+
+    if (result.rows.length === 0) return c.json({ error: 'Provider not found' }, 404);
+    return c.json({ success: true });
+  });
 
   // ─── Chat ─────────────────────────────────────────────────────
 
@@ -158,6 +188,137 @@ export function aiRoutes(db: any, auth: any): Hono {
       }).execute().catch(() => {});
 
       return c.json({ result });
+    },
+  );
+
+  // ─── Embeddings ───────────────────────────────────────────────
+
+  // POST /embed — generate text embeddings
+  app.post(
+    '/embed',
+    zValidator(
+      'json',
+      z.object({
+        text: z.union([z.string(), z.array(z.string())]),
+        model: z.string().optional(),
+        collection: z.string().optional(),
+        record_id: z.string().optional(),
+        field_name: z.string().optional(),
+      }),
+    ),
+    async (c) => {
+      const user = await requireAuth(c, auth);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const body = c.req.valid('json');
+      const provider = aiProviderManager.getDefault();
+
+      if (!provider) return c.json({ error: 'No AI provider configured' }, 503);
+      if (!provider.embed) {
+        return c.json(
+          { error: 'Current AI provider does not support embeddings. Use OpenAI or Ollama.' },
+          400,
+        );
+      }
+
+      const texts = Array.isArray(body.text) ? body.text : [body.text];
+      const start = Date.now();
+      const embeddings: number[][] = [];
+
+      for (const t of texts) {
+        const vec = await provider.embed(t, body.model);
+        embeddings.push(vec);
+      }
+
+      const latency = Date.now() - start;
+
+      await db.insertInto('zv_ai_usage').values({
+        provider: provider.name,
+        model: body.model || 'embedding',
+        operation: 'embed',
+        prompt_tokens: texts.reduce((acc, t) => acc + t.split(/\s+/).length, 0),
+        response_tokens: 0,
+        latency_ms: latency,
+        user_id: user.id,
+      }).execute().catch(() => {});
+
+      // Optionally persist embedding for later semantic search
+      if (body.collection && body.record_id && texts.length === 1) {
+        await sql`
+          INSERT INTO zv_ai_embeddings (collection, record_id, field_name, content, metadata, updated_at)
+          VALUES (
+            ${body.collection}, ${body.record_id}, ${body.field_name || 'content'},
+            ${texts[0]},
+            ${JSON.stringify({ embedding: embeddings[0], model: body.model || 'embedding', provider: provider.name })}::jsonb,
+            NOW()
+          )
+          ON CONFLICT (collection, record_id, field_name) DO UPDATE SET
+            content = EXCLUDED.content,
+            metadata = EXCLUDED.metadata,
+            updated_at = NOW()
+        `.execute(db).catch(() => {});
+      }
+
+      return c.json({
+        embeddings: Array.isArray(body.text) ? embeddings : embeddings[0],
+        dimensions: embeddings[0]?.length ?? 0,
+        model: body.model || 'embedding',
+      });
+    },
+  );
+
+  // POST /search — semantic / full-text search over indexed embeddings
+  app.post(
+    '/search',
+    zValidator(
+      'json',
+      z.object({
+        query: z.string().min(1),
+        collection: z.string(),
+        field: z.string().optional().default('content'),
+        limit: z.number().int().min(1).max(100).optional().default(10),
+        threshold: z.number().min(0).max(1).optional().default(0.3),
+      }),
+    ),
+    async (c) => {
+      const user = await requireAuth(c, auth);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const { query, collection, field, limit, threshold } = c.req.valid('json');
+
+      // Try pg_trgm similarity search on stored embeddings content
+      const trgmResults = await sql<any>`
+        SELECT record_id, content, similarity(content, ${query}) AS score
+        FROM zv_ai_embeddings
+        WHERE collection = ${collection}
+          AND similarity(content, ${query}) > ${threshold}
+        ORDER BY score DESC
+        LIMIT ${limit}
+      `.execute(db).then((r) => r.rows).catch(() => []);
+
+      if (trgmResults.length > 0) {
+        return c.json({ results: trgmResults, query, collection, count: trgmResults.length, method: 'trgm' });
+      }
+
+      // Fallback: ILIKE full-text search on actual collection table
+      let fallbackResults: any[] = [];
+      try {
+        const tableName = `zv_${collection}`;
+        fallbackResults = await sql<any>`
+          SELECT *, 0.5 AS score
+          FROM ${sql.id(tableName)}
+          WHERE ${sql.id(field)} ILIKE ${'%' + query + '%'}
+          LIMIT ${limit}
+        `.execute(db).then((r) => r.rows).catch(() => []);
+      } catch { /* table may not exist */ }
+
+      return c.json({
+        results: fallbackResults,
+        query,
+        collection,
+        count: fallbackResults.length,
+        method: 'ilike',
+      });
     },
   );
 
@@ -252,6 +413,66 @@ export function aiRoutes(db: any, auth: any): Hono {
 
       const result = await provider.chat(messages);
       return c.json({ result, rendered_prompt: rendered });
+    },
+  );
+
+  // ─── Admin: AI Features ────────────────────────────────────────
+
+  // GET /admin/features — list AI features configuration
+  app.get('/admin/features', async (c) => {
+    const user = await requireAdmin(c, auth, db);
+    if (!user) return c.json({ error: 'Admin access required' }, 403);
+
+    const features = await db
+      .selectFrom('zv_ai_features')
+      .selectAll()
+      .orderBy('feature_key', 'asc')
+      .execute()
+      .catch(() => []);
+
+    return c.json({ features });
+  });
+
+  // PUT /admin/features/:featureKey — update feature config
+  app.put(
+    '/admin/features/:featureKey',
+    zValidator(
+      'json',
+      z.object({
+        display_name: z.string().optional(),
+        description: z.string().optional(),
+        is_enabled: z.boolean().optional(),
+        config: z.record(z.string(), z.any()).optional(),
+      }),
+    ),
+    async (c) => {
+      const user = await requireAdmin(c, auth, db);
+      if (!user) return c.json({ error: 'Admin access required' }, 403);
+
+      const featureKey = c.req.param('featureKey');
+      const body = c.req.valid('json');
+
+      const existing = await db
+        .selectFrom('zv_ai_features')
+        .select('id')
+        .where('feature_key', '=', featureKey)
+        .executeTakeFirst()
+        .catch(() => null);
+
+      if (!existing) return c.json({ error: 'Feature not found' }, 404);
+
+      const updateFields: Record<string, any> = { updated_at: new Date() };
+      if (body.display_name !== undefined) updateFields.display_name = body.display_name;
+      if (body.description !== undefined) updateFields.description = body.description;
+      if (body.is_enabled !== undefined) updateFields.is_enabled = body.is_enabled;
+      if (body.config !== undefined) updateFields.config = JSON.stringify(body.config);
+
+      await db.updateTable('zv_ai_features')
+        .set(updateFields)
+        .where('feature_key', '=', featureKey)
+        .execute();
+
+      return c.json({ success: true });
     },
   );
 
