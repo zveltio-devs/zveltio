@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { collectionsApi, dataApi } from '$lib/api.js';
   import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork } from '@lucide/svelte';
   import { base } from '$app/paths';
 
-  const collectionName = $derived($page.params.name);
+  const collectionName = $derived(page.params.name);
   let collection = $state<any>(null);
   let records = $state<any[]>([]);
   let pagination = $state<any>({ total: 0, page: 1, limit: 20 });

@@ -7,6 +7,7 @@ import { checkPermission } from '../lib/permissions.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
 import { DDLManager } from '../lib/ddl-manager.js';
+import { GhostDDL } from '../lib/ghost-ddl.js';
 
 export function schemaBranchesRoutes(db: Database, _auth: any): Hono {
   const router = new Hono<{ Variables: { user: User } }>()
@@ -241,16 +242,43 @@ export function schemaBranchesRoutes(db: Database, _auth: any): Hono {
               await enqueueDDLJob(db, 'create_collection', change.payload);
               applied.push(`Add collection: ${change.payload.name}`);
             } else if (change.type === 'add_field') {
-              const { dynamicAddColumn } = await import('../db/dynamic.js');
               const { fieldTypeRegistry } = await import('../lib/field-type-registry.js');
               const tableName = DDLManager.getTableName(change.payload.collection);
               const colDDL = fieldTypeRegistry.getColumnDDL(change.payload.field);
-              if (colDDL) await dynamicAddColumn(db, tableName, colDDL);
+              if (colDDL) {
+                // Use Ghost DDL for large tables (>100k rows) to avoid downtime
+                const countResult = await sql<{ cnt: string }>`
+                  SELECT count(*) AS cnt FROM ${sql.id(tableName)}
+                `.execute(db).catch(() => ({ rows: [{ cnt: '0' }] }));
+                const rowCount = Number(countResult.rows[0]?.cnt ?? 0);
+
+                if (rowCount > 100_000) {
+                  await GhostDDL.execute(db, tableName, [`ADD COLUMN ${colDDL}`], (phase, detail) => {
+                    console.log(`[ghost-ddl] ${phase}: ${detail}`);
+                  });
+                } else {
+                  const { dynamicAddColumn } = await import('../db/dynamic.js');
+                  await dynamicAddColumn(db, tableName, colDDL);
+                }
+              }
               applied.push(`Add field: ${change.payload.field.name} to ${change.payload.collection}`);
             } else if (change.type === 'remove_field') {
-              const { dynamicDropColumn } = await import('../db/dynamic.js');
               const tableName = DDLManager.getTableName(change.payload.collection);
-              await dynamicDropColumn(db, tableName, change.payload.field);
+
+              // Use Ghost DDL for large tables (>100k rows) to avoid downtime
+              const countResult = await sql<{ cnt: string }>`
+                SELECT count(*) AS cnt FROM ${sql.id(tableName)}
+              `.execute(db).catch(() => ({ rows: [{ cnt: '0' }] }));
+              const rowCount = Number(countResult.rows[0]?.cnt ?? 0);
+
+              if (rowCount > 100_000) {
+                await GhostDDL.execute(db, tableName, [`DROP COLUMN "${change.payload.field}"`], (phase, detail) => {
+                  console.log(`[ghost-ddl] ${phase}: ${detail}`);
+                });
+              } else {
+                const { dynamicDropColumn } = await import('../db/dynamic.js');
+                await dynamicDropColumn(db, tableName, change.payload.field);
+              }
               applied.push(`Remove field: ${change.payload.field} from ${change.payload.collection}`);
             }
           } catch (err) {

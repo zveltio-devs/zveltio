@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { collectionsApi, api } from '$lib/api.js';
   import { ArrowLeft, Plus, Trash2, GripVertical, ChevronDown } from '@lucide/svelte';
   import { base } from '$app/paths';
 
-  const collectionName = $derived($page.params.name);
+  const collectionName = $derived(page.params.name);
   let collection = $state<any>(null);
   let fieldTypes = $state<any[]>([]);
   let loading = $state(true);

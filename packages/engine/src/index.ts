@@ -9,6 +9,7 @@ import { extensionLoader } from './lib/extension-loader.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
+import { realtimeManager } from './lib/realtime.js';
 import { initAIProviders } from './lib/ai-provider.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
@@ -100,6 +101,11 @@ async function bootstrap() {
   // 6e. Flow scheduler — runs cron flows using flow-executor.ts
   await flowScheduler.start(db);
   console.log('✅ Flow scheduler started');
+
+  // 6f. Realtime LISTEN/NOTIFY — enables cross-instance WebSocket broadcasts
+  if (process.env.DATABASE_URL) {
+    await realtimeManager.start(process.env.DATABASE_URL);
+  }
   const aiCount = (await import('./lib/ai-provider.js')).aiProviderManager.list().length;
   if (aiCount > 0) {
     console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
@@ -236,6 +242,7 @@ function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
   webhookWorker.stop();
   flowScheduler.stop();
+  realtimeManager.stop().catch(() => { /* ignore */ });
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

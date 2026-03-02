@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { base } from '$app/paths';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { auth } from '$lib/auth.svelte.js';
   import { initExtensions, extensions } from '$lib/extensions.svelte.js';
   import { extensionRegistry } from '$lib/extension-registry.svelte.js';
@@ -14,7 +14,7 @@
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
   function isActive(href: string): boolean {
-    const current = $page.url.pathname;
+    const current = page.url.pathname;
     if (href === `${base}/`) return current === `${base}/` || current === `${base}`;
     return current.startsWith(href);
   }

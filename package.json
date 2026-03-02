@@ -3,6 +3,10 @@
   "version": "2.0.0",
   "private": true,
   "description": "The BaaS that just works — single binary, extensions, no complexity",
+  "workspaces": [
+    "packages/*",
+    "extensions/*/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -16,8 +20,5 @@
     "turbo": "^2.0.0",
     "bun-types": "latest",
     "typescript": "^5.4.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
   }
 }

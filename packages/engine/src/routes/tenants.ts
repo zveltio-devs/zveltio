@@ -11,6 +11,7 @@ import {
   invalidateTenantCache,
   getUserTenants,
   getTenantEnvironments,
+  enableRLS,
 } from '../lib/tenant-manager.js';
 import type { Database } from '../db/index.js';
 
@@ -175,6 +176,24 @@ export function tenantsRoutes(db: Database, _auth: any): Hono {
 
     const environments = await getTenantEnvironments(id);
     return c.json({ environments });
+  });
+
+  // POST /api/tenants/:id/enable-rls/:collection — enable RLS on a collection table
+  router.post('/:id/enable-rls/:collection', async (c) => {
+    const user = (c as any).get('user');
+    const isSuperAdmin = await checkPermission(user.id, 'tenants', 'manage');
+    if (!isSuperAdmin) return c.json({ error: 'Forbidden' }, 403);
+
+    const collection = c.req.param('collection');
+    // Collections are stored in zvd_ prefixed tables
+    const tableName = collection.startsWith('zvd_') ? collection : `zvd_${collection}`;
+
+    try {
+      await enableRLS(tableName);
+      return c.json({ success: true, table: tableName, rls: 'enabled' });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
   });
 
   // POST /api/tenants/:id/environments — create new environment (e.g. staging)

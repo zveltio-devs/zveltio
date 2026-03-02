@@ -196,7 +196,25 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const virtualConfig = await getVirtualConfig(db, collection);
     if (virtualConfig) {
       try {
+        // Parse query.filter into VirtualQuery.filters — translated to API URL params (no fetch-all)
+        const vFilters: Array<{ field: string; op: string; value: any }> = [];
+        if (query.filter) {
+          try {
+            const raw = JSON.parse(query.filter);
+            for (const [key, value] of Object.entries(raw)) {
+              if (typeof value === 'object' && value !== null) {
+                const [op, val] = Object.entries(value)[0] as [string, any];
+                vFilters.push({ field: key, op, value: val });
+              } else {
+                vFilters.push({ field: key, op: 'eq', value });
+              }
+            }
+          } catch { /* invalid JSON — skip */ }
+        }
+
         const { data, total } = await virtualList(virtualConfig, {
+          filters: vFilters,
+          sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
           page: query.page,
           limit: query.limit,
           search: query.search,
@@ -380,6 +398,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await broadcastWebhook(db, 'insert', collection, record);
     broadcastEvent(collection, 'insert', record);
+    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
+      event: 'record.created',
+      collection,
+      record_id: record.id,
+      data: record,
+      timestamp: new Date().toISOString(),
+    })})`.execute(db).catch(() => { /* non-fatal */ });
 
     return c.json({ record: serializeRecord(record, collectionDef) }, 201);
   });
@@ -435,6 +460,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await broadcastWebhook(db, 'update', collection, record);
     broadcastEvent(collection, 'update', record);
+    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
+      event: 'record.updated',
+      collection,
+      record_id: id,
+      data: record,
+      timestamp: new Date().toISOString(),
+    })})`.execute(db).catch(() => { /* non-fatal */ });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -491,6 +523,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await broadcastWebhook(db, 'update', collection, record);
     broadcastEvent(collection, 'update', record);
+    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
+      event: 'record.updated',
+      collection,
+      record_id: id,
+      data: record,
+      timestamp: new Date().toISOString(),
+    })})`.execute(db).catch(() => { /* non-fatal */ });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -548,6 +587,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await broadcastWebhook(db, 'delete', collection, { id });
     broadcastEvent(collection, 'delete', { id });
+    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
+      event: 'record.deleted',
+      collection,
+      record_id: id,
+      timestamp: new Date().toISOString(),
+    })})`.execute(db).catch(() => { /* non-fatal */ });
 
     return c.json({ success: true, id });
   });

@@ -4,7 +4,7 @@ export interface ZveltioClientConfig {
   headers?: Record<string, string>;
 }
 
-export class ZveltioHttpClient {
+export class ZveltioClient {
   private baseUrl: string;
   private headers: Record<string, string>;
 
@@ -17,58 +17,39 @@ export class ZveltioHttpClient {
     };
   }
 
-  async get<T = any>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers, credentials: 'include' });
-    if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
-    return res.json();
-  }
-
-  async post<T = any>(path: string, body?: unknown): Promise<T> {
+  private async request<T = any>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST', headers: this.headers, credentials: 'include',
+      method,
+      headers: this.headers,
+      credentials: 'include',
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`${method} ${path} failed: ${res.status} ${text}`);
+    }
     return res.json();
   }
 
-  async patch<T = any>(path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'PATCH', headers: this.headers, credentials: 'include',
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`);
-    return res.json();
-  }
-
-  async delete<T = any>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'DELETE', headers: this.headers, credentials: 'include',
-    });
-    if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
-    return res.json();
-  }
+  get<T = any>(path: string) { return this.request<T>('GET', path); }
+  post<T = any>(path: string, body?: unknown) { return this.request<T>('POST', path, body); }
+  patch<T = any>(path: string, body?: unknown) { return this.request<T>('PATCH', path, body); }
+  delete<T = any>(path: string) { return this.request<T>('DELETE', path); }
 
   async upload<T = any>(path: string, formData: FormData): Promise<T> {
-    const { 'Content-Type': _, ...uploadHeaders } = this.headers;
+    const headers = { ...this.headers };
+    delete headers['Content-Type']; // Browser sets multipart boundary
     const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST', headers: uploadHeaders, credentials: 'include', body: formData,
+      method: 'POST', headers, credentials: 'include', body: formData,
     });
     if (!res.ok) throw new Error(`Upload ${path} failed: ${res.status}`);
     return res.json();
   }
 
-  /** Fluent collection accessor */
+  /** Collection CRUD helper */
   collection(name: string) {
     return {
-      list: (params?: {
-        page?: number;
-        limit?: number;
-        sort?: string;
-        order?: string;
-        search?: string;
-        filter?: Record<string, any>;
-      }) => {
+      list: (params?: { page?: number; limit?: number; sort?: string; order?: string; search?: string; filter?: Record<string, any> }) => {
         const qs = new URLSearchParams();
         if (params?.page) qs.set('page', String(params.page));
         if (params?.limit) qs.set('limit', String(params.limit));
@@ -76,8 +57,8 @@ export class ZveltioHttpClient {
         if (params?.order) qs.set('order', params.order);
         if (params?.search) qs.set('search', params.search);
         if (params?.filter) qs.set('filter', JSON.stringify(params.filter));
-        const q = qs.toString();
-        return this.get(`/api/data/${name}${q ? '?' + q : ''}`);
+        const query = qs.toString();
+        return this.get(`/api/data/${name}${query ? `?${query}` : ''}`);
       },
       get: (id: string) => this.get(`/api/data/${name}/${id}`),
       create: (data: Record<string, any>) => this.post(`/api/data/${name}`, data),
@@ -104,11 +85,11 @@ export class ZveltioHttpClient {
       if (folder) fd.append('folder', folder);
       return this.upload('/api/storage/upload', fd);
     },
-    list: (folder?: string) => this.get(`/api/storage${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`),
+    list: (folder?: string) => this.get(`/api/storage${folder ? `?folder=${folder}` : ''}`),
     delete: (key: string) => this.delete(`/api/storage/${encodeURIComponent(key)}`),
   };
 }
 
-export function createZveltioClient(config: ZveltioClientConfig): ZveltioHttpClient {
-  return new ZveltioHttpClient(config);
+export function createZveltioClient(config: ZveltioClientConfig): ZveltioClient {
+  return new ZveltioClient(config);
 }

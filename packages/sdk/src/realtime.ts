@@ -1,18 +1,23 @@
 export class ZveltioRealtime {
   private ws: WebSocket | null = null;
   private listeners: Map<string, Set<(data: any) => void>> = new Map();
+  private baseUrl: string;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private shouldReconnect = false;
 
-  constructor(private baseUrl: string) {}
+  constructor(baseUrl: string) {
+    // Convert http(s) to ws(s)
+    this.baseUrl = baseUrl.replace(/^http/, 'ws');
+  }
 
-  connect() {
-    this.shouldReconnect = true;
-    const wsUrl = this.baseUrl.replace(/^http/, 'ws') + '/api/ws';
+  connect(): void {
+    const wsUrl = `${this.baseUrl}/api/ws`;
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      // Re-subscribe to all channels after reconnect
+      this.reconnectAttempts = 0;
+      // Re-subscribe to all existing collections
       for (const collection of this.listeners.keys()) {
         this.ws?.send(JSON.stringify({ action: 'subscribe', collection }));
       }
@@ -21,19 +26,18 @@ export class ZveltioRealtime {
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        const listeners = this.listeners.get(msg.collection);
-        if (listeners) {
-          listeners.forEach((fn) => fn(msg));
+        const collection = msg.collection;
+        const subs = this.listeners.get(collection);
+        if (subs) {
+          subs.forEach((fn) => {
+            try { fn(msg); } catch { /* ignore callback errors */ }
+          });
         }
-      } catch {
-        // ignore malformed messages
-      }
+      } catch { /* invalid JSON — ignore */ }
     };
 
     this.ws.onclose = () => {
-      if (this.shouldReconnect) {
-        this.reconnectTimer = setTimeout(() => this.connect(), 3000);
-      }
+      this.attemptReconnect();
     };
 
     this.ws.onerror = () => {
@@ -41,14 +45,24 @@ export class ZveltioRealtime {
     };
   }
 
+  private attemptReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+    // Exponential backoff: 1s, 2s, 4s, 8s, ...
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30_000);
+    this.reconnectAttempts++;
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
   subscribe(collection: string, callback: (data: any) => void): () => void {
-    if (!this.listeners.has(collection)) {
-      this.listeners.set(collection, new Set());
-    }
+    if (!this.listeners.has(collection)) this.listeners.set(collection, new Set());
     this.listeners.get(collection)!.add(callback);
+
+    // Send subscribe to server
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ action: 'subscribe', collection }));
     }
+
+    // Return unsubscribe function
     return () => {
       this.listeners.get(collection)?.delete(callback);
       if (this.listeners.get(collection)?.size === 0) {
@@ -60,13 +74,12 @@ export class ZveltioRealtime {
     };
   }
 
-  disconnect() {
-    this.shouldReconnect = false;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+  disconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectAttempts = this.maxReconnectAttempts; // Prevent auto-reconnect
     this.ws?.close();
     this.ws = null;
+    this.listeners.clear();
   }
 }

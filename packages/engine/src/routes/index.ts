@@ -39,6 +39,7 @@ import { qualityRoutes } from './quality.js';
 import { insightsRoutes } from './insights.js';
 import { documentTemplatesRoutes } from './document-templates.js';
 import { documentsRoutes } from './documents.js';
+import { syncRoutes } from './sync.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -166,6 +167,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Documents Management (RO compliance doc generation)
   app.route('/api/documents', documentsRoutes(db, auth));
+
+  // SDK Local-First Sync (push/pull batch operations)
+  app.route('/api/sync', syncRoutes(db, auth));
 
   // Sitemap (public)
   app.get('/api/sitemap.xml', async (c) => {

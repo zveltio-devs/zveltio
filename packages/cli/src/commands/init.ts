@@ -1,39 +1,63 @@
-import { mkdir, writeFile, copyFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
-export async function initCommand(dir: string = '.', opts: { template?: string }) {
-  const targetDir = dir === '.' ? process.cwd() : join(process.cwd(), dir);
-  const projectName = targetDir.split('/').pop() || 'zveltio-app';
+export async function initCommand(name: string = '.', _opts: { template?: string } = {}) {
+  const dir = name === '.' ? process.cwd() : join(process.cwd(), name);
+  const projectName = dir.split(/[/\\]/).pop() || 'zveltio-app';
 
-  console.log(`\n🚀 Creating Zveltio project: ${projectName}\n`);
-
-  if (!existsSync(targetDir)) {
-    await mkdir(targetDir, { recursive: true });
+  if (name !== '.' && existsSync(dir)) {
+    console.error(`❌ Directory "${name}" already exists`);
+    process.exit(1);
   }
 
-  // .env
-  await writeFile(
-    join(targetDir, '.env'),
-    `DATABASE_URL=postgresql://postgres:password@localhost:5432/${projectName}
-PORT=3000
-BETTER_AUTH_SECRET=${crypto.randomUUID().replace(/-/g, '')}
-ZVELTIO_EXTENSIONS=
-`,
-  );
+  mkdirSync(dir, { recursive: true });
 
-  console.log('  ✓ .env created');
+  writeFileSync(join(dir, '.env'), [
+    `DATABASE_URL=postgresql://admin:password@localhost:5432/${projectName}`,
+    'PORT=3000',
+    `BETTER_AUTH_SECRET=${crypto.randomUUID().replace(/-/g, '')}`,
+    'VALKEY_URL=redis://localhost:6379',
+    'S3_ENDPOINT=http://localhost:8333',
+    'S3_BUCKET=zveltio',
+    'S3_ACCESS_KEY=admin',
+    'S3_SECRET_KEY=password',
+    'ZVELTIO_EXTENSIONS=',
+    '',
+  ].join('\n'));
 
-  // docker-compose.yml for local development
-  await writeFile(
-    join(targetDir, 'docker-compose.yml'),
-    `version: '3.8'
+  writeFileSync(join(dir, '.env.example'), [
+    'DATABASE_URL=postgresql://user:pass@localhost:5432/dbname',
+    'PORT=3000',
+    'BETTER_AUTH_SECRET=changeme',
+    'VALKEY_URL=redis://localhost:6379',
+    'S3_ENDPOINT=http://localhost:8333',
+    'S3_BUCKET=zveltio',
+    'S3_ACCESS_KEY=admin',
+    'S3_SECRET_KEY=password',
+    'ZVELTIO_EXTENSIONS=',
+    '',
+  ].join('\n'));
+
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({
+    name: projectName,
+    private: true,
+    scripts: {
+      dev: 'zveltio dev',
+      start: 'zveltio start',
+      migrate: 'zveltio migrate',
+    },
+    dependencies: {
+      '@zveltio/engine': 'latest',
+    },
+  }, null, 2));
+
+  writeFileSync(join(dir, 'docker-compose.yml'), `version: '3.8'
 services:
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${projectName}
-      POSTGRES_USER: postgres
+      POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
@@ -47,45 +71,9 @@ services:
 
 volumes:
   pgdata:
-`,
-  );
-
-  console.log('  ✓ docker-compose.yml created');
-
-  // README
-  await writeFile(
-    join(targetDir, 'README.md'),
-    `# ${projectName}
-
-A Zveltio-powered application.
-
-## Getting started
-
-\`\`\`bash
-# Start database
-docker compose up -d
-
-# Install dependencies and start
-pnpm install
-pnpm dev
-\`\`\`
-
-## Admin
-
-Open [http://localhost:3000/admin](http://localhost:3000/admin)
-`,
-  );
-
-  console.log('  ✓ README.md created');
-
-  console.log(`
-✨ Done! Your project is ready.
-
-Next steps:
-  ${dir !== '.' ? `cd ${dir}` : ''}
-  docker compose up -d
-  zveltio dev
-
-Open http://localhost:3000/admin to access the Studio.
 `);
+
+  console.log(`✅ Zveltio project "${projectName}" initialized at ${dir}`);
+  console.log(`\nNext steps:\n  ${name !== '.' ? `cd ${name}\n  ` : ''}docker compose up -d\n  bun install\n  zveltio dev\n`);
+  console.log('Open http://localhost:3000/admin to access the Studio.');
 }

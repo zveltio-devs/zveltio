@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { extensionRegistry } from '$lib/extension-registry.svelte.js';
   import { extensions } from '$lib/extensions.svelte.js';
 
-  const pathParts = $derived($page.params.path?.split('/') || []);
+  const pathParts = $derived(page.params.path?.split('/') || []);
   const extName = $derived(pathParts[0]);
   const subPath = $derived('/' + pathParts.slice(1).join('/'));
   const Component = $derived(

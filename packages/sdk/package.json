@@ -18,6 +18,9 @@
     "build": "tsc",
     "dev": "tsc --watch"
   },
+  "dependencies": {
+    "idb": "^8.0.0"
+  },
   "devDependencies": {
     "typescript": "^5.4.0"
   }

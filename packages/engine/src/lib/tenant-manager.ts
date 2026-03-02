@@ -261,3 +261,48 @@ export async function invalidateTenantCache(slug: string, id?: string): Promise<
   await redis.del(`tenant:slug:${slug}`).catch(() => {});
   if (id) await redis.del(`tenant:id:${id}`).catch(() => {});
 }
+
+/**
+ * Set the current tenant for PostgreSQL RLS.
+ * Uses SET LOCAL — activates Row-Level Security isolation for the current transaction.
+ * RLS policies read current_setting('zveltio.current_tenant', true) to filter rows.
+ *
+ * NOTE: SET LOCAL persists only within a transaction. Outside a transaction it is
+ * silently ignored. For strict per-request isolation, wrap handlers in db.transaction().
+ */
+export async function setCurrentTenant(tenantId: string): Promise<void> {
+  await sql`SET LOCAL "zveltio.current_tenant" = ${tenantId}`.execute(_db);
+}
+
+/**
+ * Enable PostgreSQL Row-Level Security on a collection table for multi-tenant isolation.
+ * Adds a tenant_id column (if missing), creates an index, enables RLS, and installs
+ * a tenant_isolation policy that restricts rows to the current tenant session variable.
+ *
+ * Usage: call once when provisioning a new collection in multi-tenant mode.
+ */
+export async function enableRLS(tableName: string): Promise<void> {
+  // 1. Add tenant_id FK column (idempotent)
+  await sql`
+    ALTER TABLE ${sql.id(tableName)}
+    ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES zv_tenants(id) ON DELETE CASCADE
+  `.execute(_db);
+
+  // 2. Index for query performance
+  await sql`
+    CREATE INDEX IF NOT EXISTS ${sql.id(`idx_${tableName}_tenant`)}
+    ON ${sql.id(tableName)}(tenant_id)
+  `.execute(_db);
+
+  // 3. Enable RLS
+  await sql`ALTER TABLE ${sql.id(tableName)} ENABLE ROW LEVEL SECURITY`.execute(_db);
+
+  // 4. Isolation policy — uses SET LOCAL value from middleware
+  //    DROP + CREATE so this function is safe to call multiple times (idempotent)
+  await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(tableName)}`.execute(_db);
+  await sql`
+    CREATE POLICY tenant_isolation ON ${sql.id(tableName)}
+    USING (tenant_id::text = current_setting('zveltio.current_tenant', true))
+    WITH CHECK (tenant_id::text = current_setting('zveltio.current_tenant', true))
+  `.execute(_db);
+}
