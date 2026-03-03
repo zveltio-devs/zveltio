@@ -18,6 +18,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { runScript } from './script-runner.js';
 import { sendNotification } from '../routes/notifications.js';
+import { aiProviderManager } from './ai-provider.js';
 
 export interface FlowRunResult {
   runId: string;
@@ -40,12 +41,26 @@ async function getUsersForRole(db: Database, role: string): Promise<string[]> {
   }
 }
 
+/** Replaces {{key.nested}} placeholders from a context object. */
+function interpolateTemplate(template: string, context: Record<string, any>): string {
+  return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
+    const keys = path.split('.');
+    let value: any = context;
+    for (const key of keys) {
+      value = value?.[key];
+      if (value === undefined) return match; // Leave placeholder if key not found
+    }
+    return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  });
+}
+
 // ── Step executor ─────────────────────────────────────────────────────────────
 
 async function executeStep(
   db: Database,
   step: any,
   prevOutput: any,
+  flowContext: Record<string, any> = {},
 ): Promise<{ output: any; logs?: string[] }> {
   const cfg = step.config ?? {};
 
@@ -170,6 +185,67 @@ async function executeStep(
       }
     }
 
+    // ── ai_decision ──
+    case 'ai_decision': {
+      const { prompt, options, fallback, temperature } = cfg;
+      if (!prompt || !Array.isArray(options) || options.length === 0) {
+        return { output: { decision: fallback ?? null, error: 'Missing prompt or options' } };
+      }
+
+      const interpolatedPrompt = interpolateTemplate(prompt, {
+        ...flowContext,
+        output: prevOutput,
+      });
+
+      const provider = aiProviderManager.getDefault();
+      if (!provider?.chat) {
+        console.warn('[Flow] ai_decision: no AI provider configured, using fallback');
+        return { output: { decision: fallback, usedFallback: true, error: 'No AI provider' } };
+      }
+
+      try {
+        const systemPrompt =
+          `You are a decision engine. Analyze the context and choose EXACTLY ONE option.\n` +
+          `Available options: ${options.join(', ')}\n` +
+          `Respond with ONLY the option name, nothing else. No explanation, no punctuation.`;
+
+        const aiResponse = await provider.chat(
+          [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: interpolatedPrompt },
+          ],
+          { temperature: temperature ?? 0.1 },
+        );
+
+        const decision = (aiResponse?.content ?? '').trim().toLowerCase();
+        const matchedOption = options.find((opt: string) => opt.toLowerCase() === decision);
+        const finalDecision = matchedOption ?? fallback;
+
+        console.log(
+          `🤖 AI Decision [${step.id ?? step.name}]: "${decision}" → ${finalDecision}` +
+          (matchedOption ? '' : ` (fallback, AI said: "${decision}")`),
+        );
+
+        return {
+          output: {
+            decision: finalDecision,
+            aiRawResponse: decision,
+            matched: !!matchedOption,
+            usedFallback: !matchedOption,
+          },
+        };
+      } catch (err: any) {
+        console.error(`🤖 AI Decision failed [${step.id ?? step.name}]:`, err);
+        return {
+          output: {
+            decision: fallback,
+            error: err.message,
+            usedFallback: true,
+          },
+        };
+      }
+    }
+
     default:
       return { output: prevOutput };
   }
@@ -222,12 +298,15 @@ export async function executeFlow(
   // Execute steps
   let output: any = {};
   const stepLogs: Record<string, string[]> = {};
+  const stepResults: Record<string, any> = {};
+  const flowContext = { trigger: triggerData, stepResults };
 
   try {
     for (const step of steps) {
       try {
-        const result = await executeStep(db, step, output);
+        const result = await executeStep(db, step, output, flowContext);
         output = result.output;
+        if (step.id) stepResults[step.id] = output;
         if (result.logs?.length) stepLogs[step.id] = result.logs;
       } catch (stepErr) {
         if (step.on_error === 'continue') {

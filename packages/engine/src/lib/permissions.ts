@@ -6,6 +6,7 @@ import { getRedis } from './redis.js';
 // Cache TTLs
 const PERMISSION_CACHE_TTL = 60;  // seconds
 const ROLE_CACHE_TTL = 300;       // seconds
+const GOD_CACHE_TTL = 300;        // seconds
 
 const CASBIN_MODEL = `
 [request_definition]
@@ -104,11 +105,62 @@ export async function getEnforcer(): Promise<Enforcer> {
   return _enforcer;
 }
 
+/**
+ * Checks if a user has the "god" role — directly from DB, independent of Casbin.
+ * Cached in Redis for performance. Fail-closed: returns false if DB is unavailable.
+ */
+async function isGodUser(userId: string): Promise<boolean> {
+  const redis = getRedis();
+  const cacheKey = `god:${userId}`;
+
+  if (redis) {
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached !== null) return cached === '1';
+    } catch { /* cache unavailable */ }
+  }
+
+  try {
+    const result = await sql<{ role: string }>`
+      SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
+    `.execute(_db);
+
+    const isGod = result.rows[0]?.role === 'god';
+
+    if (redis) {
+      try {
+        await redis.setex(cacheKey, GOD_CACHE_TTL, isGod ? '1' : '0');
+      } catch { /* cache unavailable */ }
+    }
+
+    return isGod;
+  } catch {
+    return false; // Fail closed — if DB is down, do NOT grant god access
+  }
+}
+
+/**
+ * Invalidates the god-role cache for a user (call when user role changes).
+ */
+export async function invalidateGodCache(userId: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    await redis.del(`god:${userId}`);
+  } catch { /* cache unavailable */ }
+}
+
 export async function checkPermission(
   userId: string,
   resource: string,
   action: string,
 ): Promise<boolean> {
+  // ═══ HARDCODED GOD BYPASS ═══
+  // Independent of Casbin — even if ALL policies are deleted,
+  // a user with role='god' will ALWAYS have full access.
+  const isGod = await isGodUser(userId);
+  if (isGod) return true;
+
   const redis = getRedis();
   const cacheKey = `perm:${userId}:${resource}:${action}`;
 

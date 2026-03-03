@@ -41,6 +41,7 @@ import { documentTemplatesRoutes } from './document-templates.js';
 import { documentsRoutes } from './documents.js';
 import { syncRoutes } from './sync.js';
 import { introspectRoutes } from './introspect.js';
+import { aiSearchRoutes } from './ai-search.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -174,6 +175,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // BYOD Introspection — scanează schema externă și importă ca unmanaged collections
   app.route('/api/introspect', introspectRoutes(db, auth));
+
+  // AI Semantic Search — vector similarity search across all indexed collections
+  app.route('/api/ai/search', aiSearchRoutes(db, auth));
 
   // Sitemap (public)
   app.get('/api/sitemap.xml', async (c) => {
