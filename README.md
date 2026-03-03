@@ -46,16 +46,16 @@ zveltio/
 
 ```bash
 # Install dependencies
-pnpm install
+bun install
 
 # Start all packages in dev mode
-pnpm dev
+bun run dev
 
 # Build everything
-pnpm build
+bun run build
 
 # Build single binary
-pnpm build:binary
+bun run build:binary
 # Output: dist/zveltio (single executable)
 ```
 

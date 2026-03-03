@@ -8,6 +8,7 @@ import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { checkPermission } from '../lib/permissions.js';
 import { WebhookManager } from '../lib/webhooks.js';
 import { broadcastEvent } from './ws.js';
+import { triggerEmbedding } from '../lib/ai-embed-hook.js';
 import {
   dynamicSelect,
   dynamicInsert,
@@ -406,6 +407,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
       timestamp: new Date().toISOString(),
     })})`.execute(db).catch(() => { /* non-fatal */ });
 
+    // AI embedding hook — async, non-blocking
+    triggerEmbedding(db, collection, record.id, record).catch(() => { /* non-fatal */ });
+
     return c.json({ record: serializeRecord(record, collectionDef) }, 201);
   });
 
@@ -467,6 +471,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
       data: record,
       timestamp: new Date().toISOString(),
     })})`.execute(db).catch(() => { /* non-fatal */ });
+
+    // AI embedding hook — async, non-blocking
+    triggerEmbedding(db, collection, id, record).catch(() => { /* non-fatal */ });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -530,6 +537,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
       data: record,
       timestamp: new Date().toISOString(),
     })})`.execute(db).catch(() => { /* non-fatal */ });
+
+    // AI embedding hook — async, non-blocking
+    triggerEmbedding(db, collection, id, record).catch(() => { /* non-fatal */ });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });

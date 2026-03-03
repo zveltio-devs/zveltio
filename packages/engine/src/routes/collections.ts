@@ -115,6 +115,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         displayName: z.string().optional(),
         icon: z.string().optional(),
         description: z.string().optional(),
+        aiSearchEnabled: z.boolean().optional(),
+        aiSearchField: z.string().nullable().optional(),
       }),
     ),
     async (c) => {

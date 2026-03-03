@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { collectionsApi, dataApi } from '$lib/api.js';
-  import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork } from '@lucide/svelte';
+  import { collectionsApi, dataApi, api } from '$lib/api.js';
+  import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork, Sparkles, Save } from '@lucide/svelte';
   import { base } from '$app/paths';
 
   const collectionName = $derived(page.params.name);
@@ -10,7 +10,13 @@
   let records = $state<any[]>([]);
   let pagination = $state<any>({ total: 0, page: 1, limit: 20 });
   let loading = $state(true);
-  let activeTab = $state<'data' | 'schema'>('data');
+  let activeTab = $state<'data' | 'schema' | 'ai'>('data');
+
+  // AI Search settings
+  let aiSearchEnabled = $state(false);
+  let aiSearchField = $state('');
+  let savingAI = $state(false);
+  let aiSaved = $state(false);
 
   onMount(async () => {
     await load();
@@ -26,6 +32,8 @@
       collection = colRes.collection;
       records = dataRes.records;
       pagination = dataRes.pagination;
+      aiSearchEnabled = collection?.ai_search_enabled ?? false;
+      aiSearchField = collection?.ai_search_field ?? '';
     } finally {
       loading = false;
     }
@@ -41,6 +49,21 @@
     if (!confirm('Delete this record?')) return;
     await dataApi.delete(collectionName, id);
     await load();
+  }
+
+  async function saveAISettings() {
+    savingAI = true;
+    aiSaved = false;
+    try {
+      await api.patch(`/api/collections/${collectionName}`, {
+        aiSearchEnabled,
+        aiSearchField: aiSearchField || null,
+      });
+      aiSaved = true;
+      setTimeout(() => { aiSaved = false; }, 3000);
+    } finally {
+      savingAI = false;
+    }
   }
 </script>
 
@@ -78,6 +101,13 @@
       <GitFork size={14} />
       Relations
     </a>
+    <button
+      class="tab gap-1 {activeTab === 'ai' ? 'tab-active' : ''}"
+      onclick={() => (activeTab = 'ai')}
+    >
+      <Sparkles size={14} />
+      AI Search
+    </button>
   </div>
 
   {#if activeTab === 'data'}
@@ -172,6 +202,72 @@
           </div>
         </div>
       {/each}
+    </div>
+  {:else if activeTab === 'ai'}
+    <!-- AI Search settings -->
+    <div class="card bg-base-200 max-w-xl">
+      <div class="card-body">
+        <div class="flex items-center gap-2 mb-4">
+          <Sparkles size={20} class="text-primary" />
+          <h2 class="card-title text-base">AI Semantic Search</h2>
+        </div>
+        <p class="text-sm text-base-content/60 mb-4">
+          Activează auto-embedding la create/update. Recordurile vor fi indexate semantic
+          și pot fi căutate via <code class="text-primary">POST /api/ai/search</code>.
+          Necesită un AI provider cu suport embedding configurat.
+        </p>
+
+        <div class="form-control mb-4">
+          <label class="label cursor-pointer justify-start gap-3">
+            <input
+              type="checkbox"
+              class="toggle toggle-primary"
+              bind:checked={aiSearchEnabled}
+            />
+            <span class="label-text font-medium">Activează AI Search pentru această colecție</span>
+          </label>
+        </div>
+
+        {#if aiSearchEnabled}
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Câmp de embedduit</span>
+              <span class="label-text-alt text-base-content/50">opțional — gol = concat toate câmpurile text</span>
+            </label>
+            <select class="select select-bordered" bind:value={aiSearchField}>
+              <option value="">— Auto (toate câmpurile text) —</option>
+              {#each getFields().filter((f) => ['text', 'textarea', 'richtext'].includes(f.type)) as field}
+                <option value={field.name}>{field.label || field.name} ({field.type})</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+
+        <div class="card-actions">
+          <button
+            class="btn btn-primary btn-sm"
+            onclick={saveAISettings}
+            disabled={savingAI}
+          >
+            {#if savingAI}
+              <span class="loading loading-spinner loading-xs"></span>
+            {:else}
+              <Save size={14} />
+            {/if}
+            {aiSaved ? 'Salvat!' : 'Salvează setările AI'}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-info max-w-xl">
+      <Sparkles size={16} />
+      <div class="text-sm">
+        <strong>Cum funcționează:</strong> La fiecare create/update, Zveltio generează automat
+        un embedding pentru câmpul selectat (sau pentru toate câmpurile text) și îl stochează
+        în <code>zvd_ai_embeddings</code>. Căutarea semantică returnează recordurile ordonate
+        după similaritate cosine.
+      </div>
     </div>
   {/if}
 </div>

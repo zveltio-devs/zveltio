@@ -1,19 +1,26 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
-  import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate } from '@lucide/svelte';
+  import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search } from '@lucide/svelte';
 
   let providers = $state<any[]>([]);
   let chats = $state<any[]>([]);
   let templates = $state<any[]>([]);
   let activeChat = $state<any>(null);
   let loading = $state(true);
-  let activeTab = $state<'chat' | 'templates' | 'settings'>('chat');
+  let activeTab = $state<'chat' | 'templates' | 'settings' | 'search'>('chat');
 
   // Chat state
   let input = $state('');
   let sending = $state(false);
   let messages = $state<Array<{ role: string; content: string }>>([]);
+
+  // Semantic search state
+  let searchCollection = $state('');
+  let searchQuery = $state('');
+  let searchResults = $state<any[]>([]);
+  let searching = $state(false);
+  let searchError = $state('');
 
   // Provider form
   let showProviderForm = $state(false);
@@ -93,6 +100,25 @@
     }
   }
 
+  async function semanticSearch() {
+    if (!searchCollection.trim() || !searchQuery.trim()) return;
+    searching = true;
+    searchError = '';
+    searchResults = [];
+    try {
+      const res = await api.post<{ results: any[]; total: number }>('/api/ai/search', {
+        collection: searchCollection.trim(),
+        query: searchQuery.trim(),
+        limit: 10,
+      });
+      searchResults = res.results || [];
+    } catch (err: any) {
+      searchError = err.message || 'Search failed';
+    } finally {
+      searching = false;
+    }
+  }
+
   async function runTemplate(template: any) {
     const vars: Record<string, string> = {};
     const varDefs: any[] = typeof template.variables === 'string'
@@ -141,6 +167,13 @@
         >
           <Settings2 size={12} />
           Settings
+        </button>
+        <button
+          class="btn btn-xs flex-1 {activeTab === 'search' ? 'btn-primary' : 'btn-ghost'}"
+          onclick={() => (activeTab = 'search')}
+        >
+          <Search size={12} />
+          Search
         </button>
       </div>
     </div>
@@ -196,6 +229,43 @@
         {#if templates.length === 0}
           <p class="text-xs text-center text-base-content/40 py-4">No templates</p>
         {/if}
+      </div>
+
+    {:else if activeTab === 'search'}
+      <div class="flex-1 p-3 space-y-3">
+        <p class="text-xs text-base-content/60">
+          Caută semantic în colecțiile cu AI Search activat.
+        </p>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Colecție</span></label>
+          <input
+            type="text"
+            class="input input-bordered input-xs"
+            placeholder="ex: articles"
+            bind:value={searchCollection}
+          />
+        </div>
+        <div class="form-control">
+          <label class="label py-1"><span class="label-text text-xs">Query semantic</span></label>
+          <textarea
+            class="textarea textarea-bordered textarea-xs resize-none"
+            rows={3}
+            placeholder="ex: articole despre machine learning în producție"
+            bind:value={searchQuery}
+          ></textarea>
+        </div>
+        <button
+          class="btn btn-primary btn-sm w-full"
+          onclick={semanticSearch}
+          disabled={searching || !searchCollection || !searchQuery}
+        >
+          {#if searching}
+            <span class="loading loading-spinner loading-xs"></span>
+          {:else}
+            <Search size={12} />
+          {/if}
+          Caută
+        </button>
       </div>
 
     {:else if activeTab === 'settings'}
@@ -328,6 +398,59 @@
           </div>
         </div>
       {/if}
+    {:else if activeTab === 'search'}
+      <div class="flex-1 overflow-y-auto p-6">
+        {#if searchError}
+          <div class="alert alert-error mb-4 text-sm">{searchError}</div>
+        {/if}
+        {#if searching}
+          <div class="flex justify-center py-12">
+            <span class="loading loading-spinner loading-lg text-primary"></span>
+          </div>
+        {:else if searchResults.length > 0}
+          <div class="space-y-3">
+            <p class="text-sm text-base-content/60">{searchResults.length} rezultate pentru <strong>"{searchQuery}"</strong> în <code class="text-primary">{searchCollection}</code></p>
+            {#each searchResults as result}
+              <div class="card bg-base-200 hover:bg-base-300 transition-colors">
+                <div class="card-body p-4">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex-1 min-w-0">
+                      <p class="font-mono text-xs text-base-content/50 mb-1">{result.id}</p>
+                      {#each Object.entries(result).filter(([k]) => !['id', 'created_at', 'updated_at', 'created_by', 'updated_by', '_score'].includes(k)) as [key, val]}
+                        {#if val != null && String(val).length > 0}
+                          <div class="flex gap-2 text-sm mb-0.5">
+                            <span class="text-base-content/50 shrink-0 font-medium">{key}:</span>
+                            <span class="truncate">{String(val).slice(0, 200)}</span>
+                          </div>
+                        {/if}
+                      {/each}
+                    </div>
+                    {#if result._score != null}
+                      <div class="badge badge-primary badge-outline shrink-0 text-xs">
+                        {(result._score * 100).toFixed(1)}%
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {:else if searchQuery && !searching}
+          <div class="flex flex-col items-center justify-center py-16 text-base-content/40 gap-3">
+            <Search size={40} class="opacity-20" />
+            <p>Niciun rezultat. Verifică că AI Search e activat pe colecție.</p>
+          </div>
+        {:else}
+          <div class="flex flex-col items-center justify-center py-16 text-base-content/40 gap-3">
+            <Search size={48} class="opacity-20" />
+            <p class="text-lg font-semibold">Semantic Search</p>
+            <p class="text-sm text-center max-w-sm">
+              Introdu o colecție și un query în sidebar pentru a căuta semantic în recorduri.
+              AI Search trebuie activat pe colecție (Collections → AI Search tab).
+            </p>
+          </div>
+        {/if}
+      </div>
     {:else}
       <div class="flex-1 flex items-center justify-center text-base-content/40">
         <p>Select a tab on the left</p>

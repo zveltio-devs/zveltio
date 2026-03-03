@@ -3,10 +3,6 @@
  *
  * POST /api/sync/push — batch de operații de la client (offline writes)
  * POST /api/sync/pull — client cere changes de la un timestamp
- *
- * NOTA PERFORMANȚĂ: Bucla secvențială din /push e OK pentru MVP.
- * La v2.1, refactorizează în batch upsert (INSERT INTO ... ON CONFLICT)
- * grupat pe colecție, pentru a gestiona eficient batch-uri de 500+ operații.
  */
 
 import { Hono } from 'hono';
@@ -37,6 +33,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     }
 
     const { operations } = body;
+
+    // DDoS protection: limită batch size
+    if (operations.length > 500) {
+      return c.json({ error: 'Batch too large. Maximum 500 operations per push.' }, 400);
+    }
+
     const results: Array<{
       recordId: string;
       status: 'ok' | 'conflict' | 'error';
@@ -45,40 +47,49 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       error?: string;
     }> = [];
 
-    for (const op of operations) {
-      const { collection, recordId, operation, payload } = op;
+    // Grupăm create-urile per colecție pentru batch insert
+    const createsByCollection = new Map<string, Array<{ recordId: string; payload: any }>>();
+    const nonCreateOps: typeof operations = [];
 
-      if (!collection || !recordId || !operation) {
-        results.push({ recordId: recordId || 'unknown', status: 'error', error: 'Missing required fields' });
+    for (const op of operations) {
+      if (!op.collection || !op.recordId || !op.operation) {
+        results.push({ recordId: op.recordId || 'unknown', status: 'error', error: 'Missing required fields' });
         continue;
       }
+      if (op.operation === 'create') {
+        const list = createsByCollection.get(op.collection) ?? [];
+        list.push({ recordId: op.recordId, payload: op.payload });
+        createsByCollection.set(op.collection, list);
+      } else {
+        nonCreateOps.push(op);
+      }
+    }
 
+    // Batch insert per colecție — un singur INSERT cu ON CONFLICT DO NOTHING
+    const now = Date.now();
+    for (const [collection, creates] of createsByCollection) {
+      try {
+        const records = creates.map(({ recordId, payload }) => ({ id: recordId, ...payload }));
+        await db
+          .insertInto(collection as any)
+          .values(records as any)
+          .onConflict((oc) => oc.column('id').doNothing())
+          .execute();
+        for (const { recordId } of creates) {
+          results.push({ recordId, status: 'ok', serverVersion: now });
+        }
+      } catch (err: any) {
+        for (const { recordId } of creates) {
+          results.push({ recordId, status: 'error', error: err.message || 'Database error' });
+        }
+      }
+    }
+
+    // Update și delete rămân secvențiale
+    for (const op of nonCreateOps) {
+      const { collection, recordId, operation, payload } = op;
       try {
         switch (operation) {
-          case 'create': {
-            const existing = await db
-              .selectFrom(collection as any)
-              .selectAll()
-              .where('id' as any, '=', recordId)
-              .executeTakeFirst();
-
-            if (existing) {
-              results.push({
-                recordId,
-                status: 'conflict',
-                serverVersion: Date.now(),
-                serverData: existing,
-              });
-            } else {
-              await db
-                .insertInto(collection as any)
-                .values({ id: recordId, ...payload } as any)
-                .execute();
-              results.push({ recordId, status: 'ok', serverVersion: Date.now() });
-            }
-            break;
-          }
-
           case 'update': {
             await db
               .updateTable(collection as any)

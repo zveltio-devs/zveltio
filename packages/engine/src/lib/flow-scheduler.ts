@@ -9,10 +9,12 @@
 
 import type { Database } from '../db/index.js';
 import { executeFlow } from './flow-executor.js';
+import { scheduleGarbageCollector } from './garbage-collector.js';
 
 let _db: Database | null = null;
 let _running = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
+let _stopGC: (() => void) | null = null;
 
 export const flowScheduler = {
   /**
@@ -30,6 +32,11 @@ export const flowScheduler = {
     _timer = setInterval(() => {
       this._tick().catch(() => {});
     }, 60_000);
+
+    // Garbage collector — rulează zilnic la 03:00
+    if (_db) {
+      _stopGC = scheduleGarbageCollector(_db);
+    }
   },
 
   stop(): void {
@@ -37,6 +44,10 @@ export const flowScheduler = {
     if (_timer) {
       clearInterval(_timer);
       _timer = null;
+    }
+    if (_stopGC) {
+      _stopGC();
+      _stopGC = null;
     }
   },
 

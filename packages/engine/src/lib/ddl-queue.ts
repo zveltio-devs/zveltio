@@ -68,6 +68,33 @@ async function processNextJob(): Promise<void> {
 
     // Execute DDL inside a transaction — on failure, everything rolls back atomically
     await (_db as any).transaction().execute(async (trx: any) => {
+      // BYOD Guard: blocăm DDL pe colecții unmanaged (drop, add_field, remove_field)
+      const byodSensitiveTypes = ['drop_collection', 'add_field', 'remove_field'];
+      if (byodSensitiveTypes.includes((job as any).type)) {
+        const collectionName: string | undefined = payload.collection ?? payload.name;
+        if (collectionName) {
+          const meta = await trx
+            .selectFrom('zvd_collections' as any)
+            .select('is_managed' as any)
+            .where('name' as any, '=', collectionName)
+            .executeTakeFirst()
+            .catch(() => null);
+
+          if (meta && (meta as any).is_managed === false) {
+            await trx
+              .updateTable('zv_ddl_jobs' as any)
+              .set({
+                status: 'completed',
+                completed_at: new Date(),
+                error: `Skipped: collection "${collectionName}" is unmanaged (BYOD). DDL not allowed.`,
+              } as any)
+              .where('id' as any, '=', (job as any).id)
+              .execute();
+            return;
+          }
+        }
+      }
+
       switch ((job as any).type) {
         case 'create_collection':
           await DDLManager.createCollection(trx, payload);

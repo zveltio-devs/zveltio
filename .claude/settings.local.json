@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -l \"Bun\\\\.\" /c/Users/Liviu/zveltio-ecosystem/zveltio/packages/engine/src/routes/*.ts)",
+      "Bash(python3 -c \":*)",
+      "Bash(bun run --cwd packages/engine tsc --noEmit)"
+    ]
+  }
+}

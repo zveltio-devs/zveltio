@@ -36,6 +36,8 @@ export const CollectionSchema = z.object({
   fields: z.array(FieldSchema).min(1),
   description: z.string().optional(),
   singularName: z.string().optional(),
+  aiSearchEnabled: z.boolean().optional(),
+  aiSearchField: z.string().nullable().optional(),
 });
 
 export type CollectionDefinition = z.infer<typeof CollectionSchema>;
@@ -221,6 +223,8 @@ export class DDLManager {
         ...(updates.icon ? { icon: updates.icon } : {}),
         ...(updates.description !== undefined ? { description: updates.description } : {}),
         ...(updates.fields ? { fields: JSON.stringify(updates.fields) } : {}),
+        ...(updates.aiSearchEnabled !== undefined ? { ai_search_enabled: updates.aiSearchEnabled } : {}),
+        ...(updates.aiSearchField !== undefined ? { ai_search_field: updates.aiSearchField } : {}),
         updated_at: new Date(),
       } as any)
       .where('name' as any, '=', name)

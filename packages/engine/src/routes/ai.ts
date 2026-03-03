@@ -299,6 +299,68 @@ export function aiRoutes(db: Database, auth: any): Hono {
     },
   );
 
+  // ── Semantic search ───────────────────────────────────────────
+
+  // POST /search — Semantic search în embeddings-urile unei colecții
+  app.post(
+    '/search',
+    zValidator('json', z.object({
+      collection: z.string().min(1),
+      query: z.string().min(1),
+      limit: z.number().int().min(1).max(50).default(10),
+      provider: z.string().optional(),
+      model: z.string().optional(),
+    })),
+    async (c) => {
+      const { collection, query, limit, provider: providerName, model } = c.req.valid('json');
+
+      const provider = providerName
+        ? aiProviderManager.get(providerName)
+        : aiProviderManager.getDefault();
+
+      if (!provider?.embed) {
+        return c.json({ error: 'No embedding provider configured' }, 503);
+      }
+
+      try {
+        const { embedding } = await provider.embed(query, model);
+        const vectorLiteral = JSON.stringify(embedding);
+
+        // Top-k per cosine similarity (operatorul <=> = cosine distance)
+        const embResults = await sql<{ record_id: string; score: number }>`
+          SELECT
+            record_id,
+            1 - (embedding <=> ${vectorLiteral}::vector) AS score
+          FROM zvd_ai_embeddings
+          WHERE collection = ${collection}
+          ORDER BY embedding <=> ${vectorLiteral}::vector
+          LIMIT ${limit}
+        `.execute(db);
+
+        if (embResults.rows.length === 0) return c.json({ results: [], total: 0 });
+
+        const ids = embResults.rows.map((r) => r.record_id);
+        const tableName = `zvd_${collection}`;
+
+        // Fetch datele complete din tabelul colecției
+        const records = await sql<any>`
+          SELECT * FROM ${sql.id(tableName)}
+          WHERE id = ANY(${ids}::text[])
+        `.execute(db).catch(() => ({ rows: [] as any[] }));
+
+        // Merge scorul în fiecare record + sortare descrescătoare
+        const scoreMap = new Map(embResults.rows.map((r) => [r.record_id, Number(r.score)]));
+        const results = records.rows
+          .map((r: any) => ({ ...r, _score: scoreMap.get(r.id) ?? 0 }))
+          .sort((a: any, b: any) => b._score - a._score);
+
+        return c.json({ results, total: results.length });
+      } catch (err: any) {
+        return c.json({ error: err.message || 'Search failed' }, 500);
+      }
+    },
+  );
+
   // ── Admin: Provider management ────────────────────────────────
 
   // POST /admin/providers — Add/update AI provider config (admin)

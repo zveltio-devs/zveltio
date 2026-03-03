@@ -23,33 +23,43 @@ export interface SyncQueueItem {
   error?: string;
 }
 
+export interface OfflineBlob {
+  id: string;           // 'local_blob_<UUID>'
+  blob: Blob;
+  collection: string;
+  recordId: string;
+  field: string;        // câmpul din record care referențiază blob-ul
+  createdAt: number;
+}
+
 const DB_NAME = 'zveltio_local';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // v2: added offline_blobs store
 
 export class LocalStore {
   private db: IDBPDatabase | null = null;
 
   async open(): Promise<void> {
     this.db = await openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        // Store pentru date locale (mirror al colecțiilor server)
-        if (!db.objectStoreNames.contains('records')) {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          // Store pentru date locale (mirror al colecțiilor server)
           const store = db.createObjectStore('records', { keyPath: ['collection', 'id'] });
           store.createIndex('by-collection', 'collection');
           store.createIndex('by-sync-status', '_syncStatus');
           store.createIndex('by-updated', '_updatedAt');
-        }
 
-        // Coadă de sincronizare (operații pending)
-        if (!db.objectStoreNames.contains('sync_queue')) {
+          // Coadă de sincronizare (operații pending)
           const queue = db.createObjectStore('sync_queue', { keyPath: 'id' });
           queue.createIndex('by-collection', 'collection');
           queue.createIndex('by-created', 'createdAt');
+
+          // Metadata per colecție (last sync timestamp, etc.)
+          db.createObjectStore('meta', { keyPath: 'key' });
         }
 
-        // Metadata per colecție (last sync timestamp, etc.)
-        if (!db.objectStoreNames.contains('meta')) {
-          db.createObjectStore('meta', { keyPath: 'key' });
+        if (oldVersion < 2) {
+          // Blobs salvate offline — se uploadează la prima reconectare
+          db.createObjectStore('offline_blobs', { keyPath: 'id' });
         }
       },
     });
@@ -222,13 +232,35 @@ export class LocalStore {
     }
   }
 
+  /** Salvează un blob offline — returnează un ID temporar 'local_blob_<UUID>' */
+  async saveBlob(blob: Blob, collection: string, recordId: string, field: string): Promise<string> {
+    if (!this.db) throw new Error('LocalStore not opened');
+    const id = `local_blob_${crypto.randomUUID()}`;
+    const item: OfflineBlob = { id, blob, collection, recordId, field, createdAt: Date.now() };
+    await this.db.put('offline_blobs', item);
+    return id;
+  }
+
+  /** Returnează toate blob-urile offline pending */
+  async getPendingBlobs(): Promise<OfflineBlob[]> {
+    if (!this.db) throw new Error('LocalStore not opened');
+    return this.db.getAll('offline_blobs') as Promise<OfflineBlob[]>;
+  }
+
+  /** Șterge un blob offline după upload reușit */
+  async deleteBlob(id: string): Promise<void> {
+    if (!this.db) throw new Error('LocalStore not opened');
+    await this.db.delete('offline_blobs', id);
+  }
+
   /** Curăță toate datele locale */
   async clear(): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const tx = this.db.transaction(['records', 'sync_queue', 'meta'], 'readwrite');
+    const tx = this.db.transaction(['records', 'sync_queue', 'meta', 'offline_blobs'], 'readwrite');
     await tx.objectStore('records').clear();
     await tx.objectStore('sync_queue').clear();
     await tx.objectStore('meta').clear();
+    await tx.objectStore('offline_blobs').clear();
     await tx.done;
   }
 

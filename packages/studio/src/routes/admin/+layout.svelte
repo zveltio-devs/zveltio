@@ -9,7 +9,7 @@
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
     Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot,
-    Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare
+    Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare, ScanSearch
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
@@ -47,6 +47,7 @@
     { href: `${base}/flows`, icon: Workflow, label: 'Flows' },
     { href: `${base}/pages`, icon: Layout, label: 'Pages' },
     { href: `${base}/backup`, icon: DatabaseBackup, label: 'Backup' },
+    { href: `${base}/introspect`, icon: ScanSearch, label: 'BYOD Import' },
     { href: `${base}/notifications`, icon: Bell, label: 'Notifications' },
     { href: `${base}/ai`, icon: Bot, label: 'AI Assistant' },
     { href: `${base}/marketplace`, icon: Package, label: 'Marketplace' },

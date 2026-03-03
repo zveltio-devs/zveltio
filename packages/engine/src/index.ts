@@ -152,7 +152,7 @@ async function bootstrap() {
     }
 
     if (fileContent === null) {
-      return c.text('Studio not built. Run: pnpm build:studio', 404);
+      return c.text('Studio not built. Run: bun run build:studio', 404);
     }
 
     c.header('Content-Type', getContentType(path));

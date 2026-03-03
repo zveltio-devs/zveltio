@@ -4,7 +4,7 @@ FROM oven/bun:1 AS studio-builder
 WORKDIR /app
 
 # Copy workspace root and studio package
-COPY package.json pnpm-workspace.yaml turbo.json ./
+COPY package.json turbo.json ./
 COPY packages/studio/package.json ./packages/studio/
 COPY packages/sdk/package.json ./packages/sdk/
 
@@ -25,7 +25,7 @@ FROM oven/bun:1 AS engine-builder
 WORKDIR /app
 
 # Copy workspace root
-COPY package.json pnpm-workspace.yaml turbo.json ./
+COPY package.json turbo.json ./
 COPY packages/engine/package.json ./packages/engine/
 COPY packages/sdk/package.json ./packages/sdk/
 

@@ -164,6 +164,30 @@ export class SyncManager {
     this.isSyncing = true;
 
     try {
+      // Pasul 1: Uploadează blob-urile offline ÎNAINTE de sync records
+      const pendingBlobs = await this.store.getPendingBlobs();
+      for (const blobItem of pendingBlobs) {
+        try {
+          const file = new File([blobItem.blob], `offline_${blobItem.id}`, { type: blobItem.blob.type });
+          const result = await this.client.storage.upload(file) as any;
+          const url: string = result?.url || result?.publicUrl || result?.path || '';
+          if (!url) continue; // Upload a returnat fără URL — skip
+
+          // Înlocuiește referința local_blob_* cu URL-ul real în record
+          const record = await this.store.get(blobItem.collection, blobItem.recordId);
+          if (record && record.data[blobItem.field] === blobItem.id) {
+            await this.store.put(blobItem.collection, blobItem.recordId, {
+              ...record.data,
+              [blobItem.field]: url,
+            });
+          }
+
+          await this.store.deleteBlob(blobItem.id);
+        } catch {
+          // Offline sau eroare de upload — skip, retry la next sync cycle
+        }
+      }
+
       const pending = await this.store.getPendingOps();
 
       for (const op of pending) {

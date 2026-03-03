@@ -284,6 +284,20 @@ export class GhostDDL {
     ddlStatements: string[],
     onProgress?: (phase: string, detail: string) => void,
   ): Promise<void> {
+    // BYOD Guard: nu executăm Ghost DDL pe tabele unmanaged
+    const collectionName = tableName.replace(/^zvd_/, '');
+    const meta = await (db as any)
+      .selectFrom('zvd_collections')
+      .select('is_managed')
+      .where('name', '=', collectionName)
+      .executeTakeFirst()
+      .catch(() => null);
+
+    if (meta && meta.is_managed === false) {
+      onProgress?.('skipped', `Table "${tableName}" is unmanaged (BYOD). No DDL allowed.`);
+      return;
+    }
+
     onProgress?.('creating', `Creating ghost table and changelog trigger for "${tableName}"`);
     const migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
 
