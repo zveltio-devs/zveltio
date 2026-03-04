@@ -1,6 +1,9 @@
 import { createInterface } from 'readline';
 
-async function prompt(rl: ReturnType<typeof createInterface>, question: string): Promise<string> {
+async function prompt(
+  rl: ReturnType<typeof createInterface>,
+  question: string,
+): Promise<string> {
   return new Promise((resolve) => {
     rl.question(question, resolve);
   });
@@ -39,16 +42,21 @@ async function promptHidden(question: string): Promise<string> {
   });
 }
 
-export async function createGodCommand(opts: { url?: string; email?: string; name?: string }) {
-  const engineUrl = opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
+export async function createGodCommand(opts: {
+  url?: string;
+  email?: string;
+  name?: string;
+}) {
+  const engineUrl =
+    opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
 
   console.log(`\nCreating God (super-admin) user at ${engineUrl}\n`);
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   try {
-    const email = opts.email || await prompt(rl, 'Email: ');
-    const name = opts.name || await prompt(rl, 'Name: ');
+    const email = opts.email || (await prompt(rl, 'Email: '));
+    const name = opts.name || (await prompt(rl, 'Name: '));
     rl.close();
 
     const password = await promptHidden('Password: ');
@@ -75,7 +83,11 @@ export async function createGodCommand(opts: { url?: string; email?: string; nam
     const res = await fetch(`${engineUrl}/api/auth/sign-up/email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), password, name: name.trim() }),
+      body: JSON.stringify({
+        email: email.trim(),
+        password,
+        name: name.trim(),
+      }),
     });
 
     if (!res.ok) {
@@ -87,7 +99,7 @@ export async function createGodCommand(opts: { url?: string; email?: string; nam
 
     // Grant admin permission via Casbin through a direct DB call
     // We use the engine's admin API (requires the engine to be running)
-    console.log('🔑 Granting admin permissions...');
+    console.log('🔑 Granting god permissions...');
 
     // First get a session token by signing in
     const loginRes = await fetch(`${engineUrl}/api/auth/sign-in/email`, {
@@ -97,7 +109,9 @@ export async function createGodCommand(opts: { url?: string; email?: string; nam
     });
 
     if (!loginRes.ok) {
-      console.warn('⚠️  Could not auto-grant admin role — grant manually via permissions API');
+      console.warn(
+        '⚠️  Could not auto-grant admin role — grant manually via permissions API',
+      );
       console.log(`\n✅ User created: ${email}\n`);
       return;
     }
@@ -111,19 +125,21 @@ export async function createGodCommand(opts: { url?: string; email?: string; nam
         'Content-Type': 'application/json',
         Cookie: sessionCookie,
       },
-      body: JSON.stringify({ userId: user.id, role: 'admin' }),
+      body: JSON.stringify({ userId: user.id, role: 'god' }),
     });
 
     if (permRes.ok) {
       console.log(`\n✅ God user created successfully!`);
       console.log(`   Email: ${email.trim()}`);
       console.log(`   Name:  ${name.trim()}`);
-      console.log(`   Role:  admin\n`);
+      console.log(`   Role:  god\n`);
       console.log(`👉 Log in at: ${engineUrl}/admin\n`);
     } else {
       console.log(`\n✅ User created: ${email.trim()}`);
-      console.warn('⚠️  Could not auto-assign admin role.');
-      console.warn('   Use the Permissions page in Studio to assign the admin role manually.\n');
+      console.warn('⚠️  Could not auto-assign god role.');
+      console.warn(
+        '   Use the Permissions page in Studio to assign the admin role manually.\n',
+      );
     }
   } catch (err: any) {
     rl.close();

@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dynamic Collections - Zveltio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #12121a;
+        --bg-card: #1a1a24;
+        --accent-primary: #6366f1;
+        --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #2e2e3a;
+        --success: #10b981;
+        --code-bg: #0d0d12;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+      }
+
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 1rem 2rem;
+        background: rgba(10, 10, 15, 0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-decoration: none;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+      }
+
+      nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: color 0.2s;
+        margin-left: 1.5rem;
+      }
+
+      nav a:hover {
+        color: var(--text-primary);
+      }
+      nav a.active {
+        color: var(--accent-primary);
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 8rem 2rem 4rem;
+      }
+
+      h1 {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 1.5rem;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      h2 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 3rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.5rem 0 0.75rem;
+      }
+
+      p {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+      }
+
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--code-bg);
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.9em;
+        color: var(--accent-primary);
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        line-height: 1.7;
+      }
+
+      .comment {
+        color: #546e7a;
+      }
+      .string {
+        color: #c3e88d;
+      }
+      .number {
+        color: #f78c6c;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      th {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      td {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .toc {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .toc h3 {
+        margin-top: 0;
+        font-size: 1rem;
+        color: var(--text-primary);
+      }
+      .toc ul {
+        list-style: none;
+        margin-top: 1rem;
+      }
+      .toc li {
+        margin: 0.5rem 0;
+      }
+      .toc a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .toc a:hover {
+        color: var(--accent-primary);
+      }
+
+      .info-box {
+        background: rgba(99, 102, 241, 0.1);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      footer {
+        text-align: center;
+        padding: 3rem 2rem;
+        border-top: 1px solid var(--border-color);
+        margin-top: 4rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-content">
+        <a href="index.html" class="logo">
+          <div class="logo-icon">⚡</div>
+          Zveltio
+        </a>
+        <nav>
+          <a href="index.html">Home</a>
+          <a href="ARCHITECTURE.html">Architecture</a>
+          <a href="COLLECTIONS.html" class="active">Collections</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Dynamic Collections</h1>
+      <p>
+        Create database tables without code using Zveltio's dynamic collections
+        system.
+      </p>
+
+      <div class="toc">
+        <h3>Table of Contents</h3>
+        <ul>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#field-types">Field Types</a></li>
+          <li><a href="#api">API Endpoints</a></li>
+          <li><a href="#relationships">Relationships</a></li>
+          <li><a href="#validation">Validation</a></li>
+        </ul>
+      </div>
+
+      <h2 id="overview">Overview</h2>
+      <p>
+        Dynamic Collections allow you to create database tables through the API
+        without writing SQL. Each collection represents a database table, and
+        fields define the columns.
+      </p>
+
+      <div class="info-box">
+        <strong>💡 Zero DDL Downtime</strong><br />
+        Zveltio creates tables and columns without locking the database,
+        ensuring your application stays available during schema changes.
+      </div>
+
+      <h3>Creating a Collection</h3>
+      <pre><code>POST /api/collections
+{
+  <span class="string">"name"</span>: <span class="string">"products"</span>,
+  <span class="string">"fields"</span>: [
+    { <span class="string">"name"</span>: <span class="string">"title"</span>, <span class="string">"type"</span>: <span class="string">"text"</span>, <span class="string">"required"</span>: <span class="keyword">true</span> },
+    { <span class="string">"name"</span>: <span class="string">"price"</span>, <span class="string">"type"</span>: <span class="string">"number"</span>, <span class="string">"required"</span>: <span class="keyword">true</span> },
+    { <span class="string">"name"</span>: <span class="string">"description"</span>, <span class="string">"type"</span>: <span class="string">"richtext"</span> },
+    { <span class="string">"name"</span>: <span class="string">"in_stock"</span>, <span class="string">"type"</span>: <span class="string">"boolean"</span>, <span class="string">"default"</span>: <span class="keyword">true</span> }
+  ]
+}</code></pre>
+
+      <h2 id="field-types">Field Types</h2>
+      <table>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Options</th>
+        </tr>
+        <tr>
+          <td><code>text</code></td>
+          <td>Short text ( VARCHAR )</td>
+          <td>maxLength, required</td>
+        </tr>
+        <tr>
+          <td><code>richtext</code></td>
+          <td>Long text ( TEXT )</td>
+          <td>required</td>
+        </tr>
+        <tr>
+          <td><code>number</code></td>
+          <td>Integer or decimal</td>
+          <td>precision, scale, required</td>
+        </tr>
+        <tr>
+          <td><code>boolean</code></td>
+          <td>true/false</td>
+          <td>default</td>
+        </tr>
+        <tr>
+          <td><code>date</code></td>
+          <td>Date without time</td>
+          <td>required</td>
+        </tr>
+        <tr>
+          <td><code>datetime</code></td>
+          <td>Date with time</td>
+          <td>required</td>
+        </tr>
+        <tr>
+          <td><code>email</code></td>
+          <td>Email address</td>
+          <td>required</td>
+        </tr>
+        <tr>
+          <td><code>url</code></td>
+          <td>URL</td>
+          <td>required</td>
+        </tr>
+        <tr>
+          <td><code>json</code></td>
+          <td>JSON object</td>
+          <td>required</td>
+        </tr>
+        <tr>
+          <td><code>file</code></td>
+          <td>File reference</td>
+          <td>required</td>
+        </tr>
+        <tr>
+          <td><code>reference</code></td>
+          <td>Relation to another collection</td>
+          <td>collection, required</td>
+        </tr>
+      </table>
+
+      <h2 id="api">API Endpoints</h2>
+
+      <h3>Create Collection</h3>
+      <pre><code>POST /api/collections</code></pre>
+
+      <h3>List Collections</h3>
+      <pre><code>GET /api/collections</code></pre>
+
+      <h3>Get Collection</h3>
+      <pre><code>GET /api/collections/:name</code></pre>
+
+      <h3>Update Collection</h3>
+      <pre><code>PATCH /api/collections/:name</code></pre>
+
+      <h3>Delete Collection</h3>
+      <pre><code>DELETE /api/collections/:name</code></pre>
+
+      <h3>CRUD Operations</h3>
+      <pre><code><span class="comment"># Create record</span>
+POST /api/data/:collection
+
+<span class="comment"># List records</span>
+GET /api/data/:collection
+
+<span class="comment"># Get record</span>
+GET /api/data/:collection/:id
+
+<span class="comment"># Update record</span>
+PATCH /api/data/:collection/:id
+
+<span class="comment"># Delete record</span>
+DELETE /api/data/:collection/:id</code></pre>
+
+      <h2 id="relationships">Relationships</h2>
+      <p>Create relationships between collections using reference fields:</p>
+
+      <pre><code>{
+  <span class="string">"name"</span>: <span class="string">"products"</span>,
+  <span class="string">"fields"</span>: [
+    { <span class="string">"name"</span>: <span class="string">"category"</span>, <span class="string">"type"</span>: <span class="string">"reference"</span>, <span class="string">"reference"</span>: <span class="string">"categories"</span> }
+  ]
+}</code></pre>
+
+      <h2 id="validation">Validation</h2>
+      <p>Add validation rules to fields:</p>
+
+      <pre><code>{
+  <span class="string">"name"</span>: <span class="string">"email"</span>,
+  <span class="string">"type"</span>: <span class="string">"email"</span>,
+  <span class="string">"required"</span>: <span class="keyword">true</span>,
+  <span class="string">"unique"</span>: <span class="keyword">true</span>
+}</code></pre>
+    </div>
+
+    <footer>
+      <p>&copy; 2026 Zveltio. Built with Bun + Hono.</p>
+    </footer>
+  </body>
+</html>

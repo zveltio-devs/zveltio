@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Security - Zveltio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #12121a;
+        --bg-card: #1a1a24;
+        --accent-primary: #6366f1;
+        --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #2e2e3a;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --code-bg: #0d0d12;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+      }
+
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 1rem 2rem;
+        background: rgba(10, 10, 15, 0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-decoration: none;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+      }
+
+      nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: color 0.2s;
+        margin-left: 1.5rem;
+      }
+
+      nav a:hover {
+        color: var(--text-primary);
+      }
+      nav a.active {
+        color: var(--accent-primary);
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 8rem 2rem 4rem;
+      }
+
+      h1 {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 1.5rem;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      h2 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 3rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.5rem 0 0.75rem;
+      }
+
+      p {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+      }
+
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--code-bg);
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.9em;
+        color: var(--accent-primary);
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        line-height: 1.7;
+      }
+
+      .keyword {
+        color: #c792ea;
+      }
+      .comment {
+        color: #546e7a;
+      }
+      .string {
+        color: #c3e88d;
+      }
+      .number {
+        color: #f78c6c;
+      }
+
+      .info-box {
+        background: rgba(99, 102, 241, 0.1);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      .warning-box {
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      .danger-box {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      .success-box {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      th {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      td {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .toc {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .toc h3 {
+        margin-top: 0;
+        font-size: 1rem;
+        color: var(--text-primary);
+      }
+      .toc ul {
+        list-style: none;
+        margin-top: 1rem;
+      }
+      .toc li {
+        margin: 0.5rem 0;
+      }
+      .toc a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .toc a:hover {
+        color: var(--accent-primary);
+      }
+
+      .checklist {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      .checklist h3 {
+        margin-top: 0;
+      }
+      .checklist ul {
+        list-style: none;
+      }
+      .checklist li {
+        padding: 0.5rem 0;
+        padding-left: 1.5rem;
+        position: relative;
+      }
+      .checklist li::before {
+        content: '☐';
+        position: absolute;
+        left: 0;
+        color: var(--accent-primary);
+      }
+
+      footer {
+        text-align: center;
+        padding: 3rem 2rem;
+        border-top: 1px solid var(--border-color);
+        margin-top: 4rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-content">
+        <a href="index.html" class="logo">
+          <div class="logo-icon">⚡</div>
+          Zveltio
+        </a>
+        <nav>
+          <a href="index.html">Home</a>
+          <a href="INSTALLATION.html">Installation</a>
+          <a href="ARCHITECTURE.html">Architecture</a>
+          <a href="SECURITY.html" class="active">Security</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Security Guide</h1>
+      <p>Security best practices and hardening guide for Zveltio.</p>
+
+      <div class="toc">
+        <h3>Table of Contents</h3>
+        <ul>
+          <li><a href="#overview">Security Overview</a></li>
+          <li><a href="#authentication">Authentication Security</a></li>
+          <li><a href="#authorization">Authorization & RBAC</a></li>
+          <li><a href="#api">API Security</a></li>
+          <li><a href="#database">Database Security</a></li>
+          <li><a href="#network">Network Security</a></li>
+          <li><a href="#checklist">Security Checklist</a></li>
+          <li><a href="#incident">Incident Response</a></li>
+        </ul>
+      </div>
+
+      <h2 id="overview">Security Overview</h2>
+      <p>
+        Zveltio implements <strong>defense in depth</strong> security with
+        multiple layers:
+      </p>
+
+      <div class="info-box">
+        <pre><code>┌─────────────────────────────────────────┐
+│  Layer 1: Network (Firewall, SSL/TLS)  │
+├─────────────────────────────────────────┤
+│  Layer 2: Application (Rate Limiting)  │
+├─────────────────────────────────────────┤
+│  Layer 3: Authentication (Better-Auth)  │
+├─────────────────────────────────────────┤
+│  Layer 4: Authorization (Casbin RBAC)    │
+├─────────────────────────────────────────┤
+│  Layer 5: God Bypass (Special Role)     │
+├─────────────────────────────────────────┤
+│  Layer 6: Database (Encryption, RLS)     │
+├─────────────────────────────────────────┤
+│  Layer 7: Audit (Logging, Monitoring)   │
+└─────────────────────────────────────────┘</code></pre>
+      </div>
+
+      <p><strong>Security Principles:</strong></p>
+      <ul>
+        <li>✅ Least Privilege Access</li>
+        <li>✅ Zero Trust Architecture</li>
+        <li>✅ Defense in Depth</li>
+        <li>✅ Fail Secure (not fail open)</li>
+        <li>✅ Security by Default</li>
+      </ul>
+
+      <h2 id="authentication">Authentication Security</h2>
+
+      <h3>Password Security</h3>
+      <p><strong>Requirements enforced:</strong></p>
+      <ul>
+        <li>Minimum 8 characters</li>
+        <li>At least 1 uppercase letter</li>
+        <li>At least 1 lowercase letter</li>
+        <li>At least 1 number</li>
+        <li>At least 1 special character</li>
+      </ul>
+      <p>Passwords are hashed using bcrypt</p>
+
+      <h3>Session Security</h3>
+      <pre><code><span class="comment">// Session configuration (Better-Auth)</span>
+{
+  <span class="string">sessionMaxAge</span>: <span class="number">7</span> * <span class="number">24</span> * <span class="number">60</span> * <span class="number">60</span>, <span class="comment">// 7 days</span>
+  <span class="string">sessionUpdateAge</span>: <span class="number">24</span> * <span class="number">60</span> * <span class="number">60</span>,  <span class="comment">// Refresh daily</span>
+  <span class="string">sessionCookie</span>: {
+    <span class="string">httpOnly</span>: <span class="keyword">true</span>,        <span class="comment">// ✅ Prevent XSS</span>
+    <span class="string">secure</span>: <span class="keyword">true</span>,         <span class="comment">// ✅ HTTPS only</span>
+    <span class="string">sameSite</span>: <span class="string">'strict'</span>,   <span class="comment">// ✅ CSRF protection</span>
+    <span class="string">path</span>: <span class="string">'/'</span>
+  }
+}</code></pre>
+
+      <h3>Environment Variables</h3>
+      <pre><code><span class="comment"># Authentication - CRITICAL</span>
+<span class="string">BETTER_AUTH_SECRET</span>=CHANGE_ME_64_RANDOM_CHARACTERS
+<span class="string">BETTER_AUTH_URL</span>=https://api.yourdomain.com</code></pre>
+
+      <h3>Two-Factor Authentication (2FA)</h3>
+      <p><strong>Enable 2FA for:</strong></p>
+      <ul>
+        <li>✅ All admin users (REQUIRED)</li>
+        <li>✅ All users with sensitive data access</li>
+      </ul>
+
+      <h2 id="authorization">Authorization & RBAC</h2>
+
+      <h3>Casbin Policies</h3>
+      <p><strong>Default Secure Policies:</strong></p>
+      <pre><code><span class="comment"># p, subject, resource, action, scope</span>
+<span class="string">p, admin, *, *, ALL</span>
+<span class="string">p, manager, data, read, ORGANIZATION</span>
+<span class="string">p, manager, data, write, DEPARTMENT</span>
+<span class="string">p, employee, data, read, OWN</span></code></pre>
+
+      <h3>God Bypass</h3>
+      <p>
+        Zveltio has a special <strong>God bypass</strong> for emergency access:
+      </p>
+      <pre><code><span class="comment">// In permissions.ts - checked BEFORE Casbin</span>
+<span class="keyword">const</span> isGod = <span class="string">result</span>.<span class="string">rows</span>[<span class="number">0</span>]?.<span class="string">role</span> === <span class="string">'god'</span>;
+<span class="keyword">if</span> (isGod) <span class="keyword">return true</span>; <span class="comment">// Bypass all permission checks!</span></code></pre>
+
+      <div class="danger-box">
+        <strong>⚠️ Security Warning:</strong>
+        <ul>
+          <li>Only create ONE God user for emergency access</li>
+          <li>Use God account only when absolutely necessary</li>
+          <li>Monitor God user activity closely</li>
+        </ul>
+      </div>
+
+      <h3>Hardening</h3>
+      <ul>
+        <li>❌ Never grant <code>ALL</code> scope to non-admin users</li>
+        <li>✅ Use specific scopes (ORGANIZATION, DEPARTMENT, OWN)</li>
+        <li>✅ Review permissions quarterly</li>
+        <li>✅ Implement approval workflows for sensitive actions</li>
+      </ul>
+
+      <h2 id="api">API Security</h2>
+
+      <h3>Rate Limiting</h3>
+      <p>Default limits:</p>
+      <ul>
+        <li><strong>API:</strong> 100 requests/second</li>
+        <li><strong>Auth endpoints:</strong> 5 requests/minute</li>
+      </ul>
+
+      <h3>CORS Configuration</h3>
+      <pre><code><span class="comment">// NEVER use wildcard in production</span>
+app.<span class="string">use</span>(
+  <span class="string">'*'</span>,
+  <span class="string">cors</span>({
+    <span class="string">origin</span>: [<span class="string">'https://studio.yourdomain.com'</span>, <span class="string">'https://app.yourdomain.com'</span>],
+    <span class="string">credentials</span>: <span class="keyword">true</span>,
+    <span class="string">allowMethods</span>: [<span class="string">'GET'</span>, <span class="string">'POST'</span>, <span class="string">'PUT'</span>, <span class="string">'DELETE'</span>, <span class="string">'PATCH'</span>],
+    <span class="string">allowHeaders</span>: [<span class="string">'Content-Type'</span>, <span class="string">'Authorization'</span>],
+  }),
+);</code></pre>
+
+      <h3>Input Validation</h3>
+      <pre><code><span class="keyword">import</span> { <span class="string">z</span> } <span class="keyword">from</span> <span class="string">'zod'</span>;
+
+<span class="keyword">const</span> createUserSchema = <span class="string">z</span>.<span class="string">object</span>({
+  <span class="string">email</span>: <span class="string">z</span>.<span class="string">string</span>().<span class="string">email</span>(),
+  <span class="string">name</span>: <span class="string">z</span>.<span class="string">string</span>().<span class="string">min</span>(<span class="number">2</span>).<span class="string">max</span>(<span class="number">100</span>),
+  <span class="string">password</span>: <span class="string">z</span>
+    .<span class="string">string</span>()
+    .<span class="string">min</span>(<span class="number">8</span>)
+    .<span class="string">regex</span>(<span class="string">/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/</span>),
+});</code></pre>
+
+      <h3>SQL Injection Prevention</h3>
+      <p>Zveltio uses <strong>Kysely</strong> (parameterized queries):</p>
+      <pre><code><span class="comment">// ✅ SAFE - Parameterized</span>
+<span class="keyword">await</span> <span class="string">db</span>.<span class="string">selectFrom</span>(<span class="string">'users'</span>).<span class="string">where</span>(<span class="string">'email'</span>, <span class="string">'='</span>, userInput).<span class="string">execute</span>();
+
+<span class="comment">// ❌ NEVER DO THIS</span>
+<span class="keyword">await</span> <span class="string">sql</span>.<span class="string">raw</span>(<span class="string">`SELECT * FROM users WHERE email = '</span>${userInput}<span class="string">'`</span>);</code></pre>
+
+      <h2 id="database">Database Security</h2>
+
+      <h3>Connection Security</h3>
+      <pre><code><span class="comment"># Use SSL for database connections</span>
+<span class="string">DATABASE_SSL</span>=true
+<span class="string">DATABASE_SSL_REJECT_UNAUTHORIZED</span>=true</code></pre>
+
+      <h3>Connection Pooling with PgBouncer</h3>
+      <pre><code><span class="comment"># pgbouncer.ini</span>
+[<span class="string">databases</span>]
+<span class="string">zveltio_prod</span> = host=postgres port=5432 dbname=zveltio_prod
+
+[<span class="string">pgbouncer</span>]
+<span class="string">pool_mode</span> = transaction
+<span class="string">max_client_conn</span> = 1000
+<span class="string">default_pool_size</span> = 25
+<span class="string">auth_type</span> = scram-sha-256  <span class="comment"># ✅ Secure auth</span></code></pre>
+
+      <h3>Access Control</h3>
+      <pre><code><span class="comment">-- Application user (limited permissions)</span>
+CREATE USER zveltio_app WITH PASSWORD <span class="string">'strong_password'</span>;
+GRANT CONNECT ON DATABASE zveltio_prod TO zveltio_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO zveltio_app;
+
+<span class="comment">-- Admin user (full access)</span>
+CREATE USER zveltio_admin WITH PASSWORD <span class="string">'different_strong_password'</span>;
+GRANT ALL PRIVILEGES ON DATABASE zveltio_prod TO zveltio_admin;</code></pre>
+
+      <h3>Row-Level Security (RLS)</h3>
+      <pre><code><span class="comment">-- Enable RLS on sensitive tables</span>
+ALTER TABLE zvd_user_data ENABLE ROW LEVEL SECURITY;
+
+<span class="comment">-- Policy: Users can only see their own data</span>
+CREATE POLICY user_isolation ON zvd_user_data
+  USING (user_id = current_setting(<span class="string">'app.current_user_id'</span>)::uuid);</code></pre>
+
+      <h2 id="network">Network Security</h2>
+
+      <h3>Firewall Configuration</h3>
+      <pre><code><span class="comment"># Allow only necessary ports</span>
+<span class="keyword">ufw</span> allow <span class="number">22</span>/tcp   <span class="comment"># SSH</span>
+<span class="keyword">ufw</span> allow <span class="number">80</span>/tcp   <span class="comment"># HTTP</span>
+<span class="keyword">ufw</span> allow <span class="number">443</span>/tcp  <span class="comment"># HTTPS</span>
+<span class="keyword">ufw</span> enable</code></pre>
+
+      <h3>SSL/TLS</h3>
+      <p>Always use HTTPS in production:</p>
+      <pre><code><span class="comment"># Use Let's Encrypt</span>
+<span class="string">CERTBOT_AUTO_RENEW</span>=true</code></pre>
+
+      <h2 id="checklist">Security Checklist</h2>
+
+      <div class="checklist">
+        <h3>Before Production</h3>
+        <ul>
+          <li>
+            Change <code>BETTER_AUTH_SECRET</code> to a strong 64-character
+            random string
+          </li>
+          <li>Enable SSL/TLS with valid certificates</li>
+          <li>Configure CORS to whitelist specific domains</li>
+          <li>Enable 2FA for all admin users</li>
+          <li>Set up database user with minimal permissions</li>
+          <li>Configure firewall to allow only necessary ports</li>
+          <li>Set up monitoring and alerting</li>
+          <li>Create backup strategy</li>
+        </ul>
+      </div>
+
+      <div class="checklist">
+        <h3>Ongoing</h3>
+        <ul>
+          <li>Review logs weekly</li>
+          <li>Rotate secrets quarterly</li>
+          <li>Update dependencies monthly</li>
+          <li>Review user permissions monthly</li>
+          <li>Test backups quarterly</li>
+        </ul>
+      </div>
+
+      <h2 id="incident">Incident Response</h2>
+      <p>If you suspect a security incident:</p>
+      <ol>
+        <li><strong>Immediately</strong> change all passwords</li>
+        <li><strong>Check</strong> logs for suspicious activity</li>
+        <li><strong>Disable</strong> affected user accounts</li>
+        <li><strong>Contact</strong> security team</li>
+        <li><strong>Document</strong> the incident</li>
+      </ol>
+
+      <h2>Learn More</h2>
+      <ul>
+        <li><a href="AUTHORIZATION.html">Authorization Guide</a></li>
+        <li><a href="INSTALLATION.html">Installation Guide</a></li>
+        <li><a href="DEPLOYMENT.html">Deployment Guide</a></li>
+      </ul>
+    </div>
+
+    <footer>
+      <p>&copy; 2026 Zveltio. Built with Bun + Hono.</p>
+    </footer>
+  </body>
+</html>

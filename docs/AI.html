@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Integration - Zveltio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #12121a;
+        --bg-card: #1a1a24;
+        --accent-primary: #6366f1;
+        --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #2e2e3a;
+        --success: #10b981;
+        --code-bg: #0d0d12;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+      }
+
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 1rem 2rem;
+        background: rgba(10, 10, 15, 0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-decoration: none;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+      }
+
+      nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: color 0.2s;
+        margin-left: 1.5rem;
+      }
+
+      nav a:hover {
+        color: var(--text-primary);
+      }
+      nav a.active {
+        color: var(--accent-primary);
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 8rem 2rem 4rem;
+      }
+
+      h1 {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 1.5rem;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      h2 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 3rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.5rem 0 0.75rem;
+      }
+
+      p {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+      }
+
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--code-bg);
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.9em;
+        color: var(--accent-primary);
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        line-height: 1.7;
+      }
+
+      .comment {
+        color: #546e7a;
+      }
+      .string {
+        color: #c3e88d;
+      }
+      .number {
+        color: #f78c6c;
+      }
+      .keyword {
+        color: #c792ea;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      th {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      td {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .toc {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .toc h3 {
+        margin-top: 0;
+        font-size: 1rem;
+        color: var(--text-primary);
+      }
+      .toc ul {
+        list-style: none;
+        margin-top: 1rem;
+      }
+      .toc li {
+        margin: 0.5rem 0;
+      }
+      .toc a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .toc a:hover {
+        color: var(--accent-primary);
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin: 1.5rem 0;
+      }
+
+      .feature-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.25rem;
+      }
+
+      .feature-card h4 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: var(--text-primary);
+      }
+
+      .feature-card p {
+        font-size: 0.85rem;
+        margin: 0;
+      }
+
+      footer {
+        text-align: center;
+        padding: 3rem 2rem;
+        border-top: 1px solid var(--border-color);
+        margin-top: 4rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-content">
+        <a href="index.html" class="logo">
+          <div class="logo-icon">⚡</div>
+          Zveltio
+        </a>
+        <nav>
+          <a href="index.html">Home</a>
+          <a href="ARCHITECTURE.html">Architecture</a>
+          <a href="AI.html" class="active">AI</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>AI Integration</h1>
+      <p>Universal AI providers and features for Zveltio.</p>
+
+      <div class="toc">
+        <h3>Table of Contents</h3>
+        <ul>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#providers">Supported Providers</a></li>
+          <li><a href="#features">AI Features</a></li>
+          <li><a href="#configuration">Configuration</a></li>
+          <li><a href="#api">API Endpoints</a></li>
+        </ul>
+      </div>
+
+      <h2 id="overview">Overview</h2>
+      <p>
+        Zveltio provides a unified AI integration layer that supports multiple
+        AI providers. Whether you prefer OpenAI, Anthropic, or self-hosted
+        solutions, Zveltio has you covered.
+      </p>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>🤖 Context-aware Chat</h4>
+          <p>Conversational AI with memory</p>
+        </div>
+        <div class="feature-card">
+          <h4>🔍 Semantic Search</h4>
+          <p>RAG-based document search</p>
+        </div>
+        <div class="feature-card">
+          <h4>📄 Document Intelligence</h4>
+          <p>Extract insights from documents</p>
+        </div>
+        <div class="feature-card">
+          <h4>🌐 AI Translation</h4>
+          <p>Multilingual support</p>
+        </div>
+      </div>
+
+      <h2 id="providers">Supported Providers</h2>
+      <table>
+        <tr>
+          <th>Provider</th>
+          <th>Models</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>OpenAI</strong></td>
+          <td>GPT-4, GPT-3.5</td>
+          <td>OpenAI's GPT models</td>
+        </tr>
+        <tr>
+          <td><strong>Anthropic</strong></td>
+          <td>Claude 3, Claude 3.5</td>
+          <td>Anthropic's Claude models</td>
+        </tr>
+        <tr>
+          <td><strong>Ollama</strong></td>
+          <td>Llama, Mistral, etc.</td>
+          <td>Self-hosted open-source models</td>
+        </tr>
+        <tr>
+          <td><strong>Azure OpenAI</strong></td>
+          <td>GPT-4, GPT-3.5</td>
+          <td>Microsoft Azure deployment</td>
+        </tr>
+        <tr>
+          <td><strong>OpenAI Compatible</strong></td>
+          <td>Any</td>
+          <td>Any OpenAI-compatible API</td>
+        </tr>
+      </table>
+
+      <h2 id="features">AI Features</h2>
+
+      <h3>Chat</h3>
+      <p>Context-aware conversational AI:</p>
+      <pre><code>POST /api/ai/chat
+{
+  <span class="string">"provider"</span>: <span class="string">"openai"</span>,
+  <span class="string">"model"</span>: <span class="string">"gpt-4"</span>,
+  <span class="string">"messages"</span>: [
+    { <span class="string">"role"</span>: <span class="string">"user"</span>, <span class="string">"content"</span>: <span class="string">"Hello!"</span> }
+  ]
+}</code></pre>
+
+      <h3>Embeddings</h3>
+      <p>Generate vector embeddings for semantic search:</p>
+      <pre><code>POST /api/ai/embed
+{
+  <span class="string">"provider"</span>: <span class="string">"openai"</span>,
+  <span class="string">"model"</span>: <span class="string">"text-embedding-3-small"</span>,
+  <span class="string">"input"</span>: <span class="string">"The quick brown fox"</span>
+}</code></pre>
+
+      <h3>Semantic Search (RAG)</h3>
+      <p>Search documents using natural language:</p>
+      <pre><code>POST /api/ai/search
+{
+  <span class="string">"query"</span>: <span class="string">"How do I configure authentication?"</span>,
+  <span class="string">"collection"</span>: <span class="string">"documents"</span>,
+  <span class="string">"limit"</span>: <span class="number">5</span>
+}</code></pre>
+
+      <h2 id="configuration">Configuration</h2>
+
+      <h3>Environment Variables</h3>
+      <pre><code><span class="comment"># OpenAI</span>
+<span class="string">OPENAI_API_KEY</span>=sk-...
+
+<span class="comment"># Anthropic</span>
+<span class="string">ANTHROPIC_API_KEY</span>=sk-ant-...
+
+<span class="comment"># Ollama (self-hosted)</span>
+<span class="string">OLLAMA_BASE_URL</span>=http://localhost:11434
+
+<span class="comment"># Azure OpenAI</span>
+<span class="string">AZURE_OPENAI_ENDPOINT</span>=https://your-resource.openai.azure.com/
+<span class="string">AZURE_OPENAI_API_KEY</span>=your-api-key</code></pre>
+
+      <h2 id="api">API Endpoints</h2>
+      <table>
+        <tr>
+          <th>Endpoint</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><code>POST /api/ai/chat</code></td>
+          <td>Chat completion</td>
+        </tr>
+        <tr>
+          <td><code>POST /api/ai/embed</code></td>
+          <td>Generate embeddings</td>
+        </tr>
+        <tr>
+          <td><code>POST /api/ai/search</code></td>
+          <td>Semantic search</td>
+        </tr>
+        <tr>
+          <td><code>GET /api/ai/models</code></td>
+          <td>List available models</td>
+        </tr>
+      </table>
+    </div>
+
+    <footer>
+      <p>&copy; 2026 Zveltio. Built with Bun + Hono.</p>
+    </footer>
+  </body>
+</html>

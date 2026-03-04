@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extensions - Zveltio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #12121a;
+        --bg-card: #1a1a24;
+        --accent-primary: #6366f1;
+        --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #2e2e3a;
+        --success: #10b981;
+        --code-bg: #0d0d12;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+      }
+
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 1rem 2rem;
+        background: rgba(10, 10, 15, 0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-decoration: none;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+      }
+
+      nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: color 0.2s;
+        margin-left: 1.5rem;
+      }
+
+      nav a:hover {
+        color: var(--text-primary);
+      }
+      nav a.active {
+        color: var(--accent-primary);
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 8rem 2rem 4rem;
+      }
+
+      h1 {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 1.5rem;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      h2 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 3rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.5rem 0 0.75rem;
+      }
+
+      p {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+      }
+
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--code-bg);
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.9em;
+        color: var(--accent-primary);
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        line-height: 1.7;
+      }
+
+      .keyword {
+        color: #c792ea;
+      }
+      .comment {
+        color: #546e7a;
+      }
+      .string {
+        color: #c3e88d;
+      }
+      .number {
+        color: #f78c6c;
+      }
+
+      .info-box {
+        background: rgba(99, 102, 241, 0.1);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      th {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      td {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .toc {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .toc h3 {
+        margin-top: 0;
+        font-size: 1rem;
+        color: var(--text-primary);
+      }
+      .toc ul {
+        list-style: none;
+        margin-top: 1rem;
+      }
+      .toc li {
+        margin: 0.5rem 0;
+      }
+      .toc a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .toc a:hover {
+        color: var(--accent-primary);
+      }
+
+      .step {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+      }
+
+      .step-number {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+      }
+
+      .step h3 {
+        margin-top: 0;
+        display: inline;
+        margin-left: 0.5rem;
+      }
+
+      footer {
+        text-align: center;
+        padding: 3rem 2rem;
+        border-top: 1px solid var(--border-color);
+        margin-top: 4rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-content">
+        <a href="index.html" class="logo">
+          <div class="logo-icon">⚡</div>
+          Zveltio
+        </a>
+        <nav>
+          <a href="index.html">Home</a>
+          <a href="INSTALLATION.html">Installation</a>
+          <a href="ARCHITECTURE.html">Architecture</a>
+          <a href="EXTENSIONS.html" class="active">Extensions</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Extensions</h1>
+      <p>Guide to using and creating extensions for Zveltio.</p>
+
+      <div class="toc">
+        <h3>Table of Contents</h3>
+        <ul>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#built-in">Built-in Extensions</a></li>
+          <li><a href="#loading">Loading Extensions</a></li>
+          <li><a href="#creating">Creating Extensions</a></li>
+          <li><a href="#api">Extension API</a></li>
+          <li><a href="#best-practices">Best Practices</a></li>
+        </ul>
+      </div>
+
+      <h2 id="overview">Overview</h2>
+      <p>
+        Zeltio uses a <strong>plugin-based architecture</strong> through
+        extensions. Extensions allow adding custom functionality without
+        modifying the core engine.
+      </p>
+
+      <h3>Extension Structure</h3>
+      <pre><code>extensions/
+├── manifest.json          <span class="comment"># Extension metadata</span>
+├── engine/               <span class="comment"># Backend routes and logic</span>
+│   ├── index.ts         <span class="comment"># Extension entry point</span>
+│   ├── routes.ts        <span class="comment"># API routes</span>
+│   └── migrations/       <span class="comment"># Database migrations</span>
+└── studio/              <span class="comment"># Admin UI</span>
+    ├── package.json
+    ├── src/
+    │   └── index.ts     <span class="comment"># UI entry point</span>
+    └── pages/           <span class="comment"># SvelteKit pages</span></code></pre>
+
+      <h3>manifest.json</h3>
+      <pre><code>{
+  <span class="string">"id"</span>: <span class="string">"my-extension"</span>,
+  <span class="string">"name"</span>: <span class="string">"My Extension"</span>,
+  <span class="string">"version"</span>: <span class="string">"1.0.0"</span>,
+  <span class="string">"description"</span>: <span class="string">"Description of my extension"</span>,
+  <span class="string">"engine"</span>: {
+    <span class="string">"routes"</span>: <span class="string">"./engine/routes.ts"</span>,
+    <span class="string">"index"</span>: <span class="string">"./engine/index.ts"</span>
+  },
+  <span class="string">"studio"</span>: {
+    <span class="string">"routes"</span>: <span class="string">"./studio/src"</span>,
+    <span class="string">"entry"</span>: <span class="string">"./studio/src/index.ts"</span>
+  }
+}</code></pre>
+
+      <h2 id="built-in">Built-in Extensions</h2>
+      <p>Zeltio includes several built-in extensions:</p>
+
+      <h3>AI Extensions</h3>
+      <table>
+        <tr>
+          <th>Extension</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>core-ai</strong></td>
+          <td>Chat, embeddings, semantic search, AI analytics</td>
+        </tr>
+      </table>
+
+      <h3>Automation</h3>
+      <table>
+        <tr>
+          <th>Extension</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>flows</strong></td>
+          <td>Workflow automation and execution</td>
+        </tr>
+      </table>
+
+      <h3>Compliance (Romanian)</h3>
+      <table>
+        <tr>
+          <th>Extension</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>documents</strong></td>
+          <td>Document management</td>
+        </tr>
+        <tr>
+          <td><strong>efactura</strong></td>
+          <td>Romanian e-Invoicing (eFactura)</td>
+        </tr>
+        <tr>
+          <td><strong>procurement</strong></td>
+          <td>Public procurement</td>
+        </tr>
+      </table>
+
+      <h3>Content</h3>
+      <table>
+        <tr>
+          <th>Extension</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>page-builder</strong></td>
+          <td>Dynamic page creation</td>
+        </tr>
+      </table>
+
+      <h3>Developer Tools</h3>
+      <table>
+        <tr>
+          <th>Extension</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>edge-functions</strong></td>
+          <td>Serverless edge functions</td>
+        </tr>
+      </table>
+
+      <h3>Geospatial</h3>
+      <table>
+        <tr>
+          <th>Extension</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>postgis</strong></td>
+          <td>Geographic data with PostGIS</td>
+        </tr>
+      </table>
+
+      <h3>Workflow</h3>
+      <table>
+        <tr>
+          <th>Extension</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><strong>approvals</strong></td>
+          <td>Approval workflows</td>
+        </tr>
+        <tr>
+          <td><strong>checklists</strong></td>
+          <td>Checklist management</td>
+        </tr>
+      </table>
+
+      <h2 id="loading">Loading Extensions</h2>
+
+      <h3>Enable Extensions</h3>
+      <p>Add extensions to your environment:</p>
+      <pre><code><span class="comment"># Comma-separated list of extension IDs</span>
+<span class="string">ZVELTIO_EXTENSIONS</span>=core-ai,flows,page-builder</code></pre>
+
+      <p>Extensions are loaded from the <code>extensions/</code> directory:</p>
+      <pre><code>zeltio/
+├── extensions/
+│   ├── ai/
+│   │   └── core-ai/
+│   │       ├── manifest.json
+│   │       ├── engine/
+│   │       └── studio/
+│   └── ...
+└── packages/</code></pre>
+
+      <h3>Extension Initialization</h3>
+      <p>Extensions are initialized when the engine starts:</p>
+      <pre><code><span class="comment">// packages/engine/src/lib/extension-loader.ts</span>
+<span class="keyword">import</span> { <span class="string">loadExtensions</span> } <span class="keyword">from</span> <span class="string">'./lib/extension-loader.ts'</span>;
+
+<span class="keyword">await</span> <span class="string">loadExtensions</span>();</code></pre>
+
+      <h2 id="creating">Creating Extensions</h2>
+
+      <div class="step">
+        <div class="step-number">1</div>
+        <h3>Create Extension Directory</h3>
+        <pre><code><span class="keyword">mkdir</span> -p extensions/my-extension/{engine,studio}</code></pre>
+      </div>
+
+      <div class="step">
+        <div class="step-number">2</div>
+        <h3>Create manifest.json</h3>
+        <pre><code>{
+  <span class="string">"id"</span>: <span class="string">"my-extension"</span>,
+  <span class="string">"name"</span>: <span class="string">"My Extension"</span>,
+  <span class="string">"version"</span>: <span class="string">"1.0.0"</span>,
+  <span class="string">"description"</span>: <span class="string">"A custom extension"</span>,
+  <span class="string">"engine"</span>: {
+    <span class="string">"routes"</span>: <span class="string">"./engine/routes.ts"</span>,
+    <span class="string">"index"</span>: <span class="string">"./engine/index.ts"</span>
+  }
+}</code></pre>
+      </div>
+
+      <div class="step">
+        <div class="step-number">3</div>
+        <h3>Create Engine Routes</h3>
+        <pre><code><span class="comment">// extensions/my-extension/engine/routes.ts</span>
+<span class="keyword">import</span> { <span class="string">Hono</span> } <span class="keyword">from</span> <span class="string">'hono'</span>;
+
+<span class="keyword">const</span> app = <span class="keyword">new</span> <span class="type">Hono</span>();
+
+app.<span class="string">get</span>(<span class="string">'/hello'</span>, (c) => {
+  <span class="keyword">return</span> <span class="string">c</span>.<span class="string">json</span>({ <span class="string">message</span>: <span class="string">'Hello from my extension!'</span> });
+});
+
+<span class="keyword">export default</span> app;</code></pre>
+      </div>
+
+      <div class="step">
+        <div class="step-number">4</div>
+        <h3>Register Extension</h3>
+        <p>
+          Add to main app in <code>packages/engine/src/routes/index.ts</code>:
+        </p>
+        <pre><code><span class="keyword">import</span> myExtension <span class="keyword">from</span> <span class="string">'../../extensions/my-extension/engine/routes.ts'</span>;
+
+app.<span class="string">route</span>(<span class="string">'/api/my-extension'</span>, myExtension);</code></pre>
+      </div>
+
+      <h2 id="api">Extension API</h2>
+
+      <h3>Access Database</h3>
+      <pre><code><span class="keyword">import</span> { <span class="string">getDb</span> } <span class="keyword">from</span> <span class="string">'../../packages/engine/src/db/index.ts'</span>;
+
+<span class="keyword">const</span> db = <span class="string">getDb</span>();
+<span class="keyword">const</span> result = <span class="keyword">await</span> <span class="string">db</span>.<span class="string">selectFrom</span>(<span class="string">'users'</span>).<span class="string">selectAll</span>().<span class="string">execute</span>();</code></pre>
+
+      <h3>Use Cache</h3>
+      <pre><code><span class="keyword">import</span> { <span class="string">getCache</span> } <span class="keyword">from</span> <span class="string">'../../packages/engine/src/lib/cache.ts'</span>;
+
+<span class="keyword">const</span> cache = <span class="string">getCache</span>();
+<span class="keyword">await</span> <span class="string">cache</span>.<span class="string">setex</span>(<span class="string">'key'</span>, <span class="number">3600</span>, <span class="string">'value'</span>);</code></pre>
+
+      <h3>Trigger Webhooks</h3>
+      <pre><code><span class="keyword">import</span> { <span class="string">triggerWebhooks<span class="keyword">from</span> <span class="string">'../../</span> } packages/engine/src/lib/webhooks.ts'</span>;
+
+<span class="keyword">await</span> <span class="string">triggerWebhooks</span>(<span class="string">'my-extension.event'</span>, { <span class="string">data</span>: <span class="string">'...'</span> });</code></pre>
+
+      <h2 id="best-practices">Best Practices</h2>
+      <ol>
+        <li><strong>Use TypeScript</strong> - Maintain type safety</li>
+        <li><strong>Follow naming conventions</strong> - Use consistent IDs</li>
+        <li>
+          <strong>Handle errors gracefully</strong> - Return proper error
+          responses
+        </li>
+        <li>
+          <strong>Document your extension</strong> - Include README and comments
+        </li>
+        <li>
+          <strong>Test thoroughly</strong> - Include unit and integration tests
+        </li>
+      </ol>
+    </div>
+
+    <footer>
+      <p>&copy; 2026 Zveltio. Built with Bun + Hono.</p>
+    </footer>
+  </body>
+</html>

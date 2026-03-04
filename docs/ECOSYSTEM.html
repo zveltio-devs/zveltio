@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ecosystem - Zveltio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #12121a;
+        --bg-card: #1a1a24;
+        --accent-primary: #6366f1;
+        --accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #2e2e3a;
+        --success: #10b981;
+        --code-bg: #0d0d12;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+      }
+
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 1rem 2rem;
+        background: rgba(10, 10, 15, 0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .header-content {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-decoration: none;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+      }
+
+      nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: color 0.2s;
+        margin-left: 1.5rem;
+      }
+
+      nav a:hover {
+        color: var(--text-primary);
+      }
+      nav a.active {
+        color: var(--accent-primary);
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 8rem 2rem 4rem;
+      }
+
+      h1 {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 1.5rem;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      h2 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 3rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.5rem 0 0.75rem;
+      }
+
+      p {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+      }
+
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--code-bg);
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        font-size: 0.9em;
+        color: var(--accent-primary);
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        line-height: 1.7;
+      }
+
+      .keyword {
+        color: #c792ea;
+      }
+      .comment {
+        color: #546e7a;
+      }
+      .string {
+        color: #c3e88d;
+      }
+      .number {
+        color: #f78c6c;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      th {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+      td {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .toc {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .toc h3 {
+        margin-top: 0;
+        font-size: 1rem;
+        color: var(--text-primary);
+      }
+      .toc ul {
+        list-style: none;
+        margin-top: 1rem;
+      }
+      .toc li {
+        margin: 0.5rem 0;
+      }
+      .toc a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .toc a:hover {
+        color: var(--accent-primary);
+      }
+
+      .diagram {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+        overflow-x: auto;
+      }
+
+      .diagram pre {
+        margin: 0;
+        background: transparent;
+        border: none;
+        padding: 0;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      .feature-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+      }
+
+      .feature-card h4 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: var(--text-primary);
+      }
+
+      .feature-card p {
+        font-size: 0.9rem;
+        margin: 0;
+      }
+
+      footer {
+        text-align: center;
+        padding: 3rem 2rem;
+        border-top: 1px solid var(--border-color);
+        margin-top: 4rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-content">
+        <a href="index.html" class="logo">
+          <div class="logo-icon">⚡</div>
+          Zveltio
+        </a>
+        <nav>
+          <a href="index.html">Home</a>
+          <a href="INSTALLATION.html">Installation</a>
+          <a href="ARCHITECTURE.html">Architecture</a>
+          <a href="ECOSYSTEM.html" class="active">Ecosystem</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Ecosystem</h1>
+      <p>
+        Complete overview of the Zveltio platform - a modern, headless BaaS
+        (Backend as a Service) solution built with Bun, designed for enterprises
+        and public institutions.
+      </p>
+
+      <div class="toc">
+        <h3>Table of Contents</h3>
+        <ul>
+          <li><a href="#what-is-zveltio">What is Zveltio?</a></li>
+          <li><a href="#target-users">Target Users</a></li>
+          <li><a href="#features">Key Features</a></li>
+          <li><a href="#architecture">Architecture Overview</a></li>
+          <li><a href="#packages">Packages</a></li>
+          <li><a href="#getting-started">Getting Started</a></li>
+          <li><a href="#technology">Technology Choices</a></li>
+        </ul>
+      </div>
+
+      <h2 id="what-is-zveltio">What is Zveltio?</h2>
+      <p>
+        <strong>Zveltio</strong> is a complete
+        <strong>headless BaaS platform</strong> built with Bun that provides:
+      </p>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>🔧 Dynamic Collections</h4>
+          <p>Create database tables without code</p>
+        </div>
+        <div class="feature-card">
+          <h4>🔐 Complete Auth & RBAC</h4>
+          <p>User management with granular permissions</p>
+        </div>
+        <div class="feature-card">
+          <h4>🤖 AI Integration</h4>
+          <p>Chat, semantic search, document intelligence</p>
+        </div>
+        <div class="feature-card">
+          <h4>📊 Universal Export</h4>
+          <p>Generate PDF, Excel, CSV from any data</p>
+        </div>
+        <div class="feature-card">
+          <h4>🪝 Webhooks</h4>
+          <p>Event-driven integrations</p>
+        </div>
+        <div class="feature-card">
+          <h4>🌍 i18n Support</h4>
+          <p>Built-in translation system</p>
+        </div>
+      </div>
+
+      <h3>What makes Zveltio different?</h3>
+      <p>Zveltio is built around three core principles:</p>
+
+      <h4>1. Bun Runtime</h4>
+      <p>Zveltio uses Bun as its JavaScript runtime, providing:</p>
+      <ul>
+        <li>Faster startup times</li>
+        <li>Built-in package manager</li>
+        <li>Native TypeScript support</li>
+        <li>Superior performance</li>
+      </ul>
+
+      <h4>2. Type-safety from database to browser</h4>
+      <p>
+        The entire stack — from PostgreSQL queries through the Hono API layer to
+        the SvelteKit frontend — shares a single TypeScript contract via Hono
+        RPC.
+      </p>
+
+      <h4>3. Data sovereignty by default</h4>
+      <p>
+        Zveltio is self-hosted. Your data never leaves your infrastructure
+        unless you explicitly choose a cloud AI provider.
+      </p>
+
+      <h2 id="target-users">Target Users</h2>
+
+      <h3>🏢 Enterprises</h3>
+      <p><strong>Use Cases:</strong></p>
+      <ul>
+        <li>Internal knowledge management</li>
+        <li>Employee portals</li>
+        <li>Document management systems</li>
+        <li>Customer relationship management</li>
+        <li>Project management</li>
+        <li>Workflow automation</li>
+      </ul>
+      <p><strong>Benefits:</strong></p>
+      <ul>
+        <li>Self-hosted for data sovereignty</li>
+        <li>AI with privacy (Ollama)</li>
+        <li>Granular permissions (RBAC)</li>
+        <li>Audit trails</li>
+        <li>Scalable architecture</li>
+      </ul>
+
+      <h3>🏛️ Public Institutions</h3>
+      <p><strong>Use Cases:</strong></p>
+      <ul>
+        <li>Citizen portals</li>
+        <li>Document request systems</li>
+        <li>Internal management systems</li>
+        <li>Public information databases</li>
+        <li>Service request tracking</li>
+        <li>Compliance management</li>
+      </ul>
+      <p><strong>Benefits:</strong></p>
+      <ul>
+        <li>GDPR compliant</li>
+        <li>Full data control</li>
+        <li>Accessibility features</li>
+        <li>Multi-language support</li>
+        <li>Transparent audit logs</li>
+      </ul>
+
+      <h3>🚀 Startups & SMBs</h3>
+      <p><strong>Use Cases:</strong></p>
+      <ul>
+        <li>Content management</li>
+        <li>Internal tools</li>
+        <li>Customer dashboards</li>
+        <li>API backends</li>
+        <li>Mobile app backends</li>
+      </ul>
+      <p><strong>Benefits:</strong></p>
+      <ul>
+        <li>Rapid development</li>
+        <li>Cost-effective (self-hosted)</li>
+        <li>Scalable from day one</li>
+        <li>Type-safe development</li>
+        <li>Modern stack</li>
+      </ul>
+
+      <h2 id="features">Key Features</h2>
+
+      <h3>🔧 Dynamic Collections</h3>
+      <p>
+        Create database tables through the admin interface without writing code:
+      </p>
+      <pre><code><span class="comment">// Just use the Studio UI:</span>
+Collection: <span class="string">"products"</span>
+Fields:
+  - name (text, required)
+  - price (number, required)
+  - description (richtext)
+  - category (reference → categories)
+  - images (files, multiple)
+  - is_active (boolean, default: true)</code></pre>
+      <p>Engine automatically:</p>
+      <ul>
+        <li>Creates PostgreSQL table</li>
+        <li>Generates TypeScript types</li>
+        <li>Exposes REST API</li>
+        <li>Provides CRUD interface in Studio</li>
+      </ul>
+
+      <h3>🔐 Advanced RBAC</h3>
+      <p>Scope-based permissions with Casbin + God bypass:</p>
+      <pre><code><span class="comment">// Permission scopes:</span>
+ALL; <span class="comment">// Access to everything</span>
+ORGANIZATION; <span class="comment">// Access within organization</span>
+DEPARTMENT; <span class="comment">// Access within department</span>
+OWN; <span class="comment">// Access to own records only</span>
+
+<span class="comment">// Special: God bypass (role='god')</span>
+<span class="comment">// Bypasses ALL Casbin checks - full access</span></code></pre>
+
+      <h3>🤖 Universal AI Integration</h3>
+      <p>
+        <strong>Zero external dependencies</strong> - support for any AI
+        provider:
+      </p>
+      <pre><code><span class="comment">// Supported out of the box:</span>
+✅ OpenAI (GPT-4, GPT-3.5)
+✅ Anthropic (Claude 3)
+✅ Ollama (Self-hosted)
+✅ Azure OpenAI
+✅ Any OpenAI-compatible API
+
+<span class="comment">// AI Features:</span>
+🤖 Context-aware chat
+🔍 Semantic search (RAG)
+📄 Document intelligence
+📊 Data insights
+🌐 AI translation
+✨ Content generation</code></pre>
+
+      <h2 id="architecture">Architecture Overview</h2>
+      <div class="diagram">
+        <pre><code>                      ┌─────────────────────────────┐
+                      │       End Users             │
+                      │  (Public, Partners, Staff)  │
+                      └──────────────┬──────────────┘
+                                     │
+                ┌────────────────────┼────────────────────┐
+                │                    │                    │
+                ↓                    ↓                    ↓
+      ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+      │ Zveltio Studio   │ │ Zveltio Client   │ │  Mobile Apps     │
+      │(Admin Interface)│ │(Public Frontend) │ │  (via API)       │
+      │  Port: 5173      │ │  Port: 5174      │ │                  │
+      └─────────┬────────┘ └─────────┬────────┘ └─────────┬────────┘
+                │                    │                    │
+                └────────────────────┼────────────────────┘
+                                     │ REST API + Hono RPC
+                                     ↓
+                      ┌──────────────────────────┐
+                      │    Zveltio Engine        │
+                      │    (API Gateway)         │
+                      │    Port: 3000            │
+                      │    Bun + Hono + Kysely    │
+                      │                          │
+                      │  • Dynamic Collections   │
+                      │  • Better-Auth           │
+                      │  • Casbin RBAC           │
+                      │  • AI Services           │
+                      │  • Webhooks              │
+                      │  • Export Manager        │
+                      └──────────────┬───────────┘
+                                     │
+                ┌────────────────────┼────────────────────┐
+                │                    │                    │
+                ↓                    ↓                    ↓
+      ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+      │   PostgreSQL     │ │     Valkey       │ │   SeaweedFS      │
+      │   (Database)     │ │     (Cache)      │ │   (Storage)      │
+      │   + pgvector     │ │   Port: 6379     │ │   Port: 8333     │
+      │   via PgBouncer  │ │                  │ │   (S3 API)       │
+      │   Port: 6432     │ │                  │ │                  │
+      └──────────────────┘ └──────────────────┘ └──────────────────┘</code></pre>
+      </div>
+
+      <p><strong>Key Characteristics:</strong></p>
+      <ul>
+        <li>
+          ✅ <strong>Distributed</strong> - Components can run on different
+          servers
+        </li>
+        <li>
+          ✅ <strong>Scalable</strong> - Horizontal scaling at every layer
+        </li>
+        <li>
+          ✅ <strong>Type-Safe</strong> - End-to-end TypeScript with Hono RPC
+        </li>
+        <li>
+          ✅ <strong>Modern</strong> - Built with latest tech (Bun, Svelte 5,
+          Hono, Kysely)
+        </li>
+        <li>
+          ✅ <strong>Secure</strong> - Defense in depth security architecture
+        </li>
+      </ul>
+
+      <h2 id="packages">Packages</h2>
+      <p>Zveltio uses a monorepo structure with Turborepo:</p>
+
+      <h3>1. @zveltio/engine 🔥 Core API</h3>
+      <p><strong>Tech Stack:</strong> Bun, Hono, Kysely, Better-Auth, Casbin</p>
+      <p><strong>Responsibilities:</strong></p>
+      <ul>
+        <li>REST API & Hono RPC endpoints</li>
+        <li>Authentication & authorization</li>
+        <li>Dynamic collection management</li>
+        <li>AI service orchestration</li>
+        <li>Webhook management</li>
+        <li>File storage (S3)</li>
+        <li>Export generation (PDF/Excel/CSV)</li>
+      </ul>
+
+      <h3>2. @zveltio/studio 🎨 Admin Interface</h3>
+      <p><strong>Tech Stack:</strong> SvelteKit 2, Svelte 5</p>
+      <p><strong>Responsibilities:</strong></p>
+      <ul>
+        <li>Admin dashboard</li>
+        <li>Collection & field management</li>
+        <li>User & permission management</li>
+        <li>AI configuration</li>
+        <li>Content editing</li>
+        <li>Analytics & monitoring</li>
+      </ul>
+
+      <h3>3. @zveltio/cli 🛠️ Command Line</h3>
+      <p><strong>Tech Stack:</strong> Bun, Commander.js</p>
+      <p><strong>Commands:</strong></p>
+      <ul>
+        <li><code>init</code> - Initialize new project</li>
+        <li><code>create-god</code> - Create super-admin user</li>
+        <li><code>migrate</code> - Database migrations</li>
+        <li><code>dev/build/start</code> - Development servers</li>
+      </ul>
+
+      <h3>4. @zveltio/sdk 📦 Client SDK</h3>
+      <p><strong>Tech Stack:</strong> TypeScript</p>
+      <p><strong>Supports:</strong></p>
+      <ul>
+        <li>Vanilla JS/TypeScript</li>
+        <li>Svelte 5</li>
+        <li>React</li>
+      </ul>
+
+      <h2 id="getting-started">Getting Started</h2>
+
+      <h3>Prerequisites</h3>
+      <ul>
+        <li><strong>Bun</strong> >= 1.2.0</li>
+        <li><strong>Docker</strong> & <strong>Docker Compose</strong></li>
+        <li><strong>Git</strong></li>
+      </ul>
+
+      <h3>Quick Setup</h3>
+      <pre><code><span class="comment"># 1. Clone repository</span>
+<span class="keyword">git</span> clone https://github.com/your-org/zveltio.git
+<span class="keyword">cd</span> zveltio
+
+<span class="comment"># 2. Install dependencies</span>
+<span class="keyword">bun</span> install
+
+<span class="comment"># 3. Start infrastructure</span>
+<span class="keyword">docker compose</span> up -d
+
+<span class="comment"># 4. Initialize database</span>
+<span class="keyword">bun run</span> -T packages/engine/src/db/migrate.ts
+
+<span class="comment"># 5. Create admin user</span>
+<span class="keyword">bun run</span> packages/cli/src/index.ts create-god
+
+<span class="comment"># 6. Start development</span>
+<span class="keyword">bun --watch</span> packages/engine/src/index.ts</code></pre>
+
+      <h3>Access Points</h3>
+      <ul>
+        <li>
+          <strong>Engine API:</strong>
+          <a href="http://localhost:3000">http://localhost:3000</a>
+        </li>
+        <li>
+          <strong>Studio (Admin):</strong>
+          <a href="http://localhost:5173">http://localhost:5173</a>
+        </li>
+      </ul>
+
+      <h2 id="technology">Technology Choices</h2>
+      <table>
+        <tr>
+          <th>Category</th>
+          <th>Technology</th>
+          <th>Version</th>
+          <th>Purpose</th>
+        </tr>
+        <tr>
+          <td>Runtime</td>
+          <td>Bun</td>
+          <td>1.2.0</td>
+          <td>JavaScript runtime</td>
+        </tr>
+        <tr>
+          <td>Framework</td>
+          <td>Hono</td>
+          <td>4.4.0</td>
+          <td>Web framework</td>
+        </tr>
+        <tr>
+          <td>Database</td>
+          <td>PostgreSQL</td>
+          <td>17</td>
+          <td>Primary database</td>
+        </tr>
+        <tr>
+          <td>ORM</td>
+          <td>Kysely</td>
+          <td>0.27.6</td>
+          <td>Query builder</td>
+        </tr>
+        <tr>
+          <td>Cache</td>
+          <td>Valkey</td>
+          <td>8</td>
+          <td>Redis-compatible</td>
+        </tr>
+        <tr>
+          <td>Auth</td>
+          <td>Better-Auth</td>
+          <td>1.3.34</td>
+          <td>Authentication</td>
+        </tr>
+        <tr>
+          <td>RBAC</td>
+          <td>Casbin</td>
+          <td>5.30.0</td>
+          <td>Authorization</td>
+        </tr>
+        <tr>
+          <td>Storage</td>
+          <td>SeaweedFS</td>
+          <td>latest</td>
+          <td>S3-compatible</td>
+        </tr>
+        <tr>
+          <td>UI</td>
+          <td>SvelteKit</td>
+          <td>2.x</td>
+          <td>Admin interface</td>
+        </tr>
+        <tr>
+          <td>Orchestration</td>
+          <td>Turborepo</td>
+          <td>2.0.0</td>
+          <td>Monorepo</td>
+        </tr>
+        <tr>
+          <td>Container</td>
+          <td>Docker Compose</td>
+          <td>-</td>
+          <td>Infrastructure</td>
+        </tr>
+      </table>
+    </div>
+
+    <footer>
+      <p>&copy; 2026 Zveltio. Built with Bun + Hono.</p>
+    </footer>
+  </body>
+</html>

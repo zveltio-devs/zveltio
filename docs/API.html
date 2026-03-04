@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Reference - Zveltio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-primary: #0a0a0f;
+        --bg-secondary: #12121a;
+        --bg-card: #1a1a24;
+        --bg-card-hover: #22222e;
+        --accent-primary: #6366f1;
+        --accent-secondary: #8b5cf6;
+        --accent-gradient: linear-gradient(
+          135deg,
+          #6366f1 0%,
+          #8b5cf6 50%,
+          #a855f7 100%
+        );
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #2e2e3a;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --code-bg: #0d0d12;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family:
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.6;
+      }
+
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 1rem 2rem;
+        background: rgba(10, 10, 15, 0.95);
+        backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .header-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-decoration: none;
+      }
+
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+      }
+
+      nav {
+        display: flex;
+        gap: 2rem;
+        align-items: center;
+      }
+
+      nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: color 0.2s;
+      }
+
+      nav a:hover,
+      nav a.active {
+        color: var(--text-primary);
+      }
+
+      .layout {
+        display: flex;
+        padding-top: 70px;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        width: 280px;
+        background: var(--bg-secondary);
+        border-right: 1px solid var(--border-color);
+        padding: 2rem 0;
+        position: fixed;
+        top: 70px;
+        left: 0;
+        bottom: 0;
+        overflow-y: auto;
+      }
+
+      .sidebar-section {
+        padding: 0 1.5rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .sidebar-title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.75rem;
+      }
+
+      .sidebar-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .sidebar-nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.9rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 8px;
+        transition: all 0.2s;
+      }
+
+      .sidebar-nav a:hover {
+        color: var(--text-primary);
+        background: var(--bg-card);
+      }
+
+      .main {
+        flex: 1;
+        margin-left: 280px;
+        padding: 2rem 3rem;
+        max-width: 1200px;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        font-weight: 800;
+        margin-bottom: 1rem;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      h2 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 2rem 0 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 1.5rem 0 0.75rem;
+      }
+
+      h4 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 1rem 0 0.5rem;
+        color: var(--text-primary);
+      }
+
+      p {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+      }
+
+      code {
+        font-family: 'JetBrains Mono', monospace;
+        background: var(--code-bg);
+        padding: 0.2rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.9em;
+        color: var(--accent-secondary);
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        overflow-x: auto;
+        margin: 1rem 0;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        line-height: 1.7;
+      }
+
+      .keyword {
+        color: #c792ea;
+      }
+      .string {
+        color: #c3e88d;
+      }
+      .comment {
+        color: #546e7a;
+      }
+      .function {
+        color: #82aaff;
+      }
+      .method {
+        color: #ffcb6b;
+      }
+      .number {
+        color: #f78c6c;
+      }
+
+      .endpoint {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1.5rem 0;
+      }
+
+      .endpoint-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      .method-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .method-get {
+        background: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+      }
+      .method-post {
+        background: rgba(59, 130, 246, 0.2);
+        color: #3b82f6;
+      }
+      .method-put {
+        background: rgba(245, 158, 11, 0.2);
+        color: #f59e0b;
+      }
+      .method-delete {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+      }
+
+      .endpoint-path {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1rem;
+        color: var(--text-primary);
+      }
+
+      .endpoint-description {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+
+      th,
+      td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      th {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+      }
+
+      td {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+
+      .badge-required {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+      }
+
+      .badge-optional {
+        background: rgba(100, 116, 139, 0.2);
+        color: #94a3b8;
+      }
+
+      @media (max-width: 1024px) {
+        .sidebar {
+          display: none;
+        }
+        .main {
+          margin-left: 0;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .main {
+          padding: 1.5rem;
+        }
+        h1 {
+          font-size: 1.75rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-content">
+        <a href="index.html" class="logo">
+          <div class="logo-icon">⚡</div>
+          Zveltio
+        </a>
+        <nav>
+          <a href="index.html">Home</a>
+          <a href="INSTALLATION.html">Installation</a>
+          <a href="ARCHITECTURE.html">Architecture</a>
+          <a href="API.html" class="active">API</a>
+          <a href="AUTHORIZATION.html">Auth</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <div class="sidebar-title">Getting Started</div>
+          <div class="sidebar-nav">
+            <a href="INSTALLATION.html">Installation</a>
+            <a href="ARCHITECTURE.html">Architecture</a>
+            <a href="AUTHORIZATION.html">Authorization</a>
+          </div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-title">Core APIs</div>
+          <div class="sidebar-nav">
+            <a href="#authentication">Authentication</a>
+            <a href="#collections">Collections</a>
+            <a href="#data">Data CRUD</a>
+            <a href="#storage">Storage</a>
+            <a href="#permissions">Permissions</a>
+          </div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-title">AI APIs</div>
+          <div class="sidebar-nav">
+            <a href="#ai-chat">Chat</a>
+            <a href="#ai-search">Semantic Search</a>
+            <a href="#ai-embeddings">Embeddings</a>
+          </div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-title">Utilities</div>
+          <div class="sidebar-nav">
+            <a href="#webhooks">Webhooks</a>
+            <a href="#export">Export</a>
+            <a href="#translations">Translations</a>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <h1>API Reference</h1>
+        <p>
+          Complete API reference for Zveltio Engine. All endpoints are prefixed
+          with <code>/api</code> and require authentication unless otherwise
+          specified.
+        </p>
+
+        <h2 id="authentication">Authentication</h2>
+        <p>
+          Zveltio uses Better-Auth for authentication. Sessions are managed via
+          HTTP-only cookies.
+        </p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/auth/sign-up/email</span>
+          </div>
+          <p class="endpoint-description">
+            Register a new user with email and password.
+          </p>
+          <h4>Request Body</h4>
+          <table>
+            <tr>
+              <th>Field</th>
+              <th>Type</th>
+              <th>Description</th>
+            </tr>
+            <tr>
+              <td><code>email</code></td>
+              <td>string</td>
+              <td>
+                User email address
+                <span class="badge badge-required">Required</span>
+              </td>
+            </tr>
+            <tr>
+              <td><code>password</code></td>
+              <td>string</td>
+              <td>
+                User password (min 8 chars)
+                <span class="badge badge-required">Required</span>
+              </td>
+            </tr>
+            <tr>
+              <td><code>name</code></td>
+              <td>string</td>
+              <td>
+                User display name
+                <span class="badge badge-optional">Optional</span>
+              </td>
+            </tr>
+          </table>
+          <pre><code><span class="keyword">POST</span> /api/auth/sign-up/email
+<span class="comment">// Request</span>
+{
+  <span class="string">"email"</span>: <span class="string">"user@example.com"</span>,
+  <span class="string">"password"</span>: <span class="string">"securepassword123"</span>,
+  <span class="string">"name"</span>: <span class="string">"John Doe"</span>
+}
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"user"</span>: {
+    <span class="string">"id"</span>: <span class="string">"usr_..."</span>,
+    <span class="string">"email"</span>: <span class="string">"user@example.com"</span>,
+    <span class="string">"name"</span>: <span class="string">"John Doe"</span>
+  }
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/auth/sign-in/email</span>
+          </div>
+          <p class="endpoint-description">
+            Sign in with email and password. Returns session cookie.
+          </p>
+          <pre><code><span class="keyword">POST</span> /api/auth/sign-in/email
+<span class="comment">// Request</span>
+{
+  <span class="string">"email"</span>: <span class="string">"user@example.com"</span>,
+  <span class="string">"password"</span>: <span class="string">"securepassword123"</span>
+}
+
+<span class="comment">// Response - Sets session cookie</span>
+{
+  <span class="string">"user"</span>: { ... }
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/auth/sign-out</span>
+          </div>
+          <p class="endpoint-description">Sign out and invalidate session.</p>
+        </div>
+
+        <h2 id="collections">Collections</h2>
+        <p>
+          Dynamic collections allow you to create database tables at runtime
+          without migrations.
+        </p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-get">GET</span>
+            <span class="endpoint-path">/api/collections</span>
+          </div>
+          <p class="endpoint-description">List all collections.</p>
+          <pre><code><span class="keyword">GET</span> /api/collections
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"collections"</span>: [
+    {
+      <span class="string">"id"</span>: <span class="string">"col_abc123"</span>,
+      <span class="string">"name"</span>: <span class="string">"products"</span>,
+      <span class="string">"fields"</span>: [...],
+      <span class="string">"created_at"</span>: <span class="string">"2026-03-04T00:00:00Z"</span>
+    }
+  ]
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/collections</span>
+          </div>
+          <p class="endpoint-description">Create a new collection.</p>
+          <h4>Request Body</h4>
+          <table>
+            <tr>
+              <th>Field</th>
+              <th>Type</th>
+              <th>Description</th>
+            </tr>
+            <tr>
+              <td><code>name</code></td>
+              <td>string</td>
+              <td>
+                Collection name (snake_case)
+                <span class="badge badge-required">Required</span>
+              </td>
+            </tr>
+            <tr>
+              <td><code>fields</code></td>
+              <td>array</td>
+              <td>
+                Array of field definitions
+                <span class="badge badge-required">Required</span>
+              </td>
+            </tr>
+          </table>
+          <pre><code><span class="keyword">POST</span> /api/collections
+{
+  <span class="string">"name"</span>: <span class="string">"products"</span>,
+  <span class="string">"fields"</span>: [
+    { <span class="string">"name"</span>: <span class="string">"title"</span>, <span class="string">"type"</span>: <span class="string">"text"</span>, <span class="string">"required"</span>: <span class="keyword">true</span> },
+    { <span class="string">"name"</span>: <span class="string">"price"</span>, <span class="string">"type"</span>: <span class="string">"number"</span>, <span class="string">"required"</span>: <span class="keyword">true</span> },
+    { <span class="string">"name"</span>: <span class="string">"description"</span>, <span class="string">"type"</span>: <span class="string">"richtext"</span> }
+  ]
+}</code></pre>
+        </div>
+
+        <h2 id="data">Data CRUD</h2>
+        <p>Perform CRUD operations on collection records.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-get">GET</span>
+            <span class="endpoint-path">/api/data/:collection</span>
+          </div>
+          <p class="endpoint-description">
+            List records from a collection with filtering and pagination.
+          </p>
+          <h4>Query Parameters</h4>
+          <table>
+            <tr>
+              <th>Parameter</th>
+              <th>Type</th>
+              <th>Description</th>
+            </tr>
+            <tr>
+              <td><code>limit</code></td>
+              <td>number</td>
+              <td>
+                Number of records (default: 50)
+                <span class="badge badge-optional">Optional</span>
+              </td>
+            </tr>
+            <tr>
+              <td><code>offset</code></td>
+              <td>number</td>
+              <td>
+                Pagination offset
+                <span class="badge badge-optional">Optional</span>
+              </td>
+            </tr>
+            <tr>
+              <td><code>filter</code></td>
+              <td>string</td>
+              <td>
+                JSON filter expression
+                <span class="badge badge-optional">Optional</span>
+              </td>
+            </tr>
+            <tr>
+              <td><code>sort</code></td>
+              <td>string</td>
+              <td>
+                Sort field (e.g., "created_at:desc")
+                <span class="badge badge-optional">Optional</span>
+              </td>
+            </tr>
+          </table>
+          <pre><code><span class="keyword">GET</span> /api/data/products?limit=10&filter={<span class="string">"category"</span>:<span class="string">"electronics"</span>}
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"records"</span>: [...],
+  <span class="string">"total"</span>: <span class="number">100</span>,
+  <span class="string">"limit"</span>: <span class="number">10</span>,
+  <span class="string">"offset"</span>: <span class="number">0</span>
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/data/:collection</span>
+          </div>
+          <p class="endpoint-description">
+            Create a new record in a collection.
+          </p>
+          <pre><code><span class="keyword">POST</span> /api/data/products
+{
+  <span class="string">"title"</span>: <span class="string">"iPhone 15 Pro"</span>,
+  <span class="string">"price"</span>: <span class="number">999</span>,
+  <span class="string">"category"</span>: <span class="string">"electronics"</span>
+}
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"record"</span>: {
+    <span class="string">"id"</span>: <span class="string">"rec_xyz789"</span>,
+    <span class="string">"title"</span>: <span class="string">"iPhone 15 Pro"</span>,
+    <span class="string">"price"</span>: <span class="number">999</span>,
+    <span class="string">"created_at"</span>: <span class="string">"2026-03-04T12:00:00Z"</span>
+  }
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-get">GET</span>
+            <span class="endpoint-path">/api/data/:collection/:id</span>
+          </div>
+          <p class="endpoint-description">Get a single record by ID.</p>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-put">PUT</span>
+            <span class="endpoint-path">/api/data/:collection/:id</span>
+          </div>
+          <p class="endpoint-description">Update an existing record.</p>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-delete">DELETE</span>
+            <span class="endpoint-path">/api/data/:collection/:id</span>
+          </div>
+          <p class="endpoint-description">
+            Delete a record (soft delete by default).
+          </p>
+        </div>
+
+        <h2 id="permissions">Permissions</h2>
+        <p>Manage user roles and permissions using Casbin RBAC.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/permissions/assign-role</span>
+          </div>
+          <p class="endpoint-description">Assign a role to a user.</p>
+          <pre><code><span class="keyword">POST</span> /api/permissions/assign-role
+{
+  <span class="string">"userId"</span>: <span class="string">"usr_abc123"</span>,
+  <span class="string">"role"</span>: <span class="string">"admin"</span>
+}
+
+<span class="comment">// Available roles: god, admin, manager, employee, guest</span></code></pre>
+        </div>
+
+        <h2 id="storage">Storage</h2>
+        <p>File upload and management via S3-compatible storage.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/storage/presign</span>
+          </div>
+          <p class="endpoint-description">
+            Get a presigned URL for direct upload to S3.
+          </p>
+          <pre><code><span class="keyword">POST</span> /api/storage/presign
+{
+  <span class="string">"filename"</span>: <span class="string">"document.pdf"</span>,
+  <span class="string">"contentType"</span>: <span class="string">"application/pdf"</span>
+}
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"uploadUrl"</span>: <span class="string">"https://..."</span>,
+  <span class="string">"fileId"</span>: <span class="string">"file_xyz"</span>,
+  <span class="string">"publicUrl"</span>: <span class="string">"https://..."</span>
+}</code></pre>
+        </div>
+
+        <h2 id="ai-chat">AI Chat</h2>
+        <p>Conversational AI with context awareness.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/ai/chat</span>
+          </div>
+          <p class="endpoint-description">
+            Send a chat message to the AI assistant.
+          </p>
+          <pre><code><span class="keyword">POST</span> /api/ai/chat
+{
+  <span class="string">"message"</span>: <span class="string">"What are the top selling products?"</span>,
+  <span class="string">"context"</span>: { <span class="string">"collection"</span>: <span class="string">"products"</span> }
+}
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"response"</span>: <span class="string">"Based on your sales data, the top selling products are..."</span>,
+  <span class="string">"sources"</span>: [<span class="string">"products table"</span>]
+}</code></pre>
+        </div>
+
+        <h2 id="ai-search">Semantic Search</h2>
+        <p>RAG-powered document search using vector embeddings.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/ai/search</span>
+          </div>
+          <p class="endpoint-description">
+            Perform semantic search across collections.
+          </p>
+          <pre><code><span class="keyword">POST</span> /api/ai/search
+{
+  <span class="string">"query"</span>: <span class="string">"How to reset password"</span>,
+  <span class="string">"collection"</span>: <span class="string">"articles"</span>,
+  <span class="string">"limit"</span>: <span class="number">5</span>
+}
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"results"</span>: [
+    {
+      <span class="string">"id"</span>: <span class="string">"rec_123"</span>,
+      <span class="string">"title"</span>: <span class="string">"Password Reset Guide"</span>,
+      <span class="string">"content"</span>: <span class="string">"To reset your password..."</span>,
+      <span class="string">"score"</span>: <span class="number">0.95</span>
+    }
+  ]
+}</code></pre>
+        </div>
+
+        <h2 id="ai-embeddings">Embeddings</h2>
+        <p>Generate vector embeddings for AI-powered features.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/ai/embeddings/generate</span>
+          </div>
+          <p class="endpoint-description">Generate a single embedding.</p>
+          <pre><code><span class="keyword">POST</span> /api/ai/embeddings/generate
+{
+  <span class="string">"text"</span>: <span class="string">"The quick brown fox jumps over the lazy dog"</span>
+}
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"embedding"</span>: [<span class="number">0.123</span>, <span class="number">-0.456</span>, <span class="number">0.789</span>, ...]
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/ai/embeddings/batch</span>
+          </div>
+          <p class="endpoint-description">
+            Generate embeddings for multiple texts.
+          </p>
+        </div>
+
+        <h2 id="webhooks">Webhooks</h2>
+        <p>Configure event-driven integrations.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-get">GET</span>
+            <span class="endpoint-path">/api/webhooks</span>
+          </div>
+          <p class="endpoint-description">List all configured webhooks.</p>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/webhooks</span>
+          </div>
+          <p class="endpoint-description">Create a new webhook.</p>
+          <pre><code><span class="keyword">POST</span> /api/webhooks
+{
+  <span class="string">"name"</span>: <span class="string">"Slack Notifications"</span>,
+  <span class="string">"url"</span>: <span class="string">"https://hooks.slack.com/services/..."</span>,
+  <span class="string">"events"</span>: [<span class="string">"record.created"</span>, <span class="string">"record.updated"</span>],
+  <span class="string">"active"</span>: <span class="keyword">true</span>
+}</code></pre>
+        </div>
+
+        <h2 id="export">Export</h2>
+        <p>Generate reports in multiple formats.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/export/:collection</span>
+          </div>
+          <p class="endpoint-description">
+            Export collection data to PDF, Excel, or CSV.
+          </p>
+          <pre><code><span class="keyword">POST</span> /api/export/products
+{
+  <span class="string">"format"</span>: <span class="string">"pdf"</span>,
+  <span class="string">"filters"</span>: { <span class="string">"category"</span>: <span class="string">"electronics"</span> },
+  <span class="string">"template"</span>: <span class="string">"professional"</span>
+}
+
+<span class="comment">// Response - Returns file download</span></code></pre>
+        </div>
+
+        <h2 id="translations">Translations</h2>
+        <p>Internationalization and translation management.</p>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-get">GET</span>
+            <span class="endpoint-path">/api/translations/:key</span>
+          </div>
+          <p class="endpoint-description">
+            Get translation for a key in all languages.
+          </p>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header">
+            <span class="method-badge method-post">POST</span>
+            <span class="endpoint-path">/api/translations</span>
+          </div>
+          <p class="endpoint-description">Create or update a translation.</p>
+        </div>
+
+        <footer
+          style="
+            margin-top: 4rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+          "
+        >
+          <p style="color: var(--text-muted); font-size: 0.85rem">
+            © 2026 Zveltio. Built with ❤️ using Bun.
+          </p>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>
