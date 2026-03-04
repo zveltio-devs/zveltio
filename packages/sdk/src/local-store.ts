@@ -4,15 +4,15 @@ export interface LocalRecord {
   id: string;
   collection: string;
   data: Record<string, any>;
-  _localVersion: number;     // Incrementat la fiecare write local
-  _serverVersion: number;    // Versiunea confirmată de server
+  _localVersion: number; // Incremented on every local write
+  _serverVersion: number; // Confirmed version from server
   _syncStatus: 'synced' | 'pending' | 'conflict';
-  _updatedAt: number;        // timestamp ms
-  _deletedAt?: number;       // soft delete pentru sync
+  _updatedAt: number; // timestamp ms
+  _deletedAt?: number; // soft delete for sync
 }
 
 export interface SyncQueueItem {
-  id: string;               // auto-generated
+  id: string; // auto-generated
   collection: string;
   recordId: string;
   operation: 'create' | 'update' | 'delete';
@@ -24,11 +24,11 @@ export interface SyncQueueItem {
 }
 
 export interface OfflineBlob {
-  id: string;           // 'local_blob_<UUID>'
+  id: string; // 'local_blob_<UUID>'
   blob: Blob;
   collection: string;
   recordId: string;
-  field: string;        // câmpul din record care referențiază blob-ul
+  field: string; // the field in the record that references the blob
   createdAt: number;
 }
 
@@ -40,36 +40,44 @@ export class LocalStore {
 
   async open(): Promise<void> {
     this.db = await openDB(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
+      upgrade(db: IDBPDatabase, oldVersion: number) {
         if (oldVersion < 1) {
-          // Store pentru date locale (mirror al colecțiilor server)
-          const store = db.createObjectStore('records', { keyPath: ['collection', 'id'] });
+          // Store for local data (mirror of server collections)
+          const store = db.createObjectStore('records', {
+            keyPath: ['collection', 'id'],
+          });
           store.createIndex('by-collection', 'collection');
           store.createIndex('by-sync-status', '_syncStatus');
           store.createIndex('by-updated', '_updatedAt');
 
-          // Coadă de sincronizare (operații pending)
+          // Sync queue (pending operations)
           const queue = db.createObjectStore('sync_queue', { keyPath: 'id' });
           queue.createIndex('by-collection', 'collection');
           queue.createIndex('by-created', 'createdAt');
 
-          // Metadata per colecție (last sync timestamp, etc.)
+          // Metadata per collection (last sync timestamp, etc.)
           db.createObjectStore('meta', { keyPath: 'key' });
         }
 
         if (oldVersion < 2) {
-          // Blobs salvate offline — se uploadează la prima reconectare
+          // Blobs saved offline — upload on first reconnect
           db.createObjectStore('offline_blobs', { keyPath: 'id' });
         }
       },
     });
   }
 
-  /** Scrie un record local + adaugă în sync queue */
-  async put(collection: string, id: string, data: Record<string, any>): Promise<LocalRecord> {
+  /** Write a local record and add to sync queue */
+  async put(
+    collection: string,
+    id: string,
+    data: Record<string, any>,
+  ): Promise<LocalRecord> {
     if (!this.db) throw new Error('LocalStore not opened');
 
-    const existing = await this.db.get('records', [collection, id]) as LocalRecord | undefined;
+    const existing = (await this.db.get('records', [collection, id])) as
+      | LocalRecord
+      | undefined;
 
     const record: LocalRecord = {
       id,
@@ -83,10 +91,10 @@ export class LocalStore {
 
     const tx = this.db.transaction(['records', 'sync_queue'], 'readwrite');
 
-    // 1. Scrie record local
+    // 1. Write local record
     await tx.objectStore('records').put(record);
 
-    // 2. Adaugă în sync queue
+    // 2. Add to sync queue
     const queueItem: SyncQueueItem = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       collection,
@@ -102,28 +110,36 @@ export class LocalStore {
     return record;
   }
 
-  /** Citește un record local (instant, fără network) */
+  /** Read a local record (instant, no network) */
   async get(collection: string, id: string): Promise<LocalRecord | undefined> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const record = await this.db.get('records', [collection, id]) as LocalRecord | undefined;
+    const record = (await this.db.get('records', [collection, id])) as
+      | LocalRecord
+      | undefined;
     if (record?._deletedAt) return undefined; // Soft-deleted
     return record;
   }
 
-  /** Listează records dintr-o colecție (local) */
+  /** List records from a collection (local) */
   async list(collection: string): Promise<LocalRecord[]> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const all = await this.db.getAllFromIndex('records', 'by-collection', collection) as LocalRecord[];
+    const all = (await this.db.getAllFromIndex(
+      'records',
+      'by-collection',
+      collection,
+    )) as LocalRecord[];
     return all.filter((r) => !r._deletedAt);
   }
 
-  /** Soft delete local + adaugă în sync queue */
+  /** Soft delete local and add to sync queue */
   async delete(collection: string, id: string): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
 
     const tx = this.db.transaction(['records', 'sync_queue'], 'readwrite');
 
-    const existing = await tx.objectStore('records').get([collection, id]) as LocalRecord | undefined;
+    const existing = (await tx.objectStore('records').get([collection, id])) as
+      | LocalRecord
+      | undefined;
     if (existing) {
       existing._deletedAt = Date.now();
       existing._syncStatus = 'pending';
@@ -144,23 +160,32 @@ export class LocalStore {
     await tx.done;
   }
 
-  /** Returnează toate operațiile pending din sync queue */
+  /** Returns all pending operations from sync queue */
   async getPendingOps(): Promise<SyncQueueItem[]> {
     if (!this.db) throw new Error('LocalStore not opened');
-    return this.db.getAllFromIndex('sync_queue', 'by-created') as Promise<SyncQueueItem[]>;
+    return this.db.getAllFromIndex('sync_queue', 'by-created') as Promise<
+      SyncQueueItem[]
+    >;
   }
 
-  /** Marchează o operație ca finalizată (remove din queue, update record status) */
-  async markSynced(queueItemId: string, collection: string, recordId: string, serverVersion: number): Promise<void> {
+  /** Mark an operation as completed (remove from queue, update record status) */
+  async markSynced(
+    queueItemId: string,
+    collection: string,
+    recordId: string,
+    serverVersion: number,
+  ): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
 
     const tx = this.db.transaction(['records', 'sync_queue'], 'readwrite');
 
-    // Remove din queue
+    // Remove from queue
     await tx.objectStore('sync_queue').delete(queueItemId);
 
     // Update record status
-    const record = await tx.objectStore('records').get([collection, recordId]) as LocalRecord | undefined;
+    const record = (await tx
+      .objectStore('records')
+      .get([collection, recordId])) as LocalRecord | undefined;
     if (record) {
       record._serverVersion = serverVersion;
       record._syncStatus = 'synced';
@@ -170,10 +195,12 @@ export class LocalStore {
     await tx.done;
   }
 
-  /** Marchează o operație ca failed (increment attempts, save error) */
+  /** Mark an operation as failed (increment attempts, save error) */
   async markFailed(queueItemId: string, error: string): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const item = await this.db.get('sync_queue', queueItemId) as SyncQueueItem | undefined;
+    const item = (await this.db.get('sync_queue', queueItemId)) as
+      | SyncQueueItem
+      | undefined;
     if (item) {
       item.attempts += 1;
       item.lastAttemptAt = Date.now();
@@ -182,16 +209,23 @@ export class LocalStore {
     }
   }
 
-  /** Aplică date venite de la server (prin WebSocket sau pull) */
-  async applyServerUpdate(collection: string, id: string, data: Record<string, any>, serverVersion: number): Promise<void> {
+  /** Apply data from server (via WebSocket or pull) */
+  async applyServerUpdate(
+    collection: string,
+    id: string,
+    data: Record<string, any>,
+    serverVersion: number,
+  ): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
 
-    const existing = await this.db.get('records', [collection, id]) as LocalRecord | undefined;
+    const existing = (await this.db.get('records', [collection, id])) as
+      | LocalRecord
+      | undefined;
 
-    // Conflict detection: dacă avem modificări locale nesincronizate
+    // Conflict detection: if we have unsynced local changes
     if (existing && existing._syncStatus === 'pending') {
-      // Last-write-wins default — serverul câștigă
-      // Dar marcăm ca conflict pentru eventualul custom merge
+      // Last-write-wins default — server wins
+      // But mark as conflict for potential custom merge
       existing.data = data;
       existing._serverVersion = serverVersion;
       existing._syncStatus = 'conflict';
@@ -212,51 +246,76 @@ export class LocalStore {
     await this.db.put('records', record);
   }
 
-  /** Obține records cu conflicte pentru UI resolution */
+  /** Get records with conflicts for UI resolution */
   async getConflicts(collection?: string): Promise<LocalRecord[]> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const all = await this.db.getAllFromIndex('records', 'by-sync-status', 'conflict') as LocalRecord[];
+    const all = (await this.db.getAllFromIndex(
+      'records',
+      'by-sync-status',
+      'conflict',
+    )) as LocalRecord[];
     if (collection) return all.filter((r) => r.collection === collection);
     return all;
   }
 
-  /** Rezolvă un conflict (user decide care versiune câștigă) */
-  async resolveConflict(collection: string, id: string, resolvedData: Record<string, any>): Promise<void> {
+  /** Resolve a conflict (user decides which version wins) */
+  async resolveConflict(
+    collection: string,
+    id: string,
+    resolvedData: Record<string, any>,
+  ): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const record = await this.db.get('records', [collection, id]) as LocalRecord | undefined;
+    const record = (await this.db.get('records', [collection, id])) as
+      | LocalRecord
+      | undefined;
     if (record) {
       record.data = resolvedData;
-      record._syncStatus = 'pending'; // Re-sync cu serverul
+      record._syncStatus = 'pending'; // Re-sync with server
       record._localVersion += 1;
       await this.db.put('records', record);
     }
   }
 
-  /** Salvează un blob offline — returnează un ID temporar 'local_blob_<UUID>' */
-  async saveBlob(blob: Blob, collection: string, recordId: string, field: string): Promise<string> {
+  /** Save an offline blob — returns a temporary ID 'local_blob_<UUID>' */
+  async saveBlob(
+    blob: Blob,
+    collection: string,
+    recordId: string,
+    field: string,
+  ): Promise<string> {
     if (!this.db) throw new Error('LocalStore not opened');
     const id = `local_blob_${crypto.randomUUID()}`;
-    const item: OfflineBlob = { id, blob, collection, recordId, field, createdAt: Date.now() };
+    const item: OfflineBlob = {
+      id,
+      blob,
+      collection,
+      recordId,
+      field,
+      createdAt: Date.now(),
+    };
     await this.db.put('offline_blobs', item);
     return id;
   }
 
-  /** Returnează toate blob-urile offline pending */
+  /** Returns all pending offline blobs */
   async getPendingBlobs(): Promise<OfflineBlob[]> {
     if (!this.db) throw new Error('LocalStore not opened');
     return this.db.getAll('offline_blobs') as Promise<OfflineBlob[]>;
   }
 
-  /** Șterge un blob offline după upload reușit */
+  /** Delete an offline blob after successful upload */
   async deleteBlob(id: string): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
     await this.db.delete('offline_blobs', id);
   }
 
-  /** Curăță toate datele locale */
+  /** Clear all local data */
   async clear(): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const tx = this.db.transaction(['records', 'sync_queue', 'meta', 'offline_blobs'], 'readwrite');
+    const tx = this.db.transaction(
+      ['records', 'sync_queue', 'meta', 'offline_blobs'],
+      'readwrite',
+    );
     await tx.objectStore('records').clear();
     await tx.objectStore('sync_queue').clear();
     await tx.objectStore('meta').clear();

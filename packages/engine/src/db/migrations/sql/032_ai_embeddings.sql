@@ -1,16 +1,16 @@
 -- 032_ai_embeddings.sql
--- pgvector + tabel de embeddings pentru AI Search
+-- pgvector + embeddings table for AI Search
 
--- Activăm extensia pgvector (necesită PostgreSQL cu pgvector instalat)
+-- Enable pgvector extension (requires PostgreSQL with pgvector installed)
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- Tabel de embeddings per record per câmp
+-- Embeddings table per record per field
 CREATE TABLE IF NOT EXISTS zvd_ai_embeddings (
   id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   collection   TEXT        NOT NULL,
   record_id    TEXT        NOT NULL,
-  field        TEXT        NOT NULL DEFAULT '_auto',  -- câmpul embedduit sau '_auto' = toate
-  text_content TEXT        NOT NULL DEFAULT '',       -- textul care a generat embedding-ul
+  field        TEXT        NOT NULL DEFAULT '_auto',  -- field embedded or '_auto' = all
+  text_content TEXT        NOT NULL DEFAULT '',       -- text that generated the embedding
   embedding    vector(1536),                          -- OpenAI text-embedding-3-small dimension
   model        TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -21,15 +21,15 @@ CREATE TABLE IF NOT EXISTS zvd_ai_embeddings (
 CREATE INDEX IF NOT EXISTS idx_zvd_ai_embeddings_lookup
   ON zvd_ai_embeddings (collection, record_id);
 
--- Index cosine similarity (IVFFlat — necesită minim 1 rând în tabel pentru a fi util)
--- Creat cu lists=100; ajustează la nr_rânduri/1000 în producție
+-- Cosine similarity index (IVFFlat — requires at least 1 row in table to be useful)
+-- Created with lists=100; adjust to rows/1000 in production
 CREATE INDEX IF NOT EXISTS idx_zvd_ai_embeddings_ivfflat
   ON zvd_ai_embeddings USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 
--- Coloane AI Search pe zvd_collections
+-- AI Search columns on zvd_collections
 ALTER TABLE zvd_collections ADD COLUMN IF NOT EXISTS ai_search_enabled BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE zvd_collections ADD COLUMN IF NOT EXISTS ai_search_field   TEXT    DEFAULT NULL;
 
-COMMENT ON COLUMN zvd_collections.ai_search_enabled IS 'Activează auto-embedding la create/update';
-COMMENT ON COLUMN zvd_collections.ai_search_field   IS 'Câmpul de embedduit; NULL = concat toate câmpurile text';
+COMMENT ON COLUMN zvd_collections.ai_search_enabled IS 'Enable auto-embedding on create/update';
+COMMENT ON COLUMN zvd_collections.ai_search_field   IS 'Field to embed; NULL = concat all text fields';

@@ -1,10 +1,10 @@
 /**
- * Garbage Collector — șterge rândurile soft-deleted mai vechi de 30 de zile.
+ * Garbage Collector — deletes soft-deleted rows older than 30 days.
  *
- * Scanează toate schemele tenant_ + public, găsește tabelele cu coloana
- * "_deletedAt" și execută DELETE pentru rândurile expirate.
+ * Scans all tenant_ + public schemas, finds tables with column
+ * "_deletedAt" and executes DELETE for expired rows.
  *
- * Rulează automat la 03:00 în fiecare noapte (programat de flow-scheduler).
+ * Runs automatically at 03:00 every night (scheduled by flow-scheduler).
  */
 
 import { sql } from 'kysely';
@@ -13,7 +13,7 @@ import type { Database } from '../db/index.js';
 export async function runGarbageCollector(db: Database): Promise<void> {
   console.log('[GC] Starting garbage collection...');
 
-  // Colectăm toate schemele: tenant_* + public
+  // Collect all schemas: tenant_* + public
   const schemasResult = await sql<{ schema_name: string }>`
     SELECT schema_name
     FROM information_schema.schemata
@@ -25,7 +25,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
   let totalDeleted = 0;
 
   for (const schema of schemas) {
-    // Găsim tabelele din această schemă care au coloana _deletedAt
+    // Find tables in this schema that have column _deletedAt
     const tablesResult = await sql<{ table_name: string }>`
       SELECT table_name
       FROM information_schema.columns
@@ -46,7 +46,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
           totalDeleted += deleted;
         }
       } catch {
-        // Tabelul poate fi indisponibil sau poate exista o eroare — skip silențios
+        // Table may be unavailable or there may be an error — skip silently
       }
     }
   }
@@ -55,8 +55,8 @@ export async function runGarbageCollector(db: Database): Promise<void> {
 }
 
 /**
- * Programează rularea garbage collector-ului zilnic la 03:00.
- * Returnează o funcție de cleanup pentru oprirea schedulerului.
+ * Schedules the garbage collector to run daily at 03:00.
+ * Returns a cleanup function to stop the scheduler.
  */
 export function scheduleGarbageCollector(db: Database): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -70,13 +70,15 @@ export function scheduleGarbageCollector(db: Database): () => void {
     }
 
     const msUntil = next.getTime() - now.getTime();
-    console.log(`[GC] Next run scheduled at ${next.toISOString()} (in ${Math.round(msUntil / 60_000)} min)`);
+    console.log(
+      `[GC] Next run scheduled at ${next.toISOString()} (in ${Math.round(msUntil / 60_000)} min)`,
+    );
 
     timer = setTimeout(async () => {
       await runGarbageCollector(db).catch((err) => {
         console.error('[GC] Error during garbage collection:', err);
       });
-      scheduleNext(); // Re-programează pentru ziua următoare
+      scheduleNext(); // Re-schedule for the next day
     }, msUntil);
   }
 

@@ -1,7 +1,7 @@
 /**
- * Svelte 5 runes integration cu SyncManager.
+ * Svelte 5 runes integration with SyncManager.
  *
- * Folosire în componente Svelte 5:
+ * Usage in Svelte 5 components:
  *
  * ```svelte
  * <script lang="ts">
@@ -22,35 +22,44 @@
 import type { SyncManager } from './sync-manager.js';
 
 /**
- * Subscribe la o colecție prin SyncManager.
- * Apelează `setter` imediat cu starea curentă și la fiecare update.
- * Returnează funcția de unsubscribe.
+ * Subscribe to a collection via SyncManager.
+ * Calls `setter` immediately with current state and on each update.
+ * Returns the unsubscribe function.
  */
 export function useSyncCollection(
   sync: SyncManager,
   collection: string,
-  setter: (records: any[]) => void
+  setter: (records: any[]) => void,
 ): () => void {
   const col = sync.collection(collection);
   return col.subscribe(setter);
 }
 
 /**
- * Subscribe la statusul sync (pending, conflicts, isOnline).
- * Apelează `setter` imediat și la fiecare sync ciclu.
- * Returnează funcția de cleanup.
+ * Subscribe to sync status (pending, conflicts, isOnline).
+ * Calls `setter` immediately and on each sync cycle.
+ * Returns the cleanup function.
  */
 export function useSyncStatus(
   sync: SyncManager,
-  setter: (status: { pending: number; conflicts: number; isOnline: boolean }) => void,
-  intervalMs = 2000
+  setter: (status: {
+    pending: number;
+    conflicts: number;
+    isOnline: boolean;
+  }) => void,
+  intervalMs = 2000,
 ): () => void {
-  // Emit imediat
+  // Emit immediately
   sync.getStatus().then(setter);
 
-  // Poll periodic (SyncManager nu are event system pentru status)
+  // Periodic poll (SyncManager doesn't have event system for status)
   const timer = setInterval(() => {
-    sync.getStatus().then(setter).catch(() => { /* ignore */ });
+    sync
+      .getStatus()
+      .then(setter)
+      .catch(() => {
+        /* ignore */
+      });
   }, intervalMs);
 
   return () => clearInterval(timer);

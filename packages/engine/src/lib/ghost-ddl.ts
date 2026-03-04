@@ -1,15 +1,15 @@
 /**
  * Ghost DDL — Zero-Downtime Schema Migrations
  *
- * Algoritmul GitHub/PlanetScale: Ghost Table + Trigger Changelog + Batch Copy + Atomic Swap
+ * GitHub/PlanetScale algorithm: Ghost Table + Trigger Changelog + Batch Copy + Atomic Swap
  *
- * Pași:
- *   1. createGhost  — Creează ghost table (structura identică + modificările DDL aplicate pe ea)
- *                     + changelog table + trigger care capturează mutațiile live
- *   2. batchCopy    — Copiază datele existente în batch-uri (cursor-based, 10k/batch)
- *   3. applyChangelog — Aplică mutațiile acumulate în changelog pe ghost table
- *   4. atomicSwap   — LOCK scurt + RENAME atomic: original → old, ghost → original
- *                     Citirile continuă pe durata LOCK-ului, blocăm doar scrierile câteva ms.
+ * Steps:
+ *   1. createGhost  — Creates ghost table (identical structure + DDL changes applied)
+ *                     + changelog table + trigger that captures live mutations
+ *   2. batchCopy    — Copies existing data in batches (cursor-based, 10k/batch)
+ *   3. applyChangelog — Applies accumulated changelog mutations to ghost table
+ *   4. atomicSwap   — Short LOCK + atomic RENAME: original → old, ghost → original
+ *                     Reads continue during LOCK, only writes are blocked for a few ms.
  */
 
 import type { Database } from '../db/index.js';
@@ -26,8 +26,8 @@ export interface GhostMigration {
 
 export class GhostDDL {
   /**
-   * PASUL 1: Creează ghost table identică cu originala + aplică modificările DDL pe ea.
-   * Creează și changelog table + trigger care capturează INSERT/UPDATE/DELETE live.
+   * STEP 1: Creates ghost table identical to original + applies DDL changes on it.
+   * Also creates changelog table + trigger that captures INSERT/UPDATE/DELETE live.
    */
   static async createGhost(
     db: Database,
@@ -39,15 +39,17 @@ export class GhostDDL {
     const triggerFn = `_zv_trg_ghost_${tableName}_fn`;
     const trigger = `_zv_trg_ghost_${tableName}`;
 
-    // 1. Creează ghost table cu aceeași structură (inclusiv indecși, constraints)
-    await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
+    // 1. Create ghost table with same structure (including indexes, constraints)
+    await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(
+      db,
+    );
 
-    // 2. Aplică modificările DDL pe ghost (NU pe originală — asta e ideea)
+    // 2. Apply DDL changes on ghost (NOT on original — that's the point)
     for (const ddl of ddlStatements) {
       await sql.raw(`ALTER TABLE "${ghost}" ${ddl}`).execute(db);
     }
 
-    // 3. Changelog table — capturează toate mutațiile din timpul copierii batch
+    // 3. Changelog table — captures all mutations during batch copy
     await sql`
       CREATE TABLE ${sql.id(changelog)} (
         id        BIGSERIAL PRIMARY KEY,
@@ -58,9 +60,11 @@ export class GhostDDL {
       )
     `.execute(db);
 
-    // 4. Trigger function + trigger pe tabela originală
-    //    Orice scriere pe original în timp ce noi copiem se salvează în changelog.
-    await sql.raw(`
+    // 4. Trigger function + trigger on original table
+    //    Any write to original while we copy is saved to changelog.
+    await sql
+      .raw(
+        `
       CREATE OR REPLACE FUNCTION "${triggerFn}"() RETURNS TRIGGER AS $$
       BEGIN
         IF TG_OP = 'INSERT' THEN
@@ -83,7 +87,9 @@ export class GhostDDL {
       CREATE TRIGGER "${trigger}"
       AFTER INSERT OR UPDATE OR DELETE ON "${tableName}"
       FOR EACH ROW EXECUTE FUNCTION "${triggerFn}"();
-    `).execute(db);
+    `,
+      )
+      .execute(db);
 
     return {
       originalTable: tableName,
@@ -94,17 +100,17 @@ export class GhostDDL {
   }
 
   /**
-   * PASUL 2: Copiază datele din original → ghost în batch-uri cursor-based.
-   * Cursor-based (ORDER BY id cu WHERE id > lastId) garantează consistența
-   * chiar dacă se fac inserturi pe original în paralel.
-   * Returnează numărul total de rânduri copiate.
+   * STEP 2: Copy data from original → ghost in cursor-based batches.
+   * Cursor-based (ORDER BY id with WHERE id > lastId) guarantees consistency
+   * even if inserts happen on original in parallel.
+   * Returns total number of rows copied.
    */
   static async batchCopy(
     db: Database,
     migration: GhostMigration,
     onProgress?: (copied: number, total: number) => void,
   ): Promise<number> {
-    // Numără totalul de rânduri de copiat
+    // Count total rows to copy
     const countResult = await sql<{ cnt: string }>`
       SELECT count(*) AS cnt FROM ${sql.id(migration.originalTable)}
     `.execute(db);
@@ -122,7 +128,7 @@ export class GhostDDL {
       let batchRows: number;
 
       if (lastId === null) {
-        // Prima iterație — fără cursor
+        // First iteration — without cursor
         const result = await sql`
           INSERT INTO ${sql.id(migration.ghostTable)}
           SELECT * FROM ${sql.id(migration.originalTable)}
@@ -132,7 +138,7 @@ export class GhostDDL {
         `.execute(db);
         batchRows = Number((result as any).numAffectedRows ?? BATCH_SIZE);
       } else {
-        // Iterații ulterioare — cursor-based
+        // Subsequent iterations — cursor-based
         const result = await sql`
           INSERT INTO ${sql.id(migration.ghostTable)}
           SELECT * FROM ${sql.id(migration.originalTable)}
@@ -146,7 +152,7 @@ export class GhostDDL {
 
       copied += batchRows;
 
-      // Obține ultimul id copiat pentru cursorul următor
+      // Get last copied id for next cursor
       const lastRow = await sql<{ id: string }>`
         SELECT id FROM ${sql.id(migration.ghostTable)} ORDER BY id DESC LIMIT 1
       `.execute(db);
@@ -154,10 +160,10 @@ export class GhostDDL {
 
       onProgress?.(Math.min(copied, total), total);
 
-      // Am terminat dacă batch-ul e mai mic decât BATCH_SIZE
+      // Done if batch is smaller than BATCH_SIZE
       if (batchRows < BATCH_SIZE) break;
 
-      // Micro-pauză pentru a nu sufoca DB-ul în producție
+      // Micro-pause to avoid overwhelming DB in production
       await new Promise((r) => setTimeout(r, 50));
     }
 
@@ -165,11 +171,14 @@ export class GhostDDL {
   }
 
   /**
-   * PASUL 3: Aplică toate intrările din changelog pe ghost table.
-   * Acestea sunt mutațiile care au avut loc pe original în timpul copierii batch.
-   * Returnează numărul de intrări aplicate.
+   * STEP 3: Apply all changelog entries to ghost table.
+   * These are the mutations that occurred on original during batch copy.
+   * Returns number of entries applied.
    */
-  static async applyChangelog(db: Database, migration: GhostMigration): Promise<number> {
+  static async applyChangelog(
+    db: Database,
+    migration: GhostMigration,
+  ): Promise<number> {
     const changes = await sql<{
       id: string;
       operation: string;
@@ -185,30 +194,33 @@ export class GhostDDL {
 
     for (const change of changes.rows) {
       if (change.operation === 'DELETE') {
-        // Șterge din ghost dacă există
+        // Delete from ghost if exists
         await sql`
           DELETE FROM ${sql.id(migration.ghostTable)}
           WHERE id = ${change.row_id}
         `.execute(db);
       } else {
-        // INSERT sau UPDATE — upsert în ghost
-        // row_data este snapshot-ul complet al rândului (to_jsonb(NEW))
+        // INSERT or UPDATE — upsert in ghost
+        // row_data is the complete row snapshot (to_jsonb(NEW))
         const data = change.row_data as Record<string, any>;
         if (!data) continue;
 
         const columns = Object.keys(data);
         if (columns.length === 0) continue;
 
-        // Construim upsert parametrizat cu sql template (fără concatenare string)
+        // Build parameterized upsert with sql template (no string concatenation)
         const updateCols = columns.filter((c) => c !== 'id');
 
-        // Folosim INSERT ... ON CONFLICT DO UPDATE cu valori individuale
-        // pentru a evita concatenarea de SQL (securitate + corectitudine)
+        // Use INSERT ... ON CONFLICT DO UPDATE with individual values
+        // to avoid SQL concatenation (security + correctness)
         const colsSql = sql.raw(columns.map((c) => `"${c}"`).join(', '));
         const valsSql = sql.join(columns.map((c) => sql`${data[c]}`));
-        const updateSql = updateCols.length > 0
-          ? sql.raw(updateCols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', '))
-          : sql.raw('"id" = EXCLUDED."id"'); // no-op update pentru evitarea erorilor de sintaxă
+        const updateSql =
+          updateCols.length > 0
+            ? sql.raw(
+                updateCols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', '),
+              )
+            : sql.raw('"id" = EXCLUDED."id"'); // no-op update to avoid syntax errors
 
         await sql`
           INSERT INTO ${sql.id(migration.ghostTable)} (${colsSql})
@@ -223,60 +235,79 @@ export class GhostDDL {
   }
 
   /**
-   * PASUL 4: THE SWAP — Rename atomic cu lock minim.
+   * STEP 4: THE SWAP — Atomic rename with minimal lock.
    *
-   * Secvența exactă (în tranzacție):
-   *   LOCK TABLE original IN SHARE ROW EXCLUSIVE MODE  ← blochează scrierile (nu citirile!)
-   *   ALTER TABLE original RENAME TO _zv_old_original  ← original dispare
-   *   ALTER TABLE ghost    RENAME TO original           ← ghost devine original
+   * Exact sequence (in transaction):
+   *   LOCK TABLE original IN SHARE ROW EXCLUSIVE MODE  ← blocks writes (not reads!)
+   *   ALTER TABLE original RENAME TO _zv_old_original  ← original disappears
+   *   ALTER TABLE ghost    RENAME TO original           ← ghost becomes original
    *   DROP TRIGGER changelog_trigger ON _zv_old_original
    *   DROP FUNCTION changelog_trigger_fn()
    *
-   * Lock durează câteva milisecunde (cât durează 3 RENAME-uri).
-   * Citirile continuă neîntrerupte pe durata lock-ului.
-   * Cleanup-ul (DROP TABLE old + changelog) se face async după 60s.
+   * Lock lasts a few milliseconds (3 RENAME commands).
+   * Reads continue uninterrupted during lock.
+   * Cleanup (DROP TABLE old + changelog) is done async after 60s.
    */
-  static async atomicSwap(db: Database, migration: GhostMigration): Promise<void> {
+  static async atomicSwap(
+    db: Database,
+    migration: GhostMigration,
+  ): Promise<void> {
     const oldTable = `_zv_old_${migration.originalTable}`;
     const triggerFn = `${migration.triggerName}_fn`;
 
-    // Aplică ultimele changelog entries înainte de swap (între ultimul batchCopy și LOCK)
+    // Apply last changelog entries before swap (between last batchCopy and LOCK)
     await GhostDDL.applyChangelog(db, migration);
 
-    // Tranzacție cu LOCK + RENAME atomic
+    // Transaction with LOCK + atomic RENAME
     await db.transaction().execute(async (trx) => {
-      // SHARE ROW EXCLUSIVE: blochează INSERT/UPDATE/DELETE, permite SELECT
-      await sql.raw(`LOCK TABLE "${migration.originalTable}" IN SHARE ROW EXCLUSIVE MODE`).execute(trx);
+      // SHARE ROW EXCLUSIVE: blocks INSERT/UPDATE/DELETE, allows SELECT
+      await sql
+        .raw(
+          `LOCK TABLE "${migration.originalTable}" IN SHARE ROW EXCLUSIVE MODE`,
+        )
+        .execute(trx);
 
-      // Aplică orice scrieri care au ajuns în changelog în fereastra dintre
-      // ultimul applyChangelog de mai sus și momentul LOCK-ului
+      // Apply any writes that arrived in changelog in the window between
+      // the last applyChangelog above and the LOCK moment
       await GhostDDL.applyChangelog(trx as any, migration);
 
       // Swap atomic: original → old, ghost → original
-      await sql.raw(`ALTER TABLE "${migration.originalTable}" RENAME TO "${oldTable}"`).execute(trx);
-      await sql.raw(`ALTER TABLE "${migration.ghostTable}" RENAME TO "${migration.originalTable}"`).execute(trx);
+      await sql
+        .raw(`ALTER TABLE "${migration.originalTable}" RENAME TO "${oldTable}"`)
+        .execute(trx);
+      await sql
+        .raw(
+          `ALTER TABLE "${migration.ghostTable}" RENAME TO "${migration.originalTable}"`,
+        )
+        .execute(trx);
 
-      // Cleanup trigger (era pe original, acum redenumit ca old)
-      await sql.raw(`DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${oldTable}"`).execute(trx);
+      // Cleanup trigger (was on original, now renamed to old)
+      await sql
+        .raw(
+          `DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${oldTable}"`,
+        )
+        .execute(trx);
       await sql.raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`).execute(trx);
     });
 
-    // Cleanup async după 60s (safety net — nu blochează răspunsul)
+    // Cleanup async after 60s (safety net — doesn't block response)
     setTimeout(async () => {
       try {
         await sql`DROP TABLE IF EXISTS ${sql.id(oldTable)}`.execute(db);
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)}`.execute(db);
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)}`.execute(
+          db,
+        );
       } catch {
-        /* best-effort cleanup — nu aruncăm erori în background */
+        /* best-effort cleanup — don't throw errors in background */
       }
     }, 60_000);
   }
 
   /**
-   * Orchestrează întreg procesul Ghost DDL:
+   * Orchestrates the entire Ghost DDL process:
    *   createGhost → batchCopy → applyChangelog → atomicSwap
    *
-   * onProgress primește (phase, detail) pentru logging/UI.
+   * onProgress receives (phase, detail) for logging/UI.
    */
   static async execute(
     db: Database,
@@ -284,7 +315,7 @@ export class GhostDDL {
     ddlStatements: string[],
     onProgress?: (phase: string, detail: string) => void,
   ): Promise<void> {
-    // BYOD Guard: nu executăm Ghost DDL pe tabele unmanaged
+    // BYOD Guard: don't run Ghost DDL on unmanaged tables
     const collectionName = tableName.replace(/^zvd_/, '');
     const meta = await (db as any)
       .selectFrom('zvd_collections')
@@ -294,11 +325,17 @@ export class GhostDDL {
       .catch(() => null);
 
     if (meta && meta.is_managed === false) {
-      onProgress?.('skipped', `Table "${tableName}" is unmanaged (BYOD). No DDL allowed.`);
+      onProgress?.(
+        'skipped',
+        `Table "${tableName}" is unmanaged (BYOD). No DDL allowed.`,
+      );
       return;
     }
 
-    onProgress?.('creating', `Creating ghost table and changelog trigger for "${tableName}"`);
+    onProgress?.(
+      'creating',
+      `Creating ghost table and changelog trigger for "${tableName}"`,
+    );
     const migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
 
     onProgress?.('copying', 'Batch copying data from original to ghost table');
@@ -306,7 +343,10 @@ export class GhostDDL {
       onProgress?.('copying', `Copied ${done}/${total} rows`);
     });
 
-    onProgress?.('changelog', 'Applying changelog mutations accumulated during copy');
+    onProgress?.(
+      'changelog',
+      'Applying changelog mutations accumulated during copy',
+    );
     const changelogApplied = await GhostDDL.applyChangelog(db, migration);
 
     onProgress?.('swapping', 'Performing atomic table swap (lock ~ms)');

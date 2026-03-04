@@ -1,15 +1,15 @@
 /**
  * BYOD Introspection Engine
  *
- * Scanează un schema PostgreSQL, mapează tipurile PG → Zveltio,
- * și importă tabelele ca „unmanaged collections" (is_managed = false).
- * Zveltio NU va face ALTER TABLE pe aceste tabele.
+ * Scans a PostgreSQL schema, maps PG types → Zveltio,
+ * and imports tables as "unmanaged collections" (is_managed = false).
+ * Zveltio will NOT run ALTER TABLE on these tables.
  */
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 
-// Mapare PG data_type → tip Zveltio
+// PG data_type → Zveltio type mapping
 const PG_TYPE_MAP: Record<string, string> = {
   text: 'text',
   'character varying': 'text',
@@ -45,7 +45,7 @@ function mapPgType(pgType: string): string {
   return PG_TYPE_MAP[pgType.toLowerCase()] ?? 'text';
 }
 
-// Prefixe de tabele Zveltio/sistem — nu le importăm niciodată
+// Zveltio/system table prefixes — never import these
 const PLATFORM_PREFIXES = ['zv_', 'zvd_', '_zv_', 'pg_'];
 
 function isPlatformTable(tableName: string): boolean {
@@ -56,16 +56,16 @@ export interface IntrospectedTable {
   tableName: string;
   collectionName: string;
   fieldsCount: number;
-  isNew: boolean; // true dacă a fost insertat acum, false dacă era deja înregistrat
+  isNew: boolean; // true if inserted now, false if already registered
 }
 
 /**
- * Introspectează `schemaName` și importă tabelele găsite ca unmanaged collections.
+ * Introspects `schemaName` and imports found tables as unmanaged collections.
  *
  * @param db          Kysely Database instance
- * @param schemaName  Schema PostgreSQL de scanat (default: 'public')
- * @param excludePatterns  Subșiruri — tabelele care le conțin sunt ignorate
- * @param dryRun      Dacă true, returnează rezultatul fără a scrie în DB
+ * @param schemaName  PostgreSQL schema to scan (default: 'public')
+ * @param excludePatterns  Substrings — tables containing these are ignored
+ * @param dryRun      If true, returns result without writing to DB
  */
 export async function introspectSchema(
   db: Database,
@@ -73,7 +73,7 @@ export async function introspectSchema(
   excludePatterns: string[] = [],
   dryRun = false,
 ): Promise<IntrospectedTable[]> {
-  // Găsim tabelele distincte din schema dată
+  // Find distinct tables in the given schema
   const tablesResult = await sql<{ table_name: string }>`
     SELECT DISTINCT table_name
     FROM information_schema.columns
@@ -84,11 +84,11 @@ export async function introspectSchema(
   const results: IntrospectedTable[] = [];
 
   for (const { table_name } of tablesResult.rows) {
-    // Skip tabele platform și pattern-uri excluse
+    // Skip platform tables and excluded patterns
     if (isPlatformTable(table_name)) continue;
     if (excludePatterns.some((p) => table_name.includes(p))) continue;
 
-    // Preluăm coloanele tabelului
+    // Get the table columns
     const colsResult = await sql<{
       column_name: string;
       data_type: string;
@@ -104,7 +104,7 @@ export async function introspectSchema(
 
     if (colsResult.rows.length === 0) continue;
 
-    // Construim array-ul de fields în formatul Zveltio
+    // Build the fields array in Zveltio format
     const fields = colsResult.rows.map((col) => ({
       name: col.column_name,
       type: mapPgType(col.data_type),
@@ -116,13 +116,18 @@ export async function introspectSchema(
         .replace(/\b\w/g, (c) => c.toUpperCase()),
     }));
 
-    // Dacă e dry-run, colectăm doar preview-ul
+    // If dry-run, collect only the preview
     if (dryRun) {
-      results.push({ tableName: table_name, collectionName: table_name, fieldsCount: fields.length, isNew: true });
+      results.push({
+        tableName: table_name,
+        collectionName: table_name,
+        fieldsCount: fields.length,
+        isNew: true,
+      });
       continue;
     }
 
-    // Upsert în zvd_collections
+    // Upsert into zvd_collections
     const existing = await (db as any)
       .selectFrom('zvd_collections')
       .select('id')
@@ -131,13 +136,18 @@ export async function introspectSchema(
       .catch(() => null);
 
     if (existing) {
-      // Actualizăm fields dar NU schimbăm is_managed — poate era deja managed
+      // Update fields but DON'T change is_managed — it may have been already managed
       await (db as any)
         .updateTable('zvd_collections')
         .set({ fields: JSON.stringify(fields), updated_at: new Date() })
         .where('name', '=', table_name)
         .execute();
-      results.push({ tableName: table_name, collectionName: table_name, fieldsCount: fields.length, isNew: false });
+      results.push({
+        tableName: table_name,
+        collectionName: table_name,
+        fieldsCount: fields.length,
+        isNew: false,
+      });
     } else {
       const displayName = table_name
         .replace(/_/g, ' ')
@@ -153,7 +163,12 @@ export async function introspectSchema(
           source_type: 'table',
         })
         .execute();
-      results.push({ tableName: table_name, collectionName: table_name, fieldsCount: fields.length, isNew: true });
+      results.push({
+        tableName: table_name,
+        collectionName: table_name,
+        fieldsCount: fields.length,
+        isNew: true,
+      });
     }
   }
 
