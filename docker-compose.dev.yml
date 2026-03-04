@@ -37,3 +37,13 @@ services:
     ports:
       - '${STORAGE_S3_PORT:-8333}:8333'
       - '${STORAGE_FILER_PORT:-8888}:8888'
+
+  # Expose prometheus port for local tools
+  prometheus:
+    ports:
+      - '${PROMETHEUS_PORT:-9090}:9090'
+
+  # Expose grafana port for local tools
+  grafana:
+    ports:
+      - '${GRAFANA_PORT:-3001}:3000'
