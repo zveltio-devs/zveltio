@@ -9,18 +9,31 @@ services:
       context: .
       dockerfile: Dockerfile
     # In dev, override to run with hot-reload via bun watch
-    command: ["bun", "run", "--watch", "packages/engine/src/index.ts"]
+    command: ['bun', 'run', '--watch', 'packages/engine/src/index.ts']
     environment:
       NODE_ENV: development
-      BETTER_AUTH_SECRET: "dev-secret-not-for-production"
-      BETTER_AUTH_URL: "http://localhost:3000"
+      BETTER_AUTH_SECRET: 'dev-secret-not-for-production'
+      BETTER_AUTH_URL: 'http://localhost:3000'
+      # In dev, connect directly to db (not via pooler)
+      DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@db:5432/${POSTGRES_DB:-zveltio}'
     volumes:
       - ./packages:/app/packages:ro
       - ./extensions:/app/extensions:ro
     ports:
-      - "3000:3000"
+      - '3000:3000'
 
   # Expose postgres port for local tools (DBeaver, psql, etc.)
-  postgres:
+  db:
     ports:
-      - "5432:5432"
+      - '${POSTGRES_PORT_HOST:-5432}:5432'
+
+  # Expose valkey port for local tools
+  cache:
+    ports:
+      - '${VALKEY_PORT_HOST:-6379}:6379'
+
+  # Expose storage ports for local tools
+  storage:
+    ports:
+      - '${STORAGE_S3_PORT:-8333}:8333'
+      - '${STORAGE_FILER_PORT:-8888}:8888'
