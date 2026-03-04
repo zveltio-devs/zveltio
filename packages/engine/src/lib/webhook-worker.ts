@@ -1,4 +1,4 @@
-import { getRedis } from './redis.js';
+import { getCache } from './cache.js';
 import { WebhookManager } from './webhooks.js';
 
 let _running = false;
@@ -22,12 +22,12 @@ export const webhookWorker = {
   },
 
   async _process(): Promise<void> {
-    const redis = getRedis();
-    if (!redis) return;
+    const cache = getCache();
+    if (!cache) return;
 
     // Drain up to 10 queued deliveries per tick
     for (let i = 0; i < 10; i++) {
-      const item = await redis.lpop('webhook:queue');
+      const item = await cache.lpop('webhook:queue');
       if (!item) break;
 
       const payload = JSON.parse(item) as {
@@ -50,15 +50,26 @@ export const webhookWorker = {
         const retryPayload = { ...payload, attempt: payload.attempt + 1 };
         // Exponential backoff: 1s → 2s → 4s
         const delayMs = Math.pow(2, payload.attempt) * 1000;
-        await redis.zadd('webhook:retry', Date.now() + delayMs, JSON.stringify(retryPayload));
+        await cache.zadd(
+          'webhook:retry',
+          Date.now() + delayMs,
+          JSON.stringify(retryPayload),
+        );
       }
     }
 
     // Re-enqueue retries that are now due
-    const due = await redis.zrangebyscore('webhook:retry', '-inf', Date.now(), 'LIMIT', 0, 10);
+    const due = await cache.zrangebyscore(
+      'webhook:retry',
+      '-inf',
+      Date.now(),
+      'LIMIT',
+      0,
+      10,
+    );
     for (const item of due) {
-      await redis.zrem('webhook:retry', item);
-      await redis.rpush('webhook:queue', item);
+      await cache.zrem('webhook:retry', item);
+      await cache.rpush('webhook:queue', item);
     }
   },
 };

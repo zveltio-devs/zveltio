@@ -1,12 +1,12 @@
 import { newEnforcer, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getRedis } from './redis.js';
+import { getCache } from './cache.js';
 
 // Cache TTLs
-const PERMISSION_CACHE_TTL = 60;  // seconds
-const ROLE_CACHE_TTL = 300;       // seconds
-const GOD_CACHE_TTL = 300;        // seconds
+const PERMISSION_CACHE_TTL = 60; // seconds
+const ROLE_CACHE_TTL = 300; // seconds
+const GOD_CACHE_TTL = 300; // seconds
 
 const CASBIN_MODEL = `
 [request_definition]
@@ -44,9 +44,15 @@ class KyselyCasbinAdapter {
     `.execute(_db);
 
     for (const line of policies.rows) {
-      const tokens = [line.ptype, line.v0, line.v1, line.v2, line.v3, line.v4, line.v5].filter(
-        (v): v is string => v !== null,
-      );
+      const tokens = [
+        line.ptype,
+        line.v0,
+        line.v1,
+        line.v2,
+        line.v3,
+        line.v4,
+        line.v5,
+      ].filter((v): v is string => v !== null);
       model.addPolicy(tokens);
     }
   }
@@ -73,7 +79,11 @@ class KyselyCasbinAdapter {
     `.execute(_db);
   }
 
-  async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+  async removePolicy(
+    _sec: string,
+    ptype: string,
+    rule: string[],
+  ): Promise<void> {
     await sql`
       DELETE FROM zvd_permissions
       WHERE ptype = ${ptype} AND v0 = ${rule[0] ?? null} AND v1 = ${rule[1] ?? null} AND v2 = ${rule[2] ?? null}
@@ -87,11 +97,16 @@ class KyselyCasbinAdapter {
     ...fieldValues: (string | undefined)[]
   ): Promise<void> {
     const conditions: any[] = [sql`ptype = ${ptype}`];
-    if (fieldValues[0] !== undefined) conditions.push(sql`v0 = ${fieldValues[0]}`);
-    if (fieldValues[1] !== undefined) conditions.push(sql`v1 = ${fieldValues[1]}`);
-    if (fieldValues[2] !== undefined) conditions.push(sql`v2 = ${fieldValues[2]}`);
+    if (fieldValues[0] !== undefined)
+      conditions.push(sql`v0 = ${fieldValues[0]}`);
+    if (fieldValues[1] !== undefined)
+      conditions.push(sql`v1 = ${fieldValues[1]}`);
+    if (fieldValues[2] !== undefined)
+      conditions.push(sql`v2 = ${fieldValues[2]}`);
 
-    await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db);
+    await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(
+      _db,
+    );
   }
 }
 
@@ -101,23 +116,28 @@ export async function initPermissions(db: Database): Promise<void> {
 }
 
 export async function getEnforcer(): Promise<Enforcer> {
-  if (!_enforcer) throw new Error('Permissions not initialized. Call initPermissions() first.');
+  if (!_enforcer)
+    throw new Error(
+      'Permissions not initialized. Call initPermissions() first.',
+    );
   return _enforcer;
 }
 
 /**
  * Checks if a user has the "god" role — directly from DB, independent of Casbin.
- * Cached in Redis for performance. Fail-closed: returns false if DB is unavailable.
+ * Cached for performance. Fail-closed: returns false if DB is unavailable.
  */
 async function isGodUser(userId: string): Promise<boolean> {
-  const redis = getRedis();
+  const cache = getCache();
   const cacheKey = `god:${userId}`;
 
-  if (redis) {
+  if (cache) {
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await cache.get(cacheKey);
       if (cached !== null) return cached === '1';
-    } catch { /* cache unavailable */ }
+    } catch {
+      /* cache unavailable */
+    }
   }
 
   try {
@@ -127,10 +147,12 @@ async function isGodUser(userId: string): Promise<boolean> {
 
     const isGod = result.rows[0]?.role === 'god';
 
-    if (redis) {
+    if (cache) {
       try {
-        await redis.setex(cacheKey, GOD_CACHE_TTL, isGod ? '1' : '0');
-      } catch { /* cache unavailable */ }
+        await cache.setex(cacheKey, GOD_CACHE_TTL, isGod ? '1' : '0');
+      } catch {
+        /* cache unavailable */
+      }
     }
 
     return isGod;
@@ -143,11 +165,13 @@ async function isGodUser(userId: string): Promise<boolean> {
  * Invalidates the god-role cache for a user (call when user role changes).
  */
 export async function invalidateGodCache(userId: string): Promise<void> {
-  const redis = getRedis();
-  if (!redis) return;
+  const cache = getCache();
+  if (!cache) return;
   try {
-    await redis.del(`god:${userId}`);
-  } catch { /* cache unavailable */ }
+    await cache.del(`god:${userId}`);
+  } catch {
+    /* cache unavailable */
+  }
 }
 
 export async function checkPermission(
@@ -161,57 +185,67 @@ export async function checkPermission(
   const isGod = await isGodUser(userId);
   if (isGod) return true;
 
-  const redis = getRedis();
+  const cache = getCache();
   const cacheKey = `perm:${userId}:${resource}:${action}`;
 
-  if (redis) {
+  if (cache) {
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await cache.get(cacheKey);
       if (cached !== null) return cached === '1';
-    } catch { /* cache unavailable */ }
+    } catch {
+      /* cache unavailable */
+    }
   }
 
   const e = await getEnforcer();
   const result = await e.enforce(userId, resource, action);
 
-  if (redis) {
+  if (cache) {
     try {
-      await redis.setex(cacheKey, PERMISSION_CACHE_TTL, result ? '1' : '0');
-    } catch { /* cache unavailable */ }
+      await cache.setex(cacheKey, PERMISSION_CACHE_TTL, result ? '1' : '0');
+    } catch {
+      /* cache unavailable */
+    }
   }
 
   return result;
 }
 
 export async function getUserRoles(userId: string): Promise<string[]> {
-  const redis = getRedis();
+  const cache = getCache();
   const cacheKey = `roles:${userId}`;
 
-  if (redis) {
+  if (cache) {
     try {
-      const cached = await redis.get(cacheKey);
+      const cached = await cache.get(cacheKey);
       if (cached !== null) return JSON.parse(cached);
-    } catch { /* cache unavailable */ }
+    } catch {
+      /* cache unavailable */
+    }
   }
 
   const e = await getEnforcer();
   const roles = await e.getRolesForUser(userId);
 
-  if (redis) {
+  if (cache) {
     try {
-      await redis.setex(cacheKey, ROLE_CACHE_TTL, JSON.stringify(roles));
-    } catch { /* cache unavailable */ }
+      await cache.setex(cacheKey, ROLE_CACHE_TTL, JSON.stringify(roles));
+    } catch {
+      /* cache unavailable */
+    }
   }
 
   return roles;
 }
 
 export async function invalidateUserPermCache(userId: string): Promise<void> {
-  const redis = getRedis();
-  if (!redis) return;
+  const cache = getCache();
+  if (!cache) return;
   try {
-    const permKeys = await redis.keys(`perm:${userId}:*`);
+    const permKeys = await cache.keys(`perm:${userId}:*`);
     const keys = [...permKeys, `roles:${userId}`];
-    if (keys.length > 0) await redis.del(...keys);
-  } catch { /* cache unavailable */ }
+    if (keys.length > 0) await cache.del(...keys);
+  } catch {
+    /* cache unavailable */
+  }
 }

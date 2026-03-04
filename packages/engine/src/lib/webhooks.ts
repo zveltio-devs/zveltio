@@ -1,5 +1,5 @@
 import type { Database } from '../db/index.js';
-import { getRedis } from './redis.js';
+import { getCache } from './cache.js';
 
 let _db: Database | null = null;
 
@@ -30,7 +30,7 @@ export const WebhookManager = {
         );
       });
 
-      const redis = getRedis();
+      const cache = getCache();
       for (const wh of matching) {
         const payload = {
           webhookId: wh.id,
@@ -47,14 +47,16 @@ export const WebhookManager = {
           attempt: 0,
         };
 
-        if (redis) {
-          await redis.rpush('webhook:queue', JSON.stringify(payload));
+        if (cache) {
+          await cache.rpush('webhook:queue', JSON.stringify(payload));
         } else {
-          // No Redis — fire-and-forget directly
+          // No cache — fire-and-forget directly
           WebhookManager.deliver(payload).catch(() => {});
         }
       }
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   },
 
   async deliver(payload: {
@@ -92,7 +94,9 @@ export const WebhookManager = {
           ['sign'],
         );
         const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-        headers['X-Zveltio-Signature'] = `sha256=${Array.from(new Uint8Array(sig))
+        headers['X-Zveltio-Signature'] = `sha256=${Array.from(
+          new Uint8Array(sig),
+        )
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('')}`;
       }

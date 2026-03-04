@@ -7,7 +7,6 @@ import {
   getEnforcer,
   getUserRoles,
   invalidateUserPermCache,
-  invalidateAllPermissionCache,
 } from '../lib/permissions.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
@@ -136,13 +135,15 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
 }
 
 async function invalidateAllPermissionCache() {
-  const { getRedis } = await import('../lib/redis.js');
-  const redis = getRedis();
-  if (!redis) return;
+  const { getCache } = await import('../lib/cache.js');
+  const cache = getCache();
+  if (!cache) return;
   try {
-    const keys = await redis.keys('perm:*');
-    const roleKeys = await redis.keys('roles:*');
+    const keys = await cache.keys('perm:*');
+    const roleKeys = await cache.keys('roles:*');
     const allKeys = [...keys, ...roleKeys];
-    if (allKeys.length > 0) await redis.del(...allKeys);
-  } catch { /* cache unavailable */ }
+    if (allKeys.length > 0) await cache.del(...allKeys);
+  } catch {
+    /* cache unavailable */
+  }
 }

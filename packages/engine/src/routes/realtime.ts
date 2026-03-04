@@ -3,14 +3,14 @@ import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
-import { getRedis } from '../lib/redis.js';
+import { getCache } from '../lib/cache.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
 export const CHANNELS = {
-  DATA_CHANGES:             'zveltio:data:*',
-  NOTIFICATIONS:            'zveltio:notifications',
-  SYSTEM:                   'zveltio:system',
-  PROACTIVE_AI_ALERTS:      'zveltio:ai:alerts',
+  DATA_CHANGES: 'zveltio:data:*',
+  NOTIFICATIONS: 'zveltio:notifications',
+  SYSTEM: 'zveltio:system',
+  PROACTIVE_AI_ALERTS: 'zveltio:ai:alerts',
   PROACTIVE_AI_SUGGESTIONS: 'zveltio:ai:suggestions',
 } as const;
 
@@ -19,13 +19,20 @@ const connections = new Map<string, Set<any>>();
 
 // Broadcast an event to all connected SSE clients
 export function broadcastSSE(channel: string, event: string, data: any): void {
-  const payload = JSON.stringify({ channel, event, data, timestamp: new Date().toISOString() });
+  const payload = JSON.stringify({
+    channel,
+    event,
+    data,
+    timestamp: new Date().toISOString(),
+  });
 
   for (const [, writers] of connections) {
     for (const writer of writers) {
       try {
         writer.writeSSE({ data: payload, event });
-      } catch { /* client disconnected */ }
+      } catch {
+        /* client disconnected */
+      }
     }
   }
 }
@@ -40,7 +47,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     const userId = session.user.id;
-    const collections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
+    const collections =
+      c.req.query('collection')?.split(',').filter(Boolean) ?? [];
 
     return streamSSE(c, async (stream) => {
       // Register this connection
@@ -48,25 +56,30 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       const userConnections = connections.get(userId)!;
       userConnections.add(stream);
 
-      // Subscribe to Redis channels if Redis is available
-      const redis = getRedis();
+      // Subscribe to cache channels if cache is available
+      const cache = getCache();
       let subscriber: any = null;
 
-      if (redis) {
+      if (cache) {
         try {
-          subscriber = redis.duplicate();
-          const channels = collections.length > 0
-            ? collections.map((col) => `zveltio:data:${col}`)
-            : [CHANNELS.DATA_CHANGES];
+          subscriber = cache.duplicate();
+          const channels =
+            collections.length > 0
+              ? collections.map((col) => `zveltio:data:${col}`)
+              : [CHANNELS.DATA_CHANGES];
 
           await subscriber.subscribe(...channels);
 
           subscriber.on('message', (_channel: string, message: string) => {
             try {
               stream.writeSSE({ data: message, event: 'data' });
-            } catch { /* stream closed */ }
+            } catch {
+              /* stream closed */
+            }
           });
-        } catch { /* Redis unavailable — SSE still works without Redis */ }
+        } catch {
+          /* Redis unavailable — SSE still works without Redis */
+        }
       }
 
       // Send connection confirmation
@@ -96,7 +109,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
           try {
             await subscriber.unsubscribe();
             subscriber.disconnect();
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
       });
 
@@ -134,12 +149,21 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       return c.json({ error: 'channel and payload are required' }, 400);
     }
 
-    // Optionally also publish to Redis so other instances receive the event
-    const redis = getRedis();
-    if (redis) {
+    // Optionally also publish to cache so other instances receive the event
+    const cache = getCache();
+    if (cache) {
       try {
-        await redis.publish(body.channel, JSON.stringify({ payload: body.payload, userId: session.user.id, timestamp: Date.now() }));
-      } catch { /* non-fatal */ }
+        await cache.publish(
+          body.channel,
+          JSON.stringify({
+            payload: body.payload,
+            userId: session.user.id,
+            timestamp: Date.now(),
+          }),
+        );
+      } catch {
+        /* non-fatal */
+      }
     }
 
     // Broadcast directly to in-process SSE clients

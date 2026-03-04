@@ -1,7 +1,7 @@
 /**
  * Casbin RBAC — Stress & Lockout Tests
  *
- * Requires a real PostgreSQL + Redis setup.
+ * Requires a real PostgreSQL + Cache (Valkey) setup.
  * Set TEST_DATABASE_URL env var to a dedicated test database.
  *
  * Run with: bun test packages/engine/src/tests/stress/casbin.stress.test.ts
@@ -9,11 +9,12 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { sql } from 'kysely';
+import type { Database } from '../../db/index.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const skipAll = !TEST_DB_URL;
 
-let db: any;
+let db: Database;
 let checkPermission: typeof import('../../lib/permissions.js').checkPermission;
 let initPermissions: typeof import('../../lib/permissions.js').initPermissions;
 let invalidateUserPermCache: typeof import('../../lib/permissions.js').invalidateUserPermCache;
@@ -23,8 +24,17 @@ let getEnforcer: typeof import('../../lib/permissions.js').getEnforcer;
 beforeAll(async () => {
   if (skipAll) return;
 
-  const { createDb } = await import('../../db/index.js');
-  db = createDb(TEST_DB_URL!);
+  // Save original DATABASE_URL and set test DB
+  const originalDbUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = TEST_DB_URL!;
+
+  const { initDatabase } = await import('../../db/index.js');
+  db = await initDatabase();
+
+  // Restore original DATABASE_URL
+  if (originalDbUrl) {
+    process.env.DATABASE_URL = originalDbUrl;
+  }
 
   const perms = await import('../../lib/permissions.js');
   checkPermission = perms.checkPermission;
@@ -61,11 +71,12 @@ async function createTestUser(role = 'user'): Promise<string> {
 
 /** Deletes a test user by ID. */
 async function deleteTestUser(userId: string): Promise<void> {
-  await sql`DELETE FROM "user" WHERE id = ${userId}`.execute(db).catch(() => {});
+  await sql`DELETE FROM "user" WHERE id = ${userId}`
+    .execute(db)
+    .catch(() => {});
 }
 
 describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
-
   // ═══ God Bypass Durability ═══
 
   it('god user should have access even with ALL policies deleted', async () => {
@@ -86,11 +97,19 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       await invalidateUserPermCache(normalUserId);
 
       // God user should ALWAYS have access (hardcoded bypass)
-      const godResult = await checkPermission(godUserId, 'any_resource', 'any_action');
+      const godResult = await checkPermission(
+        godUserId,
+        'any_resource',
+        'any_action',
+      );
       expect(godResult).toBe(true);
 
       // Normal user should be denied (no policies)
-      const normalResult = await checkPermission(normalUserId, 'any_resource', 'any_action');
+      const normalResult = await checkPermission(
+        normalUserId,
+        'any_resource',
+        'any_action',
+      );
       expect(normalResult).toBe(false);
     } finally {
       await deleteTestUser(godUserId);
@@ -103,14 +122,20 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
 
     try {
       // Ensure no policies for god user
-      await sql`DELETE FROM zvd_permissions WHERE v0 = ${godUserId}`.execute(db);
+      await sql`DELETE FROM zvd_permissions WHERE v0 = ${godUserId}`.execute(
+        db,
+      );
       const enforcer = await getEnforcer();
       await enforcer.loadPolicy();
       await invalidateGodCache(godUserId);
       await invalidateUserPermCache(godUserId);
 
       // Even with no "allow" policies — god bypass fires first
-      const result = await checkPermission(godUserId, 'secret_resource', 'delete');
+      const result = await checkPermission(
+        godUserId,
+        'secret_resource',
+        'delete',
+      );
       expect(result).toBe(true);
     } finally {
       await deleteTestUser(godUserId);
@@ -202,14 +227,16 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
     try {
       await enforcer.addPolicy(userId, 'fallback_res', 'read');
 
-      // Mock Redis to throw on all operations
-      const { getRedis } = await import('../../lib/redis.js');
-      const redis = getRedis();
-      if (redis) {
-        const originalGet = redis.get.bind(redis);
-        const originalSet = redis.setex?.bind(redis);
-        vi.spyOn(redis, 'get').mockRejectedValue(new Error('Redis unavailable'));
-        if (redis.setex) vi.spyOn(redis, 'setex').mockRejectedValue(new Error('Redis unavailable'));
+      // Mock cache to throw on all operations
+      const { getCache } = await import('../../lib/cache.js');
+      const cache = getCache();
+      if (cache) {
+        vi.spyOn(cache, 'get').mockRejectedValue(
+          new Error('Cache unavailable'),
+        );
+        vi.spyOn(cache, 'setex').mockRejectedValue(
+          new Error('Cache unavailable'),
+        );
 
         try {
           // Must still work via direct Casbin check
@@ -219,7 +246,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
           vi.restoreAllMocks();
         }
       } else {
-        // No Redis configured — direct Casbin check should still work
+        // No cache configured — direct Casbin check should still work
         const result = await checkPermission(userId, 'fallback_res', 'read');
         expect(result).toBe(true);
       }
@@ -229,5 +256,4 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       await deleteTestUser(userId);
     }
   }, 15_000);
-
 });

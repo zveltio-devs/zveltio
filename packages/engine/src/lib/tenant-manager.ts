@@ -3,7 +3,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getRedis } from './redis.js';
+import { getCache } from './cache.js';
 
 export interface Tenant {
   id: string;
@@ -38,11 +38,11 @@ export function initTenantManager(db: Database): void {
 }
 
 export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
-  const redis = getRedis();
+  const cache = getCache();
   const cacheKey = `tenant:slug:${slug}`;
 
-  if (redis) {
-    const cached = await redis.get(cacheKey).catch(() => null);
+  if (cache) {
+    const cached = await cache.get(cacheKey).catch(() => null);
     if (cached) return JSON.parse(cached);
   }
 
@@ -53,19 +53,21 @@ export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
     .where('status', '=', 'active')
     .executeTakeFirst();
 
-  if (tenant && redis) {
-    await redis.setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenant)).catch(() => {});
+  if (tenant && cache) {
+    await cache
+      .setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenant))
+      .catch(() => {});
   }
 
   return tenant || null;
 }
 
 export async function getTenantById(id: string): Promise<Tenant | null> {
-  const redis = getRedis();
+  const cache = getCache();
   const cacheKey = `tenant:id:${id}`;
 
-  if (redis) {
-    const cached = await redis.get(cacheKey).catch(() => null);
+  if (cache) {
+    const cached = await cache.get(cacheKey).catch(() => null);
     if (cached) return JSON.parse(cached);
   }
 
@@ -75,14 +77,18 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
     .where('id', '=', id)
     .executeTakeFirst();
 
-  if (tenant && redis) {
-    await redis.setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenant)).catch(() => {});
+  if (tenant && cache) {
+    await cache
+      .setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenant))
+      .catch(() => {});
   }
 
   return tenant || null;
 }
 
-export async function getUserTenants(userId: string): Promise<(Tenant & { role: string })[]> {
+export async function getUserTenants(
+  userId: string,
+): Promise<(Tenant & { role: string })[]> {
   return (_db as any)
     .selectFrom('zv_tenant_users as tu')
     .innerJoin('zv_tenants as t', 't.id', 'tu.tenant_id')
@@ -181,10 +187,14 @@ export async function provisionEnvironment(
     .onConflict((oc: any) => oc.columns(['tenant_id', 'slug']).doNothing())
     .execute();
 
-  console.log(`✅ Environment '${envSlug}' provisioned for tenant ${tenantSlug} → ${schemaName}`);
+  console.log(
+    `✅ Environment '${envSlug}' provisioned for tenant ${tenantSlug} → ${schemaName}`,
+  );
 }
 
-export async function getTenantEnvironments(tenantId: string): Promise<Environment[]> {
+export async function getTenantEnvironments(
+  tenantId: string,
+): Promise<Environment[]> {
   return (_db as any)
     .selectFrom('zv_environments')
     .selectAll()
@@ -255,11 +265,14 @@ export async function resolveTenantFromRequest(
   return null;
 }
 
-export async function invalidateTenantCache(slug: string, id?: string): Promise<void> {
-  const redis = getRedis();
-  if (!redis) return;
-  await redis.del(`tenant:slug:${slug}`).catch(() => {});
-  if (id) await redis.del(`tenant:id:${id}`).catch(() => {});
+export async function invalidateTenantCache(
+  slug: string,
+  id?: string,
+): Promise<void> {
+  const cache = getCache();
+  if (!cache) return;
+  await cache.del(`tenant:slug:${slug}`).catch(() => {});
+  if (id) await cache.del(`tenant:id:${id}`).catch(() => {});
 }
 
 /**
@@ -295,11 +308,15 @@ export async function enableRLS(tableName: string): Promise<void> {
   `.execute(_db);
 
   // 3. Enable RLS
-  await sql`ALTER TABLE ${sql.id(tableName)} ENABLE ROW LEVEL SECURITY`.execute(_db);
+  await sql`ALTER TABLE ${sql.id(tableName)} ENABLE ROW LEVEL SECURITY`.execute(
+    _db,
+  );
 
   // 4. Isolation policy — uses SET LOCAL value from middleware
   //    DROP + CREATE so this function is safe to call multiple times (idempotent)
-  await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(tableName)}`.execute(_db);
+  await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(tableName)}`.execute(
+    _db,
+  );
   await sql`
     CREATE POLICY tenant_isolation ON ${sql.id(tableName)}
     USING (tenant_id::text = current_setting('zveltio.current_tenant', true))

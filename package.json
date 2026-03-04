@@ -21,5 +21,9 @@
     "turbo": "^2.0.0",
     "bun-types": "latest",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@auth/kysely-adapter": "^1.11.1",
+    "kysely": "^0.28.11"
   }
 }

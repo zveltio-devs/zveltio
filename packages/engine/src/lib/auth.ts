@@ -5,6 +5,14 @@ import type { Database } from '../db/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
 
+// Re-export auth instance for convenience in routes
+export const auth = {
+  get api() {
+    if (!_auth) throw new Error('Auth not initialized. Call initAuth() first.');
+    return _auth.api;
+  },
+};
+
 export async function initAuth(db: Database) {
   if (!process.env.BETTER_AUTH_SECRET) {
     throw new Error('BETTER_AUTH_SECRET environment variable is required');
@@ -13,11 +21,11 @@ export async function initAuth(db: Database) {
   const port = process.env.PORT || '3000';
   const baseURL = process.env.BETTER_AUTH_URL || `http://localhost:${port}`;
 
-  // Optional Redis secondary storage for sessions
+  // Optional cache secondary storage for sessions
   let secondaryStorage: any = undefined;
-  if (process.env.REDIS_URL) {
-    const { createRedisSecondaryStorage } = await import('./redis.js');
-    secondaryStorage = await createRedisSecondaryStorage();
+  if (process.env.VALKEY_URL) {
+    const { createCacheSecondaryStorage } = await import('./cache.js');
+    secondaryStorage = await createCacheSecondaryStorage();
   }
 
   _auth = betterAuth({
