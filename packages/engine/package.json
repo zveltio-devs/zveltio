@@ -4,14 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
-    "build:binary": "bun run scripts/generate-studio-embed.ts && bun build src/index.ts --compile --outfile ../../dist/zveltio --target bun",
-    "studio:build": "cd ../studio && bun run build",
-    "studio:embed": "bun run scripts/generate-studio-embed.ts",
-    "prebuild:binary": "bun run studio:build && cp -r ../studio/build src/studio-dist && bun run studio:embed",
+    "dev": "bun --watch src/index.ts",
+    "monitor": "bun watch/index.js",
+    "all": "bun dev & bun monitor",
+    "start": "bun dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "db:init": "bun scripts/init-db.ts",
+    "cdc:setup": "bun scripts/setup-cdc.ts",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src",
     "test": "bun test",
-    "migrate": "bun run src/db/migrate.ts"
+    "test:watch": "bun test --watch",
+    "test:unit": "bun test src/tests/unit",
+    "test:integration": "bun test src/tests/integration"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
