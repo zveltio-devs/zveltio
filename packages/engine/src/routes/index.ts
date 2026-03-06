@@ -42,6 +42,7 @@ import { documentsRoutes } from './documents.js';
 import { syncRoutes } from './sync.js';
 import { introspectRoutes } from './introspect.js';
 import { aiSearchRoutes } from './ai-search.js';
+import { cloudRoutes, publicShareRouter, createCloudS3Client } from './cloud.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -178,6 +179,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // AI Semantic Search — vector similarity search across all indexed collections
   app.route('/api/ai/search', aiSearchRoutes(db, auth));
+
+  // Cloud Storage — versioning, trash, sharing, favorites, quotas
+  const cloudS3 = createCloudS3Client();
+  app.route('/api/cloud', cloudRoutes(db, auth, cloudS3));
+  // Public share links — clean URLs at /share/:token (no auth required)
+  app.route('/share', publicShareRouter(db, cloudS3));
 
   // Sitemap (public)
   app.get('/api/sitemap.xml', async (c) => {

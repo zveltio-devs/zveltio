@@ -203,6 +203,8 @@ export async function checkPermission(
   if (cache) {
     try {
       await cache.setex(cacheKey, PERMISSION_CACHE_TTL, result ? '1' : '0');
+      await cache.sadd(`user:perm-keys:${userId}`, cacheKey);
+      await cache.expire(`user:perm-keys:${userId}`, PERMISSION_CACHE_TTL + 60);
     } catch {
       /* cache unavailable */
     }
@@ -230,6 +232,8 @@ export async function getUserRoles(userId: string): Promise<string[]> {
   if (cache) {
     try {
       await cache.setex(cacheKey, ROLE_CACHE_TTL, JSON.stringify(roles));
+      await cache.sadd(`user:perm-keys:${userId}`, cacheKey);
+      await cache.expire(`user:perm-keys:${userId}`, ROLE_CACHE_TTL + 60);
     } catch {
       /* cache unavailable */
     }
@@ -242,9 +246,10 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   const cache = getCache();
   if (!cache) return;
   try {
-    const permKeys = await cache.keys(`perm:${userId}:*`);
-    const keys = [...permKeys, `roles:${userId}`];
-    if (keys.length > 0) await cache.del(...keys);
+    // O(M) where M = keys for this user only, NOT O(N) total keyspace
+    const permKeys = await cache.smembers(`user:perm-keys:${userId}`);
+    const allKeys = [...permKeys, `roles:${userId}`, `user:perm-keys:${userId}`];
+    if (allKeys.length > 0) await cache.del(...allKeys);
   } catch {
     /* cache unavailable */
   }

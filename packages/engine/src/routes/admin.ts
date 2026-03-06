@@ -116,6 +116,40 @@ export function adminRoutes(db: Database, auth: any): Hono {
     return c.json({ success: true });
   });
 
+  // PATCH /api-keys/:id — Update API key (scopes, IPs, permissions_mode, etc.)
+  app.patch(
+    '/api-keys/:id',
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().optional(),
+        scopes: z.array(z.object({ collection: z.string(), actions: z.array(z.string()) })).optional(),
+        allowed_ips: z.array(z.string()).nullable().optional(),
+        organization: z.string().nullable().optional(),
+        description: z.string().nullable().optional(),
+        permissions_mode: z.enum(['scoped', 'casbin', 'god']).optional(),
+        casbin_subject: z.string().nullable().optional(),
+        rate_limit: z.number().int().optional(),
+      }),
+    ),
+    async (c) => {
+      const id = c.req.param('id');
+      const data = c.req.valid('json');
+      await db.updateTable('zv_api_keys' as any).set(data as any).where('id' as any, '=', id).execute();
+      return c.json({ success: true });
+    },
+  );
+
+  // GET /api-keys/:id/access-log — Access log for a specific API key
+  app.get('/api-keys/:id/access-log', async (c) => {
+    const logs = await sql`
+      SELECT * FROM zv_api_key_access_log
+      WHERE api_key_id = ${c.req.param('id')}
+      ORDER BY created_at DESC LIMIT 100
+    `.execute(db);
+    return c.json({ logs: logs.rows });
+  });
+
   // ── Notifications ─────────────────────────────────────────────
 
   // GET /notifications — User notifications

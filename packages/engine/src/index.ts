@@ -16,6 +16,7 @@ import { webhookWorker } from './lib/webhook-worker.js';
 import { flowScheduler } from './lib/flow-scheduler.js';
 import { initTenantManager } from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
+import { initTelemetry } from './lib/telemetry.js';
 
 const app = new Hono();
 
@@ -54,6 +55,9 @@ app.use('/api/*', tenantMiddleware);
 
 // ─── Bootstrap ───────────────────────────────────────────────
 async function bootstrap() {
+  // OTel — no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  await initTelemetry();
+
   console.log('🚀 Zveltio starting...');
 
   // 1. Database
@@ -80,36 +84,49 @@ async function bootstrap() {
   registerCoreRoutes(app, { db, auth });
   console.log('✅ Core routes registered');
 
-  // 6. Extensions — env-var configured
-  await extensionLoader.loadAll(app, { db, auth, fieldTypeRegistry });
-  console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
-
-  // 6b-extra. Extensions enabled via DB marketplace (hot-enable without env var)
-  await extensionLoader.loadFromDB(db, app);
-  console.log(`✅ DB-enabled extensions checked`);
-
-  // 6b. AI providers — init after extensions so extension providers can register too
-  await initAIProviders(db);
-
   // 6c. WebhookManager — init with db so trigger() can query webhooks
   WebhookManager.init(db);
 
-  // 6d. Webhook worker — processes Redis queue (no-op if Redis not configured)
+  // ═══ PARALLEL — independent services ═══
+  const parallelStart = Date.now();
+  await Promise.all([
+    // AI providers — init after extensions so extension providers can register too
+    initAIProviders(db)
+      .then(async () => {
+        const { aiProviderManager } = await import('./lib/ai-provider.js');
+        const aiCount = aiProviderManager.list().length;
+        if (aiCount > 0) console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
+      })
+      .catch((err: Error) => {
+        console.warn('⚠️ AI providers failed (non-fatal):', err.message);
+      }),
+
+    // Extensions — env-var configured + DB marketplace
+    extensionLoader.loadAll(app, { db, auth, fieldTypeRegistry })
+      .then(() => extensionLoader.loadFromDB(db, app))
+      .then(() => {
+        console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
+      })
+      .catch((err: Error) => {
+        console.warn('⚠️ Extension loading failed (non-fatal):', err.message);
+      }),
+
+    // Realtime LISTEN/NOTIFY — enables cross-instance WebSocket broadcasts
+    (process.env.DATABASE_URL
+      ? realtimeManager.start(process.env.DATABASE_URL)
+      : Promise.resolve()
+    ).catch((err: Error) => {
+      console.warn('⚠️ Realtime init failed (non-fatal):', err.message);
+    }),
+  ]);
+  console.log(`✅ Parallel services started in ${Date.now() - parallelStart}ms`);
+
+  // ═══ Background workers (fire-and-forget) ═══
   webhookWorker.start(1000);
   console.log('✅ Webhook worker started');
 
-  // 6e. Flow scheduler — runs cron flows using flow-executor.ts
   await flowScheduler.start(db);
   console.log('✅ Flow scheduler started');
-
-  // 6f. Realtime LISTEN/NOTIFY — enables cross-instance WebSocket broadcasts
-  if (process.env.DATABASE_URL) {
-    await realtimeManager.start(process.env.DATABASE_URL);
-  }
-  const aiCount = (await import('./lib/ai-provider.js')).aiProviderManager.list().length;
-  if (aiCount > 0) {
-    console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
-  }
 
   // 7. Studio — serve embedded static files at /admin
   app.get('/admin', (c) => c.redirect('/admin/'));

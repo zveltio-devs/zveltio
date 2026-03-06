@@ -4,6 +4,29 @@ import type { FieldTypeRegistry } from './field-type-registry.js';
 import { existsSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
+import { z } from 'zod';
+import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
+
+const ManifestSchema = z.object({
+  name: z.string().min(1),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
+  category: z.string().default('custom'),
+  zveltioMinVersion: z.string().optional(),
+  zveltioMaxVersion: z.string().nullable().optional(),
+  dependencies: z.array(z.object({
+    name: z.string(),
+    minVersion: z.string().optional(),
+  })).default([]),
+  permissions: z.array(z.string()).default([]),
+  contributes: z.object({
+    engine: z.boolean().default(true),
+    studio: z.boolean().default(false),
+    client: z.boolean().default(false),
+    fieldTypes: z.array(z.string()).default([]),
+    stepTypes: z.array(z.string()).default([]),
+    collections: z.array(z.string()).default([]),
+  }).default({}),
+}).passthrough();
 
 export interface ExtensionContext {
   db: Database;
@@ -85,6 +108,35 @@ class ExtensionLoader {
         if (!existsSync(engineTsPath)) {
           console.warn(`⚠️  Extension "${extName}": engine/index.js not found at ${enginePath}`);
           return;
+        }
+      }
+
+      // Validate manifest.json if present, then check compatibility + dependencies
+      const manifestPath = join(extDir, 'manifest.json');
+      if (existsSync(manifestPath)) {
+        let manifest: any;
+        try {
+          const rawManifest = JSON.parse(await Bun.file(manifestPath).text());
+          manifest = ManifestSchema.parse(rawManifest);
+        } catch (err) {
+          console.warn(`⚠️  Extension "${extName}": invalid manifest.json —`, (err as Error).message);
+          return;
+        }
+
+        // Engine version compatibility
+        const compat = isCompatible(getEngineVersion(), manifest.zveltioMinVersion, manifest.zveltioMaxVersion);
+        if (!compat.compatible) {
+          console.warn(`⚠️  Extension "${extName}" incompatible: ${compat.reason}`);
+          return;
+        }
+
+        // Extension dependencies
+        if (manifest.dependencies && manifest.dependencies.length > 0) {
+          const deps = await checkExtensionDependencies(ctx.db, manifest.dependencies);
+          if (!deps.satisfied) {
+            console.warn(`⚠️  Extension "${extName}" missing dependencies: ${deps.missing.join(', ')}`);
+            return;
+          }
         }
       }
 

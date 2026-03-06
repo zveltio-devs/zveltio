@@ -19,6 +19,7 @@ import type { Database } from '../db/index.js';
 import { runScript } from './script-runner.js';
 import { sendNotification } from '../routes/notifications.js';
 import { aiProviderManager } from './ai-provider.js';
+import { traced } from './telemetry.js';
 
 export interface FlowRunResult {
   runId: string;
@@ -304,7 +305,15 @@ export async function executeFlow(
   try {
     for (const step of steps) {
       try {
-        const result = await executeStep(db, step, output, flowContext);
+        const result = await traced(
+          `flow.step.${step.type}`,
+          {
+            'flow.id': flowId,
+            'flow.step.id': step.id || step.name || 'unknown',
+            'flow.step.type': step.type,
+          },
+          () => executeStep(db, step, output, flowContext),
+        );
         output = result.output;
         if (step.id) stepResults[step.id] = output;
         if (result.logs?.length) stepLogs[step.id] = result.logs;

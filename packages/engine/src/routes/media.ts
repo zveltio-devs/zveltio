@@ -2,8 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Database } from '../db/index.js';
+import { moveToTrash } from '../lib/cloud/trash.js';
+import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
 
 const s3 = new S3Client({
   region: process.env.S3_REGION || 'us-east-1',
@@ -34,6 +36,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const folders = await (db as any)
       .selectFrom('zv_media_folders')
       .selectAll()
+      .where('deleted_at', 'is', null)
       .orderBy('name', 'asc')
       .execute();
     return c.json({ folders });
@@ -117,6 +120,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     let query = (db as any)
       .selectFrom('zv_media_files')
       .selectAll()
+      .where('deleted_at', 'is', null)
       .orderBy('created_at', 'desc');
 
     if (folder_id) query = query.where('folder_id', '=', folder_id);
@@ -154,7 +158,8 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
     let countQuery = (db as any)
       .selectFrom('zv_media_files')
-      .select(({ fn }: any) => fn.count('id').as('count'));
+      .select(({ fn }: any) => fn.count('id').as('count'))
+      .where('deleted_at', 'is', null);
 
     if (folder_id) countQuery = countQuery.where('folder_id', '=', folder_id);
     if (mime_type) countQuery = countQuery.where('mime_type', 'ilike', `${mime_type}%`);
@@ -182,6 +187,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', id)
+      .where('deleted_at', 'is', null)
       .executeTakeFirst();
 
     if (!file) return c.json({ error: 'File not found' }, 404);
@@ -206,6 +212,24 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const altText = formData.get('alt_text') as string | null;
 
     if (!file) return c.json({ error: 'No file provided' }, 400);
+
+    // Check storage quota
+    const usageResult = await (db as any)
+      .selectFrom('zv_media_files')
+      .select(({ fn }: any) => fn.sum('size_bytes').as('total'))
+      .where('uploaded_by', '=', user.id)
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst();
+    const quotaRecord = await (db as any)
+      .selectFrom('zv_storage_quotas')
+      .selectAll()
+      .where('user_id', '=', user.id)
+      .executeTakeFirst();
+    const usedBytes = Number(usageResult?.total || 0);
+    const quotaBytes = quotaRecord?.quota_bytes ?? 5368709120;
+    if (usedBytes + file.size > quotaBytes) {
+      return c.json({ error: 'Storage quota exceeded' }, 413);
+    }
 
     const fileId = nanoid(21);
     const ext = file.name.split('.').pop();
@@ -274,6 +298,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     };
 
     await (db as any).insertInto('zv_media_files').values(fileRecord).execute();
+
+    // AI document indexing — fire-and-forget
+    scheduleFileIndexing(db, fileId, buffer, file.type);
+
     return c.json({ file: fileRecord }, 201);
   });
 
@@ -298,33 +326,15 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   );
 
   router.delete('/files/:id', async (c) => {
+    const user = c.get('user' as never) as any;
     const id = c.req.param('id');
 
-    const file = await (db as any)
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
-
-    if (!file) return c.json({ error: 'File not found' }, 404);
-
     try {
-      await s3.send(new DeleteObjectCommand({
-        Bucket: process.env.S3_BUCKET || 'zveltio',
-        Key: file.storage_path,
-      }));
-      if (file.thumbnail_url) {
-        await s3.send(new DeleteObjectCommand({
-          Bucket: process.env.S3_BUCKET || 'zveltio',
-          Key: `thumbnails/${file.id}.webp`,
-        }));
-      }
-    } catch (error) {
-      console.warn('S3 deletion failed:', error);
+      await moveToTrash(db, id, user.id);
+      return c.json({ success: true });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 404);
     }
-
-    await (db as any).deleteFrom('zv_media_files').where('id', '=', id).execute();
-    return c.json({ success: true });
   });
 
   // POST /files/batch-delete — must be registered before /files/:id to avoid conflict
@@ -332,35 +342,20 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     '/files/batch-delete',
     zValidator('json', z.object({ ids: z.array(z.string()) })),
     async (c) => {
+      const user = c.get('user' as never) as any;
       const { ids } = c.req.valid('json');
 
+      let moved = 0;
       for (const id of ids) {
-        const file = await (db as any)
-          .selectFrom('zv_media_files')
-          .selectAll()
-          .where('id', '=', id)
-          .executeTakeFirst();
-
-        if (file) {
-          try {
-            await s3.send(new DeleteObjectCommand({
-              Bucket: process.env.S3_BUCKET || 'zveltio',
-              Key: file.storage_path,
-            }));
-            if (file.thumbnail_url) {
-              await s3.send(new DeleteObjectCommand({
-                Bucket: process.env.S3_BUCKET || 'zveltio',
-                Key: `thumbnails/${file.id}.webp`,
-              }));
-            }
-          } catch (error) {
-            console.warn('S3 deletion failed:', error);
-          }
+        try {
+          await moveToTrash(db, id, user.id);
+          moved++;
+        } catch {
+          // Skip files that don't exist or are already in trash
         }
       }
 
-      await (db as any).deleteFrom('zv_media_files').where('id', 'in', ids).execute();
-      return c.json({ success: true, deleted: ids.length });
+      return c.json({ success: true, deleted: moved });
     },
   );
 
@@ -451,14 +446,17 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       (db as any)
         .selectFrom('zv_media_files')
         .select(({ fn }: any) => fn.count('id').as('count'))
+        .where('deleted_at', 'is', null)
         .executeTakeFirst(),
       (db as any)
         .selectFrom('zv_media_files')
         .select(({ fn }: any) => fn.sum('size_bytes').as('total'))
+        .where('deleted_at', 'is', null)
         .executeTakeFirst(),
       (db as any)
         .selectFrom('zv_media_files')
         .select(['mime_type', (eb: any) => eb.fn.count('id').as('count')])
+        .where('deleted_at', 'is', null)
         .groupBy('mime_type')
         .orderBy('count', 'desc')
         .limit(10)
@@ -466,6 +464,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       (db as any)
         .selectFrom('zv_media_folders')
         .select(({ fn }: any) => fn.count('id').as('count'))
+        .where('deleted_at', 'is', null)
         .executeTakeFirst(),
       (db as any)
         .selectFrom('zv_media_tags')

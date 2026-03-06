@@ -10,6 +10,8 @@
 import type { Database } from '../db/index.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from './garbage-collector.js';
+import { purgeExpiredTrash } from './cloud/trash.js';
+import { createCloudS3Client } from '../routes/cloud.js';
 
 let _db: Database | null = null;
 let _running = false;
@@ -33,9 +35,11 @@ export const flowScheduler = {
       this._tick().catch(() => {});
     }, 60_000);
 
-    // Garbage collector — rulează zilnic la 03:00
+    // Garbage collector — runs daily at 03:00
     if (_db) {
       _stopGC = scheduleGarbageCollector(_db);
+      // Trash purge — runs daily at 03:30
+      scheduleTrashPurge(_db);
     }
   },
 
@@ -103,3 +107,32 @@ export const flowScheduler = {
       .catch(() => {});
   },
 };
+
+/**
+ * Schedules the cloud trash purge to run daily at 03:30.
+ * Mirrors the GC pattern in garbage-collector.ts.
+ */
+function scheduleTrashPurge(db: Database): void {
+  function scheduleNext(): void {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(3, 30, 0, 0);
+    if (next <= now) {
+      next.setDate(next.getDate() + 1);
+    }
+
+    const msUntil = next.getTime() - now.getTime();
+
+    setTimeout(async () => {
+      try {
+        const s3 = createCloudS3Client();
+        await purgeExpiredTrash(db, s3);
+      } catch (err) {
+        console.error('[Trash] Error during trash purge:', err);
+      }
+      scheduleNext();
+    }, msUntil);
+  }
+
+  scheduleNext();
+}

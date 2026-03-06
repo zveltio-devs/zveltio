@@ -6,6 +6,7 @@ import { startCommand } from './commands/start.js';
 import { migrateCommand } from './commands/migrate.js';
 import { extensionCommand } from './commands/extension.js';
 import { generateTypesCommand } from './commands/generate-types.js';
+import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
 
 const program = new Command();
@@ -61,6 +62,15 @@ program
   .option('-o, --output <path>', 'Output file path', './zveltio.d.ts')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
   .action(generateTypesCommand);
+
+// zveltio install <name>
+program
+  .command('install <name>')
+  .description('Install a Zveltio extension from local path or registry')
+  .option('--path <path>', 'Install from local directory')
+  .option('--registry <url>', 'Extension registry URL')
+  .option('--force', 'Overwrite existing extension')
+  .action((name, opts) => installCommand(name, opts));
 
 // zveltio extension <subcommand>
 const ext = program.command('extension').description('Manage Zveltio extensions');
