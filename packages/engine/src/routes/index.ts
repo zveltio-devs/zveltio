@@ -43,6 +43,9 @@ import { syncRoutes } from './sync.js';
 import { introspectRoutes } from './introspect.js';
 import { aiSearchRoutes } from './ai-search.js';
 import { cloudRoutes, publicShareRouter, createCloudS3Client } from './cloud.js';
+import { aiQueryRoutes } from './ai-query.js';
+import { aiAlchemistRoutes } from './ai-alchemist.js';
+import { mailRoutes } from './mail.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 
 interface RoutesContext {
@@ -179,6 +182,15 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // AI Semantic Search — vector similarity search across all indexed collections
   app.route('/api/ai/search', aiSearchRoutes(db, auth));
+
+  // Text-to-SQL AI Copilot
+  app.route('/api/ai/query', aiQueryRoutes(db, auth));
+
+  // Data Alchemist — documents → structured database
+  app.route('/api/ai/alchemist', aiAlchemistRoutes(db, auth));
+
+  // Mail Client — IMAP/SMTP integrated email
+  app.route('/api/mail', mailRoutes(db, auth));
 
   // Cloud Storage — versioning, trash, sharing, favorites, quotas
   const cloudS3 = createCloudS3Client();
