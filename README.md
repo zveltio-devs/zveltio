@@ -402,6 +402,7 @@ docker compose logs engine
 - 🔒 [Security](docs/SECURITY.md) - Security hardening
 - 📦 [Extensions](docs/EXTENSIONS.md) - Plugin system
 - 📚 [Documentation Index](docs/DOCUMENTATION_INDEX.md) - All docs
+- ⚖️ [Horizontal Scaling & HA](docs/HORIZONTAL_SCALING.md) - Enterprise Deployment Guide
 
 ---
 

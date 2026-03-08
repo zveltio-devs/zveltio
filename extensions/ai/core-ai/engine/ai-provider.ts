@@ -3,9 +3,13 @@
  * Supports OpenAI-compatible APIs, Anthropic, and Ollama
  */
 
+// Declare process for browser/edge environments
+declare const process: { env: { [key: string]: string | undefined } };
+
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  tool_call_id?: string;
 }
 
 export interface ChatOptions {
@@ -13,12 +17,22 @@ export interface ChatOptions {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  tools?: any[];
+  tool_choice?: 'auto' | { type: 'function'; function: { name: string } };
 }
 
 export interface ChatResult {
   content: string;
   model: string;
   usage: { prompt_tokens: number; response_tokens: number };
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
 }
 
 export interface AIProvider {
@@ -37,20 +51,32 @@ export class OpenAIProvider implements AIProvider {
     private defaultModel = 'gpt-4o-mini',
   ) {}
 
-  async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
+  async chat(
+    messages: ChatMessage[],
+    opts: ChatOptions = {},
+  ): Promise<ChatResult> {
     const model = opts.model || this.defaultModel;
+
+    const requestBody: any = {
+      model,
+      messages,
+      temperature: opts.temperature ?? 0.7,
+      max_tokens: opts.max_tokens,
+    };
+
+    // Add tools if provided for native tool calling
+    if (opts.tools && opts.tools.length > 0) {
+      requestBody.tools = opts.tools;
+      requestBody.tool_choice = opts.tool_choice ?? 'auto';
+    }
+
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.max_tokens,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!res.ok) {
@@ -59,17 +85,23 @@ export class OpenAIProvider implements AIProvider {
     }
 
     const data: any = await res.json();
+    const message = data.choices[0].message;
+
     return {
-      content: data.choices[0].message.content,
+      content: message.content || '',
       model,
       usage: {
         prompt_tokens: data.usage.prompt_tokens,
         response_tokens: data.usage.completion_tokens,
       },
+      tool_calls: message.tool_calls,
     };
   }
 
-  async embed(text: string, model = 'text-embedding-3-small'): Promise<number[]> {
+  async embed(
+    text: string,
+    model = 'text-embedding-3-small',
+  ): Promise<number[]> {
     const res = await fetch(`${this.baseUrl}/embeddings`, {
       method: 'POST',
       headers: {
@@ -92,7 +124,10 @@ export class AnthropicProvider implements AIProvider {
     private defaultModel = 'claude-haiku-4-5-20251001',
   ) {}
 
-  async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
+  async chat(
+    messages: ChatMessage[],
+    opts: ChatOptions = {},
+  ): Promise<ChatResult> {
     const model = opts.model || this.defaultModel;
 
     // Extract system message
@@ -143,7 +178,10 @@ export class OllamaProvider implements AIProvider {
     private defaultModel = 'llama3.2',
   ) {}
 
-  async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
+  async chat(
+    messages: ChatMessage[],
+    opts: ChatOptions = {},
+  ): Promise<ChatResult> {
     const model = opts.model || this.defaultModel;
 
     const res = await fetch(`${this.baseUrl}/api/chat`, {
@@ -200,7 +238,9 @@ export class AIProviderManager {
   }
 
   getDefault(): AIProvider | null {
-    return this.defaultProvider ? (this.providers.get(this.defaultProvider) ?? null) : null;
+    return this.defaultProvider
+      ? (this.providers.get(this.defaultProvider) ?? null)
+      : null;
   }
 
   get(name: string): AIProvider | null {
@@ -229,11 +269,18 @@ export async function initAIProviders(db: any): Promise<void> {
     let provider: AIProvider | null = null;
 
     if (p.name === 'openai' && p.api_key) {
-      provider = new OpenAIProvider(p.api_key, p.base_url || undefined, p.default_model || undefined);
+      provider = new OpenAIProvider(
+        p.api_key,
+        p.base_url || undefined,
+        p.default_model || undefined,
+      );
     } else if (p.name === 'anthropic' && p.api_key) {
       provider = new AnthropicProvider(p.api_key, p.default_model || undefined);
     } else if (p.name === 'ollama') {
-      provider = new OllamaProvider(p.base_url || undefined, p.default_model || undefined);
+      provider = new OllamaProvider(
+        p.base_url || undefined,
+        p.default_model || undefined,
+      );
     }
 
     if (provider) {
@@ -244,9 +291,15 @@ export async function initAIProviders(db: any): Promise<void> {
   // Also check env vars as fallback
   if (!aiProviderManager.getDefault()) {
     if (process.env.OPENAI_API_KEY) {
-      aiProviderManager.register(new OpenAIProvider(process.env.OPENAI_API_KEY), true);
+      aiProviderManager.register(
+        new OpenAIProvider(process.env.OPENAI_API_KEY),
+        true,
+      );
     } else if (process.env.ANTHROPIC_API_KEY) {
-      aiProviderManager.register(new AnthropicProvider(process.env.ANTHROPIC_API_KEY), true);
+      aiProviderManager.register(
+        new AnthropicProvider(process.env.ANTHROPIC_API_KEY),
+        true,
+      );
     }
   }
 }
