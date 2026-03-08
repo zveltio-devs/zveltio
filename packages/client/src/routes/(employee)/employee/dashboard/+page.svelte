@@ -7,6 +7,20 @@
   // Developerii care folosesc template-ul inlocuiesc cu colectiile lor
   // import { useCollection } from '$stores/collection.svelte';
   // const tasks = useCollection('tasks');
+
+  // Code example — avoid literal <script> tags to prevent Svelte parser confusion
+  const s = "<" + "script>";
+  const se = "<" + "/script>";
+  const codeExample = [
+    s,
+    "  import { useCollection } from '$stores/collection.svelte';",
+    "  const products = useCollection('products');",
+    se,
+    "",
+    "{#each products.data as product}",
+    "  <div>{product.name} — {product._syncStatus}</div>",
+    "{/each}",
+  ].join("\n");
 </script>
 
 <div class="space-y-6">
@@ -53,14 +67,7 @@
         This is a template dashboard. Use <code class="badge badge-ghost">useCollection('your_collection')</code>
         to connect to your Zveltio data with offline-first support.
       </p>
-      <pre class="bg-base-200 p-4 rounded-lg text-sm mt-2"><code>{`<script>
-  import { useCollection } from '$stores/collection.svelte';
-  const products = useCollection('products');
-</script>
-
-{#each products.data as product}
-  <div>{product.name} — {product._syncStatus}</div>
-{/each}`}</code></pre>
+      <pre class="bg-base-200 p-4 rounded-lg text-sm mt-2"><code>{codeExample}</code></pre>
     </div>
   </div>
 </div>

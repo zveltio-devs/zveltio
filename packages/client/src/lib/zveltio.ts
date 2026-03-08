@@ -3,7 +3,7 @@ import { SyncManager } from '@zveltio/sdk';
 
 const ENGINE_URL = import.meta.env.PUBLIC_ENGINE_URL || 'http://localhost:3000';
 
-export const client = new ZveltioClient({ url: ENGINE_URL });
+export const client = new ZveltioClient({ baseUrl: ENGINE_URL });
 
 export const sync = new SyncManager(client, {
   syncInterval: 5000,

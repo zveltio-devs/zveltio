@@ -7,7 +7,19 @@
       "Bash(xargs cat)",
       "Bash(bun run typecheck)",
       "Bash(bun typecheck)",
-      "Bash(bunx tsc --noEmit)"
+      "Bash(bunx tsc --noEmit)",
+      "Bash(bunx svelte-kit sync)",
+      "Bash(__NEW_LINE_1093a17d360159e6__ mkdir -p \"/c/Users/Liviu/zveltio-ecosystem/zveltio/packages/client/src/routes/\\(employee\\)/employee/dashboard\")",
+      "Bash(ls \"/c/Users/Liviu/zveltio-ecosystem/zveltio/packages/client/src/routes/\\(employee\\)/dashboard/\")",
+      "Bash(ls \"/c/Users/Liviu/zveltio-ecosystem/zveltio/packages/client/src/routes/\\(employee\\)/employee/dashboard/+page.svelte\")",
+      "Bash(ls \"/c/Users/Liviu/zveltio-ecosystem/zveltio/node_modules/.bun/@lucide+svelte\"*)",
+      "Bash(bun install)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\(''types'',''''\\), d.get\\(''main'',''''\\), list\\(d.get\\(''exports'',{}\\).keys\\(\\)\\)[:5]\\)\")",
+      "Bash(bunx svelte-check --tsconfig ./tsconfig.json)",
+      "Bash(grep -r \"useSession\\\\|forgetPassword\\\\|requestPasswordReset\" \"/c/Users/Liviu/zveltio-ecosystem/zveltio/packages/client/node_modules/better-auth/dist/client/svelte\"*)",
+      "Bash(xargs grep -l \"forgetPassword\\\\|resetPassword\")",
+      "Bash(bun run build)",
+      "Bash(bun add -D hono --cwd packages/sdk)"
     ]
   }
 }
