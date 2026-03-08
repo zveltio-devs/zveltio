@@ -103,7 +103,7 @@ packages/engine/
 │   ├── index.ts                    # Server entry point (Bun)
 │   ├── lib/
 │   │   ├── auth.ts                 # Better-Auth config
-│   │   ├── permissions.ts          # Casbin RBAC + God bypass
+│   │   ├── permissions.ts          # Casbin RBAC + Emergency Admin Access
 │   │   ├── cache.ts                # Valkey/Redis client
 │   │   ├── webhooks.ts             # Webhook manager
 │   │   ├── webhook-worker.ts       # Async webhook processor
@@ -256,7 +256,7 @@ zveltio start
       │                            │<───────────────────────────│
       │                            │                            │
       │                            │  2. Check permissions      │
-      │                            │  (Casbin + God bypass)     │
+      │                            │  (Casbin + Emergency Admin)│
       │                            │                            │
       │                            │  3. INSERT INTO products   │
       │                            │───────────────────────────>│
@@ -287,7 +287,7 @@ zveltio start
 - 2FA support (TOTP)
 - OAuth providers (Google, GitHub, etc.)
 
-### Authorization (Casbin + God Bypass)
+### Authorization (Casbin + Emergency Admin Access)
 
 **Casbin Policies:**
 
@@ -298,17 +298,17 @@ p, manager, data, read, ORGANIZATION
 p, employee, data, read, OWN
 ```
 
-**God Bypass:**
+**Emergency Admin Access:**
 
-Zveltio has a special **God bypass** that provides unlimited access regardless of Casbin policies:
+Zveltio has a special **Emergency Admin Access** that provides unlimited access regardless of Casbin policies. This is a disaster recovery mechanism — equivalent to Supabase's `service_role` key:
 
 ```typescript
 // In permissions.ts
 const isGod = result.rows[0]?.role === 'god';
-if (isGod) return true; // Bypass all Casbin checks
+if (isGod) return true; // Emergency Admin bypass — all Casbin checks skipped
 ```
 
-This allows creating a super-admin user with the CLI:
+This allows creating a Super-Admin user with the CLI:
 
 ```bash
 bun run packages/cli/src/index.ts create-god

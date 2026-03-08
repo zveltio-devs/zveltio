@@ -16,12 +16,13 @@ Welcome to the Zveltio documentation. This directory contains comprehensive guid
 
 - [Architecture](ARCHITECTURE.md) - System design and component overview
 - [Authentication](AUTHENTICATION.md) - Better-Auth setup and configuration
-- [Authorization](AUTHORIZATION.md) - RBAC with Casbin and God bypass
+- [Authorization](AUTHORIZATION.md) - RBAC with Casbin and Emergency Admin Access
 - [Dynamic Collections](COLLECTIONS.md) - Schema-less database tables
 
 ### Features
 
 - [AI Integration](AI.md) - Universal AI providers and features
+- [GraphQL API](GRAPHQL.md) - Auto-generated read-only GraphQL (queries + relations)
 - [Webhooks](WEBHOOKS.md) - Event-driven integrations
 - [Export System](EXPORT.md) - PDF, Excel, CSV generation
 - [Extensions](EXTENSIONS.md) - Plugin system
@@ -66,6 +67,7 @@ docs/
 ├── AUTHORIZATION.md     # RBAC and permissions
 ├── COLLECTIONS.md       # Dynamic collections
 ├── AI.md               # AI integration
+├── GRAPHQL.md          # GraphQL API (read-only)
 ├── WEBHOOKS.md         # Webhook system
 ├── EXPORT.md           # Export functionality
 ├── EXTENSIONS.md        # Plugin system

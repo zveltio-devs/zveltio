@@ -5,7 +5,9 @@
       "Bash(python3 -c \":*)",
       "Bash(bun run --cwd packages/engine tsc --noEmit)",
       "Bash(xargs cat)",
-      "Bash(bun run typecheck)"
+      "Bash(bun run typecheck)",
+      "Bash(bun typecheck)",
+      "Bash(bunx tsc --noEmit)"
     ]
   }
 }

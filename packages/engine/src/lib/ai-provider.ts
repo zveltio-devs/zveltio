@@ -7,14 +7,24 @@
  */
 
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  tool_call_id?: string;
 }
 
 export interface ChatOptions {
   model?: string;
   temperature?: number;
   max_tokens?: number;
+  tools?: Array<{
+    type: 'function';
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, any>;
+    };
+  }>;
+  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
 }
 
 export interface ChatResult {
@@ -22,6 +32,11 @@ export interface ChatResult {
   model: string;
   provider: string;
   usage: { prompt_tokens: number; response_tokens: number };
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
 }
 
 export interface EmbedResult {
@@ -55,18 +70,25 @@ export class OpenAIProvider implements AIProvider {
 
   async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
     const model = opts.model || this.defaultModel;
+    const body: any = {
+      model,
+      messages,
+      temperature: opts.temperature ?? 0.7,
+      ...(opts.max_tokens ? { max_tokens: opts.max_tokens } : {}),
+    };
+
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools;
+      body.tool_choice = opts.tool_choice ?? 'auto';
+    }
+
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        ...(opts.max_tokens ? { max_tokens: opts.max_tokens } : {}),
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -76,13 +98,14 @@ export class OpenAIProvider implements AIProvider {
 
     const data: any = await res.json();
     return {
-      content: data.choices[0].message.content,
+      content: data.choices[0].message.content || '',
       model,
       provider: this.name,
       usage: {
         prompt_tokens: data.usage?.prompt_tokens ?? 0,
         response_tokens: data.usage?.completion_tokens ?? 0,
       },
+      tool_calls: data.choices[0].message.tool_calls,
     };
   }
 
@@ -129,6 +152,14 @@ export class AnthropicProvider implements AIProvider {
     };
     if (systemMsg) body.system = systemMsg;
 
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools.map((t) => ({
+        name: t.function.name,
+        description: t.function.description,
+        input_schema: t.function.parameters,
+      }));
+    }
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -145,14 +176,24 @@ export class AnthropicProvider implements AIProvider {
     }
 
     const data: any = await res.json();
+    const textBlocks = data.content.filter((b: any) => b.type === 'text');
+    const content = textBlocks.map((b: any) => b.text).join('');
+    const toolUseBlocks = data.content.filter((b: any) => b.type === 'tool_use');
+    const tool_calls = toolUseBlocks.map((b: any) => ({
+      id: b.id,
+      type: 'function' as const,
+      function: { name: b.name, arguments: JSON.stringify(b.input) },
+    }));
+
     return {
-      content: data.content[0].text,
+      content,
       model,
       provider: this.name,
       usage: {
         prompt_tokens: data.usage?.input_tokens ?? 0,
         response_tokens: data.usage?.output_tokens ?? 0,
       },
+      tool_calls: tool_calls.length > 0 ? tool_calls : undefined,
     };
   }
 }
@@ -170,23 +211,35 @@ export class OllamaProvider implements AIProvider {
 
   async chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
     const model = opts.model || this.defaultModel;
+    const body: any = {
+      model,
+      messages,
+      stream: false,
+      options: {
+        temperature: opts.temperature ?? 0.7,
+        num_predict: opts.max_tokens ?? -1,
+      },
+    };
+
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools;
+    }
+
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: false,
-        options: {
-          temperature: opts.temperature ?? 0.7,
-          num_predict: opts.max_tokens ?? -1,
-        },
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) throw new Error(`Ollama error: ${res.status}`);
 
     const data: any = await res.json();
+    const tool_calls = data.message.tool_calls?.map((tc: any) => ({
+      id: tc.id || crypto.randomUUID(),
+      type: 'function' as const,
+      function: { name: tc.function.name, arguments: JSON.stringify(tc.function.arguments) },
+    }));
+
     return {
       content: data.message.content,
       model,
@@ -195,6 +248,7 @@ export class OllamaProvider implements AIProvider {
         prompt_tokens: data.prompt_eval_count ?? 0,
         response_tokens: data.eval_count ?? 0,
       },
+      tool_calls: tool_calls?.length > 0 ? tool_calls : undefined,
     };
   }
 

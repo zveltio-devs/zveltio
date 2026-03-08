@@ -30,7 +30,7 @@ Zveltio implements **defense in depth** security with multiple layers:
 ├─────────────────────────────────────────┤
 │  Layer 4: Authorization (Casbin RBAC)    │
 ├─────────────────────────────────────────┤
-│  Layer 5: God Bypass (Special Role)     │
+│  Layer 5: Emergency Admin Access         │
 ├─────────────────────────────────────────┤
 │  Layer 6: Database (Encryption, RLS)     │
 ├─────────────────────────────────────────┤
@@ -112,21 +112,23 @@ p, manager, data, write, DEPARTMENT
 p, employee, data, read, OWN
 ```
 
-### God Bypass
+### Emergency Admin Access
 
-Zveltio has a special **God bypass** for emergency access:
+Zveltio has a special **Emergency Admin Access** mechanism for emergency access:
 
 ```typescript
 // In permissions.ts - checked BEFORE Casbin
 const isGod = result.rows[0]?.role === 'god';
-if (isGod) return true; // Bypass all permission checks!
+if (isGod) return true; // Emergency Admin bypass — all permission checks skipped!
 ```
+
+> **Note:** This mechanism is equivalent to Supabase's `service_role` key and Directus's admin token. It provides a fail-safe guarantee that administrators cannot be permanently locked out through misconfiguration.
 
 **⚠️ Security Warning:**
 
-- Only create ONE God user for emergency access
-- Use God account only when absolutely necessary
-- Monitor God user activity closely
+- Only create ONE Emergency Admin (Super-Admin) user for emergency access
+- Use the Emergency Admin account only when absolutely necessary
+- Monitor Emergency Admin activity closely
 
 ### Hardening
 

@@ -1,6 +1,6 @@
 # 🔐 Zveltio Authorization Guide
 
-Complete guide to authentication and authorization in Zveltio, including the God bypass system.
+Complete guide to authentication and authorization in Zveltio, including the Emergency Admin Access system.
 
 ---
 
@@ -8,7 +8,7 @@ Complete guide to authentication and authorization in Zveltio, including the God
 
 - [Authentication](#authentication)
 - [Authorization](#authorization)
-- [God Bypass](#god-bypass)
+- [Emergency Admin Access](#emergency-admin-access)
 - [RBAC Policies](#rbac-policies)
 - [API Security](#api-security)
 
@@ -64,21 +64,23 @@ Set-Cookie: better-auth.session_token=...
 Zveltio uses **Casbin** for RBAC (Role-Based Access Control) with:
 
 1. **Casbin Policies** - Standard RBAC rules
-2. **God Bypass** - Special role with unlimited access
+2. **Emergency Admin Access** - Special role with unlimited access
 
 ### Permission Check Flow
 
 ```
-Request → Session Verification → God Bypass Check → Casbin Policy Check → Allow/Deny
+Request → Session Verification → Emergency Admin Check → Casbin Policy Check → Allow/Deny
 ```
 
 ---
 
-## God Bypass
+## Emergency Admin Access
 
-### What is God Mode?
+### What is Emergency Admin Mode?
 
-The **God bypass** is a special authorization mechanism that provides unlimited access regardless of Casbin policies. A user with `role='god'` in the database can bypass all permission checks.
+The **Emergency Admin Access** is a special authorization mechanism that ensures platform administrators can never be locked out of their own system. Similar to Supabase's `service_role` key or Directus's admin token, a user with `role='god'` bypasses all Casbin permission checks.
+
+This is a disaster recovery feature — if someone accidentally deletes all Casbin policies, the Emergency Admin can still access the system and restore the correct permissions.
 
 ### How It Works
 
@@ -90,22 +92,22 @@ export async function checkPermission(
   resource: string,
   action: string,
 ): Promise<boolean> {
-  // ═══ HARDCODED GOD BYPASS ═══
+  // ═══ HARDCODED EMERGENCY ADMIN ACCESS ═══
   // Independent of Casbin — even if ALL policies are deleted,
   // a user with role='god' will ALWAYS have full access.
   const isGod = await isGodUser(userId);
-  if (isGod) return true; // 🚀 Bypass all checks!
+  if (isGod) return true; // 🚀 Emergency Admin bypass!
 
   // ... normal Casbin permission check
 }
 ```
 
-### Creating a God User
+### Creating an Emergency Admin (Super-Admin)
 
-Use the CLI to create a God user:
+Use the CLI to create a Super-Admin user:
 
 ```bash
-# Create God (super-admin) user
+# Create Super-Admin (Emergency Admin) user
 bun run packages/cli/src/index.ts create-god
 
 # Interactive prompts:
@@ -116,7 +118,7 @@ bun run packages/cli/src/index.ts create-god
 
 > ⚠️ **Important:** The CLI must set `role: 'god'` in the database, not `'admin'`. This was a bug in previous versions.
 
-### Verify God Status
+### Verify Emergency Admin Status
 
 ```sql
 -- Check user role
@@ -242,7 +244,7 @@ await sql.raw(`SELECT * FROM users WHERE email = '${userInput}'`);
 
 1. **Use strong passwords** - Minimum 8 characters with mixed case, numbers, symbols
 2. **Enable 2FA** - Especially for admin users
-3. **Limit God users** - Only create one God user for emergency access
+3. **Limit Emergency Admins** - Only create one Super-Admin user for emergency access
 4. **Review permissions** - Regularly audit Casbin policies
 5. **Use HTTPS** - Always use SSL/TLS in production
 6. **Rotate secrets** - Change `BETTER_AUTH_SECRET` periodically
@@ -255,9 +257,9 @@ await sql.raw(`SELECT * FROM users WHERE email = '${userInput}'`);
 
 1. Check user role in database: `SELECT role FROM "user" WHERE email = '...'`
 2. Verify Casbin policies: `SELECT * FROM zvd_permissions`
-3. If user should have God access, update role: `UPDATE "user" SET role = 'god' WHERE email = '...'`
+3. If user should have Emergency Admin access, update role: `UPDATE "user" SET role = 'god' WHERE email = '...'`
 
-### Cannot create God user
+### Cannot create Emergency Admin user
 
 1. Ensure database is running
 2. Check database connection in `.env`
