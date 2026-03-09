@@ -1,81 +1,72 @@
-import { Client as PgClient } from 'pg';
 import { broadcastEvent } from '../routes/ws.js';
 
 /**
- * RealtimeManager — PostgreSQL LISTEN/NOTIFY bridge for multi-instance realtime.
+ * RealtimeManager — PostgreSQL LISTEN/NOTIFY bridge pentru realtime multi-instanță.
  *
- * Maintains a dedicated pg.Client connection for LISTEN on 'zveltio_changes'.
- * When a notification arrives, it distributes the event to all in-process
- * WebSocket subscribers via broadcastEvent() from routes/ws.ts.
+ * Folosește Bun.SQL.subscribe() (Bun 1.2+) în loc de pg.Client pentru LISTEN,
+ * eliminând dependința de `pg` și beneficiind de I/O nativ Bun.
  *
- * This enables cross-instance realtime in horizontally-scaled deployments:
+ * Flux:
  *   Instance A: data.ts PATCH → pg_notify('zveltio_changes', payload)
- *   Instance B: RealtimeManager LISTEN → receives payload → broadcastEvent()
+ *   Instance B: RealtimeManager subscribe → primește payload → broadcastEvent()
  */
 export class RealtimeManager {
-  private pgListener: PgClient | null = null;
+  // @ts-expect-error — BunSubscription tipat de bun-types
+  private subscription: import('../db/bun-sql-dialect.js').BunSubscription | null = null;
   private running = false;
+  private databaseUrl = '';
 
   async start(databaseUrl: string): Promise<void> {
     if (this.running) return;
+    this.databaseUrl = databaseUrl;
 
     try {
-      this.pgListener = new PgClient({ connectionString: databaseUrl });
-      await this.pgListener.connect();
+      // @ts-expect-error — Bun.SQL global tipat de bun-types
+      const sql = new Bun.SQL(databaseUrl, { max: 1 });
 
-      await this.pgListener.query('LISTEN zveltio_changes');
+      this.subscription = await sql.subscribe(
+        'zveltio_changes',
+        (rawPayload: string) => {
+          let payload: any;
+          try {
+            payload = JSON.parse(rawPayload);
+          } catch {
+            return; // Payload malformat — ignorăm
+          }
+
+          const { collection, event, record_id, data } = payload;
+          if (!collection || !event) return;
+
+          // Map pg_notify event names → ws.ts broadcastEvent event names
+          const eventMap: Record<string, 'insert' | 'update' | 'delete'> = {
+            'record.created': 'insert',
+            'record.updated': 'update',
+            'record.deleted': 'delete',
+          };
+
+          const wsEvent = eventMap[event];
+          if (!wsEvent) return;
+
+          broadcastEvent(collection, wsEvent, data ?? { id: record_id });
+        },
+      );
+
       this.running = true;
-
-      this.pgListener.on('notification', (msg: any) => {
-        if (msg.channel !== 'zveltio_changes') return;
-
-        let payload: any;
-        try {
-          payload = JSON.parse(msg.payload);
-        } catch {
-          return; // Malformed payload — skip
-        }
-
-        const { collection, event, record_id, data } = payload;
-        if (!collection || !event) return;
-
-        // Map pg_notify event names to ws.ts broadcastEvent event names
-        const eventMap: Record<string, 'insert' | 'update' | 'delete'> = {
-          'record.created': 'insert',
-          'record.updated': 'update',
-          'record.deleted': 'delete',
-        };
-
-        const wsEvent = eventMap[event];
-        if (!wsEvent) return;
-
-        broadcastEvent(
-          collection,
-          wsEvent,
-          data ?? { id: record_id },
-        );
-      });
-
-      this.pgListener.on('error', (err: Error) => {
-        console.warn('[realtime] pg LISTEN error:', err.message);
-        this.running = false;
-        // Attempt reconnect after delay
-        setTimeout(() => this.start(databaseUrl), 5000);
-      });
-
-      console.log('✅ Realtime LISTEN/NOTIFY started');
+      console.log('✅ Realtime LISTEN/NOTIFY started (Bun.SQL native)');
     } catch (err: any) {
       console.warn('[realtime] Failed to start LISTEN/NOTIFY:', err.message);
-      // Non-fatal — single-instance realtime still works via direct broadcastEvent()
+      // Non-fatal — single-instance realtime funcționează via direct broadcastEvent()
+      // Retry după 5s
+      setTimeout(() => this.start(databaseUrl), 5_000);
     }
   }
 
   async stop(): Promise<void> {
-    if (this.pgListener) {
+    if (this.subscription) {
       try {
-        await this.pgListener.end();
+        await this.subscription.unsubscribe();
       } catch { /* ignore */ }
-      this.pgListener = null;
+      this.subscription = null;
     }
     this.running = false;
   }

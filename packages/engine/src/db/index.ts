@@ -1,5 +1,5 @@
-import { Kysely, PostgresDialect } from 'kysely';
-import { Pool } from 'pg';
+import { Kysely, sql } from 'kysely';
+import { BunSqlDialect } from './bun-sql-dialect.js';
 
 export type Database = Kysely<any>;
 
@@ -11,14 +11,16 @@ export async function initDatabase(): Promise<Database> {
     throw new Error('DATABASE_URL environment variable is required');
   }
 
-  const pool = new Pool({ connectionString: databaseUrl });
-
-  // Test connection
-  await pool.query('SELECT 1');
-
   _db = new Kysely({
-    dialect: new PostgresDialect({ pool }),
+    dialect: new BunSqlDialect({
+      connectionString: databaseUrl,
+      max: Number(process.env.DB_POOL_MAX ?? 20),
+      idleTimeoutMs: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30_000),
+    }),
   });
+
+  // Test connection — selectăm o constantă fără acces la tabele utilizator
+  await sql`SELECT 1`.execute(_db);
 
   // Run core migrations
   await runCoreMigrations(_db);

@@ -3,6 +3,44 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
 
+// ─── Safe DDL helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Execută o operație DDL care necesită AccessExclusiveLock (ALTER TABLE,
+ * CREATE TRIGGER, DROP TABLE) într-o tranzacție cu lock_timeout strict.
+ *
+ * SET LOCAL → timeout-ul se aplică NUMAI în această tranzacție; la COMMIT
+ * conexiunea din pool revine la setarea default (fără timeout).
+ *
+ * Dacă lock-ul nu poate fi obținut în `timeout`, PostgreSQL aruncă
+ * `ERROR 55P03: lock not available` în loc să blocheze event loop-ul.
+ */
+async function withLockTimeout(
+  db: Database,
+  fn: (trx: Database) => Promise<void>,
+  timeout = '2s',
+): Promise<void> {
+  await (db as any).transaction().execute(async (trx: Database) => {
+    await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
+    await fn(trx);
+  });
+}
+
+/**
+ * Transformă un CREATE INDEX în CREATE INDEX CONCURRENTLY.
+ *
+ * CONCURRENTLY folosește ShareUpdateExclusiveLock în loc de ShareLock,
+ * permițând INSERT/UPDATE/DELETE concurente în timp ce index-ul se construiește.
+ * Nu poate rula în interiorul unui bloc de tranzacție explicit.
+ */
+function toConcurrentIndex(indexSQL: string): string {
+  // Regex handle-uiește și CREATE UNIQUE INDEX
+  return indexSQL.replace(
+    /^(CREATE\s+(?:UNIQUE\s+)?INDEX\s+)(?!CONCURRENTLY\s)/i,
+    '$1CONCURRENTLY ',
+  );
+}
+
 // Schema validation using registry types (dynamic, supports extension types)
 export const FieldSchema = z.object({
   name: z
@@ -86,8 +124,8 @@ export class DDLManager {
     ];
 
     const indexes: string[] = [
-      `CREATE INDEX IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC)`,
-      `CREATE INDEX IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status)`,
     ];
 
     // Ensure required extensions
@@ -105,7 +143,7 @@ export class DDLManager {
 
       // Index if requested
       const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig);
-      if (indexDDL) indexes.push(indexDDL);
+      if (indexDDL) indexes.push(toConcurrentIndex(indexDDL));
     }
 
     // Create table
@@ -125,12 +163,16 @@ export class DDLManager {
       .filter((f) => ['text', 'richtext', 'email'].includes(f.type))
       .map((f) => f.name);
 
-    await sql.raw(`
-      ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector
-    `).execute(db);
+    // ALTER TABLE → lock_timeout (AccessExclusiveLock, instant pentru coloană nullable fără default)
+    await withLockTimeout(db, async (trx) => {
+      await sql.raw(`
+        ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector
+      `).execute(trx);
+    });
 
+    // GIN index → CONCURRENTLY (nu blochează scrierile în timp ce se construiește)
     await sql.raw(`
-      CREATE INDEX IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector)
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector)
     `).execute(db);
 
     if (textFields.length > 0) {
@@ -141,37 +183,44 @@ export class DDLManager {
         })
         .join(' || ');
 
-      await sql.raw(`
-        CREATE OR REPLACE FUNCTION ${tableName}_search_trigger() RETURNS trigger AS $$
-        BEGIN
-          NEW.search_vector := ${weightsClause};
-          RETURN NEW;
-        END
-        $$ LANGUAGE plpgsql
-      `).execute(db);
+      // CREATE OR REPLACE FUNCTION + CREATE TRIGGER → withLockTimeout (ShareRowExclusiveLock)
+      await withLockTimeout(db, async (trx) => {
+        await sql.raw(`
+          CREATE OR REPLACE FUNCTION ${tableName}_search_trigger() RETURNS trigger AS $$
+          BEGIN
+            NEW.search_vector := ${weightsClause};
+            RETURN NEW;
+          END
+          $$ LANGUAGE plpgsql
+        `).execute(trx);
 
-      await sql.raw(`
-        CREATE TRIGGER ${tableName}_search_update
-        BEFORE INSERT OR UPDATE ON ${tableName}
-        FOR EACH ROW EXECUTE FUNCTION ${tableName}_search_trigger()
-      `).execute(db);
+        await sql.raw(`
+          CREATE TRIGGER ${tableName}_search_update
+          BEFORE INSERT OR UPDATE ON ${tableName}
+          FOR EACH ROW EXECUTE FUNCTION ${tableName}_search_trigger()
+        `).execute(trx);
+      });
     }
 
-    // Auto-update updated_at
-    await sql.raw(`
-      CREATE OR REPLACE FUNCTION update_updated_at_column()
-      RETURNS TRIGGER AS $$
-      BEGIN
-        NEW.updated_at = NOW();
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
+    // Auto-update updated_at — CREATE TRIGGER → withLockTimeout
+    await withLockTimeout(db, async (trx) => {
+      await sql.raw(`
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+          NEW.updated_at = NOW();
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+      `).execute(trx);
 
-      CREATE TRIGGER update_${tableName}_updated_at
-        BEFORE UPDATE ON ${tableName}
-        FOR EACH ROW
-        EXECUTE FUNCTION update_updated_at_column();
-    `).execute(db);
+      await sql.raw(`
+        CREATE TRIGGER update_${tableName}_updated_at
+          BEFORE UPDATE ON ${tableName}
+          FOR EACH ROW
+          EXECUTE FUNCTION update_updated_at_column()
+      `).execute(trx);
+    });
 
     // Register collection metadata
     await this.registerMetadata(db, validated);
@@ -184,7 +233,10 @@ export class DDLManager {
       throw new Error(`Collection '${name}' not found`);
     }
 
-    await sql.raw(`DROP TABLE IF EXISTS ${tableName} CASCADE`).execute(db);
+    // DROP TABLE CASCADE → withLockTimeout (AccessExclusiveLock pe tabelă + toate dependințele)
+    await withLockTimeout(db, async (trx) => {
+      await sql.raw(`DROP TABLE IF EXISTS ${tableName} CASCADE`).execute(trx);
+    });
 
     await db
       .deleteFrom('zvd_collections' as any)
