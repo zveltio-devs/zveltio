@@ -19,7 +19,17 @@
       "Bash(grep -r \"useSession\\\\|forgetPassword\\\\|requestPasswordReset\" \"/c/Users/Liviu/zveltio-ecosystem/zveltio/packages/client/node_modules/better-auth/dist/client/svelte\"*)",
       "Bash(xargs grep -l \"forgetPassword\\\\|resetPassword\")",
       "Bash(bun run build)",
-      "Bash(bun add -D hono --cwd packages/sdk)"
+      "Bash(bun add -D hono --cwd packages/sdk)",
+      "Bash(xargs grep -l \"pdfkit\")",
+      "Bash(ls /c/Users/Liviu/zveltio-ecosystem/zveltio/packages/engine/src/*.d.ts)",
+      "Bash(git stash)",
+      "Bash(git stash pop)",
+      "Bash(bun add dataloader)",
+      "Bash(/c/Users/Liviu/zveltio-ecosystem/zveltio/.env.example:*)",
+      "Bash(bun remove @sveltejs/vite-plugin-svelte)",
+      "Bash(bun add -d fake-indexeddb)",
+      "Bash(bun test --preload ./src/tests/setup.ts)",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }

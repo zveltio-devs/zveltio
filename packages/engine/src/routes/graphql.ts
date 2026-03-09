@@ -27,6 +27,7 @@ import type { Database } from '../db/index.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
+import { DataLoaderRegistry, checkQueryDepth } from '../lib/graphql-dataloader.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -240,10 +241,14 @@ async function buildDynamicSchema(db: Database): Promise<GraphQLSchema> {
             type: targetType,
             args: [],
             description: `Many-to-one relation → ${rel.target_collection}`,
-            resolve: async (parent: any) => {
+            resolve: async (parent: any, _args: any, context: any) => {
               const fk = parent[fieldName];
               if (!fk) return null;
               try {
+                // Use DataLoader to batch all m2o lookups in a single query
+                if (context?.loaders) {
+                  return await context.loaders.get(targetTableName).load(String(fk));
+                }
                 return await (db as any)
                   .selectFrom(targetTableName).selectAll()
                   .where('id', '=', fk).executeTakeFirst();
@@ -370,14 +375,20 @@ export function graphqlRoutes(db: Database, _auth: any): Hono {
     const { query, variables, operationName } = body;
     if (!query) return c.json({ errors: [{ message: 'query is required' }] }, 400);
 
+    // Depth limit check (max 5 levels)
+    const depthError = checkQueryDepth(query, 5);
+    if (depthError) return c.json({ errors: [{ message: depthError }] }, 400);
+
     try {
       const schema = await getSchema(db);
+      // DataLoaderRegistry is per-request to prevent cache bleeding across requests
+      const loaders = new DataLoaderRegistry(db);
       const result = await graphql({
         schema,
         source: query,
         variableValues: variables,
         operationName,
-        contextValue: { user: session.user, db },
+        contextValue: { user: session.user, db, loaders },
       });
       return c.json(result);
     } catch (err) {

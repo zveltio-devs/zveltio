@@ -9,6 +9,7 @@ export interface LocalRecord {
   _syncStatus: 'synced' | 'pending' | 'conflict';
   _updatedAt: number; // timestamp ms
   _deletedAt?: number; // soft delete for sync
+  _conflictData?: Record<string, any>; // server data at conflict time, for UI resolution
 }
 
 export interface SyncQueueItem {
@@ -222,11 +223,11 @@ export class LocalStore {
       | LocalRecord
       | undefined;
 
-    // Conflict detection: if we have unsynced local changes
-    if (existing && existing._syncStatus === 'pending') {
-      // Last-write-wins default — server wins
-      // But mark as conflict for potential custom merge
-      existing.data = data;
+    // Conflict detection: local has changes not yet confirmed by server
+    // (_localVersion > _serverVersion regardless of syncStatus, to catch the
+    // race where status flipped to 'synced' but server sent a concurrent update)
+    if (existing && existing._localVersion > existing._serverVersion) {
+      existing._conflictData = data; // preserve server version for UI resolution
       existing._serverVersion = serverVersion;
       existing._syncStatus = 'conflict';
       await this.db.put('records', existing);

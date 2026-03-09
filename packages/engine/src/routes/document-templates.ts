@@ -14,10 +14,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import PDFDocument from 'pdfkit';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
+import { generatePDFAsync } from '../lib/pdf-queue.js';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ const GenerateSchema = z.object({
   output_format: z.enum(['pdf', 'docx', 'html', 'markdown', 'txt']).optional(),
 });
 
-// ── Template renderer ──────────────────────────────────────────────────────────
+// ── Template renderer ─────────────────────────────────────────────────────────
 
 function populatePlaceholders(template: string, variables: Record<string, any>): string {
   return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, key) => {
@@ -51,63 +51,6 @@ function populatePlaceholders(template: string, variables: Record<string, any>):
     }
     if (value instanceof Date) return value.toLocaleDateString('ro-RO');
     return String(value);
-  });
-}
-
-async function renderToPDF(
-  content: string,
-  styleConfig: any,
-): Promise<Buffer> {
-  const plainText = content
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<\/h[1-6]>/gi, '\n\n')
-    .replace(/<h([1-6])[^>]*>(.*?)<\/h\1>/gi, (_, level, text) =>
-      `\n__H${level}__${text.replace(/<[^>]+>/g, '')}__END__\n`,
-    )
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .trim();
-
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: styleConfig?.page_size || 'A4',
-      layout: styleConfig?.orientation || 'portrait',
-      margin: 60,
-    });
-
-    const chunks: Buffer[] = [];
-    doc.on('data', (c: Buffer) => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-
-    for (const line of plainText.split('\n')) {
-      const h1 = line.match(/^__H1__(.*)__END__$/);
-      const h2 = line.match(/^__H2__(.*)__END__$/);
-      const h3 = line.match(/^__H[3-6]__(.*)__END__$/);
-
-      if (h1) {
-        doc.fontSize(20).font('Helvetica-Bold').text(h1[1].trim(), { lineBreak: true });
-        doc.fontSize(11).font('Helvetica');
-      } else if (h2) {
-        doc.fontSize(16).font('Helvetica-Bold').text(h2[1].trim(), { lineBreak: true });
-        doc.fontSize(11).font('Helvetica');
-      } else if (h3) {
-        doc.fontSize(13).font('Helvetica-Bold').text(h3[1].trim(), { lineBreak: true });
-        doc.fontSize(11).font('Helvetica');
-      } else if (line.trim() === '') {
-        doc.moveDown(0.5);
-      } else {
-        doc.fontSize(11).font('Helvetica').text(line, { lineBreak: true });
-      }
-    }
-
-    doc.end();
   });
 }
 
@@ -197,7 +140,7 @@ export function documentTemplatesRoutes(db: Database, _auth: any): Hono {
     if (!template.is_active) return c.json({ error: 'Template is not active' }, 400);
 
     const populated = populatePlaceholders(template.content, data.variables || {});
-    const pdfBuffer = await renderToPDF(populated, template.style_config);
+    const pdfBuffer = await generatePDFAsync(populated, template.style_config ?? {});
 
     try {
       await sql`
@@ -207,12 +150,9 @@ export function documentTemplatesRoutes(db: Database, _auth: any): Hono {
     } catch { /* non-critical audit log */ }
 
     const filename = `${template.name.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}.pdf`;
-    return new Response(pdfBuffer, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      },
-    });
+    c.header('Content-Type', 'application/pdf');
+    c.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return c.body(new Uint8Array(pdfBuffer));
   });
 
   // GET /:id/generations

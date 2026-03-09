@@ -50,6 +50,28 @@ export async function createGodCommand(opts: {
   const engineUrl =
     opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
 
+  console.log('\n⚠️  SYSTEM RECOVERY OVERRIDE ACCOUNT');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('Acest cont bypass-ează TOATE permisiunile Casbin.');
+  console.log('Utilizare EXCLUSIVĂ: disaster recovery când politicile');
+  console.log('Casbin sunt corupte sau accesul admin este blocat.');
+  console.log('');
+  console.log('Recomandări de securitate:');
+  console.log('  • Stochează credențialele OFFLINE (nu în password manager cloud)');
+  console.log('  • Nu folosi acest cont pentru operațiuni zilnice');
+  console.log('  • Activează 2FA imediat după creare');
+  console.log('  • Auditează login-urile acestui cont separat');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  const rlConfirm = createInterface({ input: process.stdin, output: process.stdout });
+  const confirmed = await prompt(rlConfirm, 'Înțeleg riscurile. Creez contul de Recovery Override? (da/nu): ');
+  rlConfirm.close();
+
+  if (confirmed.trim().toLowerCase() !== 'da') {
+    console.log('Operațiune anulată.');
+    process.exit(0);
+  }
+
   console.log(`\nCreating God (super-admin) user at ${engineUrl}\n`);
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });

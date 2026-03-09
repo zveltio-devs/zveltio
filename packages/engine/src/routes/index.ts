@@ -47,6 +47,7 @@ import { aiQueryRoutes } from './ai-query.js';
 import { aiAlchemistRoutes } from './ai-alchemist.js';
 import { mailRoutes } from './mail.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
+import { authRateLimit, apiRateLimit, aiRateLimit } from '../middleware/rate-limit.js';
 
 interface RoutesContext {
   db: Database;
@@ -58,6 +59,13 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Initialize DDL job queue (async — resets stale 'running' jobs before polling starts)
   await initDDLQueue(db);
+
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  app.use('/api/auth/sign-in/*', authRateLimit);
+  app.use('/api/auth/sign-up/*', authRateLimit);
+  app.use('/api/auth/forgot-password', authRateLimit);
+  app.use('/api/ai/*', aiRateLimit);
+  app.use('/api/*', apiRateLimit);
 
   // Better-Auth handler — handles all /api/auth/** routes
   app.on(['GET', 'POST'], '/api/auth/**', (c) => auth.handler(c.req.raw));
