@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - name: Install dependencies
+        run: bun install
+      - name: Type check engine
+        run: cd packages/engine && bun run typecheck
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - name: Install dependencies
+        run: bun install
+      - name: Lint
+        run: bun run lint
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - name: Install dependencies
+        run: bun install
+      - name: Run unit tests
+        run: cd packages/engine && bun run test:unit
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zveltio_test
+          POSTGRES_USER: postgres
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      valkey:
+        image: valkey/valkey:8
+        ports:
+          - '6379:6379'
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - name: Install dependencies
+        run: bun install
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+        run: bun run -T packages/engine/src/db/migrate.ts
+      - name: Start engine in background
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          REDIS_URL: redis://localhost:6379
+          BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+          BETTER_AUTH_URL: http://localhost:3099
+          PORT: '3099'
+          NODE_ENV: test
+        run: bun packages/engine/src/index.ts &
+      - name: Wait for engine to start
+        run: sleep 3
+      - name: Run integration tests
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          TEST_REDIS_URL: redis://localhost:6379
+          TEST_PORT: '3099'
+        run: cd packages/engine && bun run test:integration

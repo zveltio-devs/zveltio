@@ -351,15 +351,7 @@ The following tools are available and will be called automatically when needed:
       orderDirection = 'desc',
     } = args;
 
-    // Resolve table name from collection registry
-    const colDef = await this.db
-      .selectFrom('zv_collections')
-      .select(['name'])
-      .where('name', '=', collection)
-      .executeTakeFirst()
-      .catch(() => null);
-
-    const tableName = colDef ? `zv_${collection}` : `zv_${collection}`;
+    const tableName = `zv_${collection}`;
 
     try {
       let query = this.db.selectFrom(tableName as any).selectAll();

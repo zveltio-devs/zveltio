@@ -14,10 +14,9 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
-import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/permissions.js';
-import { generatePDFAsync } from '../lib/pdf-queue.js';
+import type { Database } from '../../../../packages/engine/src/db/index.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
+import { generatePDFAsync } from '../../../../packages/engine/src/lib/pdf-queue.js';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 

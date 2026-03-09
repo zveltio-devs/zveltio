@@ -108,7 +108,8 @@ services:
 
   # ── SeaweedFS (S3-compatible object storage) ────────────────────────────────────
   storage:
-    image: chrislusf/seaweedfs:latest
+    # Pin to specific version — avoid silent breaking changes on docker compose pull
+    image: chrislusf/seaweedfs:3.68
     container_name: zveltio-storage
     restart: unless-stopped
     command: server -s3 -filer -ip=0.0.0.0

@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { sql } from 'kysely';
-import { checkPermission } from '../lib/permissions.js';
-import { DDLManager } from '../lib/ddl-manager.js';
-import type { Database } from '../db/index.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
+import { DDLManager } from '../../../../packages/engine/src/lib/ddl-manager.js';
+import type { Database } from '../../../../packages/engine/src/db/index.js';
 
 // =========================================================
 // PUBLIC ROUTES — No auth required (serve the website)

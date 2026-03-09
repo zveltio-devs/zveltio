@@ -8,7 +8,7 @@
   "zveltioMinVersion": "2.0.0",
   "permissions": ["database"],
   "contributes": {
-    "engine": true,
+    "engine": false,
     "studio": true,
     "fieldTypes": []
   }

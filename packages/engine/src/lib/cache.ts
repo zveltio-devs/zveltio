@@ -1,3 +1,5 @@
+// ioredis connects to Valkey (Redis-compatible, open-source).
+// Valkey was chosen over Redis after Redis's BSL license change (2024).
 import Redis from 'ioredis';
 
 let _cache: Redis | null = null;

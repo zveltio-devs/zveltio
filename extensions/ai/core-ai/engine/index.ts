@@ -4,6 +4,9 @@ import { aiRoutes } from './routes.js';
 import { zveltioAIRoutes } from './zveltio-ai-routes.js';
 import { aiAnalyticsRoutes } from './analytics.js';
 import { initAIProviders, aiProviderManager } from './ai-provider.js';
+import { aiAlchemistRoutes } from './ai-alchemist.js';
+import { aiQueryRoutes } from './ai-query.js';
+import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 
 const extension: ZveltioExtension = {
   name: 'ai/core-ai',
@@ -28,6 +31,15 @@ const extension: ZveltioExtension = {
 
     // AI analytics: usage/cost tracking dashboard
     app.route('/api/ai-analytics', aiAnalyticsRoutes(ctx.db, ctx.auth));
+
+    // Data Alchemist: documents → structured database
+    app.route('/api/ai/alchemist', aiAlchemistRoutes(ctx.db, ctx.auth));
+
+    // Text-to-SQL AI copilot
+    app.route('/api/ai/query', aiQueryRoutes(ctx.db, ctx.auth));
+
+    // Prompt-to-schema generator
+    app.route('/api/ai', aiSchemaGenRoutes(ctx.db, ctx.auth));
 
     // Expose provider manager via context for other extensions
     (ctx as any).aiProviderManager = aiProviderManager;

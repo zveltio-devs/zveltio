@@ -3,12 +3,12 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import { nanoid } from 'nanoid';
-import type { Database } from '../db/index.js';
-import { DDLManager } from '../lib/ddl-manager.js';
-import { fieldTypeRegistry } from '../lib/field-type-registry.js';
-import { aiProviderManager } from '../lib/ai-provider.js';
-import { checkPermission } from '../lib/permissions.js';
-import { extractTextFromFile } from '../lib/cloud/document-indexer.js';
+import type { Database } from '../../../../packages/engine/src/db/index.js';
+import { DDLManager } from '../../../../packages/engine/src/lib/ddl-manager.js';
+import { fieldTypeRegistry } from '../../../../packages/engine/src/lib/field-type-registry.js';
+import { aiProviderManager } from './ai-provider.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
+import { extractTextFromFile } from '../../../../packages/engine/src/lib/cloud/document-indexer.js';
 
 /**
  * Data Alchemist — transforms unstructured documents into structured databases.

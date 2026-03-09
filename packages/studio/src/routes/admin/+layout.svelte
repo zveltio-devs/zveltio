@@ -9,7 +9,7 @@
  import {
  LayoutDashboard, Database, Users, Shield, Webhook, Settings,
  Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot,
- Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare, ScanSearch, Mail, FlaskConical, Search
+ Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare, ScanSearch, Mail, FlaskConical, Search, Code
  } from '@lucide/svelte';
  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
@@ -58,6 +58,7 @@
  { href: `${base}/ai/query`, icon: Search, label: 'AI Query (SQL)' },
  { href: `${base}/ai/alchemist`, icon: FlaskConical, label: 'Data Alchemist' },
  { href: `${base}/mail`, icon: Mail, label: 'Mail' },
+ { href: `${base}/edge-functions`, icon: Code, label: 'Edge Functions' },
  { href: `${base}/tenants`, icon: Building2, label: 'Tenants' },
  { href: `${base}/settings`, icon: Settings, label: 'Settings' },
  ];

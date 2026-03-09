@@ -103,28 +103,49 @@ packages/engine/
 │   ├── index.ts                    # Server entry point (Bun)
 │   ├── lib/
 │   │   ├── auth.ts                 # Better-Auth config
-│   │   ├── permissions.ts          # Casbin RBAC + Emergency Admin Access
-│   │   ├── cache.ts                # Valkey/Redis client
+│   │   ├── permissions.ts          # Casbin RBAC + God user (isGodUser, invalidateGodCache)
+│   │   ├── cache.ts                # Valkey/Redis client (ioredis)
 │   │   ├── webhooks.ts             # Webhook manager
 │   │   ├── webhook-worker.ts       # Async webhook processor
-│   │   ├── ai-provider.ts         # AI integration
-│   │   ├── tenant-manager.ts       # Multi-tenancy
-│   │   ├── flow-executor.ts       # Automation flows
+│   │   ├── ai-provider.ts          # Multi-provider AI integration
+│   │   ├── flow-executor.ts        # Automation flows with AI decision steps
 │   │   ├── ddl-manager.ts          # Dynamic DDL (collections)
-│   │   └── validation-engine.ts   # Field validation
+│   │   ├── ddl-queue.ts            # Async DDL job queue
+│   │   ├── validation-engine.ts    # Field validation
+│   │   ├── cloud/
+│   │   │   └── document-indexer.ts # Shared text extraction utility (PDF, Office, HTML)
+│   │   └── edge-functions/         # Edge function sandbox (moved from extension)
+│   │       ├── sandbox.ts          # Worker spawn + timeout/memory watchdogs
+│   │       └── worker-runner.ts    # SSRF protection, global scope isolation
 │   ├── db/
 │   │   ├── index.ts                # Kysely connection
 │   │   ├── dynamic.ts              # Dynamic query builder
-│   │   └── migrations/             # SQL migrations
+│   │   └── migrations/             # 47 SQL migrations (001–047)
 │   ├── routes/
-│   │   ├── auth.ts                 # Auth endpoints
-│   │   ├── collections.ts          # Collection management
-│   │   ├── data.ts                 # CRUD operations
-│   │   ├── storage.ts              # File upload/download
+│   │   ├── index.ts                # Route registration (all routes)
+│   │   ├── auth.ts / users.ts      # Auth + user management
+│   │   ├── collections.ts          # Collection schema management
+│   │   ├── data.ts                 # Generic CRUD (session + API key)
+│   │   ├── relations.ts            # Table relationships
+│   │   ├── storage.ts / media.ts   # File storage + media library
 │   │   ├── permissions.ts          # RBAC endpoints
-│   │   ├── ai.ts                   # AI endpoints
-│   │   └── ...                     # Many more routes
+│   │   ├── webhooks.ts             # Webhook management
+│   │   ├── flows.ts                # Automation flows
+│   │   ├── approvals.ts            # Approval workflows
+│   │   ├── ai.ts                   # Chat, embeddings, providers
+│   │   ├── ai-search.ts            # Semantic vector search
+│   │   ├── edge-functions.ts       # Edge function CRUD + dynamic mounting
+│   │   ├── graphql.ts              # Auto-generated GraphQL + playground
+│   │   ├── schema-branches.ts      # Schema development branches
+│   │   ├── introspect.ts           # External DB schema import (BYOD)
+│   │   ├── sync.ts                 # SDK local-first sync
+│   │   ├── export.ts / import.ts   # PDF/Excel/CSV export + bulk import
+│   │   ├── backup.ts               # Database backups
+│   │   ├── tenants.ts              # Multi-tenancy
+│   │   ├── gdpr.ts                 # GDPR compliance
+│   │   └── ...                     # + insights, quality, validation, saved-queries, etc.
 │   └── middleware/
+│       ├── rate-limit.ts           # Auth/API/AI rate limiting
 │       └── tenant.ts               # Tenant isolation
 ├── package.json                    # Bun dependencies
 └── tsconfig.json                   # TypeScript config
@@ -139,7 +160,7 @@ packages/engine/
 | **Database**      | Kysely 0.27 | Type-safe SQL query builder |
 | **Auth**          | Better-Auth | Complete auth solution      |
 | **Authorization** | Casbin 5.30 | RBAC/ABAC engine            |
-| **Cache**         | ioredis     | Redis client for Valkey     |
+| **Cache**         | ioredis     | Redis-protocol client connecting to Valkey (Valkey is Redis-compatible, open-source; ioredis chosen for maturity — Valkey's own client ecosystem is nascent) |
 | **Storage**       | AWS SDK S3  | S3-compatible storage       |
 | **Validation**    | Zod         | Schema validation           |
 
@@ -196,16 +217,16 @@ zveltio start
 
 #### Supported Frameworks
 
-- **Vanilla JS/TypeScript** - Plain JavaScript usage
-- **Svelte 5** - Svelte stores and reactivity
-- **React** - React hooks integration
+- **Vanilla JS/TypeScript** (`@zveltio/sdk`) - Core client with offline sync
+- **React 18+** (`@zveltio/react`) - Hooks: `useCollection`, `useRecord`, `useSyncCollection`, `useSyncStatus`, `useRealtime`, `useAuth`, `useStorage`
+- **Vue 3.3+** (`@zveltio/vue`) - Composables with the same API surface, compatible with `<script setup>`
 
 #### Features
 
 - Type-safe API client (Hono RPC)
-- Real-time subscriptions
+- Real-time subscriptions (WebSocket)
 - Authentication helpers
-- Offline support
+- Local-first offline sync (IndexedDB via `idb`)
 
 ---
 
@@ -320,29 +341,36 @@ bun run packages/cli/src/index.ts create-god
 
 ### Core Technologies
 
-| Category   | Technology  | Version | Purpose                       |
-| ---------- | ----------- | ------- | ----------------------------- |
-| Runtime    | Bun         | 1.2.0   | JavaScript/TypeScript runtime |
-| Framework  | Hono        | 4.4.0   | Web framework                 |
-| Database   | PostgreSQL  | 17      | Primary database              |
-| ORM        | Kysely      | 0.27.6  | Query builder                 |
-| Cache      | Valkey      | 8       | Redis-compatible cache        |
-| Auth       | Better-Auth | 1.3.34  | Authentication                |
-| RBAC       | Casbin      | 5.30.0  | Authorization                 |
-| Storage    | SeaweedFS   | latest  | S3-compatible                 |
-| UI         | SvelteKit   | 2.x     | Admin interface               |
-| Validation | Zod         | 4.x     | Schema validation             |
+| Category      | Technology      | Version | Purpose                            |
+| ------------- | --------------- | ------- | ---------------------------------- |
+| Runtime       | Bun             | 1.2.0   | JavaScript/TypeScript runtime      |
+| Framework     | Hono            | 4.4.0   | Web framework                      |
+| Database      | PostgreSQL      | 17      | Primary database + pgvector        |
+| ORM           | Kysely          | 0.27.6  | Type-safe query builder            |
+| Pool          | PgBouncer       | latest  | Transaction-level connection pool  |
+| Cache         | Valkey          | 8       | Redis-compatible cache             |
+| Cache client  | ioredis         | 5.3.2   | Valkey/Redis client                |
+| Auth          | Better-Auth     | 1.3.34  | Authentication                     |
+| RBAC          | Casbin          | 5.30.0  | Authorization                      |
+| Storage       | SeaweedFS       | 3.68    | S3-compatible object storage       |
+| GraphQL       | graphql-yoga    | 5.x     | Auto-generated GraphQL API         |
+| Batching      | dataloader      | 2.x     | N+1 query prevention               |
+| Telemetry     | OpenTelemetry   | 1.9.0   | Distributed tracing                |
+| UI            | SvelteKit       | 2.x     | Admin + public interfaces          |
+| UI components | DaisyUI         | 5.x     | Component library                  |
+| Validation    | Zod             | 4.x     | Schema validation                  |
+| PDF           | pdfkit          | 0.15    | PDF export                         |
 
 ### Infrastructure
 
-| Service    | Image               | Ports      |
-| ---------- | ------------------- | ---------- |
-| PostgreSQL | pgvector/pg17       | 5432       |
-| PgBouncer  | edoburu/pgbouncer   | 6432       |
-| Valkey     | valkey/valkey:8     | 6379       |
-| SeaweedFS  | chrislusf/seaweedfs | 8333, 8888 |
-| Prometheus | prom/prometheus     | 9090       |
-| Grafana    | grafana/grafana     | 3000       |
+| Service    | Image                    | Ports      |
+| ---------- | ------------------------ | ---------- |
+| PostgreSQL | pgvector/pg17            | 5432       |
+| PgBouncer  | edoburu/pgbouncer        | 6432       |
+| Valkey     | valkey/valkey:8          | 6379       |
+| SeaweedFS  | chrislusf/seaweedfs:3.68 | 8333, 8888 |
+| Prometheus | prom/prometheus          | 9090       |
+| Grafana    | grafana/grafana          | 3001       |
 
 ---
 
@@ -352,30 +380,46 @@ Zveltio supports a plugin-based architecture through extensions:
 
 ```
 extensions/
-├── ai/                   # AI extensions
-│   ├── core-ai/         # Chat, embeddings, search
-│   └── ...
-├── automation/          # Workflow automation
-│   └── flows/          # Flow executor
-├── compliance/         # Regional compliance
-│   ├── ro/
-│   │   ├── documents/  # Romanian documents
-│   │   ├── efactura/  # eFactura
-│   │   └── procurement/
-│   └── ...
-├── content/            # Content management
-│   └── page-builder/
-├── developer/          # Developer tools
-│   └── edge-functions/
-├── geospatial/        # Geographic data
-│   └── postgis/
-└── workflow/          # Workflow management
+├── ai/                     # AI extensions
+│   └── core-ai/           # Chat, alchemist, query, schema-gen (AI features beyond engine core)
+├── automation/            # Workflow automation
+│   └── flows/            # Flow executor with DLQ retry
+├── communications/        # Communication channels
+│   └── mail/             # IMAP/SMTP mail client with AI features and Sieve filtering
+├── compliance/           # Regional compliance
+│   └── ro/
+│       ├── documents/    # Romanian compliance documents
+│       ├── efactura/     # eFactura (e-invoicing)
+│       └── procurement/  # Public procurement
+├── content/              # Content management
+│   ├── page-builder/    # CMS pages + Studio editor
+│   └── document-templates/ # HTML/PDF template management
+├── developer/            # Developer tools
+│   └── edge-functions/  # Studio UI only (engine sandbox is in core)
+├── geospatial/           # Geographic data
+│   └── postgis/         # PostGIS field types + queries
+├── storage/              # External storage adapters
+│   └── cloud/           # S3-compatible file versioning, trash, public share links
+└── workflow/             # Workflow management
     ├── approvals/
     └── checklists/
 ```
 
+> **Architecture note:** The edge function _sandbox runtime_ (`lib/edge-functions/`) lives in the engine core for security isolation and performance. The `developer/edge-functions` extension only provides the Studio admin UI; the engine manages `zv_edge_functions` tables and `GET /api/edge-functions`, `POST /api/fn/*` routes.
+
 Each extension follows the structure:
 
-- `manifest.json` - Extension metadata
-- `engine/` - Backend routes and logic
-- `studio/` - Admin UI components
+- `manifest.json` - Extension metadata (name, category, version, permissions, contributes)
+- `engine/` - Backend routes, business logic, and SQL migrations (optional)
+- `studio/` - Admin UI components (SvelteKit 5, optional)
+
+### Notable Extension Capabilities
+
+| Extension              | Key Feature                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| `flows`                | DLQ with exponential backoff retry, idempotency via SHA-256                            |
+| `core-ai`              | Alchemist (documents → DB), Text-to-SQL, Prompt → Schema, native tool-calling AI chat  |
+| `communications/mail`  | Full IMAP/SMTP mail client, Sieve filters, AI compose and reply                        |
+| `storage/cloud`        | S3 file versioning, soft-delete trash bin, public token-based share links              |
+| `content/page-builder` | CMS pages with Tiptap editor, slug routing, i18n                                       |
+| `postgis`              | Custom field types: `location`, `polygon`, `linestring`                                |

@@ -14,14 +14,24 @@
 - 🔧 **Dynamic Collections** - Create and manage database tables at runtime without migrations
 - 🔐 **Complete Authentication** - Better-Auth with session management, OAuth, 2FA
 - 🛡️ **Granular Authorization** - RBAC/ABAC powered by Casbin with God bypass
-- 🤖 **AI Integration** - Universal provider support (OpenAI, Anthropic, Ollama, Custom)
+- 🤖 **AI Integration** - Universal provider support (OpenAI, Anthropic, Ollama, Azure OpenAI, Custom)
+- 🧠 **AI Assistant** - Conversational AI with native tool-calling (query data, create collections, generate reports)
+- 🔍 **Semantic Search** - RAG-powered vector similarity search with pgvector
+- 🗣️ **Text-to-SQL** - AI copilot that converts natural language to SQL queries
+- ⚗️ **Data Alchemist** - Convert unstructured documents into structured database collections
 - 📊 **Universal Export** - Generate PDF, Excel, CSV from any collection
-- 🔍 **Semantic Search** - RAG-powered intelligent search with pgvector
 - 🪝 **Webhooks** - Event-driven HTTP notifications
+- 🔄 **Automation Flows** - Visual workflow builder with DLQ retry and idempotency
+- 📬 **Mail Client** - Full IMAP/SMTP integration with AI features and Sieve filtering
+- ☁️ **Cloud Storage** - File versioning, trash bin, and public share links
 - 🌍 **i18n Support** - Built-in translation system
 - 📈 **Monitoring** - Prometheus metrics & Grafana dashboards
 - 🎯 **Type-Safe** - Full TypeScript with Hono RPC client
+- 🔄 **Zero-Downtime Migrations** - Ghost DDL algorithm for large tables (100k+ rows)
 - 🏗️ **Extensions** - Plugin system for custom functionality
+- 🌐 **GraphQL** - Auto-generated read-only GraphQL API with playground
+- 🔀 **Schema Branches** - Safe schema development without affecting production
+- 🏢 **Multi-Tenancy** - Built-in tenant registry with environment isolation
 
 ---
 
@@ -34,8 +44,11 @@ zveltio/
 ├── packages/
 │   ├── engine/        # Core API server (Bun + Hono + Kysely)
 │   ├── cli/           # CLI tools (create-god, init, dev)
-│   ├── sdk/           # Client SDK (Svelte, React, Vanilla JS)
-│   └── studio/        # Admin UI (SvelteKit)
+│   ├── sdk/           # Vanilla JS/TypeScript client
+│   ├── sdk-react/     # React 18+ hooks (@zveltio/react)
+│   ├── sdk-vue/       # Vue 3 composables (@zveltio/vue)
+│   ├── studio/        # Admin UI (SvelteKit 5)
+│   └── client/        # Public-facing app (SvelteKit 5)
 ├── extensions/        # Plugin system
 │   ├── ai/           # AI extensions
 │   ├── automation/   # Flows
@@ -173,12 +186,12 @@ cd packages/studio && bun run dev
 
 Core API server with:
 
-- Dynamic Collections (no migrations needed)
-- Better-Auth authentication
-- Casbin RBAC with God bypass
-- AI integration (OpenAI, Anthropic, Ollama)
-- Webhooks & real-time
-- Export (PDF, Excel, CSV)
+- Dynamic Collections (no migrations needed) and Ghost DDL zero-downtime migrations
+- Better-Auth authentication + Casbin RBAC with God bypass (Emergency Admin Access)
+- AI integration: multi-provider support (OpenAI, Anthropic, Ollama, Azure, Custom), semantic vector search, AI assistant with native tool-calling
+- Sandboxed Edge Functions: Bun Worker-based runtime with SSRF protection, 64 MB memory watchdog, and global scope isolation
+- Webhooks, real-time SSE, GraphQL auto-API, schema branches, multi-tenancy, BYOD introspection
+- Export (PDF, Excel, CSV), local-first SDK sync, approval workflows, GDPR compliance
 
 ### @zveltio/cli
 
@@ -192,24 +205,49 @@ Command-line tools:
 
 ### @zveltio/sdk
 
-Client SDK with:
+Vanilla JS/TypeScript client with:
 
-- Vanilla JS/TypeScript support
-- Svelte 5 stores
-- React hooks
-- Real-time subscriptions
-- Type-safe API client
+- Type-safe collection CRUD, auth, storage helpers
+- Real-time subscriptions (WebSocket)
+- Local-first offline sync (IndexedDB)
+
+### @zveltio/react
+
+React 18+ hooks wrapper:
+
+- `useCollection`, `useRecord`, `useSyncCollection`, `useSyncStatus`
+- `useRealtime`, `useAuth`, `useStorage`
+- SSR-safe, peer dependency: React ≥ 18
+
+### @zveltio/vue
+
+Vue 3 composables wrapper:
+
+- `useCollection`, `useRecord`, `useSyncCollection`, `useSyncStatus`
+- `useRealtime`, `useAuth`, `useStorage`
+- Compatible with `<script setup>`, peer dependency: Vue ≥ 3.3
 
 ### @zveltio/studio
 
-Admin interface (SvelteKit):
+Admin interface (SvelteKit 5):
 
 - Collection & field management
 - User & permission management
-- AI configuration
+- AI configuration and assistant
 - Webhook management
-- Content editing
-- Analytics dashboards
+- Automation flows builder with DLQ management
+- Content editing with rich text editor
+- Analytics dashboards and insights
+- Mail client, cloud storage, and document templates
+
+### @zveltio/client
+
+Public-facing SvelteKit 5 application:
+
+- Authentication flows (sign-in, sign-up, OAuth)
+- Public data entry and viewing
+- Real-time updates via WebSocket
+- Maps support via Leaflet
 
 ---
 
@@ -251,28 +289,73 @@ bun --watch packages/engine/src/index.ts
 
 ### Core APIs
 
-| Category         | Endpoint                  | Description                  |
-| ---------------- | ------------------------- | ---------------------------- |
-| **Auth**         | `/api/auth/*`             | Better-Auth endpoints        |
-| **Collections**  | `/api/collections`        | Dynamic table management     |
-| **Data**         | `/api/data/:collection`   | CRUD operations              |
-| **Storage**      | `/api/storage`            | File upload/download with S3 |
-| **Relations**    | `/api/relations`          | Manage table relationships   |
-| **Permissions**  | `/api/permissions`        | RBAC management              |
-| **Webhooks**     | `/api/webhooks`           | Event-driven notifications   |
-| **Export**       | `/api/export/:collection` | PDF/Excel/CSV generation     |
-| **Translations** | `/api/translations`       | i18n management              |
+| Category              | Endpoint                      | Description                            |
+| --------------------- | ----------------------------- | -------------------------------------- |
+| **Auth**              | `/api/auth/*`                 | Better-Auth endpoints                  |
+| **Me**                | `/api/me`                     | Profile & session convenience          |
+| **Collections**       | `/api/collections`            | Dynamic table management               |
+| **Data**              | `/api/data/:collection`       | CRUD operations                        |
+| **Relations**         | `/api/relations`              | Table relationships                    |
+| **Revisions**         | `/api/revisions`              | Record history & comments              |
+| **Drafts**            | `/api/drafts`                 | Draft/publish workflow                 |
+| **Storage**           | `/api/storage`                | File upload/download (S3)              |
+| **Media**             | `/api/media`                  | Media library with folders & tags      |
+| **Export**            | `/api/export/:collection`     | PDF/Excel/CSV generation               |
+| **Import**            | `/api/import`                 | CSV/JSON bulk import                   |
+| **Permissions**       | `/api/permissions`            | Casbin RBAC management                 |
+| **Users**             | `/api/users`                  | User management                        |
+| **Webhooks**          | `/api/webhooks`               | Event-driven notifications             |
+| **Translations**      | `/api/translations`           | i18n management                        |
+| **Notifications**     | `/api/notifications`          | In-app & web push notifications        |
+| **Realtime**          | `/api/realtime`               | SSE stream for live updates            |
+| **Flows**             | `/api/flows`                  | Automation workflow CRUD + trigger     |
+| **Approvals**         | `/api/approvals`              | Multi-step approval workflows          |
+| **Edge Functions**    | `/api/edge-functions`         | Serverless function CRUD + invoke      |
+| **Edge Fn Runtime**   | `/api/fn/:name`               | Invoke deployed edge function          |
+| **Sync**              | `/api/sync`                   | SDK local-first push/pull operations   |
+| **Insights**          | `/api/insights`               | Analytics dashboards & panels          |
+| **Saved Queries**     | `/api/saved-queries`          | Reusable query builder                 |
+| **Validation**        | `/api/validation`             | Data validation rules                  |
+| **Quality**           | `/api/quality`                | Data quality dashboard                 |
+| **Documents**         | `/api/documents`              | Compliance document generation         |
+| **Settings**          | `/api/settings`               | System configuration                   |
+| **Admin**             | `/api/admin`                  | API keys, audit logs, onboarding       |
+| **Database**          | `/api/database`               | Functions, triggers, enums, RLS        |
+| **Backup**            | `/api/backup`                 | Database backup management             |
+| **Tenants**           | `/api/tenants`                | Multi-tenancy registry                 |
+| **Schema**            | `/api/schema`                 | Schema branches for safe development   |
+| **Introspect**        | `/api/introspect`             | External DB schema import (BYOD)       |
+| **Marketplace**       | `/api/marketplace`            | Extension marketplace                  |
+| **GraphQL**           | `/api/graphql`                | Auto-generated GraphQL API             |
+| **API Docs**          | `/api/docs`                   | Swagger UI + OpenAPI spec              |
+| **GDPR**              | `/api/gdpr`                   | GDPR compliance endpoints              |
+| **Sitemap**           | `/api/sitemap.xml`            | CMS page sitemap (public)              |
 
-### AI APIs
+### Extension-Provided APIs
 
-| Endpoint                      | Method | Description               |
-| ----------------------------- | ------ | ------------------------- |
-| `/api/ai/chat`                | POST   | Send chat message         |
-| `/api/ai/search`              | POST   | Semantic search with RAG  |
-| `/api/ai/embeddings/generate` | POST   | Generate single embedding |
-| `/api/ai/embeddings/batch`    | POST   | Batch generate embeddings |
-| `/api/ai/usage/me`            | GET    | User AI usage stats       |
-| `/api/ai/providers`           | GET    | List available providers  |
+These endpoints are available when the corresponding extension is enabled:
+
+| Extension              | Endpoint                  | Description                           |
+| ---------------------- | ------------------------- | ------------------------------------- |
+| `communications/mail`  | `/api/mail`               | IMAP/SMTP mail client                 |
+| `storage/cloud`        | `/api/cloud`, `/share/:token` | File versioning, trash, public share |
+| `content/page-builder` | `/api/cms/pages`          | CMS pages                             |
+| `content/document-templates` | `/api/document-templates` | HTML/PDF template management  |
+| `ai/core-ai`           | `/api/ai/alchemist`       | Documents → structured database       |
+| `ai/core-ai`           | `/api/ai/query`           | Text-to-SQL copilot                   |
+| `ai/core-ai`           | `/api/ai` (schema-gen)    | Prompt → schema generator             |
+| `automation/flows`     | `/api/flows`              | Automation workflows                  |
+
+### AI APIs (Engine Core)
+
+| Endpoint                      | Method | Description                               |
+| ----------------------------- | ------ | ----------------------------------------- |
+| `/api/ai/chat`                | POST   | Conversational AI with tool-calling       |
+| `/api/ai/search`              | POST   | Semantic vector similarity search         |
+| `/api/ai/embeddings/generate` | POST   | Generate single embedding                 |
+| `/api/ai/embeddings/batch`    | POST   | Batch generate embeddings                 |
+| `/api/ai/usage/me`            | GET    | User AI usage statistics                  |
+| `/api/ai/providers`           | GET    | List available AI providers               |
 
 ---
 
@@ -401,6 +484,7 @@ docker compose logs engine
 - 🌍 [Ecosystem](docs/ECOSYSTEM.md) - Platform overview
 - 🔒 [Security](docs/SECURITY.md) - Security hardening
 - 📦 [Extensions](docs/EXTENSIONS.md) - Plugin system
+- 🔄 [Ghost DDL](docs/GHOST-DDL.md) - Zero-downtime migrations
 - 📚 [Documentation Index](docs/DOCUMENTATION_INDEX.md) - All docs
 - ⚖️ [Horizontal Scaling & HA](docs/HORIZONTAL_SCALING.md) - Enterprise Deployment Guide
 

@@ -29,7 +29,9 @@
       "Bash(bun remove @sveltejs/vite-plugin-svelte)",
       "Bash(bun add -d fake-indexeddb)",
       "Bash(bun test --preload ./src/tests/setup.ts)",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(xargs basename -a)",
+      "Bash(ls \"c:\\\\Users\\\\Liviu\\\\zveltio-ecosystem\\\\zveltio\\\\packages\\\\studio\\\\src\\\\routes\\\\admin\"\" 2>/dev/null || echo \"not found \")"
     ]
   }
 }

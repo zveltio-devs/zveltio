@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { runFunction } from './sandbox.js';
+import type { Database } from '../db/index.js';
+import { runFunction } from '../lib/edge-functions/sandbox.js';
 
 async function getUser(c: any, auth: any) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -22,7 +23,7 @@ export default async function handler(ctx) {
 }
 `;
 
-export function edgeFunctionsRoutes(db: any, auth: any): Hono {
+export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   // ─── Admin CRUD ────────────────────────────────────────────────
@@ -197,10 +198,10 @@ export function edgeFunctionsRoutes(db: any, auth: any): Hono {
 }
 
 /**
- * Dynamically mount all active edge functions.
- * Called during extension registration.
+ * Dynamically mount all active edge functions at their configured paths.
+ * Called during engine startup.
  */
-export async function mountEdgeFunctions(app: any, db: any): Promise<void> {
+export async function mountEdgeFunctions(app: any, db: Database): Promise<void> {
   let fns: any[];
   try {
     fns = await db

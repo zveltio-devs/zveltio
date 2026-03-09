@@ -2,16 +2,16 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
-import { syncImapAccount, fetchMessageBody, sendMail } from '../lib/mail/imap-client.js';
-import { aiProviderManager } from '../lib/ai-provider.js';
-import { checkPermission } from '../lib/permissions.js';
+import type { Database } from '../../../../packages/engine/src/db/index.js';
+import { syncImapAccount, fetchMessageBody, sendMail } from './lib/imap-client.js';
+import { aiProviderManager } from '../../../../packages/engine/src/lib/ai-provider.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
 import {
   createImapFolder, renameImapFolder, deleteImapFolder,
   moveMessages, downloadMessageAsEml, getImapQuota,
-} from '../lib/mail/imap-operations.js';
-import { buildReplyContext, saveDraft, sendDraft, autoCollectContacts } from '../lib/mail/compose.js';
-import { compileFiltersToSieve, uploadSieveScript, applyLocalFilters } from '../lib/mail/sieve.js';
+} from './lib/imap-operations.js';
+import { buildReplyContext, saveDraft, sendDraft, autoCollectContacts } from './lib/compose.js';
+import { compileFiltersToSieve, uploadSieveScript, applyLocalFilters } from './lib/sieve.js';
 
 /**
  * Mail Client routes — IMAP sync + SMTP send + AI features.

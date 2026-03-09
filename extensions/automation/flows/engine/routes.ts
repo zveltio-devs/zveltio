@@ -177,6 +177,59 @@ export function flowsRoutes(db: any, auth: any): Hono {
     return c.json({ run });
   });
 
+  // GET /dlq — list dead letter queue entries (optional ?flow_id filter)
+  app.get('/dlq', async (c) => {
+    const user = await getUser(c, auth);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const flowId = c.req.query('flow_id');
+    let query = db
+      .selectFrom('zv_flow_dlq')
+      .selectAll()
+      .orderBy('created_at', 'desc')
+      .limit(100);
+
+    if (flowId) {
+      query = query.where('flow_id', '=', flowId);
+    }
+
+    const entries = await query.execute();
+    return c.json({ entries });
+  });
+
+  // POST /dlq/:id/retry — requeue a DLQ entry
+  app.post('/dlq/:id/retry', async (c) => {
+    const user = await getUser(c, auth);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const entry = await db
+      .selectFrom('zv_flow_dlq')
+      .selectAll()
+      .where('id', '=', c.req.param('id'))
+      .executeTakeFirst();
+
+    if (!entry) return c.json({ error: 'DLQ entry not found' }, 404);
+
+    const flow = await db
+      .selectFrom('zv_flows')
+      .selectAll()
+      .where('id', '=', entry.flow_id)
+      .executeTakeFirst();
+
+    if (!flow) return c.json({ error: 'Flow not found' }, 404);
+
+    const payload = typeof entry.payload === 'string'
+      ? JSON.parse(entry.payload)
+      : (entry.payload ?? {});
+
+    // Delete DLQ entry before retry (at-least-once: new entry created if fails again)
+    await db.deleteFrom('zv_flow_dlq').where('id', '=', entry.id).execute();
+
+    executeFlow(flow, payload.trigger_data ?? {}, db).catch(console.error);
+
+    return c.json({ message: 'DLQ entry requeued', flow_id: entry.flow_id }, 202);
+  });
+
   return app;
 }
 

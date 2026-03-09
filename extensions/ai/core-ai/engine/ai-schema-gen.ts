@@ -8,11 +8,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import type { Database } from '../db/index.js';
-import { DDLManager } from '../lib/ddl-manager.js';
-import { fieldTypeRegistry } from '../lib/field-type-registry.js';
-import { enqueueDDLJob } from '../lib/ddl-queue.js';
-import { aiProviderManager } from '../lib/ai-provider.js';
+import type { Database } from '../../../../packages/engine/src/db/index.js';
+import { DDLManager } from '../../../../packages/engine/src/lib/ddl-manager.js';
+import { fieldTypeRegistry } from '../../../../packages/engine/src/lib/field-type-registry.js';
+import { enqueueDDLJob } from '../../../../packages/engine/src/lib/ddl-queue.js';
+import { aiProviderManager } from './ai-provider.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
 

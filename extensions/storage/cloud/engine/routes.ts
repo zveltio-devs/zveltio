@@ -2,10 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
-import { createFileVersion, listFileVersions, restoreFileVersion } from '../lib/cloud/file-versions.js';
-import { moveToTrash, restoreFromTrash, listTrash, purgeExpiredTrash } from '../lib/cloud/trash.js';
-import { createShareLink, validateShareToken, incrementDownloadCount, listUserShares, revokeShare } from '../lib/cloud/sharing.js';
+import type { Database } from '../../../../packages/engine/src/db/index.js';
+import { createFileVersion, listFileVersions, restoreFileVersion } from './lib/file-versions.js';
+import { moveToTrash, restoreFromTrash, listTrash, purgeExpiredTrash } from './lib/trash.js';
+import { createShareLink, validateShareToken, incrementDownloadCount, listUserShares, revokeShare } from './lib/sharing.js';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 

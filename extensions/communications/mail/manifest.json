@@ -1,0 +1,15 @@
+{
+  "name": "mail",
+  "package": "@zveltio/ext-mail",
+  "category": "communications",
+  "displayName": "Mail Client",
+  "description": "Full IMAP/SMTP email client with AI features, Sieve filtering, and contacts",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "permissions": ["database", "settings"],
+  "contributes": {
+    "engine": true,
+    "studio": false,
+    "fieldTypes": []
+  }
+}

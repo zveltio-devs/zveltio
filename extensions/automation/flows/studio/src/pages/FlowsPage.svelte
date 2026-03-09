@@ -1,9 +1,12 @@
 <script lang="ts">
  import { onMount } from 'svelte';
- import { Plus, Play, Pause, Trash2, GitBranch } from '@lucide/svelte';
+ import { Plus, Play, Pause, Trash2, GitBranch, AlertTriangle, RefreshCw } from '@lucide/svelte';
 
  const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ || '';
 
+ let activeTab = $state<'flows' | 'dlq'>('flows');
+
+ // ── Flows tab state ───────────────────────────────────────────────────────
  let flows = $state<any[]>([]);
  let loading = $state(true);
  let showCreateModal = $state(false);
@@ -16,6 +19,13 @@
  trigger: { type: 'manual' as 'data_event' | 'webhook' | 'cron' | 'manual', collection: '', event: 'insert' as 'insert' | 'update' | 'delete', cron: '' },
  });
 
+ // ── DLQ tab state ─────────────────────────────────────────────────────────
+ let dlqEntries = $state<any[]>([]);
+ let dlqLoading = $state(false);
+ let dlqFlowFilter = $state('');
+ let retryingId = $state<string | null>(null);
+ let retryingAll = $state(false);
+
  onMount(() => loadFlows());
 
  async function loadFlows() {
@@ -26,6 +36,45 @@
  flows = data.flows || [];
  } finally {
  loading = false;
+ }
+ }
+
+ async function loadDlq() {
+ dlqLoading = true;
+ try {
+ const qs = dlqFlowFilter ? `?flow_id=${dlqFlowFilter}` : '';
+ const res = await fetch(`${engineUrl}/api/flows/dlq${qs}`, { credentials: 'include' });
+ const data = await res.json();
+ dlqEntries = data.entries || [];
+ } finally {
+ dlqLoading = false;
+ }
+ }
+
+ async function retryDlq(id: string) {
+ retryingId = id;
+ try {
+ await fetch(`${engineUrl}/api/flows/dlq/${id}/retry`, { method: 'POST', credentials: 'include' });
+ await loadDlq();
+ } finally {
+ retryingId = null;
+ }
+ }
+
+ async function retryAll() {
+ const filtered = dlqFlowFilter
+ ? dlqEntries.filter((e) => e.flow_id === dlqFlowFilter)
+ : dlqEntries;
+ if (filtered.length === 0) return;
+ if (!confirm(`Retry all ${filtered.length} failed runs?`)) return;
+ retryingAll = true;
+ try {
+ for (const entry of filtered) {
+ await fetch(`${engineUrl}/api/flows/dlq/${entry.id}/retry`, { method: 'POST', credentials: 'include' });
+ }
+ await loadDlq();
+ } finally {
+ retryingAll = false;
  }
  }
 
@@ -93,6 +142,15 @@
  const s = typeof steps === 'string' ? JSON.parse(steps) : steps;
  return Array.isArray(s) ? s.length : 0;
  }
+
+ function flowName(flowId: string): string {
+ return flows.find((f) => f.id === flowId)?.name ?? flowId.slice(0, 8) + '…';
+ }
+
+ function switchTab(tab: 'flows' | 'dlq') {
+ activeTab = tab;
+ if (tab === 'dlq') loadDlq();
+ }
 </script>
 
 <div class="space-y-6">
@@ -101,12 +159,41 @@
  <h1 class="text-2xl font-bold">Automation Flows</h1>
  <p class="text-base-content/60 text-sm mt-1">Build event-driven workflows with visual steps</p>
  </div>
+ {#if activeTab === 'flows'}
  <button class="btn btn-primary btn-sm gap-2" onclick={() => (showCreateModal = true)}>
  <Plus size={16} />
  New Flow
  </button>
+ {/if}
  </div>
 
+ <!-- Tabs -->
+ <div role="tablist" class="tabs tabs-bordered">
+ <button
+ role="tab"
+ class="tab {activeTab === 'flows' ? 'tab-active' : ''}"
+ onclick={() => switchTab('flows')}
+ >
+ Flows
+ {#if flows.length > 0}
+ <span class="badge badge-sm badge-ghost ml-1">{flows.length}</span>
+ {/if}
+ </button>
+ <button
+ role="tab"
+ class="tab {activeTab === 'dlq' ? 'tab-active' : ''} gap-1"
+ onclick={() => switchTab('dlq')}
+ >
+ <AlertTriangle size={14} />
+ Dead Letter Queue
+ {#if dlqEntries.length > 0}
+ <span class="badge badge-sm badge-error ml-1">{dlqEntries.length}</span>
+ {/if}
+ </button>
+ </div>
+
+ <!-- Flows Tab -->
+ {#if activeTab === 'flows'}
  {#if loading}
  <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
  {:else if flows.length === 0}
@@ -156,6 +243,102 @@
  </div>
  </div>
  {/each}
+ </div>
+ {/if}
+ {/if}
+
+ <!-- DLQ Tab -->
+ {#if activeTab === 'dlq'}
+ <div class="space-y-4">
+ <div class="flex items-center gap-3">
+ <select
+ class="select select-sm"
+ bind:value={dlqFlowFilter}
+ onchange={loadDlq}
+ >
+ <option value="">All flows</option>
+ {#each flows as flow}
+ <option value={flow.id}>{flow.name}</option>
+ {/each}
+ </select>
+ <button class="btn btn-ghost btn-sm gap-1" onclick={loadDlq} disabled={dlqLoading}>
+ <RefreshCw size={14} class={dlqLoading ? 'animate-spin' : ''} />
+ Refresh
+ </button>
+ {#if dlqEntries.length > 0}
+ <button class="btn btn-warning btn-sm gap-1 ml-auto" onclick={retryAll} disabled={retryingAll}>
+ {#if retryingAll}
+ <span class="loading loading-spinner loading-xs"></span>
+ {:else}
+ <RefreshCw size={14} />
+ {/if}
+ Retry All ({dlqFlowFilter ? dlqEntries.filter((e) => e.flow_id === dlqFlowFilter).length : dlqEntries.length})
+ </button>
+ {/if}
+ </div>
+
+ {#if dlqLoading}
+ <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
+ {:else if dlqEntries.length === 0}
+ <div class="card bg-base-200 text-center py-12">
+ <AlertTriangle size={48} class="mx-auto text-base-content/20 mb-3" />
+ <p class="text-base-content/60">No failed runs — all clear</p>
+ </div>
+ {:else}
+ <div class="overflow-x-auto">
+ <table class="table table-sm">
+ <thead>
+ <tr>
+ <th>Flow</th>
+ <th>Error</th>
+ <th>Attempts</th>
+ <th>Step</th>
+ <th>Failed at</th>
+ <th></th>
+ </tr>
+ </thead>
+ <tbody>
+ {#each dlqEntries as entry}
+ <tr>
+ <td class="font-medium">{flowName(entry.flow_id)}</td>
+ <td class="max-w-xs">
+ <span class="text-error text-xs font-mono truncate block" title={entry.error_message}>
+ {entry.error_message ?? '—'}
+ </span>
+ </td>
+ <td>
+ <span class="badge badge-sm badge-error">{entry.attempts}</span>
+ </td>
+ <td>
+ {#if entry.step_index >= 0}
+ <span class="badge badge-sm badge-ghost">step #{entry.step_index + 1}</span>
+ {:else}
+ <span class="text-base-content/40">—</span>
+ {/if}
+ </td>
+ <td class="text-xs text-base-content/60">
+ {new Date(entry.created_at).toLocaleString()}
+ </td>
+ <td>
+ <button
+ class="btn btn-ghost btn-xs gap-1"
+ onclick={() => retryDlq(entry.id)}
+ disabled={retryingId === entry.id}
+ >
+ {#if retryingId === entry.id}
+ <span class="loading loading-spinner loading-xs"></span>
+ {:else}
+ <RefreshCw size={12} />
+ {/if}
+ Retry
+ </button>
+ </td>
+ </tr>
+ {/each}
+ </tbody>
+ </table>
+ </div>
+ {/if}
  </div>
  {/if}
 </div>

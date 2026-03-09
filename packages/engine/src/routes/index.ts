@@ -19,7 +19,6 @@ import { realtimeRoutes } from './realtime.js';
 import { notificationsRoutes } from './notifications.js';
 import { importRoutes } from './import.js';
 import { aiRoutes } from './ai.js';
-import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 import { graphqlRoutes } from './graphql.js';
 import { marketplaceRoutes } from './marketplace.js';
 import { schemaBranchesRoutes } from './schema-branches.js';
@@ -29,7 +28,6 @@ import { tenantsRoutes } from './tenants.js';
 import { flowsRoutes } from './flows.js';
 import { mediaRoutes } from './media.js';
 import { backupRoutes } from './backup.js';
-import { publicPagesRoutes, adminPagesRoutes } from './pages.js';
 import { approvalsRoutes } from './approvals.js';
 import { draftsRoutes } from './drafts.js';
 import { gdprRoutes } from './gdpr.js';
@@ -37,17 +35,23 @@ import { savedQueriesRoutes } from './saved-queries.js';
 import { validationRoutes } from './validation.js';
 import { qualityRoutes } from './quality.js';
 import { insightsRoutes } from './insights.js';
-import { documentTemplatesRoutes } from './document-templates.js';
 import { documentsRoutes } from './documents.js';
 import { syncRoutes } from './sync.js';
 import { introspectRoutes } from './introspect.js';
 import { aiSearchRoutes } from './ai-search.js';
-import { cloudRoutes, publicShareRouter, createCloudS3Client } from './cloud.js';
-import { aiQueryRoutes } from './ai-query.js';
-import { aiAlchemistRoutes } from './ai-alchemist.js';
-import { mailRoutes } from './mail.js';
+import { edgeFunctionsRoutes, mountEdgeFunctions } from './edge-functions.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { authRateLimit, apiRateLimit, aiRateLimit } from '../middleware/rate-limit.js';
+
+// ── Moved to extensions ──────────────────────────────────────────────────────
+// /api/mail             → extensions/communications/mail
+// /api/cloud + /share   → extensions/storage/cloud
+// /api/pages            → extensions/content/page-builder (cms-routes)
+// /api/document-templates → extensions/content/document-templates
+// /api/ai/alchemist     → extensions/ai/core-ai
+// /api/ai/query         → extensions/ai/core-ai
+// /api/ai (schema-gen)  → extensions/ai/core-ai
+// ────────────────────────────────────────────────────────────────────────────
 
 interface RoutesContext {
   db: Database;
@@ -118,11 +122,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Real-time SSE stream (authenticated)
   app.route('/api/realtime', realtimeRoutes(db, auth));
 
-  // AI: chat, embeddings, prompt templates, provider management
+  // AI core: chat, embeddings, prompt templates, provider management, semantic search
   app.route('/api/ai', aiRoutes(db, auth));
-
-  // AI Prompt-to-Backend schema generator
-  app.route('/api/ai', aiSchemaGenRoutes(db, auth));
+  app.route('/api/ai/search', aiSearchRoutes(db, auth));
 
   // Extension marketplace (admin)
   app.route('/api/marketplace', marketplaceRoutes(db, app));
@@ -148,10 +150,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Database backups (admin)
   app.route('/api/backup', backupRoutes(db, auth));
 
-  // CMS Pages — public read + admin CRUD
-  app.route('/api/pages', publicPagesRoutes(db));
-  app.route('/api/admin/pages', adminPagesRoutes(db, auth));
-
   // GraphQL auto-generated API + Playground
   app.route('/api/graphql', graphqlRoutes(db, auth));
 
@@ -176,35 +174,18 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Analytics Insights (dashboards + panels)
   app.route('/api/insights', insightsRoutes(db, auth));
 
-  // Document Templates (admin-managed HTML/PDF templates)
-  app.route('/api/document-templates', documentTemplatesRoutes(db, auth));
-
   // Documents Management (RO compliance doc generation)
   app.route('/api/documents', documentsRoutes(db, auth));
 
   // SDK Local-First Sync (push/pull batch operations)
   app.route('/api/sync', syncRoutes(db, auth));
 
-  // BYOD Introspection — scanează schema externă și importă ca unmanaged collections
+  // BYOD Introspection — import external DB schema as unmanaged collections
   app.route('/api/introspect', introspectRoutes(db, auth));
 
-  // AI Semantic Search — vector similarity search across all indexed collections
-  app.route('/api/ai/search', aiSearchRoutes(db, auth));
-
-  // Text-to-SQL AI Copilot
-  app.route('/api/ai/query', aiQueryRoutes(db, auth));
-
-  // Data Alchemist — documents → structured database
-  app.route('/api/ai/alchemist', aiAlchemistRoutes(db, auth));
-
-  // Mail Client — IMAP/SMTP integrated email
-  app.route('/api/mail', mailRoutes(db, auth));
-
-  // Cloud Storage — versioning, trash, sharing, favorites, quotas
-  const cloudS3 = createCloudS3Client();
-  app.route('/api/cloud', cloudRoutes(db, auth, cloudS3));
-  // Public share links — clean URLs at /share/:token (no auth required)
-  app.route('/share', publicShareRouter(db, cloudS3));
+  // Edge Functions — CRUD management + dynamic function mounting at /api/fn/*
+  app.route('/api/edge-functions', edgeFunctionsRoutes(db, auth));
+  await mountEdgeFunctions(app, db);
 
   // Sitemap (public)
   app.get('/api/sitemap.xml', async (c) => {
