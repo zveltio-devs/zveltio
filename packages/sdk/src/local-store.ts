@@ -1,4 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
+import { LamportClock, mergeLWW, toDocument, fromDocument, type LWWDocument } from './crdt.js';
 
 export interface LocalRecord {
   id: string;
@@ -10,6 +11,7 @@ export interface LocalRecord {
   _updatedAt: number; // timestamp ms
   _deletedAt?: number; // soft delete for sync
   _conflictData?: Record<string, any>; // server data at conflict time, for UI resolution
+  _crdtDoc?: LWWDocument; // CRDT field-level version vector (optional)
 }
 
 export interface SyncQueueItem {
@@ -34,10 +36,11 @@ export interface OfflineBlob {
 }
 
 const DB_NAME = 'zveltio_local';
-const DB_VERSION = 2; // v2: added offline_blobs store
+const DB_VERSION = 3; // v3: CRDT Lamport clock in meta store
 
 export class LocalStore {
   private db: IDBPDatabase | null = null;
+  private clock: LamportClock | null = null;
 
   async open(): Promise<void> {
     this.db = await openDB(DB_NAME, DB_VERSION, {
@@ -64,8 +67,23 @@ export class LocalStore {
           // Blobs saved offline — upload on first reconnect
           db.createObjectStore('offline_blobs', { keyPath: 'id' });
         }
+        // v3: no new stores — Lamport clock stored as key in existing 'meta' store
       },
     });
+
+    // Initialize CRDT Lamport clock (persisted in meta store)
+    let clientId = (await this.db.get('meta', 'crdt_client_id'))?.value as string | undefined;
+    if (!clientId) {
+      clientId = crypto.randomUUID();
+      await this.db.put('meta', { key: 'crdt_client_id', value: clientId });
+    }
+    const storedLamport = ((await this.db.get('meta', 'crdt_lamport'))?.value as number) ?? 0;
+    this.clock = new LamportClock(clientId, storedLamport);
+  }
+
+  private async persistLamport(): Promise<void> {
+    if (!this.db || !this.clock) return;
+    await this.db.put('meta', { key: 'crdt_lamport', value: this.clock.current });
   }
 
   /** Write a local record and add to sync queue */
@@ -80,6 +98,10 @@ export class LocalStore {
       | LocalRecord
       | undefined;
 
+    const lamport = this.clock ? this.clock.tick() : Date.now();
+    const clientId = this.clock?.id ?? 'unknown';
+    const crdtDoc = toDocument(data, lamport, clientId);
+
     const record: LocalRecord = {
       id,
       collection,
@@ -88,6 +110,7 @@ export class LocalStore {
       _serverVersion: existing?._serverVersion || 0,
       _syncStatus: 'pending',
       _updatedAt: Date.now(),
+      _crdtDoc: crdtDoc,
     };
 
     const tx = this.db.transaction(['records', 'sync_queue'], 'readwrite');
@@ -108,6 +131,7 @@ export class LocalStore {
     await tx.objectStore('sync_queue').add(queueItem);
 
     await tx.done;
+    await this.persistLamport();
     return record;
   }
 
@@ -224,10 +248,25 @@ export class LocalStore {
       | undefined;
 
     // Conflict detection: local has changes not yet confirmed by server
-    // (_localVersion > _serverVersion regardless of syncStatus, to catch the
-    // race where status flipped to 'synced' but server sent a concurrent update)
     if (existing && existing._localVersion > existing._serverVersion) {
-      existing._conflictData = data; // preserve server version for UI resolution
+      // CRDT field-level merge if both sides have CRDT docs
+      if (existing._crdtDoc && (data as any).__crdt) {
+        const remoteCrdtDoc = (data as any).__crdt as LWWDocument;
+        const merged = mergeLWW(existing._crdtDoc, remoteCrdtDoc);
+        const mergedData = fromDocument(merged);
+        if (this.clock) {
+          this.clock.update(Math.max(...Object.values(merged).map((f) => f.lamport)));
+          await this.persistLamport();
+        }
+        existing.data = mergedData;
+        existing._crdtDoc = merged;
+        existing._serverVersion = serverVersion;
+        existing._syncStatus = 'synced'; // CRDT merge resolved without conflict
+        await this.db.put('records', existing);
+        return;
+      }
+      // No CRDT doc — mark as conflict for manual resolution
+      existing._conflictData = data;
       existing._serverVersion = serverVersion;
       existing._syncStatus = 'conflict';
       await this.db.put('records', existing);

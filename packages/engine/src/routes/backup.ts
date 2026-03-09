@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { sql } from 'kysely';
+import { z } from 'zod';
 import { checkPermission } from '../lib/permissions.js';
 import type { Database } from '../db/index.js';
 
@@ -219,6 +220,137 @@ export function backupRoutes(db: Database, auth: any): Hono {
     }
 
     return c.json({ success: true });
+  });
+
+  // ── PITR routes ────────────────────────────────────────────────────────────
+
+  router.get('/pitr/config', async (c) => {
+    const result = await sql<{
+      id: string; is_enabled: boolean; wal_archive_path: string | null;
+      retention_days: number; last_base_backup_at: Date | null;
+      last_wal_segment: string | null; updated_at: Date;
+    }>`SELECT id::text, is_enabled, wal_archive_path, retention_days,
+         last_base_backup_at, last_wal_segment, updated_at
+       FROM zv_pitr_config LIMIT 1`.execute(db);
+    if (!result.rows[0]) return c.json({ error: 'PITR config not found' }, 404);
+    return c.json({ config: result.rows[0] });
+  });
+
+  const PitrConfigSchema = z.object({
+    is_enabled: z.boolean().optional(),
+    retention_days: z.number().int().min(1).max(365).optional(),
+    wal_archive_path: z.string().nullable().optional(),
+  });
+
+  router.patch('/pitr/config', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = PitrConfigSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { is_enabled, retention_days, wal_archive_path } = parsed.data;
+    await sql`UPDATE zv_pitr_config SET
+        is_enabled       = COALESCE(${is_enabled ?? null}::boolean, is_enabled),
+        retention_days   = COALESCE(${retention_days ?? null}::int, retention_days),
+        wal_archive_path = CASE WHEN ${wal_archive_path !== undefined} THEN ${wal_archive_path ?? null}
+                               ELSE wal_archive_path END,
+        updated_at = NOW()
+      WHERE id = (SELECT id FROM zv_pitr_config LIMIT 1)`.execute(db);
+    const result = await sql<{
+      id: string; is_enabled: boolean; wal_archive_path: string | null;
+      retention_days: number; updated_at: Date;
+    }>`SELECT id::text, is_enabled, wal_archive_path, retention_days, updated_at
+       FROM zv_pitr_config LIMIT 1`.execute(db);
+    return c.json({ config: result.rows[0] });
+  });
+
+  router.get('/pitr/restore-points', async (c) => {
+    const result = await sql<{
+      id: string; name: string; description: string | null;
+      lsn: string | null; recorded_at: Date; created_by: string | null;
+    }>`SELECT id::text, name, description, lsn, recorded_at, created_by::text
+       FROM zv_pitr_restore_points ORDER BY recorded_at DESC LIMIT 100`.execute(db);
+    return c.json({ restore_points: result.rows });
+  });
+
+  const CreateRestorePointSchema = z.object({
+    name: z.string().min(1).max(255),
+    description: z.string().optional(),
+  });
+
+  router.post('/pitr/restore-points', async (c) => {
+    const user = c.get('user' as never) as any;
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = CreateRestorePointSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { name, description } = parsed.data;
+    const lsnResult = await sql<{ lsn: string }>`
+      SELECT pg_current_wal_lsn()::text AS lsn`.execute(db);
+    const lsn = lsnResult.rows[0]?.lsn ?? null;
+    const insertResult = await sql<{ id: string; recorded_at: Date }>`
+      INSERT INTO zv_pitr_restore_points (name, description, lsn, created_by)
+      VALUES (${name}, ${description ?? null}, ${lsn}, ${user.id})
+      RETURNING id::text, recorded_at`.execute(db);
+    return c.json({ restore_point: { ...insertResult.rows[0], name, description, lsn } }, 201);
+  });
+
+  router.delete('/pitr/restore-points/:id', async (c) => {
+    const id = c.req.param('id');
+    const existing = await sql<{ id: string }>`
+      SELECT id::text FROM zv_pitr_restore_points WHERE id = ${id}`.execute(db);
+    if (!existing.rows[0]) return c.json({ error: 'Restore point not found' }, 404);
+    await sql`DELETE FROM zv_pitr_restore_points WHERE id = ${id}`.execute(db);
+    return c.json({ success: true });
+  });
+
+  const PitrRestoreSchema = z.object({
+    restore_point_id: z.string().uuid().optional(),
+    target_time: z.string().datetime().optional(),
+  }).refine((d) => d.restore_point_id || d.target_time, {
+    message: 'Provide either restore_point_id or target_time',
+  });
+
+  router.post('/pitr/restore', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = PitrRestoreSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { restore_point_id, target_time } = parsed.data;
+    let resolvedTime = target_time;
+    if (restore_point_id) {
+      const rp = await sql<{ recorded_at: Date; lsn: string | null }>`
+        SELECT recorded_at, lsn FROM zv_pitr_restore_points WHERE id = ${restore_point_id}`.execute(db);
+      if (!rp.rows[0]) return c.json({ error: 'Restore point not found' }, 404);
+      resolvedTime = new Date(rp.rows[0].recorded_at).toISOString();
+    }
+    const cfgResult = await sql<{ wal_archive_path: string | null }>`
+      SELECT wal_archive_path FROM zv_pitr_config LIMIT 1`.execute(db);
+    const walPath = cfgResult.rows[0]?.wal_archive_path ?? '/var/lib/wal-g/archive';
+    return c.json({
+      message: 'PITR restore instructions generated. This operation requires manual intervention.',
+      target_time: resolvedTime,
+      restore_point_id: restore_point_id ?? null,
+      instructions: [
+        '1. Stop the Zveltio engine and all application servers.',
+        '2. Run: wal-g backup-fetch LATEST /var/lib/postgresql/data',
+        `3. Create recovery.conf with:\n   restore_command = 'wal-g wal-fetch %f %p'\n   recovery_target_time = '${resolvedTime}'\n   recovery_target_action = 'promote'`,
+        `4. Ensure WAL archive is accessible at: ${walPath}`,
+        '5. Start PostgreSQL — it will replay WAL segments up to the target time.',
+        '6. Restart the Zveltio engine once PostgreSQL is healthy.',
+      ],
+      warning: 'This will REPLACE your current database with data from the target point in time. All changes after that point will be LOST.',
+    });
+  });
+
+  router.get('/pitr/status', async (c) => {
+    const result = await sql<{ lsn: string; last_checkpoint: string; db_size_bytes: string }>`
+      SELECT pg_current_wal_lsn()::text AS lsn,
+             pg_last_checkpoint()::text AS last_checkpoint,
+             pg_database_size(current_database())::text AS db_size_bytes`.execute(db);
+    const row = result.rows[0];
+    return c.json({
+      current_lsn: row?.lsn ?? null,
+      last_checkpoint: row?.last_checkpoint ?? null,
+      db_size_bytes: row?.db_size_bytes ? Number(row.db_size_bytes) : null,
+      db_size_human: row?.db_size_bytes ? formatBytes(Number(row.db_size_bytes)) : null,
+    });
   });
 
   return router;

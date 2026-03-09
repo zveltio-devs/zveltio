@@ -1,0 +1,15 @@
+{
+  "name": "saft",
+  "package": "@zveltio/ext-ro-saft",
+  "category": "compliance/ro",
+  "displayName": "SAF-T RO",
+  "description": "Romanian Standard Audit File for Tax (SAF-T D.394) — generate XML audit files for ANAF",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "permissions": ["database"],
+  "contributes": {
+    "engine": true,
+    "studio": true,
+    "fieldTypes": []
+  }
+}

@@ -1,6 +1,9 @@
 import type { ZveltioClient } from './client.js';
 import type { ZveltioRealtime } from './realtime.js';
 import { LocalStore } from './local-store.js';
+import { mergeLWW, fromDocument } from './crdt.js';
+
+export type CRDTConflictResolution = 'lww' | 'custom';
 
 export interface SyncManagerConfig {
   /** Sync interval in ms (default: 5000) */
@@ -11,6 +14,8 @@ export interface SyncManagerConfig {
   backoffBase?: number;
   /** Callback for conflicts (default: server-wins) */
   onConflict?: (local: any, server: any) => any;
+  /** CRDT conflict resolution strategy: 'lww' (field-level LWW merge) or 'custom' (onConflict cb). Default: 'lww' */
+  conflictResolution?: CRDTConflictResolution;
 }
 
 export class SyncManager {
@@ -30,7 +35,8 @@ export class SyncManager {
       syncInterval: config.syncInterval ?? 5000,
       maxRetries: config.maxRetries ?? 5,
       backoffBase: config.backoffBase ?? 1000,
-      onConflict: config.onConflict ?? ((_local, server) => server), // Server wins default
+      onConflict: config.onConflict ?? ((_local, server) => server),
+      conflictResolution: config.conflictResolution ?? 'lww',
     };
   }
 
@@ -244,16 +250,22 @@ export class SyncManager {
         try {
           const serverVersion = Date.now();
 
+          // Attach CRDT doc to payload if available
+          const localRecord = await this.store.get(op.collection, op.recordId);
+          const crdtPayload = localRecord?._crdtDoc
+            ? { ...op.payload, __crdt: localRecord._crdtDoc }
+            : op.payload;
+
           switch (op.operation) {
             case 'create':
               await this.client
                 .collection(op.collection)
-                .create({ id: op.recordId, ...op.payload });
+                .create({ id: op.recordId, ...crdtPayload });
               break;
             case 'update':
               await this.client
                 .collection(op.collection)
-                .update(op.recordId, op.payload);
+                .update(op.recordId, crdtPayload);
               break;
             case 'delete':
               await this.client.collection(op.collection).delete(op.recordId);
@@ -278,15 +290,19 @@ export class SyncManager {
                 op.collection,
                 op.recordId,
               );
-              const resolved = this.config.onConflict(
-                localRecord?.data,
-                serverRecord,
-              );
-              await this.store.resolveConflict(
-                op.collection,
-                op.recordId,
-                resolved,
-              );
+              // CRDT LWW merge if both sides have CRDT docs and strategy is 'lww'
+              if (
+                this.config.conflictResolution === 'lww' &&
+                localRecord?._crdtDoc &&
+                (serverRecord as any).__crdt
+              ) {
+                const merged = mergeLWW(localRecord._crdtDoc, (serverRecord as any).__crdt);
+                const resolvedData = fromDocument(merged);
+                await this.store.resolveConflict(op.collection, op.recordId, resolvedData);
+              } else {
+                const resolved = this.config.onConflict(localRecord?.data, serverRecord);
+                await this.store.resolveConflict(op.collection, op.recordId, resolved);
+              }
             } catch {
               /* fallback: server wins — ignore error */
             }
