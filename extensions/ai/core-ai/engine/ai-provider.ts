@@ -130,11 +130,52 @@ export class AnthropicProvider implements AIProvider {
   ): Promise<ChatResult> {
     const model = opts.model || this.defaultModel;
 
-    // Extract system message
-    const system = messages.find((m) => m.role === 'system')?.content;
-    const userMessages = messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
+    // Separate system message
+    const systemMsg = messages.find((m) => m.role === 'system')?.content;
+
+    // Build Anthropic messages — tool results need special handling
+    const anthropicMessages: any[] = [];
+    for (const m of messages.filter((m) => m.role !== 'system')) {
+      if (m.role === 'tool') {
+        // Tool results: append to last user message content array, or create new user message
+        const lastMsg = anthropicMessages[anthropicMessages.length - 1];
+        if (lastMsg && lastMsg.role === 'user' && Array.isArray(lastMsg.content)) {
+          lastMsg.content.push({
+            type: 'tool_result',
+            tool_use_id: m.tool_call_id,
+            content: m.content,
+          });
+        } else {
+          anthropicMessages.push({
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content }],
+          });
+        }
+      } else {
+        anthropicMessages.push({ role: m.role, content: m.content });
+      }
+    }
+
+    const body: any = {
+      model,
+      messages: anthropicMessages,
+      max_tokens: opts.max_tokens ?? 2048,
+      temperature: opts.temperature ?? 0.7,
+    };
+
+    if (systemMsg) body.system = systemMsg;
+
+    // Map tools: OpenAI format → Anthropic format
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools.map((t) => ({
+        name: t.function.name,
+        description: t.function.description,
+        input_schema: t.function.parameters,
+      }));
+      if (opts.tool_choice === 'auto' || opts.tool_choice === undefined) {
+        body.tool_choice = { type: 'auto' };
+      }
+    }
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -143,13 +184,7 @@ export class AnthropicProvider implements AIProvider {
         'x-api-key': this.apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model,
-        messages: userMessages,
-        system,
-        max_tokens: opts.max_tokens ?? 2048,
-        temperature: opts.temperature ?? 0.7,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -158,13 +193,31 @@ export class AnthropicProvider implements AIProvider {
     }
 
     const data: any = await res.json();
+
+    // Extract text blocks and tool_use blocks from response.content array
+    const textBlocks = data.content?.filter((b: any) => b.type === 'text') ?? [];
+    const toolUseBlocks = data.content?.filter((b: any) => b.type === 'tool_use') ?? [];
+
+    const content = textBlocks.map((b: any) => b.text).join('');
+
+    // Normalize tool_calls to internal format (same as OpenAI)
+    const tool_calls = toolUseBlocks.map((b: any) => ({
+      id: b.id,
+      type: 'function' as const,
+      function: {
+        name: b.name,
+        arguments: JSON.stringify(b.input),
+      },
+    }));
+
     return {
-      content: data.content[0].text,
+      content,
       model,
       usage: {
-        prompt_tokens: data.usage.input_tokens,
-        response_tokens: data.usage.output_tokens,
+        prompt_tokens: data.usage?.input_tokens ?? 0,
+        response_tokens: data.usage?.output_tokens ?? 0,
       },
+      tool_calls: tool_calls.length > 0 ? tool_calls : undefined,
     };
   }
 }
@@ -184,18 +237,32 @@ export class OllamaProvider implements AIProvider {
   ): Promise<ChatResult> {
     const model = opts.model || this.defaultModel;
 
+    const body: any = {
+      model,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      stream: false,
+      options: {
+        temperature: opts.temperature ?? 0.7,
+        num_predict: opts.max_tokens ?? -1,
+      },
+    };
+
+    // Ollama accepts tools in OpenAI native format
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.function.name,
+          description: t.function.description,
+          parameters: t.function.parameters,
+        },
+      }));
+    }
+
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: false,
-        options: {
-          temperature: opts.temperature ?? 0.7,
-          num_predict: opts.max_tokens ?? -1,
-        },
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -204,13 +271,28 @@ export class OllamaProvider implements AIProvider {
     }
 
     const data: any = await res.json();
+
+    // Normalize tool_calls Ollama → internal format
+    const rawToolCalls = data.message?.tool_calls ?? [];
+    const tool_calls = rawToolCalls.map((tc: any) => ({
+      id: tc.id ?? crypto.randomUUID(),
+      type: 'function' as const,
+      function: {
+        name: tc.function?.name ?? tc.name,
+        arguments: typeof tc.function?.arguments === 'string'
+          ? tc.function.arguments
+          : JSON.stringify(tc.function?.arguments ?? tc.arguments ?? {}),
+      },
+    }));
+
     return {
-      content: data.message.content,
+      content: data.message?.content ?? '',
       model,
       usage: {
         prompt_tokens: data.prompt_eval_count ?? 0,
         response_tokens: data.eval_count ?? 0,
       },
+      tool_calls: tool_calls.length > 0 ? tool_calls : undefined,
     };
   }
 

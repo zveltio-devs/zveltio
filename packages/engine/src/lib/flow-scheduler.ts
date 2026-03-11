@@ -68,7 +68,7 @@ export const flowScheduler = {
         .selectFrom('zv_flows')
         .selectAll()
         .where('is_active', '=', true)
-        .where('trigger_type', '=', 'cron')
+        .where((eb: any) => eb('trigger_type', 'in', ['cron', 'ai_task']))
         .execute()
         .catch(() => []);
 
@@ -84,6 +84,58 @@ export const flowScheduler = {
   async _executeScheduledFlow(flow: any): Promise<void> {
     if (!_db) return;
 
+    // ── AI Task trigger ───────────────────────────────────────────
+    if (flow.trigger_type === 'ai_task') {
+      try {
+        const { ZveltioAIEngine } = await import(
+          '../../../extensions/ai/core-ai/engine/zveltio-ai/engine.js'
+        ).catch(() => ({ ZveltioAIEngine: null as any }));
+
+        if (!ZveltioAIEngine) {
+          console.warn('[FlowScheduler] AI extension not loaded — skipping ai_task flow');
+          // Advance next_run_at even on skip, otherwise retries every 60s indefinitely
+          const skipIntervalMs = ((flow.trigger_config?.interval_seconds ?? 3600) as number) * 1_000;
+          await (_db as any)
+            .updateTable('zv_flows')
+            .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + skipIntervalMs) })
+            .where('id', '=', flow.id)
+            .execute()
+            .catch(() => {});
+          return;
+        }
+
+        const engine = new ZveltioAIEngine(_db);
+        const cfg = flow.trigger_config ?? {};
+
+        await engine.processBackgroundTask(
+          cfg.user_id ?? flow.created_by,
+          cfg.instruction ?? flow.description ?? 'Generate a status report',
+          {
+            notifyOnResult: cfg.notify_on_result ?? true,
+            notifyOnlyIfData: cfg.notify_only_if_data ?? false,
+            notificationTitle: cfg.notification_title ?? flow.name,
+            maxIterations: cfg.max_iterations ?? 5,
+          },
+        );
+
+        console.log(`✅ FlowScheduler: AI task "${flow.name}" completed`);
+      } catch (err: any) {
+        console.error(`❌ FlowScheduler: AI task "${flow.name}" failed:`, err.message);
+      }
+
+      // Advance next_run_at
+      const intervalMs = ((flow.trigger_config?.interval_seconds ?? 3600) as number) * 1_000;
+      await (_db as any)
+        .updateTable('zv_flows')
+        .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + intervalMs) })
+        .where('id', '=', flow.id)
+        .execute()
+        .catch(() => {});
+
+      return; // Skip standard flow executor for ai_task
+    }
+
+    // ── Standard flow execution ───────────────────────────────────
     console.log(`⚡ FlowScheduler: executing "${flow.name}"`);
 
     const result = await executeFlow(_db, flow.id, { trigger: 'cron', flow_id: flow.id });

@@ -16,6 +16,7 @@ export interface ZveltioAIResponse {
   conversationId: string;
   metadata?: {
     tokensUsed?: number;
+    iterations?: number;
     provider?: string;
     model?: string;
     latency?: number;
@@ -33,8 +34,10 @@ export interface ZveltioAIContext {
   userId: string;
   organizationId?: string;
   collections: Array<{ name: string; display_name: string; fields: any[] }>;
+  collectionCount?: number;
   permissions: any[];
   recentActivity: any[];
+  userMemory?: Array<{ context_key: string; content: string; importance: number }>;
 }
 
 export interface ZveltioAITool {

@@ -219,6 +219,58 @@ export const zveltioAITools: ZveltioAITool[] = [
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'remember_fact',
+      description: 'Save an important fact, preference, or business rule to long-term memory. ' +
+                   'Use when the user shares information they want you to remember for future conversations ' +
+                   '(e.g., "always show prices in EUR", "our fiscal year starts in April", "preferred report format is PDF").',
+      parameters: {
+        type: 'object',
+        properties: {
+          context_key: {
+            type: 'string',
+            description: 'Short identifier for this memory (snake_case, e.g., "preferred_currency", "fiscal_year_start")',
+          },
+          content: {
+            type: 'string',
+            description: 'The fact or rule to remember, written clearly and completely',
+          },
+          importance: {
+            type: 'number',
+            description: 'Importance level 1-10 (10 = critical business rule, 5 = preference, 1 = casual note)',
+            default: 5,
+          },
+        },
+        required: ['context_key', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recall_facts',
+      description: 'Retrieve facts previously saved to long-term memory. ' +
+                   'Use before answering questions about preferences or business rules, ' +
+                   'or when the user says "remember when I told you..." or "as I mentioned before...".',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'What to search for in memory (natural language description)',
+          },
+          limit: {
+            type: 'number',
+            description: 'Max facts to return (default 5)',
+            default: 5,
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ];
 
 export function getToolByName(name: string): ZveltioAITool | undefined {
