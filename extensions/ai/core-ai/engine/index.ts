@@ -16,6 +16,7 @@ const extension: ZveltioExtension = {
     return [
       join(import.meta.dir, 'migrations/001_ai.sql'),
       join(import.meta.dir, 'migrations/002_zveltio_ai.sql'),
+      join(import.meta.dir, 'migrations/003_ai_memory.sql'),
     ];
   },
 
