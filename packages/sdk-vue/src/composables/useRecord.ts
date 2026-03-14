@@ -1,6 +1,7 @@
 import { ref, onMounted, watch, type Ref } from 'vue';
-import type { ZveltioClient } from '@zveltio/sdk';
 import { inject } from 'vue';
+import { fetchRecord } from '@zveltio/sdk';
+import type { ZveltioClient } from '@zveltio/sdk';
 import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 
 export function useRecord<T = any>(
@@ -14,12 +15,12 @@ export function useRecord<T = any>(
   const loading = ref(!!id);
   const error = ref<Error | null>(null);
 
-  const fetch = async () => {
+  const load = async () => {
     if (!id) { data.value = null; loading.value = false; return; }
     loading.value = true;
     error.value = null;
     try {
-      data.value = await client.collection(collectionName).get(id);
+      data.value = await fetchRecord<T>(client, collectionName, id);
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err));
     } finally {
@@ -27,8 +28,8 @@ export function useRecord<T = any>(
     }
   };
 
-  onMounted(fetch);
-  watch(() => id, fetch);
+  onMounted(load);
+  watch(() => id, load);
 
-  return { data, loading, error, refetch: fetch };
+  return { data, loading, error, refetch: load };
 }

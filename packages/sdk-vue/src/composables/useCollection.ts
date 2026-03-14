@@ -1,8 +1,8 @@
-import { ref, onMounted, watch, type Ref } from 'vue';
-import type { ZveltioClient } from '@zveltio/sdk';
+import { ref, onMounted, type Ref } from 'vue';
 import { inject } from 'vue';
+import { fetchCollection, type CollectionOptions } from '@zveltio/sdk';
+import type { ZveltioClient } from '@zveltio/sdk';
 import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
-import type { CollectionOptions } from '../types.js';
 
 export function useCollection<T = any>(
   collectionName: string,
@@ -15,12 +15,11 @@ export function useCollection<T = any>(
   const loading = ref(true);
   const error = ref<Error | null>(null);
 
-  const fetch = async () => {
+  const load = async () => {
     loading.value = true;
     error.value = null;
     try {
-      const result = await client.collection(collectionName).list(options);
-      data.value = result?.data ?? result ?? [];
+      data.value = await fetchCollection<T>(client, collectionName, options);
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err));
     } finally {
@@ -28,7 +27,7 @@ export function useCollection<T = any>(
     }
   };
 
-  onMounted(fetch);
+  onMounted(load);
 
-  return { data, loading, error, refetch: fetch };
+  return { data, loading, error, refetch: load };
 }

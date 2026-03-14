@@ -9,7 +9,7 @@
  import {
  LayoutDashboard, Database, Users, Shield, Webhook, Settings,
  Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot,
- Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare, ScanSearch, Mail, FlaskConical, Search, Code
+ Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare, ScanSearch, Mail, FlaskConical, Search, Code, Bookmark, BarChart2
  } from '@lucide/svelte';
  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
@@ -60,6 +60,8 @@
  { href: `${base}/mail`, icon: Mail, label: 'Mail' },
  { href: `${base}/edge-functions`, icon: Code, label: 'Edge Functions' },
  { href: `${base}/tenants`, icon: Building2, label: 'Tenants' },
+ { href: `${base}/saved-queries`, icon: Bookmark, label: 'Saved Queries' },
+ { href: `${base}/insights`, icon: BarChart2, label: 'Insights' },
  { href: `${base}/settings`, icon: Settings, label: 'Settings' },
  ];
 

@@ -1,12 +1,13 @@
 import { ref, type Ref } from 'vue';
-import type { ZveltioClient } from '@zveltio/sdk';
 import { inject } from 'vue';
+import { uploadFile, listFiles, removeFile, type StorageFile } from '@zveltio/sdk';
+import type { ZveltioClient } from '@zveltio/sdk';
 import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 
 export function useStorage(): {
-  upload: (file: File, folder?: string) => Promise<any>;
-  list: (folder?: string) => Promise<any[]>;
-  remove: (key: string) => Promise<void>;
+  upload: (file: File, folder?: string) => Promise<StorageFile>;
+  list: (folder?: string) => Promise<StorageFile[]>;
+  remove: (fileId: string) => Promise<void>;
   uploading: Ref<boolean>;
   error: Ref<Error | null>;
 } {
@@ -16,11 +17,11 @@ export function useStorage(): {
   const uploading = ref(false);
   const error = ref<Error | null>(null);
 
-  const upload = async (file: File, folder?: string) => {
+  const upload = async (file: File, folder?: string): Promise<StorageFile> => {
     uploading.value = true;
     error.value = null;
     try {
-      return await client.storage.upload(file, folder);
+      return await uploadFile(client, file, folder);
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err));
       throw error.value;
@@ -29,14 +30,8 @@ export function useStorage(): {
     }
   };
 
-  const list = async (folder?: string): Promise<any[]> => {
-    const result = await client.storage.list(folder) as any;
-    return result?.files ?? result ?? [];
-  };
-
-  const remove = async (key: string): Promise<void> => {
-    await client.storage.delete(key);
-  };
+  const list = (folder?: string) => listFiles(client, folder);
+  const remove = (fileId: string) => removeFile(client, fileId);
 
   return { upload, list, remove, uploading, error };
 }

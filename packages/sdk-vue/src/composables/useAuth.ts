@@ -1,6 +1,7 @@
 import { ref, onMounted, type Ref } from 'vue';
-import type { ZveltioClient } from '@zveltio/sdk';
 import { inject } from 'vue';
+import { fetchSession, loginUser, logoutUser, signupUser } from '@zveltio/sdk';
+import type { ZveltioClient } from '@zveltio/sdk';
 import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 
 export function useAuth(): {
@@ -20,27 +21,25 @@ export function useAuth(): {
   const loading = ref(true);
   const error = ref<Error | null>(null);
 
-  const fetchSession = async () => {
+  const loadSession = async () => {
     try {
-      const s = await client.auth.session();
-      session.value = s;
-      user.value = s?.user ?? null;
-    } catch {
-      session.value = null;
-      user.value = null;
+      const state = await fetchSession(client);
+      session.value = state.session;
+      user.value = state.user;
     } finally {
       loading.value = false;
     }
   };
 
-  onMounted(fetchSession);
+  onMounted(loadSession);
 
   const login = async (email: string, password: string) => {
     loading.value = true;
     error.value = null;
     try {
-      await client.auth.login(email, password);
-      await fetchSession();
+      const state = await loginUser(client, email, password);
+      user.value = state.user;
+      session.value = state.session;
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err));
       throw err;
@@ -53,9 +52,9 @@ export function useAuth(): {
     loading.value = true;
     error.value = null;
     try {
-      await client.auth.logout();
-      user.value = null;
-      session.value = null;
+      const state = await logoutUser(client);
+      user.value = state.user;
+      session.value = state.session;
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err));
       throw err;
@@ -68,8 +67,9 @@ export function useAuth(): {
     loading.value = true;
     error.value = null;
     try {
-      await client.auth.signup(email, password, name);
-      await fetchSession();
+      const state = await signupUser(client, email, password, name);
+      user.value = state.user;
+      session.value = state.session;
     } catch (err) {
       error.value = err instanceof Error ? err : new Error(String(err));
       throw err;

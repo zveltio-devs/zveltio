@@ -8,3 +8,6 @@ export type { LocalRecord, SyncQueueItem } from './local-store.js';
 export type { SyncManagerConfig } from './sync-manager.js';
 export { useSyncCollection, useSyncStatus } from './svelte.js';
 export * from './crdt.js';
+
+// Framework-agnostic core logic (used by sdk-react and sdk-vue)
+export * from './core.js';

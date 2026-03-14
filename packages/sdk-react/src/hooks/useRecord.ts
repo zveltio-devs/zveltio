@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { HookResult } from '../types.js';
+import { fetchRecord } from '@zveltio/sdk';
 import { useZveltioClient } from '../context.js';
+import type { HookResult } from '../types.js';
 
 export function useRecord<T = any>(
   collectionName: string,
@@ -11,13 +12,12 @@ export function useRecord<T = any>(
   const [loading, setLoading] = useState(!!id);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetch = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!id) { setData(null); setLoading(false); return; }
     setLoading(true);
     setError(null);
     try {
-      const result = await client.collection(collectionName).get(id);
-      setData(result);
+      setData(await fetchRecord<T>(client, collectionName, id));
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
@@ -25,7 +25,7 @@ export function useRecord<T = any>(
     }
   }, [client, collectionName, id]);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { load(); }, [load]);
 
-  return { data, loading, error, refetch: fetch };
+  return { data, loading, error, refetch: load };
 }

@@ -193,6 +193,37 @@ export function dataRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
+    // ── Time Travel: reconstruct state at a given point in time ────
+    if (query.as_of) {
+      const asOf = new Date(query.as_of);
+      if (isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
+
+      // Get the latest revision per record_id up to as_of
+      const revs = await sql<{ record_id: string; action: string; data: any }>`
+        SELECT DISTINCT ON (record_id)
+          record_id, action, data
+        FROM zv_revisions
+        WHERE collection = ${collection}
+          AND created_at <= ${asOf.toISOString()}
+        ORDER BY record_id, created_at DESC
+      `.execute(db);
+
+      // Exclude deleted records; data column holds the snapshot
+      const records = revs.rows
+        .filter(r => r.action !== 'delete')
+        .map(r => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+
+      const total = records.length;
+      const offset = (query.page - 1) * query.limit;
+      const page = records.slice(offset, offset + query.limit);
+
+      return c.json({
+        records: page,
+        pagination: { total, page: query.page, limit: query.limit, pages: Math.ceil(total / query.limit) },
+        time_travel: { as_of: asOf.toISOString() },
+      });
+    }
+
     // Virtual collection: proxy to external API
     const virtualConfig = await getVirtualConfig(db, collection);
     if (virtualConfig) {
@@ -314,9 +345,32 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const collection = c.req.param('collection');
     const id = c.req.param('id');
     const user = c.get('user') as any;
+    const asOfRaw = c.req.query('as_of');
 
     if (!(await checkAccess(db, user, collection, 'read'))) {
       return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    // ── Time Travel: single record at a given point in time ────────
+    if (asOfRaw) {
+      const asOf = new Date(asOfRaw);
+      if (isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
+
+      const rev = await sql<{ action: string; data: any; created_at: string }>`
+        SELECT action, data, created_at
+        FROM zv_revisions
+        WHERE collection = ${collection}
+          AND record_id = ${id}
+          AND created_at <= ${asOf.toISOString()}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `.execute(db);
+
+      if (rev.rows.length === 0) return c.json({ error: 'Record not found at this point in time' }, 404);
+      if (rev.rows[0].action === 'delete') return c.json({ error: 'Record was deleted before this point in time' }, 404);
+
+      const data = typeof rev.rows[0].data === 'string' ? JSON.parse(rev.rows[0].data) : rev.rows[0].data;
+      return c.json({ record: data, time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at } });
     }
 
     // Virtual collection: proxy to external API
