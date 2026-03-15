@@ -2,9 +2,7 @@
  import { onMount, onDestroy } from 'svelte';
  import L from 'leaflet';
  import 'leaflet/dist/leaflet.css';
- import MapPin from '@lucide/svelte/icons/map-pin.svelte';
- import Navigation from '@lucide/svelte/icons/navigation.svelte';
- import X from '@lucide/svelte/icons/x.svelte';
+import { MapPin, Navigation, X } from '@lucide/svelte';
 
  interface GeoLocation { lat: number; lng: number; }
 

@@ -82,3 +82,14 @@ VALUES
   ('g', 'manager', 'manager'),
   ('g', 'member', 'member')
 ON CONFLICT DO NOTHING;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_ddl_jobs_status;
+DROP INDEX IF EXISTS idx_zvd_permissions_v0;
+DROP INDEX IF EXISTS idx_zvd_permissions_ptype;
+DROP INDEX IF EXISTS idx_zvd_relations_target;
+DROP INDEX IF EXISTS idx_zvd_relations_source;
+DROP TABLE IF EXISTS zv_ddl_jobs;
+DROP TABLE IF EXISTS zvd_permissions;
+DROP TABLE IF EXISTS zvd_relations;
+DROP TABLE IF EXISTS zvd_collections;

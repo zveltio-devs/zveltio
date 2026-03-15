@@ -22,3 +22,9 @@ CREATE TABLE IF NOT EXISTS zv_import_logs (
 CREATE INDEX IF NOT EXISTS idx_zv_import_logs_collection ON zv_import_logs(collection);
 CREATE INDEX IF NOT EXISTS idx_zv_import_logs_status ON zv_import_logs(status);
 CREATE INDEX IF NOT EXISTS idx_zv_import_logs_created ON zv_import_logs(created_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_import_logs_created;
+DROP INDEX IF EXISTS idx_zv_import_logs_status;
+DROP INDEX IF EXISTS idx_zv_import_logs_collection;
+DROP TABLE IF EXISTS zv_import_logs;

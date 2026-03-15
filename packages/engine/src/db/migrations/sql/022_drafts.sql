@@ -42,3 +42,12 @@ CREATE INDEX IF NOT EXISTS idx_drafts_collection ON zv_content_drafts(collection
 CREATE INDEX IF NOT EXISTS idx_drafts_status     ON zv_content_drafts(status);
 CREATE INDEX IF NOT EXISTS idx_drafts_created_by ON zv_content_drafts(created_by);
 CREATE INDEX IF NOT EXISTS idx_publish_schedule  ON zv_publish_schedule(scheduled_at) WHERE NOT processed;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_publish_schedule;
+DROP TABLE IF EXISTS zv_publish_schedule;
+DROP TABLE IF EXISTS zv_collection_publish_settings;
+DROP INDEX IF EXISTS idx_drafts_created_by;
+DROP INDEX IF EXISTS idx_drafts_status;
+DROP INDEX IF EXISTS idx_drafts_collection;
+DROP TABLE IF EXISTS zv_content_drafts;

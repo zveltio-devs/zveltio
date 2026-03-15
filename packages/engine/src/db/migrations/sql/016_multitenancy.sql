@@ -70,3 +70,15 @@ CREATE TABLE IF NOT EXISTS public.zv_environments (
 
 CREATE INDEX IF NOT EXISTS idx_environments_tenant
   ON public.zv_environments(tenant_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_environments_tenant;
+DROP TABLE IF EXISTS public.zv_environments;
+DROP INDEX IF EXISTS idx_tenant_usage_tenant_date;
+DROP TABLE IF EXISTS public.zv_tenant_usage;
+DROP INDEX IF EXISTS idx_tenant_users_user;
+DROP INDEX IF EXISTS idx_tenant_users_tenant;
+DROP TABLE IF EXISTS public.zv_tenant_users;
+DROP INDEX IF EXISTS idx_zv_tenants_status;
+DROP INDEX IF EXISTS idx_zv_tenants_slug;
+DROP TABLE IF EXISTS public.zv_tenants;

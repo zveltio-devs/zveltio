@@ -287,64 +287,72 @@ bun --watch packages/engine/src/index.ts
 
 ## 📚 API Endpoints
 
-### Core APIs
+> **Arhitectură modulară:** Zveltio Engine expune un set minim de rute **core** (întotdeauna disponibile).
+> Funcționalitățile opționale sunt livrate prin **extensii** care se înregistrează dinamic la startup.
+> Dacă extensia nu este activă, ruta returnează `404`. Activează extensii prin `ZVELTIO_EXTENSIONS` în `.env`
+> sau prin Marketplace (`/api/marketplace`). Vezi [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pentru lista completă.
 
-| Category              | Endpoint                      | Description                            |
-| --------------------- | ----------------------------- | -------------------------------------- |
-| **Auth**              | `/api/auth/*`                 | Better-Auth endpoints                  |
-| **Me**                | `/api/me`                     | Profile & session convenience          |
-| **Collections**       | `/api/collections`            | Dynamic table management               |
-| **Data**              | `/api/data/:collection`       | CRUD operations                        |
-| **Relations**         | `/api/relations`              | Table relationships                    |
-| **Revisions**         | `/api/revisions`              | Record history & comments              |
-| **Drafts**            | `/api/drafts`                 | Draft/publish workflow                 |
-| **Storage**           | `/api/storage`                | File upload/download (S3)              |
-| **Media**             | `/api/media`                  | Media library with folders & tags      |
-| **Export**            | `/api/export/:collection`     | PDF/Excel/CSV generation               |
-| **Import**            | `/api/import`                 | CSV/JSON bulk import                   |
-| **Permissions**       | `/api/permissions`            | Casbin RBAC management                 |
-| **Users**             | `/api/users`                  | User management                        |
-| **Webhooks**          | `/api/webhooks`               | Event-driven notifications             |
-| **Translations**      | `/api/translations`           | i18n management                        |
-| **Notifications**     | `/api/notifications`          | In-app & web push notifications        |
-| **Realtime**          | `/api/realtime`               | SSE stream for live updates            |
-| **Flows**             | `/api/flows`                  | Automation workflow CRUD + trigger     |
-| **Approvals**         | `/api/approvals`              | Multi-step approval workflows          |
-| **Edge Functions**    | `/api/edge-functions`         | Serverless function CRUD + invoke      |
-| **Edge Fn Runtime**   | `/api/fn/:name`               | Invoke deployed edge function          |
-| **Sync**              | `/api/sync`                   | SDK local-first push/pull operations   |
-| **Insights**          | `/api/insights`               | Analytics dashboards & panels          |
-| **Saved Queries**     | `/api/saved-queries`          | Reusable query builder                 |
-| **Validation**        | `/api/validation`             | Data validation rules                  |
-| **Quality**           | `/api/quality`                | Data quality dashboard                 |
-| **Documents**         | `/api/documents`              | Compliance document generation         |
-| **Settings**          | `/api/settings`               | System configuration                   |
-| **Admin**             | `/api/admin`                  | API keys, audit logs, onboarding       |
-| **Database**          | `/api/database`               | Functions, triggers, enums, RLS        |
-| **Backup**            | `/api/backup`                 | Database backup management             |
-| **Tenants**           | `/api/tenants`                | Multi-tenancy registry                 |
-| **Schema**            | `/api/schema`                 | Schema branches for safe development   |
-| **Introspect**        | `/api/introspect`             | External DB schema import (BYOD)       |
-| **Marketplace**       | `/api/marketplace`            | Extension marketplace                  |
-| **GraphQL**           | `/api/graphql`                | Auto-generated GraphQL API             |
-| **API Docs**          | `/api/docs`                   | Swagger UI + OpenAPI spec              |
-| **GDPR**              | `/api/gdpr`                   | GDPR compliance endpoints              |
-| **Sitemap**           | `/api/sitemap.xml`            | CMS page sitemap (public)              |
+### Core APIs (întotdeauna disponibile)
+
+| Category          | Endpoint                | Description                          |
+| ----------------- | ----------------------- | ------------------------------------ |
+| **Auth**          | `/api/auth/*`           | Better-Auth endpoints                |
+| **Me**            | `/api/me`               | Profile & session convenience        |
+| **Collections**   | `/api/collections`      | Dynamic table management             |
+| **Data**          | `/api/data/:collection` | CRUD operations                      |
+| **Relations**     | `/api/relations`        | Table relationships                  |
+| **Revisions**     | `/api/revisions`        | Record history & comments            |
+| **Storage**       | `/api/storage`          | File upload/download (S3)            |
+| **Permissions**   | `/api/permissions`      | Casbin RBAC management               |
+| **Users**         | `/api/users`            | User management                      |
+| **Webhooks**      | `/api/webhooks`         | Event-driven notifications           |
+| **Notifications** | `/api/notifications`    | In-app & web push notifications      |
+| **Realtime**      | `/api/realtime`         | SSE stream for live updates          |
+| **Sync**          | `/api/sync`             | SDK local-first push/pull operations |
+| **Settings**      | `/api/settings`         | System configuration                 |
+| **Admin**         | `/api/admin`            | API keys, audit logs, onboarding     |
+| **Marketplace**   | `/api/marketplace`      | Extension marketplace                |
+| **Sitemap**       | `/api/sitemap.xml`      | CMS page sitemap (public)            |
 
 ### Extension-Provided APIs
 
-These endpoints are available when the corresponding extension is enabled:
+Disponibile doar când extensia corespunzătoare este activă. Returnează `404` dacă extensia nu e încărcată.
 
-| Extension              | Endpoint                  | Description                           |
-| ---------------------- | ------------------------- | ------------------------------------- |
-| `communications/mail`  | `/api/mail`               | IMAP/SMTP mail client                 |
-| `storage/cloud`        | `/api/cloud`, `/share/:token` | File versioning, trash, public share |
-| `content/page-builder` | `/api/cms/pages`          | CMS pages                             |
-| `content/document-templates` | `/api/document-templates` | HTML/PDF template management  |
-| `ai/core-ai`           | `/api/ai/alchemist`       | Documents → structured database       |
-| `ai/core-ai`           | `/api/ai/query`           | Text-to-SQL copilot                   |
-| `ai/core-ai`           | `/api/ai` (schema-gen)    | Prompt → schema generator             |
-| `automation/flows`     | `/api/flows`              | Automation workflows                  |
+| Extension                    | Endpoint                      | Description                            |
+| ---------------------------- | ----------------------------- | -------------------------------------- |
+| `automation/flows`           | `/api/flows`                  | Automation workflow CRUD + trigger     |
+| `workflow/approvals`         | `/api/approvals`              | Multi-step approval workflows          |
+| `content/drafts`             | `/api/drafts`                 | Draft/publish workflow                 |
+| `content/media`              | `/api/media`                  | Media library with folders & tags      |
+| `data/export`                | `/api/export/:collection`     | PDF/Excel/CSV generation               |
+| `data/import`                | `/api/import`                 | CSV/JSON bulk import                   |
+| `i18n/translations`          | `/api/translations`           | i18n management                        |
+| `analytics/insights`         | `/api/insights`               | Analytics dashboards & panels          |
+| `analytics/quality`          | `/api/quality`                | Data quality dashboard                 |
+| `developer/saved-queries`    | `/api/saved-queries`          | Reusable query builder                 |
+| `developer/validation`       | `/api/validation`             | Data validation rules                  |
+| `developer/graphql`          | `/api/graphql`                | Auto-generated GraphQL API             |
+| `developer/api-docs`         | `/api/docs`                   | Swagger UI + OpenAPI spec              |
+| `developer/database`         | `/api/database`               | Functions, triggers, enums, RLS        |
+| `developer/byod`             | `/api/introspect`             | External DB schema import (BYOD)       |
+| `developer/schema-branches`  | `/api/schema/branches`        | Schema branches for safe development   |
+| `developer/edge-functions`   | `/api/edge-functions`         | Serverless function CRUD + invoke      |
+| `developer/edge-functions`   | `/api/fn/:name`               | Invoke deployed edge function          |
+| `operations/backup`          | `/api/backup`                 | Database backup management             |
+| `multitenancy`               | `/api/tenants`                | Multi-tenancy registry                 |
+| `compliance/gdpr`            | `/api/gdpr`                   | GDPR compliance endpoints              |
+| `content/documents`          | `/api/documents`              | Compliance document generation         |
+| `communications/mail`        | `/api/mail`                   | IMAP/SMTP mail client                  |
+| `crm`                        | `/api/contacts`               | CRM contacts (Business OS)             |
+| `crm`                        | `/api/organizations`          | CRM organizations (Business OS)        |
+| `crm`                        | `/api/transactions`           | CRM transactions (Business OS)         |
+| `ai/core-ai`                 | `/api/ai/chat`                | Conversational AI with tool-calling    |
+| `ai/core-ai`                 | `/api/ai/alchemist`           | Documents → structured database        |
+| `ai/core-ai`                 | `/api/ai/query`               | Text-to-SQL copilot                    |
+| `storage/cloud`              | `/api/cloud`, `/share/:token` | File versioning, trash, public share   |
+| `content/page-builder`       | `/api/cms/pages`              | CMS pages                              |
+| `auth/saml`                  | `/api/auth/saml/*`            | SAML 2.0 SSO                           |
+| `auth/ldap`                  | `/api/auth/ldap/*`            | LDAP / Active Directory                |
 
 ### AI APIs (Engine Core)
 

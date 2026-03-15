@@ -7,7 +7,7 @@
  * Run with: bun test packages/engine/src/tests/stress/ghost-ddl.stress.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import { GhostDDL } from '../../lib/ghost-ddl.js';
 
@@ -19,8 +19,9 @@ let db: any;
 
 beforeAll(async () => {
   if (skipAll) return;
-  const { createDb } = await import('../../db/index.js');
-  db = createDb(TEST_DB_URL!);
+  const { initDatabase } = await import('../../db/index.js');
+  process.env.DATABASE_URL = TEST_DB_URL!;
+  db = await initDatabase();
 });
 
 afterAll(async () => {
@@ -177,7 +178,7 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
         swapCalled = true;
         throw new Error('Simulated swap failure');
       }
-      return originalSwap(...args);
+      return (originalSwap as any)(...args);
     };
 
     try {

@@ -107,3 +107,19 @@ CREATE TABLE IF NOT EXISTS zv_mail_attachments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_mail_attachments_msg ON zv_mail_attachments(message_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_mail_attachments_msg;
+DROP TABLE IF EXISTS zv_mail_attachments;
+DROP INDEX IF EXISTS idx_mail_messages_search;
+DROP INDEX IF EXISTS idx_mail_messages_unread;
+DROP INDEX IF EXISTS idx_mail_messages_from;
+DROP INDEX IF EXISTS idx_mail_messages_thread;
+DROP INDEX IF EXISTS idx_mail_messages_date;
+DROP INDEX IF EXISTS idx_mail_messages_account;
+DROP TABLE IF EXISTS zv_mail_messages;
+DROP INDEX IF EXISTS idx_mail_folders_account;
+DROP TABLE IF EXISTS zv_mail_folders;
+DROP INDEX IF EXISTS idx_mail_accounts_default;
+DROP INDEX IF EXISTS idx_mail_accounts_user;
+DROP TABLE IF EXISTS zv_mail_accounts;

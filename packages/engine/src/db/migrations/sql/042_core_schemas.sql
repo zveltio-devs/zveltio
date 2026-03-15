@@ -97,3 +97,18 @@ VALUES
   ('organizations', 'Organizations', 'Building2', true, false),
   ('transactions',  'Transactions',  'Receipt',  true, false)
 ON CONFLICT (name) DO NOTHING;
+
+-- DOWN
+DROP TABLE IF EXISTS zvd_contact_organizations;
+DROP INDEX IF EXISTS idx_transactions_number;
+DROP INDEX IF EXISTS idx_transactions_date;
+DROP INDEX IF EXISTS idx_transactions_type;
+DROP INDEX IF EXISTS idx_transactions_org;
+DROP TABLE IF EXISTS zvd_transactions;
+DROP INDEX IF EXISTS idx_orgs_tax;
+DROP INDEX IF EXISTS idx_orgs_name;
+DROP TABLE IF EXISTS zvd_organizations;
+DROP INDEX IF EXISTS idx_contacts_name;
+DROP INDEX IF EXISTS idx_contacts_company;
+DROP INDEX IF EXISTS idx_contacts_email;
+DROP TABLE IF EXISTS zvd_contacts;

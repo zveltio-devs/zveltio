@@ -68,7 +68,7 @@ const BLOCKED_PREFIXES = [
  * Secure fetch that blocks requests to internal/private networks.
  * Prevents SSRF attacks from Edge Functions.
  */
-const safeFetch: typeof fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+const safeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   let url: string;
   if (typeof input === 'string') {
     url = input;

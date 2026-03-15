@@ -65,3 +65,18 @@ CREATE TABLE IF NOT EXISTS zv_storage_quotas (
   used_bytes    BIGINT      NOT NULL DEFAULT 0,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- DOWN
+DROP TABLE IF EXISTS zv_storage_quotas;
+DROP TABLE IF EXISTS zv_media_favorites;
+DROP INDEX IF EXISTS idx_media_shares_folder;
+DROP INDEX IF EXISTS idx_media_shares_file;
+DROP INDEX IF EXISTS idx_media_shares_token;
+DROP TABLE IF EXISTS zv_media_shares;
+ALTER TABLE zv_media_folders DROP COLUMN IF EXISTS deleted_at;
+DROP INDEX IF EXISTS idx_media_files_deleted;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS restore_folder_id;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS deleted_by;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS deleted_at;
+DROP INDEX IF EXISTS idx_media_versions_file;
+DROP TABLE IF EXISTS zv_media_versions;

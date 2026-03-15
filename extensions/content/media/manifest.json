@@ -1,0 +1,12 @@
+{
+  "name": "content/media",
+  "package": "@zveltio/ext-media",
+  "category": "content",
+  "displayName": "Media Library",
+  "description": "Media folders, files, and tags management",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
+  "permissions": ["database", "storage"],
+  "contributes": { "engine": true, "studio": true }
+}

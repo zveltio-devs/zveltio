@@ -7,7 +7,7 @@
  * Run with: bun test packages/engine/src/tests/stress/casbin.stress.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, jest as vi } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 

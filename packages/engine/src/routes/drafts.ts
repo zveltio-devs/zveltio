@@ -23,13 +23,13 @@ import { checkPermission } from '../lib/permissions.js';
 const CreateDraftSchema = z.object({
   collection: z.string(),
   record_id: z.string().uuid(),
-  draft_data: z.record(z.any()),
+  draft_data: z.record(z.string(), z.any()),
   notes: z.string().optional(),
   scheduled_at: z.string().datetime().optional(),
 });
 
 const UpdateDraftSchema = z.object({
-  draft_data: z.record(z.any()).optional(),
+  draft_data: z.record(z.string(), z.any()).optional(),
   status: z.enum(['draft', 'review', 'approved', 'rejected']).optional(),
   notes: z.string().optional(),
   scheduled_at: z.string().datetime().optional(),
@@ -38,7 +38,7 @@ const UpdateDraftSchema = z.object({
 // ── Route factory ─────────────────────────────────────────────────────────────
 
 export function draftsRoutes(db: Database, _auth: any): Hono {
-  const app = new Hono<{ Variables: { user: any } }>();
+  const app = new Hono();
 
   // Auth middleware
   app.use('*', async (c, next) => {
@@ -265,7 +265,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
     // Broadcast WS event (non-critical)
     try {
       const { broadcastEvent } = await import('./ws.js');
-      broadcastEvent(draft.collection, { type: 'update', record_id: draft.record_id, source: 'draft_publish', timestamp: Date.now() });
+      broadcastEvent(draft.collection, 'update', { record_id: draft.record_id, source: 'draft_publish', timestamp: Date.now() });
     } catch { /* WS broadcast is non-critical */ }
 
     return c.json({ success: true, record_id: draft.record_id });

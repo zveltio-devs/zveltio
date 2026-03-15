@@ -1,5 +1,5 @@
 <script lang="ts">
- import Pipette from '@lucide/svelte/icons/pipette.svelte';
+import { Pipette } from '@lucide/svelte';
 
  interface Props {
  label: string;

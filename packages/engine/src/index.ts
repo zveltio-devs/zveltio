@@ -17,6 +17,8 @@ import { flowScheduler } from './lib/flow-scheduler.js';
 import { initTenantManager } from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { initTelemetry } from './lib/telemetry.js';
+import { engineEvents } from './lib/event-bus.js';
+import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 
 const app = new Hono();
 
@@ -64,6 +66,10 @@ async function bootstrap() {
   const db = await initDatabase();
   console.log('✅ Database connected');
 
+  // 1b. Schema compatibility check — exits if schema is incompatible
+  await checkSchemaCompatibility(db);
+  console.log(`✅ Zveltio Engine v${ENGINE_VERSION}`);
+
   // 2. Auth
   const auth = await initAuth(db);
   console.log('✅ Auth initialized');
@@ -84,6 +90,9 @@ async function bootstrap() {
   registerCoreRoutes(app, { db, auth });
   console.log('✅ Core routes registered');
 
+  // 5b. Marketplace routes — always-on, registered on the loader itself
+  extensionLoader.registerMarketplace(app, db);
+
   // 6c. WebhookManager — init with db so trigger() can query webhooks
   WebhookManager.init(db);
 
@@ -102,7 +111,7 @@ async function bootstrap() {
       }),
 
     // Extensions — env-var configured + DB marketplace
-    extensionLoader.loadAll(app, { db, auth, fieldTypeRegistry })
+    extensionLoader.loadAll(app, { db, auth, fieldTypeRegistry, events: engineEvents })
       .then(() => extensionLoader.loadFromDB(db, app))
       .then(() => {
         console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
@@ -140,6 +149,7 @@ async function bootstrap() {
 
     // Attempt embedded (generated at build time)
     try {
+      // @ts-ignore — studio-embed is generated at build time
       const { getStudioFile } = await import('./studio-embed/index.js');
       let result = getStudioFile(path);
       // SPA fallback

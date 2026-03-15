@@ -43,3 +43,6 @@ VALUES
     true
   )
 ON CONFLICT (key) DO NOTHING;
+
+-- DOWN
+DROP TABLE IF EXISTS zv_settings;

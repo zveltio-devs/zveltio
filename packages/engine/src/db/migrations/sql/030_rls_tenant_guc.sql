@@ -24,3 +24,6 @@ EXCEPTION WHEN others THEN
     'Error: %', SQLERRM;
 END;
 $$;
+
+-- DOWN: manual rollback required
+-- To revert: ALTER DATABASE <dbname> RESET "zveltio.current_tenant";

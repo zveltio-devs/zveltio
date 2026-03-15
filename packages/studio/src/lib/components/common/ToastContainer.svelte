@@ -2,7 +2,7 @@
  // Place once in admin +layout.svelte: <ToastContainer />
  // Trigger from anywhere: import { toast } from '$lib/stores/toast.svelte'; toast.success('Saved!');
  import { toast } from '$lib/stores/toast.svelte.js';
- import X from '@lucide/svelte/icons/x.svelte';
+import { X } from '@lucide/svelte';
 
  const alertClass: Record<string, string> = {
  success: 'alert-success',

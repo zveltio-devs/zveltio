@@ -7,7 +7,10 @@ const extension: ZveltioExtension = {
   category: 'automation',
 
   getMigrations() {
-    return [join(import.meta.dir, 'migrations/001_flows.sql')];
+    return [
+      join(import.meta.dir, 'migrations/001_flows.sql'),
+      join(import.meta.dir, 'migrations/002_flows_dlq.sql'),
+    ];
   },
 
   async register(app, ctx) {

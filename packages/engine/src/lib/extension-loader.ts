@@ -6,6 +6,13 @@ import { readdir } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
+import { engineEvents } from './event-bus.js';
+import type { EventBus } from './event-bus.js';
+import { auth } from './auth.js';
+import { checkPermission } from './permissions.js';
+import { EXTENSION_CATALOG } from './extension-catalog.js';
+
+export type { EventBus };
 
 const ManifestSchema = z.object({
   name: z.string().min(1),
@@ -17,6 +24,8 @@ const ManifestSchema = z.object({
     name: z.string(),
     minVersion: z.string().optional(),
   })).default([]),
+  /** npm packages auto-installed when extension is activated (e.g. node-saml, ldapts) */
+  peerDependencies: z.record(z.string(), z.string()).optional(),
   permissions: z.array(z.string()).default([]),
   contributes: z.object({
     engine: z.boolean().default(true),
@@ -25,13 +34,15 @@ const ManifestSchema = z.object({
     fieldTypes: z.array(z.string()).default([]),
     stepTypes: z.array(z.string()).default([]),
     collections: z.array(z.string()).default([]),
-  }).default({}),
+  }).optional(),
 }).passthrough();
 
 export interface ExtensionContext {
   db: Database;
   auth: any;
   fieldTypeRegistry: FieldTypeRegistry;
+  /** Typed event bus — extensions subscribe to record lifecycle events without touching core routes. */
+  events: EventBus;
 }
 
 export interface ZveltioExtension {
@@ -130,13 +141,18 @@ class ExtensionLoader {
           return;
         }
 
-        // Extension dependencies
+        // Extension dependencies (other Zveltio extensions)
         if (manifest.dependencies && manifest.dependencies.length > 0) {
           const deps = await checkExtensionDependencies(ctx.db, manifest.dependencies);
           if (!deps.satisfied) {
             console.warn(`⚠️  Extension "${extName}" missing dependencies: ${deps.missing.join(', ')}`);
             return;
           }
+        }
+
+        // npm peerDependencies — auto-install before loading
+        if (manifest.peerDependencies && Object.keys(manifest.peerDependencies).length > 0) {
+          await this.installNpmDependencies(extName, manifest.peerDependencies);
         }
       }
 
@@ -185,6 +201,52 @@ class ExtensionLoader {
     } catch (err) {
       console.error(`❌ Failed to load extension "${extName}":`, err);
     }
+  }
+
+  /**
+   * Auto-install npm peerDependencies declared in an extension's manifest.json.
+   * Skips packages that are already resolvable (already installed in the workspace).
+   * Uses `bun add` in the workspace root so packages are available to the engine process.
+   */
+  private async installNpmDependencies(
+    extName: string,
+    peerDeps: Record<string, string>,
+  ): Promise<void> {
+    // Find workspace root (directory that contains bun.lockb or package.json)
+    const workspaceRoot = join(import.meta.dir, '../../../../');
+
+    const toInstall: string[] = [];
+    for (const [pkg, versionRange] of Object.entries(peerDeps)) {
+      // Check if already resolvable via Bun's module resolution
+      try {
+        await import.meta.resolve(pkg);
+        // Already installed — skip
+      } catch {
+        // Not found — queue for installation
+        const spec = versionRange && versionRange !== '*'
+          ? `${pkg}@${versionRange.replace(/^\^|^~/, '')}`
+          : pkg;
+        toInstall.push(spec);
+      }
+    }
+
+    if (toInstall.length === 0) return;
+
+    console.log(`📦 Extension "${extName}": installing npm packages: ${toInstall.join(', ')}`);
+
+    const proc = Bun.spawn(['bun', 'add', ...toInstall], {
+      cwd: workspaceRoot,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(`npm install failed for extension "${extName}": ${stderr.trim()}`);
+    }
+
+    console.log(`✅ Extension "${extName}": packages installed successfully`);
   }
 
   private async runExtensionMigrations(
@@ -238,6 +300,220 @@ class ExtensionLoader {
   async loadDynamic(name: string, app: Hono): Promise<void> {
     if (!this.ctx) throw new Error('ExtensionLoader not initialized — call loadAll() first');
     await this.loadExtension(name, app, this.ctx);
+  }
+
+  /**
+   * Register the marketplace routes (/api/marketplace).
+   * Called from bootstrap after core routes — always available, not optional.
+   * Moved here from routes/marketplace.ts to eliminate the inverted dependency
+   * where the engine route was importing from the extension-loader lib.
+   */
+  registerMarketplace(app: Hono, db: Database): void {
+    const self = this; // capture ExtensionLoader instance for hot-load access
+
+    // Admin-only guard
+    async function requireAdmin(c: any): Promise<boolean> {
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      if (!session) return false;
+      const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+      return isAdmin;
+    }
+
+    // GET /api/marketplace — catalog merged with DB state + runtime state
+    app.get('/api/marketplace', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+      const rows = await (db as any)
+        .selectFrom('zv_extension_registry')
+        .selectAll()
+        .execute()
+        .catch(() => []);
+
+      const dbMap = new Map(rows.map((r: any) => [r.name, r]));
+
+      const extensions = EXTENSION_CATALOG.map((entry) => {
+        const dbEntry = dbMap.get(entry.name) as any;
+        const runtimeActive = self.isActive(entry.name);
+
+        return {
+          ...entry,
+          is_installed:  dbEntry?.is_installed ?? runtimeActive,
+          is_enabled:    dbEntry?.is_enabled   ?? runtimeActive,
+          is_running:    runtimeActive,
+          needs_restart: (dbEntry?.is_enabled && !runtimeActive) ||
+                         (!dbEntry?.is_enabled && runtimeActive && dbEntry !== undefined),
+          config:        dbEntry?.config       ?? {},
+          installed_at:  dbEntry?.installed_at ?? null,
+          enabled_at:    dbEntry?.enabled_at   ?? null,
+        };
+      });
+
+      return c.json({ extensions });
+    });
+
+    // POST /api/marketplace/:name/install
+    app.post('/api/marketplace/:name{.+}/install', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+      const name = c.req.param('name');
+      const entry = EXTENSION_CATALOG.find((e) => e.name === name);
+      if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+      if (!entry.bundled) return c.json({ error: 'External install not yet supported' }, 501);
+
+      await (db as any)
+        .insertInto('zv_extension_registry')
+        .values({
+          name:         entry.name,
+          display_name: entry.displayName,
+          description:  entry.description,
+          category:     entry.category,
+          version:      entry.version,
+          author:       entry.author,
+          is_installed: true,
+          is_enabled:   false,
+          installed_at: new Date(),
+        })
+        .onConflict((oc: any) =>
+          oc.column('name').doUpdateSet({ is_installed: true, installed_at: new Date() }),
+        )
+        .execute();
+
+      return c.json({
+        success: true,
+        message: `Extension ${name} installed. Enable it to activate.`,
+      });
+    });
+
+    // POST /api/marketplace/:name/enable
+    app.post('/api/marketplace/:name{.+}/enable', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+      const name = c.req.param('name');
+      const entry = EXTENSION_CATALOG.find((e) => e.name === name);
+      if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+
+      await (db as any)
+        .insertInto('zv_extension_registry')
+        .values({
+          name:         entry.name,
+          display_name: entry.displayName,
+          description:  entry.description,
+          category:     entry.category,
+          version:      entry.version,
+          author:       entry.author,
+          is_installed: true,
+          is_enabled:   true,
+          installed_at: new Date(),
+          enabled_at:   new Date(),
+        })
+        .onConflict((oc: any) =>
+          oc.column('name').doUpdateSet({
+            is_installed: true,
+            is_enabled:   true,
+            enabled_at:   new Date(),
+          }),
+        )
+        .execute();
+
+      let hotLoaded = false;
+      if (!self.isActive(name)) {
+        try {
+          await self.loadDynamic(name, app);
+          hotLoaded = true;
+        } catch (e) {
+          console.warn(`Hot-load failed for ${name}:`, e);
+        }
+      } else {
+        hotLoaded = true;
+      }
+
+      return c.json({
+        success:       true,
+        hot_loaded:    hotLoaded,
+        needs_restart: !hotLoaded,
+        message:       hotLoaded
+          ? `Extension ${name} is now active.`
+          : `Extension ${name} will be active after restart.`,
+      });
+    });
+
+    // POST /api/marketplace/:name/disable
+    app.post('/api/marketplace/:name{.+}/disable', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+      const name = c.req.param('name');
+
+      await (db as any)
+        .insertInto('zv_extension_registry')
+        .values({
+          name,
+          display_name: name,
+          category:     'custom',
+          version:      '1.0.0',
+          author:       '',
+          is_installed: true,
+          is_enabled:   false,
+        })
+        .onConflict((oc: any) =>
+          oc.column('name').doUpdateSet({ is_enabled: false }),
+        )
+        .execute();
+
+      const isRunning = self.isActive(name);
+
+      return c.json({
+        success:       true,
+        needs_restart: isRunning,
+        message:       isRunning
+          ? `Extension ${name} will be disabled after restart.`
+          : `Extension ${name} is disabled.`,
+      });
+    });
+
+    // PUT /api/marketplace/:name/config
+    app.put('/api/marketplace/:name{.+}/config', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+      const name = c.req.param('name');
+      const config = await c.req.json();
+
+      await (db as any)
+        .insertInto('zv_extension_registry')
+        .values({
+          name,
+          display_name: name,
+          category:     'custom',
+          version:      '1.0.0',
+          author:       '',
+          is_installed: true,
+          is_enabled:   false,
+          config,
+        })
+        .onConflict((oc: any) =>
+          oc.column('name').doUpdateSet({ config }),
+        )
+        .execute();
+
+      return c.json({ success: true });
+    });
+
+    // POST /api/marketplace/:name/uninstall
+    app.post('/api/marketplace/:name{.+}/uninstall', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+      const name = c.req.param('name');
+
+      await (db as any)
+        .deleteFrom('zv_extension_registry')
+        .where('name' as any, '=', name)
+        .execute();
+
+      return c.json({
+        success:       true,
+        needs_restart: self.isActive(name),
+        message:       `Extension ${name} uninstalled.`,
+      });
+    });
   }
 
   getActive(): string[] {

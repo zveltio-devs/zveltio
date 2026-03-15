@@ -9,6 +9,7 @@ import { checkPermission } from '../lib/permissions.js';
 import { WebhookManager } from '../lib/webhooks.js';
 import { broadcastEvent } from './ws.js';
 import { triggerEmbedding } from '../lib/ai-embed-hook.js';
+import { engineEvents } from '../lib/event-bus.js';
 import {
   dynamicSelect,
   dynamicInsert,
@@ -319,7 +320,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (query.search && result.records.length > 0) {
       const searchTerms = query.search.trim().split(/\s+/).filter(Boolean).join(' & ');
       const ftsResult = await sql`
-        SELECT * FROM ${sql.identifier(tableName)}
+        SELECT * FROM ${sql.id(tableName)}
         WHERE search_vector @@ to_tsquery('english', ${searchTerms})
         ORDER BY created_at DESC
         LIMIT ${query.limit} OFFSET ${offset}
@@ -451,7 +452,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       .execute()
       .catch(() => { /* non-fatal */ });
 
-    await broadcastWebhook(db, 'insert', collection, record);
+    await broadcastWebhook(db, 'insert', collection, record as { id: string; [key: string]: any });
     broadcastEvent(collection, 'insert', record);
     sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
       event: 'record.created',
@@ -463,6 +464,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     // AI embedding hook — async, non-blocking
     triggerEmbedding(db, collection, record.id, record).catch(() => { /* non-fatal */ });
+
+    // Extension event bus — synchronous, in-process
+    engineEvents.emit('record.created', { collection, record: record, userId: user.id });
 
     return c.json({ record: serializeRecord(record, collectionDef) }, 201);
   });
@@ -516,7 +520,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       .execute()
       .catch(() => { /* non-fatal */ });
 
-    await broadcastWebhook(db, 'update', collection, record);
+    await broadcastWebhook(db, 'update', collection, record as { id: string; [key: string]: any });
     broadcastEvent(collection, 'update', record);
     sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
       event: 'record.updated',
@@ -528,6 +532,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     // AI embedding hook — async, non-blocking
     triggerEmbedding(db, collection, id, record).catch(() => { /* non-fatal */ });
+
+    // Extension event bus — synchronous, in-process
+    engineEvents.emit('record.updated', { collection, record: record, userId: user.id });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -582,7 +589,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       .execute()
       .catch(() => { /* non-fatal */ });
 
-    await broadcastWebhook(db, 'update', collection, record);
+    await broadcastWebhook(db, 'update', collection, record as { id: string; [key: string]: any });
     broadcastEvent(collection, 'update', record);
     sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
       event: 'record.updated',
@@ -594,6 +601,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     // AI embedding hook — async, non-blocking
     triggerEmbedding(db, collection, id, record).catch(() => { /* non-fatal */ });
+
+    // Extension event bus — synchronous, in-process
+    engineEvents.emit('record.updated', { collection, record: record, userId: user.id });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -657,6 +667,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
       record_id: id,
       timestamp: new Date().toISOString(),
     })})`.execute(db).catch(() => { /* non-fatal */ });
+
+    // Extension event bus — synchronous, in-process
+    engineEvents.emit('record.deleted', { collection, id, userId: user.id });
 
     return c.json({ success: true, id });
   });

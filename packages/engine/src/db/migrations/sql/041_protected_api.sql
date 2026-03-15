@@ -23,3 +23,15 @@ CREATE TABLE IF NOT EXISTS zv_api_key_access_log (
 
 CREATE INDEX IF NOT EXISTS idx_api_key_access_log_key ON zv_api_key_access_log(api_key_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_api_key_access_log_created ON zv_api_key_access_log(created_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_api_key_access_log_created;
+DROP INDEX IF EXISTS idx_api_key_access_log_key;
+DROP TABLE IF EXISTS zv_api_key_access_log;
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS last_ip;
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS request_count;
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS casbin_subject;
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS permissions_mode;
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS description;
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS organization;
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS allowed_ips;

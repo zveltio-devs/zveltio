@@ -35,3 +35,10 @@ CREATE TABLE IF NOT EXISTS zv_generated_docs (
 CREATE INDEX IF NOT EXISTS idx_doc_templates_type ON zv_doc_templates(type, is_active);
 CREATE INDEX IF NOT EXISTS idx_generated_docs_template ON zv_generated_docs(template_id, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_generated_docs_source ON zv_generated_docs(source_collection, source_record_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_generated_docs_source;
+DROP INDEX IF EXISTS idx_generated_docs_template;
+DROP TABLE IF EXISTS zv_generated_docs;
+DROP INDEX IF EXISTS idx_doc_templates_type;
+DROP TABLE IF EXISTS zv_doc_templates;

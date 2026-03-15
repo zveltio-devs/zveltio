@@ -91,6 +91,7 @@ async function executeStep(
     case 'send_email': {
       if (!cfg.to) return { output: prevOutput };
       try {
+        // @ts-ignore — email module is an optional extension
         const { sendEmailDirectly } = await import('./email.js');
         await sendEmailDirectly({
           recipient: cfg.to,
@@ -145,6 +146,7 @@ async function executeStep(
     case 'export_collection': {
       if (!cfg.collection) return { output: prevOutput };
       try {
+        // @ts-ignore — export-manager is an optional extension
         const { ExportManager } = await import('./export-manager.js');
         const tableName = cfg.collection.startsWith('zvd_')
           ? cfg.collection
@@ -162,6 +164,7 @@ async function executeStep(
         });
 
         if (cfg.email_to && exportResult?.buffer) {
+          // @ts-ignore — email module is an optional extension
           const { sendEmailWithAttachment } = await import('./email.js');
           const ext = cfg.format === 'excel' ? 'xlsx' : (cfg.format ?? 'csv');
           await sendEmailWithAttachment({

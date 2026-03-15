@@ -30,3 +30,9 @@ CREATE TABLE IF NOT EXISTS zv_push_subscriptions (
 
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user
   ON zv_push_subscriptions(user_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_push_subscriptions_user;
+DROP TABLE IF EXISTS zv_push_subscriptions;
+DROP INDEX IF EXISTS idx_notifications_user;
+DROP TABLE IF EXISTS zv_notifications;

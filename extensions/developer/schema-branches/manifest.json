@@ -1,0 +1,12 @@
+{
+  "name": "developer/schema-branches",
+  "package": "@zveltio/ext-schema-branches",
+  "category": "developer",
+  "displayName": "Schema Branches",
+  "description": "Isolated schema branches for safe development",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
+  "permissions": ["database"],
+  "contributes": { "engine": true, "studio": true }
+}

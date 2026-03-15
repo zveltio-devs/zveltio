@@ -1,0 +1,12 @@
+{
+  "name": "content/drafts",
+  "package": "@zveltio/ext-drafts",
+  "category": "content",
+  "displayName": "Content Drafts",
+  "description": "Draft/publish workflow for content collections",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
+  "permissions": ["database"],
+  "contributes": { "engine": true, "studio": true }
+}

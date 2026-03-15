@@ -19,3 +19,8 @@ CREATE TABLE IF NOT EXISTS zv_schema_branches (
 
 CREATE INDEX IF NOT EXISTS idx_schema_branches_status ON zv_schema_branches(status);
 CREATE INDEX IF NOT EXISTS idx_schema_branches_created ON zv_schema_branches(created_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_schema_branches_created;
+DROP INDEX IF EXISTS idx_schema_branches_status;
+DROP TABLE IF EXISTS zv_schema_branches;

@@ -8,3 +8,7 @@ ALTER TABLE zvd_collections ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL D
 
 COMMENT ON COLUMN zvd_collections.is_managed IS 'false = BYOD table, Zveltio will NOT alter schema';
 COMMENT ON COLUMN zvd_collections.source_type IS 'collection = created by Zveltio, table = introspected BYOD';
+
+-- DOWN
+ALTER TABLE zvd_collections DROP COLUMN IF EXISTS source_type;
+ALTER TABLE zvd_collections DROP COLUMN IF EXISTS is_managed;

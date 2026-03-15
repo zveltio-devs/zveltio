@@ -1,7 +1,5 @@
 <script lang="ts">
- import Upload from '@lucide/svelte/icons/upload.svelte';
- import X from '@lucide/svelte/icons/x.svelte';
- import FileIcon from '@lucide/svelte/icons/file.svelte';
+import { Upload, X, File as FileIcon } from '@lucide/svelte';
  import { ENGINE_URL } from '$lib/config.js';
 
  interface Props {

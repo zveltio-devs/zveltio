@@ -161,6 +161,5 @@ export function subscribeToCollection(
   collection: string,
   callback: (event: { type: string; data: any }) => void,
 ): () => void {
-  realtime.subscribe(collection, callback as any);
-  return () => realtime.unsubscribe(collection, callback as any);
+  return realtime.subscribe(collection, callback as any);
 }

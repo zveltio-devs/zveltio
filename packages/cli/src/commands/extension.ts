@@ -52,6 +52,7 @@ async function createExtension(name: string, category: string) {
         description: `${name} extension for Zveltio`,
         version: '1.0.0',
         zveltioMinVersion: '2.0.0',
+        zveltioMaxVersion: '3.0.0',
         permissions: ['database'],
         contributes: { engine: true, studio: true, fieldTypes: [] },
       },

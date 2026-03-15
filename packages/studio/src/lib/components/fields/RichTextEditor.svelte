@@ -8,21 +8,7 @@
  import { TableRow } from '@tiptap/extension-table-row';
  import { TableCell } from '@tiptap/extension-table-cell';
  import { TableHeader } from '@tiptap/extension-table-header';
- import Bold from '@lucide/svelte/icons/bold.svelte';
- import Italic from '@lucide/svelte/icons/italic.svelte';
- import Strikethrough from '@lucide/svelte/icons/strikethrough.svelte';
- import Code from '@lucide/svelte/icons/code.svelte';
- import List from '@lucide/svelte/icons/list.svelte';
- import ListOrdered from '@lucide/svelte/icons/list-ordered.svelte';
- import Quote from '@lucide/svelte/icons/text-quote.svelte';
- import Undo from '@lucide/svelte/icons/undo-2.svelte';
- import Redo from '@lucide/svelte/icons/redo-2.svelte';
- import LinkIcon from '@lucide/svelte/icons/link.svelte';
- import ImageIcon from '@lucide/svelte/icons/image.svelte';
- import TableIcon from '@lucide/svelte/icons/table.svelte';
- import Heading1 from '@lucide/svelte/icons/heading-1.svelte';
- import Heading2 from '@lucide/svelte/icons/heading-2.svelte';
- import Heading3 from '@lucide/svelte/icons/heading-3.svelte';
+import { Bold, Italic, Strikethrough, Code, List, ListOrdered, TextQuote as Quote, Undo2 as Undo, Redo2 as Redo, Link as LinkIcon, Image as ImageIcon, Table as TableIcon, Heading1, Heading2, Heading3 } from '@lucide/svelte';
 
  interface Props {
  value?: string;

@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
     "test": "bun test --preload ./src/tests/setup.ts"
   },
   "dependencies": {

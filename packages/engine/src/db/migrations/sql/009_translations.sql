@@ -46,3 +46,12 @@ INSERT INTO zvd_locales (code, name, is_default, is_active) VALUES
   ('en', 'English', true, true),
   ('ro', 'Română', false, true)
 ON CONFLICT (code) DO NOTHING;
+
+-- DOWN
+DROP TABLE IF EXISTS zvd_locales;
+DROP INDEX IF EXISTS idx_zvd_translations_locale;
+DROP INDEX IF EXISTS idx_zvd_translations_key_locale;
+DROP TABLE IF EXISTS zvd_translations;
+DROP INDEX IF EXISTS idx_zvd_translation_keys_context;
+DROP INDEX IF EXISTS idx_zvd_translation_keys_key;
+DROP TABLE IF EXISTS zvd_translation_keys;

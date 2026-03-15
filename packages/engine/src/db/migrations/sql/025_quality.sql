@@ -33,3 +33,10 @@ CREATE TABLE IF NOT EXISTS zv_quality_issues (
 CREATE INDEX IF NOT EXISTS idx_quality_scans_collection ON zv_quality_scans(collection, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_quality_issues_scan      ON zv_quality_issues(scan_id);
 CREATE INDEX IF NOT EXISTS idx_quality_issues_active    ON zv_quality_issues(collection) WHERE NOT dismissed;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_quality_issues_active;
+DROP INDEX IF EXISTS idx_quality_issues_scan;
+DROP TABLE IF EXISTS zv_quality_issues;
+DROP INDEX IF EXISTS idx_quality_scans_collection;
+DROP TABLE IF EXISTS zv_quality_scans;

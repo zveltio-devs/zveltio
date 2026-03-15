@@ -28,3 +28,8 @@ CREATE TABLE IF NOT EXISTS zv_panels (
 );
 
 CREATE INDEX IF NOT EXISTS idx_panels_dashboard ON zv_panels(dashboard_id, position_y, position_x);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_panels_dashboard;
+DROP TABLE IF EXISTS zv_panels;
+DROP TABLE IF EXISTS zv_dashboards;

@@ -7,3 +7,9 @@ ALTER TABLE zv_flows
 ALTER TABLE zv_flows
   ADD CONSTRAINT zv_flows_trigger_type_check
   CHECK (trigger_type IN ('manual', 'on_create', 'on_update', 'on_delete', 'cron', 'webhook', 'ai_task'));
+
+-- DOWN
+ALTER TABLE zv_flows DROP CONSTRAINT IF EXISTS zv_flows_trigger_type_check;
+ALTER TABLE zv_flows
+  ADD CONSTRAINT zv_flows_trigger_type_check
+  CHECK (trigger_type IN ('manual', 'on_create', 'on_update', 'on_delete', 'cron', 'webhook'));

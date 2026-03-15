@@ -1,10 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import Hash from '@lucide/svelte/icons/hash.svelte';
- import Clock from '@lucide/svelte/icons/clock.svelte';
- import TrendingUp from '@lucide/svelte/icons/trending-up.svelte';
- import RefreshCw from '@lucide/svelte/icons/refresh-cw.svelte';
+import { Hash, Clock, TrendingUp, RefreshCw } from '@lucide/svelte';
 
  interface Props {
  collection: string;

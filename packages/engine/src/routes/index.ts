@@ -9,48 +9,46 @@ import { permissionsRoutes } from './permissions.js';
 import { storageRoutes } from './storage.js';
 import { webhooksRoutes } from './webhooks.js';
 import { settingsRoutes } from './settings.js';
-import { exportRoutes } from './export.js';
 import { adminRoutes } from './admin.js';
 import { wsRoutes } from './ws.js';
 import { relationsRoutes } from './relations.js';
 import { revisionsRoutes } from './revisions.js';
-import { translationsRoutes } from './translations.js';
 import { realtimeRoutes } from './realtime.js';
 import { notificationsRoutes } from './notifications.js';
-import { importRoutes } from './import.js';
-import { aiRoutes } from './ai.js';
-import { graphqlRoutes } from './graphql.js';
-import { marketplaceRoutes } from './marketplace.js';
-import { schemaBranchesRoutes } from './schema-branches.js';
-import { apiDocsRoutes } from './api-docs.js';
-import { databaseRoutes } from './database.js';
-import { tenantsRoutes } from './tenants.js';
-import { flowsRoutes } from './flows.js';
-import { mediaRoutes } from './media.js';
-import { backupRoutes } from './backup.js';
-import { approvalsRoutes } from './approvals.js';
-import { draftsRoutes } from './drafts.js';
-import { gdprRoutes } from './gdpr.js';
-import { savedQueriesRoutes } from './saved-queries.js';
-import { validationRoutes } from './validation.js';
-import { qualityRoutes } from './quality.js';
-import { insightsRoutes } from './insights.js';
-import { documentsRoutes } from './documents.js';
+import { healthRoutes } from './health.js';
+// graphql → extensions/developer/graphql
+// tenants → extensions/multitenancy
+// media → extensions/content/media
+// approvals → extensions/workflow/approvals
+// drafts → extensions/content/drafts
+// documents → extensions/content/documents
+// ai → extensions/ai/core-ai
 import { syncRoutes } from './sync.js';
-import { introspectRoutes } from './introspect.js';
-import { aiSearchRoutes } from './ai-search.js';
-import { edgeFunctionsRoutes, mountEdgeFunctions } from './edge-functions.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { authRateLimit, apiRateLimit, aiRateLimit } from '../middleware/rate-limit.js';
+import { tenantQuota } from '../middleware/tenant-quota.js';
 
 // ── Moved to extensions ──────────────────────────────────────────────────────
 // /api/mail             → extensions/communications/mail
 // /api/cloud + /share   → extensions/storage/cloud
 // /api/pages            → extensions/content/page-builder (cms-routes)
 // /api/document-templates → extensions/content/document-templates
+// /api/documents        → extensions/content/documents
 // /api/ai/alchemist     → extensions/ai/core-ai
 // /api/ai/query         → extensions/ai/core-ai
 // /api/ai (schema-gen)  → extensions/ai/core-ai
+// /api/approvals        → extensions/workflow/approvals
+// /api/drafts           → extensions/content/drafts
+// /api/media            → extensions/content/media
+// /api/tenants          → extensions/multitenancy
+// /api/graphql          → extensions/developer/graphql
+// /api/insights         → extensions/analytics/insights
+// /api/quality          → extensions/analytics/quality
+// /api/saved-queries    → extensions/developer/saved-queries
+// /api/validation       → extensions/developer/validation
+// /api/export           → extensions/data/export
+// /api/import           → extensions/data/import
+// /api/translations     → extensions/i18n/translations
 // ────────────────────────────────────────────────────────────────────────────
 
 interface RoutesContext {
@@ -70,6 +68,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/auth/forgot-password', authRateLimit);
   app.use('/api/ai/*', aiRateLimit);
   app.use('/api/*', apiRateLimit);
+
+  // ── Tenant daily quota enforcement (runs after tenant middleware in index.ts) ──
+  app.use('/api/*', tenantQuota(db));
 
   // Better-Auth handler — handles all /api/auth/** routes
   app.on(['GET', 'POST'], '/api/auth/**', (c) => auth.handler(c.req.raw));
@@ -101,11 +102,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Settings (admin + public subset)
   app.route('/api/settings', settingsRoutes(db, auth));
 
-  // Export (admin)
-  app.route('/api/export', exportRoutes(db, auth));
+  // Export — moved to extensions/data/export
 
-  // Import CSV/JSON (admin)
-  app.route('/api/import', importRoutes(db, auth));
+  // Import CSV/JSON — moved to extensions/data/import
+
+  // Health + version + migration status + update check (public)
+  app.route('/api/health', healthRoutes(db));
 
   // Admin utilities: API keys, notifications, audit, types, onboarding
   app.route('/api/admin', adminRoutes(db, auth));
@@ -113,8 +115,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Revisions + record comments (authenticated)
   app.route('/api/revisions', revisionsRoutes(db, auth));
 
-  // i18n translations (admin CRUD, public read)
-  app.route('/api/translations', translationsRoutes(db, auth));
+  // i18n translations — moved to extensions/i18n/translations
 
   // In-app notifications + web push (authenticated)
   app.route('/api/notifications', notificationsRoutes(db, auth));
@@ -122,70 +123,48 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Real-time SSE stream (authenticated)
   app.route('/api/realtime', realtimeRoutes(db, auth));
 
-  // AI core: chat, embeddings, prompt templates, provider management, semantic search
-  app.route('/api/ai', aiRoutes(db, auth));
-  app.route('/api/ai/search', aiSearchRoutes(db, auth));
+  // AI core — moved to extensions/ai/core-ai
 
-  // Extension marketplace (admin)
-  app.route('/api/marketplace', marketplaceRoutes(db, app));
+  // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 
-  // Schema branches — safe schema development without affecting production
-  app.route('/api/schema', schemaBranchesRoutes(db, auth));
+  // Schema branches — moved to extensions/developer/schema-branches
 
-  // API documentation portal — Swagger UI + OpenAPI spec
-  app.route('/api/docs', apiDocsRoutes(db, auth));
+  // API documentation portal — moved to extensions/developer/api-docs
 
-  // Database management — functions, triggers, enums, roles, RLS
-  app.route('/api/database', databaseRoutes(db, auth));
+  // Database management — moved to extensions/developer/database
 
-  // Multi-tenancy — tenant registry, environments, usage
-  app.route('/api/tenants', tenantsRoutes(db, auth));
+  // Multi-tenancy — moved to extensions/multitenancy
 
-  // Flows — automation CRUD + manual trigger + step execution
-  app.route('/api/flows', flowsRoutes(db, auth));
+  // Flows — moved to extensions/automation/flows (loaded when extension is active)
 
-  // Media library — folders, files, tags (authenticated)
-  app.route('/api/media', mediaRoutes(db, auth));
+  // Media library — moved to extensions/content/media
 
-  // Database backups (admin)
-  app.route('/api/backup', backupRoutes(db, auth));
+  // Database backups — moved to extensions/operations/backup
 
-  // GraphQL auto-generated API + Playground
-  app.route('/api/graphql', graphqlRoutes(db, auth));
+  // GraphQL auto-generated API — moved to extensions/developer/graphql
 
-  // Approval Workflows
-  app.route('/api/approvals', approvalsRoutes(db, auth));
+  // Approval Workflows — moved to extensions/workflow/approvals
 
-  // Content Draft/Publish Workflow
-  app.route('/api/drafts', draftsRoutes(db, auth));
+  // Content Draft/Publish Workflow — moved to extensions/content/drafts
 
-  // GDPR Compliance
-  app.route('/api/gdpr', gdprRoutes(db, auth));
+  // GDPR Compliance — moved to extensions/compliance/gdpr
 
-  // Saved Queries + Query Builder
-  app.route('/api/saved-queries', savedQueriesRoutes(db, auth));
+  // Saved Queries — moved to extensions/developer/saved-queries
 
-  // Data Validation Rules
-  app.route('/api/validation', validationRoutes(db, auth));
+  // Data Validation Rules — moved to extensions/developer/validation
 
-  // Data Quality Dashboard
-  app.route('/api/quality', qualityRoutes(db, auth));
+  // Data Quality Dashboard — moved to extensions/analytics/quality
 
-  // Analytics Insights (dashboards + panels)
-  app.route('/api/insights', insightsRoutes(db, auth));
+  // Analytics Insights — moved to extensions/analytics/insights
 
-  // Documents Management (RO compliance doc generation)
-  app.route('/api/documents', documentsRoutes(db, auth));
+  // Documents Management — moved to extensions/content/documents
 
   // SDK Local-First Sync (push/pull batch operations)
   app.route('/api/sync', syncRoutes(db, auth));
 
-  // BYOD Introspection — import external DB schema as unmanaged collections
-  app.route('/api/introspect', introspectRoutes(db, auth));
+  // BYOD Introspection — moved to extensions/developer/byod
 
-  // Edge Functions — CRUD management + dynamic function mounting at /api/fn/*
-  app.route('/api/edge-functions', edgeFunctionsRoutes(db, auth));
-  await mountEdgeFunctions(app, db);
+  // Edge Functions — moved to extensions/developer/edge-functions (loaded when extension is active)
 
   // Sitemap (public)
   app.get('/api/sitemap.xml', async (c) => {

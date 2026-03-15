@@ -60,3 +60,16 @@ CREATE TABLE IF NOT EXISTS zv_form_submissions (
 CREATE INDEX IF NOT EXISTS idx_zv_form_submissions_page    ON zv_form_submissions(page_id);
 CREATE INDEX IF NOT EXISTS idx_zv_form_submissions_section ON zv_form_submissions(section_id);
 CREATE INDEX IF NOT EXISTS idx_zv_form_submissions_status  ON zv_form_submissions(status);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_form_submissions_status;
+DROP INDEX IF EXISTS idx_zv_form_submissions_section;
+DROP INDEX IF EXISTS idx_zv_form_submissions_page;
+DROP TABLE IF EXISTS zv_form_submissions;
+DROP INDEX IF EXISTS idx_zv_page_sections_type;
+DROP INDEX IF EXISTS idx_zv_page_sections_page;
+DROP TABLE IF EXISTS zv_page_sections;
+DROP INDEX IF EXISTS idx_zv_pages_active;
+DROP INDEX IF EXISTS idx_zv_pages_homepage;
+DROP INDEX IF EXISTS idx_zv_pages_slug;
+DROP TABLE IF EXISTS zv_pages;

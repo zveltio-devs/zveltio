@@ -1,6 +1,7 @@
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import { join } from 'path';
 import { aiRoutes } from './routes.js';
+import { aiChatsRoutes } from './routes-chats.js';
 import { zveltioAIRoutes } from './zveltio-ai-routes.js';
 import { aiAnalyticsRoutes } from './analytics.js';
 import { initAIProviders, aiProviderManager } from './ai-provider.js';
@@ -26,6 +27,9 @@ const extension: ZveltioExtension = {
 
     // Core AI routes: providers, chat, embed, search, prompts, usage, admin/features
     app.route('/api/ai', aiRoutes(ctx.db, ctx.auth));
+
+    // Chat sessions + prompt templates (zv_ai_chats, zv_prompt_templates)
+    app.route('/api/ai', aiChatsRoutes(ctx.db, ctx.auth));
 
     // Zveltio AI Agent: conversational NL interface to data
     app.route('/api/zveltio-ai', zveltioAIRoutes(ctx.db, ctx.auth));

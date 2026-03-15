@@ -18,3 +18,8 @@ CREATE TABLE IF NOT EXISTS zv_ai_queries (
 
 CREATE INDEX IF NOT EXISTS idx_ai_queries_user ON zv_ai_queries(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_queries_saved ON zv_ai_queries(user_id) WHERE is_saved = true;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_ai_queries_saved;
+DROP INDEX IF EXISTS idx_ai_queries_user;
+DROP TABLE IF EXISTS zv_ai_queries;

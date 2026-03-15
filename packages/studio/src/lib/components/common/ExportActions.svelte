@@ -1,6 +1,5 @@
 <script lang="ts">
- import Download from '@lucide/svelte/icons/download.svelte';
- import ChevronDown from '@lucide/svelte/icons/chevron-down.svelte';
+import { Download, ChevronDown } from '@lucide/svelte';
  import { api } from '$lib/api.js';
 
  interface Props {

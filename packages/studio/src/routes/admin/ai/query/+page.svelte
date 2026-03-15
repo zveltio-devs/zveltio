@@ -160,7 +160,7 @@
                 <tr>
                   {#each Object.values(row) as val}
                     <td class="max-w-xs truncate text-xs font-mono">
-                      {val === null ? <span class="opacity-40">null</span> : String(val)}
+                      {#if val === null}<span class="opacity-40">null</span>{:else}{String(val)}{/if}
                     </td>
                   {/each}
                 </tr>

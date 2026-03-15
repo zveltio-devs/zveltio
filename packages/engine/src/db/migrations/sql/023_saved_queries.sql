@@ -16,3 +16,9 @@ CREATE TABLE IF NOT EXISTS zv_saved_queries (
 CREATE INDEX IF NOT EXISTS idx_saved_queries_user       ON zv_saved_queries(created_by);
 CREATE INDEX IF NOT EXISTS idx_saved_queries_collection ON zv_saved_queries(collection);
 CREATE INDEX IF NOT EXISTS idx_saved_queries_shared     ON zv_saved_queries(is_shared) WHERE is_shared = true;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_saved_queries_shared;
+DROP INDEX IF EXISTS idx_saved_queries_collection;
+DROP INDEX IF EXISTS idx_saved_queries_user;
+DROP TABLE IF EXISTS zv_saved_queries;

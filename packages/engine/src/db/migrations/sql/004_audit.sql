@@ -36,3 +36,13 @@ CREATE TABLE IF NOT EXISTS zvd_audit_log (
 CREATE INDEX IF NOT EXISTS idx_zvd_audit_log_table ON zvd_audit_log(table_name);
 CREATE INDEX IF NOT EXISTS idx_zvd_audit_log_record ON zvd_audit_log(record_id);
 CREATE INDEX IF NOT EXISTS idx_zvd_audit_log_created ON zvd_audit_log(created_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zvd_audit_log_created;
+DROP INDEX IF EXISTS idx_zvd_audit_log_record;
+DROP INDEX IF EXISTS idx_zvd_audit_log_table;
+DROP TABLE IF EXISTS zvd_audit_log;
+DROP INDEX IF EXISTS idx_zv_revisions_created;
+DROP INDEX IF EXISTS idx_zv_revisions_user;
+DROP INDEX IF EXISTS idx_zv_revisions_record;
+DROP TABLE IF EXISTS zv_revisions;

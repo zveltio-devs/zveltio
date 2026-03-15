@@ -8,7 +8,7 @@
  * TEST_DATABASE_URL=postgresql://... TEST_PORT=3099 bun test packages/engine/src/tests/integration/permissions.integration.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 

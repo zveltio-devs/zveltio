@@ -23,7 +23,7 @@ const RelationSchema = z.object({
   junction_table: z.string().optional(),
   on_delete: z.enum(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']).default('SET NULL'),
   on_update: z.enum(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']).default('CASCADE'),
-  metadata: z.record(z.any()).default({}),
+  metadata: z.record(z.string(), z.any()).default({}),
 });
 
 export function relationsRoutes(db: Database, auth: any): Hono {
@@ -128,7 +128,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         name: z.string().min(1).optional(),
         on_delete: z.enum(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']).optional(),
         on_update: z.enum(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']).optional(),
-        metadata: z.record(z.any()).optional(),
+        metadata: z.record(z.string(), z.any()).optional(),
       }),
     ),
     async (c) => {

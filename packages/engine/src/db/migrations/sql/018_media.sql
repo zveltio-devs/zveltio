@@ -52,3 +52,15 @@ CREATE INDEX IF NOT EXISTS idx_zv_media_files_mime         ON zv_media_files(mim
 CREATE INDEX IF NOT EXISTS idx_zv_media_files_created      ON zv_media_files(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_zv_media_file_tags_file     ON zv_media_file_tags(file_id);
 CREATE INDEX IF NOT EXISTS idx_zv_media_file_tags_tag      ON zv_media_file_tags(tag_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_media_file_tags_tag;
+DROP INDEX IF EXISTS idx_zv_media_file_tags_file;
+DROP TABLE IF EXISTS zv_media_file_tags;
+DROP TABLE IF EXISTS zv_media_tags;
+DROP INDEX IF EXISTS idx_zv_media_files_created;
+DROP INDEX IF EXISTS idx_zv_media_files_mime;
+DROP INDEX IF EXISTS idx_zv_media_files_folder;
+DROP TABLE IF EXISTS zv_media_files;
+DROP INDEX IF EXISTS idx_zv_media_folders_parent;
+DROP TABLE IF EXISTS zv_media_folders;

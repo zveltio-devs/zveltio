@@ -16,3 +16,8 @@ CREATE INDEX IF NOT EXISTS idx_zv_record_comments_record
   ON zv_record_comments(collection, record_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_zv_record_comments_user
   ON zv_record_comments(user_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_record_comments_user;
+DROP INDEX IF EXISTS idx_zv_record_comments_record;
+DROP TABLE IF EXISTS zv_record_comments;

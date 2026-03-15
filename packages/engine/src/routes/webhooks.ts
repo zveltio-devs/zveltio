@@ -15,7 +15,7 @@ const WebhookSchema = z.object({
   name: z.string().min(1),
   url: z.string().url(),
   method: z.enum(['POST', 'PUT', 'PATCH']).default('POST'),
-  headers: z.record(z.string()).default({}),
+  headers: z.record(z.string(), z.string()).default({}),
   events: z.array(z.string()).min(1),
   collections: z.array(z.string()).default([]),
   active: z.boolean().default(true),

@@ -8,6 +8,10 @@ import { extensionCommand } from './commands/extension.js';
 import { generateTypesCommand } from './commands/generate-types.js';
 import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
+import { extensionsListCommand } from './commands/extensions-list.js';
+import { rollbackCommand } from './commands/rollback.js';
+import { versionCommand } from './commands/version-cmd.js';
+import { updateCommand } from './commands/update.js';
 
 const program = new Command();
 
@@ -40,11 +44,16 @@ program
   .action(startCommand);
 
 // zveltio migrate
-program
-  .command('migrate')
-  .description('Run pending database migrations')
-  .option('--dry-run', 'Show migrations that would run without applying them')
-  .action(migrateCommand);
+program.addCommand(migrateCommand);
+
+// zveltio rollback
+program.addCommand(rollbackCommand);
+
+// zveltio version
+program.addCommand(versionCommand);
+
+// zveltio update
+program.addCommand(updateCommand);
 
 // zveltio create-god
 program
@@ -66,14 +75,48 @@ program
 // zveltio install <name>
 program
   .command('install <name>')
-  .description('Install a Zveltio extension from local path or registry')
-  .option('--path <path>', 'Install from local directory')
-  .option('--registry <url>', 'Extension registry URL')
-  .option('--force', 'Overwrite existing extension')
+  .description('Install a Zveltio extension from marketplace or local path')
+  .option('--path <path>', 'Install from local directory (offline)')
+  .option('--url <url>', 'Engine URL for marketplace install', 'http://localhost:3000')
+  .option('--force', 'Overwrite existing extension (local install only)')
   .action((name, opts) => installCommand(name, opts));
 
-// zveltio extension <subcommand>
-const ext = program.command('extension').description('Manage Zveltio extensions');
+// zveltio extensions list
+const extensions = program.command('extensions').description('Manage Zveltio extensions');
+
+extensions
+  .command('list')
+  .description('List all available and installed extensions')
+  .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  .option('--category <category>', 'Filter by category')
+  .option('--json', 'Output as JSON')
+  .action((opts) => extensionsListCommand(opts));
+
+extensions
+  .command('enable <name>')
+  .description('Enable an installed extension')
+  .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  .action(async (name: string, opts: any) => {
+    const url = opts.url || 'http://localhost:3000';
+    const res = await fetch(`${url}/api/marketplace/${name}/enable`, { method: 'POST' }).catch(() => null);
+    if (!res?.ok) { console.error(`❌ Failed to enable ${name}`); process.exit(1); }
+    const body = await res.json() as any;
+    console.log(body.hot_loaded ? `✅ ${name} is now active.` : `🔄 ${name} will be active after restart.`);
+  });
+
+extensions
+  .command('disable <name>')
+  .description('Disable an active extension')
+  .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  .action(async (name: string, opts: any) => {
+    const url = opts.url || 'http://localhost:3000';
+    const res = await fetch(`${url}/api/marketplace/${name}/disable`, { method: 'POST' }).catch(() => null);
+    if (!res?.ok) { console.error(`❌ Failed to disable ${name}`); process.exit(1); }
+    console.log(`✅ ${name} disabled.`);
+  });
+
+// zveltio extension <subcommand> (legacy — kept for backwards compat)
+const ext = program.command('extension').description('Manage Zveltio extensions (use "extensions" for new commands)');
 
 ext
   .command('create <name>')

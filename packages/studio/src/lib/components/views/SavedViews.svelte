@@ -1,9 +1,7 @@
 <script lang="ts">
  // SavedViews: saves/loads filter+sort presets in localStorage per collection.
  import { onMount } from 'svelte';
- import Bookmark from '@lucide/svelte/icons/bookmark.svelte';
- import Trash2 from '@lucide/svelte/icons/trash-2.svelte';
- import Plus from '@lucide/svelte/icons/plus.svelte';
+import { Bookmark, Trash2, Plus } from '@lucide/svelte';
 
  interface SavedView {
  id: string;

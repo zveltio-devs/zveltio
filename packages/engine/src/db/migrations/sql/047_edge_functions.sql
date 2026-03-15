@@ -29,3 +29,8 @@ CREATE TABLE IF NOT EXISTS zv_edge_function_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_fn_logs_function ON zv_edge_function_logs(function_id, created_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_fn_logs_function;
+DROP TABLE IF EXISTS zv_edge_function_logs;
+DROP TABLE IF EXISTS zv_edge_functions;

@@ -14,3 +14,6 @@ CREATE TABLE IF NOT EXISTS zv_extension_registry (
   created_at   timestamptz  NOT NULL DEFAULT now(),
   updated_at   timestamptz  NOT NULL DEFAULT now()
 );
+
+-- DOWN
+DROP TABLE IF EXISTS zv_extension_registry;

@@ -6,6 +6,7 @@
   "description": "File versioning, trash bin, public share links, and storage quotas",
   "version": "1.0.0",
   "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
   "permissions": ["database", "storage"],
   "contributes": {
     "engine": true,

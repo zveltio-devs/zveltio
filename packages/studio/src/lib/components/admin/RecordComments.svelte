@@ -1,9 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import Send from '@lucide/svelte/icons/send.svelte';
- import Trash2 from '@lucide/svelte/icons/trash-2.svelte';
- import AtSign from '@lucide/svelte/icons/at-sign.svelte';
+import { Send, Trash2, AtSign } from '@lucide/svelte';
 
  interface Comment {
  id: string;

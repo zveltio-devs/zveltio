@@ -10,8 +10,7 @@
 import type { Database } from '../db/index.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from './garbage-collector.js';
-import { purgeExpiredTrash } from './cloud/trash.js';
-import { createCloudS3Client } from '../routes/cloud.js';
+// cloud/trash and routes/cloud are optional extensions — imported dynamically below
 
 let _db: Database | null = null;
 let _running = false;
@@ -87,9 +86,8 @@ export const flowScheduler = {
     // ── AI Task trigger ───────────────────────────────────────────
     if (flow.trigger_type === 'ai_task') {
       try {
-        const { ZveltioAIEngine } = await import(
-          '../../../extensions/ai/core-ai/engine/zveltio-ai/engine.js'
-        ).catch(() => ({ ZveltioAIEngine: null as any }));
+        // @ts-ignore — AI engine is an optional extension (path may not exist)
+        const { ZveltioAIEngine } = await import('../../../extensions/ai/core-ai/engine/zveltio-ai/engine.js').catch(() => ({ ZveltioAIEngine: null as any }));
 
         if (!ZveltioAIEngine) {
           console.warn('[FlowScheduler] AI extension not loaded — skipping ai_task flow');
@@ -177,8 +175,16 @@ function scheduleTrashPurge(db: Database): void {
 
     setTimeout(async () => {
       try {
-        const s3 = createCloudS3Client();
-        await purgeExpiredTrash(db, s3);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const [trashMod, cloudMod] = await Promise.all([
+          // @ts-ignore — cloud/trash is an optional extension
+          import('./cloud/trash.js').catch(() => null as any),
+          // @ts-ignore — routes/cloud is an optional extension
+          import('../routes/cloud.js').catch(() => null as any),
+        ]);
+        if (!trashMod || !cloudMod) return;
+        const s3 = cloudMod.createCloudS3Client();
+        await trashMod.purgeExpiredTrash(db, s3);
       } catch (err) {
         console.error('[Trash] Error during trash purge:', err);
       }

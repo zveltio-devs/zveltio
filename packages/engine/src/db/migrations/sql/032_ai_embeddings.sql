@@ -33,3 +33,10 @@ ALTER TABLE zvd_collections ADD COLUMN IF NOT EXISTS ai_search_field   TEXT    D
 
 COMMENT ON COLUMN zvd_collections.ai_search_enabled IS 'Enable auto-embedding on create/update';
 COMMENT ON COLUMN zvd_collections.ai_search_field   IS 'Field to embed; NULL = concat all text fields';
+
+-- DOWN
+ALTER TABLE zvd_collections DROP COLUMN IF EXISTS ai_search_field;
+ALTER TABLE zvd_collections DROP COLUMN IF EXISTS ai_search_enabled;
+DROP INDEX IF EXISTS idx_zvd_ai_embeddings_ivfflat;
+DROP INDEX IF EXISTS idx_zvd_ai_embeddings_lookup;
+DROP TABLE IF EXISTS zvd_ai_embeddings;

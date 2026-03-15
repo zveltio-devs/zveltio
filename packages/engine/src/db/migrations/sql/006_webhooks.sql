@@ -39,3 +39,10 @@ CREATE INDEX IF NOT EXISTS idx_zvd_webhook_deliveries_webhook
   ON zvd_webhook_deliveries(webhook_id);
 CREATE INDEX IF NOT EXISTS idx_zvd_webhook_deliveries_created
   ON zvd_webhook_deliveries(created_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zvd_webhook_deliveries_created;
+DROP INDEX IF EXISTS idx_zvd_webhook_deliveries_webhook;
+DROP TABLE IF EXISTS zvd_webhook_deliveries;
+DROP INDEX IF EXISTS idx_zvd_webhooks_active;
+DROP TABLE IF EXISTS zvd_webhooks;

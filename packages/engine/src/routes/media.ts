@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Database } from '../db/index.js';
+// @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
 
@@ -243,6 +244,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     if (file.type.startsWith('image/')) {
       try {
         // Dynamic import — sharp is an optional dependency
+        // @ts-ignore — sharp is an optional peer dependency
         const sharpMod = await import('sharp').catch(() => null);
         if (sharpMod) {
           const sharp = sharpMod.default;

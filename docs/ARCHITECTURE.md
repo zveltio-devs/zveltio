@@ -423,3 +423,49 @@ Each extension follows the structure:
 | `storage/cloud`        | S3 file versioning, soft-delete trash bin, public token-based share links              |
 | `content/page-builder` | CMS pages with Tiptap editor, slug routing, i18n                                       |
 | `postgis`              | Custom field types: `location`, `polygon`, `linestring`                                |
+
+---
+
+## Extension Routes
+
+The following routes are registered by extensions, not by the engine core.
+The extension must be active (listed in the `ZVELTIO_EXTENSIONS` env var or
+enabled via the marketplace) for these routes to be available.
+If the extension is not active, routes return `404`.
+
+| Route | Extension | Category |
+|-------|-----------|----------|
+| `/api/flows` | `automation/flows` | automation |
+| `/api/backup` | `operations/backup` | operations |
+| `/api/gdpr/*` | `compliance/gdpr` | compliance |
+| `/api/database` | `developer/database` | developer |
+| `/api/introspect` | `developer/byod` | developer |
+| `/api/docs` | `developer/api-docs` | developer |
+| `/api/schema/branches` | `developer/schema-branches` | developer |
+| `/api/insights` | `analytics/insights` | analytics |
+| `/api/quality` | `analytics/quality` | analytics |
+| `/api/saved-queries` | `developer/saved-queries` | developer |
+| `/api/validation` | `developer/validation` | developer |
+| `/api/export` | `data/export` | data |
+| `/api/import` | `data/import` | data |
+| `/api/translations` | `i18n/translations` | i18n |
+| `/api/approvals` | `workflow/approvals` | workflow |
+| `/api/drafts` | `content/drafts` | content |
+| `/api/media` | `content/media` | content |
+| `/api/documents` | `content/documents` | content |
+| `/api/ai/*` | `ai/core-ai` | ai |
+| `/api/graphql` | `developer/graphql` | developer |
+| `/api/tenants` | `multitenancy` | infrastructure |
+| `/api/contacts` | `crm` | business |
+| `/api/organizations` | `crm` | business |
+| `/api/transactions` | `crm` | business |
+| `/api/mail/*` | `communications/mail` | communications |
+| `/api/auth/saml/*` | `auth/saml` | auth |
+| `/api/auth/ldap/*` | `auth/ldap` | auth |
+| `/api/edge-functions` | `developer/edge-functions` | developer |
+| `/api/fn/*` | `developer/edge-functions` | developer |
+
+> **Modular architecture:** The Zveltio Engine exposes a minimal set of core routes.
+> Optional functionality is delivered via extensions that register dynamically at startup.
+> Extension versioning via `zveltioMinVersion` / `zveltioMaxVersion` in `manifest.json`
+> protects against API incompatibilities between engine and extension versions.

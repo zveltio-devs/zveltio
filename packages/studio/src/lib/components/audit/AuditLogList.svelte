@@ -2,9 +2,7 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import AuditDiff from './AuditDiff.svelte';
- import ChevronDown from '@lucide/svelte/icons/chevron-down.svelte';
- import ChevronRight from '@lucide/svelte/icons/chevron-right.svelte';
- import RefreshCw from '@lucide/svelte/icons/refresh-cw.svelte';
+import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte';
 
  interface Revision {
  id: string;

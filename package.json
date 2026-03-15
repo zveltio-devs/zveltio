@@ -13,6 +13,7 @@
     "build": "turbo run build",
     "build:binary": "cd packages/engine && bun run build:binary",
     "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "studio:build": "cd packages/studio && bun run build",
     "studio:embed": "cp -r packages/studio/build packages/engine/src/studio-dist"
@@ -24,6 +25,9 @@
   },
   "dependencies": {
     "@auth/kysely-adapter": "^1.11.1",
-    "kysely": "^0.28.11"
+    "kysely": "^0.27.6"
+  },
+  "overrides": {
+    "kysely": "0.27.6"
   }
 }

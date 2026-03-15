@@ -60,10 +60,14 @@ services:
       DB_PORT: 5432
       LISTEN_ADDR: 0.0.0.0
       LISTEN_PORT: 6432
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 50
-      MIN_POOL_SIZE: 10
+      # session mode is required for Better-Auth (SET commands, advisory locks)
+      # and for PostgreSQL LISTEN/NOTIFY used by the realtime subsystem.
+      # transaction mode breaks both. Tradeoff: lower max concurrency — size
+      # DEFAULT_POOL_SIZE to match PostgreSQL max_connections (500 here).
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 400
+      DEFAULT_POOL_SIZE: 40
+      MIN_POOL_SIZE: 5
       RESERVE_POOL_SIZE: 10
       RESERVE_POOL_TIMEOUT: 3
       SERVER_IDLE_TIMEOUT: 600

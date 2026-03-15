@@ -1,9 +1,16 @@
 /**
  * IMAP/SMTP client wrapper for Zveltio Mail.
  *
- * Uses 'imapflow' for IMAP (install: bun add imapflow mailparser)
- * Uses 'nodemailer' (already in deps) for SMTP sending.
+ * imapflow, mailparser, nodemailer are auto-installed by the extension loader
+ * via peerDependencies in manifest.json — no manual bun add needed.
  */
+
+// @ts-ignore — installed at runtime by extension-loader before this module loads
+import { ImapFlow } from 'imapflow';
+// @ts-ignore — installed at runtime by extension-loader before this module loads
+import { simpleParser } from 'mailparser';
+// @ts-ignore — installed at runtime by extension-loader before this module loads
+import nodemailer from 'nodemailer';
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -31,13 +38,6 @@ export async function syncImapAccount(
   db: Database,
   account: MailAccountConfig,
 ): Promise<{ synced: number; errors: string[] }> {
-  let ImapFlow: any;
-  try {
-    ImapFlow = (await import('imapflow')).ImapFlow;
-  } catch {
-    return { synced: 0, errors: ['imapflow package not installed. Run: bun add imapflow mailparser'] };
-  }
-
   const client = new ImapFlow({
     host: account.imap_host,
     port: account.imap_port,
@@ -146,13 +146,6 @@ export async function fetchMessageBody(
   folderPath: string,
   uid: number,
 ): Promise<{ bodyText: string | null; bodyHtml: string | null }> {
-  let ImapFlow: any;
-  try {
-    ImapFlow = (await import('imapflow')).ImapFlow;
-  } catch {
-    throw new Error('imapflow not installed');
-  }
-
   const client = new ImapFlow({
     host: account.imap_host,
     port: account.imap_port,
@@ -168,14 +161,8 @@ export async function fetchMessageBody(
       const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
       if (!msg?.source) return { bodyText: null, bodyHtml: null };
 
-      try {
-        const { simpleParser } = await import('mailparser');
-        const parsed = await simpleParser(msg.source);
-        return { bodyText: parsed.text || null, bodyHtml: parsed.html || null };
-      } catch {
-        // Fallback: return raw source as text
-        return { bodyText: msg.source.toString('utf-8').slice(0, 50000), bodyHtml: null };
-      }
+      const parsed = await simpleParser(msg.source);
+      return { bodyText: parsed.text || null, bodyHtml: parsed.html || null };
     } finally {
       lock.release();
     }
@@ -199,8 +186,6 @@ export async function sendMail(
   inReplyTo?: string,
   attachments?: Array<{ filename: string; content: Buffer; contentType: string }>,
 ): Promise<{ messageId: string }> {
-  const nodemailer = await import('nodemailer');
-
   const transport = nodemailer.createTransport({
     host: account.smtp_host,
     port: account.smtp_port,

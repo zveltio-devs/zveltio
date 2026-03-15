@@ -481,6 +481,7 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
     // ── Tool access classification ─────────────────────────────
     const ADMIN_ONLY_TOOLS = [
       'execute_sql',
+      'text_to_sql',
       'create_collection',
       'add_field',
       'get_system_stats',
@@ -543,6 +544,7 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
       case 'get_system_stats':     return this.toolGetSystemStats();
       case 'remember_fact':        return this.toolRememberFact(parsed, request);
       case 'recall_facts':         return this.toolRecallFacts(parsed, request);
+      case 'text_to_sql':          return this.toolTextToSQL(parsed, request);
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -1023,6 +1025,91 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
       return { success: true, facts, count: facts.length };
     } catch (err: any) {
       return { success: false, error: 'Memory service not available.', details: err.message };
+    }
+  }
+
+  private async toolTextToSQL(args: any, request: ZveltioAIRequest): Promise<any> {
+    const { question, collections_hint = [] } = args;
+
+    // Pasul 1: Colectează schema colecțiilor relevante
+    let schemaContext = '';
+    try {
+      const collections = collections_hint.length > 0
+        ? await (this.db as any)
+            .selectFrom('zv_collections')
+            .selectAll()
+            .where('name', 'in', collections_hint)
+            .execute()
+        : await (this.db as any)
+            .selectFrom('zv_collections')
+            .selectAll()
+            .limit(10)
+            .execute();
+
+      schemaContext = collections.map((c: any) => {
+        const schema = typeof c.schema === 'string' ? JSON.parse(c.schema) : c.schema;
+        const fields = (schema?.fields ?? []).map((f: any) => `${f.name} ${f.type}`).join(', ');
+        return `Table zv_${c.name}: (${fields})`;
+      }).join('\n');
+    } catch { /* non-fatal */ }
+
+    // Pasul 2: Generează SQL via AI
+    const provider = aiProviderManager.getDefault();
+    if (!provider) return { error: 'No AI provider configured' };
+
+    const sqlGenResponse = await provider.chat([
+      {
+        role: 'system',
+        content: `You are a SQL expert for PostgreSQL. Generate ONLY a valid SELECT query.
+Return ONLY the SQL query, no explanation, no markdown, no semicolon at end.
+ONLY SELECT queries are allowed. Never use DROP, DELETE, UPDATE, INSERT, ALTER.
+
+Available tables:
+${schemaContext}
+
+Rules:
+- Table names are prefixed with zv_ (e.g., collection "orders" → table "zv_orders")
+- Always use table aliases for clarity
+- Limit results to 100 rows maximum unless aggregating`,
+      },
+      { role: 'user', content: question },
+    ], { temperature: 0.1, max_tokens: 500 });
+
+    const generatedSQL = sqlGenResponse.content.trim();
+
+    // Pasul 3: Validare strictă
+    const normalized = generatedSQL.toUpperCase();
+    if (!normalized.startsWith('SELECT') && !normalized.startsWith('WITH')) {
+      return { error: 'Generated query is not a SELECT statement', generated: generatedSQL };
+    }
+
+    const forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'TRUNCATE', 'GRANT'];
+    for (const kw of forbidden) {
+      if (normalized.includes(kw)) {
+        return { error: `Generated query contains forbidden keyword: ${kw}` };
+      }
+    }
+
+    // Pasul 4: Execuție cu sql.raw
+    try {
+      const result = await sql.raw(generatedSQL).execute(this.db);
+      const rows = (result as any).rows ?? [];
+
+      return {
+        success: true,
+        question,
+        sql: generatedSQL,
+        row_count: rows.length,
+        data: rows.slice(0, 100),
+        message: `Query returned ${rows.length} rows`,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        question,
+        sql: generatedSQL,
+        error: `SQL execution failed: ${err.message}`,
+      };
     }
   }
 

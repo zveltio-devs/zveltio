@@ -23,3 +23,8 @@ CREATE TABLE IF NOT EXISTS zv_pitr_restore_points (
   created_by  UUID REFERENCES "user"(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pitr_restore_points_at ON zv_pitr_restore_points(recorded_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_pitr_restore_points_at;
+DROP TABLE IF EXISTS zv_pitr_restore_points;
+DROP TABLE IF EXISTS zv_pitr_config;

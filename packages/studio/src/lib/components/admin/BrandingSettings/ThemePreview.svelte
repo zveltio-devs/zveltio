@@ -1,10 +1,5 @@
 <script lang="ts">
- import Check from '@lucide/svelte/icons/check.svelte';
- import AlertCircle from '@lucide/svelte/icons/alert-circle.svelte';
- import Info from '@lucide/svelte/icons/info.svelte';
- import Mail from '@lucide/svelte/icons/mail.svelte';
- import Star from '@lucide/svelte/icons/star.svelte';
- import Zap from '@lucide/svelte/icons/zap.svelte';
+import { Check, AlertCircle, Info, Mail, Star, Zap } from '@lucide/svelte';
 
  interface Props {
  primaryColor: string;

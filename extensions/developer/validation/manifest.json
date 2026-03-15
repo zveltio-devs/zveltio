@@ -1,0 +1,12 @@
+{
+  "name": "developer/validation",
+  "package": "@zveltio/ext-validation",
+  "category": "developer",
+  "displayName": "Data Validation",
+  "description": "Field-level validation rules with AI-assisted natural language rule generation",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
+  "permissions": ["database"],
+  "contributes": { "engine": true, "studio": true }
+}

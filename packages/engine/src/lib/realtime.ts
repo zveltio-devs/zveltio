@@ -11,7 +11,7 @@ import { broadcastEvent } from '../routes/ws.js';
  *   Instance B: RealtimeManager subscribe → primește payload → broadcastEvent()
  */
 export class RealtimeManager {
-  // @ts-expect-error — BunSubscription tipat de bun-types
+  // @ts-ignore — BunSubscription tipat de bun-types
   private subscription: import('../db/bun-sql-dialect.js').BunSubscription | null = null;
   private running = false;
   private databaseUrl = '';
@@ -21,9 +21,10 @@ export class RealtimeManager {
     this.databaseUrl = databaseUrl;
 
     try {
-      // @ts-expect-error — Bun.SQL global tipat de bun-types
+      // @ts-ignore — Bun.SQL global tipat de bun-types
       const sql = new Bun.SQL(databaseUrl, { max: 1 });
 
+      // @ts-ignore — Bun.SQL.subscribe exists at runtime but not in TS types
       this.subscription = await sql.subscribe(
         'zveltio_changes',
         (rawPayload: string) => {

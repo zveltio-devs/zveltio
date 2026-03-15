@@ -19,3 +19,10 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON zv_api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON zv_api_keys(created_by);
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON zv_api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_api_keys_active ON zv_api_keys(is_active) WHERE is_active = true;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_api_keys_active;
+DROP INDEX IF EXISTS idx_api_keys_prefix;
+DROP INDEX IF EXISTS idx_api_keys_user;
+DROP INDEX IF EXISTS idx_api_keys_hash;
+DROP TABLE IF EXISTS zv_api_keys;

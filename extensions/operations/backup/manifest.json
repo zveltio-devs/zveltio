@@ -1,0 +1,12 @@
+{
+  "name": "operations/backup",
+  "package": "@zveltio/ext-backup",
+  "category": "operations",
+  "displayName": "Database Backup",
+  "description": "Database backup management",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
+  "permissions": ["database"],
+  "contributes": { "engine": true, "studio": false }
+}

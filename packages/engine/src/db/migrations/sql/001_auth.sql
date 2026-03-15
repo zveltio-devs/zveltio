@@ -63,3 +63,14 @@ CREATE INDEX IF NOT EXISTS idx_session_userId ON session("userId");
 CREATE INDEX IF NOT EXISTS idx_account_userId ON account("userId");
 CREATE INDEX IF NOT EXISTS idx_user_email ON "user"(email);
 CREATE INDEX IF NOT EXISTS idx_session_token ON session(token);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_session_token;
+DROP INDEX IF EXISTS idx_user_email;
+DROP INDEX IF EXISTS idx_account_userId;
+DROP INDEX IF EXISTS idx_session_userId;
+DROP TABLE IF EXISTS "twoFactor";
+DROP TABLE IF EXISTS verification;
+DROP TABLE IF EXISTS account;
+DROP TABLE IF EXISTS session;
+DROP TABLE IF EXISTS "user";

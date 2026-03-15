@@ -1,0 +1,15 @@
+{
+  "name": "auth/ldap",
+  "package": "@zveltio/ext-auth-ldap",
+  "category": "auth",
+  "displayName": "LDAP / Active Directory",
+  "description": "Authenticate users via LDAP or Active Directory (ldapts)",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
+  "permissions": ["database"],
+  "peerDependencies": {
+    "ldapts": "^4.2.6"
+  },
+  "contributes": { "engine": true, "studio": true }
+}

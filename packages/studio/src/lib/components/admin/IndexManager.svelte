@@ -1,9 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import Plus from '@lucide/svelte/icons/plus.svelte';
- import Trash2 from '@lucide/svelte/icons/trash-2.svelte';
- import RefreshCw from '@lucide/svelte/icons/refresh-cw.svelte';
+import { Plus, Trash2, RefreshCw } from '@lucide/svelte';
 
  interface Index {
  name: string;

@@ -2,12 +2,7 @@
  import { goto } from '$app/navigation';
  import { base } from '$app/paths';
  import { api } from '$lib/api.js';
- import Database from '@lucide/svelte/icons/database.svelte';
- import Settings from '@lucide/svelte/icons/settings.svelte';
- import Sparkles from '@lucide/svelte/icons/sparkles.svelte';
- import CheckCircle from '@lucide/svelte/icons/check-circle.svelte';
- import ArrowRight from '@lucide/svelte/icons/arrow-right.svelte';
- import X from '@lucide/svelte/icons/x.svelte';
+import { Database, Settings, Sparkles, CheckCircle, ArrowRight, X } from '@lucide/svelte';
 
  let { onComplete }: { onComplete: () => void } = $props();
 

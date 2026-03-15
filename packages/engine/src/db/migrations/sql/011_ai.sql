@@ -96,3 +96,13 @@ VALUES
     'general'
   )
 ON CONFLICT (name) DO NOTHING;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_rag_documents_source;
+DROP INDEX IF EXISTS idx_zv_rag_documents_namespace;
+DROP TABLE IF EXISTS zv_rag_documents;
+DROP INDEX IF EXISTS idx_zv_ai_chats_user;
+DROP TABLE IF EXISTS zv_ai_chats;
+DROP INDEX IF EXISTS idx_zv_prompt_templates_category;
+DROP TABLE IF EXISTS zv_prompt_templates;
+DROP TABLE IF EXISTS zv_ai_providers;

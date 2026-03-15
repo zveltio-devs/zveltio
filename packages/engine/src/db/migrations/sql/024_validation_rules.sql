@@ -17,3 +17,8 @@ CREATE TABLE IF NOT EXISTS zv_validation_rules (
 
 CREATE INDEX IF NOT EXISTS idx_validation_rules_collection ON zv_validation_rules(collection, field_name);
 CREATE INDEX IF NOT EXISTS idx_validation_rules_active     ON zv_validation_rules(collection) WHERE is_active = true;
+
+-- DOWN
+DROP INDEX IF EXISTS idx_validation_rules_active;
+DROP INDEX IF EXISTS idx_validation_rules_collection;
+DROP TABLE IF EXISTS zv_validation_rules;

@@ -1,7 +1,12 @@
 /**
  * IMAP Operations — advanced IMAP operations via imapflow.
  * Complements imap-client.ts (which handles sync and body fetch).
+ *
+ * imapflow is auto-installed by the extension loader via manifest.json peerDependencies.
  */
+
+// @ts-ignore — installed at runtime by extension-loader before this module loads
+import { ImapFlow } from 'imapflow';
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -18,7 +23,6 @@ export interface ImapAccountConfig {
 }
 
 async function getImapClient(account: ImapAccountConfig): Promise<any> {
-  const { ImapFlow } = await import('imapflow');
 
   const config: any = {
     host: account.imap_host,

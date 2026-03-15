@@ -66,6 +66,7 @@ export async function extractTextFromFile(
 
   if (mimeType === 'application/pdf') {
     try {
+      // @ts-ignore — pdf-parse is an optional peer dependency
       const pdfParse = await import('pdf-parse').catch(() => null);
       if (pdfParse) {
         const data = await pdfParse.default(buffer);

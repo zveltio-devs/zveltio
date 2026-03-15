@@ -48,3 +48,11 @@ CREATE TABLE IF NOT EXISTS zv_flow_runs (
 CREATE INDEX IF NOT EXISTS idx_zv_flows_active    ON zv_flows(is_active);
 CREATE INDEX IF NOT EXISTS idx_zv_flow_steps_flow ON zv_flow_steps(flow_id, step_order);
 CREATE INDEX IF NOT EXISTS idx_zv_flow_runs_flow  ON zv_flow_runs(flow_id, started_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_flow_runs_flow;
+DROP TABLE IF EXISTS zv_flow_runs;
+DROP INDEX IF EXISTS idx_zv_flow_steps_flow;
+DROP TABLE IF EXISTS zv_flow_steps;
+DROP INDEX IF EXISTS idx_zv_flows_active;
+DROP TABLE IF EXISTS zv_flows;

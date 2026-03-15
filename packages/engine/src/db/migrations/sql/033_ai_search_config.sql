@@ -16,3 +16,6 @@ COMMENT ON TABLE zvd_ai_search_config IS
   'Per-collection configuration for automatic AI embedding generation.';
 COMMENT ON COLUMN zvd_ai_search_config.fields IS
   'Array of field names to concatenate for embedding. Empty = all text fields.';
+
+-- DOWN
+DROP TABLE IF EXISTS zvd_ai_search_config;

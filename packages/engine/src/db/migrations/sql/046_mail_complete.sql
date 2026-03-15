@@ -158,3 +158,34 @@ VALUES (
   false
 )
 ON CONFLICT (key) DO NOTHING;
+
+-- DOWN
+ALTER TABLE zv_mail_messages DROP COLUMN IF EXISTS in_reply_to;
+ALTER TABLE zv_mail_messages DROP COLUMN IF EXISTS references_header;
+ALTER TABLE zv_mail_messages DROP COLUMN IF EXISTS is_signed;
+ALTER TABLE zv_mail_messages DROP COLUMN IF EXISTS is_encrypted;
+ALTER TABLE zv_mail_messages DROP COLUMN IF EXISTS read_receipt_sent;
+ALTER TABLE zv_mail_messages DROP COLUMN IF EXISTS read_receipt_requested;
+ALTER TABLE zv_mail_messages DROP COLUMN IF EXISTS priority;
+ALTER TABLE zv_mail_accounts DROP COLUMN IF EXISTS sieve_port;
+ALTER TABLE zv_mail_accounts DROP COLUMN IF EXISTS sieve_host;
+ALTER TABLE zv_mail_accounts DROP COLUMN IF EXISTS imap_idle_supported;
+ALTER TABLE zv_mail_accounts DROP COLUMN IF EXISTS oauth2_expires_at;
+ALTER TABLE zv_mail_accounts DROP COLUMN IF EXISTS oauth2_refresh_token;
+ALTER TABLE zv_mail_accounts DROP COLUMN IF EXISTS oauth2_access_token;
+ALTER TABLE zv_mail_accounts DROP COLUMN IF EXISTS oauth2_provider;
+DROP INDEX IF EXISTS idx_mail_pgp_user;
+DROP INDEX IF EXISTS idx_mail_pgp_email;
+DROP TABLE IF EXISTS zv_mail_pgp_keys;
+DROP INDEX IF EXISTS idx_mail_contacts_freq;
+DROP INDEX IF EXISTS idx_mail_contacts_email;
+DROP INDEX IF EXISTS idx_mail_contacts_user;
+DROP TABLE IF EXISTS zv_mail_contacts;
+DROP INDEX IF EXISTS idx_mail_filters_account;
+DROP TABLE IF EXISTS zv_mail_filters;
+DROP INDEX IF EXISTS idx_mail_drafts_account;
+DROP TABLE IF EXISTS zv_mail_drafts;
+DROP INDEX IF EXISTS idx_mail_signatures_user;
+DROP TABLE IF EXISTS zv_mail_signatures;
+DROP INDEX IF EXISTS idx_mail_identities_account;
+DROP TABLE IF EXISTS zv_mail_identities;

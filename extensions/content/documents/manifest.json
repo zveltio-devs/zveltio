@@ -1,0 +1,12 @@
+{
+  "name": "content/documents",
+  "package": "@zveltio/ext-documents",
+  "category": "content",
+  "displayName": "Document Generator",
+  "description": "Generate PDF documents from templates with data binding",
+  "version": "1.0.0",
+  "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
+  "permissions": ["database"],
+  "contributes": { "engine": true, "studio": true }
+}

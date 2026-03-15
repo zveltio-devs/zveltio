@@ -12,6 +12,7 @@
  Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare, ScanSearch, Mail, FlaskConical, Search, Code, Bookmark, BarChart2
  } from '@lucide/svelte';
  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
+ import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
 
  function isActive(href: string): boolean {
  const current = page.url.pathname;
@@ -159,3 +160,4 @@
 {/if}
 
 <ToastContainer />
+<UpdateBanner />

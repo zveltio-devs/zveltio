@@ -1,13 +1,14 @@
 /**
  * AI Prompt-to-Backend (P5)
  *
- * POST /api/ai/generate-schema — Describe your app in plain text,
- * get back a complete Zveltio schema (collections, fields, relations, seed data).
+ * POST /api/ai/preview-schema  — Generate schema preview (no DDL executed), returns confirm_token
+ * POST /api/ai/generate-schema — Execute DDL; accepts confirm_token to skip re-generation
  */
 
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
+import { createHash } from 'node:crypto';
 import type { Database } from '../../../../packages/engine/src/db/index.js';
 import { DDLManager } from '../../../../packages/engine/src/lib/ddl-manager.js';
 import { fieldTypeRegistry } from '../../../../packages/engine/src/lib/field-type-registry.js';
@@ -16,10 +17,30 @@ import { aiProviderManager } from './ai-provider.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
 
-const GenerateSchema = z.object({
+// In-memory preview cache: token → { schema, expiresAt }
+const previewCache = new Map<string, { schema: any; expiresAt: number }>();
+const PREVIEW_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function makeConfirmToken(schema: any): string {
+  return createHash('sha256').update(JSON.stringify(schema)).digest('hex').slice(0, 32);
+}
+
+function cleanExpiredPreviews() {
+  const now = Date.now();
+  for (const [k, v] of previewCache) {
+    if (v.expiresAt < now) previewCache.delete(k);
+  }
+}
+
+const PreviewSchema = z.object({
   description: z.string().min(10).max(4000),
+});
+
+const GenerateSchema = z.object({
+  description: z.string().min(10).max(4000).optional(),
   seed: z.boolean().optional().default(false),
   seed_count: z.number().int().min(1).max(50).optional().default(5),
+  confirm_token: z.string().optional(),
 });
 
 const CollectionSpecSchema = z.object({
@@ -97,19 +118,16 @@ export function aiSchemaGenRoutes(db: Database, appAuth: any): Hono {
     await next();
   });
 
-  // POST /generate-schema — generate schema from natural language description
-  router.post('/generate-schema', zValidator('json', GenerateSchema), async (c) => {
-    const { description, seed, seed_count } = c.req.valid('json');
+  // POST /preview-schema — generate schema preview without executing DDL
+  router.post('/preview-schema', zValidator('json', PreviewSchema), async (c) => {
+    const { description } = c.req.valid('json');
 
     const provider = aiProviderManager.getDefault();
-    if (!provider) {
-      return c.json({ error: 'No AI provider configured. Add one in Settings → AI.' }, 503);
-    }
+    if (!provider) return c.json({ error: 'No AI provider configured.' }, 503);
 
     const availableTypes = fieldTypeRegistry.getAll().map((t) => t.type);
     const systemPrompt = buildSystemPrompt(availableTypes);
 
-    // Step 1: Generate schema from LLM
     let rawSchema: any;
     try {
       const result = await provider.chat([
@@ -117,12 +135,67 @@ export function aiSchemaGenRoutes(db: Database, appAuth: any): Hono {
         { role: 'user', content: `Design a Zveltio schema for the following application:\n\n${description}` },
       ], { temperature: 0.3, max_tokens: 3000 });
 
-      // Extract JSON from the response (LLM may wrap in markdown)
       const jsonMatch = result.content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('LLM did not return valid JSON');
       rawSchema = JSON.parse(jsonMatch[0]);
     } catch (err) {
       return c.json({ error: `AI generation failed: ${err instanceof Error ? err.message : String(err)}` }, 422);
+    }
+
+    const parsed = AISchemaResponseSchema.safeParse(rawSchema);
+    if (!parsed.success) {
+      return c.json({ error: 'AI returned invalid schema structure', details: parsed.error.flatten() }, 422);
+    }
+
+    const token = makeConfirmToken(parsed.data);
+    cleanExpiredPreviews();
+    previewCache.set(token, { schema: parsed.data, expiresAt: Date.now() + PREVIEW_TTL_MS });
+
+    const totalFields = parsed.data.collections.reduce((acc, c) => acc + c.fields.length, 0);
+    return c.json({
+      preview: parsed.data,
+      collections_count: parsed.data.collections.length,
+      estimated_fields: totalFields,
+      confirm_token: token,
+    });
+  });
+
+  // POST /generate-schema — generate schema from natural language description
+  router.post('/generate-schema', zValidator('json', GenerateSchema), async (c) => {
+    const { description, seed, seed_count, confirm_token } = c.req.valid('json');
+
+    // If confirm_token provided, use cached preview schema (skip LLM)
+    let rawSchema: any;
+    if (confirm_token) {
+      cleanExpiredPreviews();
+      const cached = previewCache.get(confirm_token);
+      if (!cached) return c.json({ error: 'Preview token expired or invalid. Please generate a new preview.' }, 422);
+      rawSchema = cached.schema;
+      previewCache.delete(confirm_token);
+    } else {
+      if (!description) return c.json({ error: 'description is required when not using confirm_token' }, 400);
+
+      const provider = aiProviderManager.getDefault();
+      if (!provider) {
+        return c.json({ error: 'No AI provider configured. Add one in Settings → AI.' }, 503);
+      }
+
+      const availableTypes = fieldTypeRegistry.getAll().map((t) => t.type);
+      const systemPrompt = buildSystemPrompt(availableTypes);
+
+      // Step 1: Generate schema from LLM
+      try {
+        const result = await provider.chat([
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Design a Zveltio schema for the following application:\n\n${description}` },
+        ], { temperature: 0.3, max_tokens: 3000 });
+
+        const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('LLM did not return valid JSON');
+        rawSchema = JSON.parse(jsonMatch[0]);
+      } catch (err) {
+        return c.json({ error: `AI generation failed: ${err instanceof Error ? err.message : String(err)}` }, 422);
+      }
     }
 
     // Step 2: Validate schema structure

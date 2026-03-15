@@ -56,3 +56,15 @@ CREATE INDEX IF NOT EXISTS idx_approval_requests_collection  ON zv_approval_requ
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status      ON zv_approval_requests(status);
 CREATE INDEX IF NOT EXISTS idx_approval_requests_by          ON zv_approval_requests(requested_by);
 CREATE INDEX IF NOT EXISTS idx_approval_decisions_request    ON zv_approval_decisions(request_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_approval_decisions_request;
+DROP TABLE IF EXISTS zv_approval_decisions;
+DROP INDEX IF EXISTS idx_approval_requests_by;
+DROP INDEX IF EXISTS idx_approval_requests_status;
+DROP INDEX IF EXISTS idx_approval_requests_collection;
+DROP TABLE IF EXISTS zv_approval_requests;
+DROP INDEX IF EXISTS idx_approval_steps_workflow;
+DROP TABLE IF EXISTS zv_approval_steps;
+DROP INDEX IF EXISTS idx_approval_workflows_collection;
+DROP TABLE IF EXISTS zv_approval_workflows;

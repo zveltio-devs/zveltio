@@ -30,3 +30,11 @@ CREATE TABLE IF NOT EXISTS zv_media_files (
 CREATE INDEX IF NOT EXISTS idx_zv_media_files_folder ON zv_media_files(folder_id);
 CREATE INDEX IF NOT EXISTS idx_zv_media_files_mimetype ON zv_media_files(mimetype);
 CREATE INDEX IF NOT EXISTS idx_zv_media_files_created ON zv_media_files(created_at DESC);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_zv_media_files_created;
+DROP INDEX IF EXISTS idx_zv_media_files_mimetype;
+DROP INDEX IF EXISTS idx_zv_media_files_folder;
+DROP TABLE IF EXISTS zv_media_files;
+DROP INDEX IF EXISTS idx_zv_media_folders_parent;
+DROP TABLE IF EXISTS zv_media_folders;

@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth';
+// @ts-ignore — better-auth/adapters/kysely types may not resolve in all TS modes
 import { kyselyAdapter } from 'better-auth/adapters/kysely';
 import { twoFactor } from 'better-auth/plugins';
 import type { Database } from '../db/index.js';
@@ -28,6 +29,7 @@ export async function initAuth(db: Database) {
     secondaryStorage = await createCacheSecondaryStorage();
   }
 
+  // @ts-ignore — better-auth generics diverge between plugin overloads
   _auth = betterAuth({
     baseURL,
     secret: process.env.BETTER_AUTH_SECRET,

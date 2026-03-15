@@ -6,6 +6,7 @@
   "description": "Visual automation flows — triggers, conditions, and actions",
   "version": "1.0.0",
   "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
   "permissions": ["database", "webhook"],
   "contributes": {
     "engine": true,

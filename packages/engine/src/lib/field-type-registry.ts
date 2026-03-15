@@ -73,7 +73,7 @@ export interface FieldConfig {
   options?: Record<string, any>;
 }
 
-class FieldTypeRegistry {
+export class FieldTypeRegistry {
   private types = new Map<string, FieldTypeDefinition>();
 
   register(definition: FieldTypeDefinition): void {

@@ -223,8 +223,7 @@
  <div><span class="opacity-60">Workflow:</span> <span class="ml-1">{req.workflow_name}</span></div>
  <div>
  <span class="opacity-60">Status:</span>
- {@const badge = getStatusBadge(req.status)}
- <span class="badge {badge.cls} badge-sm ml-2">{badge.text}</span>
+ <span class="badge {getStatusBadge(req.status).cls} badge-sm ml-2">{getStatusBadge(req.status).text}</span>
  </div>
  <div><span class="opacity-60">Requested By:</span> <span class="ml-1">{req.requester_name || 'Unknown'}</span></div>
  <div><span class="opacity-60">Created:</span> <span class="ml-1">{formatDate(req.requested_at)}</span></div>

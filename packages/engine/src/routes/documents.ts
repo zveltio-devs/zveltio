@@ -20,7 +20,7 @@ import { renderTemplate, generatePDF, getNextDocumentNumber } from '../lib/doc-g
 import { DDLManager } from '../lib/ddl-manager.js';
 
 export function documentsRoutes(db: Database, _auth: any): Hono {
-  const app = new Hono<{ Variables: { user: any } }>();
+  const app = new Hono();
 
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });

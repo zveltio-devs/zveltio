@@ -250,6 +250,31 @@ export const zveltioAITools: ZveltioAITool[] = [
   {
     type: 'function',
     function: {
+      name: 'text_to_sql',
+      description:
+        'Convert a natural language question into a validated SQL SELECT query ' +
+        'and execute it. Use when the user asks complex analytical questions that ' +
+        'require custom SQL beyond simple filters (e.g., aggregations, JOINs, window functions).',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: {
+            type: 'string',
+            description: 'The natural language question to convert to SQL',
+          },
+          collections_hint: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional: collection names likely relevant to the question',
+          },
+        },
+        required: ['question'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'recall_facts',
       description: 'Retrieve facts previously saved to long-term memory. ' +
                    'Use before answering questions about preferences or business rules, ' +

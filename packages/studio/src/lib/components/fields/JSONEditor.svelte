@@ -1,8 +1,5 @@
 <script lang="ts">
- import Check from '@lucide/svelte/icons/check.svelte';
- import X from '@lucide/svelte/icons/x.svelte';
- import Maximize2 from '@lucide/svelte/icons/maximize-2.svelte';
- import Minimize2 from '@lucide/svelte/icons/minimize-2.svelte';
+import { Check, X, Maximize2, Minimize2 } from '@lucide/svelte';
 
  interface Props {
  value?: string;

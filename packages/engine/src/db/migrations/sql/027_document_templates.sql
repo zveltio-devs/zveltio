@@ -28,3 +28,9 @@ CREATE TABLE IF NOT EXISTS zv_document_generations (
 
 CREATE INDEX IF NOT EXISTS idx_doc_generations_template ON zv_document_generations(template_id, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_doc_generations_user ON zv_document_generations(user_id);
+
+-- DOWN
+DROP INDEX IF EXISTS idx_doc_generations_user;
+DROP INDEX IF EXISTS idx_doc_generations_template;
+DROP TABLE IF EXISTS zv_document_generations;
+DROP TABLE IF EXISTS zv_document_templates;

@@ -6,6 +6,7 @@
   "description": "Geospatial queries — proximity search, bounding box, polygon containment",
   "version": "1.0.0",
   "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
   "permissions": ["database"],
   "requires": {
     "postgres_extensions": ["postgis"]

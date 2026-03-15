@@ -6,6 +6,7 @@
   "description": "Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata",
   "version": "1.0.0",
   "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
   "permissions": ["database"],
   "contributes": {
     "engine": true,

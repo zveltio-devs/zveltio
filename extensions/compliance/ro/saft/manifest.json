@@ -6,6 +6,7 @@
   "description": "Romanian Standard Audit File for Tax (SAF-T D.394) — generate XML audit files for ANAF",
   "version": "1.0.0",
   "zveltioMinVersion": "2.0.0",
+  "zveltioMaxVersion": "3.0.0",
   "permissions": ["database"],
   "contributes": {
     "engine": true,
