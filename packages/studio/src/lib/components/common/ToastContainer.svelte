@@ -16,7 +16,7 @@ import { X } from '@lucide/svelte';
  };
 </script>
 
-<div class="toast toast-end toast-bottom z-[9999]">
+<div class="toast toast-end toast-bottom z-9999">
  {#each toast.items as t (t.id)}
  <div class="alert {alertClass[t.type]} shadow-lg max-w-sm animate-slide-in">
  <span class="text-lg font-bold">{alertIcon[t.type]}</span>

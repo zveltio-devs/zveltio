@@ -136,3 +136,7 @@ Full documentation at **[zveltio.com/docs](https://zveltio.com/docs)**
 ## 📝 License
 
 MIT — See [LICENSE](LICENSE)
+
+---
+
+Zveltio is a product of [DaRe IT S.R.L.](https://zveltio.com)
