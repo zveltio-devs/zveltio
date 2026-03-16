@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { ldapAuthenticate, type LdapConfig } from './ldap-provider.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
 
 const LdapConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -35,19 +36,11 @@ const TestSchema = z.object({
   password: z.string().min(1),
 });
 
-async function requireAdmin(c: any, db: any, auth: any): Promise<any> {
+async function requireAdmin(c: any, auth: any): Promise<any> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  const rule = await db
-    .selectFrom('casbin_rule')
-    .selectAll()
-    .where('ptype', '=', 'p')
-    .where('v0', '=', session.user.id)
-    .where('v1', '=', '*')
-    .where('v2', '=', '*')
-    .executeTakeFirst()
-    .catch(() => null);
-  return rule ? session.user : null;
+  const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+  return isAdmin ? session.user : null;
 }
 
 async function getLdapConfig(db: any): Promise<z.infer<typeof LdapConfigSchema> | null> {
@@ -147,7 +140,7 @@ export function ldapRoutes(db: any, auth: any): Hono {
 
   // GET /config — read LDAP config (admin)
   router.get('/config', async (c) => {
-    const admin = await requireAdmin(c, db, auth);
+    const admin = await requireAdmin(c, auth);
     if (!admin) return c.json({ error: 'Unauthorized' }, 401);
 
     const config = await getLdapConfig(db);
@@ -161,7 +154,7 @@ export function ldapRoutes(db: any, auth: any): Hono {
 
   // POST /config — save LDAP config (admin)
   router.post('/config', zValidator('json', LdapConfigSchema), async (c) => {
-    const admin = await requireAdmin(c, db, auth);
+    const admin = await requireAdmin(c, auth);
     if (!admin) return c.json({ error: 'Unauthorized' }, 401);
 
     const data = c.req.valid('json');
@@ -171,7 +164,7 @@ export function ldapRoutes(db: any, auth: any): Hono {
 
   // POST /test — test LDAP connectivity with provided credentials (admin)
   router.post('/test', zValidator('json', TestSchema), async (c) => {
-    const admin = await requireAdmin(c, db, auth);
+    const admin = await requireAdmin(c, auth);
     if (!admin) return c.json({ error: 'Unauthorized' }, 401);
 
     const config = await getLdapConfig(db);

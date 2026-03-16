@@ -139,4 +139,4 @@ MIT — See [LICENSE](LICENSE)
 
 ---
 
-Zveltio is a product of [DaRe IT S.R.L.](https://zveltio.com)
+Zveltio is a product of [DaRe IT Systems S.R.L.](https://zveltio.com)

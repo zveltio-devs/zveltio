@@ -3,25 +3,18 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import { aiProviderManager, OpenAIProvider, AnthropicProvider, OllamaProvider } from './ai-provider.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
 
 async function requireAuth(c: any, auth: any) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   return session?.user ?? null;
 }
 
-async function requireAdmin(c: any, auth: any, db: any) {
+async function requireAdmin(c: any, auth: any) {
   const user = await requireAuth(c, auth);
   if (!user) return null;
-  const rule = await db
-    .selectFrom('casbin_rule')
-    .selectAll()
-    .where('ptype', '=', 'p')
-    .where('v0', '=', user.id)
-    .where('v1', '=', '*')
-    .where('v2', '=', '*')
-    .executeTakeFirst()
-    .catch(() => null);
-  return rule ? user : null;
+  const isAdmin = await checkPermission(user.id, 'admin', '*');
+  return isAdmin ? user : null;
 }
 
 export function aiRoutes(db: any, auth: any): Hono {
@@ -65,7 +58,7 @@ export function aiRoutes(db: any, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await requireAdmin(c, auth, db);
+      const user = await requireAdmin(c, auth);
       if (!user) return c.json({ error: 'Admin access required' }, 403);
 
       const name = c.req.param('name');
@@ -132,7 +125,7 @@ export function aiRoutes(db: any, auth: any): Hono {
 
   // DELETE /providers/:name — remove provider
   app.delete('/providers/:name', async (c) => {
-    const user = await requireAdmin(c, auth, db);
+    const user = await requireAdmin(c, auth);
     if (!user) return c.json({ error: 'Admin access required' }, 403);
 
     const name = c.req.param('name');
@@ -420,7 +413,7 @@ export function aiRoutes(db: any, auth: any): Hono {
 
   // GET /admin/features — list AI features configuration
   app.get('/admin/features', async (c) => {
-    const user = await requireAdmin(c, auth, db);
+    const user = await requireAdmin(c, auth);
     if (!user) return c.json({ error: 'Admin access required' }, 403);
 
     const features = await db
@@ -446,7 +439,7 @@ export function aiRoutes(db: any, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await requireAdmin(c, auth, db);
+      const user = await requireAdmin(c, auth);
       if (!user) return c.json({ error: 'Admin access required' }, 403);
 
       const featureKey = c.req.param('featureKey');

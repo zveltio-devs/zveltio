@@ -43,7 +43,7 @@ LABEL org.opencontainers.image.title="Zveltio Engine"
 LABEL org.opencontainers.image.description="Zveltio Business OS — Engine + Studio"
 LABEL org.opencontainers.image.source="https://github.com/zveltio/zveltio"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.vendor="DaRe IT S.R.L."
+LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 
 RUN apk add --no-cache curl tzdata
 

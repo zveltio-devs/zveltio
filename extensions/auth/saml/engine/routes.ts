@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { createSamlInstance, validateSamlResponse } from './saml-provider.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
 
 // Config schema stored in zv_settings key "saml_config"
 const SamlConfigSchema = z.object({
@@ -27,19 +28,11 @@ const SamlConfigSchema = z.object({
   mapName: z.string().default('displayName'),
 });
 
-async function requireAdmin(c: any, db: any, auth: any): Promise<any> {
+async function requireAdmin(c: any, auth: any): Promise<any> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  const rule = await db
-    .selectFrom('casbin_rule')
-    .selectAll()
-    .where('ptype', '=', 'p')
-    .where('v0', '=', session.user.id)
-    .where('v1', '=', '*')
-    .where('v2', '=', '*')
-    .executeTakeFirst()
-    .catch(() => null);
-  return rule ? session.user : null;
+  const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+  return isAdmin ? session.user : null;
 }
 
 async function getSamlConfig(db: any): Promise<z.infer<typeof SamlConfigSchema> | null> {
@@ -179,7 +172,7 @@ export function samlRoutes(db: any, auth: any): Hono {
 
   // GET /config — read config (admin)
   router.get('/config', async (c) => {
-    const admin = await requireAdmin(c, db, auth);
+    const admin = await requireAdmin(c, auth);
     if (!admin) return c.json({ error: 'Unauthorized' }, 401);
 
     const config = await getSamlConfig(db);
@@ -193,7 +186,7 @@ export function samlRoutes(db: any, auth: any): Hono {
 
   // POST /config — save config (admin)
   router.post('/config', zValidator('json', SamlConfigSchema), async (c) => {
-    const admin = await requireAdmin(c, db, auth);
+    const admin = await requireAdmin(c, auth);
     if (!admin) return c.json({ error: 'Unauthorized' }, 401);
 
     const data = c.req.valid('json');

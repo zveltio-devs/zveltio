@@ -13,25 +13,18 @@
 
 import { Hono } from 'hono';
 import { sql } from 'kysely';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
 
 async function getUser(c: any, auth: any) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   return session?.user ?? null;
 }
 
-async function getAdmin(c: any, auth: any, db: any) {
+async function getAdmin(c: any, auth: any) {
   const user = await getUser(c, auth);
   if (!user) return null;
-  const rule = await db
-    .selectFrom('casbin_rule')
-    .selectAll()
-    .where('ptype', '=', 'p')
-    .where('v0', '=', user.id)
-    .where('v1', '=', '*')
-    .where('v2', '=', '*')
-    .executeTakeFirst()
-    .catch(() => null);
-  return rule ? user : null;
+  const isAdmin = await checkPermission(user.id, 'admin', '*');
+  return isAdmin ? user : null;
 }
 
 function parseDays(range: string): number {
@@ -162,7 +155,7 @@ export function aiAnalyticsRoutes(db: any, auth: any): Hono {
 
   // GET /top-users — admin only
   app.get('/top-users', async (c) => {
-    const user = await getAdmin(c, auth, db);
+    const user = await getAdmin(c, auth);
     if (!user) return c.json({ error: 'Admin access required' }, 403);
 
     const days = parseDays(c.req.query('range') || '30d');
@@ -193,7 +186,7 @@ export function aiAnalyticsRoutes(db: any, auth: any): Hono {
 
   // GET /recommendations — admin only, cost/reliability tips
   app.get('/recommendations', async (c) => {
-    const user = await getAdmin(c, auth, db);
+    const user = await getAdmin(c, auth);
     if (!user) return c.json({ error: 'Admin access required' }, 403);
 
     const recommendations: Array<{

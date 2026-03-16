@@ -2,25 +2,18 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { aiProviderManager, type ChatMessage } from './ai-provider.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
 
 async function requireAuth(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   return session?.user ?? null;
 }
 
-async function requireAdmin(c: any, auth: any, db: any): Promise<any | null> {
+async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const user = await requireAuth(c, auth);
   if (!user) return null;
-  const rule = await db
-    .selectFrom('casbin_rule')
-    .selectAll()
-    .where('ptype', '=', 'p')
-    .where('v0', '=', user.id)
-    .where('v1', '=', '*')
-    .where('v2', '=', '*')
-    .executeTakeFirst()
-    .catch(() => null);
-  return rule ? user : null;
+  const isAdmin = await checkPermission(user.id, 'admin', '*');
+  return isAdmin ? user : null;
 }
 
 function renderTemplate(template: string, variables: Record<string, string>): string {
@@ -225,7 +218,7 @@ export function aiChatsRoutes(db: any, auth: any): Hono {
     })),
     async (c) => {
       const user = c.get('user') as any;
-      const admin = await requireAdmin(c, auth, db);
+      const admin = await requireAdmin(c, auth);
       if (!admin) return c.json({ error: 'Admin access required' }, 403);
       const data = c.req.valid('json');
       const template = await db
@@ -238,7 +231,7 @@ export function aiChatsRoutes(db: any, auth: any): Hono {
   );
 
   app.delete('/admin/templates/:id', async (c) => {
-    const admin = await requireAdmin(c, auth, db);
+    const admin = await requireAdmin(c, auth);
     if (!admin) return c.json({ error: 'Admin access required' }, 403);
     await db
       .deleteFrom('zv_prompt_templates')
