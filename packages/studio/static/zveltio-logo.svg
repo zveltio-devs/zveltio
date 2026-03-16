@@ -10,16 +10,16 @@
    xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="lg1">
-      <stop style="stop-color:#5BBFBA;stop-opacity:1;" offset="0"/>
-      <stop style="stop-color:#5BBFBA;stop-opacity:0;" offset="1"/>
+      <stop style="stop-color:#069494;stop-opacity:1;" offset="0"/>
+      <stop style="stop-color:#069494;stop-opacity:0;" offset="1"/>
     </linearGradient>
     <linearGradient id="lg2">
-      <stop style="stop-color:#5BBFBA;stop-opacity:1;" offset="0"/>
-      <stop style="stop-color:#5BBFBA;stop-opacity:0;" offset="1"/>
+      <stop style="stop-color:#069494;stop-opacity:1;" offset="0"/>
+      <stop style="stop-color:#069494;stop-opacity:0;" offset="1"/>
     </linearGradient>
     <linearGradient id="lg3">
-      <stop style="stop-color:#5BBFBA;stop-opacity:1;" offset="0"/>
-      <stop style="stop-color:#5BBFBA;stop-opacity:0;" offset="1"/>
+      <stop style="stop-color:#069494;stop-opacity:1;" offset="0"/>
+      <stop style="stop-color:#069494;stop-opacity:0;" offset="1"/>
     </linearGradient>
     <linearGradient xlink:href="#lg1" id="g1" x1="187.03059" y1="62.35638" x2="148.69583" y2="164.04167" gradientUnits="userSpaceOnUse" gradientTransform="translate(-67.321549,-50.826592)"/>
     <linearGradient xlink:href="#lg2" id="g2" x1="90.487503" y1="94.720833" x2="6.3499999" y2="105.83334" gradientUnits="userSpaceOnUse" gradientTransform="translate(-19.052672,-59.43267)"/>

@@ -10,7 +10,7 @@ import { Database, Settings, Sparkles, CheckCircle, ArrowRight, X } from '@lucid
  let saving = $state(false);
 
  let companyName = $state('');
- let primaryColor = $state('#5BBFBA');
+ let primaryColor = $state('#069494');
 
  let collectionName = $state('');
  let collectionDisplay = $state('');

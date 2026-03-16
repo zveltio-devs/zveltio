@@ -279,11 +279,11 @@ export function apiDocsRoutes(db: Database, _auth: any): Hono {
   <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.11.0/swagger-ui.css">
   <style>
     body { margin: 0; background: #1a1a2e; }
-    .swagger-ui .topbar { background: #5BBFBA; }
+    .swagger-ui .topbar { background: #069494; }
     .swagger-ui .topbar .download-url-wrapper { display: none; }
     #version-badge {
       position: fixed; bottom: 16px; right: 16px;
-      background: #5BBFBA; color: white; padding: 4px 12px;
+      background: #069494; color: white; padding: 4px 12px;
       border-radius: 20px; font-size: 12px; font-family: monospace;
       z-index: 9999;
     }
