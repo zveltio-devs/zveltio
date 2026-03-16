@@ -105,7 +105,9 @@
       "Bash(node -e \"const pkg = require\\(''./node_modules/@lucide/svelte/package.json''\\); console.log\\(pkg.version\\); console.log\\(JSON.stringify\\(pkg.exports?.[''./icons/x.svelte''] ?? pkg.exports?.[''./icons/*''], null, 2\\)\\)\")",
       "Bash(bun -e \"import pkg from ''./node_modules/@lucide/svelte/package.json''; console.log\\(pkg.version\\)\")",
       "Bash(grep -n \"from ''@lucide/svelte/icons/\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/views/StatsView.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/views/SavedViews.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/common/ToastContainer.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/fields/RichTextEditor.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/fields/MapPicker.svelte\")",
-      "Bash(grep -rn \"from ''@lucide/svelte/icons/\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/\")"
+      "Bash(grep -rn \"from ''@lucide/svelte/icons/\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/\")",
+      "Bash(find c:/Users/Liviu/zveltio-ecosystem/zveltio -maxdepth 2 -type f -name *.md ! -path */node_modules/*)",
+      "Bash(__NEW_LINE_c8dd36dd4b6b0313__ cp:*)"
     ]
   }
 }
