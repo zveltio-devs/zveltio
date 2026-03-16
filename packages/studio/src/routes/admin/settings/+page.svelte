@@ -13,7 +13,7 @@
  app_name: 'Zveltio',
  site_url: '',
  logo_url: '',
- primary_color: '#570df8',
+ primary_color: '#5BBFBA',
  smtp_host: '',
  smtp_port: 587,
  smtp_user: '',
@@ -105,7 +105,7 @@
  <label class="label"><span class="label-text font-medium">Primary Color</span></label>
  <div class="flex gap-3 items-center">
  <input type="color" class="w-12 h-10 rounded cursor-pointer border border-base-300 bg-transparent" bind:value={s.primary_color} />
- <input class="input font-mono flex-1" bind:value={s.primary_color} placeholder="#570df8" />
+ <input class="input font-mono flex-1" bind:value={s.primary_color} placeholder="#5BBFBA" />
  </div>
  </div>
 

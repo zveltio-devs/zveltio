@@ -1,2 +1,11 @@
 @import 'tailwindcss';
 @plugin 'daisyui';
+
+[data-theme="light"] {
+  --color-primary: oklch(0.74 0.085 188);
+  --color-primary-content: oklch(1 0 0);
+  --color-secondary: oklch(0.65 0.08 190);
+  --color-secondary-content: oklch(1 0 0);
+  --color-accent: oklch(0.74 0.085 188);
+  --color-accent-content: oklch(1 0 0);
+}

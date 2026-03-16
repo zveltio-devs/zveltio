@@ -5,13 +5,13 @@
   "start_url": "/admin/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#570df8",
+  "theme_color": "#5BBFBA",
   "orientation": "any",
   "icons": [
     {
-      "src": "/admin/favicon.png",
+      "src": "/admin/favicon.svg",
       "sizes": "any",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ],

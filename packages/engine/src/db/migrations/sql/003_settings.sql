@@ -14,7 +14,7 @@ INSERT INTO zv_settings (key, value, description, is_public)
 VALUES
   (
     'branding',
-    '{"logo_url": null, "company_name": "Zveltio", "primary_color": "#570df8", "secondary_color": "#1d4ed8", "dark_mode": false}',
+    '{"logo_url": null, "company_name": "Zveltio", "primary_color": "#5BBFBA", "secondary_color": "#3a9e99", "dark_mode": false}',
     'Branding and theme settings',
     true
   ),

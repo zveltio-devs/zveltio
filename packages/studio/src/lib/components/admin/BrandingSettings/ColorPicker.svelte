@@ -8,7 +8,7 @@ import { Pipette } from '@lucide/svelte';
  onchange?: (color: string) => void;
  }
 
- let { label, value = '#570df8', description, onchange }: Props = $props();
+ let { label, value = '#5BBFBA', description, onchange }: Props = $props();
 
  function handleChange(e: Event) {
  onchange?.((e.target as HTMLInputElement).value);
@@ -64,7 +64,7 @@ import { Pipette } from '@lucide/svelte';
  <div class="flex-1">
  <div class="flex gap-2">
  <input type="text" class="input w-full font-mono" {value} onchange={handleTextChange}
- pattern="^#[0-9A-Fa-f]{6}$" placeholder="#570df8" aria-label="{label} hex value" />
+ pattern="^#[0-9A-Fa-f]{6}$" placeholder="#5BBFBA" aria-label="{label} hex value" />
  {#if 'EyeDropper' in window}
  <button type="button" class="btn btn-ghost btn-square" onclick={pickFromScreen} title="Pick from screen">
  <Pipette size={18} />

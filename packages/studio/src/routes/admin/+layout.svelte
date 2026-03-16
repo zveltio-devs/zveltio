@@ -81,11 +81,8 @@
  <!-- Sidebar -->
  <aside class="w-64 bg-base-200 border-r border-base-300 flex flex-col shrink-0 {sidebarOpen ? '' : 'hidden'} lg:flex">
  <!-- Logo -->
- <div class="p-4 border-b border-base-300 flex items-center gap-2">
- <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
- <span class="text-primary-content font-bold text-sm">Z</span>
- </div>
- <span class="text-xl font-bold">Zveltio</span>
+ <div class="p-4 border-b border-base-300 flex items-center">
+ <img src="{base}/zveltio-logo.svg" alt="Zveltio" class="h-8 w-auto" />
  </div>
 
  <!-- Navigation -->
@@ -149,7 +146,7 @@
  <button onclick={() => (sidebarOpen = !sidebarOpen)} class="btn btn-ghost btn-sm">
  {#if sidebarOpen}<X size={18} />{:else}<Menu size={18} />{/if}
  </button>
- <span class="font-bold">Zveltio</span>
+ <img src="{base}/zveltio-logo.svg" alt="Zveltio" class="h-7 w-auto" />
  </header>
 
  <main class="flex-1 overflow-y-auto p-6">
