@@ -107,7 +107,19 @@
       "Bash(grep -n \"from ''@lucide/svelte/icons/\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/views/StatsView.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/views/SavedViews.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/common/ToastContainer.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/fields/RichTextEditor.svelte\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/fields/MapPicker.svelte\")",
       "Bash(grep -rn \"from ''@lucide/svelte/icons/\" \"c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components/\")",
       "Bash(find c:/Users/Liviu/zveltio-ecosystem/zveltio -maxdepth 2 -type f -name *.md ! -path */node_modules/*)",
-      "Bash(__NEW_LINE_c8dd36dd4b6b0313__ cp:*)"
+      "Bash(__NEW_LINE_c8dd36dd4b6b0313__ cp:*)",
+      "Bash(find /c/Users/Liviu/zveltio-ecosystem -type f -name package.json ! -path */node_modules/* ! -path */.git/* ! -path */dist/* ! -path */.svelte-kit/* ! -path */build/*)",
+      "Bash(find /c/Users/Liviu/zveltio-ecosystem -name package.json ! -path */node_modules/* ! -path */.git/* -exec grep -l license {})",
+      "Bash(2)",
+      "Bash(grep -r \"ISC\\\\|license\" /c/Users/Liviu/zveltio-ecosystem/zveltio/package.json /c/Users/Liviu/zveltio-ecosystem/zveltio/packages/*/package.json)",
+      "Bash(grep -r \"Copyright\\\\|© 20\" /c/Users/Liviu/zveltio-ecosystem --include=*.ts --include=*.js ! -path */node_modules/* ! -path */.git/*)",
+      "Bash(grep -r \"license\\\\|License\\\\|LICENSE\" /c/Users/Liviu/zveltio-ecosystem/*.md /c/Users/Liviu/zveltio-ecosystem/zveltio-*/README.md)",
+      "Bash(find /c/Users/Liviu/zveltio-ecosystem -type f \\\\\\(-name README.md -o -name *.ts -o -name *.js \\\\\\) ! -path */node_modules/* ! -path */.git/* ! -path */dist/* ! -path */.svelte-kit/*)",
+      "Bash(xargs grep:*)",
+      "Bash(find /c/Users/Liviu/zveltio-ecosystem -type f -name LICENSE* ! -path */node_modules/* ! -path */.git/* ! -path */.wrangler/* ! -path */dist/* ! -path */.svelte-kit/*)",
+      "Bash(for file:*)",
+      "Bash(echo \"=== $file ===\")",
+      "Bash(grep -r \"SPDX\\\\|spdx\" /c/Users/Liviu/zveltio-ecosystem --include=*.ts --include=*.js --include=*.json ! -path */node_modules/* ! -path */.git/* ! -path */dist/* ! -path */.svelte-kit/* ! -path */.wrangler/*)"
     ]
   }
 }

@@ -42,7 +42,7 @@ FROM oven/bun:1.2-alpine AS production
 LABEL org.opencontainers.image.title="Zveltio Engine"
 LABEL org.opencontainers.image.description="Zveltio Business OS — Engine + Studio"
 LABEL org.opencontainers.image.source="https://github.com/zveltio/zveltio"
-LABEL org.opencontainers.image.licenses="ISC"
+LABEL org.opencontainers.image.licenses="MIT"
 
 RUN apk add --no-cache curl tzdata
 

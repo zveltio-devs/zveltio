@@ -2,7 +2,7 @@
 
 **High-performance self-hosted BaaS (Backend as a Service)** built with Bun, Hono, Kysely, Better-Auth, and Casbin. Designed for enterprises and public institutions.
 
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Bun](https://img.shields.io/badge/Bun-1.2.0+-red)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue)](https://www.typescriptlang.org/)
 
@@ -135,4 +135,4 @@ Full documentation at **[zveltio.com/docs](https://zveltio.com/docs)**
 
 ## 📝 License
 
-ISC — See [LICENSE](LICENSE)
+MIT — See [LICENSE](LICENSE)
