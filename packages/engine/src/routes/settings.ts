@@ -4,6 +4,31 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 
+// Security: only these keys can be written via the API.
+// Internal/system keys that affect engine security are listed in READONLY_SETTINGS_KEYS.
+const WRITABLE_SETTINGS_KEYS = new Set([
+  // Branding & UI
+  'branding', 'company_name', 'site_name', 'site_url', 'logo_url', 'favicon_url',
+  'primary_color', 'support_email', 'contact_email', 'timezone', 'date_format', 'language',
+  // Feature toggles (non-security)
+  'maintenance_mode', 'registration_enabled', 'api_docs_public',
+  'max_upload_size_mb', 'allowed_file_types', 'default_collection_permissions',
+  // Email configuration (non-secret values only)
+  'smtp_host', 'smtp_port', 'smtp_from_name', 'smtp_from_email', 'smtp_secure',
+  // AI configuration (non-secret)
+  'ai_enabled', 'ai_default_provider', 'ai_default_model', 'ai_max_tokens_per_request',
+  // Storage configuration (non-secret)
+  's3_public_url', 's3_bucket_public',
+  // Monitoring
+  'audit_log_retention_days', 'session_max_age_days',
+]);
+
+// These keys are system-managed and NEVER writable via the settings API.
+const READONLY_SETTINGS_KEYS = new Set([
+  'auth_secret', 'jwt_secret', 'encryption_key', 'database_url', 'redis_url',
+  'internal_api_key', 'webhook_signing_secret', 'license_key', 'engine_version', 'schema_version',
+]);
+
 export function settingsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -75,6 +100,12 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     zValidator('json', z.object({ value: z.any(), is_public: z.boolean().optional() })),
     async (c) => {
       const key = c.req.param('key');
+      if (READONLY_SETTINGS_KEYS.has(key)) {
+        return c.json({ error: `Setting key "${key}" is read-only and cannot be modified via the API.` }, 403);
+      }
+      if (!WRITABLE_SETTINGS_KEYS.has(key)) {
+        return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
+      }
       const { value, is_public } = c.req.valid('json');
       const serialized = JSON.stringify(value);
 
@@ -102,6 +133,15 @@ export function settingsRoutes(db: Database, auth: any): Hono {
   // PATCH /bulk — Update multiple settings at once
   app.patch('/bulk', async (c) => {
     const body = await c.req.json();
+    // Security: validate all keys before writing any of them.
+    for (const key of Object.keys(body)) {
+      if (READONLY_SETTINGS_KEYS.has(key)) {
+        return c.json({ error: `Setting key "${key}" is read-only and cannot be modified via the API.` }, 403);
+      }
+      if (!WRITABLE_SETTINGS_KEYS.has(key)) {
+        return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
+      }
+    }
     for (const [key, value] of Object.entries(body)) {
       const serialized = JSON.stringify(value);
       await (db as any)

@@ -69,7 +69,37 @@ async function executeStep(
     // ── query_db ──
     case 'query_db': {
       if (!cfg.query) return { output: prevOutput };
-      const result = await sql.raw(cfg.query).execute(db);
+
+      // Security: only SELECT/WITH statements permitted — blocks DML/DDL injection.
+      const trimmed = (cfg.query as string).trim().toUpperCase();
+      if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('WITH')) {
+        throw new Error(
+          'Flow query_db step only allows SELECT or WITH (read-only) statements. ' +
+          'Use update_record or insert_record step types for writes.',
+        );
+      }
+
+      // Block dangerous SQL patterns even inside SELECT
+      const DANGEROUS_PATTERNS = [
+        /;\s*(DROP|DELETE|UPDATE|INSERT|CREATE|ALTER|TRUNCATE|GRANT|REVOKE)/i,
+        /pg_sleep/i,
+        /pg_read_file/i,
+        /pg_write_file/i,
+        /copy\s+.*\s+to\s+/i,
+        /copy\s+.*\s+from\s+/i,
+        /lo_export/i,
+        /lo_import/i,
+      ];
+      for (const pattern of DANGEROUS_PATTERNS) {
+        if (pattern.test(cfg.query as string)) {
+          throw new Error('Flow query_db: blocked dangerous SQL pattern.');
+        }
+      }
+
+      // Execute with statement_timeout to prevent long-running queries
+      const result = await sql.raw(
+        `SET LOCAL statement_timeout = '10s'; ${cfg.query}`,
+      ).execute(db);
       return { output: result.rows };
     }
 
@@ -108,9 +138,24 @@ async function executeStep(
     // ── webhook ──
     case 'webhook': {
       if (!cfg.url) return { output: prevOutput };
-      const response = await fetch(cfg.url, {
-        method: cfg.method ?? 'POST',
-        headers: { 'Content-Type': 'application/json', ...(cfg.headers ?? {}) },
+
+      // Security: sanitize user-supplied headers — block credential injection.
+      const BLOCKED_HEADERS = new Set([
+        'authorization', 'cookie', 'set-cookie', 'x-api-key', 'x-auth-token',
+        'x-forwarded-for', 'x-real-ip', 'x-zveltio-internal', 'host', 'origin', 'referer',
+      ]);
+      const sanitizedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      for (const [key, value] of Object.entries((cfg.headers as Record<string, string>) ?? {})) {
+        if (BLOCKED_HEADERS.has(key.toLowerCase())) {
+          console.warn(`[Flow webhook] Blocked header injection attempt: "${key}"`);
+          continue;
+        }
+        if (typeof value === 'string') sanitizedHeaders[key] = value;
+      }
+
+      const response = await fetch(cfg.url as string, {
+        method: (cfg.method as string) ?? 'POST',
+        headers: sanitizedHeaders,
         body: JSON.stringify(cfg.body ?? prevOutput),
       });
       return { output: { status: response.status, ok: response.ok } };

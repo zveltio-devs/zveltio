@@ -128,10 +128,32 @@ export class DDLManager {
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status)`,
     ];
 
+    // Security: whitelist of allowed PostgreSQL extensions.
+    const ALLOWED_PG_EXTENSIONS = new Set([
+      'pgvector',        // AI embeddings
+      'postgis',         // Geospatial
+      'postgis_topology',
+      'uuid-ossp',       // UUID generation
+      'pg_trgm',         // Trigram similarity search
+      'unaccent',        // Text search accent normalization
+      'btree_gist',      // GiST indexes for B-tree types
+      'btree_gin',       // GIN indexes for B-tree types
+      'hstore',          // Key-value store column type
+      'citext',          // Case-insensitive text
+      'intarray',        // Integer array operations
+      'fuzzystrmatch',   // Fuzzy string matching
+    ]);
+
     // Ensure required extensions
     const requiredExtensions = fieldTypeRegistry.getRequiredExtensions(validated.fields as FieldConfig[]);
     for (const ext of requiredExtensions) {
-      await sql.raw(`CREATE EXTENSION IF NOT EXISTS ${ext}`).execute(db);
+      if (!ALLOWED_PG_EXTENSIONS.has(ext)) {
+        throw new Error(
+          `PostgreSQL extension "${ext}" is not in the allowed extensions whitelist. ` +
+          `Contact your administrator to add it to ALLOWED_PG_EXTENSIONS in ddl-manager.ts.`,
+        );
+      }
+      await sql`CREATE EXTENSION IF NOT EXISTS ${sql.id(ext)}`.execute(db);
     }
 
     // Build column definitions using FieldTypeRegistry

@@ -116,12 +116,21 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
 
     try {
-      const response = await fetch(webhook.url, {
-        method: webhook.method || 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...((webhook.headers as object) || {}),
-        },
+      // Security: sanitize stored headers — block credential injection.
+      const BLOCKED_HEADERS = new Set([
+        'authorization', 'cookie', 'set-cookie', 'x-api-key', 'x-auth-token',
+        'x-forwarded-for', 'x-real-ip', 'x-zveltio-internal', 'host', 'origin', 'referer',
+      ]);
+      const sanitizedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      for (const [key, value] of Object.entries((webhook.headers as Record<string, string>) || {})) {
+        if (!BLOCKED_HEADERS.has(key.toLowerCase()) && typeof value === 'string') {
+          sanitizedHeaders[key] = value;
+        }
+      }
+
+      const response = await fetch(webhook.url as string, {
+        method: (webhook.method as string) || 'POST',
+        headers: sanitizedHeaders,
         body: JSON.stringify({
           event: 'test',
           collection: 'test',

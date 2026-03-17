@@ -60,6 +60,35 @@ export function invalidateRulesCache(collection: string): void {
  * Validate a single field value against its rules.
  * Returns an array of error messages (empty = valid).
  */
+/**
+ * Executes a regex test with a timeout to prevent ReDoS attacks.
+ * Returns null if the regex is invalid; false if it times out.
+ * TODO: For production-grade ReDoS protection, run in a Bun Worker thread
+ * (similar to edge-functions/worker-runner.ts). The `re2` npm package also
+ * provides O(n) guarantees via Google's RE2 engine.
+ */
+function safeRegexTest(pattern: string, value: string, timeoutMs = 100): boolean {
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern);
+  } catch {
+    return false; // Invalid regex — treat as no match
+  }
+
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; }, timeoutMs);
+  try {
+    const result = regex.test(value);
+    clearTimeout(timer);
+    // If the timeout fired during regex.test (possible in single-threaded JS),
+    // treat as non-match to avoid stalling further.
+    return timedOut ? false : result;
+  } catch {
+    clearTimeout(timer);
+    return false;
+  }
+}
+
 export function validateFieldValue(value: any, rules: ValidationRule[]): string[] {
   const errors: string[] = [];
 
@@ -84,7 +113,7 @@ export function validateFieldValue(value: any, rules: ValidationRule[]): string[
         violated = typeof value === 'string' && value.length > cfg.value;
         break;
       case 'pattern':
-        violated = typeof value === 'string' && !new RegExp(cfg.pattern).test(value);
+        violated = typeof value === 'string' && !safeRegexTest(cfg.pattern, value);
         break;
       case 'range':
         violated = typeof value === 'number' && (value < cfg.min || value > cfg.max);

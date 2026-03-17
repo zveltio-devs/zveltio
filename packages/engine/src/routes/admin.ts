@@ -80,9 +80,19 @@ export function adminRoutes(db: Database, auth: any): Hono {
       const rawKey = `zvk_${crypto.randomUUID().replace(/-/g, '')}`;
       const prefix = rawKey.substring(0, 12);
 
+      // Security: HMAC-SHA256 with the auth secret as a salt.
+      // SHA-256 without a secret is vulnerable to rainbow table attacks because
+      // API keys follow a predictable format (zvk_ prefix + 32 hex chars).
+      const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
+      if (!authSecret) {
+        return c.json({ error: 'Server configuration error: auth secret not set' }, 500);
+      }
       const encoder = new TextEncoder();
-      const data = encoder.encode(rawKey);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw', encoder.encode(authSecret),
+        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+      );
+      const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(rawKey));
       const keyHash = Array.from(new Uint8Array(hashBuffer))
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');

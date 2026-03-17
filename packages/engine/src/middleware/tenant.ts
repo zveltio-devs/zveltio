@@ -21,27 +21,39 @@ declare module 'hono' {
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {
   const hostname = c.req.header('host')?.split(':')[0];
-  const tenant = await resolveTenantFromRequest(c.req.raw.headers, hostname);
 
-  c.set('tenant', tenant);
+  try {
+    const tenant = await resolveTenantFromRequest(c.req.raw.headers, hostname);
 
-  if (tenant) {
-    // GOLDEN RULE: isolation through PostgreSQL RLS, not manual WHERE.
-    // SET LOCAL activates the tenant_isolation policy for the current transaction.
-    // If we're not in a transaction, it fails silently (catch) — RLS will block
-    // access anyway through current_setting('zveltio.current_tenant', true) = NULL.
-    await setCurrentTenant(tenant.id).catch(() => {});
+    c.set('tenant', tenant);
 
-    const env = await resolveEnvironment(tenant, c.req.raw.headers);
-    c.set('environment', env);
-    // Use environment-specific schema if available, else fall back to tenant default schema
-    c.set(
-      'tenantSchema',
-      env ? env.schema_name : getTenantSchemaName(tenant.slug),
+    if (tenant) {
+      if (tenant.status !== 'active') {
+        return c.json({ error: 'Tenant account is suspended' }, 403);
+      }
+
+      // Security: fail-closed — if RLS context cannot be set, reject the request.
+      // A silent failure would leave the tenant GUC unset, causing RLS to be
+      // inactive and potentially exposing data across tenants.
+      await setCurrentTenant(tenant.id);
+
+      const env = await resolveEnvironment(tenant, c.req.raw.headers);
+      c.set('environment', env);
+      c.set(
+        'tenantSchema',
+        env ? env.schema_name : getTenantSchemaName(tenant.slug),
+      );
+    } else {
+      c.set('environment', null);
+      c.set('tenantSchema', 'public');
+    }
+  } catch (err) {
+    // RLS context could not be established — reject to prevent cross-tenant leakage.
+    console.error('[Tenant Middleware] Critical: failed to establish tenant context:', err);
+    return c.json(
+      { error: 'Could not establish tenant context. Request rejected for security.' },
+      500,
     );
-  } else {
-    c.set('environment', null);
-    c.set('tenantSchema', 'public');
   }
 
   await next();

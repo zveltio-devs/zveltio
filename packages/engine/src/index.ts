@@ -189,20 +189,31 @@ async function bootstrap() {
     return c.body(fileContent as any);
   });
 
-  // 7b. CSP for /admin
+  // 7b. CSP for /admin — no unsafe-eval; Svelte compiled output does not require it.
   app.use('/admin/*', async (c, next) => {
     await next();
+
+    // Per-request nonce for any inline scripts Studio may emit.
+    const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64');
+
     c.header(
       'Content-Security-Policy',
       [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-eval'",
+        // 'unsafe-eval' removed — if a library breaks, audit it rather than re-enabling.
+        `script-src 'self' 'nonce-${nonce}'`,
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self' data:",
         "connect-src 'self' ws: wss:",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
       ].join('; '),
     );
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('X-Frame-Options', 'DENY');
+    c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   });
 
   // 9. API: active extensions list (Studio consumes this)

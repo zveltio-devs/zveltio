@@ -129,9 +129,15 @@ function ipToNum(ip: string): number {
 }
 
 async function hashKey(key: string): Promise<string> {
+  // Security: HMAC-SHA256 with the auth secret — must match admin.ts key creation.
+  const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
+  if (!authSecret) throw new Error('Server configuration error: auth secret not set');
   const encoder = new TextEncoder();
-  const data = encoder.encode(key);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', encoder.encode(authSecret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(key));
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
