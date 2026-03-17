@@ -46,10 +46,15 @@ async function getUsersForRole(db: Database, role: string): Promise<string[]> {
 function interpolateTemplate(template: string, context: Record<string, any>): string {
   return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
     const keys = path.split('.');
+    // Security: block prototype chain traversal (e.g. {{__proto__.polluted}})
+    if (keys.some((k) => k === '__proto__' || k === 'constructor' || k === 'prototype')) {
+      return match;
+    }
     let value: any = context;
     for (const key of keys) {
-      value = value?.[key];
-      if (value === undefined) return match; // Leave placeholder if key not found
+      if (!Object.prototype.hasOwnProperty.call(value, key)) return match;
+      value = value[key];
+      if (value === undefined || value === null) return match;
     }
     return typeof value === 'object' ? JSON.stringify(value) : String(value);
   });

@@ -82,27 +82,24 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     if (existing.rows.length === 0) return c.json({ error: 'Template not found' }, 404);
 
     const ALLOWED = ['name', 'type', 'description', 'template_html', 'template_text', 'variables', 'source_collection', 'field_mapping', 'prefix', 'is_active'];
-    const updates: string[] = [];
-    const values: any[] = [];
-    let idx = 1;
 
+    // Build SET clauses using Kysely's sql template — fully parameterized, no sql.raw().
+    const setClauses: ReturnType<typeof sql>[] = [];
     for (const key of ALLOWED) {
-      if (body[key] !== undefined) {
-        if (key === 'variables' || key === 'field_mapping') {
-          updates.push(`${key} = $${idx}::jsonb`);
-          values.push(JSON.stringify(body[key]));
-        } else {
-          updates.push(`${key} = $${idx}`);
-          values.push(body[key]);
-        }
-        idx++;
+      if (body[key] === undefined) continue;
+      const col = sql.id(key);
+      if (key === 'variables' || key === 'field_mapping') {
+        // JSONB columns require explicit cast
+        setClauses.push(sql`${col} = ${JSON.stringify(body[key])}::jsonb`);
+      } else {
+        setClauses.push(sql`${col} = ${body[key]}`);
       }
     }
 
-    if (updates.length === 0) return c.json({ error: 'No fields to update' }, 400);
+    if (setClauses.length === 0) return c.json({ error: 'No fields to update' }, 400);
 
-    values.push(id);
-    await sql`UPDATE zv_doc_templates SET ${sql.raw(updates.join(', '))}, updated_at = NOW() WHERE id = $${idx}`.execute(db);
+    setClauses.push(sql`updated_at = NOW()`);
+    await sql`UPDATE zv_doc_templates SET ${sql.join(setClauses, sql`, `)} WHERE id = ${id}`.execute(db);
 
     const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(db);
     return c.json({ template: templateResult.rows[0] });

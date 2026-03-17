@@ -315,13 +315,15 @@ export function dataRoutes(db: Database, auth: any): Hono {
       offset,
     });
 
-    // Apply full-text search as an additional WHERE on top (uses parameterized query)
+    // Apply full-text search as an additional WHERE on top (uses parameterized query).
+    // websearch_to_tsquery() is used instead of to_tsquery() because it accepts
+    // arbitrary user input without throwing syntax errors on special characters.
     let records = result.records;
     if (query.search && result.records.length > 0) {
-      const searchTerms = query.search.trim().split(/\s+/).filter(Boolean).join(' & ');
+      const searchInput = query.search.trim().substring(0, 500); // cap length
       const ftsResult = await sql`
         SELECT * FROM ${sql.id(tableName)}
-        WHERE search_vector @@ to_tsquery('english', ${searchTerms})
+        WHERE search_vector @@ websearch_to_tsquery('english', ${searchInput})
         ORDER BY created_at DESC
         LIMIT ${query.limit} OFFSET ${offset}
       `.execute(db).catch(() => ({ rows: result.records }));

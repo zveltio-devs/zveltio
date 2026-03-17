@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
 import type { Database } from '../db/index.js';
 
 // Auth routes — Better-Auth handles all /api/auth/** requests
@@ -22,11 +24,17 @@ export function authRoutes(db: Database, auth: any): Hono {
   });
 
   // PATCH /me — update own profile
-  app.patch('/me', async (c) => {
+  app.patch(
+    '/me',
+    zValidator('json', z.object({
+      name: z.string().min(1).max(200).optional(),
+      image: z.string().url().max(2048).optional(),
+    })),
+    async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Not authenticated' }, 401);
 
-    const { name, image } = await c.req.json();
+    const { name, image } = c.req.valid('json');
     const updates: Record<string, any> = { updatedAt: new Date() };
     if (name !== undefined) updates.name = name;
     if (image !== undefined) updates.image = image;

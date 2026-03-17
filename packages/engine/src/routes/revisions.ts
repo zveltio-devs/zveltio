@@ -146,7 +146,13 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
 
   // GET /record/:collection/:id/comments — Get comments for a record
   app.get('/record/:collection/:recordId/comments', async (c) => {
+    const user = c.get('user') as any;
     const { collection, recordId } = c.req.param();
+
+    if (!(await checkPermission(user.id, `data:${collection}`, 'read')) &&
+        !(await checkPermission(user.id, 'admin', '*'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
 
     const comments = await sql`
       SELECT

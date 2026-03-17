@@ -25,7 +25,8 @@ export function usersRoutes(db: Database, auth: any): Hono {
   // GET / — List all users
   app.get('/', async (c) => {
     const { page = '1', limit = '20', search } = c.req.query();
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const parsedLimit = Math.min(parseInt(limit) || 20, 200);
+    const offset = (parseInt(page) - 1) * parsedLimit;
 
     let query = (db as any).selectFrom('user').selectAll().orderBy('createdAt', 'desc');
     if (search) {
@@ -37,7 +38,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
       );
     }
 
-    const users = await query.offset(offset).limit(parseInt(limit)).execute();
+    const users = await query.offset(offset).limit(parsedLimit).execute();
     const total = await (db as any)
       .selectFrom('user')
       .select((eb: any) => eb.fn.count('id').as('count'))
@@ -56,7 +57,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
       pagination: {
         total: parseInt(total?.count ?? '0'),
         page: parseInt(page),
-        limit: parseInt(limit),
+        limit: parsedLimit,
       },
     });
   });

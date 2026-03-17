@@ -53,6 +53,11 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       error?: string;
     }> = [];
 
+    // Security: only user-defined collections (zvd_ prefix) are writable via sync.
+    // This prevents clients from pushing operations to system tables (user, casbin_rule,
+    // zv_api_keys, etc.).
+    const COLLECTION_RE = /^zvd_[a-z][a-z0-9_]*$/;
+
     // Group creates by collection for batch insert
     const createsByCollection = new Map<
       string,
@@ -69,6 +74,34 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         });
         continue;
       }
+
+      // Normalize: allow short names ('orders') or full names ('zvd_orders')
+      const tableName: string = op.collection.startsWith('zvd_')
+        ? op.collection
+        : `zvd_${op.collection}`;
+
+      if (!COLLECTION_RE.test(tableName)) {
+        results.push({
+          recordId: op.recordId,
+          status: 'error',
+          error: `Invalid collection name: "${op.collection}". Only user-defined collections are writable via sync.`,
+        });
+        continue;
+      }
+
+      // Validate operation type
+      if (!['create', 'update', 'delete'].includes(op.operation)) {
+        results.push({
+          recordId: op.recordId,
+          status: 'error',
+          error: `Unknown operation: "${op.operation}". Allowed: create, update, delete.`,
+        });
+        continue;
+      }
+
+      // Reassign normalized table name for downstream use
+      op.collection = tableName;
+
       if (op.operation === 'create') {
         const list = createsByCollection.get(op.collection) ?? [];
         list.push({ recordId: op.recordId, payload: op.payload });
@@ -183,7 +216,15 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       timestamp: number;
     }> = [];
 
-    for (const collection of collections) {
+    const COLLECTION_RE = /^zvd_[a-z][a-z0-9_]*$/;
+
+    for (const rawName of collections) {
+      const collection: string = typeof rawName === 'string' && rawName.startsWith('zvd_')
+        ? rawName
+        : `zvd_${rawName}`;
+
+      if (!COLLECTION_RE.test(collection)) continue; // skip invalid/system table names
+
       try {
         const updated = await db
           .selectFrom(collection as any)

@@ -33,6 +33,15 @@ export function settingsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   // GET /public — Public settings (no auth required)
+  // Security: double-guard — is_public flag AND explicit whitelist.
+  // Even if a sensitive key is accidentally marked is_public, it won't be served.
+  const PUBLIC_SETTINGS_WHITELIST = new Set([
+    'branding', 'company_name', 'site_name', 'site_url', 'logo_url', 'favicon_url',
+    'primary_color', 'language', 'timezone', 'date_format', 'support_email',
+    'contact_email', 'registration_enabled', 'api_docs_public', 'maintenance_mode',
+    'ai_enabled', 'ai_default_model',
+  ]);
+
   app.get('/public', async (c) => {
     const settings = await (db as any)
       .selectFrom('zv_settings')
@@ -42,7 +51,9 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
     const result: Record<string, any> = {};
     for (const s of settings) {
-      result[(s as any).key] = typeof (s as any).value === 'string'
+      const key = (s as any).key as string;
+      if (!PUBLIC_SETTINGS_WHITELIST.has(key)) continue; // extra guard
+      result[key] = typeof (s as any).value === 'string'
         ? JSON.parse((s as any).value)
         : (s as any).value;
     }
