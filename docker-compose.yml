@@ -162,7 +162,7 @@ services:
       - prometheus
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: '${GRAFANA_ADMIN_PASSWORD:?ERROR: GRAFANA_ADMIN_PASSWORD must be set in .env}'
       GF_USERS_ALLOW_SIGN_UP: 'false'
     ports:
       - '${GRAFANA_PORT:-3001}:3000'
@@ -205,7 +205,7 @@ services:
       DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@pooler:6432/${POSTGRES_DB:-zveltio}'
 
       # Auth (change BETTER_AUTH_SECRET in production!)
-      BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:-change-me-in-production-min-32-chars}'
+      BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?ERROR: BETTER_AUTH_SECRET must be set in .env - generate with: openssl rand -hex 32}'
       BETTER_AUTH_URL: '${BETTER_AUTH_URL:-http://localhost:3000}'
 
       # Valkey/Redis

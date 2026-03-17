@@ -5,7 +5,7 @@
  import { ArrowLeft, Plus, Trash2, GripVertical, ChevronDown } from '@lucide/svelte';
  import { base } from '$app/paths';
 
- const collectionName = $derived(page.params.name);
+ const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
  let fieldTypes = $state<any[]>([]);
  let loading = $state(true);

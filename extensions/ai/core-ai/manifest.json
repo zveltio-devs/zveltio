@@ -5,8 +5,8 @@
   "displayName": "Core AI",
   "description": "Multi-provider AI integration — OpenAI, Anthropic, Gemini, Ollama",
   "version": "1.0.0",
-  "zveltioMinVersion": "2.0.0",
-  "zveltioMaxVersion": "3.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "zveltioMaxVersion": "2.0.0",
   "permissions": ["database", "settings"],
   "contributes": {
     "engine": true,

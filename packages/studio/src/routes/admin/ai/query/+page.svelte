@@ -29,7 +29,7 @@
 
   async function loadHistory() {
     try {
-      const r = await api.get('/api/ai/query/history');
+      const r = await api.get<{ queries: any[] }>('/api/ai/query/history');
       history = r.queries ?? [];
     } catch { /* ignore */ }
   }

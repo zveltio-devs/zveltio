@@ -273,7 +273,7 @@
  {key.default_value || '—'}
  </td>
  <td>
- {#if editingCell?.keyId === key.id && editingCell.locale === activeLocale}
+ {#if editingCell?.keyId === key.id && editingCell?.locale === activeLocale}
  <div class="flex gap-1">
  <input
  type="text"

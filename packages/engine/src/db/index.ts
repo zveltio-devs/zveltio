@@ -3,6 +3,16 @@ import { BunSqlDialect } from './bun-sql-dialect.js';
 
 export type Database = Kysely<any>;
 
+/**
+ * Creates a standalone Kysely instance for a given connection string.
+ * Used primarily in integration tests to get an isolated db connection.
+ */
+export function createDb(connectionString: string): Database {
+  return new Kysely({
+    dialect: new BunSqlDialect({ connectionString }),
+  });
+}
+
 let _db: Database | null = null;
 
 export async function initDatabase(): Promise<Database> {

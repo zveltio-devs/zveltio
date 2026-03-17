@@ -117,7 +117,7 @@ import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte';
  >
  <div class="flex items-center gap-2 min-w-0">
  <span class="text-xs opacity-50 shrink-0">
- {expanded.has(rev.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+ {#if expanded.has(rev.id)}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}
  </span>
  <span class="badge {actionBadge[rev.action] || 'badge-ghost'} badge-xs">{rev.action}</span>
  <span class="font-mono text-xs text-primary shrink-0">{rev.collection}</span>

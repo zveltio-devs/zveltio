@@ -30,7 +30,7 @@
  const params = new URLSearchParams({ schema });
  const ex = excludeList();
  if (ex.length) params.set('exclude', ex.join(','));
- const res = await api.get(`/api/introspect/preview?${params}`);
+ const res = await api.get<{ tables: TablePreview[] }>(`/api/introspect/preview?${params}`);
  previewTables = res.tables ?? [];
  previewed = true;
  } catch (e: any) {
@@ -44,7 +44,7 @@
  importing = true;
  error = '';
  try {
- const res = await api.post('/api/introspect', {
+ const res = await api.post<{ imported: number; updated: number; tables: TablePreview[] }>('/api/introspect', {
  schema,
  exclude: excludeList(),
  });

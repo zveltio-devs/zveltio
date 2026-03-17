@@ -40,7 +40,7 @@
  loading = true;
  error = '';
  try {
- const res = await api.get('/api/collections');
+ const res = await api.get<{ collections: any[] }>('/api/collections');
  collections = (res.collections || []).filter(
  (c: any) => c.source_type === 'virtual',
  );

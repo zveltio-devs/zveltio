@@ -5,8 +5,8 @@
   "displayName": "SAML 2.0 SSO",
   "description": "SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace)",
   "version": "1.0.0",
-  "zveltioMinVersion": "2.0.0",
-  "zveltioMaxVersion": "3.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "zveltioMaxVersion": "2.0.0",
   "permissions": ["database"],
   "peerDependencies": {
     "node-saml": "^4.0.0"

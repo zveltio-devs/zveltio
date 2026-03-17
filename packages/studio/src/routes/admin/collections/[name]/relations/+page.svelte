@@ -5,7 +5,7 @@
  import { ArrowLeft, Plus, Trash2, ArrowRight } from '@lucide/svelte';
  import { base } from '$app/paths';
 
- const collectionName = $derived(page.params.name);
+ const collectionName = $derived(page.params.name ?? '');
  let relations = $state<any[]>([]);
  let allCollections = $state<any[]>([]);
  let loading = $state(true);

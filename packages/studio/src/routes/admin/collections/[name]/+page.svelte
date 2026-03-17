@@ -6,7 +6,7 @@
  import { base } from '$app/paths';
  import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
 
- const collectionName = $derived(page.params.name);
+ const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
  let records = $state<any[]>([]);
  let pagination = $state<any>({ total: 0, page: 1, limit: 20 });
@@ -173,8 +173,7 @@
  </table>
  </div>
  {/if}
-
- {:else}
+{:else if activeTab === 'schema'}
  <!-- Schema tab -->
  <div class="space-y-3">
  {#each getFields() as field}

@@ -232,10 +232,16 @@ S3_BUCKET=zveltio
 # ── Engine ─────────────────────────────────────────────────────
 PORT=${DEFAULT_PORT}
 SECRET_KEY=${SECRET_KEY}
+BETTER_AUTH_SECRET=$(generate_secret 32)
 NODE_ENV=production
 SERVE_STUDIO=true
 ZVELTIO_VERSION=${VERSION}
 ZVELTIO_EXTENSIONS=ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail
+
+# ── Monitoring ─────────────────────────────────────────────────
+GRAFANA_ADMIN_PASSWORD=$(generate_secret 24)
+GRAFANA_PORT=3001
+PROMETHEUS_PORT=9090
 EOF
   ok ".env generated with secure credentials"
 else

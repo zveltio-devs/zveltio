@@ -5,8 +5,8 @@
   "displayName": "Mail Client",
   "description": "Full IMAP/SMTP email client with AI features, Sieve filtering, and contacts",
   "version": "1.0.0",
-  "zveltioMinVersion": "2.0.0",
-  "zveltioMaxVersion": "3.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "zveltioMaxVersion": "2.0.0",
   "permissions": ["database", "settings"],
   "peerDependencies": {
     "imapflow": "^1.0.0",

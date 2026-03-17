@@ -1,15 +1,21 @@
 {
-  "latest": "2.0.0",
+  "latest": "1.0.0",
   "latest_beta": null,
-  "updated_at": "2026-03-15T00:00:00Z",
+  "updated_at": "2026-03-16T00:00:00Z",
   "versions": [
     {
-      "version": "2.0.0",
+      "version": "1.0.0",
       "channel": "stable",
-      "published_at": "2026-03-15T00:00:00Z",
+      "published_at": "2026-03-16T00:00:00Z",
       "breaking_changes": false,
-      "release_notes": "https://github.com/zveltio/zveltio/releases/tag/v2.0.0",
-      "assets": {}
+      "release_notes": "https://github.com/zveltio/zveltio/releases/tag/v1.0.0",
+      "assets": {
+        "linux-x64": "https://github.com/zveltio/zveltio/releases/download/v1.0.0/zveltio-linux-x64",
+        "linux-arm64": "https://github.com/zveltio/zveltio/releases/download/v1.0.0/zveltio-linux-arm64",
+        "macos-arm64": "https://github.com/zveltio/zveltio/releases/download/v1.0.0/zveltio-macos-arm64",
+        "docker-compose": "https://github.com/zveltio/zveltio/releases/download/v1.0.0/docker-compose.yml",
+        "checksums": "https://github.com/zveltio/zveltio/releases/download/v1.0.0/checksums.sha256"
+      }
     }
   ]
 }

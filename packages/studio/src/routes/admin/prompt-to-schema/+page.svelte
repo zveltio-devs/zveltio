@@ -31,7 +31,14 @@
  result = null;
  error = '';
  try {
- const res = await api.post('/api/ai/generate-schema', {
+ const res = await api.post<{
+ success: boolean;
+ collections: string[];
+ skipped: string[];
+ job_ids: string[];
+ seed_data: Record<string, any[]>;
+ message: string;
+ }>('/api/ai/generate-schema', {
  description: description.trim(),
  seed,
  seed_count: seedCount,

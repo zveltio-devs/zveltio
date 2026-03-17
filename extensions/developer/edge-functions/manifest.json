@@ -5,8 +5,8 @@
   "displayName": "Edge Functions",
   "description": "Write and deploy serverless functions that run inside the Zveltio engine",
   "version": "1.0.0",
-  "zveltioMinVersion": "2.0.0",
-  "zveltioMaxVersion": "3.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "zveltioMaxVersion": "2.0.0",
   "permissions": ["database"],
   "contributes": {
     "engine": true,

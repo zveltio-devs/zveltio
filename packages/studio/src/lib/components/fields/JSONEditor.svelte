@@ -71,8 +71,8 @@ import { Check, X, Maximize2, Minimize2 } from '@lucide/svelte';
  oninput={handleInput}
  spellcheck="false"
  autocomplete="off"
- autocorrect="off"
  autocapitalize="off"
+ {...{'autocorrect': 'off'}}
  ></textarea>
 </div>
 
