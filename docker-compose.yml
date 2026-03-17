@@ -214,8 +214,8 @@ services:
       # S3 / SeaweedFS
       S3_ENDPOINT: 'http://storage:8333'
       S3_REGION: 'us-east-1'
-      S3_ACCESS_KEY: '${S3_ACCESS_KEY:-}'
-      S3_SECRET_KEY: '${S3_SECRET_KEY:-}'
+      S3_ACCESS_KEY: '${S3_ACCESS_KEY:?ERROR: S3_ACCESS_KEY must be set}'
+      S3_SECRET_KEY: '${S3_SECRET_KEY:?ERROR: S3_SECRET_KEY must be set}'
       S3_BUCKET: 'zveltio'
       S3_PUBLIC_URL: '${S3_PUBLIC_URL:-http://localhost:8333}'
 

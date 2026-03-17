@@ -7,6 +7,7 @@ import { enqueueDDLJob, getDDLJob } from '../lib/ddl-queue.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { dynamicAddColumn, dynamicDropColumn } from '../db/dynamic.js';
 import { SYSTEM_COLLECTIONS } from '../lib/system-collections.js';
+import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { z } from 'zod';
 
 // Auth helper — checks session from request headers
@@ -28,6 +29,12 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     c.set('user', user);
     await next();
   });
+
+  // DDL rate limit: schema changes are rare operations — max 10/minute
+  app.use('/', ddlRateLimit);
+  app.use('/:name', ddlRateLimit);
+  app.use('/:name/fields', ddlRateLimit);
+  app.use('/:name/fields/:fieldName', ddlRateLimit);
 
   // GET / — List all collections (user-defined + system)
   app.get('/', async (c) => {

@@ -63,6 +63,8 @@ export function rateLimit(config: RateLimitConfig) {
   };
 }
 
-export const authRateLimit = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'auth' });
-export const apiRateLimit  = rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'api' });
-export const aiRateLimit   = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'ai' });
+export const authRateLimit  = rateLimit({ windowMs: 60_000, max: 10,  keyPrefix: 'auth' });
+export const apiRateLimit   = rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'api' });
+export const aiRateLimit    = rateLimit({ windowMs: 60_000, max: 20,  keyPrefix: 'ai' });
+export const writeRateLimit = rateLimit({ windowMs: 60_000, max: 60,  keyPrefix: 'write' });
+export const ddlRateLimit   = rateLimit({ windowMs: 60_000, max: 10,  keyPrefix: 'ddl' });

@@ -338,23 +338,37 @@ export class GhostDDL {
     );
     const migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
 
-    onProgress?.('copying', 'Batch copying data from original to ghost table');
-    const copied = await GhostDDL.batchCopy(db, migration, (done, total) => {
-      onProgress?.('copying', `Copied ${done}/${total} rows`);
-    });
+    try {
+      onProgress?.('copying', 'Batch copying data from original to ghost table');
+      const copied = await GhostDDL.batchCopy(db, migration, (done, total) => {
+        onProgress?.('copying', `Copied ${done}/${total} rows`);
+      });
 
-    onProgress?.(
-      'changelog',
-      'Applying changelog mutations accumulated during copy',
-    );
-    const changelogApplied = await GhostDDL.applyChangelog(db, migration);
+      onProgress?.(
+        'changelog',
+        'Applying changelog mutations accumulated during copy',
+      );
+      const changelogApplied = await GhostDDL.applyChangelog(db, migration);
 
-    onProgress?.('swapping', 'Performing atomic table swap (lock ~ms)');
-    await GhostDDL.atomicSwap(db, migration);
+      onProgress?.('swapping', 'Performing atomic table swap (lock ~ms)');
+      await GhostDDL.atomicSwap(db, migration);
 
-    onProgress?.(
-      'done',
-      `Migration complete: ${copied} rows copied, ${changelogApplied} changelog entries applied`,
-    );
+      onProgress?.(
+        'done',
+        `Migration complete: ${copied} rows copied, ${changelogApplied} changelog entries applied`,
+      );
+    } catch (err) {
+      // Cleanup ghost tables on failure to prevent accumulation
+      try {
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.ghostTable)} CASCADE`.execute(db);
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)} CASCADE`.execute(db);
+        const triggerFn = `${migration.triggerName}_fn`;
+        await sql.raw(`DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${migration.originalTable}"`).execute(db).catch(() => {});
+        await sql.raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`).execute(db).catch(() => {});
+      } catch (cleanupErr) {
+        console.warn('[GhostDDL] Cleanup after failure also failed:', cleanupErr);
+      }
+      throw err;
+    }
   }
 }
