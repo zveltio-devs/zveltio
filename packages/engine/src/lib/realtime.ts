@@ -10,11 +10,15 @@ import { broadcastEvent } from '../routes/ws.js';
  *   Instance A: data.ts PATCH → pg_notify('zveltio_changes', payload)
  *   Instance B: RealtimeManager subscribe → primește payload → broadcastEvent()
  */
+const REALTIME_RETRY_BASE_MS = 1_000;   // Initial retry delay
+const REALTIME_RETRY_MAX_MS = 300_000;  // Cap at 5 minutes
+
 export class RealtimeManager {
   // @ts-ignore — BunSubscription tipat de bun-types
   private subscription: import('../db/bun-sql-dialect.js').BunSubscription | null = null;
   private running = false;
   private databaseUrl = '';
+  private retryAttempt = 0;
 
   async start(databaseUrl: string): Promise<void> {
     if (this.running) return;
@@ -53,12 +57,20 @@ export class RealtimeManager {
       );
 
       this.running = true;
+      this.retryAttempt = 0; // Reset on success
       console.log('✅ Realtime LISTEN/NOTIFY started (Bun.SQL native)');
     } catch (err: any) {
-      console.warn('[realtime] Failed to start LISTEN/NOTIFY:', err.message);
+      const delayMs = Math.min(
+        REALTIME_RETRY_BASE_MS * Math.pow(2, this.retryAttempt),
+        REALTIME_RETRY_MAX_MS,
+      );
+      this.retryAttempt++;
+      console.warn(
+        `[realtime] Failed to start LISTEN/NOTIFY (attempt ${this.retryAttempt}), retrying in ${delayMs}ms:`,
+        err.message,
+      );
       // Non-fatal — single-instance realtime funcționează via direct broadcastEvent()
-      // Retry după 5s
-      setTimeout(() => this.start(databaseUrl), 5_000);
+      setTimeout(() => this.start(databaseUrl), delayMs);
     }
   }
 
@@ -70,6 +82,7 @@ export class RealtimeManager {
       this.subscription = null;
     }
     this.running = false;
+    this.retryAttempt = 0;
   }
 
   get isRunning(): boolean {

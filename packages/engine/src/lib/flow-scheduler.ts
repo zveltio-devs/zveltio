@@ -12,6 +12,10 @@ import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from './garbage-collector.js';
 // cloud/trash and routes/cloud are optional extensions — imported dynamically below
 
+const SCHEDULER_POLL_MS = 60_000;        // How often the scheduler polls for due flows
+const DEFAULT_CRON_INTERVAL_MS = 60_000; // Default interval when trigger_config.interval_seconds is absent
+const DEFAULT_AI_INTERVAL_MS = 3_600_000; // Default interval for ai_task flows (1 h)
+
 let _db: Database | null = null;
 let _running = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
@@ -28,11 +32,11 @@ export const flowScheduler = {
     if (db) _db = db;
     _running = true;
 
-    // Immediate first tick, then every 60 s
+    // Immediate first tick, then every SCHEDULER_POLL_MS
     await this._tick().catch(() => {});
     _timer = setInterval(() => {
       this._tick().catch(() => {});
-    }, 60_000);
+    }, SCHEDULER_POLL_MS);
 
     // Garbage collector — runs daily at 03:00
     if (_db) {
@@ -91,8 +95,8 @@ export const flowScheduler = {
 
         if (!ZveltioAIEngine) {
           console.warn('[FlowScheduler] AI extension not loaded — skipping ai_task flow');
-          // Advance next_run_at even on skip, otherwise retries every 60s indefinitely
-          const skipIntervalMs = ((flow.trigger_config?.interval_seconds ?? 3600) as number) * 1_000;
+          // Advance next_run_at even on skip, otherwise retries every poll interval indefinitely
+          const skipIntervalMs = ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 || DEFAULT_AI_INTERVAL_MS;
           await (_db as any)
             .updateTable('zv_flows')
             .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + skipIntervalMs) })
@@ -116,13 +120,13 @@ export const flowScheduler = {
           },
         );
 
-        console.log(`✅ FlowScheduler: AI task "${flow.name}" completed`);
+        console.log(`[FlowScheduler] ai_task completed`, { flow: flow.id, name: flow.name });
       } catch (err: any) {
-        console.error(`❌ FlowScheduler: AI task "${flow.name}" failed:`, err.message);
+        console.error(`[FlowScheduler] ai_task failed`, { flow: flow.id, name: flow.name, error: err.message });
       }
 
       // Advance next_run_at
-      const intervalMs = ((flow.trigger_config?.interval_seconds ?? 3600) as number) * 1_000;
+      const intervalMs = ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 || DEFAULT_AI_INTERVAL_MS;
       await (_db as any)
         .updateTable('zv_flows')
         .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + intervalMs) })
@@ -134,18 +138,18 @@ export const flowScheduler = {
     }
 
     // ── Standard flow execution ───────────────────────────────────
-    console.log(`⚡ FlowScheduler: executing "${flow.name}"`);
+    console.log(`[FlowScheduler] executing flow`, { flow: flow.id, name: flow.name });
 
     const result = await executeFlow(_db, flow.id, { trigger: 'cron', flow_id: flow.id });
 
     if (result.status === 'success') {
-      console.log(`⚡ FlowScheduler: "${flow.name}" completed`);
+      console.log(`[FlowScheduler] flow completed`, { flow: flow.id, name: flow.name, run: result.runId });
     } else {
-      console.error(`⚡ FlowScheduler: "${flow.name}" failed:`, result.error);
+      console.error(`[FlowScheduler] flow failed`, { flow: flow.id, name: flow.name, run: result.runId, error: result.error });
     }
 
-    // Advance next_run_at — use trigger_config.interval_seconds if set, else 60 s
-    const intervalMs = ((flow.trigger_config?.interval_seconds ?? 60) as number) * 1_000;
+    // Advance next_run_at — use trigger_config.interval_seconds if set, else default
+    const intervalMs = ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 || DEFAULT_CRON_INTERVAL_MS;
     await (_db as any)
       .updateTable('zv_flows')
       .set({

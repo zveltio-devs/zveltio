@@ -80,23 +80,26 @@ async function detectMissingData(db: Database, tableName: string, fields: any[])
   for (const field of fields) {
     if (field.type === 'computed') continue;
     try {
-      const nullResult = await sql<{ count: string }>`
-        SELECT COUNT(*)::text AS count
-        FROM ${sql.id(tableName)}
-        WHERE ${sql.id(field.name)} IS NULL OR CAST(${sql.id(field.name)} AS TEXT) = ''
+      const missingResult = await sql<{ count: string; sample_ids: string[] | null }>`
+        WITH missing AS (
+          SELECT id::text AS id, ROW_NUMBER() OVER () AS rn
+          FROM ${sql.id(tableName)}
+          WHERE ${sql.id(field.name)} IS NULL
+             OR CAST(${sql.id(field.name)} AS TEXT) = ''
+        )
+        SELECT
+          COUNT(*)::text                              AS count,
+          array_agg(id) FILTER (WHERE rn <= 10)      AS sample_ids
+        FROM missing
       `.execute(db);
 
-      const nullCount = parseInt(nullResult.rows[0]?.count || '0');
+      const nullCount = parseInt(missingResult.rows[0]?.count || '0');
       if (nullCount === 0) continue;
 
       const pct = Math.round((nullCount / totalCount) * 100);
       if (pct < 20) continue;
 
-      const sampleIds = await sql<{ id: string }>`
-        SELECT id::text FROM ${sql.id(tableName)}
-        WHERE ${sql.id(field.name)} IS NULL OR CAST(${sql.id(field.name)} AS TEXT) = ''
-        LIMIT 10
-      `.execute(db);
+      const sampleIds = { rows: (missingResult.rows[0]?.sample_ids ?? []).map((id) => ({ id })) };
 
       issues.push({
         issue_type: field.required ? 'missing_required' : 'missing_recommended',

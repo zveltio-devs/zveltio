@@ -9,7 +9,9 @@ export const webhookWorker = {
     if (_running) return;
     _running = true;
     _interval = setInterval(() => {
-      this._process().catch(() => {});
+      this._process().catch((err) => {
+        console.error('[WebhookWorker] Unexpected error in _process:', err);
+      });
     }, pollMs);
   },
 

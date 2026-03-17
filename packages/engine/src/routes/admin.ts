@@ -6,6 +6,7 @@ import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { DDLManager } from '../lib/ddl-manager.js';
+import { getCache } from '../lib/cache.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -28,18 +29,23 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // GET /status — Full system status
   app.get('/status', async (c) => {
-    const [dbStatus, pgVersion, tableCount] = await Promise.all([
+    const cache = getCache();
+    const [dbStatus, pgVersion, tableCount, cacheStatus] = await Promise.all([
       sql`SELECT 1`.execute(db).then(() => 'connected').catch(() => 'disconnected'),
       sql<{ version: string }>`SELECT version()`.execute(db).then((r) => r.rows[0]?.version).catch(() => 'unknown'),
       sql<{ count: string }>`
         SELECT COUNT(*) as count FROM information_schema.tables
         WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       `.execute(db).then((r) => r.rows[0]?.count ?? '0').catch(() => '0'),
+      cache
+        ? cache.ping().then(() => 'connected').catch(() => 'disconnected')
+        : Promise.resolve('not_configured'),
     ]);
 
     return c.json({
       status: 'ok',
       database: { status: dbStatus, version: pgVersion, tables: parseInt(tableCount) },
+      cache: { status: cacheStatus },
       uptime: process.uptime(),
       memory: process.memoryUsage(),
     });

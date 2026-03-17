@@ -367,9 +367,12 @@ export async function initAIProviders(db: any): Promise<void> {
   }
 }
 
+/** Matches {{variableName}} placeholders in template strings. */
+const TEMPLATE_VAR_RE = /\{\{(\w+)\}\}/g;
+
 /**
  * Simple Handlebars-like template renderer: {{variable}} → value
  */
 export function renderTemplate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] ?? `{{${key}}}`);
+  return template.replace(TEMPLATE_VAR_RE, (_, key) => variables[key] ?? `{{${key}}}`);
 }

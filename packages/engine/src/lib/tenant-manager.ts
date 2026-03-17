@@ -89,7 +89,15 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
 export async function getUserTenants(
   userId: string,
 ): Promise<(Tenant & { role: string })[]> {
-  return (_db as any)
+  const cache = getCache();
+  const cacheKey = `user:tenants:${userId}`;
+
+  if (cache) {
+    const cached = await cache.get(cacheKey).catch(() => null);
+    if (cached) return JSON.parse(cached);
+  }
+
+  const tenants = await (_db as any)
     .selectFrom('zv_tenant_users as tu')
     .innerJoin('zv_tenants as t', 't.id', 'tu.tenant_id')
     .selectAll('t')
@@ -97,6 +105,12 @@ export async function getUserTenants(
     .where('tu.user_id', '=', userId)
     .where('t.status', '=', 'active')
     .execute();
+
+  if (cache) {
+    await cache.setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenants)).catch(() => {});
+  }
+
+  return tenants;
 }
 
 export function getTenantSchemaName(tenantSlug: string): string {
@@ -268,11 +282,13 @@ export async function resolveTenantFromRequest(
 export async function invalidateTenantCache(
   slug: string,
   id?: string,
+  userId?: string,
 ): Promise<void> {
   const cache = getCache();
   if (!cache) return;
   await cache.del(`tenant:slug:${slug}`).catch(() => {});
   if (id) await cache.del(`tenant:id:${id}`).catch(() => {});
+  if (userId) await cache.del(`user:tenants:${userId}`).catch(() => {});
 }
 
 /**

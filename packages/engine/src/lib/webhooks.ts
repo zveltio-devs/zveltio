@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from './cache.js';
 
@@ -15,20 +16,17 @@ export const WebhookManager = {
   ): Promise<void> {
     if (!_db) return;
     try {
-      const webhooks = await (_db as any)
-        .selectFrom('zvd_webhooks')
-        .selectAll()
-        .where('active', '=', true)
-        .execute();
-
-      const matching = (webhooks as any[]).filter((wh) => {
-        const events: string[] = wh.events || [];
-        const cols: string[] = wh.collections || [];
-        return (
-          (events.includes(event) || events.includes('*')) &&
-          (cols.length === 0 || cols.includes(collection) || cols.includes('*'))
-        );
-      });
+      const matchResult = await sql<any>`
+        SELECT * FROM zvd_webhooks
+        WHERE active = true
+          AND (events @> ${JSON.stringify([event])}::jsonb OR events @> '["*"]'::jsonb)
+          AND (
+            collections = '[]'::jsonb
+            OR collections @> ${JSON.stringify([collection])}::jsonb
+            OR collections @> '["*"]'::jsonb
+          )
+      `.execute(_db as Database);
+      const matching = matchResult.rows;
 
       const cache = getCache();
       for (const wh of matching) {

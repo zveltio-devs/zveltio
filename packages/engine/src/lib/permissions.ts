@@ -30,14 +30,22 @@ let _db: Database;
 let _enforcer: Enforcer | null = null;
 
 // O(log N) cu SCAN vs O(N) blocant cu KEYS
+// Max 1000 iterations (~100 000 keys) to prevent infinite loops on large keyspaces
+const SCAN_MAX_ITERATIONS = 1_000;
+
 async function scanKeys(cache: Awaited<ReturnType<typeof getCache>>, pattern: string): Promise<string[]> {
   if (!cache) return [];
   const keys: string[] = [];
   let cursor = '0';
+  let iterations = 0;
   do {
     const [nextCursor, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
     cursor = nextCursor;
     keys.push(...batch);
+    if (++iterations >= SCAN_MAX_ITERATIONS) {
+      console.warn(`[permissions] scanKeys hit max iteration limit (${SCAN_MAX_ITERATIONS}) for pattern "${pattern}"`);
+      break;
+    }
   } while (cursor !== '0');
   return keys;
 }
