@@ -81,12 +81,12 @@ async function validateApiKey(db: Database, rawKey: string): Promise<any | null>
   if (!apiKey) return null;
   if ((apiKey as any).expires_at && new Date((apiKey as any).expires_at) < new Date()) return null;
 
-  // Update last_used_at
-  await db
-    .updateTable('zv_api_keys' as any)
+  // Update last_used_at — fire-and-forget; non-blocking on hot path
+  db.updateTable('zv_api_keys' as any)
     .set({ last_used_at: new Date() } as any)
     .where('id' as any, '=', (apiKey as any).id)
-    .execute();
+    .execute()
+    .catch(() => { /* non-fatal */ });
 
   return apiKey;
 }
@@ -266,12 +266,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    if (!(await DDLManager.tableExists(db, collection))) {
-      return c.json({ error: 'Collection not found' }, 404);
-    }
+    const collectionDef = await DDLManager.getCollection(db, collection);
+    if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
-    const collectionDef = await DDLManager.getCollection(db, collection);
     const offset = (query.page - 1) * query.limit;
 
     // Parse filters from JSON query param into safe FilterCondition map
@@ -298,39 +296,17 @@ export function dataRoutes(db: Database, auth: any): Hono {
       } catch { /* invalid JSON — skip */ }
     }
 
-    // Full-text search: add as safe parameterized condition via dynamic helper
-    // search_vector is a standard tsvector column; query terms are passed as $1 parameter
-    if (query.search) {
-      // Parameterized via Kysely sql tag — no string interpolation into SQL
-      const searchTerms = query.search.trim().split(/\s+/).filter(Boolean).join(' & ');
-      filters['_fts'] = { op: 'eq', value: searchTerms }; // placeholder — handled below
-    }
-
+    // FTS + filters run in a single query via dynamicSelect (fts param adds
+    // search_vector @@ websearch_to_tsquery() alongside any other WHERE conditions)
     const result = await dynamicSelect(db, tableName, {
-      filters: query.search
-        ? Object.fromEntries(Object.entries(filters).filter(([k]) => k !== '_fts'))
-        : filters,
+      filters,
       sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
       limit: query.limit,
       offset,
+      fts: query.search ? query.search.trim().substring(0, 500) : undefined,
     });
 
-    // Apply full-text search as an additional WHERE on top (uses parameterized query).
-    // websearch_to_tsquery() is used instead of to_tsquery() because it accepts
-    // arbitrary user input without throwing syntax errors on special characters.
-    let records = result.records;
-    if (query.search && result.records.length > 0) {
-      const searchInput = query.search.trim().substring(0, 500); // cap length
-      const ftsResult = await sql`
-        SELECT * FROM ${sql.id(tableName)}
-        WHERE search_vector @@ websearch_to_tsquery('english', ${searchInput})
-        ORDER BY created_at DESC
-        LIMIT ${query.limit} OFFSET ${offset}
-      `.execute(db).catch(() => ({ rows: result.records }));
-      records = ftsResult.rows as Record<string, any>[];
-    }
-
-    const serialized = records.map((r) => serializeRecord(r, collectionDef));
+    const serialized = result.records.map((r) => serializeRecord(r, collectionDef));
 
     return c.json({
       records: serialized,
@@ -388,12 +364,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    if (!(await DDLManager.tableExists(db, collection))) {
-      return c.json({ error: 'Collection not found' }, 404);
-    }
+    const collectionDef = await DDLManager.getCollection(db, collection);
+    if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
-    const collectionDef = await DDLManager.getCollection(db, collection);
 
     const record = await (db as any)
       .selectFrom(tableName)
@@ -427,12 +401,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    if (!(await DDLManager.tableExists(db, collection))) {
-      return c.json({ error: 'Collection not found' }, 404);
-    }
+    const collectionDef = await DDLManager.getCollection(db, collection);
+    if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
-    const collectionDef = await DDLManager.getCollection(db, collection);
     const body = await c.req.json();
 
     const { errors, processed } = processInput(body, collectionDef);
@@ -495,12 +467,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    if (!(await DDLManager.tableExists(db, collection))) {
-      return c.json({ error: 'Collection not found' }, 404);
-    }
+    const collectionDef = await DDLManager.getCollection(db, collection);
+    if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
-    const collectionDef = await DDLManager.getCollection(db, collection);
     const body = await c.req.json();
 
     const { errors, processed } = processInput(body, collectionDef);
@@ -563,12 +533,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    if (!(await DDLManager.tableExists(db, collection))) {
-      return c.json({ error: 'Collection not found' }, 404);
-    }
+    const collectionDef = await DDLManager.getCollection(db, collection);
+    if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
-    const collectionDef = await DDLManager.getCollection(db, collection);
     const body = await c.req.json();
 
     const { errors, processed } = processInput(body, collectionDef);
@@ -631,7 +599,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    if (!(await DDLManager.tableExists(db, collection))) {
+    if (!(await DDLManager.getCollection(db, collection))) {
       return c.json({ error: 'Collection not found' }, 404);
     }
 

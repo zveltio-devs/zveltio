@@ -7,6 +7,7 @@ import { checkPermission } from '../lib/permissions.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { getCache } from '../lib/cache.js';
+import { auditLog } from '../lib/audit.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -117,6 +118,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
         .returningAll()
         .executeTakeFirst();
 
+      await auditLog(db, {
+        type: 'api_key.created',
+        userId: user.id,
+        resourceId: (apiKey as any)?.id,
+        resourceType: 'api_key',
+        metadata: { name, scopes },
+      });
+
       // Return the raw key only once
       return c.json({ api_key: { ...(apiKey as any), key: rawKey } }, 201);
     },
@@ -124,11 +133,19 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // DELETE /api-keys/:id — Revoke API key
   app.delete('/api-keys/:id', async (c) => {
+    const keyId = c.req.param('id');
     await db
       .updateTable('zv_api_keys' as any)
       .set({ is_active: false } as any)
-      .where('id' as any, '=', c.req.param('id'))
+      .where('id' as any, '=', keyId)
       .execute();
+    const user = c.get('user') as any;
+    await auditLog(db, {
+      type: 'api_key.revoked',
+      userId: user?.id,
+      resourceId: keyId,
+      resourceType: 'api_key',
+    });
     return c.json({ success: true });
   });
 

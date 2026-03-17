@@ -8,6 +8,7 @@ import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { dynamicAddColumn, dynamicDropColumn } from '../db/dynamic.js';
 import { SYSTEM_COLLECTIONS } from '../lib/system-collections.js';
 import { ddlRateLimit } from '../middleware/rate-limit.js';
+import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
 
 // Auth helper — checks session from request headers
@@ -84,6 +85,14 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
       try {
         const jobId = await enqueueDDLJob(db, 'create_collection', data);
+        const user = c.get('user') as any;
+        await auditLog(db, {
+          type: 'collection.created',
+          userId: user?.id,
+          resourceId: data.name,
+          resourceType: 'collection',
+          metadata: { name: data.name, fields: data.fields?.length ?? 0 },
+        });
         return c.json(
           {
             success: true,
@@ -139,6 +148,14 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const name = c.req.param('name');
     try {
       await DDLManager.dropCollection(db, name);
+      const user = c.get('user') as any;
+      await auditLog(db, {
+        type: 'collection.deleted',
+        userId: user?.id,
+        resourceId: name,
+        resourceType: 'collection',
+        metadata: { name },
+      });
       return c.json({ success: true, message: `Collection '${name}' deleted` });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'Unknown error' }, 400);

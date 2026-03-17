@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission, getUserRoles, getEnforcer, invalidateUserPermCache } from '../lib/permissions.js';
+import { auditLog } from '../lib/audit.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -110,6 +111,14 @@ export function usersRoutes(db: Database, auth: any): Hono {
         await e.deleteRolesForUser(userId);
         await e.addRoleForUser(userId, role);
         await invalidateUserPermCache(userId);
+        const admin = c.get('user') as any;
+        await auditLog(db, {
+          type: 'user.role_changed',
+          userId: admin?.id,
+          resourceId: userId,
+          resourceType: 'user',
+          metadata: { new_role: role },
+        });
       }
 
       return c.json({ user });

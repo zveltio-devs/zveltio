@@ -19,6 +19,8 @@ import { tenantMiddleware } from './middleware/tenant.js';
 import { initTelemetry } from './lib/telemetry.js';
 import { engineEvents } from './lib/event-bus.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
+import { sql } from 'kysely';
+import { getCache } from './lib/cache.js';
 
 const app = new Hono();
 
@@ -224,13 +226,36 @@ async function bootstrap() {
     });
   });
 
-  // 10. Health check
-  app.get('/health', (c) => c.json({
-    status: 'ok',
-    version: '2.0.0',
-    uptime: process.uptime(),
-    extensions: extensionLoader.getActive(),
-  }));
+  // 10. Health check (detailed — checks all dependencies)
+  app.get('/health', async (c) => {
+    const checks: Record<string, 'ok' | 'error'> = {};
+
+    // DB check
+    try {
+      await sql`SELECT 1`.execute(db);
+      checks.database = 'ok';
+    } catch { checks.database = 'error'; }
+
+    // Redis/cache check
+    try {
+      const cache = getCache();
+      if (cache) {
+        await cache.ping();
+        checks.cache = 'ok';
+      } else {
+        checks.cache = 'error';
+      }
+    } catch { checks.cache = 'error'; }
+
+    const allOk = Object.values(checks).every((v) => v === 'ok');
+    return c.json({
+      status: allOk ? 'healthy' : 'degraded',
+      version: ENGINE_VERSION,
+      uptime: process.uptime(),
+      services: checks,
+      extensions: extensionLoader.getActive(),
+    }, allOk ? 200 : 503);
+  });
 
   // 11. Prometheus-compatible metrics
   const startTime = Date.now();

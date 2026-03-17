@@ -54,6 +54,8 @@ export interface QueryOptions {
   sort?: { field: string; direction: 'asc' | 'desc' };
   limit?: number;
   offset?: number;
+  /** Full-text search term — applied as search_vector @@ websearch_to_tsquery() */
+  fts?: string;
 }
 
 export interface QueryResult {
@@ -94,9 +96,13 @@ export async function dynamicSelect(
   options: QueryOptions = {},
 ): Promise<QueryResult> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const { limit = 100, offset = 0, filters = {}, sort } = options;
+  const { limit = 100, offset = 0, filters = {}, sort, fts } = options;
 
   const conditions = Object.entries(filters).map(([k, v]) => buildCondition(k, v));
+  if (fts) {
+    // websearch_to_tsquery() tolerates arbitrary user input without syntax errors
+    conditions.push(sql`search_vector @@ websearch_to_tsquery('english', ${fts})`);
+  }
   const whereClause = conditions.length > 0
     ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
     : sql``;
