@@ -176,12 +176,12 @@
 
  <div class="space-y-3 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Template name</span></label>
- <input type="text" bind:value={form.name} class="input" />
+ <label class="label" for="create-template-name"><span class="label-text">Template name</span></label>
+ <input id="create-template-name" type="text" bind:value={form.name} class="input" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Collection (optional)</span></label>
- <input type="text" bind:value={form.collection} placeholder="Leave blank for global" class="input input-sm" />
+ <label class="label" for="create-template-collection"><span class="label-text">Collection (optional)</span></label>
+ <input id="create-template-collection" type="text" bind:value={form.collection} placeholder="Leave blank for global" class="input input-sm" />
  </div>
  </div>
 
@@ -225,16 +225,16 @@
 
  <div class="space-y-3 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Template name</span></label>
- <input type="text" bind:value={editForm.name} class="input" />
+ <label class="label" for="edit-template-name"><span class="label-text">Template name</span></label>
+ <input id="edit-template-name" type="text" bind:value={editForm.name} class="input" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Description (optional)</span></label>
- <input type="text" bind:value={editForm.description} class="input input-sm" />
+ <label class="label" for="edit-template-description"><span class="label-text">Description (optional)</span></label>
+ <input id="edit-template-description" type="text" bind:value={editForm.description} class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Collection (optional)</span></label>
- <input type="text" bind:value={editForm.collection} placeholder="Leave blank for global" class="input input-sm" />
+ <label class="label" for="edit-template-collection"><span class="label-text">Collection (optional)</span></label>
+ <input id="edit-template-collection" type="text" bind:value={editForm.collection} placeholder="Leave blank for global" class="input input-sm" />
  </div>
  </div>
 

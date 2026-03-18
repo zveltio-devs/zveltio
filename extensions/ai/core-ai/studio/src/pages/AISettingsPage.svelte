@@ -142,9 +142,10 @@
  <div class="space-y-3">
  {#if meta.needsKey}
  <div class="form-control">
- <label class="label"><span class="label-text">API Key</span></label>
+ <label class="label" for="api-key-{name}"><span class="label-text">API Key</span></label>
  <input
- type="password"
+ id="api-key-{name}"
+type="password"
  bind:value={providers[name].api_key}
  placeholder="sk-..."
  class="input font-mono"
@@ -152,9 +153,10 @@
  </div>
  {:else}
  <div class="form-control">
- <label class="label"><span class="label-text">Base URL</span></label>
+ <label class="label" for="base-url-{name}"><span class="label-text">Base URL</span></label>
  <input
- type="url"
+ id="base-url-{name}"
+type="url"
  bind:value={providers[name].base_url}
  placeholder={meta.placeholder || ''}
  class="input"
@@ -164,11 +166,12 @@
 
  <div class="flex gap-3">
  <div class="form-control flex-1">
- <label class="label"><span class="label-text">Default model</span></label>
+ <label class="label" for="default-model-{name}"><span class="label-text">Default model</span></label>
  <input
  type="text"
  bind:value={providers[name].default_model}
- list="models-{name}"
+ id="default-model-{name}"
+list="models-{name}"
  class="input input-sm"
  />
  <datalist id="models-{name}">
@@ -176,11 +179,12 @@
  </datalist>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Default provider</span></label>
+ <label class="label" for="default-provider-{name}"><span class="label-text">Default provider</span></label>
  <input
  type="checkbox"
  class="checkbox mt-3"
- bind:checked={providers[name].is_default}
+ id="default-provider-{name}"
+bind:checked={providers[name].is_default}
  />
  </div>
  </div>

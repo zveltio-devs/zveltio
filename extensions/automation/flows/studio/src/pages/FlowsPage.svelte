@@ -350,13 +350,13 @@
 
  <div class="space-y-3">
  <div class="form-control">
- <label class="label"><span class="label-text">Name</span></label>
- <input type="text" bind:value={form.name} placeholder="e.g. Notify on new order" class="input" />
+ <label class="label" for="flow-name"><span class="label-text">Name</span></label>
+ <input id="flow-name" type="text" bind:value={form.name} placeholder="e.g. Notify on new order" class="input" />
  </div>
 
  <div class="form-control">
- <label class="label"><span class="label-text">Trigger</span></label>
- <select bind:value={form.trigger.type} class="select">
+ <label class="label" for="flow-trigger"><span class="label-text">Trigger</span></label>
+ <select id="flow-trigger" bind:value={form.trigger.type} class="select">
  <option value="manual">Manual</option>
  <option value="data_event">Data Event (insert/update/delete)</option>
  <option value="cron">Scheduled (cron)</option>
@@ -367,12 +367,12 @@
  {#if form.trigger.type === 'data_event'}
  <div class="grid grid-cols-2 gap-2">
  <div class="form-control">
- <label class="label"><span class="label-text">Collection</span></label>
- <input type="text" bind:value={form.trigger.collection} placeholder="orders" class="input input-sm" />
+ <label class="label" for="flow-collection"><span class="label-text">Collection</span></label>
+ <input id="flow-collection" type="text" bind:value={form.trigger.collection} placeholder="orders" class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Event</span></label>
- <select bind:value={form.trigger.event} class="select select-sm">
+ <label class="label" for="flow-event"><span class="label-text">Event</span></label>
+ <select id="flow-event" bind:value={form.trigger.event} class="select select-sm">
  <option value="insert">Insert</option>
  <option value="update">Update</option>
  <option value="delete">Delete</option>
@@ -381,8 +381,8 @@
  </div>
  {:else if form.trigger.type === 'cron'}
  <div class="form-control">
- <label class="label"><span class="label-text">Cron expression</span></label>
- <input type="text" bind:value={form.trigger.cron} placeholder="0 9 * * 1-5" class="input input-sm font-mono" />
+ <label class="label" for="flow-cron"><span class="label-text">Cron expression</span></label>
+ <input id="flow-cron" type="text" bind:value={form.trigger.cron} placeholder="0 9 * * 1-5" class="input input-sm font-mono" />
  </div>
  {/if}
  </div>

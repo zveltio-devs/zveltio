@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Upload, Loader2, CheckCircle } from '@lucide/svelte';
+  import { Upload, LoaderCircle, CheckCircle } from '@lucide/svelte';
 
   interface Props {
     collection?: string;
@@ -74,7 +74,7 @@
   />
 
   {#if uploading}
-    <Loader2 size={24} class="animate-spin text-primary mb-2" />
+    <LoaderCircle size={24} class="animate-spin text-primary mb-2" />
     <progress class="progress progress-primary w-48" value={progress} max="100"></progress>
     <span class="text-sm mt-1">{progress}%</span>
   {:else if done}

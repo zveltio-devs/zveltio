@@ -56,10 +56,15 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // GET /api-keys — List API keys
   app.get('/api-keys', async (c) => {
+    const { page = '1', limit = '50' } = c.req.query();
+    const parsedLimit = Math.min(parseInt(limit) || 50, 200);
+    const offset = (parseInt(page) - 1) * parsedLimit;
     const keys = await db
       .selectFrom('zv_api_keys' as any)
       .select(['id', 'name', 'key_prefix', 'scopes', 'rate_limit', 'expires_at', 'last_used_at', 'is_active', 'created_at'] as any)
       .orderBy('created_at' as any, 'desc')
+      .limit(parsedLimit)
+      .offset(offset)
       .execute();
     return c.json({ api_keys: keys });
   });
@@ -232,13 +237,15 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // GET /revisions — Audit trail
   app.get('/revisions', async (c) => {
     const { collection, record_id, user_id, limit = '50', page = '1' } = c.req.query();
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    // I3: cap limit to prevent DoS / OOM
+    const parsedLimit = Math.min(parseInt(limit) || 50, 500);
+    const offset = (parseInt(page) - 1) * parsedLimit;
 
     let query = (db as any)
       .selectFrom('zv_revisions')
       .selectAll()
       .orderBy('created_at', 'desc')
-      .limit(parseInt(limit))
+      .limit(parsedLimit)
       .offset(offset);
 
     if (collection) query = query.where('collection', '=', collection);

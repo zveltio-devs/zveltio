@@ -102,24 +102,24 @@
  <h2 class="card-title text-base">Find Records Near a Point</h2>
  <div class="grid grid-cols-2 gap-3">
  <div class="form-control col-span-2">
- <label class="label"><span class="label-text">Collection</span></label>
- <input type="text" bind:value={nearForm.collection} placeholder="locations" class="input input-sm" />
+ <label class="label" for="near-collection"><span class="label-text">Collection</span></label>
+ <input id="near-collection" type="text" bind:value={nearForm.collection} placeholder="locations" class="input input-sm" />
  </div>
  <div class="form-control col-span-2">
- <label class="label"><span class="label-text">Location field</span></label>
- <input type="text" bind:value={nearForm.location_field} class="input input-sm" />
+ <label class="label" for="near-location-field"><span class="label-text">Location field</span></label>
+ <input id="near-location-field" type="text" bind:value={nearForm.location_field} class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Latitude</span></label>
- <input type="number" step="0.000001" bind:value={nearForm.lat} class="input input-sm" />
+ <label class="label" for="near-lat"><span class="label-text">Latitude</span></label>
+ <input id="near-lat" type="number" step="0.000001" bind:value={nearForm.lat} class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Longitude</span></label>
- <input type="number" step="0.000001" bind:value={nearForm.lng} class="input input-sm" />
+ <label class="label" for="near-lng"><span class="label-text">Longitude</span></label>
+ <input id="near-lng" type="number" step="0.000001" bind:value={nearForm.lng} class="input input-sm" />
  </div>
  <div class="form-control col-span-2">
- <label class="label"><span class="label-text">Radius (meters)</span></label>
- <input type="number" bind:value={nearForm.radius_meters} class="input input-sm" />
+ <label class="label" for="near-radius"><span class="label-text">Radius (meters)</span></label>
+ <input id="near-radius" type="number" bind:value={nearForm.radius_meters} class="input input-sm" />
  </div>
  </div>
  <button class="btn btn-primary btn-sm gap-2 mt-2" onclick={searchNear} disabled={searching}>
@@ -156,15 +156,16 @@
  <div class="card-body">
  <h2 class="card-title text-base">New Geofence</h2>
  <div class="form-control">
- <label class="label"><span class="label-text">Name</span></label>
- <input type="text" bind:value={newGeofenceName} placeholder="City Center Zone" class="input input-sm" />
+ <label class="label" for="geofence-name"><span class="label-text">Name</span></label>
+ <input id="geofence-name" type="text" bind:value={newGeofenceName} placeholder="City Center Zone" class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label">
+ <label class="label" for="geofence-coordinates">
  <span class="label-text">Coordinates (GeoJSON polygon array)</span>
  </label>
  <textarea
- bind:value={coordinatesJson}
+ id="geofence-coordinates"
+bind:value={coordinatesJson}
  placeholder='[[[lng1,lat1],[lng2,lat2],[lng3,lat3],[lng1,lat1]]]'
  class="textarea textarea-sm font-mono text-xs"
  rows="4"

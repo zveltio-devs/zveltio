@@ -202,6 +202,21 @@ Respond in the same language as the user's question.`,
     if (!saved.rows[0]) return c.json({ error: 'Query not found' }, 404);
 
     const { generated_sql } = saved.rows[0] as any;
+
+    // Re-validate stored SQL — the stored query may have been tampered with or
+    // the user's accessible collections may have changed since it was saved.
+    const allCollections = await DDLManager.getCollections(db);
+    const accessibleCollections: any[] = [];
+    for (const col of allCollections) {
+      const canRead = await checkPermission(user.id, `data:${col.name}`, 'read');
+      if (canRead) accessibleCollections.push(col);
+    }
+
+    const validation = validateGeneratedSQL(generated_sql, accessibleCollections);
+    if (!validation.safe) {
+      return c.json({ error: `Unsafe stored query: ${validation.reason}` }, 400);
+    }
+
     const execStart = Date.now();
     const result = await sql.raw(generated_sql).execute(db);
     return c.json({
@@ -216,6 +231,16 @@ Respond in the same language as the user's question.`,
 
 // ── Security validation ──────────────────────────────────────────────────────
 
+/**
+ * Validates AI-generated SQL before execution.
+ * Blocks:
+ *  - any non-SELECT statement
+ *  - DML/DDL keywords (INSERT, UPDATE, DELETE, DROP, …)
+ *  - system catalog access (pg_*, information_schema, system tables)
+ *  - dangerous functions with side effects (pg_sleep, set_config, current_setting, etc.)
+ *  - multiple statements (semicolons not inside string literals)
+ *  - access to tables the user cannot read
+ */
 function validateGeneratedSQL(
   query: string,
   accessibleCollections: any[],
@@ -226,18 +251,47 @@ function validateGeneratedSQL(
     return { safe: false, reason: 'Only SELECT queries are allowed' };
   }
 
-  const forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE', 'COPY'];
+  // Block multiple statements — strip string literals first to avoid false positives
+  const strippedQuery = query.replace(/'[^']*'/g, "''");
+  if (/;/.test(strippedQuery)) {
+    return { safe: false, reason: 'Multiple statements are not allowed' };
+  }
+
+  // N3: block PL/pgSQL anonymous blocks (DO $$ ... $$) which can execute arbitrary code
+  if (/\bDO\s+(\$\$|\$[a-z_]*\$)/i.test(query)) {
+    return { safe: false, reason: 'DO blocks (anonymous PL/pgSQL) are not allowed' };
+  }
+
+  // Block DML / DDL keywords
+  const forbidden = [
+    'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE',
+    'TRUNCATE', 'GRANT', 'REVOKE', 'COPY', 'EXECUTE', 'CALL',
+  ];
   for (const kw of forbidden) {
     if (new RegExp(`\\b${kw}\\b`, 'i').test(query)) {
       return { safe: false, reason: `${kw} statements are not allowed` };
     }
   }
 
+  // Block functions with side effects or information leakage
+  const dangerousFunctions = [
+    'pg_sleep', 'set_config', 'current_setting', 'pg_cancel_backend',
+    'pg_terminate_backend', 'lo_export', 'lo_import', 'copy_to',
+    'dblink', 'file_fdw', 'pg_read_file', 'pg_write_file',
+    'pg_stat_file', 'pg_ls_dir',
+  ];
+  for (const fn of dangerousFunctions) {
+    if (new RegExp(`\\b${fn}\\s*\\(`, 'i').test(query)) {
+      return { safe: false, reason: `Function "${fn}" is not allowed` };
+    }
+  }
+
+  // Block system catalog access
   if (/\bpg_/i.test(query) || /\binformation_schema\b/i.test(query)) {
     return { safe: false, reason: 'Access to system catalogs is not allowed' };
   }
 
-  // Block zv_ tables (system) but allow zvd_ (user data)
+  // Block zv_ system tables (but allow zvd_ user tables)
   const systemMatch = query.match(/\bzv_([a-z_]+)\b/gi);
   if (systemMatch) {
     for (const m of systemMatch) {
@@ -247,9 +301,9 @@ function validateGeneratedSQL(
     }
   }
 
-  // Verify all zvd_ tables are accessible
+  // Verify all zvd_ tables are accessible by the current user
   const tableRefs = query.match(/\bzvd_([a-z_]+)\b/gi) || [];
-  const accessibleNames = new Set(accessibleCollections.map(c => `zvd_${c.name}`));
+  const accessibleNames = new Set(accessibleCollections.map((c: any) => `zvd_${c.name}`));
   for (const ref of tableRefs) {
     if (!accessibleNames.has(ref.toLowerCase())) {
       return { safe: false, reason: `No access to table "${ref}"` };

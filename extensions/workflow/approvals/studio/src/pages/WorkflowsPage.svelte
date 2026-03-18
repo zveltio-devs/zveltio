@@ -161,13 +161,13 @@
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control col-span-2">
- <label class="label"><span class="label-text">Workflow name</span></label>
- <input type="text" bind:value={form.name} placeholder="e.g. Document Approval" class="input" />
+ <label class="label" for="workflow-name"><span class="label-text">Workflow name</span></label>
+ <input id="workflow-name" type="text" bind:value={form.name} placeholder="e.g. Document Approval" class="input" />
  </div>
 
  <div class="form-control col-span-2">
- <label class="label"><span class="label-text">Collection</span></label>
- <select bind:value={form.collection} class="select">
+ <label class="label" for="workflow-collection"><span class="label-text">Collection</span></label>
+ <select id="workflow-collection" bind:value={form.collection} class="select">
  <option value="">Select collection...</option>
  {#each collections as col}
  <option value={col.name}>{col.display_name || col.name}</option>
@@ -176,13 +176,13 @@
  </div>
 
  <div class="form-control">
- <label class="label"><span class="label-text">Trigger field (optional)</span></label>
- <input type="text" bind:value={form.trigger_field} placeholder="status" class="input input-sm" />
+ <label class="label" for="workflow-trigger-field"><span class="label-text">Trigger field (optional)</span></label>
+ <input id="workflow-trigger-field" type="text" bind:value={form.trigger_field} placeholder="status" class="input input-sm" />
  </div>
 
  <div class="form-control">
- <label class="label"><span class="label-text">Trigger value</span></label>
- <input type="text" bind:value={form.trigger_value} placeholder="pending_approval" class="input input-sm" />
+ <label class="label" for="workflow-trigger-value"><span class="label-text">Trigger value</span></label>
+ <input id="workflow-trigger-value" type="text" bind:value={form.trigger_value} placeholder="pending_approval" class="input input-sm" />
  </div>
  </div>
 

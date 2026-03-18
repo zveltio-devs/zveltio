@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Bell, BellOff, CheckCheck, RefreshCw, Loader2 } from '@lucide/svelte';
+ import { Bell, BellOff, CheckCheck, RefreshCw, LoaderCircle } from '@lucide/svelte';
 
  interface Notification {
  id: string;
@@ -91,7 +91,7 @@
  </button>
  {#if unreadCount > 0}
  <button class="btn btn-outline btn-sm" onclick={markAllRead} disabled={markingAll}>
- {#if markingAll}<Loader2 size={14} class="animate-spin" />{:else}<CheckCheck size={14} />{/if}
+ {#if markingAll}<LoaderCircle size={14} class="animate-spin" />{:else}<CheckCheck size={14} />{/if}
  Mark all read
  </button>
  {/if}
@@ -99,7 +99,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-16"><Loader2 size={32} class="animate-spin text-primary" /></div>
+ <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if filtered.length === 0}
  <div class="text-center py-16 text-base-content/40">
  {#if unreadOnly}

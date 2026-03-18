@@ -294,9 +294,14 @@ export function aiRoutes(db: any, auth: any): Hono {
       }
 
       // Fallback: ILIKE full-text search on actual collection table
+      // P1: use zvd_ prefix to prevent reading system tables (zv_api_keys, etc.)
       let fallbackResults: any[] = [];
+      const SAFE_COL_RE = /^[a-z][a-z0-9_]*$/;
+      if (!SAFE_COL_RE.test(collection) || !SAFE_COL_RE.test(field)) {
+        return c.json({ results: [], query, collection, count: 0, method: 'ilike' });
+      }
       try {
-        const tableName = `zv_${collection}`;
+        const tableName = `zvd_${collection}`;
         fallbackResults = await sql<any>`
           SELECT *, 0.5 AS score
           FROM ${sql.id(tableName)}

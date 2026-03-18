@@ -43,7 +43,7 @@
  placeholder="Users"
  class="input input-sm"
  />
- <label class="label"><span class="label-text-alt text-xs">Lucide icon name (e.g., Users, ShoppingCart)</span></label>
+ <p class="label"><span class="label-text-alt text-xs">Lucide icon name (e.g., Users, ShoppingCart)</span></p>
  </div>
 
  <div class="form-control">

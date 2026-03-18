@@ -17,9 +17,10 @@ export class ZveltioRealtime {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
-      // Re-subscribe to all existing collections
-      for (const collection of this.listeners.keys()) {
-        this.ws?.send(JSON.stringify({ action: 'subscribe', collection }));
+      // Re-subscribe to all existing collections using the server's expected protocol
+      const collections = [...this.listeners.keys()];
+      if (collections.length > 0) {
+        this.ws?.send(JSON.stringify({ type: 'subscribe', collections }));
       }
     };
 
@@ -57,9 +58,9 @@ export class ZveltioRealtime {
     if (!this.listeners.has(collection)) this.listeners.set(collection, new Set());
     this.listeners.get(collection)!.add(callback);
 
-    // Send subscribe to server
+    // Send subscribe to server using correct protocol { type: 'subscribe', collections: [...] }
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action: 'subscribe', collection }));
+      this.ws.send(JSON.stringify({ type: 'subscribe', collections: [collection] }));
     }
 
     // Return unsubscribe function
@@ -68,7 +69,7 @@ export class ZveltioRealtime {
       if (this.listeners.get(collection)?.size === 0) {
         this.listeners.delete(collection);
         if (this.ws?.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ action: 'unsubscribe', collection }));
+          this.ws.send(JSON.stringify({ type: 'unsubscribe', collections: [collection] }));
         }
       }
     };

@@ -145,23 +145,23 @@
       <h3 class="font-bold text-lg mb-4">{editingOrg ? 'Edit Organization' : 'New Organization'}</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label"><span class="label-text">Name *</span></label>
-          <input class="input input-bordered" bind:value={form.name} required />
+          <label class="label" for="org-name"><span class="label-text">Name *</span></label>
+          <input id="org-name" class="input input-bordered" bind:value={form.name} required />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">Legal Name</span></label>
-            <input class="input input-bordered" bind:value={form.legal_name} />
+            <label class="label" for="org-legal-name"><span class="label-text">Legal Name</span></label>
+            <input id="org-legal-name" class="input input-bordered" bind:value={form.legal_name} />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Tax ID (CUI)</span></label>
-            <input class="input input-bordered" bind:value={form.tax_id} />
+            <label class="label" for="org-tax-id"><span class="label-text">Tax ID (CUI)</span></label>
+            <input id="org-tax-id" class="input input-bordered" bind:value={form.tax_id} />
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">Type</span></label>
-            <select class="select select-bordered" bind:value={form.type}>
+            <label class="label" for="org-type"><span class="label-text">Type</span></label>
+            <select id="org-type" class="select select-bordered" bind:value={form.type}>
               <option value="company">Company</option>
               <option value="nonprofit">Nonprofit</option>
               <option value="government">Government</option>
@@ -169,22 +169,22 @@
             </select>
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Industry</span></label>
-            <input class="input input-bordered" bind:value={form.industry} />
+            <label class="label" for="org-industry"><span class="label-text">Industry</span></label>
+            <input id="org-industry" class="input input-bordered" bind:value={form.industry} />
           </div>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text">Website</span></label>
-          <input type="url" class="input input-bordered" bind:value={form.website} placeholder="https://" />
+          <label class="label" for="org-website"><span class="label-text">Website</span></label>
+          <input id="org-website" type="url" class="input input-bordered" bind:value={form.website} placeholder="https://" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">Email</span></label>
-            <input type="email" class="input input-bordered" bind:value={form.email} />
+            <label class="label" for="org-email"><span class="label-text">Email</span></label>
+            <input id="org-email" type="email" class="input input-bordered" bind:value={form.email} />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Phone</span></label>
-            <input class="input input-bordered" bind:value={form.phone} />
+            <label class="label" for="org-phone"><span class="label-text">Phone</span></label>
+            <input id="org-phone" class="input input-bordered" bind:value={form.phone} />
           </div>
         </div>
       </div>
@@ -193,6 +193,6 @@
         <button class="btn btn-primary" onclick={save}>Save</button>
       </div>
     </div>
-    <div class="modal-backdrop" onclick={() => showModal = false}></div>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => showModal = false}></button>
   </div>
 {/if}

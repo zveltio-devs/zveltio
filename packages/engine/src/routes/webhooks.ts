@@ -100,7 +100,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .selectAll()
       .where('webhook_id', '=', c.req.param('id'))
       .orderBy('created_at', 'desc')
-      .limit(parseInt(limit))
+      .limit(Math.min(parseInt(limit) || 50, 500))
       .execute();
     return c.json({ deliveries });
   });

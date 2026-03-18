@@ -29,10 +29,16 @@ async function withLockTimeout(
 // ─── Identifier sanitization ──────────────────────────────────────────────────
 
 function sanitizeIdentifier(name: string): string {
-  const clean = name.replace(/[^a-z0-9_]/gi, '');
-  if (!clean) throw new Error(`Invalid SQL identifier: "${name}"`);
-  if (clean.length > 63) throw new Error(`SQL identifier too long (max 63): "${name}"`);
-  return clean;
+  // I4 FIX: Throw on invalid chars instead of silently stripping.
+  // Silent stripping could map "id'--" → "id--" producing a valid but wrong identifier,
+  // causing confusing "column not found" errors or, worse, aliasing different columns.
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    throw new Error(
+      `Invalid SQL identifier "${name}" — only letters, digits, and underscores allowed, must start with a letter or underscore.`,
+    );
+  }
+  if (name.length > 63) throw new Error(`SQL identifier too long (max 63): "${name}"`);
+  return name;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

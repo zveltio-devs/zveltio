@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Plus, Play, Pause, Trash2, Loader2, Workflow, Zap, Clock, Webhook, RefreshCw } from '@lucide/svelte';
+ import { Plus, Play, Pause, Trash2, LoaderCircle, Workflow, Zap, Clock, Webhook, RefreshCw } from '@lucide/svelte';
 
  interface Flow {
  id: string;
@@ -159,7 +159,7 @@
 
  {#if loading}
  <div class="flex justify-center py-16">
- <Loader2 size={32} class="animate-spin text-primary" />
+ <LoaderCircle size={32} class="animate-spin text-primary" />
  </div>
  {:else if flows.length === 0}
  <div class="text-center py-16 text-base-content/40">
@@ -234,18 +234,18 @@
  <h3 class="font-bold text-lg mb-4">New Flow</h3>
  <div class="space-y-4">
  <div class="form-control">
- <label class="label"><span class="label-text font-medium">Name *</span></label>
- <input class="input" bind:value={name} placeholder="e.g. Send welcome email" />
+ <label class="label" for="flow-name"><span class="label-text font-medium">Name *</span></label>
+ <input id="flow-name" class="input" bind:value={name} placeholder="e.g. Send welcome email" />
  </div>
 
  <div class="form-control">
- <label class="label"><span class="label-text font-medium">Description</span></label>
- <input class="input" bind:value={description} placeholder="Optional" />
+ <label class="label" for="flow-description"><span class="label-text font-medium">Description</span></label>
+ <input id="flow-description" class="input" bind:value={description} placeholder="Optional" />
  </div>
 
  <div class="form-control">
- <label class="label"><span class="label-text font-medium">Trigger</span></label>
- <select class="select" bind:value={triggerType}>
+ <label class="label" for="flow-trigger"><span class="label-text font-medium">Trigger</span></label>
+ <select id="flow-trigger" class="select" bind:value={triggerType}>
  <option value="manual">Manual</option>
  <option value="on_create">On Create</option>
  <option value="on_update">On Update</option>
@@ -257,8 +257,9 @@
 
  {#if ['on_create', 'on_update', 'on_delete'].includes(triggerType)}
  <div class="form-control">
- <label class="label"><span class="label-text text-xs">Collection (optional)</span></label>
+ <label class="label" for="flow-trigger-collection"><span class="label-text text-xs">Collection (optional)</span></label>
  <input
+ id="flow-trigger-collection"
  class="input input-sm"
  bind:value={triggerCollection}
  placeholder="collection_name"
@@ -291,7 +292,7 @@
  <div class="modal-action">
  <button class="btn btn-ghost" onclick={() => (showModal = false)}>Cancel</button>
  <button class="btn btn-primary" onclick={createFlow} disabled={saving || !name}>
- {#if saving}<Loader2 size={16} class="animate-spin" />{/if}
+ {#if saving}<LoaderCircle size={16} class="animate-spin" />{/if}
  Create Flow
  </button>
  </div>

@@ -152,7 +152,7 @@
  <h1 class="text-2xl font-bold">Approval Requests</h1>
  <p class="text-base-content/60 text-sm mt-1">Manage approval workflows and requests</p>
  </div>
- <button class="btn btn-ghost btn-sm" onclick={loadRequests}><RefreshCw size={16} /></button>
+ <button class="btn btn-ghost btn-sm" onclick={loadRequests} title="Refresh"><RefreshCw size={16} /></button>
  </div>
 
  <div class="tabs tabs-boxed bg-base-200 p-1">
@@ -190,7 +190,13 @@
  <tbody>
  {#each requests as request}
  {@const badge = getStatusBadge(request.status)}
- <tr class="hover cursor-pointer" onclick={() => openDetail(request)}>
+ <tr
+ class="hover cursor-pointer"
+ role="button"
+ tabindex="0"
+ onclick={() => openDetail(request)}
+ onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDetail(request)}
+ >
  <td><span class="badge badge-ghost font-mono text-sm">{request.collection}</span></td>
  <td><span class="font-mono text-sm">{truncateId(request.record_id)}</span></td>
  <td>{request.workflow_name}</td>
@@ -198,7 +204,7 @@
  <td><span class="badge {badge.cls} badge-sm">{badge.text}</span></td>
  <td>{request.requester_name || 'Unknown'}</td>
  <td class="text-sm opacity-60">{formatDate(request.requested_at)}</td>
- <td><button class="btn btn-ghost btn-sm btn-square"><Eye size={14} /></button></td>
+ <td><button class="btn btn-ghost btn-sm btn-square" title="View details"><Eye size={14} /></button></td>
  </tr>
  {/each}
  </tbody>
@@ -286,6 +292,6 @@
  </div>
  {/if}
  </div>
- <button class="modal-backdrop" onclick={closeDetail}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={closeDetail}></button>
  </dialog>
 {/if}

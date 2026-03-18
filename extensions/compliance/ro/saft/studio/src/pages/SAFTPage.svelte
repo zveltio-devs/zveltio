@@ -5,6 +5,7 @@
   const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ || '';
 
   let activeTab = $state<'exports' | 'accounts' | 'entries'>('exports');
+  function setTab(t: string) { activeTab = t as 'exports' | 'accounts' | 'entries'; }
   let exports_ = $state<any[]>([]);
   let accounts = $state<any[]>([]);
   let entries = $state<any[]>([]);
@@ -202,7 +203,7 @@
 
   <div class="tabs tabs-boxed w-fit">
     {#each [['exports', 'Exports'], ['accounts', 'Accounts'], ['entries', 'Journal Entries']] as [tab, label]}
-      <button class="tab {activeTab === tab ? 'tab-active' : ''}" onclick={() => (activeTab = tab as any)}>{label}</button>
+      <button class="tab {activeTab === tab ? 'tab-active' : ''}" onclick={() => setTab(tab)}>{label}</button>
     {/each}
   </div>
 
@@ -320,25 +321,25 @@
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Period start</span></label>
-            <input type="date" bind:value={exportForm.period_start} class="input input-sm" />
+            <label class="label" for="saft-period-start"><span class="label-text text-xs">Period start</span></label>
+            <input id="saft-period-start" type="date" bind:value={exportForm.period_start} class="input input-sm" />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Period end</span></label>
-            <input type="date" bind:value={exportForm.period_end} class="input input-sm" />
+            <label class="label" for="saft-period-end"><span class="label-text text-xs">Period end</span></label>
+            <input id="saft-period-end" type="date" bind:value={exportForm.period_end} class="input input-sm" />
           </div>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Company name</span></label>
-          <input type="text" bind:value={exportForm.company_name} placeholder="SC Example SRL" class="input input-sm" />
+          <label class="label" for="saft-company-name"><span class="label-text text-xs">Company name</span></label>
+          <input id="saft-company-name" type="text" bind:value={exportForm.company_name} placeholder="SC Example SRL" class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">CUI/CIF</span></label>
-          <input type="text" bind:value={exportForm.company_cui} placeholder="RO12345678" class="input input-sm font-mono" />
+          <label class="label" for="saft-company-cui"><span class="label-text text-xs">CUI/CIF</span></label>
+          <input id="saft-company-cui" type="text" bind:value={exportForm.company_cui} placeholder="RO12345678" class="input input-sm font-mono" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Address (optional)</span></label>
-          <input type="text" bind:value={exportForm.company_address} placeholder="Str. Exemplu nr. 1, București" class="input input-sm" />
+          <label class="label" for="saft-company-address"><span class="label-text text-xs">Address (optional)</span></label>
+          <input id="saft-company-address" type="text" bind:value={exportForm.company_address} placeholder="Str. Exemplu nr. 1, București" class="input input-sm" />
         </div>
       </div>
       <div class="modal-action">
@@ -349,7 +350,7 @@
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => (showCreateModal = false)}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
   </dialog>
 {/if}
 
@@ -360,16 +361,16 @@
       <h3 class="font-bold text-lg mb-4">Add Account</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Account code</span></label>
-          <input type="text" bind:value={accountForm.code} placeholder="101" class="input input-sm font-mono" />
+          <label class="label" for="account-code"><span class="label-text text-xs">Account code</span></label>
+          <input id="account-code" type="text" bind:value={accountForm.code} placeholder="101" class="input input-sm font-mono" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Description</span></label>
-          <input type="text" bind:value={accountForm.description} placeholder="Capital social" class="input input-sm" />
+          <label class="label" for="account-description"><span class="label-text text-xs">Description</span></label>
+          <input id="account-description" type="text" bind:value={accountForm.description} placeholder="Capital social" class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Type</span></label>
-          <select bind:value={accountForm.account_type} class="select select-sm">
+          <label class="label" for="account-type"><span class="label-text text-xs">Type</span></label>
+          <select id="account-type" bind:value={accountForm.account_type} class="select select-sm">
             <option value="balance">Balance</option>
             <option value="income">Income</option>
             <option value="expense">Expense</option>
@@ -381,7 +382,7 @@
         <button class="btn btn-primary" onclick={createAccount} disabled={creating}>Add</button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => (showAccountModal = false)}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => (showAccountModal = false)}></button>
   </dialog>
 {/if}
 
@@ -393,30 +394,30 @@
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Date</span></label>
-            <input type="date" bind:value={entryForm.entry_date} class="input input-sm" />
+            <label class="label" for="entry-date"><span class="label-text text-xs">Date</span></label>
+            <input id="entry-date" type="date" bind:value={entryForm.entry_date} class="input input-sm" />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Account code</span></label>
-            <input type="text" bind:value={entryForm.account_code} placeholder="101" class="input input-sm font-mono" />
+            <label class="label" for="entry-account-code"><span class="label-text text-xs">Account code</span></label>
+            <input id="entry-account-code" type="text" bind:value={entryForm.account_code} placeholder="101" class="input input-sm font-mono" />
           </div>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Description</span></label>
-          <input type="text" bind:value={entryForm.description} placeholder="Entry description" class="input input-sm" />
+          <label class="label" for="entry-description"><span class="label-text text-xs">Description</span></label>
+          <input id="entry-description" type="text" bind:value={entryForm.description} placeholder="Entry description" class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Document number (optional)</span></label>
-          <input type="text" bind:value={entryForm.document_number} placeholder="FAC-2026-001" class="input input-sm font-mono" />
+          <label class="label" for="entry-document-number"><span class="label-text text-xs">Document number (optional)</span></label>
+          <input id="entry-document-number" type="text" bind:value={entryForm.document_number} placeholder="FAC-2026-001" class="input input-sm font-mono" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Debit (RON)</span></label>
-            <input type="number" step="0.01" bind:value={entryForm.debit} class="input input-sm font-mono" />
+            <label class="label" for="entry-debit"><span class="label-text text-xs">Debit (RON)</span></label>
+            <input id="entry-debit" type="number" step="0.01" bind:value={entryForm.debit} class="input input-sm font-mono" />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Credit (RON)</span></label>
-            <input type="number" step="0.01" bind:value={entryForm.credit} class="input input-sm font-mono" />
+            <label class="label" for="entry-credit"><span class="label-text text-xs">Credit (RON)</span></label>
+            <input id="entry-credit" type="number" step="0.01" bind:value={entryForm.credit} class="input input-sm font-mono" />
           </div>
         </div>
       </div>
@@ -425,6 +426,6 @@
         <button class="btn btn-primary" onclick={createEntry} disabled={creating}>Add Entry</button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => (showEntryModal = false)}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => (showEntryModal = false)}></button>
   </dialog>
 {/if}

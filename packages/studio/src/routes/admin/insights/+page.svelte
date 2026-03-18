@@ -358,7 +358,7 @@
         <button class="btn btn-primary btn-sm" onclick={createDashboard} disabled={!newDashName}>Create</button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => (showNewDash = false)}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => (showNewDash = false)}></button>
   </dialog>
 {/if}
 
@@ -400,7 +400,7 @@
         <button class="btn btn-primary btn-sm" onclick={addPanel} disabled={!newPanelName || !newPanelQuery}>Add Panel</button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => (showNewPanel = false)}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => (showNewPanel = false)}></button>
   </dialog>
 {/if}
 

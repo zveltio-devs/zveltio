@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Shield, Save, Plus, Trash2, Loader2 } from '@lucide/svelte';
+ import { Shield, Save, Plus, Trash2, LoaderCircle } from '@lucide/svelte';
 
  let collections = $state<any[]>([]);
  let roles = $state<any[]>([]);
@@ -101,7 +101,7 @@
  </div>
  {#if tab === 'matrix'}
  <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveMatrix} disabled={saving}>
- {#if saving}<Loader2 size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
+ {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
  {saved ? '✓ Saved' : 'Save Matrix'}
  </button>
  {/if}
@@ -113,7 +113,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-16"><Loader2 size={32} class="animate-spin text-primary" /></div>
+ <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if tab === 'matrix'}
  {#if roles.length === 0 || collections.length === 0}
  <div class="alert alert-info">
@@ -177,7 +177,7 @@
  <input class="input input-sm flex-1" bind:value={newRoleName} placeholder="Role name (e.g. editor)" />
  <input class="input input-sm flex-1" bind:value={newRoleDesc} placeholder="Description (optional)" />
  <button class="btn btn-primary btn-sm" onclick={createRole} disabled={!newRoleName.trim() || creatingRole}>
- {#if creatingRole}<Loader2 size={14} class="animate-spin" />{:else}<Plus size={14} />{/if}
+ {#if creatingRole}<LoaderCircle size={14} class="animate-spin" />{:else}<Plus size={14} />{/if}
  Create
  </button>
  </div>

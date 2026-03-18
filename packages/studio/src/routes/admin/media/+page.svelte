@@ -505,7 +505,7 @@
  <div class="modal-box max-w-2xl">
  <div class="flex items-start justify-between mb-4">
  <h3 class="font-bold text-lg truncate flex-1">{showFileDetails.original_filename}</h3>
- <button class="btn btn-sm btn-ghost btn-square" onclick={() => (showFileDetails = null)}>
+ <button class="btn btn-sm btn-ghost btn-square" aria-label="Close" onclick={() => (showFileDetails = null)}>
  <X size={16} />
  </button>
  </div>

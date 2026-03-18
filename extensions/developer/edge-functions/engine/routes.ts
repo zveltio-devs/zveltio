@@ -3,10 +3,19 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../../../../packages/engine/src/db/index.js';
 import { runFunction } from '../../../../packages/engine/src/lib/edge-functions/sandbox.js';
+import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
 
-async function getUser(c: any, auth: any) {
+/**
+ * Returns the authenticated user if they have admin permission, or null.
+ * Edge function CRUD (create/read/update/delete code) requires admin rights —
+ * any authenticated non-admin user creating edge functions could execute
+ * arbitrary code in the engine sandbox.
+ */
+async function requireAdmin(c: any, auth: any) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  return session?.user ?? null;
+  if (!session?.user) return null;
+  const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+  return isAdmin ? session.user : null;
 }
 
 const DEFAULT_CODE = `// Edge function — runs inside the Zveltio engine
@@ -29,7 +38,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   // ─── Admin CRUD ────────────────────────────────────────────────
 
   app.get('/', async (c) => {
-    const user = await getUser(c, auth);
+    const user = await requireAdmin(c, auth);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const fns = await db
@@ -42,7 +51,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   });
 
   app.get('/:id', async (c) => {
-    const user = await getUser(c, auth);
+    const user = await requireAdmin(c, auth);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const fn = await db
@@ -70,7 +79,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await getUser(c, auth);
+      const user = await requireAdmin(c, auth);
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
       const body = c.req.valid('json');
@@ -111,7 +120,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await getUser(c, auth);
+      const user = await requireAdmin(c, auth);
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
       const body = c.req.valid('json');
@@ -135,7 +144,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   );
 
   app.delete('/:id', async (c) => {
-    const user = await getUser(c, auth);
+    const user = await requireAdmin(c, auth);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     await db.deleteFrom('zv_edge_functions').where('id', '=', c.req.param('id')).execute();
@@ -144,7 +153,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id/logs — invocation history
   app.get('/:id/logs', async (c) => {
-    const user = await getUser(c, auth);
+    const user = await requireAdmin(c, auth);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const logs = await db
@@ -160,7 +169,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // POST /:id/invoke — test invoke from Studio
   app.post('/:id/invoke', async (c) => {
-    const user = await getUser(c, auth);
+    const user = await requireAdmin(c, auth);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const fn = await db
@@ -200,8 +209,13 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 /**
  * Dynamically mount all active edge functions at their configured paths.
  * Called during extension registration at startup.
+ *
+ * Auth policy per function:
+ *  - Public by default: NO — all functions require a valid session.
+ *  - To expose a function as a public endpoint (e.g. webhooks), set
+ *    `env_vars.ZVELTIO_PUBLIC = "true"` in the function configuration.
  */
-export async function mountEdgeFunctions(app: any, db: Database): Promise<void> {
+export async function mountEdgeFunctions(app: any, db: Database, auth?: any): Promise<void> {
   let fns: any[];
   try {
     fns = await db
@@ -216,9 +230,17 @@ export async function mountEdgeFunctions(app: any, db: Database): Promise<void> 
   for (const fn of fns) {
     const method = fn.http_method === 'ANY' ? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] : [fn.http_method];
     const env = typeof fn.env_vars === 'string' ? JSON.parse(fn.env_vars) : fn.env_vars;
+    // Functions are private unless explicitly marked public via env_vars
+    const isPublic = env.ZVELTIO_PUBLIC === 'true';
 
     app.on(method, fn.path, async (c: any) => {
       if (!fn.is_active) return c.json({ error: 'Function is inactive' }, 503);
+
+      // N5: require auth for non-public functions
+      if (!isPublic && auth) {
+        const session = await auth.api.getSession({ headers: c.req.raw.headers });
+        if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
+      }
 
       const result = await runFunction(fn.code, c.req.raw, env, fn.timeout_ms);
 

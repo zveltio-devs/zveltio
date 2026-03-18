@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Upload, Trash2, Copy, Check, HardDrive, File, FileText, Image, Loader2 } from '@lucide/svelte';
+ import { Upload, Trash2, Copy, Check, HardDrive, File, FileText, Image, LoaderCircle } from '@lucide/svelte';
 
  interface MediaFile {
  id: string;
@@ -87,7 +87,7 @@
  <p class="text-base-content/60 text-sm mt-1">{files.length} file{files.length !== 1 ? 's' : ''} stored</p>
  </div>
  <label class="btn btn-primary btn-sm cursor-pointer" class:loading={uploading}>
- {#if uploading}<Loader2 size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
+ {#if uploading}<LoaderCircle size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
  Upload
  <input type="file" class="hidden" multiple
  onchange={(e) => upload((e.target as HTMLInputElement).files)}
@@ -123,7 +123,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-16"><Loader2 size={32} class="animate-spin text-primary" /></div>
+ <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if filtered.length === 0}
  <div class="text-center py-16 text-base-content/40">
  <File size={48} class="mx-auto mb-3" />

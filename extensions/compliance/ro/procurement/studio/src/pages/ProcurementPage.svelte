@@ -243,24 +243,24 @@
  <h3 class="font-bold text-lg mb-4">Comanda noua de achizitie</h3>
  <div class="grid grid-cols-2 gap-3 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Număr comanda</span></label>
- <input type="text" bind:value={orderForm.number} placeholder="CA-2026-001" class="input input-sm font-mono" />
+ <label class="label" for="order-number"><span class="label-text">Număr comanda</span></label>
+ <input id="order-number" type="text" bind:value={orderForm.number} placeholder="CA-2026-001" class="input input-sm font-mono" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Data</span></label>
- <input type="date" bind:value={orderForm.date} class="input input-sm" />
+ <label class="label" for="order-date"><span class="label-text">Data</span></label>
+ <input id="order-date" type="date" bind:value={orderForm.date} class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Furnizor</span></label>
- <input type="text" bind:value={orderForm.supplier_name} class="input input-sm" />
+ <label class="label" for="order-supplier"><span class="label-text">Furnizor</span></label>
+ <input id="order-supplier" type="text" bind:value={orderForm.supplier_name} class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">CUI Furnizor</span></label>
- <input type="text" bind:value={orderForm.supplier_cui} class="input input-sm font-mono" />
+ <label class="label" for="order-supplier-cui"><span class="label-text">CUI Furnizor</span></label>
+ <input id="order-supplier-cui" type="text" bind:value={orderForm.supplier_cui} class="input input-sm font-mono" />
  </div>
  <div class="form-control col-span-2">
- <label class="label"><span class="label-text">Descriere obiect achizitie</span></label>
- <input type="text" bind:value={orderForm.description} class="input input-sm" />
+ <label class="label" for="order-description"><span class="label-text">Descriere obiect achizitie</span></label>
+ <input id="order-description" type="text" bind:value={orderForm.description} class="input input-sm" />
  </div>
  </div>
 
@@ -308,26 +308,26 @@
  <h3 class="font-bold text-lg mb-4">Furnizor nou</h3>
  <div class="space-y-3">
  <div class="form-control">
- <label class="label"><span class="label-text">Denumire</span></label>
- <input type="text" bind:value={supplierForm.name} class="input" />
+ <label class="label" for="supplier-name"><span class="label-text">Denumire</span></label>
+ <input id="supplier-name" type="text" bind:value={supplierForm.name} class="input" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">CUI</span></label>
- <input type="text" bind:value={supplierForm.cui} class="input font-mono" />
+ <label class="label" for="supplier-cui"><span class="label-text">CUI</span></label>
+ <input id="supplier-cui" type="text" bind:value={supplierForm.cui} class="input font-mono" />
  </div>
  <div class="grid grid-cols-2 gap-3">
  <div class="form-control">
- <label class="label"><span class="label-text">Judet</span></label>
- <input type="text" bind:value={supplierForm.county} class="input input-sm" />
+ <label class="label" for="supplier-county"><span class="label-text">Judet</span></label>
+ <input id="supplier-county" type="text" bind:value={supplierForm.county} class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Categorie</span></label>
- <input type="text" bind:value={supplierForm.category} class="input input-sm" />
+ <label class="label" for="supplier-category"><span class="label-text">Categorie</span></label>
+ <input id="supplier-category" type="text" bind:value={supplierForm.category} class="input input-sm" />
  </div>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Email contact</span></label>
- <input type="email" bind:value={supplierForm.contact_email} class="input input-sm" />
+ <label class="label" for="supplier-email"><span class="label-text">Email contact</span></label>
+ <input id="supplier-email" type="email" bind:value={supplierForm.contact_email} class="input input-sm" />
  </div>
  </div>
  <div class="modal-action">

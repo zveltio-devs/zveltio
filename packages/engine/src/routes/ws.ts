@@ -3,6 +3,10 @@ import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
 import type { Database } from '../db/index.js';
 
+// Per-connection permission cache (lives only for the WS session duration).
+// Maps collectionName → allowed (true/false) for the userId of that connection.
+const wsPermCache = new WeakMap<object, Map<string, boolean>>();
+
 interface WSConnection {
   userId: string;
   ws: any;
@@ -76,9 +80,10 @@ export const websocketHandler = {
     connections.set(id, {
       userId,
       ws,
-      subscriptions: new Set(['*']), // wildcard subscription by default
+      subscriptions: new Set(), // no default subscriptions — clients must explicitly subscribe
       connectedAt: Date.now(),
     });
+    wsPermCache.set(ws, new Map());
 
     ws.send(
       JSON.stringify({
@@ -90,7 +95,7 @@ export const websocketHandler = {
     );
   },
 
-  message(ws: any, message: string | Buffer) {
+  async message(ws: any, message: string | Buffer) {
     const conn = connections.get(ws.data?.id);
     if (!conn) return;
 
@@ -101,12 +106,44 @@ export const websocketHandler = {
         case 'subscribe': {
           // Support both { type:'subscribe', collections:['posts','orders'] }
           // and { type:'subscribe', channel:'posts:insert' }
+          const permCache = wsPermCache.get(ws) ?? new Map<string, boolean>();
+
           if (Array.isArray(msg.collections)) {
-            for (const col of msg.collections) conn.subscriptions.add(col);
-            ws.send(JSON.stringify({ type: 'subscribed', collections: msg.collections }));
+            const allowed: string[] = [];
+            const denied: string[] = [];
+            for (const col of msg.collections) {
+              // Extract base collection name from channel format (e.g. "orders:insert" → "orders")
+              const collectionName = typeof col === 'string' ? col.split(':')[0] : null;
+              if (!collectionName) { denied.push(col); continue; }
+
+              // Check permission with per-session cache
+              let canRead = permCache.get(collectionName);
+              if (canRead === undefined) {
+                canRead = await checkPermission(conn.userId, `data:${collectionName}`, 'read').catch(() => false);
+                permCache.set(collectionName, canRead);
+              }
+
+              if (canRead) {
+                conn.subscriptions.add(col);
+                allowed.push(col);
+              } else {
+                denied.push(col);
+              }
+            }
+            ws.send(JSON.stringify({ type: 'subscribed', collections: allowed, denied }));
           } else if (typeof msg.channel === 'string') {
-            conn.subscriptions.add(msg.channel);
-            ws.send(JSON.stringify({ type: 'subscribed', channel: msg.channel }));
+            const collectionName = msg.channel.split(':')[0];
+            let canRead = permCache.get(collectionName);
+            if (canRead === undefined) {
+              canRead = await checkPermission(conn.userId, `data:${collectionName}`, 'read').catch(() => false);
+              permCache.set(collectionName, canRead);
+            }
+            if (canRead) {
+              conn.subscriptions.add(msg.channel);
+              ws.send(JSON.stringify({ type: 'subscribed', channel: msg.channel }));
+            } else {
+              ws.send(JSON.stringify({ type: 'error', message: `No read permission for "${collectionName}"` }));
+            }
           }
           break;
         }
@@ -138,6 +175,7 @@ export const websocketHandler = {
     if (ws.data?.id) {
       connections.delete(ws.data.id);
     }
+    wsPermCache.delete(ws);
   },
 };
 

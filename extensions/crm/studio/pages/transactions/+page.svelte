@@ -165,49 +165,49 @@
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">Type *</span></label>
-            <select class="select select-bordered" bind:value={form.type}>
+            <label class="label" for="tx-type"><span class="label-text">Type *</span></label>
+            <select id="tx-type" class="select select-bordered" bind:value={form.type}>
               {#each TYPES as t}<option value={t}>{t}</option>{/each}
             </select>
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Status</span></label>
-            <select class="select select-bordered" bind:value={form.status}>
+            <label class="label" for="tx-status"><span class="label-text">Status</span></label>
+            <select id="tx-status" class="select select-bordered" bind:value={form.status}>
               {#each STATUSES as s}<option value={s}>{s}</option>{/each}
             </select>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">Number</span></label>
-            <input class="input input-bordered" bind:value={form.number} placeholder="e.g. INV-2024-001" />
+            <label class="label" for="tx-number"><span class="label-text">Number</span></label>
+            <input id="tx-number" class="input input-bordered" bind:value={form.number} placeholder="e.g. INV-2024-001" />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Currency</span></label>
-            <input class="input input-bordered" bind:value={form.currency} />
+            <label class="label" for="tx-currency"><span class="label-text">Currency</span></label>
+            <input id="tx-currency" class="input input-bordered" bind:value={form.currency} />
           </div>
         </div>
         <div class="grid grid-cols-3 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">Amount</span></label>
-            <input type="number" class="input input-bordered" bind:value={form.amount} step="0.01" />
+            <label class="label" for="tx-amount"><span class="label-text">Amount</span></label>
+            <input id="tx-amount" type="number" class="input input-bordered" bind:value={form.amount} step="0.01" />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Tax</span></label>
-            <input type="number" class="input input-bordered" bind:value={form.tax_amount} step="0.01" />
+            <label class="label" for="tx-tax"><span class="label-text">Tax</span></label>
+            <input id="tx-tax" type="number" class="input input-bordered" bind:value={form.tax_amount} step="0.01" />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Total</span></label>
-            <input type="number" class="input input-bordered" bind:value={form.total_amount} step="0.01" />
+            <label class="label" for="tx-total"><span class="label-text">Total</span></label>
+            <input id="tx-total" type="number" class="input input-bordered" bind:value={form.total_amount} step="0.01" />
           </div>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text">Due Date</span></label>
-          <input type="date" class="input input-bordered" bind:value={form.due_date} />
+          <label class="label" for="tx-due-date"><span class="label-text">Due Date</span></label>
+          <input id="tx-due-date" type="date" class="input input-bordered" bind:value={form.due_date} />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text">Notes</span></label>
-          <textarea class="textarea textarea-bordered" bind:value={form.notes}></textarea>
+          <label class="label" for="tx-notes"><span class="label-text">Notes</span></label>
+          <textarea id="tx-notes" class="textarea textarea-bordered" bind:value={form.notes}></textarea>
         </div>
       </div>
       <div class="modal-action">
@@ -215,6 +215,6 @@
         <button class="btn btn-primary" onclick={save}>Save</button>
       </div>
     </div>
-    <div class="modal-backdrop" onclick={() => showModal = false}></div>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => showModal = false}></button>
   </div>
 {/if}

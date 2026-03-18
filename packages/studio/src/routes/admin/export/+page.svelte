@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api, collectionsApi } from '$lib/api.js';
- import { Download, Loader2, Database } from '@lucide/svelte';
+ import { Download, LoaderCircle, Database } from '@lucide/svelte';
 
  let collections = $state<any[]>([]);
  let selectedCollection = $state('');
@@ -59,8 +59,8 @@
  <div class="card bg-base-200">
  <div class="card-body space-y-5">
  <div class="form-control">
- <label class="label"><span class="label-text font-medium">Collection *</span></label>
- <select class="select" bind:value={selectedCollection}>
+ <label class="label" for="export-collection"><span class="label-text font-medium">Collection *</span></label>
+ <select id="export-collection" class="select" bind:value={selectedCollection}>
  <option value="">— Select collection —</option>
  {#each collections as col}
  <option value={col.name}>{col.display_name || col.name}</option>
@@ -69,7 +69,7 @@
  </div>
 
  <div class="form-control">
- <label class="label"><span class="label-text font-medium">Format</span></label>
+ <p class="label"><span class="label-text font-medium">Format</span></p>
  <div class="flex gap-3">
  {#each [['json', 'JSON'], ['csv', 'CSV'], ['ndjson', 'NDJSON']] as [val, label]}
  <label class="flex items-center gap-2 cursor-pointer">
@@ -102,7 +102,7 @@
  <button class="btn btn-primary w-full" onclick={doExport}
  disabled={!selectedCollection || exporting}>
  {#if exporting}
- <Loader2 size={16} class="animate-spin" />
+ <LoaderCircle size={16} class="animate-spin" />
  Exporting…
  {:else}
  <Download size={16} />

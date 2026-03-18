@@ -146,8 +146,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // DELETE /:name — Delete collection
   app.delete('/:name', async (c) => {
     const name = c.req.param('name');
+    // M4 FIX: Use tenant-scoped DB so cross-tenant collection deletion is impossible.
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     try {
-      await DDLManager.dropCollection(db, name);
+      await DDLManager.dropCollection(effectiveDb, name);
       const user = c.get('user') as any;
       await auditLog(db, {
         type: 'collection.deleted',

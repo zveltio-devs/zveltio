@@ -139,7 +139,37 @@ async function bootstrap() {
   await flowScheduler.start(db);
   console.log('✅ Flow scheduler started');
 
-  // 7. Studio — serve embedded static files at /admin
+  // 7. Studio — security headers registered BEFORE static file serving.
+  // Note: the Studio is a pre-built SvelteKit static export, so runtime nonce
+  // injection into HTML is not possible. script-src uses 'unsafe-inline' as
+  // required by SvelteKit's compiled hydration scripts.
+  app.use('/admin/*', async (c, next) => {
+    // Set headers BEFORE await next() so they are always included in the response,
+    // regardless of whether the handler returns early (redirect, 404, etc.)
+    c.header(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        // SvelteKit generates inline <script> tags for hydration — unsafe-inline is required.
+        // A hash-based CSP could replace this but requires recalculating hashes at build time.
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+      ].join('; '),
+    );
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('X-Frame-Options', 'DENY');
+    c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    await next();
+  });
+
+  // 7b. Studio — serve embedded static files at /admin
   app.get('/admin', (c) => c.redirect('/admin/'));
   app.use('/admin/*', async (c) => {
     let path = c.req.path.replace('/admin', '') || '/';
@@ -191,35 +221,6 @@ async function bootstrap() {
     return c.body(fileContent as any);
   });
 
-  // 7b. CSP for /admin — no unsafe-eval; Svelte compiled output does not require it.
-  app.use('/admin/*', async (c, next) => {
-    await next();
-
-    // Per-request nonce for any inline scripts Studio may emit.
-    const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64');
-
-    c.header(
-      'Content-Security-Policy',
-      [
-        "default-src 'self'",
-        // 'unsafe-eval' removed — if a library breaks, audit it rather than re-enabling.
-        `script-src 'self' 'nonce-${nonce}'`,
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob:",
-        "font-src 'self' data:",
-        // Restrict WebSocket to same origin only — ws: without a host allows any external WS
-        "connect-src 'self'",
-        "frame-ancestors 'none'",
-        "base-uri 'self'",
-        "form-action 'self'",
-      ].join('; '),
-    );
-    c.header('X-Content-Type-Options', 'nosniff');
-    c.header('X-Frame-Options', 'DENY');
-    c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    // HSTS — tells browsers to only connect over HTTPS for 1 year; includeSubDomains for completeness
-    c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  });
 
   // 9. API: active extensions list (Studio consumes this)
   app.get('/api/extensions', (c) => {

@@ -76,9 +76,24 @@ export const WebhookManager = {
         timestamp: payload.timestamp,
       });
 
+      // Filter out headers that could be exploited if webhook config is compromised
+      // (e.g. credential injection, cookie theft, host header poisoning).
+      const BLOCKED_HEADERS = new Set([
+        'authorization', 'cookie', 'set-cookie', 'host', 'x-forwarded-for',
+        'x-real-ip', 'x-forwarded-host', 'x-original-url', 'x-rewrite-url',
+        'proxy-authorization', 'www-authenticate',
+      ]);
+
+      const safeCustomHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries(payload.headers || {})) {
+        if (!BLOCKED_HEADERS.has(k.toLowerCase())) {
+          safeCustomHeaders[k] = v;
+        }
+      }
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(payload.headers || {}),
+        ...safeCustomHeaders,
       };
 
       if (payload.secret) {
@@ -103,7 +118,9 @@ export const WebhookManager = {
         method: payload.method || 'POST',
         headers,
         body,
-        signal: AbortSignal.timeout(payload.timeout || 5000),
+        // H1 FIX: Clamp timeout to [100ms, 30s] — prevents 0/negative/infinite waits
+        // even if the DB row contains a bad value from a compromised config.
+        signal: AbortSignal.timeout(Math.min(Math.max(payload.timeout || 5_000, 100), 30_000)),
       });
       return response.ok;
     } catch {

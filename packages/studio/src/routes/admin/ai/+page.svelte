@@ -7,7 +7,6 @@
  let chats = $state<any[]>([]);
  let templates = $state<any[]>([]);
  let activeChat = $state<any>(null);
- let loading = $state(true);
  let activeTab = $state<'chat' | 'templates' | 'settings' | 'search'>('chat');
 
  // Chat state
@@ -32,7 +31,6 @@
  });
 
  async function loadAll() {
- loading = true;
  const [pRes, cRes, tRes] = await Promise.allSettled([
  api.get<{ providers: any[] }>('/api/ai/providers'),
  api.get<{ chats: any[] }>('/api/ai/chats'),
@@ -41,7 +39,6 @@
  if (pRes.status === 'fulfilled') providers = pRes.value.providers || [];
  if (cRes.status === 'fulfilled') chats = cRes.value.chats || [];
  if (tRes.status === 'fulfilled') templates = tRes.value.templates || [];
- loading = false;
  }
 
  async function newChat() {
@@ -188,7 +185,10 @@
  {#each chats as chat}
  <div
  class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-300 cursor-pointer {activeChat?.id === chat.id ? 'bg-base-300' : ''}"
+ role="button"
+ tabindex="0"
  onclick={() => openChat(chat)}
+ onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openChat(chat)}
  >
  <Bot size={14} class="shrink-0 text-base-content/50" />
  <span class="flex-1 text-xs truncate">{chat.title || 'New Chat'}</span>
@@ -237,8 +237,9 @@
  Caută semantic în colecțiile cu AI Search activat.
  </p>
  <div class="form-control">
- <label class="label py-1"><span class="label-text text-xs">Colecție</span></label>
+ <label class="label py-1" for="ai-search-collection"><span class="label-text text-xs">Colecție</span></label>
  <input
+ id="ai-search-collection"
  type="text"
  class="input input-xs"
  placeholder="ex: articles"
@@ -246,8 +247,9 @@
  />
  </div>
  <div class="form-control">
- <label class="label py-1"><span class="label-text text-xs">Query semantic</span></label>
+ <label class="label py-1" for="ai-search-query"><span class="label-text text-xs">Query semantic</span></label>
  <textarea
+ id="ai-search-query"
  class="textarea textarea-xs resize-none"
  rows={3}
  placeholder="ex: articole despre machine learning în producție"
@@ -385,7 +387,7 @@
  bind:value={input}
  onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
  placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
- class="textarea flex-1 resize-none min-h-[44px] max-h-32 text-sm"
+ class="textarea flex-1 resize-none min-h-11 max-h-32 text-sm"
  rows={1}
  ></textarea>
  <button

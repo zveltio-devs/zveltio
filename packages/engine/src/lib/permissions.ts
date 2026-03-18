@@ -135,6 +135,18 @@ class KyselyCasbinAdapter {
 export async function initPermissions(db: Database): Promise<void> {
   _db = db;
   _enforcer = await newEnforcer(CASBIN_MODEL, new KyselyCasbinAdapter());
+
+  // C2 FIX: HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
+  // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
+  // to Redis could craft a valid signed value and escalate privileges.
+  // Fail-closed: throw at startup rather than running insecurely.
+  if (!process.env.BETTER_AUTH_SECRET) {
+    throw new Error(
+      '[permissions] FATAL: BETTER_AUTH_SECRET env var is not set. ' +
+      'Permission cache HMAC signatures would use an empty secret, making privilege escalation trivial. ' +
+      'Set BETTER_AUTH_SECRET to a strong random value before starting the engine.',
+    );
+  }
 }
 
 export async function getEnforcer(): Promise<Enforcer> {
@@ -143,6 +155,41 @@ export async function getEnforcer(): Promise<Enforcer> {
       'Permissions not initialized. Call initPermissions() first.',
     );
   return _enforcer;
+}
+
+/**
+ * HMAC helpers shared by god-role cache and permission result cache.
+ * Both caches sign their values with HMAC-SHA256 (keyed on BETTER_AUTH_SECRET)
+ * to prevent privilege escalation via direct Redis key manipulation.
+ */
+function _permHmac(key: string, value: '1' | '0'): string {
+  const secret = process.env.BETTER_AUTH_SECRET ?? '';
+  return createHmac('sha256', secret)
+    .update(`perm:${key}:${value}`)
+    .digest('hex');
+}
+
+function _encodePermCache(key: string, allowed: boolean): string {
+  const value = allowed ? '1' : '0';
+  return `${value}:${_permHmac(key, value)}`;
+}
+
+/** Returns `true/false` if HMAC valid, `null` if tampered. */
+function _decodePermCache(key: string, raw: string): boolean | null {
+  const sep = raw.indexOf(':');
+  if (sep === -1) return null;
+  const value = raw.slice(0, sep);
+  const storedHmac = raw.slice(sep + 1);
+  if (value !== '1' && value !== '0') return null;
+  try {
+    const expected = Buffer.from(_permHmac(key, value as '1' | '0'), 'hex');
+    const stored   = Buffer.from(storedHmac, 'hex');
+    if (stored.length !== expected.length) return null;
+    if (!timingSafeEqual(stored, expected)) return null;
+  } catch {
+    return null;
+  }
+  return value === '1';
 }
 
 /**
@@ -267,9 +314,12 @@ export async function checkPermission(
 
   if (cache) {
     try {
-      // GET — O(1): direct key lookup.
       const cached = await cache.get(cacheKey);
-      if (cached !== null) return cached === '1';
+      if (cached !== null) {
+        // Verify HMAC signature — null means tampered, fall through to DB
+        const decoded = _decodePermCache(cacheKey, cached);
+        if (decoded !== null) return decoded;
+      }
     } catch {
       /* cache unavailable */
     }
@@ -280,15 +330,8 @@ export async function checkPermission(
 
   if (cache) {
     try {
-      // SETEX  — O(1): write the result under a fully-qualified key.
-      // SADD   — O(1): add the key name to the per-user tracking Set.
-      //                The Set has at most one entry per (resource, action) pair
-      //                this user has ever been checked against; it is bounded by
-      //                the user's own policy surface, not by the total keyspace.
-      // EXPIRE — O(1): refresh TTL on the tracking Set.
-      //
-      // Total cache-write cost: O(1) — no scan, no iteration.
-      await cache.setex(cacheKey, PERMISSION_CACHE_TTL, result ? '1' : '0');
+      // Store HMAC-signed value — prevents privilege escalation via Redis writes.
+      await cache.setex(cacheKey, PERMISSION_CACHE_TTL, _encodePermCache(cacheKey, result));
       await cache.sadd(`user:perm-keys:${userId}`, cacheKey);
       await cache.expire(`user:perm-keys:${userId}`, PERMISSION_CACHE_TTL + 60);
     } catch {

@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { webhooksApi, collectionsApi } from '$lib/api.js';
- import { Plus, Webhook, Trash2, Edit, Play, Loader2 } from '@lucide/svelte';
+ import { Plus, Webhook, Trash2, Edit, Play, LoaderCircle } from '@lucide/svelte';
 
  let webhooks = $state<any[]>([]);
  let collections = $state<any[]>([]);
@@ -103,7 +103,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-16"><Loader2 size={32} class="animate-spin text-primary" /></div>
+ <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if webhooks.length === 0}
  <div class="card bg-base-200 text-center py-16">
  <Webhook size={48} class="mx-auto opacity-30 mb-3" />
@@ -138,7 +138,7 @@
  </div>
  <div class="flex gap-1 shrink-0">
  <button class="btn btn-ghost btn-xs" title="Test" onclick={() => testWebhook(wh.id)} disabled={testing === wh.id}>
- {#if testing === wh.id}<Loader2 size={14} class="animate-spin" />{:else}<Play size={14} />{/if}
+ {#if testing === wh.id}<LoaderCircle size={14} class="animate-spin" />{:else}<Play size={14} />{/if}
  </button>
  <button class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)}><Edit size={14} /></button>
  <button class="btn btn-ghost btn-xs text-error" onclick={() => remove(wh.id, wh.name)}><Trash2 size={14} /></button>
@@ -156,37 +156,37 @@
  <h3 class="font-bold text-lg mb-4">{editTarget ? 'Edit Webhook' : 'New Webhook'}</h3>
  <div class="space-y-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Name *</span></label>
- <input class="input" bind:value={form.name} placeholder="My Webhook" />
+ <label class="label" for="webhook-name"><span class="label-text">Name *</span></label>
+ <input id="webhook-name" class="input" bind:value={form.name} placeholder="My Webhook" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">URL *</span></label>
- <input class="input font-mono" bind:value={form.url} placeholder="https://example.com/webhook" />
+ <label class="label" for="webhook-url"><span class="label-text">URL *</span></label>
+ <input id="webhook-url" class="input font-mono" bind:value={form.url} placeholder="https://example.com/webhook" />
  </div>
  <div class="grid grid-cols-2 gap-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Method</span></label>
- <select class="select" bind:value={form.method}>
+ <label class="label" for="webhook-method"><span class="label-text">Method</span></label>
+ <select id="webhook-method" class="select" bind:value={form.method}>
  <option>POST</option><option>PUT</option><option>PATCH</option>
  </select>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Secret (optional)</span></label>
- <input class="input font-mono" bind:value={form.secret} placeholder="Signing secret" />
+ <label class="label" for="webhook-secret"><span class="label-text">Secret (optional)</span></label>
+ <input id="webhook-secret" class="input font-mono" bind:value={form.secret} placeholder="Signing secret" />
  </div>
  </div>
  <div class="grid grid-cols-2 gap-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Retry attempts</span></label>
- <input type="number" class="input" bind:value={form.retry_attempts} min="0" max="10" />
+ <label class="label" for="webhook-retry"><span class="label-text">Retry attempts</span></label>
+ <input id="webhook-retry" type="number" class="input" bind:value={form.retry_attempts} min="0" max="10" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Timeout (ms)</span></label>
- <input type="number" class="input" bind:value={form.timeout} min="1000" max="30000" step="500" />
+ <label class="label" for="webhook-timeout"><span class="label-text">Timeout (ms)</span></label>
+ <input id="webhook-timeout" type="number" class="input" bind:value={form.timeout} min="1000" max="30000" step="500" />
  </div>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Events * (select at least one)</span></label>
+ <p class="label"><span class="label-text">Events * (select at least one)</span></p>
  <div class="flex flex-wrap gap-2 p-3 border border-base-300 rounded-lg">
  {#each ALL_EVENTS as ev}
  <label class="flex items-center gap-1.5 cursor-pointer">
@@ -198,7 +198,7 @@
  </div>
  {#if collections.length > 0}
  <div class="form-control">
- <label class="label"><span class="label-text">Restrict to collections (empty = all)</span></label>
+ <p class="label"><span class="label-text">Restrict to collections (empty = all)</span></p>
  <div class="flex flex-wrap gap-2 p-3 border border-base-300 rounded-lg max-h-28 overflow-y-auto">
  {#each collections as col}
  <label class="flex items-center gap-1.5 cursor-pointer">
@@ -218,11 +218,11 @@
  <button class="btn btn-ghost" onclick={() => (showModal = false)}>Cancel</button>
  <button class="btn btn-primary" onclick={save}
  disabled={saving || !form.name || !form.url || form.events.length === 0}>
- {#if saving}<Loader2 size={16} class="animate-spin" />{/if}
+ {#if saving}<LoaderCircle size={16} class="animate-spin" />{/if}
  {editTarget ? 'Save' : 'Create'}
  </button>
  </div>
  </div>
- <div class="modal-backdrop" onclick={() => (showModal = false)}></div>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showModal = false)}></button>
  </dialog>
 {/if}

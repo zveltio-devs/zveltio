@@ -158,22 +158,22 @@
  <h3 class="font-bold text-lg mb-4">Document nou</h3>
  <div class="grid grid-cols-2 gap-3 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Tip document</span></label>
- <select bind:value={form.type} class="select select-sm">
+ <label class="label" for="doc-type"><span class="label-text">Tip document</span></label>
+ <select id="doc-type" bind:value={form.type} class="select select-sm">
  {#each DOC_TYPES as t}<option value={t}>{DOC_LABELS[t]}</option>{/each}
  </select>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Număr</span></label>
- <input type="text" bind:value={form.number} placeholder="CT-2026-001" class="input input-sm font-mono" />
+ <label class="label" for="doc-number"><span class="label-text">Număr</span></label>
+ <input id="doc-number" type="text" bind:value={form.number} placeholder="CT-2026-001" class="input input-sm font-mono" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Data</span></label>
- <input type="date" bind:value={form.date} class="input input-sm" />
+ <label class="label" for="doc-date"><span class="label-text">Data</span></label>
+ <input id="doc-date" type="date" bind:value={form.date} class="input input-sm" />
  </div>
  <div class="form-control col-span-2">
- <label class="label"><span class="label-text">Titlu</span></label>
- <input type="text" bind:value={form.title} placeholder="Contract prestari servicii IT" class="input input-sm" />
+ <label class="label" for="doc-title"><span class="label-text">Titlu</span></label>
+ <input id="doc-title" type="text" bind:value={form.title} placeholder="Contract prestari servicii IT" class="input input-sm" />
  </div>
  </div>
 

@@ -117,8 +117,12 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(revision.collection);
     const data = typeof revision.data === 'string' ? JSON.parse(revision.data) : revision.data;
 
-    // Remove system fields before reverting
-    const { id, created_at, updated_at, ...revertData } = data;
+    // P2: strip ALL protected system fields before reverting — prevents tenant_id / search_vector overwrite
+    const REVERT_PROTECTED = new Set(['id', 'created_at', 'updated_at', 'tenant_id', 'search_vector', 'embedding', 'created_by']);
+    const revertData: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (!REVERT_PROTECTED.has(k)) revertData[k] = v;
+    }
 
     const reverted = await dynamicUpdate(db, tableName, revision.record_id, {
       ...revertData,
@@ -198,13 +202,19 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
   // DELETE /record/comments/:commentId — Delete comment
   app.delete('/record/comments/:commentId', async (c) => {
     const user = c.get('user') as any;
+    const commentId = c.req.param('commentId');
     const isAdmin = await checkPermission(user.id, 'admin', '*');
 
-    await sql`
-      DELETE FROM zv_record_comments
-      WHERE id = ${c.req.param('commentId')}
-        AND (user_id = ${user.id} ${isAdmin ? sql`OR TRUE` : sql``})
-    `.execute(db);
+    // Replaced `OR TRUE` idiom (confusing, hard to audit) with explicit branch.
+    // Admins can delete any comment; non-admins can only delete their own.
+    if (isAdmin) {
+      await sql`DELETE FROM zv_record_comments WHERE id = ${commentId}`.execute(db);
+    } else {
+      await sql`
+        DELETE FROM zv_record_comments
+        WHERE id = ${commentId} AND user_id = ${user.id}
+      `.execute(db);
+    }
 
     return c.json({ success: true });
   });

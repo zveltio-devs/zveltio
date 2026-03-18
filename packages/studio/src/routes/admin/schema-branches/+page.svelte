@@ -155,7 +155,7 @@
  <p class="text-base-content/60 text-sm mt-1">Create isolated schema branches to safely test changes before applying to production</p>
  </div>
  <div class="flex gap-2">
- <button class="btn btn-ghost btn-sm" onclick={loadBranches}><RefreshCw size={14} /></button>
+ <button class="btn btn-ghost btn-sm" onclick={loadBranches} title="Refresh"><RefreshCw size={14} /></button>
  <button class="btn btn-primary btn-sm gap-1" onclick={openCreateModal}><Plus size={14} /> Create Branch</button>
  </div>
  </div>
@@ -230,12 +230,12 @@
  <h3 class="font-bold text-lg mb-4">Create Schema Branch</h3>
  <div class="space-y-3">
  <div class="form-control">
- <label class="label"><span class="label-text">Branch Name *</span></label>
- <input type="text" bind:value={newBranchName} placeholder="e.g., add-user-settings" class="input" />
+ <label class="label" for="branch-name"><span class="label-text">Branch Name *</span></label>
+ <input id="branch-name" type="text" bind:value={newBranchName} placeholder="e.g., add-user-settings" class="input" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Description</span></label>
- <textarea bind:value={newBranchDescription} rows="3" placeholder="Describe the purpose..." class="textarea"></textarea>
+ <label class="label" for="branch-description"><span class="label-text">Description</span></label>
+ <textarea id="branch-description" bind:value={newBranchDescription} rows="3" placeholder="Describe the purpose..." class="textarea"></textarea>
  </div>
  </div>
  <div class="modal-action">
@@ -246,7 +246,7 @@
  </button>
  </div>
  </div>
- <button class="modal-backdrop" onclick={() => (showCreateModal = false)}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
  </dialog>
 {/if}
 
@@ -292,7 +292,7 @@
  <button class="btn btn-ghost" onclick={() => (showDiffModal = false)}>Close</button>
  </div>
  </div>
- <button class="modal-backdrop" onclick={() => (showDiffModal = false)}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showDiffModal = false)}></button>
  </dialog>
 {/if}
 
@@ -334,7 +334,7 @@
  </div>
  {/if}
  </div>
- <button class="modal-backdrop" onclick={() => (showMergeModal = false)}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showMergeModal = false)}></button>
  </dialog>
 {/if}
 
@@ -349,6 +349,6 @@
  <button class="btn btn-error gap-1" onclick={closeBranch}><Trash2 size={14} /> Close Branch</button>
  </div>
  </div>
- <button class="modal-backdrop" onclick={() => (deleteTarget = null)}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (deleteTarget = null)}></button>
  </dialog>
 {/if}

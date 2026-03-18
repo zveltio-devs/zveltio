@@ -1,6 +1,6 @@
 <script lang="ts">
   import { useAuth } from '$stores/auth.svelte';
-  import { Mail, Loader2, CheckCircle } from '@lucide/svelte';
+  import { Mail, LoaderCircle, CheckCircle } from '@lucide/svelte';
 
   const auth = useAuth();
   let email = $state('');
@@ -39,7 +39,7 @@
     </label>
 
     <button onclick={handleSubmit} disabled={loading || !email} class="btn btn-primary w-full">
-      {#if loading}<Loader2 size={18} class="animate-spin" />{/if}
+      {#if loading}<LoaderCircle size={18} class="animate-spin" />{/if}
       Send Reset Link
     </button>
   </div>

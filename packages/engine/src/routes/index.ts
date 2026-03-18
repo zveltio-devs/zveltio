@@ -25,7 +25,7 @@ import { healthRoutes } from './health.js';
 // ai → extensions/ai/core-ai
 import { syncRoutes } from './sync.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
-import { authRateLimit, apiRateLimit, aiRateLimit } from '../middleware/rate-limit.js';
+import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit } from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
 
 // ── Moved to extensions ──────────────────────────────────────────────────────
@@ -67,6 +67,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/auth/sign-up/*', authRateLimit);
   app.use('/api/auth/forgot-password', authRateLimit);
   app.use('/api/ai/*', aiRateLimit);
+  // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
+  app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);
+  app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/sync/*', writeRateLimit);
   app.use('/api/*', apiRateLimit);
 
   // ── Tenant daily quota enforcement (runs after tenant middleware in index.ts) ──
@@ -166,9 +169,14 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Edge Functions — moved to extensions/developer/edge-functions (loaded when extension is active)
 
+  // P2: XML-escape helper to prevent injection via SITE_URL or page slugs
+  function xmlEscape(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  }
+
   // Sitemap (public)
   app.get('/api/sitemap.xml', async (c) => {
-    const siteUrl = process.env.SITE_URL || 'https://example.com';
+    const siteUrl = xmlEscape(process.env.SITE_URL || 'https://example.com');
     try {
       const pages = await sql<{ slug: string; updated_at: Date }>`
         SELECT slug, updated_at FROM zv_pages WHERE is_published = true ORDER BY slug
@@ -176,7 +184,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
       const urls = pages.rows
         .map((p) => `  <url>
-    <loc>${siteUrl}/${p.slug}</loc>
+    <loc>${siteUrl}/${xmlEscape(p.slug)}</loc>
     <lastmod>${new Date(p.updated_at).toISOString().split('T')[0]}</lastmod>
     <changefreq>weekly</changefreq>
   </url>`)

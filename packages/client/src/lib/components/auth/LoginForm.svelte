@@ -1,6 +1,6 @@
 <script lang="ts">
   import { useAuth } from '$stores/auth.svelte';
-  import { Mail, Lock, Loader2 } from '@lucide/svelte';
+  import { Mail, Lock, LoaderCircle } from '@lucide/svelte';
 
   const auth = useAuth();
   let email = $state('');
@@ -47,7 +47,7 @@
     class="btn btn-primary w-full"
   >
     {#if loading}
-      <Loader2 size={18} class="animate-spin" />
+      <LoaderCircle size={18} class="animate-spin" />
     {/if}
     Sign In
   </button>

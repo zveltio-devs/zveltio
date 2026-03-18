@@ -51,8 +51,9 @@ export async function getValidationRules(
 }
 
 export function invalidateRulesCache(collection: string): void {
+  // L7 FIX: Use exact match + prefix with ':' separator to avoid "user" matching "users".
   for (const key of rulesCache.keys()) {
-    if (key.startsWith(collection)) rulesCache.delete(key);
+    if (key === collection || key.startsWith(`${collection}:`)) rulesCache.delete(key);
   }
 }
 
@@ -61,35 +62,69 @@ export function invalidateRulesCache(collection: string): void {
  * Returns an array of error messages (empty = valid).
  */
 /**
- * Executes a regex test with a timeout to prevent ReDoS attacks.
- * Returns null if the regex is invalid; false if it times out.
- * TODO: For production-grade ReDoS protection, run in a Bun Worker thread
- * (similar to edge-functions/worker-runner.ts). The `re2` npm package also
- * provides O(n) guarantees via Google's RE2 engine.
+ * Executes a regex test in a Bun Worker thread to prevent ReDoS attacks.
+ *
+ * Running in a Worker thread means that a catastrophic backtracking pattern
+ * cannot block the main event loop. If the test doesn't complete within
+ * `timeoutMs`, the worker is terminated and `false` is returned.
+ *
+ * Falls back to a direct (unprotected) test in non-Bun environments where
+ * the Worker constructor is unavailable.
  */
-function safeRegexTest(pattern: string, value: string, timeoutMs = 100): boolean {
+async function safeRegexTest(pattern: string, value: string, timeoutMs = 200): Promise<boolean> {
   let regex: RegExp;
   try {
     regex = new RegExp(pattern);
   } catch {
-    return false; // Invalid regex — treat as no match
+    return false;
   }
 
-  let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; }, timeoutMs);
+  // In Bun, run the test inside a Worker so a ReDoS pattern cannot freeze the server.
+  if (typeof Worker !== 'undefined') {
+    const workerCode = `
+      self.onmessage = ({ data: { pattern, value } }) => {
+        try {
+          const result = new RegExp(pattern).test(value);
+          self.postMessage({ result });
+        } catch {
+          self.postMessage({ result: false });
+        }
+      };
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        worker.terminate();
+        resolve(false); // treat ReDoS timeout as non-match
+      }, timeoutMs);
+
+      worker.onmessage = ({ data }) => {
+        clearTimeout(timer);
+        worker.terminate();
+        resolve(Boolean(data?.result));
+      };
+
+      worker.onerror = () => {
+        clearTimeout(timer);
+        worker.terminate();
+        resolve(false);
+      };
+
+      worker.postMessage({ pattern, value });
+    });
+  }
+
+  // Fallback for non-Worker environments (test environments, etc.)
   try {
-    const result = regex.test(value);
-    clearTimeout(timer);
-    // If the timeout fired during regex.test (possible in single-threaded JS),
-    // treat as non-match to avoid stalling further.
-    return timedOut ? false : result;
+    return regex.test(value);
   } catch {
-    clearTimeout(timer);
     return false;
   }
 }
 
-export function validateFieldValue(value: any, rules: ValidationRule[]): string[] {
+export async function validateFieldValue(value: any, rules: ValidationRule[]): Promise<string[]> {
   const errors: string[] = [];
 
   for (const rule of rules) {
@@ -113,7 +148,8 @@ export function validateFieldValue(value: any, rules: ValidationRule[]): string[
         violated = typeof value === 'string' && value.length > cfg.value;
         break;
       case 'pattern':
-        violated = typeof value === 'string' && !safeRegexTest(cfg.pattern, value);
+        // safeRegexTest runs in a Worker thread — await is required
+        violated = typeof value === 'string' && !(await safeRegexTest(cfg.pattern, value));
         break;
       case 'range':
         violated = typeof value === 'number' && (value < cfg.min || value > cfg.max);
@@ -161,7 +197,7 @@ export async function validateRecord(
   for (const [fieldName, value] of Object.entries(data)) {
     const fieldRules = await getValidationRules(db, collection, fieldName);
     if (fieldRules.length === 0) continue;
-    const fieldErrors = validateFieldValue(value, fieldRules);
+    const fieldErrors = await validateFieldValue(value, fieldRules);
     if (fieldErrors.length > 0) errors[fieldName] = fieldErrors;
   }
 

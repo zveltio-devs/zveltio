@@ -371,6 +371,6 @@
  <button class="btn btn-primary" onclick={saveConfig}>Save Config</button>
  </div>
  </div>
- <button class="modal-backdrop" onclick={() => configuringExt = null}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => configuringExt = null}></button>
  </div>
 {/if}

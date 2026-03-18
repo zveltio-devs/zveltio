@@ -227,22 +227,22 @@
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Invoice number</span></label>
- <input type="text" bind:value={form.invoice_number} placeholder="FAC-2026-001" class="input input-sm" />
+ <label class="label" for="invoice-number"><span class="label-text">Invoice number</span></label>
+ <input id="invoice-number" type="text" bind:value={form.invoice_number} placeholder="FAC-2026-001" class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Currency</span></label>
- <select bind:value={form.currency} class="select select-sm">
+ <label class="label" for="invoice-currency"><span class="label-text">Currency</span></label>
+ <select id="invoice-currency" bind:value={form.currency} class="select select-sm">
  <option>RON</option><option>EUR</option><option>USD</option>
  </select>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Invoice date</span></label>
- <input type="date" bind:value={form.invoice_date} class="input input-sm" />
+ <label class="label" for="invoice-date"><span class="label-text">Invoice date</span></label>
+ <input id="invoice-date" type="date" bind:value={form.invoice_date} class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Due date</span></label>
- <input type="date" bind:value={form.due_date} class="input input-sm" />
+ <label class="label" for="invoice-due-date"><span class="label-text">Due date</span></label>
+ <input id="invoice-due-date" type="date" bind:value={form.due_date} class="input input-sm" />
  </div>
  </div>
 

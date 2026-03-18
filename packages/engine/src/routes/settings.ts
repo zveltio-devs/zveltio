@@ -118,7 +118,13 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
       }
       const { value, is_public } = c.req.valid('json');
-      const serialized = JSON.stringify(value);
+      // M3 FIX: JSON.stringify throws on circular references — return 400 instead of 500.
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(value);
+      } catch {
+        return c.json({ error: 'Value is not JSON-serializable' }, 400);
+      }
 
       await (db as any)
         .insertInto('zv_settings')
@@ -154,7 +160,12 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       }
     }
     for (const [key, value] of Object.entries(body)) {
-      const serialized = JSON.stringify(value);
+      let serialized: string;
+      try {
+        serialized = JSON.stringify(value);
+      } catch {
+        return c.json({ error: `Value for key "${key}" is not JSON-serializable` }, 400);
+      }
       await (db as any)
         .insertInto('zv_settings')
         .values({ key, value: serialized, updated_at: new Date() })

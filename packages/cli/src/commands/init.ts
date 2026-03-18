@@ -15,17 +15,25 @@ export async function initCommand(
 
   mkdirSync(dir, { recursive: true });
 
+  // Generate random credentials — avoids developers accidentally using 'password' in prod
+  const dbPassword  = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+  const s3AccessKey = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  const s3SecretKey = crypto.randomUUID().replace(/-/g, '');
+  const authSecret  = crypto.randomUUID().replace(/-/g, '');
+
   writeFileSync(
     join(dir, '.env'),
     [
-      `DATABASE_URL=postgresql://admin:password@localhost:5432/${projectName}`,
+      '# ⚠️  NEVER commit this file to git — it contains secrets.',
+      '# For production, replace ALL values with strong credentials.',
+      `DATABASE_URL=postgresql://zveltio:${dbPassword}@localhost:5432/${projectName}`,
       'PORT=3000',
-      `BETTER_AUTH_SECRET=${crypto.randomUUID().replace(/-/g, '')}`,
+      `BETTER_AUTH_SECRET=${authSecret}`,
       'VALKEY_URL=redis://localhost:6379',
       'S3_ENDPOINT=http://localhost:8333',
       'S3_BUCKET=zveltio',
-      'S3_ACCESS_KEY=admin',
-      'S3_SECRET_KEY=password',
+      `S3_ACCESS_KEY=${s3AccessKey}`,
+      `S3_SECRET_KEY=${s3SecretKey}`,
       'ZVELTIO_EXTENSIONS=',
       '',
     ].join('\n'),
@@ -34,14 +42,15 @@ export async function initCommand(
   writeFileSync(
     join(dir, '.env.example'),
     [
-      'DATABASE_URL=postgresql://user:pass@localhost:5432/dbname',
+      '# Copy to .env and fill in real values. Never commit .env to git.',
+      'DATABASE_URL=postgresql://zveltio:CHANGE_ME@localhost:5432/dbname',
       'PORT=3000',
-      'BETTER_AUTH_SECRET=changeme',
+      'BETTER_AUTH_SECRET=CHANGE_ME_use_random_32+_chars',
       'VALKEY_URL=redis://localhost:6379',
       'S3_ENDPOINT=http://localhost:8333',
       'S3_BUCKET=zveltio',
-      'S3_ACCESS_KEY=admin',
-      'S3_SECRET_KEY=password',
+      'S3_ACCESS_KEY=CHANGE_ME',
+      'S3_SECRET_KEY=CHANGE_ME',
       'ZVELTIO_EXTENSIONS=',
       '',
     ].join('\n'),
@@ -72,11 +81,11 @@ export async function initCommand(
     `version: '3.8'
 services:
   db:
-    image: postgres:16-alpine
+    image: postgis/postgis:16-3.4-alpine
     environment:
       POSTGRES_DB: ${projectName}
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: zveltio
+      POSTGRES_PASSWORD: ${dbPassword}
     ports:
       - "5432:5432"
     volumes:
@@ -90,6 +99,18 @@ services:
 volumes:
   pgdata:
 `,
+  );
+
+  writeFileSync(
+    join(dir, '.gitignore'),
+    [
+      '.env',
+      'node_modules/',
+      'dist/',
+      '.DS_Store',
+      '*.local',
+      '',
+    ].join('\n'),
   );
 
   console.log(`✅ Zveltio project "${projectName}" initialized at ${dir}`);

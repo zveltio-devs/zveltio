@@ -19,13 +19,27 @@ export function rateLimit(config: RateLimitConfig) {
     if (!cache) return next();
 
     try {
-      // Identifier: authenticated userId or client IP
+      // Identifier: authenticated userId or client IP.
+      // x-forwarded-for is only trusted when behind a known proxy (TRUSTED_PROXY=true env var).
+      // Without this guard, any client can set the header to bypass per-IP rate limiting.
       const session = (c as any).get?.('user');
       const userId: string | undefined = session?.id;
-      const ip =
-        c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
-        c.req.header('x-real-ip') ||
-        'unknown';
+
+      const trustedProxy = process.env.TRUSTED_PROXY === 'true';
+      const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+      // Validate the extracted IP to be a basic IPv4/IPv6 format before trusting it
+      // H4 FIX: Tighten IPv4 regex — old pattern accepted 999.999.999.999 as valid.
+      // New pattern validates each octet is 0-255 strictly.
+      const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+      const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
+      const forwardedIp =
+        trustedProxy && rawForwardedFor && (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
+          ? rawForwardedFor
+          : null;
+
+      // x-real-ip is also a proxy-injected header — only trust it behind a trusted proxy
+      const realIp = trustedProxy ? c.req.header('x-real-ip') ?? null : null;
+      const ip = forwardedIp || realIp || 'unknown';
       const identifier = userId ?? ip;
 
       const key = `rl:${keyPrefix}:${identifier}`;

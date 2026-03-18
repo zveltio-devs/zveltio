@@ -166,10 +166,12 @@ export function efacturaRoutes(db: any, auth: any): Hono {
 
     if (!invoice?.xml_content) return c.json({ error: 'XML not generated yet' }, 404);
 
+    // P2: sanitize invoice_number before using in Content-Disposition to prevent header injection
+    const safeInvoiceNumber = String(invoice.invoice_number).replace(/[^a-zA-Z0-9\-_.]/g, '_');
     return new Response(invoice.xml_content, {
       headers: {
         'Content-Type': 'application/xml; charset=utf-8',
-        'Content-Disposition': `attachment; filename="factura_${invoice.invoice_number}.xml"`,
+        'Content-Disposition': `attachment; filename="factura_${safeInvoiceNumber}.xml"`,
       },
     });
   });

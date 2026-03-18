@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Database } from '../db/index.js';
+import { escapeLike } from '../lib/query-utils.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
@@ -128,12 +129,14 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     if (mime_type) query = query.where('mime_type', 'ilike', `${mime_type}%`);
 
     if (search) {
+      // P1: escape LIKE metacharacters to prevent wildcard DoS
+      const safeSearch = `%${escapeLike(search)}%`;
       query = query.where(({ or, cmpr }: any) =>
         or([
-          cmpr('filename', 'ilike', `%${search}%`),
-          cmpr('original_filename', 'ilike', `%${search}%`),
-          cmpr('title', 'ilike', `%${search}%`),
-          cmpr('description', 'ilike', `%${search}%`),
+          cmpr('filename', 'ilike', safeSearch),
+          cmpr('original_filename', 'ilike', safeSearch),
+          cmpr('title', 'ilike', safeSearch),
+          cmpr('description', 'ilike', safeSearch),
         ]),
       );
     }
@@ -145,16 +148,27 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .where('zv_media_tags.name', '=', tag);
     }
 
-    const files = await query.limit(Number(limit)).offset(Number(offset)).execute();
+    const safeLimit = Math.min(Number(limit) || 50, 500);
+    const files = await query.limit(safeLimit).offset(Number(offset)).execute();
 
-    // Load tags for each file
-    for (const file of files) {
-      file.tags = await (db as any)
+    // P1: batch-load all tags in a single query instead of N+1 per-file queries
+    if (files.length > 0) {
+      const fileIds = files.map((f: any) => f.id);
+      const allTags = await (db as any)
         .selectFrom('zv_media_file_tags')
         .innerJoin('zv_media_tags', 'zv_media_tags.id', 'zv_media_file_tags.tag_id')
-        .select(['zv_media_tags.id', 'zv_media_tags.name', 'zv_media_tags.color'])
-        .where('zv_media_file_tags.file_id', '=', file.id)
+        .select(['zv_media_file_tags.file_id', 'zv_media_tags.id', 'zv_media_tags.name', 'zv_media_tags.color'])
+        .where('zv_media_file_tags.file_id', 'in', fileIds)
         .execute();
+      const tagsByFile = new Map<string, any[]>();
+      for (const tag of allTags) {
+        const list = tagsByFile.get(tag.file_id) ?? [];
+        list.push({ id: tag.id, name: tag.name, color: tag.color });
+        tagsByFile.set(tag.file_id, list);
+      }
+      for (const file of files) {
+        (file as any).tags = tagsByFile.get((file as any).id) ?? [];
+      }
     }
 
     let countQuery = (db as any)
@@ -165,12 +179,13 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     if (folder_id) countQuery = countQuery.where('folder_id', '=', folder_id);
     if (mime_type) countQuery = countQuery.where('mime_type', 'ilike', `${mime_type}%`);
     if (search) {
+      const safeSearchCount = `%${escapeLike(search)}%`;
       countQuery = countQuery.where(({ or, cmpr }: any) =>
         or([
-          cmpr('filename', 'ilike', `%${search}%`),
-          cmpr('original_filename', 'ilike', `%${search}%`),
-          cmpr('title', 'ilike', `%${search}%`),
-          cmpr('description', 'ilike', `%${search}%`),
+          cmpr('filename', 'ilike', safeSearchCount),
+          cmpr('original_filename', 'ilike', safeSearchCount),
+          cmpr('title', 'ilike', safeSearchCount),
+          cmpr('description', 'ilike', safeSearchCount),
         ]),
       );
     }

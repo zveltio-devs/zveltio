@@ -141,30 +141,30 @@
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">First Name *</span></label>
-            <input class="input input-bordered" bind:value={form.first_name} required />
+            <label class="label" for="contact-first-name"><span class="label-text">First Name *</span></label>
+            <input id="contact-first-name" class="input input-bordered" bind:value={form.first_name} required />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Last Name</span></label>
-            <input class="input input-bordered" bind:value={form.last_name} />
+            <label class="label" for="contact-last-name"><span class="label-text">Last Name</span></label>
+            <input id="contact-last-name" class="input input-bordered" bind:value={form.last_name} />
           </div>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text">Email</span></label>
-          <input type="email" class="input input-bordered" bind:value={form.email} />
+          <label class="label" for="contact-email"><span class="label-text">Email</span></label>
+          <input id="contact-email" type="email" class="input input-bordered" bind:value={form.email} />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text">Phone</span></label>
-          <input class="input input-bordered" bind:value={form.phone} />
+          <label class="label" for="contact-phone"><span class="label-text">Phone</span></label>
+          <input id="contact-phone" class="input input-bordered" bind:value={form.phone} />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label"><span class="label-text">Company</span></label>
-            <input class="input input-bordered" bind:value={form.company} />
+            <label class="label" for="contact-company"><span class="label-text">Company</span></label>
+            <input id="contact-company" class="input input-bordered" bind:value={form.company} />
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text">Job Title</span></label>
-            <input class="input input-bordered" bind:value={form.job_title} />
+            <label class="label" for="contact-job-title"><span class="label-text">Job Title</span></label>
+            <input id="contact-job-title" class="input input-bordered" bind:value={form.job_title} />
           </div>
         </div>
       </div>
@@ -173,6 +173,6 @@
         <button class="btn btn-primary" onclick={save}>Save</button>
       </div>
     </div>
-    <div class="modal-backdrop" onclick={() => showModal = false}></div>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => showModal = false}></button>
   </div>
 {/if}

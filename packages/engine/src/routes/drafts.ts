@@ -18,6 +18,13 @@ import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
 
+const PublishSettingsSchema = z.object({
+  drafts_enabled: z.boolean().optional(),
+  require_review: z.boolean().optional(),
+  reviewer_roles: z.array(z.string()).optional(),
+  auto_publish: z.boolean().optional(),
+});
+
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
 const CreateDraftSchema = z.object({
@@ -35,6 +42,15 @@ const UpdateDraftSchema = z.object({
   scheduled_at: z.string().datetime().optional(),
 });
 
+// Safe collection name pattern — same as DDLManager.getTableName validates
+const SAFE_COLLECTION_RE = /^[a-z][a-z0-9_]*$/;
+
+// Fields that must never be overwritten via draft publish (system columns)
+const DRAFT_PROTECTED_FIELDS = new Set([
+  'id', 'created_at', 'created_by', 'updated_at', 'tenant_id',
+  'search_vector', 'embedding',
+]);
+
 // ── Route factory ─────────────────────────────────────────────────────────────
 
 export function draftsRoutes(db: Database, _auth: any): Hono {
@@ -51,12 +67,13 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   // GET / — list drafts
   app.get('/', async (c) => {
     const user = c.get('user');
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const { collection, record_id, status } = c.req.query();
 
     const canRead = await checkPermission(user.id, collection || 'drafts', 'read');
     if (!canRead) return c.json({ error: 'Forbidden' }, 403);
 
-    let query = (db as any)
+    let query = (effectiveDb as any)
       .selectFrom('zv_content_drafts')
       .selectAll()
       .orderBy('created_at', 'desc');
@@ -72,7 +89,8 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   // GET /settings/:collection — get publish settings (before /:id)
   app.get('/settings/:collection', async (c) => {
     const collection = c.req.param('collection');
-    const settings = await (db as any)
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
+    const settings = await (effectiveDb as any)
       .selectFrom('zv_collection_publish_settings')
       .selectAll()
       .where('collection', '=', collection)
@@ -90,27 +108,28 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   });
 
   // PUT /settings/:collection — update publish settings
-  app.put('/settings/:collection', async (c) => {
+  app.put('/settings/:collection', zValidator('json', PublishSettingsSchema), async (c) => {
     const user = c.get('user');
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const collection = c.req.param('collection');
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
-    const body = await c.req.json();
-    const existing = await (db as any)
+    const body = c.req.valid('json');
+    const existing = await (effectiveDb as any)
       .selectFrom('zv_collection_publish_settings')
       .select('id')
       .where('collection', '=', collection)
       .executeTakeFirst();
 
     if (existing) {
-      await (db as any)
+      await (effectiveDb as any)
         .updateTable('zv_collection_publish_settings')
         .set({ ...body, collection, updated_at: new Date() })
         .where('collection', '=', collection)
         .execute();
     } else {
-      await (db as any)
+      await (effectiveDb as any)
         .insertInto('zv_collection_publish_settings')
         .values({ collection, ...body })
         .execute();
@@ -122,21 +141,22 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   // POST / — create draft
   app.post('/', zValidator('json', CreateDraftSchema), async (c) => {
     const user = c.get('user');
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const data = c.req.valid('json');
 
     const canCreate = await checkPermission(user.id, data.collection, 'update');
     if (!canCreate) return c.json({ error: 'Forbidden' }, 403);
 
-    const versionResult = await (db as any)
+    const versionResult = await (effectiveDb as any)
       .selectFrom('zv_revisions')
-      .select((db as any).fn.count('id').as('count'))
+      .select((effectiveDb as any).fn.count('id').as('count'))
       .where('collection', '=', data.collection)
       .where('record_id', '=', data.record_id)
       .executeTakeFirst();
 
     const baseVersion = parseInt(versionResult?.count || '0') + 1;
 
-    const draft = await (db as any)
+    const draft = await (effectiveDb as any)
       .insertInto('zv_content_drafts')
       .values({
         collection: data.collection,
@@ -152,7 +172,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
       .executeTakeFirst();
 
     if (data.scheduled_at && draft) {
-      await (db as any)
+      await (effectiveDb as any)
         .insertInto('zv_publish_schedule')
         .values({ draft_id: draft.id, scheduled_at: new Date(data.scheduled_at) })
         .execute();
@@ -164,9 +184,10 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   // GET /:id — get single draft
   app.get('/:id', async (c) => {
     const user = c.get('user');
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const id = c.req.param('id');
 
-    const draft = await (db as any)
+    const draft = await (effectiveDb as any)
       .selectFrom('zv_content_drafts')
       .selectAll()
       .where('id', '=', id)
@@ -183,10 +204,11 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   // PATCH /:id — update draft
   app.patch('/:id', zValidator('json', UpdateDraftSchema), async (c) => {
     const user = c.get('user');
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const id = c.req.param('id');
     const data = c.req.valid('json');
 
-    const draft = await (db as any)
+    const draft = await (effectiveDb as any)
       .selectFrom('zv_content_drafts')
       .selectAll()
       .where('id', '=', id)
@@ -211,7 +233,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
       }
     }
 
-    const updated = await (db as any)
+    const updated = await (effectiveDb as any)
       .updateTable('zv_content_drafts')
       .set(updateData)
       .where('id', '=', id)
@@ -224,9 +246,10 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   // POST /:id/publish — publish draft to live record
   app.post('/:id/publish', async (c) => {
     const user = c.get('user');
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const id = c.req.param('id');
 
-    const draft = await (db as any)
+    const draft = await (effectiveDb as any)
       .selectFrom('zv_content_drafts')
       .selectAll()
       .where('id', '=', id)
@@ -234,7 +257,12 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
 
     if (!draft) return c.json({ error: 'Draft not found' }, 404);
 
-    const settings = await (db as any)
+    // N2: validate collection name before interpolating into table name
+    if (!SAFE_COLLECTION_RE.test(draft.collection)) {
+      return c.json({ error: 'Invalid collection name in draft' }, 400);
+    }
+
+    const settings = await (effectiveDb as any)
       .selectFrom('zv_collection_publish_settings')
       .selectAll()
       .where('collection', '=', draft.collection)
@@ -248,15 +276,21 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
     if (!canPublish) return c.json({ error: 'Forbidden' }, 403);
 
     const tableName = `zvd_${draft.collection}`;
-    const draftData = typeof draft.draft_data === 'string' ? JSON.parse(draft.draft_data) : draft.draft_data;
+    const rawDraftData = typeof draft.draft_data === 'string' ? JSON.parse(draft.draft_data) : draft.draft_data;
 
-    await (db as any)
+    // N1: strip protected system fields — prevent created_by/tenant_id overwrite via draft data
+    const draftData: Record<string, any> = {};
+    for (const [k, v] of Object.entries(rawDraftData ?? {})) {
+      if (!DRAFT_PROTECTED_FIELDS.has(k)) draftData[k] = v;
+    }
+
+    await (effectiveDb as any)
       .updateTable(tableName)
       .set({ ...draftData, updated_at: new Date() })
       .where('id', '=', draft.record_id)
       .execute();
 
-    await (db as any)
+    await (effectiveDb as any)
       .updateTable('zv_content_drafts')
       .set({ status: 'approved', published_at: new Date() })
       .where('id', '=', id)
@@ -274,9 +308,10 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
   // DELETE /:id — discard draft
   app.delete('/:id', async (c) => {
     const user = c.get('user');
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const id = c.req.param('id');
 
-    const draft = await (db as any)
+    const draft = await (effectiveDb as any)
       .selectFrom('zv_content_drafts')
       .select(['id', 'collection', 'created_by'])
       .where('id', '=', id)
@@ -287,7 +322,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (draft.created_by !== user.id && !isAdmin) return c.json({ error: 'Forbidden' }, 403);
 
-    await (db as any).deleteFrom('zv_content_drafts').where('id', '=', id).execute();
+    await (effectiveDb as any).deleteFrom('zv_content_drafts').where('id', '=', id).execute();
     return c.json({ success: true });
   });
 

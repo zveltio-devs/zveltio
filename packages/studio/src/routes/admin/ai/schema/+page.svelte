@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from '$lib/api.js';
-  import { Wand2, Eye, Check, ArrowLeft, Loader2, ChevronDown, ChevronRight } from '@lucide/svelte';
+  import { Wand2, Eye, Check, ArrowLeft, LoaderCircle, ChevronDown, ChevronRight } from '@lucide/svelte';
 
   type Step = 'input' | 'preview' | 'done';
 
@@ -133,7 +133,7 @@
         class="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {#if loading}
-          <Loader2 class="h-4 w-4 animate-spin" />
+          <LoaderCircle class="h-4 w-4 animate-spin" />
           Generating preview...
         {:else}
           <Eye class="h-4 w-4" />
@@ -227,7 +227,7 @@
           class="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
         >
           {#if loading}
-            <Loader2 class="h-4 w-4 animate-spin" />
+            <LoaderCircle class="h-4 w-4 animate-spin" />
             Creating...
           {:else}
             <Check class="h-4 w-4" />

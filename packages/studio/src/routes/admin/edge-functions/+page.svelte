@@ -211,8 +211,9 @@ export default async function handler(ctx) {
             <p class="font-medium text-sm">Test Invoke</p>
           </div>
           <div class="p-3 flex-1 flex flex-col">
-            <label class="label"><span class="label-text text-xs">Request body (JSON)</span></label>
+            <label class="label" for="invoke-input"><span class="label-text text-xs">Request body (JSON)</span></label>
             <textarea
+              id="invoke-input"
               bind:value={invokeInput}
               class="textarea textarea-sm font-mono flex-1 resize-none text-xs"
               placeholder="{'{}' }"
@@ -275,17 +276,17 @@ export default async function handler(ctx) {
       <h3 class="font-bold text-lg mb-4">New Edge Function</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label"><span class="label-text">Name (URL-safe)</span></label>
-          <input type="text" bind:value={form.name} placeholder="my-function" class="input font-mono" />
-          <label class="label"><span class="label-text-alt text-xs">Will be mounted at /api/fn/{form.name || '...'}</span></label>
+          <label class="label" for="fn-name"><span class="label-text">Name (URL-safe)</span></label>
+          <input id="fn-name" type="text" bind:value={form.name} placeholder="my-function" class="input font-mono" />
+          <p class="label"><span class="label-text-alt text-xs">Will be mounted at /api/fn/{form.name || '...'}</span></p>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text">Display name</span></label>
-          <input type="text" bind:value={form.display_name} placeholder="My Function" class="input" />
+          <label class="label" for="fn-display-name"><span class="label-text">Display name</span></label>
+          <input id="fn-display-name" type="text" bind:value={form.display_name} placeholder="My Function" class="input" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text">HTTP method</span></label>
-          <select bind:value={form.http_method} class="select">
+          <label class="label" for="fn-http-method"><span class="label-text">HTTP method</span></label>
+          <select id="fn-http-method" bind:value={form.http_method} class="select">
             <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>ANY</option>
           </select>
         </div>
@@ -298,6 +299,6 @@ export default async function handler(ctx) {
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => (showCreateModal = false)}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
   </dialog>
 {/if}

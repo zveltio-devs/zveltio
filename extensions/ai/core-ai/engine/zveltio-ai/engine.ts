@@ -516,13 +516,15 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
         return { error: `Tool '${name}' requires a 'collection' parameter.` };
       }
 
-      const hasPermission = await checkPermission(request.userId, action, collection);
+      // P1: was checkPermission(userId, action, collection) — args were swapped.
+      // Correct signature: checkPermission(userId, resource, action)
+      const hasPermission = await checkPermission(request.userId, `data:${collection}`, action);
       if (!hasPermission) {
         return {
           error: `User does not have permission to ${action} data in collection '${collection}'. ` +
                  `Please ask an administrator to grant you the necessary access.`,
           permission_denied: true,
-          required_permission: { action, resource: collection },
+          required_permission: { action, resource: `data:${collection}` },
         };
       }
     }
@@ -552,6 +554,15 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
 
   // ── Tool implementations ───────────────────────────────────────
 
+  // P1: system fields that AI tools must never overwrite
+  private static readonly AI_PROTECTED_FIELDS = new Set([
+    'id', 'created_at', 'created_by', 'updated_at', 'tenant_id',
+    'search_vector', 'embedding',
+  ]);
+
+  // P1: safe collection regex — only zvd_ user tables, no system tables
+  private static readonly SAFE_COLLECTION_RE = /^[a-z][a-z0-9_]*$/;
+
   private async toolQueryData(args: any, _request: ZveltioAIRequest) {
     const {
       collection,
@@ -561,7 +572,11 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
       orderDirection = 'desc',
     } = args;
 
-    const tableName = `zv_${collection}`;
+    // P1: use zvd_ prefix and validate — prevents reading system tables (zv_api_keys, etc.)
+    if (!ZveltioAIEngine.SAFE_COLLECTION_RE.test(collection)) {
+      throw new Error(`Invalid collection name: "${collection}"`);
+    }
+    const tableName = `zvd_${collection}`;
 
     try {
       let query = this.db.selectFrom(tableName as any).selectAll();
@@ -654,8 +669,9 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
 
   private async toolGenerateReport(args: any, request: ZveltioAIRequest) {
     const { collection, format = 'csv', filters } = args;
+    // P1: cap at 1000 to prevent memory exhaustion; report endpoint handles full export
     const data = await this.toolQueryData(
-      { collection, filters, limit: 10000 },
+      { collection, filters, limit: 1000 },
       request,
     );
     const reportId = nanoid(8);
@@ -690,17 +706,12 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
       return { success: false, error: 'AI can only execute SELECT queries.' };
     }
 
-    const dangerous = [
-      'DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER',
-      'CREATE', 'TRUNCATE', 'GRANT', 'REVOKE',
-    ];
-    for (const kw of dangerous) {
-      if (normalized.includes(kw)) {
-        return { success: false, error: `Query contains disallowed keyword: ${kw}` };
-      }
-    }
-
-    const result = await sql.raw(sqlQuery).execute(this.db);
+    // P0: keyword blocklists are bypassable via subqueries / comments / case tricks.
+    // Enforce safety at the database level by running inside a READ ONLY transaction.
+    const result = await (this.db as any).transaction().execute(async (trx: any) => {
+      await sql`SET TRANSACTION READ ONLY`.execute(trx);
+      return sql.raw(sqlQuery).execute(trx);
+    });
     const rows = (result as any).rows || [];
     return {
       success: true,
@@ -774,11 +785,19 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
 
   private async toolCreateRecord(args: any, _request: ZveltioAIRequest) {
     const { collection, data } = args;
-    const tableName = `zv_${collection}`;
+    if (!ZveltioAIEngine.SAFE_COLLECTION_RE.test(collection)) {
+      throw new Error(`Invalid collection name: "${collection}"`);
+    }
+    const tableName = `zvd_${collection}`;
 
+    // P1: strip protected system fields from AI-provided data
+    const safeData: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data ?? {})) {
+      if (!ZveltioAIEngine.AI_PROTECTED_FIELDS.has(k)) safeData[k] = v;
+    }
     const recordData = {
-      ...data,
-      id: data.id || nanoid(),
+      ...safeData,
+      id: nanoid(),
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -804,12 +823,21 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
 
   private async toolUpdateRecord(args: any, _request: ZveltioAIRequest) {
     const { collection, id, data } = args;
-    const tableName = `zv_${collection}`;
+    if (!ZveltioAIEngine.SAFE_COLLECTION_RE.test(collection)) {
+      throw new Error(`Invalid collection name: "${collection}"`);
+    }
+    const tableName = `zvd_${collection}`;
+
+    // P1: strip protected system fields
+    const safeData: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data ?? {})) {
+      if (!ZveltioAIEngine.AI_PROTECTED_FIELDS.has(k)) safeData[k] = v;
+    }
 
     try {
       await this.db
         .updateTable(tableName as any)
-        .set({ ...data, updated_at: new Date() })
+        .set({ ...safeData, updated_at: new Date() })
         .where('id' as any, '=', id)
         .execute();
       return {
@@ -828,7 +856,10 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
 
   private async toolDeleteRecord(args: any) {
     const { collection, id } = args;
-    const tableName = `zv_${collection}`;
+    if (!ZveltioAIEngine.SAFE_COLLECTION_RE.test(collection)) {
+      throw new Error(`Invalid collection name: "${collection}"`);
+    }
+    const tableName = `zvd_${collection}`;
 
     try {
       await this.db
@@ -851,7 +882,10 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
 
   private async toolCountRecords(args: any) {
     const { collection, filters = {} } = args;
-    const tableName = `zv_${collection}`;
+    if (!ZveltioAIEngine.SAFE_COLLECTION_RE.test(collection)) {
+      throw new Error(`Invalid collection name: "${collection}"`);
+    }
+    const tableName = `zvd_${collection}`;
 
     try {
       let query = this.db
@@ -969,9 +1003,8 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
             .selectAll()
             .where('user_id', '=', request.userId)
             .where('embedding', 'is not', null)
-            .orderBy(
-              (this.db as any).raw(`embedding <=> '${JSON.stringify(queryEmbedding)}'::vector`)
-            )
+            // P0: use parameterized sql`` template, not raw string interpolation
+            .orderBy(sql`embedding <=> ${JSON.stringify(queryEmbedding)}::vector`)
             .limit(limit)
             .execute();
         }
@@ -1090,9 +1123,12 @@ Rules:
       }
     }
 
-    // Pasul 4: Execuție cu sql.raw
+    // Pasul 4: Execuție în READ ONLY transaction — keyword blocklists are bypassable
     try {
-      const result = await sql.raw(generatedSQL).execute(this.db);
+      const result = await (this.db as any).transaction().execute(async (trx: any) => {
+        await sql`SET TRANSACTION READ ONLY`.execute(trx);
+        return sql.raw(generatedSQL).execute(trx);
+      });
       const rows = (result as any).rows ?? [];
 
       return {

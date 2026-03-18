@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": false,
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "svelte": ["../packages/studio/node_modules/svelte"],
+      "svelte/*": ["../packages/studio/node_modules/svelte/*"],
+      "@lucide/svelte": ["../packages/studio/node_modules/@lucide/svelte"],
+      "@lucide/svelte/*": ["../packages/studio/node_modules/@lucide/svelte/*"]
+    },
+    "typeRoots": [
+      "../packages/studio/node_modules/@types"
+    ]
+  },
+  "include": [
+    "**/*.svelte",
+    "**/*.ts"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/dist"
+  ]
+}

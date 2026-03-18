@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api, collectionsApi } from '$lib/api.js';
- import { Upload, CheckCircle, AlertCircle, RefreshCw, Loader2 } from '@lucide/svelte';
+ import { Upload, CheckCircle, AlertCircle, RefreshCw, LoaderCircle } from '@lucide/svelte';
 
  let collections = $state<any[]>([]);
  let selectedCollection = $state('');
@@ -82,8 +82,8 @@
  <h2 class="font-semibold text-base">New Import</h2>
 
  <div class="form-control">
- <label class="label"><span class="label-text font-medium">Target Collection *</span></label>
- <select class="select" bind:value={selectedCollection}>
+ <label class="label" for="import-collection"><span class="label-text font-medium">Target Collection *</span></label>
+ <select id="import-collection" class="select" bind:value={selectedCollection}>
  <option value="">— Select collection —</option>
  {#each collections as col}
  <option value={col.name}>{col.display_name || col.name}</option>
@@ -92,8 +92,8 @@
  </div>
 
  <div class="form-control">
- <label class="label"><span class="label-text font-medium">File *</span></label>
- <input type="file" class="file-input file-w-full" accept=".csv,.xlsx,.xls,.json"
+ <label class="label" for="import-file"><span class="label-text font-medium">File *</span></label>
+ <input id="import-file" type="file" class="file-input file-w-full" accept=".csv,.xlsx,.xls,.json"
  onchange={handleFile} />
  {#if file}
  <p class="text-xs text-success mt-1">✓ {file.name} ({(file.size / 1024).toFixed(1)} KB) — format: {format}</p>
@@ -103,8 +103,8 @@
  {#if format === 'csv'}
  <div class="grid grid-cols-2 gap-3">
  <div class="form-control">
- <label class="label"><span class="label-text">Delimiter</span></label>
- <select class="select select-sm" bind:value={delimiter}>
+ <label class="label" for="import-delimiter"><span class="label-text">Delimiter</span></label>
+ <select id="import-delimiter" class="select select-sm" bind:value={delimiter}>
  <option value=",">, comma</option>
  <option value=";">; semicolon</option>
  <option value="\t">⇥ tab</option>
@@ -122,7 +122,7 @@
 
  <button class="btn btn-primary" onclick={doImport}
  disabled={!selectedCollection || !file || importing}>
- {#if importing}<Loader2 size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
+ {#if importing}<LoaderCircle size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
  {importing ? 'Importing...' : 'Start Import'}
  </button>
 
@@ -147,10 +147,10 @@
  <div class="card-body">
  <div class="flex items-center justify-between mb-4">
  <h2 class="font-semibold text-base">Recent Imports</h2>
- <button class="btn btn-ghost btn-xs" onclick={loadJobs}><RefreshCw size={14} /></button>
+ <button class="btn btn-ghost btn-xs" onclick={loadJobs} title="Refresh"><RefreshCw size={14} /></button>
  </div>
  {#if jobsLoading}
- <div class="flex justify-center py-10"><Loader2 size={24} class="animate-spin text-primary" /></div>
+ <div class="flex justify-center py-10"><LoaderCircle size={24} class="animate-spin text-primary" /></div>
  {:else if jobs.length === 0}
  <p class="text-center text-base-content/40 py-10 text-sm">No imports yet</p>
  {:else}

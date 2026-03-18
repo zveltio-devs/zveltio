@@ -69,7 +69,7 @@ import { Database, Settings, Sparkles, CheckCircle, ArrowRight, X } from '@lucid
  <div class="p-6 border-b border-base-200">
  <div class="flex items-center justify-between mb-4">
  <h2 class="text-xl font-bold">Welcome to Zveltio!</h2>
- <button class="btn btn-ghost btn-sm btn-square" onclick={completeOnboarding}><X size={16} /></button>
+ <button class="btn btn-ghost btn-sm btn-square" onclick={completeOnboarding} aria-label="Close"><X size={16} /></button>
  </div>
  <div class="flex items-center gap-2">
  {#each steps as s}

@@ -3,7 +3,7 @@
  import { api } from '$lib/api.js';
  import {
  Layout, Plus, FileText, Edit, Trash2, Home, RefreshCw,
- ExternalLink, Hash, Layers, Loader2,
+ ExternalLink, Hash, Layers, LoaderCircle,
  } from '@lucide/svelte';
 
  interface Page {
@@ -147,7 +147,7 @@
 
  {#if loading}
  <div class="flex justify-center py-16">
- <Loader2 size={32} class="animate-spin text-primary" />
+ <LoaderCircle size={32} class="animate-spin text-primary" />
  </div>
  {:else if pages.length === 0}
  <div class="text-center py-16 text-base-content/40">
@@ -243,7 +243,7 @@
  placeholder="e.g. home, news, products"
  bind:value={newPage.slug}
  />
- <label class="label"><span class="label-text-alt opacity-60">Lowercase, hyphens only</span></label>
+ <p class="label"><span class="label-text-alt opacity-60">Lowercase, hyphens only</span></p>
  </div>
 
  <div class="form-control mb-3">
@@ -267,7 +267,7 @@
  onclick={createPage}
  disabled={!newPage.title.trim() || !newPage.slug.trim() || creating}
  >
- {#if creating}<Loader2 size={16} class="animate-spin" />{/if}
+ {#if creating}<LoaderCircle size={16} class="animate-spin" />{/if}
  Create Page
  </button>
  </div>

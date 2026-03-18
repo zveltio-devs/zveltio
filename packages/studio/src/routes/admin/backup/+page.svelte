@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { DatabaseBackup, Plus, Download, Trash2, RefreshCw, Loader2, Clock, CheckCircle, XCircle } from '@lucide/svelte';
+ import { DatabaseBackup, Plus, Download, Trash2, RefreshCw, LoaderCircle, Clock, CheckCircle, XCircle } from '@lucide/svelte';
 
  interface Backup {
  id: string;
@@ -124,7 +124,7 @@
 
  {#if loading}
  <div class="flex justify-center py-16">
- <Loader2 size={32} class="animate-spin text-primary" />
+ <LoaderCircle size={32} class="animate-spin text-primary" />
  </div>
  {:else if backups.length === 0}
  <div class="text-center py-16 text-base-content/40">
@@ -157,7 +157,7 @@
  <span class="badge badge-success badge-sm gap-1"><CheckCircle size={11} /> Done</span>
  {:else if backup.status === 'in_progress'}
  <span class="badge badge-warning badge-sm gap-1">
- <Loader2 size={11} class="animate-spin" /> Running
+ <LoaderCircle size={11} class="animate-spin" /> Running
  </span>
  {:else}
  <span class="badge badge-error badge-sm gap-1" title={backup.error || ''}>
@@ -195,13 +195,13 @@
  <div class="modal-box max-w-sm">
  <h3 class="font-bold text-lg mb-4">New Backup</h3>
  <div class="form-control">
- <label class="label"><span class="label-text">Notes (optional)</span></label>
- <input class="input" bind:value={notes} placeholder="e.g. Before migration" />
+ <label class="label" for="backup-notes"><span class="label-text">Notes (optional)</span></label>
+ <input id="backup-notes" class="input" bind:value={notes} placeholder="e.g. Before migration" />
  </div>
  <div class="modal-action">
  <button class="btn btn-ghost" onclick={() => (showModal = false)}>Cancel</button>
  <button class="btn btn-primary" onclick={createBackup} disabled={creating}>
- {#if creating}<Loader2 size={16} class="animate-spin" />{/if}
+ {#if creating}<LoaderCircle size={16} class="animate-spin" />{/if}
  Start Backup
  </button>
  </div>

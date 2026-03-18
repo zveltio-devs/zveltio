@@ -43,7 +43,9 @@ export function approvalsRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     const user = c.get('user') as any;
     const { status, collection, my_pending, limit = '50', page = '1' } = c.req.query();
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    // DoS FIX: Cap limit at 200 — uncapped parseInt(limit) allowed ?limit=1000000.
+    const parsedLimit = Math.min(parseInt(limit) || 50, 200);
+    const offset = (parseInt(page) - 1) * parsedLimit;
 
     let query = (db as any)
       .selectFrom('zv_approval_requests as r')
@@ -56,7 +58,7 @@ export function approvalsRoutes(db: Database, auth: any): Hono {
         'u.name as requested_by_name',
       ])
       .orderBy('r.requested_at', 'desc')
-      .limit(parseInt(limit))
+      .limit(parsedLimit)
       .offset(offset);
 
     if (status) query = query.where('r.status', '=', status);

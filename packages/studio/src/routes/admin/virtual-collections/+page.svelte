@@ -204,17 +204,19 @@
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Collection name *</span></label>
+ <label class="label" for="vc-name"><span class="label-text">Collection name *</span></label>
  <input
+ id="vc-name"
  class="input input-sm"
  placeholder="stripe_customers"
  bind:value={form.name}
  />
- <label class="label"><span class="label-text-alt">lowercase, no spaces</span></label>
+ <p class="label"><span class="label-text-alt">lowercase, no spaces</span></p>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Display name</span></label>
+ <label class="label" for="vc-display-name"><span class="label-text">Display name</span></label>
  <input
+ id="vc-display-name"
  class="input input-sm"
  placeholder="Stripe Customers"
  bind:value={form.displayName}
@@ -223,8 +225,9 @@
  </div>
 
  <div class="form-control mb-4">
- <label class="label"><span class="label-text">Source URL *</span></label>
+ <label class="label" for="vc-source-url"><span class="label-text">Source URL *</span></label>
  <input
+ id="vc-source-url"
  class="input input-sm font-mono"
  placeholder="https://api.stripe.com/v1/customers"
  bind:value={form.source_url}
@@ -233,8 +236,8 @@
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Auth type</span></label>
- <select class="select select-sm" bind:value={form.auth_type}>
+ <label class="label" for="vc-auth-type"><span class="label-text">Auth type</span></label>
+ <select id="vc-auth-type" class="select select-sm" bind:value={form.auth_type}>
  <option value="none">None</option>
  <option value="bearer">Bearer token</option>
  <option value="api_key">API Key header</option>
@@ -243,8 +246,9 @@
  </div>
  {#if form.auth_type !== 'none'}
  <div class="form-control">
- <label class="label"><span class="label-text">Auth value</span></label>
+ <label class="label" for="vc-auth-value"><span class="label-text">Auth value</span></label>
  <input
+ id="vc-auth-value"
  class="input input-sm"
  type="password"
  placeholder={form.auth_type === 'basic' ? 'user:password' : 'token'}
@@ -256,17 +260,19 @@
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Items path in response</span></label>
+ <label class="label" for="vc-list-path"><span class="label-text">Items path in response</span></label>
  <input
+ id="vc-list-path"
  class="input input-sm font-mono"
  placeholder="$.data"
  bind:value={form.list_path}
  />
- <label class="label"><span class="label-text-alt">e.g. $.data, $.results, $.items</span></label>
+ <p class="label"><span class="label-text-alt">e.g. $.data, $.results, $.items</span></p>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">ID field</span></label>
+ <label class="label" for="vc-id-field"><span class="label-text">ID field</span></label>
  <input
+ id="vc-id-field"
  class="input input-sm font-mono"
  placeholder="id"
  bind:value={form.id_field}
@@ -275,11 +281,12 @@
  </div>
 
  <div class="form-control mb-4">
- <label class="label">
+ <label class="label" for="vc-field-mapping">
  <span class="label-text">Field mapping (optional)</span>
  <span class="label-text-alt">zveltio_field=external_field, one per line</span>
  </label>
  <textarea
+ id="vc-field-mapping"
  class="textarea textarea-sm font-mono text-xs"
  rows={4}
  placeholder={"customer_id=id\ncustomer_name=name\nemail=email_address"}
@@ -303,6 +310,6 @@
  </button>
  </div>
  </div>
- <div class="modal-backdrop" onclick={() => (showCreate = false)}></div>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreate = false)}></button>
  </div>
 {/if}

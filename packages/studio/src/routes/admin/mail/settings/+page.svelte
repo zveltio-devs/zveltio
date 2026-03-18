@@ -111,24 +111,24 @@
 
         <div class="grid grid-cols-2 gap-4">
           <div class="form-control">
-            <label class="label"><span class="label-text text-sm">Max accounts per user</span></label>
-            <input class="input input-bordered input-sm" type="number" min="1" max="50" bind:value={config.max_accounts_per_user}/>
+            <label class="label" for="mail-max-accounts"><span class="label-text text-sm">Max accounts per user</span></label>
+            <input id="mail-max-accounts" class="input input-bordered input-sm" type="number" min="1" max="50" bind:value={config.max_accounts_per_user}/>
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text text-sm">Max attachment size (MB)</span></label>
-            <input class="input input-bordered input-sm" type="number" min="1" max="100" bind:value={config.max_attachment_size_mb}/>
+            <label class="label" for="mail-max-attach"><span class="label-text text-sm">Max attachment size (MB)</span></label>
+            <input id="mail-max-attach" class="input input-bordered input-sm" type="number" min="1" max="100" bind:value={config.max_attachment_size_mb}/>
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text text-sm">Max messages to sync per account</span></label>
-            <input class="input input-bordered input-sm" type="number" min="50" max="10000" bind:value={config.max_messages_sync}/>
+            <label class="label" for="mail-max-sync"><span class="label-text text-sm">Max messages to sync per account</span></label>
+            <input id="mail-max-sync" class="input input-bordered input-sm" type="number" min="50" max="10000" bind:value={config.max_messages_sync}/>
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text text-sm">Sync interval (minutes)</span></label>
-            <input class="input input-bordered input-sm" type="number" min="1" max="60" bind:value={config.sync_interval_minutes}/>
+            <label class="label" for="mail-sync-interval"><span class="label-text text-sm">Sync interval (minutes)</span></label>
+            <input id="mail-sync-interval" class="input input-bordered input-sm" type="number" min="1" max="60" bind:value={config.sync_interval_minutes}/>
           </div>
           <div class="form-control">
-            <label class="label"><span class="label-text text-sm">Trash auto-delete (days, 0 = never)</span></label>
-            <input class="input input-bordered input-sm" type="number" min="0" max="365" bind:value={config.trash_auto_delete_days}/>
+            <label class="label" for="mail-trash-days"><span class="label-text text-sm">Trash auto-delete (days, 0 = never)</span></label>
+            <input id="mail-trash-days" class="input input-bordered input-sm" type="number" min="0" max="365" bind:value={config.trash_auto_delete_days}/>
           </div>
         </div>
       </div>
@@ -164,20 +164,20 @@
 
         <div class="grid grid-cols-2 gap-4">
           <div class="form-control">
-            <label class="label">
+            <label class="label" for="mail-allowed-domains">
               <span class="label-text text-sm">Allowed domains</span>
               <span class="label-text-alt text-xs">(one per line, empty = all allowed)</span>
             </label>
-            <textarea class="textarea textarea-bordered min-h-24 font-mono text-xs"
+            <textarea id="mail-allowed-domains" class="textarea textarea-bordered min-h-24 font-mono text-xs"
               bind:value={allowedDomainsText}
               placeholder="gmail.com&#10;company.com"></textarea>
           </div>
           <div class="form-control">
-            <label class="label">
+            <label class="label" for="mail-blocked-domains">
               <span class="label-text text-sm">Blocked domains</span>
               <span class="label-text-alt text-xs">(one per line)</span>
             </label>
-            <textarea class="textarea textarea-bordered min-h-24 font-mono text-xs"
+            <textarea id="mail-blocked-domains" class="textarea textarea-bordered min-h-24 font-mono text-xs"
               bind:value={blockedDomainsText}
               placeholder="spam.com&#10;tempmail.com"></textarea>
           </div>

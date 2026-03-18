@@ -236,22 +236,33 @@ RESPONSE FORMAT (JSON only):
         if (!rows || rows.length === 0) continue;
         const tableName = DDLManager.getTableName(colName);
 
+        // Validate that the table name is safe (should always be zvd_ prefixed)
+        const SAFE_TABLE_RE = /^zvd_[a-z][a-z0-9_]*$/;
+        if (!SAFE_TABLE_RE.test(tableName)) continue;
+
+        // Validate column names against regex to prevent SQL injection from AI response
+        const SAFE_COL_RE = /^[a-z][a-z0-9_]*$/;
+
         let inserted = 0;
         for (const row of rows) {
           try {
             const cleanRow: any = {};
             for (const [k, v] of Object.entries(row)) {
-              if (k !== 'id') cleanRow[k] = v; // strip id — let DB generate
+              if (k === 'id') continue; // strip id — let DB generate
+              if (!SAFE_COL_RE.test(k)) continue; // skip unsafe column names from AI response
+              cleanRow[k] = v;
             }
             cleanRow.created_by = user.id;
 
-            // Build dynamic INSERT
+            // Build dynamic INSERT using sql.id() for identifiers
             const cols = Object.keys(cleanRow);
+            if (cols.length === 0) continue;
             const vals = Object.values(cleanRow);
             const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+            const quotedCols = cols.map(c => `"${c}"`).join(', ');
 
             await sql.raw(
-              `INSERT INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders})`,
+              `INSERT INTO "${tableName}" (${quotedCols}) VALUES (${placeholders})`,
               vals,
             ).execute(db);
             inserted++;

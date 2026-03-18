@@ -203,7 +203,7 @@ export function roProcurementRoutes(db: any, auth: any): Hono {
 
     const { year } = c.req.query();
     let query = db.selectFrom('zv_ro_budget_lines').selectAll().orderBy('code', 'asc');
-    if (year) query = query.where('year', '=', parseInt(year));
+    if (year) query = query.where('year', '=', parseInt(year, 10));
 
     const lines = await query.execute();
 

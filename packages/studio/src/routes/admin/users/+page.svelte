@@ -135,8 +135,9 @@
 
  <div class="space-y-3">
  <div class="form-control">
- <label class="label"><span class="label-text">Email</span></label>
+ <label class="label" for="invite-email"><span class="label-text">Email</span></label>
  <input
+ id="invite-email"
  type="email"
  bind:value={inviteForm.email}
  placeholder="user@example.com"
@@ -144,8 +145,9 @@
  />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Name (optional)</span></label>
+ <label class="label" for="invite-name"><span class="label-text">Name (optional)</span></label>
  <input
+ id="invite-name"
  type="text"
  bind:value={inviteForm.name}
  placeholder="John Doe"
@@ -153,8 +155,8 @@
  />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Role</span></label>
- <select bind:value={inviteForm.role} class="select">
+ <label class="label" for="invite-role"><span class="label-text">Role</span></label>
+ <select id="invite-role" bind:value={inviteForm.role} class="select">
  <option value="member">Member</option>
  <option value="manager">Manager</option>
  <option value="admin">Admin</option>
@@ -170,6 +172,6 @@
  </button>
  </div>
  </div>
- <button class="modal-backdrop" onclick={() => (showInviteModal = false)}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showInviteModal = false)}></button>
  </dialog>
 {/if}

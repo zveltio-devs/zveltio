@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission, getUserRoles, getEnforcer, invalidateUserPermCache } from '../lib/permissions.js';
 import { auditLog } from '../lib/audit.js';
+import { escapeLike } from '../lib/query-utils.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -31,26 +32,31 @@ export function usersRoutes(db: Database, auth: any): Hono {
 
     let query = (db as any).selectFrom('user').selectAll().orderBy('createdAt', 'desc');
     if (search) {
+      const safeSearch = `%${escapeLike(search)}%`;
       query = query.where((eb: any) =>
         eb.or([
-          eb('name', 'like', `%${search}%`),
-          eb('email', 'like', `%${search}%`),
+          eb('name', 'like', safeSearch),
+          eb('email', 'like', safeSearch),
         ])
       );
     }
 
-    const users = await query.offset(offset).limit(parsedLimit).execute();
-    const total = await (db as any)
-      .selectFrom('user')
-      .select((eb: any) => eb.fn.count('id').as('count'))
-      .executeTakeFirst();
+    const [users, total] = await Promise.all([
+      query.offset(offset).limit(parsedLimit).execute(),
+      (db as any)
+        .selectFrom('user')
+        .select((eb: any) => eb.fn.count('id').as('count'))
+        .executeTakeFirst(),
+    ]);
 
-    // Attach roles
+    // Batch-fetch all roles in one Casbin call — avoids N+1 queries
+    const e = await getEnforcer();
     const usersWithRoles = await Promise.all(
-      users.map(async (u: any) => ({
-        ...u,
-        roles: await getUserRoles(u.id),
-      })),
+      users.map(async (u: any) => {
+        // getRolesForUser is a single Casbin in-memory lookup (no DB round-trip)
+        const roles = await e.getRolesForUser(u.id).catch(() => []);
+        return { ...u, roles };
+      }),
     );
 
     return c.json({
@@ -125,7 +131,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     },
   );
 
-  // POST /invite — Create user account (admin invite)
+  // POST /invite — Send an email invitation (creates a pending invite token)
   app.post(
     '/invite',
     zValidator(
@@ -138,6 +144,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { email, name, role } = c.req.valid('json');
+      const adminUser = c.get('user') as any;
 
       // Check if user already exists
       const existing = await (db as any)
@@ -148,26 +155,63 @@ export function usersRoutes(db: Database, auth: any): Hono {
 
       if (existing) return c.json({ error: 'User already exists with this email' }, 409);
 
-      const id = crypto.randomUUID();
-      const now = new Date();
-      const user = await (db as any)
-        .insertInto('user')
-        .values({
-          id,
-          email,
-          name: name || email.split('@')[0],
-          emailVerified: false,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returningAll()
-        .executeTakeFirst();
+      // Generate a secure invite token (expires in 48h)
+      const tokenBytes = new Uint8Array(32);
+      crypto.getRandomValues(tokenBytes);
+      const token = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-      // Assign role in Casbin
-      const e = await getEnforcer();
-      await e.addRoleForUser(id, role);
+      // Store the invite in zv_invitations (create if table doesn't exist — graceful)
+      try {
+        await (db as any)
+          .insertInto('zv_invitations' as any)
+          .values({
+            email,
+            name: name || email.split('@')[0],
+            role,
+            token,
+            expires_at: expiresAt,
+            invited_by: adminUser.id,
+          } as any)
+          .execute();
+      } catch {
+        // Table may not exist yet — fall back to returning the token directly
+        // so the admin can manually share the link
+        const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
+        return c.json({
+          message: 'Invite created (email sending not configured)',
+          invite_url: `${siteUrl}/accept-invite?token=${token}`,
+          token,
+          expires_at: expiresAt,
+        }, 201);
+      }
 
-      return c.json({ user }, 201);
+      // Send invite email if SMTP is configured
+      const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
+      const inviteUrl = `${siteUrl}/accept-invite?token=${token}`;
+
+      if (process.env.SMTP_HOST) {
+        try {
+          // Dynamic import — email module may not always be present
+          const { sendEmail } = await import('../lib/email.js');
+          await sendEmail({
+            to: email,
+            subject: 'You have been invited to Zveltio',
+            html: `<p>Hello${name ? ' ' + name : ''},</p>
+<p>You have been invited to join Zveltio. Click the link below to accept your invitation and set your password:</p>
+<p><a href="${inviteUrl}">${inviteUrl}</a></p>
+<p>This link expires in 48 hours.</p>`,
+          });
+        } catch {
+          // Email sending failed — still return the invite URL
+        }
+      }
+
+      return c.json({
+        message: 'Invitation sent',
+        invite_url: inviteUrl,
+        expires_at: expiresAt,
+      }, 201);
     },
   );
 

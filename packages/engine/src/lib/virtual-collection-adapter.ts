@@ -50,6 +50,47 @@ export interface VirtualListResult {
   total: number;
 }
 
+/**
+ * SSRF FIX: Validate that a virtual collection URL does not point at internal services.
+ * Blocks: private IPv4 ranges, loopback, link-local (AWS metadata), and non-http(s) schemes.
+ * Config is admin-set, but defense-in-depth prevents mistakes or compromised admin accounts
+ * from being used to scan internal networks.
+ */
+function validateVirtualUrl(rawUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Virtual collection source_url is not a valid URL: "${rawUrl}"`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Virtual collection source_url must use http or https (got "${parsed.protocol}")`);
+  }
+
+  const host = parsed.hostname.toLowerCase();
+
+  // Block loopback, link-local (AWS metadata), and private ranges by hostname string.
+  // Full DNS resolution would require async lookups; hostname matching covers common cases.
+  const BLOCKED_PATTERNS = [
+    /^localhost$/,
+    /^127\.\d+\.\d+\.\d+$/,        // 127.0.0.0/8
+    /^10\.\d+\.\d+\.\d+$/,          // 10.0.0.0/8
+    /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/, // 172.16.0.0/12
+    /^192\.168\.\d+\.\d+$/,          // 192.168.0.0/16
+    /^169\.254\.\d+\.\d+$/,          // 169.254.0.0/16 (link-local / cloud metadata)
+    /^::1$/,                          // IPv6 loopback
+    /^fd[0-9a-f]{2}:/i,              // IPv6 ULA (fc00::/7)
+    /^0\.0\.0\.0$/,
+  ];
+
+  if (BLOCKED_PATTERNS.some((re) => re.test(host))) {
+    throw new Error(
+      `Virtual collection source_url "${rawUrl}" resolves to a private/internal address — SSRF protection blocked this request.`,
+    );
+  }
+}
+
 function buildAuthHeaders(config: VirtualConfig): Record<string, string> {
   if (config.auth_type === 'bearer' && config.auth_value) {
     return { Authorization: `Bearer ${config.auth_value}` };
@@ -193,6 +234,7 @@ export async function virtualList(
   config: VirtualConfig,
   query: VirtualQuery,
 ): Promise<VirtualListResult> {
+  validateVirtualUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
 
   // Build URL with translated query
@@ -216,6 +258,7 @@ export async function virtualList(
 }
 
 export async function virtualGetOne(config: VirtualConfig, id: string): Promise<any | null> {
+  validateVirtualUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
   const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
@@ -232,6 +275,7 @@ export async function virtualGetOne(config: VirtualConfig, id: string): Promise<
 }
 
 export async function virtualCreate(config: VirtualConfig, body: any): Promise<any> {
+  validateVirtualUrl(config.source_url);
   const headers = { 'Content-Type': 'application/json', ...buildAuthHeaders(config) };
   const externalBody = mapToExternal(body, config.field_mapping);
 
@@ -249,6 +293,7 @@ export async function virtualCreate(config: VirtualConfig, body: any): Promise<a
 }
 
 export async function virtualUpdate(config: VirtualConfig, id: string, body: any): Promise<any> {
+  validateVirtualUrl(config.source_url);
   const headers = { 'Content-Type': 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
   const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
@@ -269,6 +314,7 @@ export async function virtualUpdate(config: VirtualConfig, id: string, body: any
 }
 
 export async function virtualDelete(config: VirtualConfig, id: string): Promise<void> {
+  validateVirtualUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
   const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));

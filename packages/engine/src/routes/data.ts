@@ -17,6 +17,7 @@ import {
   dynamicDelete,
   type FilterCondition,
 } from '../db/dynamic.js';
+import { escapeLike } from '../lib/query-utils.js';
 import {
   virtualList,
   virtualGetOne,
@@ -50,7 +51,13 @@ async function authenticate(c: any, auth: any): Promise<{ user: any; authType: s
     const apiKey = await validateApiKey(c.get('db'), rawKey);
     if (apiKey) {
       return {
-        user: { id: `apikey:${apiKey.id}`, name: apiKey.name, role: 'api_key' },
+        user: {
+          id: `apikey:${apiKey.id}`,
+          name: (apiKey as any).name,
+          role: 'api_key',
+          // C3 FIX: pass scopes so checkAccess() can enforce them per collection/action
+          scopes: (apiKey as any).scopes,
+        },
         authType: 'api_key',
       };
     }
@@ -108,7 +115,24 @@ async function checkAccess(
     // API keys cannot access system tables
     const tableName = DDLManager.getTableName(collection);
     if (tableName.startsWith('zv_') && !tableName.startsWith('zvd_')) return false;
-    return true; // API key scope checked separately
+
+    // C3 FIX: Enforce API key scopes.
+    // Scopes format: Array<{ collection: string; actions: string[] }>
+    // Empty scopes array = full access (backwards-compatible default).
+    // Wildcard collection '*' or action '*' grants broad access.
+    const rawScopes = user.scopes;
+    if (rawScopes) {
+      const scopes: Array<{ collection: string; actions: string[] }> =
+        typeof rawScopes === 'string' ? JSON.parse(rawScopes) : rawScopes;
+      if (scopes.length > 0) {
+        const match = scopes.find(
+          (s) => s.collection === collection || s.collection === '*',
+        );
+        if (!match) return false;
+        if (!match.actions.includes(action) && !match.actions.includes('*')) return false;
+      }
+    }
+    return true;
   }
   return checkPermission(user.id, `data:${collection}`, action);
 }
@@ -178,6 +202,65 @@ async function getVirtualConfig(db: Database, collection: string): Promise<Virtu
     : meta.virtual_config;
 }
 
+/** Returns the tenant-isolated transaction DB when in multi-tenant mode, else the pool. */
+function getDb(c: any, fallback: Database): Database {
+  return (c.get('tenantTrx') as Database | null) ?? fallback;
+}
+
+
+/** Post-write side-effects: revision log, webhook, realtime broadcast, embeddings, events. */
+async function afterWrite(
+  db: Database,
+  opts: {
+    collection: string;
+    recordId: string;
+    action: 'create' | 'update' | 'delete';
+    data: Record<string, any>;
+    delta?: Record<string, any>;
+    userId: string;
+  },
+): Promise<void> {
+  const { collection, recordId, action, data, delta, userId } = opts;
+
+  // Revision log — non-fatal
+  db.insertInto('zv_revisions' as any)
+    .values({
+      collection,
+      record_id: recordId,
+      action,
+      data: JSON.stringify(data),
+      ...(delta ? { delta: JSON.stringify(delta) } : {}),
+      user_id: userId,
+    } as any)
+    .execute()
+    .catch(() => {});
+
+  const eventName =
+    action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
+
+  await broadcastWebhook(db, eventName, collection, data as { id: string; [key: string]: any });
+  broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data);
+
+  sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
+    event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
+    collection,
+    record_id: recordId,
+    data,
+    timestamp: new Date().toISOString(),
+  })})`.execute(db).catch(() => {});
+
+  if (action !== 'delete') {
+    triggerEmbedding(db, collection, recordId, data).catch(() => {});
+  }
+
+  engineEvents.emit(`record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}` as any, {
+    collection,
+    record: data,
+    id: recordId,
+    userId,
+  });
+}
+
 export function dataRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -206,6 +289,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
       if (isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
 
       // Get the latest revision per record_id up to as_of
+      // P0: use effectiveDb (tenant-isolated transaction) to prevent cross-tenant reads
+      const effectiveDbTT = getDb(c, db);
       const revs = await sql<{ record_id: string; action: string; data: any }>`
         SELECT DISTINCT ON (record_id)
           record_id, action, data
@@ -213,7 +298,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         WHERE collection = ${collection}
           AND created_at <= ${asOf.toISOString()}
         ORDER BY record_id, created_at DESC
-      `.execute(db);
+      `.execute(effectiveDbTT);
 
       // Exclude deleted records; data column holds the snapshot
       const records = revs.rows
@@ -302,14 +387,16 @@ export function dataRoutes(db: Database, auth: any): Hono {
       } catch { /* invalid JSON — skip */ }
     }
 
+    const effectiveDb = getDb(c, db);
+
     // FTS + filters run in a single query via dynamicSelect (fts param adds
     // search_vector @@ websearch_to_tsquery() alongside any other WHERE conditions)
-    const result = await dynamicSelect(db, tableName, {
+    const result = await dynamicSelect(effectiveDb, tableName, {
       filters,
       sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
       limit: query.limit,
       offset,
-      fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+      fts: query.search ? escapeLike(query.search.trim().substring(0, 500)) : undefined,
     });
 
     const serialized = result.records.map((r) => serializeRecord(r, collectionDef));
@@ -341,6 +428,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
       const asOf = new Date(asOfRaw);
       if (isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
 
+      // P0: use effectiveDb for tenant isolation in time-travel queries
+      const effectiveDbTTSingle = getDb(c, db);
       const rev = await sql<{ action: string; data: any; created_at: string }>`
         SELECT action, data, created_at
         FROM zv_revisions
@@ -349,7 +438,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
           AND created_at <= ${asOf.toISOString()}
         ORDER BY created_at DESC
         LIMIT 1
-      `.execute(db);
+      `.execute(effectiveDbTTSingle);
 
       if (rev.rows.length === 0) return c.json({ error: 'Record not found at this point in time' }, 404);
       if (rev.rows[0].action === 'delete') return c.json({ error: 'Record was deleted before this point in time' }, 404);
@@ -374,8 +463,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
+    const effectiveDb = getDb(c, db);
 
-    const record = await (db as any)
+    const record = await (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
       .where('id', '=', id)
@@ -416,37 +506,11 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const { errors, processed } = processInput(body, collectionDef);
     if (errors.length > 0) return c.json({ errors }, 422);
 
+    const effectiveDb = getDb(c, db);
     const toInsert = { ...processed, created_by: user.id, updated_by: user.id };
-    const record = await dynamicInsert(db, tableName, toInsert);
+    const record = await dynamicInsert(effectiveDb, tableName, toInsert);
 
-    // Record revision
-    await db
-      .insertInto('zv_revisions' as any)
-      .values({
-        collection,
-        record_id: record.id,
-        action: 'create',
-        data: JSON.stringify(record),
-        user_id: user.id,
-      } as any)
-      .execute()
-      .catch(() => { /* non-fatal */ });
-
-    await broadcastWebhook(db, 'insert', collection, record as { id: string; [key: string]: any });
-    broadcastEvent(collection, 'insert', record);
-    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
-      event: 'record.created',
-      collection,
-      record_id: record.id,
-      data: record,
-      timestamp: new Date().toISOString(),
-    })})`.execute(db).catch(() => { /* non-fatal */ });
-
-    // AI embedding hook — async, non-blocking
-    triggerEmbedding(db, collection, record.id, record).catch(() => { /* non-fatal */ });
-
-    // Extension event bus — synchronous, in-process
-    engineEvents.emit('record.created', { collection, record: record, userId: user.id });
+    await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id });
 
     return c.json({ record: serializeRecord(record, collectionDef) }, 201);
   });
@@ -482,37 +546,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const { errors, processed } = processInput(body, collectionDef);
     if (errors.length > 0) return c.json({ errors }, 422);
 
+    const effectiveDb = getDb(c, db);
     const toUpdate = { ...processed, updated_by: user.id };
-    const record = await dynamicUpdate(db, tableName, id, toUpdate);
+    const record = await dynamicUpdate(effectiveDb, tableName, id, toUpdate);
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
-    await db
-      .insertInto('zv_revisions' as any)
-      .values({
-        collection,
-        record_id: id,
-        action: 'update',
-        data: JSON.stringify(record),
-        user_id: user.id,
-      } as any)
-      .execute()
-      .catch(() => { /* non-fatal */ });
-
-    await broadcastWebhook(db, 'update', collection, record as { id: string; [key: string]: any });
-    broadcastEvent(collection, 'update', record);
-    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
-      event: 'record.updated',
-      collection,
-      record_id: id,
-      data: record,
-      timestamp: new Date().toISOString(),
-    })})`.execute(db).catch(() => { /* non-fatal */ });
-
-    // AI embedding hook — async, non-blocking
-    triggerEmbedding(db, collection, id, record).catch(() => { /* non-fatal */ });
-
-    // Extension event bus — synchronous, in-process
-    engineEvents.emit('record.updated', { collection, record: record, userId: user.id });
+    await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -548,38 +587,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const { errors, processed } = processInput(body, collectionDef);
     if (errors.length > 0) return c.json({ errors }, 422);
 
+    const effectiveDb = getDb(c, db);
     const toUpdate = { ...processed, updated_by: user.id };
-    const record = await dynamicUpdate(db, tableName, id, toUpdate);
+    const record = await dynamicUpdate(effectiveDb, tableName, id, toUpdate);
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
-    await db
-      .insertInto('zv_revisions' as any)
-      .values({
-        collection,
-        record_id: id,
-        action: 'update',
-        data: JSON.stringify(record),
-        delta: JSON.stringify(body),
-        user_id: user.id,
-      } as any)
-      .execute()
-      .catch(() => { /* non-fatal */ });
-
-    await broadcastWebhook(db, 'update', collection, record as { id: string; [key: string]: any });
-    broadcastEvent(collection, 'update', record);
-    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
-      event: 'record.updated',
-      collection,
-      record_id: id,
-      data: record,
-      timestamp: new Date().toISOString(),
-    })})`.execute(db).catch(() => { /* non-fatal */ });
-
-    // AI embedding hook — async, non-blocking
-    triggerEmbedding(db, collection, id, record).catch(() => { /* non-fatal */ });
-
-    // Extension event bus — synchronous, in-process
-    engineEvents.emit('record.updated', { collection, record: record, userId: user.id });
+    await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id });
 
     return c.json({ record: serializeRecord(record, collectionDef) });
   });
@@ -610,9 +623,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     const tableName = DDLManager.getTableName(collection);
+    const effectiveDb = getDb(c, db);
 
     // Fetch existing for revision log, then delete atomically
-    const existing = await (db as any)
+    const existing = await (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
       .where('id', '=', id)
@@ -620,32 +634,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!existing) return c.json({ error: 'Record not found' }, 404);
 
-    const deleted = await dynamicDelete(db, tableName, id);
+    const deleted = await dynamicDelete(effectiveDb, tableName, id);
     if (!deleted) return c.json({ error: 'Record not found' }, 404);
 
-    await db
-      .insertInto('zv_revisions' as any)
-      .values({
-        collection,
-        record_id: id,
-        action: 'delete',
-        data: JSON.stringify(existing),
-        user_id: user.id,
-      } as any)
-      .execute()
-      .catch(() => { /* non-fatal */ });
-
-    await broadcastWebhook(db, 'delete', collection, { id });
-    broadcastEvent(collection, 'delete', { id });
-    sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
-      event: 'record.deleted',
-      collection,
-      record_id: id,
-      timestamp: new Date().toISOString(),
-    })})`.execute(db).catch(() => { /* non-fatal */ });
-
-    // Extension event bus — synchronous, in-process
-    engineEvents.emit('record.deleted', { collection, id, userId: user.id });
+    await afterWrite(effectiveDb, { collection, recordId: id, action: 'delete', data: existing, userId: user.id });
 
     return c.json({ success: true, id });
   });

@@ -158,25 +158,26 @@
 
  <div class="space-y-3">
  <div class="form-control">
- <label class="label"><span class="label-text">Title</span></label>
+ <label class="label" for="page-title"><span class="label-text">Title</span></label>
  <input
  type="text"
  bind:value={form.title}
- oninput={onTitleInput}
+ id="page-title"
+oninput={onTitleInput}
  placeholder="About Us"
  class="input"
  />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Slug</span></label>
+ <label class="label" for="page-slug"><span class="label-text">Slug</span></label>
  <div class="input flex items-center gap-1 pr-0">
  <span class="text-base-content/40 text-sm">/</span>
- <input type="text" bind:value={form.slug} placeholder="about-us" class="flex-1 bg-transparent outline-none text-sm" />
+ <input id="page-slug" type="text" bind:value={form.slug} placeholder="about-us" class="flex-1 bg-transparent outline-none text-sm" />
  </div>
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Description (optional)</span></label>
- <input type="text" bind:value={form.description} class="input input-sm" />
+ <label class="label" for="page-description"><span class="label-text">Description (optional)</span></label>
+ <input id="page-description" type="text" bind:value={form.description} class="input input-sm" />
  </div>
  </div>
 

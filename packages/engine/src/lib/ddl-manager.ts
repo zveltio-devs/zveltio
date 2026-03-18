@@ -20,6 +20,13 @@ async function withLockTimeout(
   fn: (trx: Database) => Promise<void>,
   timeout = '2s',
 ): Promise<void> {
+  // C1 FIX: Validate timeout format to prevent SQL injection via raw string interpolation.
+  // Only allow digits + optional decimal point followed by ms/s/min unit.
+  if (!/^\d+(\.\d+)?(ms|s|min)$/.test(timeout)) {
+    throw new Error(
+      `Invalid lock_timeout format: "${timeout}". Expected format: "2s", "500ms", "1min".`,
+    );
+  }
   await (db as any).transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
     await fn(trx);
@@ -49,14 +56,15 @@ export const FieldSchema = z.object({
       /^[a-z][a-z0-9_]*$/,
       'Field name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
     ),
-  type: z.string(), // validated at runtime against registry
+  type: z.string().max(50), // validated at runtime against registry; max 50 chars prevents DoS
   required: z.boolean().default(false),
   unique: z.boolean().default(false),
   indexed: z.boolean().default(false),
   defaultValue: z.any().optional(),
-  options: z.record(z.string(), z.any()).optional(),
-  label: z.string().optional(),
-  description: z.string().optional(),
+  // H2 FIX: Bound options keys/values to prevent DoS via deeply nested payloads.
+  options: z.record(z.string().max(100), z.union([z.string().max(10_000), z.number(), z.boolean(), z.null(), z.array(z.any())])).optional(),
+  label: z.string().max(200).optional(),
+  description: z.string().max(1_000).optional(),
 });
 
 export const CollectionSchema = z.object({
@@ -80,9 +88,33 @@ export const CollectionSchema = z.object({
 
 export type CollectionDefinition = z.infer<typeof CollectionSchema>;
 
+// ─── In-memory metadata cache ──────────────────────────────────────────────────
+// Caches collection definitions for TTL seconds to avoid a DB round-trip on every
+// CRUD request. Invalidated explicitly after schema mutations (create/drop/update).
+const METADATA_CACHE_TTL_MS = 30_000; // 30 seconds
+
+interface CacheEntry {
+  data: any;
+  ts: number;
+}
+
+const collectionCache = new Map<string, CacheEntry>();
+const collectionsListCache: { data: any[]; ts: number } | null = null;
+let _collectionsListCache: { data: any[]; ts: number } | null = null;
+
 export class DDLManager {
   static getTableName(collectionName: string): string {
     return `zvd_${collectionName}`;
+  }
+
+  /** Invalidates the in-memory cache for a specific collection (call after DDL mutations). */
+  static invalidateCache(name?: string): void {
+    if (name) {
+      collectionCache.delete(name);
+    } else {
+      collectionCache.clear();
+    }
+    _collectionsListCache = null;
   }
 
   static async tableExists(db: Database, collectionName: string): Promise<boolean> {
@@ -108,6 +140,14 @@ export class DDLManager {
     }
 
     const tableName = this.getTableName(validated.name);
+
+    // N4: defense-in-depth — ensure tableName is safe before any sql.raw() usage.
+    // validated.name is already regex-checked by Zod, but a future refactor could
+    // introduce a different code path. This guard prevents sql injection if it does.
+    const SAFE_TABLE_RE = /^zvd_[a-z][a-z0-9_]*$/;
+    if (!SAFE_TABLE_RE.test(tableName)) {
+      throw new Error(`Invalid table name: "${tableName}". Only lowercase letters, numbers, and underscores are allowed.`);
+    }
 
     if (await this.tableExists(db, validated.name)) {
       throw new Error(`Collection '${validated.name}' already exists`);
@@ -264,25 +304,43 @@ export class DDLManager {
       .deleteFrom('zvd_collections' as any)
       .where('name' as any, '=', name)
       .execute();
+
+    DDLManager.invalidateCache(name);
   }
 
   static async getCollections(db: Database): Promise<any[]> {
+    const now = Date.now();
+    if (_collectionsListCache && now - _collectionsListCache.ts < METADATA_CACHE_TTL_MS) {
+      return _collectionsListCache.data;
+    }
+
     const rows = await db
       .selectFrom('zvd_collections' as any)
       .selectAll()
       .orderBy('sort' as any)
       .orderBy('name' as any)
       .execute();
+
+    _collectionsListCache = { data: rows, ts: now };
     return rows;
   }
 
   static async getCollection(db: Database, name: string): Promise<any | null> {
+    const now = Date.now();
+    const cached = collectionCache.get(name);
+    if (cached && now - cached.ts < METADATA_CACHE_TTL_MS) {
+      return cached.data;
+    }
+
     const row = await db
       .selectFrom('zvd_collections' as any)
       .selectAll()
       .where('name' as any, '=', name)
       .executeTakeFirst();
-    return row || null;
+
+    const result = row || null;
+    collectionCache.set(name, { data: result, ts: now });
+    return result;
   }
 
   static async updateCollectionMetadata(
@@ -303,6 +361,8 @@ export class DDLManager {
       } as any)
       .where('name' as any, '=', name)
       .execute();
+
+    DDLManager.invalidateCache(name);
   }
 
   private static async registerMetadata(db: Database, definition: CollectionDefinition): Promise<void> {
@@ -327,5 +387,7 @@ export class DDLManager {
         } as any),
       )
       .execute();
+
+    DDLManager.invalidateCache(definition.name);
   }
 }

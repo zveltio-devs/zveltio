@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ENGINE_URL } from '$lib/config.js';
-  import { Server, Save, Loader2, CheckCircle, XCircle, FlaskConical } from '@lucide/svelte';
+  import { Server, Save, LoaderCircle, CheckCircle, XCircle, FlaskConical } from '@lucide/svelte';
 
   let config = $state({
     enabled: false,
@@ -88,7 +88,7 @@
 
   {#if loading}
     <div class="flex items-center gap-2 text-gray-400">
-      <Loader2 class="h-4 w-4 animate-spin" />
+      <LoaderCircle class="h-4 w-4 animate-spin" />
       Loading...
     </div>
   {:else}
@@ -181,7 +181,7 @@
       <button type="submit" disabled={saving}
         class="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
         {#if saving}
-          <Loader2 class="h-4 w-4 animate-spin" />
+          <LoaderCircle class="h-4 w-4 animate-spin" />
           Saving...
         {:else}
           <Save class="h-4 w-4" />
@@ -205,7 +205,7 @@
       <button onclick={test} disabled={testing || !testUsername || !testPassword}
         class="flex items-center gap-2 rounded-lg border border-indigo-200 px-3 py-1.5 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
         {#if testing}
-          <Loader2 class="h-3.5 w-3.5 animate-spin" />
+          <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
           Testing...
         {:else}
           <FlaskConical class="h-3.5 w-3.5" />

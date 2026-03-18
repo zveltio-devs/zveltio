@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { collectionsApi } from '$lib/api.js';
- import { Plus, Table, Trash2, Settings, Loader2 } from '@lucide/svelte';
+ import { Plus, Table, Trash2, Settings, LoaderCircle } from '@lucide/svelte';
  import { base } from '$app/paths';
 
  let collections = $state<any[]>([]);
@@ -80,7 +80,7 @@
 
  {#if loading}
  <div class="flex justify-center py-12">
- <Loader2 size={32} class="animate-spin text-primary" />
+ <LoaderCircle size={32} class="animate-spin text-primary" />
  </div>
  {:else if collections.length === 0}
  <div class="card bg-base-200 text-center py-12">
@@ -193,6 +193,6 @@
  </button>
  </div>
  </div>
- <button class="modal-backdrop" onclick={() => (showCreateModal = false)}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
  </dialog>
 {/if}

@@ -956,7 +956,7 @@
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => showCompose = false}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => showCompose = false}></button>
   </dialog>
 {/if}
 
@@ -1040,7 +1040,7 @@
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => showAddAccount = false}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => showAddAccount = false}></button>
   </dialog>
 {/if}
 
@@ -1113,6 +1113,6 @@
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => showFilterModal = false}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => showFilterModal = false}></button>
   </dialog>
 {/if}

@@ -125,7 +125,13 @@
  </thead>
  <tbody>
  {#each revisions as rev}
- <tr class="cursor-pointer hover" onclick={() => (expandedId = expandedId === rev.id ? null : rev.id)}>
+ <tr
+ class="cursor-pointer hover"
+ role="button"
+ tabindex="0"
+ onclick={() => (expandedId = expandedId === rev.id ? null : rev.id)}
+ onkeydown={(e) => e.key === 'Enter' || e.key === ' ' ? (expandedId = expandedId === rev.id ? null : rev.id) : null}
+>
  <td class="text-xs font-mono whitespace-nowrap">
  {new Date(rev.created_at).toLocaleString()}
  </td>

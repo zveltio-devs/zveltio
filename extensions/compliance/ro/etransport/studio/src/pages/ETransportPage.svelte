@@ -225,24 +225,24 @@
 
       <div class="grid grid-cols-2 gap-4 mb-4">
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Transport date</span></label>
-          <input type="date" bind:value={form.transport_date} class="input input-sm" />
+          <label class="label" for="transport-date"><span class="label-text text-xs">Transport date</span></label>
+          <input id="transport-date" type="date" bind:value={form.transport_date} class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Purpose</span></label>
-          <select bind:value={form.purpose} class="select select-sm">
+          <label class="label" for="transport-purpose"><span class="label-text text-xs">Purpose</span></label>
+          <select id="transport-purpose" bind:value={form.purpose} class="select select-sm">
             <option value="commercial">Commercial</option>
             <option value="personal">Personal</option>
             <option value="return">Return</option>
           </select>
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Vehicle plate</span></label>
-          <input type="text" bind:value={form.vehicle_plate} placeholder="B 123 ABC" class="input input-sm font-mono uppercase" />
+          <label class="label" for="transport-vehicle-plate"><span class="label-text text-xs">Vehicle plate</span></label>
+          <input id="transport-vehicle-plate" type="text" bind:value={form.vehicle_plate} placeholder="B 123 ABC" class="input input-sm font-mono uppercase" />
         </div>
         <div class="form-control">
-          <label class="label"><span class="label-text text-xs">Driver name</span></label>
-          <input type="text" bind:value={form.driver_name} placeholder="Ion Popescu" class="input input-sm" />
+          <label class="label" for="transport-driver-name"><span class="label-text text-xs">Driver name</span></label>
+          <input id="transport-driver-name" type="text" bind:value={form.driver_name} placeholder="Ion Popescu" class="input input-sm" />
         </div>
       </div>
 

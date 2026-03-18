@@ -6,6 +6,8 @@ export type AuditEventType =
   | 'auth.login_success'
   | 'auth.logout'
   | 'permission.denied'
+  | 'permission.granted'
+  | 'permission.revoked'
   | 'collection.created'
   | 'collection.deleted'
   | 'api_key.created'

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ENGINE_URL } from '$lib/config.js';
-  import { Shield, Save, Loader2, CheckCircle, XCircle, Copy } from '@lucide/svelte';
+  import { Shield, Save, LoaderCircle, CheckCircle, XCircle, Copy } from '@lucide/svelte';
 
   let config = $state({
     enabled: false,
@@ -71,7 +71,7 @@
 
   {#if loading}
     <div class="flex items-center gap-2 text-gray-400">
-      <Loader2 class="h-4 w-4 animate-spin" />
+      <LoaderCircle class="h-4 w-4 animate-spin" />
       Loading...
     </div>
   {:else}
@@ -182,7 +182,7 @@
       <button type="submit" disabled={saving}
         class="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
         {#if saving}
-          <Loader2 class="h-4 w-4 animate-spin" />
+          <LoaderCircle class="h-4 w-4 animate-spin" />
           Saving...
         {:else}
           <Save class="h-4 w-4" />

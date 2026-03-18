@@ -8,6 +8,8 @@
 import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
+import { checkPermission } from '../lib/permissions.js';
+import { DDLManager } from '../lib/ddl-manager.js';
 
 export function syncRoutes(db: Database, _auth: any): Hono {
   const app = new Hono();
@@ -17,8 +19,45 @@ export function syncRoutes(db: Database, _auth: any): Hono {
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
+    c.set('user', session.user);
     await next();
   });
+
+  // System fields that clients must never be allowed to overwrite via sync.
+  const PROTECTED_FIELDS = new Set([
+    'id', 'created_at', 'created_by', 'updated_at', 'tenant_id',
+    'search_vector', 'embedding',
+  ]);
+
+  /**
+   * Strips protected system fields from a sync payload and validates that the
+   * remaining keys are known columns in the collection schema.
+   * Returns { safe: true, payload } or { safe: false, reason }.
+   */
+  async function sanitizeSyncPayload(
+    collectionName: string,
+    raw: Record<string, any>,
+  ): Promise<{ safe: true; payload: Record<string, any> } | { safe: false; reason: string }> {
+    const collectionDef = await DDLManager.getCollection(db, collectionName.replace(/^zvd_/, ''));
+    if (!collectionDef) {
+      return { safe: false, reason: `Collection "${collectionName}" not found` };
+    }
+
+    const allowedFields = new Set(
+      (collectionDef.fields as any[]).map((f: any) => f.name),
+    );
+
+    const payload: Record<string, any> = {};
+    for (const [key, value] of Object.entries(raw || {})) {
+      if (PROTECTED_FIELDS.has(key)) continue; // silently strip system fields
+      if (!allowedFields.has(key)) {
+        return { safe: false, reason: `Unknown field "${key}" in collection "${collectionName}"` };
+      }
+      payload[key] = value;
+    }
+
+    return { safe: true, payload };
+  }
 
   /**
    * POST /api/sync/push
@@ -102,6 +141,32 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       // Reassign normalized table name for downstream use
       op.collection = tableName;
 
+      // Permission check: user must have write access to this collection
+      const collectionShortName = op.collection.replace(/^zvd_/, '');
+      const user = c.get('user') as any;
+      const canWrite = user.role === 'admin' ||
+        await checkPermission(user.id, `data:${collectionShortName}`,
+          op.operation === 'delete' ? 'delete' : op.operation === 'create' ? 'create' : 'update',
+        );
+      if (!canWrite) {
+        results.push({
+          recordId: op.recordId,
+          status: 'error',
+          error: `No permission to ${op.operation} in collection "${collectionShortName}"`,
+        });
+        continue;
+      }
+
+      // Sanitize payload — strip system fields, validate known columns
+      if (op.operation !== 'delete') {
+        const sanitized = await sanitizeSyncPayload(op.collection, op.payload);
+        if (!sanitized.safe) {
+          results.push({ recordId: op.recordId, status: 'error', error: sanitized.reason });
+          continue;
+        }
+        op.payload = sanitized.payload;
+      }
+
       if (op.operation === 'create') {
         const list = createsByCollection.get(op.collection) ?? [];
         list.push({ recordId: op.recordId, payload: op.payload });
@@ -111,15 +176,20 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       }
     }
 
+    // Use tenant-isolated transaction when available (RLS enforcement)
+    const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
+
     // Batch insert per collection — single INSERT with ON CONFLICT DO NOTHING
     const now = Date.now();
     for (const [collection, creates] of createsByCollection) {
       try {
         const records = creates.map(({ recordId, payload }) => ({
           id: recordId,
+          created_by: (c.get('user') as any).id,
+          updated_by: (c.get('user') as any).id,
           ...payload,
         }));
-        await db
+        await effectiveDb
           .insertInto(collection as any)
           .values(records as any)
           .onConflict((oc) => oc.column('id').doNothing())
@@ -144,9 +214,9 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       try {
         switch (operation) {
           case 'update': {
-            await db
+            await effectiveDb
               .updateTable(collection as any)
-              .set(payload as any)
+              .set({ ...payload, updated_by: (c.get('user') as any).id } as any)
               .where('id' as any, '=', recordId)
               .execute();
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });
@@ -154,7 +224,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           }
 
           case 'delete': {
-            await db
+            await effectiveDb
               .deleteFrom(collection as any)
               .where('id' as any, '=', recordId)
               .execute();
@@ -203,10 +273,18 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       );
     }
 
+    // Limit max collections per pull request to prevent DoS
+    if (body.collections.length > 20) {
+      return c.json({ error: 'Too many collections. Maximum 20 per pull request.' }, 400);
+    }
+
     const { collections, since } = body as {
       collections: string[];
       since: number;
     };
+
+    // Limit rows per collection to prevent OOM
+    const PULL_LIMIT_PER_COLLECTION = 1000;
     const sinceDate = new Date(since);
     const changes: Array<{
       collection: string;
@@ -217,6 +295,8 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     }> = [];
 
     const COLLECTION_RE = /^zvd_[a-z][a-z0-9_]*$/;
+    // Use tenant-isolated transaction when available (RLS enforcement)
+    const pullDb = (c.get('tenantTrx') as Database | null) ?? db;
 
     for (const rawName of collections) {
       const collection: string = typeof rawName === 'string' && rawName.startsWith('zvd_')
@@ -226,10 +306,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       if (!COLLECTION_RE.test(collection)) continue; // skip invalid/system table names
 
       try {
-        const updated = await db
+        const updated = await pullDb
           .selectFrom(collection as any)
           .selectAll()
           .where('updated_at' as any, '>', sinceDate)
+          .orderBy('updated_at' as any, 'asc')
+          .limit(PULL_LIMIT_PER_COLLECTION)
           .execute();
 
         for (const record of updated) {

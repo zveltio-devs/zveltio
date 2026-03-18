@@ -227,14 +227,14 @@
     <div class="modal-box">
       <h3 class="font-bold text-lg">Save Query</h3>
       <div class="form-control mt-4">
-        <label class="label"><span class="label-text">Title</span></label>
-        <input class="input input-bordered" bind:value={saveTitle} placeholder="My saved query..." />
+        <label class="label" for="save-query-title"><span class="label-text">Title</span></label>
+        <input id="save-query-title" class="input input-bordered" bind:value={saveTitle} placeholder="My saved query..." />
       </div>
       <div class="modal-action">
         <button class="btn btn-ghost" onclick={() => showSaveModal = false}>Cancel</button>
         <button class="btn btn-primary" onclick={saveQuery} disabled={!saveTitle.trim()}>Save</button>
       </div>
     </div>
-    <button class="modal-backdrop" onclick={() => showSaveModal = false}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => showSaveModal = false}></button>
   </dialog>
 {/if}

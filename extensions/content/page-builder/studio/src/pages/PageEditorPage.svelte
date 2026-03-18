@@ -207,15 +207,15 @@
  <div class="space-y-3">
  {#each Object.entries(btype.schema) as [key, type]}
  <div class="form-control">
- <label class="label"><span class="label-text text-sm capitalize">{key.replace(/_/g, ' ')}</span></label>
+ <label class="label" for="block-prop-{key}"><span class="label-text text-sm capitalize">{key.replace(/_/g, ' ')}</span></label>
  {#if type === 'string'}
  {#if key === 'content'}
- <textarea bind:value={block.props[key]} class="textarea textarea-sm" rows="4"></textarea>
+ <textarea id="block-prop-{key}" bind:value={block.props[key]} class="textarea textarea-sm" rows="4"></textarea>
  {:else}
- <input type="text" bind:value={block.props[key]} class="input input-sm" />
+ <input id="block-prop-{key}" type="text" bind:value={block.props[key]} class="input input-sm" />
  {/if}
  {:else if type === 'number'}
- <input type="number" bind:value={block.props[key]} class="input input-sm" />
+ <input id="block-prop-{key}" type="number" bind:value={block.props[key]} class="input input-sm" />
  {/if}
  </div>
  {/each}

@@ -65,8 +65,62 @@ const BLOCKED_PREFIXES = [
 ];
 
 /**
+ * Normalises a URL hostname by resolving alternate IP representations to a
+ * canonical dotted-decimal string so that BLOCKED_PREFIXES catches them.
+ *
+ * Handles:
+ *  - Octal IPs:   0177.0.0.1  → 127.0.0.1
+ *  - Decimal IPs: 2130706433  → 127.0.0.1
+ *  - Hex IPs:     0x7f000001  → 127.0.0.1
+ *  - Mixed:       0x7f.0.0.1  → 127.0.0.1
+ */
+function normalizeHostname(hostname: string): string {
+  // Pure decimal integer (e.g. 2130706433 = 127.0.0.1)
+  if (/^\d+$/.test(hostname)) {
+    const n = parseInt(hostname, 10);
+    if (!isNaN(n) && n >= 0 && n <= 0xffffffff) {
+      return [
+        (n >>> 24) & 0xff,
+        (n >>> 16) & 0xff,
+        (n >>> 8) & 0xff,
+        n & 0xff,
+      ].join('.');
+    }
+  }
+
+  // Octal/hex/mixed IPv4 (each octet may be 0x..., 0..., or decimal)
+  const octets = hostname.split('.');
+  if (octets.length === 4) {
+    const nums = octets.map((o) => {
+      if (o.startsWith('0x') || o.startsWith('0X')) return parseInt(o, 16);
+      if (o.startsWith('0') && o.length > 1) return parseInt(o, 8);
+      return parseInt(o, 10);
+    });
+    if (nums.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
+      return nums.join('.');
+    }
+  }
+
+  // Single hex value (0x7f000001)
+  if (/^0x[0-9a-f]+$/i.test(hostname)) {
+    const n = parseInt(hostname, 16);
+    if (!isNaN(n) && n >= 0 && n <= 0xffffffff) {
+      return [
+        (n >>> 24) & 0xff,
+        (n >>> 16) & 0xff,
+        (n >>> 8) & 0xff,
+        n & 0xff,
+      ].join('.');
+    }
+  }
+
+  return hostname;
+}
+
+/**
  * Secure fetch that blocks requests to internal/private networks.
  * Prevents SSRF attacks from Edge Functions.
+ * Handles octal/decimal/hex IP variants to prevent bypass.
  */
 const safeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   let url: string;
@@ -80,19 +134,32 @@ const safeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
     throw new Error('Invalid fetch input');
   }
 
+  // Block non-http/https schemes first
   const lower = url.toLowerCase();
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+    throw new Error(`[Zveltio Sandbox] Only http:// and https:// URLs are allowed. Got: ${url}`);
+  }
+
+  // Normalise the hostname to canonical dotted-decimal before prefix-matching
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error(`[Zveltio Sandbox] Invalid URL: ${url}`);
+  }
+
+  const canonicalHost = normalizeHostname(parsedUrl.hostname.toLowerCase());
+  // Re-build the URL with the canonical hostname for blocklist comparison
+  const canonicalUrl = `${parsedUrl.protocol}//${canonicalHost}${parsedUrl.port ? ':' + parsedUrl.port : ''}${parsedUrl.pathname}`;
+  const canonicalLower = canonicalUrl.toLowerCase();
+
   for (const prefix of BLOCKED_PREFIXES) {
-    if (lower.startsWith(prefix)) {
+    if (canonicalLower.startsWith(prefix)) {
       throw new Error(
         `[Zveltio Sandbox] Network access to internal address blocked: ${url}. ` +
         `Edge Functions can only access public internet endpoints.`,
       );
     }
-  }
-
-  // Block non-http/https schemes
-  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
-    throw new Error(`[Zveltio Sandbox] Only http:// and https:// URLs are allowed. Got: ${url}`);
   }
 
   return fetch(input, init);

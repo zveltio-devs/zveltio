@@ -292,12 +292,35 @@ export async function invalidateTenantCache(
 }
 
 /**
- * Set the current tenant for PostgreSQL RLS.
- * Uses SET LOCAL — activates Row-Level Security isolation for the current transaction.
- * RLS policies read current_setting('zveltio.current_tenant', true) to filter rows.
+ * Returns the initialized database instance (used by the tenant middleware to
+ * start a per-request transaction for SET LOCAL isolation).
+ */
+export function getTenantDb(): Database {
+  return _db;
+}
+
+/**
+ * Wraps a callback in a PostgreSQL transaction with SET LOCAL for the tenant GUC.
+ * This is the ONLY correct way to ensure RLS isolation in a connection-pool environment:
+ * SET LOCAL is scoped to the transaction, so all queries made via `trx` within the
+ * callback will see the correct tenant GUC, and the connection is automatically
+ * released back to the pool after the transaction commits/rolls back.
  *
- * NOTE: SET LOCAL persists only within a transaction. Outside a transaction it is
- * silently ignored. For strict per-request isolation, wrap handlers in db.transaction().
+ * Usage in route handlers: use `c.get('tenantTrx') || db` for queries.
+ */
+export async function withTenantIsolation<T>(
+  tenantId: string,
+  fn: (trx: Database) => Promise<T>,
+): Promise<T> {
+  return (_db as any).transaction().execute(async (trx: Database) => {
+    await sql`SET LOCAL "zveltio.current_tenant" = ${tenantId}`.execute(trx);
+    return fn(trx);
+  });
+}
+
+/**
+ * @deprecated Use withTenantIsolation() instead. SET LOCAL outside a transaction
+ * is silently ignored — it does NOT activate RLS policies.
  */
 export async function setCurrentTenant(tenantId: string): Promise<void> {
   await sql`SET LOCAL "zveltio.current_tenant" = ${tenantId}`.execute(_db);

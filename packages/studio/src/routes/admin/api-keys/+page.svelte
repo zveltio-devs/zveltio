@@ -142,12 +142,12 @@
  <h3 class="font-bold text-lg mb-4">Create API Key</h3>
  <div class="space-y-4">
  <div class="form-control">
- <label class="label"><span class="label-text">Key name</span></label>
- <input type="text" bind:value={form.name} placeholder="Production API Key" class="input" />
+ <label class="label" for="api-key-name"><span class="label-text">Key name</span></label>
+ <input id="api-key-name" type="text" bind:value={form.name} placeholder="Production API Key" class="input" />
  </div>
  <div class="form-control">
- <label class="label"><span class="label-text">Rate limit (requests/hour)</span></label>
- <input type="number" bind:value={form.rate_limit} min="1" class="input" />
+ <label class="label" for="api-key-rate-limit"><span class="label-text">Rate limit (requests/hour)</span></label>
+ <input id="api-key-rate-limit" type="number" bind:value={form.rate_limit} min="1" class="input" />
  </div>
  <div class="form-control">
  <label class="label">
@@ -169,7 +169,7 @@
  </button>
  </div>
  </div>
- <button class="modal-backdrop" onclick={() => (showCreateModal = false)}></button>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
  </dialog>
 {/if}
 

@@ -156,7 +156,7 @@
 
  <!-- Type selector grouped by category -->
  <div class="form-control">
- <label class="label"><span class="label-text">Field type</span></label>
+ <p class="label"><span class="label-text">Field type</span></p>
  <div class="grid grid-cols-2 gap-3">
  {#each categories as cat}
  {@const types = getCategoryTypes(cat.id)}

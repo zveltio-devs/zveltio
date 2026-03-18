@@ -284,8 +284,8 @@
  if (e.key === 'Escape') cancelEdit();
  }}
  />
- <button class="btn btn-ghost btn-xs text-success" onclick={saveEdit}><Check size={12} /></button>
- <button class="btn btn-ghost btn-xs" onclick={cancelEdit}><X size={12} /></button>
+ <button class="btn btn-ghost btn-xs text-success" onclick={saveEdit} title="Save"><Check size={12} /></button>
+ <button class="btn btn-ghost btn-xs" onclick={cancelEdit} title="Cancel"><X size={12} /></button>
  </div>
  {:else}
  <button
