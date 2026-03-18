@@ -65,6 +65,15 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     if (!file) return c.json({ error: 'No file provided' }, 400);
 
+    // Enforce upload size limit (default 50 MB, configurable via MAX_UPLOAD_BYTES env var)
+    const maxBytes = parseInt(process.env.MAX_UPLOAD_BYTES ?? '') || 50 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      return c.json(
+        { error: `File too large. Maximum allowed size is ${Math.round(maxBytes / 1024 / 1024)} MB.` },
+        413,
+      );
+    }
+
     const folderId = formData.get('folder_id') as string | null;
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);

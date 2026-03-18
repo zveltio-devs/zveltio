@@ -59,11 +59,17 @@ async function authenticate(c: any, auth: any): Promise<{ user: any; authType: s
   return null;
 }
 
-// Simple SHA-256 hash for API key validation
+// HMAC-SHA256 hash for API key validation — must match admin.ts key creation and api-key-guard.ts.
+// Plain SHA-256 (without secret) would silently never match keys created by admin.ts.
 async function hashKey(key: string): Promise<string> {
+  const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
+  if (!authSecret) throw new Error('Server configuration error: auth secret not set');
   const encoder = new TextEncoder();
-  const data = encoder.encode(key);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', encoder.encode(authSecret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(key));
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');

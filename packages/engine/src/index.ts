@@ -207,7 +207,8 @@ async function bootstrap() {
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self' data:",
-        "connect-src 'self' ws: wss:",
+        // Restrict WebSocket to same origin only — ws: without a host allows any external WS
+        "connect-src 'self'",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
@@ -216,6 +217,8 @@ async function bootstrap() {
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('X-Frame-Options', 'DENY');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // HSTS — tells browsers to only connect over HTTPS for 1 year; includeSubDomains for completeness
+    c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   });
 
   // 9. API: active extensions list (Studio consumes this)
