@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { aiProviderManager, OpenAIProvider, AnthropicProvider, OllamaProvider } from './ai-provider.js';
 import { checkPermission } from '../../../../packages/engine/src/lib/permissions.js';
+import { encryptApiKey, decryptApiKey, maskApiKey } from './lib/crypto.js';
+import { validatePublicUrl } from '../../../../packages/engine/src/lib/edge-functions/safe-fetch.js';
 
 async function requireAuth(c: any, auth: any) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -38,6 +40,7 @@ export function aiRoutes(db: any, auth: any): Hono {
     return c.json({
       providers: providers.map((p: any) => ({
         ...p,
+        api_key: maskApiKey(p.api_key ?? ''), // nu returna niciodată cheia în clar
         loaded: activeNames.includes(p.name),
       })),
     });
@@ -51,7 +54,17 @@ export function aiRoutes(db: any, auth: any): Hono {
       z.object({
         display_name: z.string().optional(),
         api_key: z.string().optional(),
-        base_url: z.string().url().optional(),
+        base_url: z.string().url().optional().superRefine((url, ctx) => {
+          if (!url) return;
+          try {
+            validatePublicUrl(url);
+          } catch (e) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `base_url points to a private/internal address: ${(e as Error).message}`,
+            });
+          }
+        }),
         default_model: z.string().optional(),
         is_default: z.boolean().optional(),
         is_active: z.boolean().optional(),
@@ -72,8 +85,12 @@ export function aiRoutes(db: any, auth: any): Hono {
         .executeTakeFirst();
 
       if (existing) {
+        const updateData = { ...body, updated_at: now };
+        if (updateData.api_key) {
+          updateData.api_key = await encryptApiKey(updateData.api_key);
+        }
         await db.updateTable('zv_ai_providers')
-          .set({ ...body, updated_at: now })
+          .set(updateData)
           .where('name', '=', name)
           .execute();
       } else {
@@ -87,7 +104,7 @@ export function aiRoutes(db: any, auth: any): Hono {
           .values({
             name,
             display_name: body.display_name || displayNames[name] || name,
-            api_key: body.api_key,
+            api_key: body.api_key ? await encryptApiKey(body.api_key) : undefined,
             base_url: body.base_url,
             default_model: body.default_model,
             is_default: body.is_default ?? false,
@@ -112,9 +129,10 @@ export function aiRoutes(db: any, auth: any): Hono {
         .executeTakeFirst();
 
       if (updated?.is_active && (updated.api_key || name === 'ollama')) {
+        const decryptedKey = await decryptApiKey(updated.api_key ?? '');
         let provider = null;
-        if (name === 'openai') provider = new OpenAIProvider(updated.api_key, updated.base_url, updated.default_model);
-        else if (name === 'anthropic') provider = new AnthropicProvider(updated.api_key, updated.default_model);
+        if (name === 'openai') provider = new OpenAIProvider(decryptedKey, updated.base_url, updated.default_model);
+        else if (name === 'anthropic') provider = new AnthropicProvider(decryptedKey, updated.default_model);
         else if (name === 'ollama') provider = new OllamaProvider(updated.base_url, updated.default_model);
         if (provider) aiProviderManager.register(provider, updated.is_default);
       }

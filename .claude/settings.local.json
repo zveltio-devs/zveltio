@@ -119,7 +119,9 @@
       "Bash(find /c/Users/Liviu/zveltio-ecosystem -type f -name LICENSE* ! -path */node_modules/* ! -path */.git/* ! -path */.wrangler/* ! -path */dist/* ! -path */.svelte-kit/*)",
       "Bash(for file:*)",
       "Bash(echo \"=== $file ===\")",
-      "Bash(grep -r \"SPDX\\\\|spdx\" /c/Users/Liviu/zveltio-ecosystem --include=*.ts --include=*.js --include=*.json ! -path */node_modules/* ! -path */.git/* ! -path */dist/* ! -path */.svelte-kit/* ! -path */.wrangler/*)"
+      "Bash(grep -r \"SPDX\\\\|spdx\" /c/Users/Liviu/zveltio-ecosystem --include=*.ts --include=*.js --include=*.json ! -path */node_modules/* ! -path */.git/* ! -path */dist/* ! -path */.svelte-kit/* ! -path */.wrangler/*)",
+      "Bash(node_modules/.bin/svelte-kit sync:*)",
+      "Bash(find c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/node_modules -name server.js -path */svelte-language-server/*)"
     ]
   }
 }

@@ -14,6 +14,15 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return session.user;
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function usersRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -197,9 +206,9 @@ export function usersRoutes(db: Database, auth: any): Hono {
           await sendEmail({
             to: email,
             subject: 'You have been invited to Zveltio',
-            html: `<p>Hello${name ? ' ' + name : ''},</p>
+            html: `<p>Hello${name ? ' ' + escapeHtml(name) : ''},</p>
 <p>You have been invited to join Zveltio. Click the link below to accept your invitation and set your password:</p>
-<p><a href="${inviteUrl}">${inviteUrl}</a></p>
+<p><a href="${escapeHtml(inviteUrl)}">${escapeHtml(inviteUrl)}</a></p>
 <p>This link expires in 48 hours.</p>`,
           });
         } catch {

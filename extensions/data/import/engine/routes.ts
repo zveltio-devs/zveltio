@@ -187,10 +187,15 @@ export function importRoutes(db: Database, auth: any): Hono {
     let filename = 'import';
 
     if (contentType.includes('multipart/form-data')) {
-      // File upload
       const formData = await c.req.formData();
       const file = formData.get('file') as File | null;
       if (!file) return c.json({ error: 'No file provided' }, 400);
+
+      // Verifică dimensiunea ÎNAINTE de a citi în memorie — previne OOM DoS
+      const MAX_IMPORT_BYTES = 100 * 1024 * 1024; // 100 MB
+      if (file.size > MAX_IMPORT_BYTES) {
+        return c.json({ error: `File too large. Maximum import size is 100 MB.` }, 413);
+      }
 
       filename = file.name;
       const text = await file.text();

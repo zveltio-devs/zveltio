@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../../../packages/engine/src/db/index.js';
+import { checkPermission } from '../../../packages/engine/src/lib/permissions.js';
 
 type Bindings = { db: Database; user: any };
 
@@ -141,7 +142,17 @@ export function crmRoutes(db: Database, auth: any): Hono {
   );
 
   app.delete('/contacts/:id', async (c) => {
-    await sql`DELETE FROM zvd_contacts WHERE id = ${c.req.param('id')}`.execute(db);
+    const user = c.get('user') as any;
+    const id = c.req.param('id');
+    const existing = await sql<{ created_by: string }>`
+      SELECT created_by FROM zvd_contacts WHERE id = ${id}
+    `.execute(db);
+    if (!existing.rows[0]) return c.json({ error: 'Not found' }, 404);
+    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    if (existing.rows[0].created_by !== user.id && !isAdmin) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    await sql`DELETE FROM zvd_contacts WHERE id = ${id}`.execute(db);
     return c.json({ success: true });
   });
 
@@ -257,7 +268,17 @@ export function crmRoutes(db: Database, auth: any): Hono {
   );
 
   app.delete('/organizations/:id', async (c) => {
-    await sql`DELETE FROM zvd_organizations WHERE id = ${c.req.param('id')}`.execute(db);
+    const user = c.get('user') as any;
+    const id = c.req.param('id');
+    const existing = await sql<{ created_by: string }>`
+      SELECT created_by FROM zvd_organizations WHERE id = ${id}
+    `.execute(db);
+    if (!existing.rows[0]) return c.json({ error: 'Not found' }, 404);
+    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    if (existing.rows[0].created_by !== user.id && !isAdmin) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    await sql`DELETE FROM zvd_organizations WHERE id = ${id}`.execute(db);
     return c.json({ success: true });
   });
 
@@ -388,7 +409,17 @@ export function crmRoutes(db: Database, auth: any): Hono {
   );
 
   app.delete('/transactions/:id', async (c) => {
-    await sql`DELETE FROM zvd_transactions WHERE id = ${c.req.param('id')}`.execute(db);
+    const user = c.get('user') as any;
+    const id = c.req.param('id');
+    const existing = await sql<{ created_by: string }>`
+      SELECT created_by FROM zvd_transactions WHERE id = ${id}
+    `.execute(db);
+    if (!existing.rows[0]) return c.json({ error: 'Not found' }, 404);
+    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    if (existing.rows[0].created_by !== user.id && !isAdmin) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    await sql`DELETE FROM zvd_transactions WHERE id = ${id}`.execute(db);
     return c.json({ success: true });
   });
 

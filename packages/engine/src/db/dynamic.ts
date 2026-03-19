@@ -20,6 +20,12 @@ async function withLockTimeout(
   fn: (trx: Database) => Promise<void>,
   timeout = '2s',
 ): Promise<void> {
+  // Validare format: permite doar cifre + unitate (ms/s/min) — previne SQL injection
+  if (!/^\d+(\.\d+)?(ms|s|min)$/.test(timeout)) {
+    throw new Error(
+      `Invalid lock_timeout format: "${timeout}". Expected format: "2s", "500ms", "1min".`,
+    );
+  }
   await (db as any).transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
     await fn(trx);

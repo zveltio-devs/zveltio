@@ -14,6 +14,7 @@ import nodemailer from 'nodemailer';
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { decryptPassword } from './crypto.js';
 
 export interface MailAccountConfig {
   id: string;
@@ -38,11 +39,12 @@ export async function syncImapAccount(
   db: Database,
   account: MailAccountConfig,
 ): Promise<{ synced: number; errors: string[] }> {
+  const imapPassword = await decryptPassword(account.imap_password);
   const client = new ImapFlow({
     host: account.imap_host,
     port: account.imap_port,
     secure: account.imap_secure,
-    auth: { user: account.imap_user, pass: account.imap_password },
+    auth: { user: account.imap_user, pass: imapPassword },
     logger: false,
   });
 
@@ -146,11 +148,12 @@ export async function fetchMessageBody(
   folderPath: string,
   uid: number,
 ): Promise<{ bodyText: string | null; bodyHtml: string | null }> {
+  const imapPassword = await decryptPassword(account.imap_password);
   const client = new ImapFlow({
     host: account.imap_host,
     port: account.imap_port,
     secure: account.imap_secure,
-    auth: { user: account.imap_user, pass: account.imap_password },
+    auth: { user: account.imap_user, pass: imapPassword },
     logger: false,
   });
 
@@ -186,13 +189,15 @@ export async function sendMail(
   inReplyTo?: string,
   attachments?: Array<{ filename: string; content: Buffer; contentType: string }>,
 ): Promise<{ messageId: string }> {
+  const imapPassword = await decryptPassword(account.imap_password);
+  const smtpPassword = await decryptPassword(account.smtp_password ?? '');
   const transport = nodemailer.createTransport({
     host: account.smtp_host,
     port: account.smtp_port,
     secure: account.smtp_secure,
     auth: {
       user: account.smtp_user || account.imap_user,
-      pass: account.smtp_password || account.imap_password,
+      pass: smtpPassword || imapPassword,
     },
   });
 

@@ -12,8 +12,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-zveltio}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - '${POSTGRES_PORT_HOST:-5432}:5432'
     command: |
       postgres 
         -c password_encryption=scram-sha-256
@@ -75,8 +73,6 @@ services:
       AUTH_TYPE: scram-sha-256
       IGNORE_STARTUP_PARAMETERS: extra_float_digits,client_encoding,timezone,search_path,options
       SERVER_LOGIN_RETRY: 1
-    ports:
-      - '${PGBOUNCER_PORT_HOST:-6432}:6432'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -h localhost -p 6432 || exit 1']
       interval: 15s
@@ -98,8 +94,6 @@ services:
       --appendfsync everysec
       --save 900 1
       --save 300 10
-    ports:
-      - '${VALKEY_PORT_HOST:-6379}:6379'
     volumes:
       - valkey_data:/data
     healthcheck:
@@ -132,7 +126,7 @@ services:
 
   # ── Prometheus (Metrics Collection) ──────────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.51.0
     container_name: zveltio-prometheus
     restart: unless-stopped
     command:
@@ -140,8 +134,8 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
-    ports:
-      - '${PROMETHEUS_PORT:-9090}:9090'
+    # ports nu este expus pe host — acces doar prin rețeaua internă Docker
+    # sau prin tunnel/VPN
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -155,7 +149,7 @@ services:
 
   # ── Grafana (Monitoring Dashboards) ──────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.2
     container_name: zveltio-grafana
     restart: unless-stopped
     depends_on:
@@ -209,7 +203,7 @@ services:
       BETTER_AUTH_URL: '${BETTER_AUTH_URL:-http://localhost:3000}'
 
       # Valkey/Redis
-      REDIS_URL: 'redis://:${VALKEY_PASSWORD:-zveltio}@cache:6379'
+      VALKEY_URL: 'redis://:${VALKEY_PASSWORD:-zveltio}@cache:6379'
 
       # S3 / SeaweedFS
       S3_ENDPOINT: 'http://storage:8333'

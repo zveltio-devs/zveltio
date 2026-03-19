@@ -21,7 +21,11 @@
   "devDependencies": {
     "turbo": "^2.0.0",
     "bun-types": "latest",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "svelte": "^5.0.0",
+    "@sveltejs/kit": "^2.5.0",
+    "@sveltejs/adapter-static": "^3.0.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0"
   },
   "dependencies": {
     "@auth/kysely-adapter": "^1.11.1",

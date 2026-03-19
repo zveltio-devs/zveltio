@@ -55,6 +55,23 @@ export function gdprRoutes(db: Database, _auth: any): Hono {
       return c.json({ error: 'Please confirm with: { "confirm": "DELETE MY ACCOUNT" }' }, 400);
     }
 
+    // Re-autentificare obligatorie: verifică parola curentă
+    if (!body.password) {
+      return c.json({
+        error: 'Current password required for account deletion. Include "password" in request body.',
+      }, 400);
+    }
+
+    // Verifică parola prin Better-Auth
+    try {
+      const verifyResult = await auth.api.signInEmail({
+        body: { email: session.user.email, password: body.password },
+      });
+      if (!verifyResult) throw new Error('Invalid password');
+    } catch {
+      return c.json({ error: 'Invalid password. Account deletion cancelled.' }, 403);
+    }
+
     const userId = session.user.id;
 
     await sql`

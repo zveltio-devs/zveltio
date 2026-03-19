@@ -3,6 +3,8 @@
  * Supports: retry with exponential backoff, dead-letter queue, idempotency
  */
 
+import { safeFetch } from '../../../../packages/engine/src/lib/edge-functions/safe-fetch.js';
+
 interface StepContext {
   db: any;
   triggerData: any;
@@ -38,6 +40,17 @@ function calcDelay(config: RetryConfig, attempt: number): number {
 }
 
 async function runStep(step: any, ctx: StepContext): Promise<StepResult> {
+  // Helper: validează că un collection name este safe și returnează table name
+  function safeTableName(collection: string): string {
+    const SAFE_RE = /^[a-z][a-z0-9_]*$/;
+    if (!SAFE_RE.test(collection)) {
+      throw new Error(
+        `Invalid collection name "${collection}". Only lowercase letters, digits and underscores allowed.`,
+      );
+    }
+    return `zvd_${collection}`;
+  }
+
   try {
     switch (step.type) {
       case 'condition': {
@@ -68,16 +81,18 @@ async function runStep(step: any, ctx: StepContext): Promise<StepResult> {
           ? body.replace(/\{\{(\w+)\}\}/g, (_, k) => ctx.triggerData?.[k] ?? '')
           : body;
 
-        const res = await fetch(url, {
+        const res = await safeFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json', ...headers },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(30_000),
         });
         return { success: true, output: { status: res.status, ok: res.ok } };
       }
 
       case 'create_record': {
         const { collection, data } = step.config;
+        const tableName = safeTableName(collection); // validare + prefix zvd_
         const resolved: Record<string, any> = {};
         for (const [k, v] of Object.entries(data)) {
           resolved[k] = typeof v === 'string'
@@ -85,7 +100,7 @@ async function runStep(step: any, ctx: StepContext): Promise<StepResult> {
             : v;
         }
         const record = await ctx.db
-          .insertInto(collection)
+          .insertInto(tableName as any)
           .values({ ...resolved, id: crypto.randomUUID(), created_at: new Date(), updated_at: new Date() })
           .returningAll()
           .executeTakeFirst();
@@ -94,13 +109,14 @@ async function runStep(step: any, ctx: StepContext): Promise<StepResult> {
 
       case 'update_record': {
         const { collection, id, data } = step.config;
+        const tableName = safeTableName(collection); // validare + prefix zvd_
         const recordId = id.startsWith('{{')
           ? ctx.triggerData?.[id.slice(2, -2)]
           : id;
         const record = await ctx.db
-          .updateTable(collection)
+          .updateTable(tableName as any)
           .set({ ...data, updated_at: new Date() })
-          .where('id', '=', recordId)
+          .where('id' as any, '=', recordId)
           .returningAll()
           .executeTakeFirst();
         return { success: true, output: { record } };

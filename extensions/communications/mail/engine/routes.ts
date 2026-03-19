@@ -12,6 +12,7 @@ import {
 } from './lib/imap-operations.js';
 import { buildReplyContext, saveDraft, sendDraft, autoCollectContacts } from './lib/compose.js';
 import { compileFiltersToSieve, uploadSieveScript, applyLocalFilters } from './lib/sieve.js';
+import { encryptPassword, decryptPassword } from './lib/crypto.js';
 
 /**
  * Mail Client routes — IMAP sync + SMTP send + AI features.
@@ -80,6 +81,9 @@ export function mailRoutes(db: Database, auth: any): Hono {
       await sql`UPDATE zv_mail_accounts SET is_default = false WHERE user_id = ${user.id}`.execute(db);
     }
 
+    const encryptedImapPass = await encryptPassword(data.imap_password);
+    const encryptedSmtpPass = data.smtp_password ? await encryptPassword(data.smtp_password) : null;
+
     const inserted = await sql`
       INSERT INTO zv_mail_accounts (
         user_id, name, email_address, display_name,
@@ -87,9 +91,9 @@ export function mailRoutes(db: Database, auth: any): Hono {
         smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password, is_default
       ) VALUES (
         ${user.id}, ${data.name}, ${data.email_address}, ${data.display_name ?? null},
-        ${data.imap_host}, ${data.imap_port}, ${data.imap_secure}, ${data.imap_user}, ${data.imap_password},
+        ${data.imap_host}, ${data.imap_port}, ${data.imap_secure}, ${data.imap_user}, ${encryptedImapPass},
         ${data.smtp_host}, ${data.smtp_port}, ${data.smtp_secure},
-        ${data.smtp_user ?? null}, ${data.smtp_password ?? null}, ${data.is_default}
+        ${data.smtp_user ?? null}, ${encryptedSmtpPass}, ${data.is_default}
       )
       RETURNING *
     `.execute(db);

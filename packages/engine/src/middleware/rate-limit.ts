@@ -1,10 +1,34 @@
 import type { Context, Next } from 'hono';
 import { getCache } from '../lib/cache.js';
 
+// Fallback in-memory rate limiter — activ când Valkey nu este disponibil.
+// Sliding window simplu: Map<identifier, timestamps[]>
+// ATENȚIE: nu se sincronizează între instanțe — folosit DOAR ca fallback de siguranță.
+const memoryStore = new Map<string, number[]>();
+
+function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
+  const now = Date.now();
+  const windowStart = now - windowMs;
+  const timestamps = (memoryStore.get(key) ?? []).filter(
+    (t) => t > windowStart,
+  );
+  timestamps.push(now);
+  memoryStore.set(key, timestamps);
+
+  // Curăță periodic pentru a preveni memory leak
+  if (memoryStore.size > 10_000) {
+    for (const [k, ts] of memoryStore) {
+      if (ts.every((t) => t <= windowStart)) memoryStore.delete(k);
+    }
+  }
+
+  return timestamps.length <= max;
+}
+
 interface RateLimitConfig {
-  windowMs: number;   // sliding window size in ms
-  max: number;        // max requests per window
-  keyPrefix: string;  // e.g. 'api', 'auth', 'ai'
+  windowMs: number; // sliding window size in ms
+  max: number; // max requests per window
+  keyPrefix: string; // e.g. 'api', 'auth', 'ai'
   message?: string;
 }
 
@@ -15,8 +39,18 @@ export function rateLimit(config: RateLimitConfig) {
   return async (c: Context, next: Next) => {
     const cache = getCache();
 
-    // If Redis is unavailable — fail open to preserve availability
-    if (!cache) return next();
+    // Fallback in-memory când Redis nu este disponibil — fail CLOSED pentru siguranță
+    if (!cache) {
+      const session = (c as any).get?.('user');
+      const identifier = session?.id ?? 'unknown';
+      const key = `rl:${keyPrefix}:${identifier}`;
+      const allowed = memoryRateLimit(key, windowMs, max);
+      if (!allowed) {
+        c.header('Retry-After', String(windowSec));
+        return c.json({ error: message }, 429);
+      }
+      return next();
+    }
 
     try {
       // Identifier: authenticated userId or client IP.
@@ -26,20 +60,36 @@ export function rateLimit(config: RateLimitConfig) {
       const userId: string | undefined = session?.id;
 
       const trustedProxy = process.env.TRUSTED_PROXY === 'true';
-      const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+      const rawForwardedFor = c.req
+        .header('x-forwarded-for')
+        ?.split(',')[0]
+        ?.trim();
       // Validate the extracted IP to be a basic IPv4/IPv6 format before trusting it
       // H4 FIX: Tighten IPv4 regex — old pattern accepted 999.999.999.999 as valid.
       // New pattern validates each octet is 0-255 strictly.
-      const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+      const IPV4_RE =
+        /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
       const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
       const forwardedIp =
-        trustedProxy && rawForwardedFor && (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
+        trustedProxy &&
+        rawForwardedFor &&
+        (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
           ? rawForwardedFor
           : null;
 
       // x-real-ip is also a proxy-injected header — only trust it behind a trusted proxy
-      const realIp = trustedProxy ? c.req.header('x-real-ip') ?? null : null;
-      const ip = forwardedIp || realIp || 'unknown';
+      const realIp = trustedProxy ? (c.req.header('x-real-ip') ?? null) : null;
+
+      // Last-resort fallback: actual TCP connection address, available via Hono's env
+      // depending on the adapter (Node.js: incoming.socket.remoteAddress, Bun: env.ip).
+      // Prevents all unauthenticated non-proxied traffic from sharing the same
+      // 'rl:api:unknown' rate-limit key, which would allow a single client to DoS others.
+      const connectionIp: string | undefined =
+        (c.env as any)?.incoming?.socket?.remoteAddress ??
+        (c.env as any)?.ip ??
+        undefined;
+
+      const ip = forwardedIp || realIp || connectionIp || 'unknown';
       const identifier = userId ?? ip;
 
       const key = `rl:${keyPrefix}:${identifier}`;
@@ -70,15 +120,45 @@ export function rateLimit(config: RateLimitConfig) {
         return c.json({ error: message }, 429);
       }
     } catch {
-      // Redis error — fail open
+      // Valkey error — fall back to in-memory limiter instead of failing open.
+      // Failing open here would disable ALL rate limits on Valkey outage,
+      // allowing brute-force on /api/auth/sign-in and flooding AI endpoints.
+      const session = (c as any).get?.('user');
+      const identifier = session?.id ?? 'unknown';
+      const key = `rl:${keyPrefix}:${identifier}`;
+      const allowed = memoryRateLimit(key, windowMs, max);
+      if (!allowed) {
+        c.header('Retry-After', String(windowSec));
+        return c.json({ error: message }, 429);
+      }
     }
 
     return next();
   };
 }
 
-export const authRateLimit  = rateLimit({ windowMs: 60_000, max: 10,  keyPrefix: 'auth' });
-export const apiRateLimit   = rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'api' });
-export const aiRateLimit    = rateLimit({ windowMs: 60_000, max: 20,  keyPrefix: 'ai' });
-export const writeRateLimit = rateLimit({ windowMs: 60_000, max: 60,  keyPrefix: 'write' });
-export const ddlRateLimit   = rateLimit({ windowMs: 60_000, max: 10,  keyPrefix: 'ddl' });
+export const authRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyPrefix: 'auth',
+});
+export const apiRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 200,
+  keyPrefix: 'api',
+});
+export const aiRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  keyPrefix: 'ai',
+});
+export const writeRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  keyPrefix: 'write',
+});
+export const ddlRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyPrefix: 'ddl',
+});

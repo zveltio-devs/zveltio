@@ -112,7 +112,10 @@ export function samlRoutes(db: any, auth: any): Hono {
     if (!config?.enabled) return c.json({ error: 'SAML SSO is not configured or disabled' }, 503);
 
     const saml = await createSamlInstance(config);
-    const relayState = c.req.query('redirect') ?? '/admin';
+    const rawRelayState = c.req.query('redirect') ?? '/admin';
+    const relayState = rawRelayState.startsWith('/') && !rawRelayState.startsWith('//')
+      ? rawRelayState
+      : '/admin';
     const loginUrl = await saml.getAuthorizeUrlAsync('', c.req.raw.headers.get('host') ?? '', { RelayState: relayState });
     return c.redirect(loginUrl);
   });
@@ -148,8 +151,14 @@ export function samlRoutes(db: any, auth: any): Hono {
     const user = await findOrCreateSsoUser(db, email, name);
     const token = await createSession(db, user.id);
 
-    const redirectTo = body.RelayState ?? '/admin';
-    // Set session cookie and redirect to Studio
+    // Validare open redirect: permite doar path-uri relative (încep cu /)
+    const rawRedirect = body.RelayState ?? '/admin';
+    const redirectTo = typeof rawRedirect === 'string' &&
+      rawRedirect.startsWith('/') &&
+      !rawRedirect.startsWith('//')  // previne protocol-relative URLs
+      ? rawRedirect
+      : '/admin';
+
     const response = c.redirect(redirectTo, 302);
     response.headers.set('Set-Cookie', `better-auth.session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 3600}`);
     return response;

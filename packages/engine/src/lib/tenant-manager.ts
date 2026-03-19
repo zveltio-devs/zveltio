@@ -1,6 +1,7 @@
 // packages/engine/src/lib/tenant-manager.ts
 // Manages tenant schema lifecycle and resolution
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from './cache.js';
@@ -31,6 +32,40 @@ export interface Environment {
 
 const TENANT_CACHE_TTL = 300; // 5 min
 
+// ── Tenant cache HMAC signing ────────────────────────────────────────────────
+// Protects cached tenant data against tampering by an attacker with Valkey
+// write access (e.g. raising max_records, changing plan, activating a banned
+// tenant). Pattern mirrors the god-role cache in permissions.ts.
+function _tenantHmac(key: string, value: string): string {
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) {
+    throw new Error('BETTER_AUTH_SECRET is not set — tenant cache HMAC would use an empty key, providing no integrity protection. Set this environment variable before starting the server.');
+  }
+  return createHmac('sha256', secret).update(`tenant:${key}:${value}`).digest('hex');
+}
+
+function _encodeTenantCache(key: string, data: object): string {
+  const json = JSON.stringify(data);
+  return `${_tenantHmac(key, json)}:${json}`;
+}
+
+function _decodeTenantCache(key: string, raw: string): object | null {
+  const sep = raw.indexOf(':');
+  if (sep === -1) return null;
+  const storedHmac = raw.slice(0, sep);
+  const json = raw.slice(sep + 1);
+  try {
+    const expected = Buffer.from(_tenantHmac(key, json), 'hex');
+    const stored   = Buffer.from(storedHmac, 'hex');
+    if (stored.length !== expected.length) return null;
+    if (!timingSafeEqual(stored, expected)) return null;
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+// ── End HMAC helpers ─────────────────────────────────────────────────────────
+
 let _db: Database;
 
 export function initTenantManager(db: Database): void {
@@ -42,8 +77,11 @@ export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
   const cacheKey = `tenant:slug:${slug}`;
 
   if (cache) {
-    const cached = await cache.get(cacheKey).catch(() => null);
-    if (cached) return JSON.parse(cached);
+    const raw = await cache.get(cacheKey).catch(() => null);
+    if (raw) {
+      const decoded = _decodeTenantCache(cacheKey, raw);
+      if (decoded) return decoded as any;
+    }
   }
 
   const tenant = await (_db as any)
@@ -55,7 +93,7 @@ export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
 
   if (tenant && cache) {
     await cache
-      .setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenant))
+      .setex(cacheKey, TENANT_CACHE_TTL, _encodeTenantCache(cacheKey, tenant))
       .catch(() => {});
   }
 
@@ -67,8 +105,11 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
   const cacheKey = `tenant:id:${id}`;
 
   if (cache) {
-    const cached = await cache.get(cacheKey).catch(() => null);
-    if (cached) return JSON.parse(cached);
+    const raw = await cache.get(cacheKey).catch(() => null);
+    if (raw) {
+      const decoded = _decodeTenantCache(cacheKey, raw);
+      if (decoded) return decoded as any;
+    }
   }
 
   const tenant = await (_db as any)
@@ -79,7 +120,7 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
 
   if (tenant && cache) {
     await cache
-      .setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenant))
+      .setex(cacheKey, TENANT_CACHE_TTL, _encodeTenantCache(cacheKey, tenant))
       .catch(() => {});
   }
 
@@ -93,8 +134,11 @@ export async function getUserTenants(
   const cacheKey = `user:tenants:${userId}`;
 
   if (cache) {
-    const cached = await cache.get(cacheKey).catch(() => null);
-    if (cached) return JSON.parse(cached);
+    const raw = await cache.get(cacheKey).catch(() => null);
+    if (raw) {
+      const decoded = _decodeTenantCache(cacheKey, raw);
+      if (decoded) return decoded as any;
+    }
   }
 
   const tenants = await (_db as any)
@@ -107,7 +151,7 @@ export async function getUserTenants(
     .execute();
 
   if (cache) {
-    await cache.setex(cacheKey, TENANT_CACHE_TTL, JSON.stringify(tenants)).catch(() => {});
+    await cache.setex(cacheKey, TENANT_CACHE_TTL, _encodeTenantCache(cacheKey, tenants)).catch(() => {});
   }
 
   return tenants;
@@ -318,12 +362,12 @@ export async function withTenantIsolation<T>(
   });
 }
 
-/**
- * @deprecated Use withTenantIsolation() instead. SET LOCAL outside a transaction
- * is silently ignored — it does NOT activate RLS policies.
- */
-export async function setCurrentTenant(tenantId: string): Promise<void> {
-  await sql`SET LOCAL "zveltio.current_tenant" = ${tenantId}`.execute(_db);
+/** @deprecated Use withTenantIsolation() instead. */
+export async function setCurrentTenant(_tenantId: string): Promise<void> {
+  throw new Error(
+    'setCurrentTenant() is deprecated and non-functional. ' +
+    'SET LOCAL requires an active transaction. Use withTenantIsolation() instead.',
+  );
 }
 
 /**

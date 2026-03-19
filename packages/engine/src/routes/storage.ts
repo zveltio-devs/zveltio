@@ -146,9 +146,26 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Unique storage path
-    const ext = file.name.split('.').pop();
-    const filename = `${crypto.randomUUID()}.${ext}`;
+    // Validare extensie față de allowlist
+    const ALLOWED_EXTENSIONS = new Set([
+      'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg',
+      'pdf', 'txt', 'md',
+      'csv', 'xlsx', 'xls', 'docx', 'doc', 'pptx', 'ppt',
+      'mp4', 'webm', 'mov', 'avi',
+      'mp3', 'wav', 'ogg', 'flac',
+      'zip', 'tar', 'gz', '7z',
+      'json', 'xml',
+    ]);
+
+    const rawExt = (file.name.split('.').pop() ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!rawExt || !ALLOWED_EXTENSIONS.has(rawExt)) {
+      return c.json(
+        { error: `File type ".${rawExt}" is not allowed. Allowed types: ${[...ALLOWED_EXTENSIONS].join(', ')}` },
+        400,
+      );
+    }
+
+    const filename = `${crypto.randomUUID()}.${rawExt}`;
     const storagePath = `uploads/${new Date().getFullYear()}/${filename}`;
 
     let url: string | undefined;

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { logger } from 'hono/logger';
 import { cors } from 'hono/cors';
+import { bodyLimit } from 'hono/body-limit';
 import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions } from './lib/permissions.js';
@@ -50,6 +51,17 @@ function getContentType(path: string): string {
 
 // ─── Middleware ───────────────────────────────────────────────
 app.use('*', logger());
+
+// Body size limit global — previne OOM din request-uri enorme
+// Excepție: /api/storage/upload și /api/import au limite proprii
+app.use('/api/*', async (c, next) => {
+  const path = c.req.path;
+  if (path === '/api/storage/upload' || path.startsWith('/api/import')) {
+    return next();
+  }
+  return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next); // 10 MB
+});
+
 app.use('/api/*', cors({
   origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
   credentials: true,
@@ -223,42 +235,27 @@ async function bootstrap() {
 
 
   // 9. API: active extensions list (Studio consumes this)
-  app.get('/api/extensions', (c) => {
+  // Returnăm doar bundle URLs (necesare pentru loading UI), nu lista completă
+  app.get('/api/extensions', async (c) => {
     return c.json({
-      extensions: extensionLoader.getActive(),
       bundles: extensionLoader.getBundles(),
     });
   });
 
-  // 10. Health check (detailed — checks all dependencies)
+  // 10. Health check — endpoint public, returnează MINIMAL: doar status
+  // (detalii complete la /api/admin/status — autentificat)
   app.get('/health', async (c) => {
     const checks: Record<string, 'ok' | 'error'> = {};
-
-    // DB check
     try {
       await sql`SELECT 1`.execute(db);
       checks.database = 'ok';
     } catch { checks.database = 'error'; }
 
-    // Redis/cache check
-    try {
-      const cache = getCache();
-      if (cache) {
-        await cache.ping();
-        checks.cache = 'ok';
-      } else {
-        checks.cache = 'error';
-      }
-    } catch { checks.cache = 'error'; }
-
     const allOk = Object.values(checks).every((v) => v === 'ok');
-    return c.json({
-      status: allOk ? 'healthy' : 'degraded',
-      version: ENGINE_VERSION,
-      uptime: process.uptime(),
-      services: checks,
-      extensions: extensionLoader.getActive(),
-    }, allOk ? 200 : 503);
+    return c.json(
+      { status: allOk ? 'healthy' : 'degraded' },
+      allOk ? 200 : 503,
+    );
   });
 
   // 11. Prometheus-compatible metrics
@@ -266,6 +263,15 @@ async function bootstrap() {
   let requestCount = 0;
   app.use('*', async (c, next) => { requestCount++; await next(); });
   app.get('/metrics', (c) => {
+    const metricsToken = process.env.METRICS_TOKEN;
+    if (metricsToken) {
+      const provided = c.req.header('Authorization')?.replace('Bearer ', '') ??
+        c.req.query('token');
+      if (provided !== metricsToken) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+    }
+
     const uptime = (Date.now() - startTime) / 1000;
     const lines = [
       '# HELP zveltio_uptime_seconds Server uptime in seconds',

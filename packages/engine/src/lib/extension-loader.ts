@@ -232,6 +232,20 @@ class ExtensionLoader {
 
     if (toInstall.length === 0) return;
 
+    // SECURITY: validate package names and version ranges before spawning bun add.
+    // A malicious manifest.json could inject shell metacharacters or use non-registry
+    // protocols (file:, git:, link:) to run arbitrary code or access the filesystem.
+    const SAFE_PACKAGE_NAME = /^(@[a-z0-9-_]+\/)?[a-z0-9-_.]+$/;
+    const SAFE_VERSION = /^[\d.*^~>=<| -]+$/;
+    for (const [pkg, ver] of Object.entries(peerDeps)) {
+      if (!SAFE_PACKAGE_NAME.test(pkg) || !SAFE_VERSION.test(ver)) {
+        throw new Error(
+          `Extension "${extName}" declared unsafe peerDependency: "${pkg}@${ver}". ` +
+          `Only scoped/unscoped npm package names with semver ranges are allowed.`,
+        );
+      }
+    }
+
     console.log(`📦 Extension "${extName}": installing npm packages: ${toInstall.join(', ')}`);
 
     const proc = Bun.spawn(['bun', 'add', ...toInstall], {

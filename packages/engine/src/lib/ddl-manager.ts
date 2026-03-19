@@ -70,6 +70,7 @@ export const FieldSchema = z.object({
 export const CollectionSchema = z.object({
   name: z
     .string()
+    .max(63, 'Collection name must be at most 63 characters (PostgreSQL identifier limit)')
     .regex(
       /^[a-z][a-z0-9_]*$/,
       'Collection name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
@@ -99,7 +100,6 @@ interface CacheEntry {
 }
 
 const collectionCache = new Map<string, CacheEntry>();
-const collectionsListCache: { data: any[]; ts: number } | null = null;
 let _collectionsListCache: { data: any[]; ts: number } | null = null;
 
 export class DDLManager {

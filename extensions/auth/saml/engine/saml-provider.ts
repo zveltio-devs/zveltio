@@ -27,7 +27,7 @@ export function createSamlInstance(config: SamlIdpConfig): any {
     signatureAlgorithm: config.signatureAlgorithm ?? 'sha256',
     wantAuthnResponseSigned: config.wantAuthnResponseSigned ?? true,
     acceptedClockSkewMs: config.acceptedClockSkewMs ?? 5000,
-    validateInResponseTo: 'never' as const,
+    validateInResponseTo: 'ifPresent' as const,
     disableRequestedAuthnContext: true,
   });
 }

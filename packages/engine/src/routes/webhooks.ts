@@ -34,6 +34,12 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     await next();
   });
 
+  /** Replace secret with a masked indicator — never expose plaintext secrets via API. */
+  function maskSecret(webhook: any): any {
+    if (!webhook) return webhook;
+    return { ...webhook, secret: webhook.secret ? '••••••••' : null };
+  }
+
   // GET / — List all webhooks
   app.get('/', async (c) => {
     const webhooks = await (db as any)
@@ -41,7 +47,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .selectAll()
       .orderBy('created_at', 'desc')
       .execute();
-    return c.json({ webhooks });
+    return c.json({ webhooks: webhooks.map(maskSecret) });
   });
 
   // GET /:id — Get webhook
@@ -52,7 +58,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .where('id', '=', c.req.param('id'))
       .executeTakeFirst();
     if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
-    return c.json({ webhook });
+    return c.json({ webhook: maskSecret(webhook) });
   });
 
   // POST / — Create webhook

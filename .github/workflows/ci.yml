@@ -86,7 +86,7 @@ jobs:
       - name: Start engine in background
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
-          REDIS_URL: redis://localhost:6379
+          VALKEY_URL: redis://localhost:6379
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
           BETTER_AUTH_URL: http://localhost:3099
           PORT: '3099'
@@ -97,6 +97,6 @@ jobs:
       - name: Run integration tests
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
-          TEST_REDIS_URL: redis://localhost:6379
+          TEST_VALKEY_URL: redis://localhost:6379
           TEST_PORT: '3099'
         run: cd packages/engine && bun run test:integration

@@ -97,9 +97,12 @@ CURRENT TIMESTAMP: ${new Date().toISOString()}`,
         return c.json({ error: `Unsafe query: ${validation.reason}` }, 400);
       }
 
-      // Execute
+      // Execute în READ ONLY transaction — previne DML accidental sau injectat
       const execStart = Date.now();
-      const result = await sql.raw(generatedSQL).execute(db);
+      const result = await (db as any).transaction().execute(async (trx: any) => {
+        await sql`SET TRANSACTION READ ONLY`.execute(trx);
+        return sql.raw(generatedSQL).execute(trx);
+      });
       const executionMs = Date.now() - execStart;
       const rows = result.rows as any[];
 
@@ -218,7 +221,10 @@ Respond in the same language as the user's question.`,
     }
 
     const execStart = Date.now();
-    const result = await sql.raw(generated_sql).execute(db);
+    const result = await (db as any).transaction().execute(async (trx: any) => {
+      await sql`SET TRANSACTION READ ONLY`.execute(trx);
+      return sql.raw(generated_sql).execute(trx);
+    });
     return c.json({
       results: result.rows,
       count: (result.rows as any[]).length,

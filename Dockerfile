@@ -45,7 +45,9 @@ LABEL org.opencontainers.image.source="https://github.com/zveltio/zveltio"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 
-RUN apk add --no-cache curl tzdata
+RUN apk add --no-cache curl tzdata && \
+    addgroup -S zveltio && \
+    adduser -S zveltio -G zveltio
 
 COPY --from=engine-builder /zveltio /usr/local/bin/zveltio
 RUN chmod +x /usr/local/bin/zveltio
@@ -60,6 +62,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
 EXPOSE 3000
+
+USER zveltio
 
 ENTRYPOINT ["/usr/local/bin/zveltio"]
 CMD ["start"]

@@ -8,18 +8,30 @@
 
 import { generatePDFAsync } from './pdf-queue.js';
 
+/** Escape HTML special characters to prevent XSS in generated PDF content. */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Substitute {{variable}} placeholders in a template string.
+ * All substituted values are HTML-escaped to prevent stored XSS in the
+ * generated HTML/PDF output and in the html_content column.
  */
 export function renderTemplate(template: string, variables: Record<string, any>): string {
   return template.replace(/\{\{([^}]+)\}\}/g, (_match, key) => {
     const value = variables[key.trim()];
     if (value === null || value === undefined) return '';
     if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
-      return new Date(value).toLocaleDateString('ro-RO');
+      return escapeHtml(new Date(value).toLocaleDateString('ro-RO'));
     }
-    if (typeof value === 'number') return value.toLocaleString('ro-RO');
-    return String(value);
+    if (typeof value === 'number') return escapeHtml(value.toLocaleString('ro-RO'));
+    return escapeHtml(String(value));
   });
 }
 

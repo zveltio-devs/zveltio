@@ -18,6 +18,7 @@ import {
   type FilterCondition,
 } from '../db/dynamic.js';
 import { escapeLike } from '../lib/query-utils.js';
+import { hashApiKey } from '../lib/api-key-hash.js';
 import {
   virtualList,
   virtualGetOne,
@@ -66,24 +67,8 @@ async function authenticate(c: any, auth: any): Promise<{ user: any; authType: s
   return null;
 }
 
-// HMAC-SHA256 hash for API key validation — must match admin.ts key creation and api-key-guard.ts.
-// Plain SHA-256 (without secret) would silently never match keys created by admin.ts.
-async function hashKey(key: string): Promise<string> {
-  const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
-  if (!authSecret) throw new Error('Server configuration error: auth secret not set');
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', encoder.encode(authSecret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(key));
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 async function validateApiKey(db: Database, rawKey: string): Promise<any | null> {
-  const hash = await hashKey(rawKey);
+  const hash = await hashApiKey(rawKey);
   const apiKey = await db
     .selectFrom('zv_api_keys' as any)
     .selectAll()

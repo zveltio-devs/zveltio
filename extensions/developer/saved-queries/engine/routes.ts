@@ -74,6 +74,12 @@ interface QueryConfig {
 
 function applyFilter(query: any, filter: { field: string; operator: string; value?: any }): any {
   const { field, operator, value } = filter;
+
+  // Sanitizare: permite doar identificatori SQL valizi
+  if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(field) || field.length > 63) {
+    throw new Error(`Invalid field name: "${field}"`);
+  }
+
   switch (operator) {
     case 'equals':       return query.where(field, '=', value);
     case 'not_equals':   return query.where(field, '!=', value);
@@ -100,6 +106,11 @@ function applyFilter(query: any, filter: { field: string; operator: string; valu
 
 function buildFilterCondition(eb: any, filter: { field: string; operator: string; value?: any }): any {
   const { field, operator, value } = filter;
+
+  if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(field) || field.length > 63) {
+    throw new Error(`Invalid field name: "${field}"`);
+  }
+
   switch (operator) {
     case 'equals':       return eb(field, '=', value);
     case 'not_equals':   return eb(field, '!=', value);
@@ -320,18 +331,23 @@ export function savedQueriesRoutes(db: Database, _auth: any): Hono {
     const collection = c.req.query('collection');
 
     try {
-      let whereClause = `WHERE created_by = '${user.id}' OR is_shared = true`;
-      if (collection) whereClause += ` AND collection = '${collection}'`;
+      let query = (db as any)
+        .selectFrom('zv_saved_queries')
+        .select(['id', 'name', 'description', 'collection', 'config',
+                  'is_shared', 'created_by', 'created_at', 'updated_at'])
+        .where((eb: any) => eb.or([
+          eb('created_by', '=', user.id),
+          eb('is_shared', '=', true),
+        ]))
+        .orderBy('created_at', 'desc');
 
-      const result = await sql<any>`
-        SELECT id, name, description, collection, config, is_shared, created_by, created_at, updated_at
-        FROM zv_saved_queries
-        ${sql.raw(whereClause)}
-        ORDER BY created_at DESC
-      `.execute(db);
+      if (collection) {
+        query = query.where('collection', '=', collection); // parametrizat corect
+      }
 
-      const ownedIds = new Set(result.rows.filter((r) => r.created_by === user.id).map((r) => r.id));
-      const queries = result.rows.map((q) => ({ ...q, is_owner: ownedIds.has(q.id) }));
+      const rows = await query.execute();
+      const ownedIds = new Set(rows.filter((r: any) => r.created_by === user.id).map((r: any) => r.id));
+      const queries = rows.map((q: any) => ({ ...q, is_owner: ownedIds.has(q.id) }));
       return c.json({ queries });
     } catch (err) {
       return c.json({ error: 'Failed to fetch saved queries' }, 500);

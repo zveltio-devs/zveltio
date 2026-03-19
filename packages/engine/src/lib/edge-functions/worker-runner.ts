@@ -21,14 +21,9 @@ interface WorkerPayload {
   env: Record<string, string>;
 }
 
-const STDLIB = `
-const _logs = [];
-const console = {
-  log: (...args) => _logs.push('[log] ' + args.join(' ')),
-  error: (...args) => _logs.push('[err] ' + args.join(' ')),
-  warn: (...args) => _logs.push('[warn] ' + args.join(' ')),
-};
-`;
+// STDLIB este eliminat — _logs și console sunt injectate prin safeGlobals ca parametri.
+// Redeclararea lor în corpul funcției cu 'use strict' activ cauzează SyntaxError.
+const STDLIB = ''; // păstrat pentru compatibilitate — conținut mutat în safeGlobals
 
 // ═══ SSRF Protection ═══
 const BLOCKED_PREFIXES = [
@@ -190,7 +185,7 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
 
   try {
     const transpiler = new Bun.Transpiler({ loader: 'ts' });
-    const js = transpiler.transformSync(`${STDLIB}\n${code}`);
+    const js = transpiler.transformSync(code); // STDLIB nu mai este necesar
 
     const safeGlobals: Record<string, any> = {
       // ═══ Allowed globals ═══

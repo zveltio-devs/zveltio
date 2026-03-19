@@ -76,6 +76,18 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
+
+      const folder = await (db as any)
+        .selectFrom('zv_media_folders')
+        .select(['id', 'created_by'])
+        .where('id', '=', id)
+        .executeTakeFirst();
+      if (!folder) return c.json({ error: 'Folder not found' }, 404);
+      const user = c.get('user' as never) as any;
+      if (folder.created_by !== user.id && user.role !== 'admin' && user.role !== 'god') {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
       await (db as any)
         .updateTable('zv_media_folders')
         .set({ ...data, updated_at: new Date() })
@@ -87,6 +99,17 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
   router.delete('/folders/:id', async (c) => {
     const id = c.req.param('id');
+
+    const folder = await (db as any)
+      .selectFrom('zv_media_folders')
+      .select(['id', 'created_by'])
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!folder) return c.json({ error: 'Folder not found' }, 404);
+    const user = c.get('user' as never) as any;
+    if (folder.created_by !== user.id && user.role !== 'admin' && user.role !== 'god') {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
 
     const subfolders = await (db as any)
       .selectFrom('zv_media_folders')
@@ -252,6 +275,97 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const filename = `${fileId}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
 
+    // ── Security: file type validation ──────────────────────────────────────
+    // 1. Allowlist declared MIME types — reject anything not in the list
+    const ALLOWED_MIME_TYPES = new Set([
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+      'image/avif', 'image/tiff',
+      'application/pdf',
+      'text/plain', 'text/csv',
+      'application/json',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'video/mp4', 'video/webm',
+      'audio/mpeg', 'audio/wav', 'audio/ogg',
+    ]);
+    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      return c.json({ error: `File type not allowed: ${file.type}` }, 415);
+    }
+
+    // 2. Magic byte validation — verify actual content matches declared MIME.
+    // Clients can lie about Content-Type; magic bytes cannot be faked without
+    // also making the file invalid for its true format.
+    // Read 12 bytes: needed for WEBP (RIFF header 4B + size 4B + "WEBP" marker 4B).
+    const magic = buffer.slice(0, 12);
+    const MAGIC_SIGNATURES: Array<{ mime: string; bytes: number[]; offset?: number }> = [
+      { mime: 'image/jpeg',      bytes: [0xFF, 0xD8, 0xFF] },
+      { mime: 'image/png',       bytes: [0x89, 0x50, 0x4E, 0x47] },
+      { mime: 'image/gif',       bytes: [0x47, 0x49, 0x46] },
+      { mime: 'image/webp',      bytes: [0x52, 0x49, 0x46, 0x46] }, // RIFF header at 0; WEBP marker checked separately below
+      { mime: 'application/pdf', bytes: [0x25, 0x50, 0x44, 0x46] }, // %PDF
+    ];
+    const signatureMatch = MAGIC_SIGNATURES.find((sig) => {
+      const off = sig.offset ?? 0;
+      return sig.bytes.every((b, i) => magic[off + i] === b);
+    });
+    if (signatureMatch && signatureMatch.mime !== file.type) {
+      return c.json({
+        error: `File content does not match declared type. Expected ${file.type} but content looks like ${signatureMatch.mime}`,
+      }, 415);
+    }
+
+    // WEBP: RIFF header must be followed by "WEBP" marker at bytes 8-11.
+    if (file.type === 'image/webp') {
+      const WEBP_MARKER = [0x57, 0x45, 0x42, 0x50]; // "WEBP"
+      if (!WEBP_MARKER.every((b, i) => magic[8 + i] === b)) {
+        return c.json({ error: 'File content does not match declared type.' }, 415);
+      }
+    }
+
+    // Office Open XML formats (docx, xlsx, pptx) are ZIP archives — require PK\x03\x04 signature.
+    const ZIP_MAGIC = [0x50, 0x4B, 0x03, 0x04];
+    const OFFICE_MIMES = new Set([
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ]);
+    if (OFFICE_MIMES.has(file.type)) {
+      if (!ZIP_MAGIC.every((b, i) => magic[i] === b)) {
+        return c.json({ error: 'File content does not match declared type.' }, 415);
+      }
+    }
+
+    // 3. SVG: reject XSS vectors — scripts, event handlers, javascript: links, external references.
+    if (file.type === 'image/svg+xml') {
+      const svgText = buffer.toString('utf-8');
+      // Covers: <script>, on* event handlers (onload, onerror, onclick…), javascript: URIs,
+      // xlink:href / href pointing to external/JS resources, <use> with external targets.
+      const SVG_XSS = [
+        /<script/i,
+        /\bon\w+\s*=/i,       // onload=, onerror=, onclick=, etc.
+        /javascript\s*:/i,
+        /xlink:href\s*=\s*["'][^"'#]/i, // external xlink:href (allow same-doc #fragments)
+        /\shref\s*=\s*["'](?!#)/i,      // href that isn't a same-doc fragment reference
+      ];
+      if (SVG_XSS.some((re) => re.test(svgText))) {
+        return c.json({ error: 'SVG files with embedded scripts or event handlers are not allowed' }, 415);
+      }
+    }
+
+    // 4. Extension allowlist — reject files whose names end in executable extensions
+    const ALLOWED_EXTENSIONS = new Set([
+      'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'tiff', 'svg',
+      'pdf', 'txt', 'csv', 'json',
+      'docx', 'xlsx', 'pptx',
+      'mp4', 'webm', 'mp3', 'wav', 'ogg',
+    ]);
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      return c.json({ error: `File extension not allowed: .${ext}` }, 415);
+    }
+    // ── End security validation ──────────────────────────────────────────────
+
     let width: number | null = null;
     let height: number | null = null;
     let thumbnailUrl: string | null = null;
@@ -333,6 +447,18 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
+
+      const file = await (db as any)
+        .selectFrom('zv_media_files')
+        .select(['id', 'uploaded_by'])
+        .where('id', '=', id)
+        .executeTakeFirst();
+      if (!file) return c.json({ error: 'File not found' }, 404);
+      const user = c.get('user' as never) as any;
+      if (file.uploaded_by !== user.id && user.role !== 'admin' && user.role !== 'god') {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
       await (db as any)
         .updateTable('zv_media_files')
         .set({ ...data, updated_at: new Date() })

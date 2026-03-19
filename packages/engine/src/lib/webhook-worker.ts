@@ -27,12 +27,28 @@ export const webhookWorker = {
     const cache = getCache();
     if (!cache) return;
 
-    // Collect up to 10 items from the queue
-    const items: string[] = [];
-    for (let i = 0; i < 10; i++) {
-      const item = await cache.lpop('webhook:queue');
-      if (!item) break;
-      items.push(item);
+    // LMPOP — atomic, un singur round-trip Redis, fără race conditions
+    // Fallback la LPOP în buclă dacă serverul nu suportă LMPOP (Redis < 7.0)
+    let items: string[] = [];
+    try {
+      const result = await (cache as any).lmpop(
+        1,
+        'webhook:queue',
+        'LEFT',
+        'COUNT',
+        10,
+      );
+      // LMPOP returnează [key, [item1, item2, ...]] sau null
+      if (result && Array.isArray(result[1])) {
+        items = result[1];
+      }
+    } catch {
+      // Fallback pentru versiuni Redis/Valkey mai vechi
+      for (let i = 0; i < 10; i++) {
+        const item = await cache.lpop('webhook:queue');
+        if (!item) break;
+        items.push(item);
+      }
     }
 
     // Deliver all items concurrently — O(1) wall-clock instead of O(N × timeout)

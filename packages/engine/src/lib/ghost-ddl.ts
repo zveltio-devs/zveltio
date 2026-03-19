@@ -44,8 +44,15 @@ export class GhostDDL {
       db,
     );
 
-    // 2. Apply DDL changes on ghost (NOT on original — that's the point)
+    // 2. Apply DDL changes on ghost — validare strictă pentru a preveni SQL injection
+    const ALLOWED_DDL_RE = /^(ADD\s+COLUMN|DROP\s+COLUMN\s+(IF\s+EXISTS\s+)?|ALTER\s+COLUMN|RENAME\s+COLUMN)\s+/i;
     for (const ddl of ddlStatements) {
+      if (!ALLOWED_DDL_RE.test(ddl.trim())) {
+        throw new Error(
+          `Unsafe DDL statement rejected: "${ddl}". ` +
+          `Only ADD COLUMN, DROP COLUMN, ALTER COLUMN, RENAME COLUMN are allowed.`,
+        );
+      }
       await sql.raw(`ALTER TABLE "${ghost}" ${ddl}`).execute(db);
     }
 

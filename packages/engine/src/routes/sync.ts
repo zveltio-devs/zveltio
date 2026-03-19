@@ -303,7 +303,14 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         ? rawName
         : `zvd_${rawName}`;
 
-      if (!COLLECTION_RE.test(collection)) continue; // skip invalid/system table names
+      if (!COLLECTION_RE.test(collection)) continue;
+
+      // SECURITY: verifică că utilizatorul are permisiune de citire pe această colecție
+      const collectionShortName = collection.replace(/^zvd_/, '');
+      const user = c.get('user') as any;
+      const canRead = user.role === 'admin' ||
+        await checkPermission(user.id, `data:${collectionShortName}`, 'read');
+      if (!canRead) continue; // sari silențios colecțiile la care nu are acces
 
       try {
         const updated = await pullDb

@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
+import { hashApiKey } from '../lib/api-key-hash.js';
 
 /**
  * Middleware for Protected API:
@@ -16,7 +17,7 @@ export function apiKeyGuard(db: Database) {
     if (!rawKey) return c.json({ error: 'API key required (X-API-Key header)' }, 401);
 
     // 1. Validate key
-    const keyHash = await hashKey(rawKey);
+    const keyHash = await hashApiKey(rawKey);
     const apiKey = await (db as any)
       .selectFrom('zv_api_keys')
       .selectAll()
@@ -30,10 +31,20 @@ export function apiKeyGuard(db: Database) {
     }
 
     // 2. IP Whitelisting
-    const clientIp =
-      c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
-      c.req.header('x-real-ip') ||
-      'unknown';
+    // SECURITY: x-forwarded-for and x-real-ip are client-controlled headers.
+    // Without TRUSTED_PROXY=true, any client can set X-Forwarded-For: <whitelisted_ip>
+    // and bypass the IP allowlist entirely. Only trust proxy headers when the engine
+    // is deployed behind a known, trusted reverse proxy (e.g. nginx, Caddy, AWS ALB).
+    const trustedProxy = process.env.TRUSTED_PROXY === 'true';
+    const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+    const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
+    const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+    const forwardedIp =
+      trustedProxy && rawForwardedFor && (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
+        ? rawForwardedFor
+        : null;
+    const realIp = trustedProxy ? c.req.header('x-real-ip') ?? null : null;
+    const clientIp = forwardedIp || realIp || 'unknown';
 
     if (apiKey.allowed_ips && apiKey.allowed_ips.length > 0) {
       const allowed = apiKey.allowed_ips.some((ip: string) =>
@@ -66,10 +77,14 @@ export function apiKeyGuard(db: Database) {
       }
     }
 
-    // 4. Update stats (fire-and-forget)
+    // 4. Update stats (fire-and-forget — non-blocking; failures are logged in dev)
     sql`UPDATE zv_api_keys SET request_count = request_count + 1, last_used_at = NOW(), last_ip = ${clientIp} WHERE id = ${apiKey.id}`
       .execute(db)
-      .catch(() => {});
+      .catch((err) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[api-key-guard] stats update failed:', err);
+        }
+      });
 
     c.set('user', {
       id: `api_key:${apiKey.id}`,
@@ -126,21 +141,6 @@ function isIpInCidr(ip: string, cidr: string): boolean {
 
 function ipToNum(ip: string): number {
   return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet), 0);
-}
-
-async function hashKey(key: string): Promise<string> {
-  // Security: HMAC-SHA256 with the auth secret — must match admin.ts key creation.
-  const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SECRET_KEY ?? '';
-  if (!authSecret) throw new Error('Server configuration error: auth secret not set');
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', encoder.encode(authSecret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(key));
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 async function logAccess(

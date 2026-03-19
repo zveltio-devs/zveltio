@@ -70,10 +70,23 @@ export function exportRoutes(db: Database, auth: any): Hono {
       if (filter) {
         try {
           const filters = JSON.parse(filter);
+          const allowedFields = new Set(
+            (collectionDef?.fields ?? []).map((f: any) => f.name)
+          );
+          // Adaugă câmpuri sistem
+          ['id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by'].forEach(
+            (f) => allowedFields.add(f)
+          );
           for (const [key, value] of Object.entries(filters)) {
+            if (!allowedFields.has(key)) {
+              return c.json({ error: `Unknown filter field: "${key}"` }, 400);
+            }
             query = query.where(key, '=', value);
           }
-        } catch { /* ignore invalid filter */ }
+        } catch (e) {
+          if (e instanceof Response) return e;
+          /* ignore invalid JSON */
+        }
       }
 
       const rows = await query.execute();

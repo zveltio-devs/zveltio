@@ -132,6 +132,13 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     let allVariables: Record<string, any> = variables_data ? { ...variables_data } : {};
 
     if (source_collection && source_record_id) {
+      // IDOR fix: verify the user has read access to the source collection
+      // before fetching the record and embedding its data into the document.
+      const canRead = await checkPermission(user.id, `data:${source_collection}`, 'read');
+      if (!canRead) {
+        return c.json({ error: `Access denied to collection "${source_collection}"` }, 403);
+      }
+
       const collectionDef = await DDLManager.getCollection(db, source_collection).catch(() => null);
       if (!collectionDef) return c.json({ error: 'Invalid source collection' }, 400);
 
@@ -171,18 +178,24 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   });
 
   // GET /generated — list generated docs
+  // Admins see all; regular users see only their own documents.
   app.get('/generated', async (c) => {
+    const user = c.get('user') as any;
+    const isAdmin = await checkPermission(user.id, 'admin', '*');
     const templateId = c.req.query('template_id');
     const sourceCollection = c.req.query('source_collection');
     const sourceRecordId = c.req.query('source_record_id');
 
+    // Base filter: non-admins see only documents they generated
+    const ownerFilter = isAdmin ? sql`` : sql`AND generated_by = ${user.id}`;
+
     let result;
     if (templateId) {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE template_id = ${templateId} ORDER BY generated_at DESC LIMIT 50`.execute(db);
+      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE template_id = ${templateId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(db);
     } else if (sourceCollection && sourceRecordId) {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE source_collection = ${sourceCollection} AND source_record_id = ${sourceRecordId} ORDER BY generated_at DESC LIMIT 50`.execute(db);
+      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE source_collection = ${sourceCollection} AND source_record_id = ${sourceRecordId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(db);
     } else {
-      result = await sql<any>`SELECT * FROM zv_generated_docs ORDER BY generated_at DESC LIMIT 50`.execute(db);
+      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE 1=1 ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(db);
     }
 
     return c.json({ documents: result.rows });
@@ -190,10 +203,20 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
 
   // GET /generated/:id
   app.get('/generated/:id', async (c) => {
+    const user = c.get('user') as any;
+    const isAdmin = await checkPermission(user.id, 'admin', '*');
     const id = c.req.param('id');
+
     const result = await sql<any>`SELECT * FROM zv_generated_docs WHERE id = ${id}`.execute(db);
     if (result.rows.length === 0) return c.json({ error: 'Document not found' }, 404);
-    return c.json({ document: result.rows[0] });
+
+    const doc = result.rows[0];
+    // Non-admins can only access their own generated documents
+    if (!isAdmin && doc.generated_by !== user.id) {
+      return c.json({ error: 'Document not found' }, 404);
+    }
+
+    return c.json({ document: doc });
   });
 
   return app;
