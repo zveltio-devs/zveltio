@@ -6,14 +6,14 @@ import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
 // ─── Safe DDL helpers ─────────────────────────────────────────────────────────
 
 /**
- * Execută o operație DDL care necesită AccessExclusiveLock (ALTER TABLE,
- * CREATE TRIGGER, DROP TABLE) într-o tranzacție cu lock_timeout strict.
+ * Execute a DDL operation that requires AccessExclusiveLock (ALTER TABLE,
+ * CREATE TRIGGER, DROP TABLE) in a transaction with strict lock_timeout.
  *
- * SET LOCAL → timeout-ul se aplică NUMAI în această tranzacție; la COMMIT
- * conexiunea din pool revine la setarea default (fără timeout).
+ * SET LOCAL → timeout applies ONLY in this transaction; at COMMIT
+ * the connection from pool returns to default setting (no timeout).
  *
- * Dacă lock-ul nu poate fi obținut în `timeout`, PostgreSQL aruncă
- * `ERROR 55P03: lock not available` în loc să blocheze event loop-ul.
+ * If the lock cannot be obtained in `timeout`, PostgreSQL throws
+ * `ERROR 55P03: lock not available` instead of blocking the event loop.
  */
 async function withLockTimeout(
   db: Database,
@@ -34,14 +34,14 @@ async function withLockTimeout(
 }
 
 /**
- * Transformă un CREATE INDEX în CREATE INDEX CONCURRENTLY.
+ * Transform a CREATE INDEX into CREATE INDEX CONCURRENTLY.
  *
- * CONCURRENTLY folosește ShareUpdateExclusiveLock în loc de ShareLock,
- * permițând INSERT/UPDATE/DELETE concurente în timp ce index-ul se construiește.
- * Nu poate rula în interiorul unui bloc de tranzacție explicit.
+ * CONCURRENTLY uses ShareUpdateExclusiveLock instead of ShareLock,
+ * allowing concurrent INSERT/UPDATE/DELETE while the index is being built.
+ * Cannot run inside an explicit transaction block.
  */
 function toConcurrentIndex(indexSQL: string): string {
-  // Regex handle-uiește și CREATE UNIQUE INDEX
+  // Regex handles CREATE UNIQUE INDEX as well
   return indexSQL.replace(
     /^(CREATE\s+(?:UNIQUE\s+)?INDEX\s+)(?!CONCURRENTLY\s)/i,
     '$1CONCURRENTLY ',
@@ -62,7 +62,18 @@ export const FieldSchema = z.object({
   indexed: z.boolean().default(false),
   defaultValue: z.any().optional(),
   // H2 FIX: Bound options keys/values to prevent DoS via deeply nested payloads.
-  options: z.record(z.string().max(100), z.union([z.string().max(10_000), z.number(), z.boolean(), z.null(), z.array(z.any())])).optional(),
+  options: z
+    .record(
+      z.string().max(100),
+      z.union([
+        z.string().max(10_000),
+        z.number(),
+        z.boolean(),
+        z.null(),
+        z.array(z.any()),
+      ]),
+    )
+    .optional(),
   label: z.string().max(200).optional(),
   description: z.string().max(1_000).optional(),
 });
@@ -70,7 +81,10 @@ export const FieldSchema = z.object({
 export const CollectionSchema = z.object({
   name: z
     .string()
-    .max(63, 'Collection name must be at most 63 characters (PostgreSQL identifier limit)')
+    .max(
+      63,
+      'Collection name must be at most 63 characters (PostgreSQL identifier limit)',
+    )
     .regex(
       /^[a-z][a-z0-9_]*$/,
       'Collection name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
@@ -117,7 +131,10 @@ export class DDLManager {
     _collectionsListCache = null;
   }
 
-  static async tableExists(db: Database, collectionName: string): Promise<boolean> {
+  static async tableExists(
+    db: Database,
+    collectionName: string,
+  ): Promise<boolean> {
     const tableName = this.getTableName(collectionName);
     const result = await sql<{ exists: boolean }>`
       SELECT EXISTS (
@@ -129,13 +146,18 @@ export class DDLManager {
     return result.rows[0]?.exists ?? false;
   }
 
-  static async createCollection(db: Database, definition: CollectionDefinition): Promise<void> {
+  static async createCollection(
+    db: Database,
+    definition: CollectionDefinition,
+  ): Promise<void> {
     const validated = CollectionSchema.parse(definition);
 
     // Validate all field types are registered
     for (const field of validated.fields) {
       if (!fieldTypeRegistry.has(field.type)) {
-        throw new Error(`Unknown field type: "${field.type}". Available types: ${fieldTypeRegistry.list().join(', ')}`);
+        throw new Error(
+          `Unknown field type: "${field.type}". Available types: ${fieldTypeRegistry.list().join(', ')}`,
+        );
       }
     }
 
@@ -146,7 +168,9 @@ export class DDLManager {
     // introduce a different code path. This guard prevents sql injection if it does.
     const SAFE_TABLE_RE = /^zvd_[a-z][a-z0-9_]*$/;
     if (!SAFE_TABLE_RE.test(tableName)) {
-      throw new Error(`Invalid table name: "${tableName}". Only lowercase letters, numbers, and underscores are allowed.`);
+      throw new Error(
+        `Invalid table name: "${tableName}". Only lowercase letters, numbers, and underscores are allowed.`,
+      );
     }
 
     if (await this.tableExists(db, validated.name)) {
@@ -158,7 +182,7 @@ export class DDLManager {
       'id UUID PRIMARY KEY DEFAULT gen_random_uuid()',
       'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
       'updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
-      'status TEXT NOT NULL DEFAULT \'active\' CHECK (status IN (\'active\', \'draft\', \'archived\'))',
+      "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
       'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
       'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
     ];
@@ -170,27 +194,29 @@ export class DDLManager {
 
     // Security: whitelist of allowed PostgreSQL extensions.
     const ALLOWED_PG_EXTENSIONS = new Set([
-      'pgvector',        // AI embeddings
-      'postgis',         // Geospatial
+      'pgvector', // AI embeddings
+      'postgis', // Geospatial
       'postgis_topology',
-      'uuid-ossp',       // UUID generation
-      'pg_trgm',         // Trigram similarity search
-      'unaccent',        // Text search accent normalization
-      'btree_gist',      // GiST indexes for B-tree types
-      'btree_gin',       // GIN indexes for B-tree types
-      'hstore',          // Key-value store column type
-      'citext',          // Case-insensitive text
-      'intarray',        // Integer array operations
-      'fuzzystrmatch',   // Fuzzy string matching
+      'uuid-ossp', // UUID generation
+      'pg_trgm', // Trigram similarity search
+      'unaccent', // Text search accent normalization
+      'btree_gist', // GiST indexes for B-tree types
+      'btree_gin', // GIN indexes for B-tree types
+      'hstore', // Key-value store column type
+      'citext', // Case-insensitive text
+      'intarray', // Integer array operations
+      'fuzzystrmatch', // Fuzzy string matching
     ]);
 
     // Ensure required extensions
-    const requiredExtensions = fieldTypeRegistry.getRequiredExtensions(validated.fields as FieldConfig[]);
+    const requiredExtensions = fieldTypeRegistry.getRequiredExtensions(
+      validated.fields as FieldConfig[],
+    );
     for (const ext of requiredExtensions) {
       if (!ALLOWED_PG_EXTENSIONS.has(ext)) {
         throw new Error(
           `PostgreSQL extension "${ext}" is not in the allowed extensions whitelist. ` +
-          `Contact your administrator to add it to ALLOWED_PG_EXTENSIONS in ddl-manager.ts.`,
+            `Contact your administrator to add it to ALLOWED_PG_EXTENSIONS in ddl-manager.ts.`,
         );
       }
       await sql`CREATE EXTENSION IF NOT EXISTS ${sql.id(ext)}`.execute(db);
@@ -204,16 +230,23 @@ export class DDLManager {
       columns.push(colDDL);
 
       // Index if requested
-      const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig);
+      const indexDDL = fieldTypeRegistry.getIndexDDL(
+        tableName,
+        field as FieldConfig,
+      );
       if (indexDDL) indexes.push(toConcurrentIndex(indexDDL));
     }
 
     // Create table
-    await sql.raw(`
+    await sql
+      .raw(
+        `
       CREATE TABLE ${tableName} (
         ${columns.join(',\n        ')}
       )
-    `).execute(db);
+    `,
+      )
+      .execute(db);
 
     // Create indexes
     for (const indexSQL of indexes) {
@@ -225,17 +258,25 @@ export class DDLManager {
       .filter((f) => ['text', 'richtext', 'email'].includes(f.type))
       .map((f) => f.name);
 
-    // ALTER TABLE → lock_timeout (AccessExclusiveLock, instant pentru coloană nullable fără default)
+    // ALTER TABLE → lock_timeout (AccessExclusiveLock, instant for nullable column without default)
     await withLockTimeout(db, async (trx) => {
-      await sql.raw(`
+      await sql
+        .raw(
+          `
         ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector
-      `).execute(trx);
+      `,
+        )
+        .execute(trx);
     });
 
-    // GIN index → CONCURRENTLY (nu blochează scrierile în timp ce se construiește)
-    await sql.raw(`
+    // GIN index → CONCURRENTLY (does not block writes while building)
+    await sql
+      .raw(
+        `
       CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector)
-    `).execute(db);
+    `,
+      )
+      .execute(db);
 
     if (textFields.length > 0) {
       const weightsClause = textFields
@@ -247,26 +288,36 @@ export class DDLManager {
 
       // CREATE OR REPLACE FUNCTION + CREATE TRIGGER → withLockTimeout (ShareRowExclusiveLock)
       await withLockTimeout(db, async (trx) => {
-        await sql.raw(`
+        await sql
+          .raw(
+            `
           CREATE OR REPLACE FUNCTION ${tableName}_search_trigger() RETURNS trigger AS $$
           BEGIN
             NEW.search_vector := ${weightsClause};
             RETURN NEW;
           END
           $$ LANGUAGE plpgsql
-        `).execute(trx);
+        `,
+          )
+          .execute(trx);
 
-        await sql.raw(`
+        await sql
+          .raw(
+            `
           CREATE TRIGGER ${tableName}_search_update
           BEFORE INSERT OR UPDATE ON ${tableName}
           FOR EACH ROW EXECUTE FUNCTION ${tableName}_search_trigger()
-        `).execute(trx);
+        `,
+          )
+          .execute(trx);
       });
     }
 
     // Auto-update updated_at — CREATE TRIGGER → withLockTimeout
     await withLockTimeout(db, async (trx) => {
-      await sql.raw(`
+      await sql
+        .raw(
+          `
         CREATE OR REPLACE FUNCTION update_updated_at_column()
         RETURNS TRIGGER AS $$
         BEGIN
@@ -274,14 +325,20 @@ export class DDLManager {
           RETURN NEW;
         END;
         $$ LANGUAGE plpgsql
-      `).execute(trx);
+      `,
+        )
+        .execute(trx);
 
-      await sql.raw(`
+      await sql
+        .raw(
+          `
         CREATE TRIGGER update_${tableName}_updated_at
           BEFORE UPDATE ON ${tableName}
           FOR EACH ROW
           EXECUTE FUNCTION update_updated_at_column()
-      `).execute(trx);
+      `,
+        )
+        .execute(trx);
     });
 
     // Register collection metadata
@@ -295,7 +352,7 @@ export class DDLManager {
       throw new Error(`Collection '${name}' not found`);
     }
 
-    // DROP TABLE CASCADE → withLockTimeout (AccessExclusiveLock pe tabelă + toate dependințele)
+    // DROP TABLE CASCADE → withLockTimeout (AccessExclusiveLock on table + all dependencies)
     await withLockTimeout(db, async (trx) => {
       await sql.raw(`DROP TABLE IF EXISTS ${tableName} CASCADE`).execute(trx);
     });
@@ -310,7 +367,10 @@ export class DDLManager {
 
   static async getCollections(db: Database): Promise<any[]> {
     const now = Date.now();
-    if (_collectionsListCache && now - _collectionsListCache.ts < METADATA_CACHE_TTL_MS) {
+    if (
+      _collectionsListCache &&
+      now - _collectionsListCache.ts < METADATA_CACHE_TTL_MS
+    ) {
       return _collectionsListCache.data;
     }
 
@@ -353,10 +413,16 @@ export class DDLManager {
       .set({
         ...(updates.displayName ? { display_name: updates.displayName } : {}),
         ...(updates.icon ? { icon: updates.icon } : {}),
-        ...(updates.description !== undefined ? { description: updates.description } : {}),
+        ...(updates.description !== undefined
+          ? { description: updates.description }
+          : {}),
         ...(updates.fields ? { fields: JSON.stringify(updates.fields) } : {}),
-        ...(updates.aiSearchEnabled !== undefined ? { ai_search_enabled: updates.aiSearchEnabled } : {}),
-        ...(updates.aiSearchField !== undefined ? { ai_search_field: updates.aiSearchField } : {}),
+        ...(updates.aiSearchEnabled !== undefined
+          ? { ai_search_enabled: updates.aiSearchEnabled }
+          : {}),
+        ...(updates.aiSearchField !== undefined
+          ? { ai_search_field: updates.aiSearchField }
+          : {}),
         updated_at: new Date(),
       } as any)
       .where('name' as any, '=', name)
@@ -365,7 +431,86 @@ export class DDLManager {
     DDLManager.invalidateCache(name);
   }
 
-  private static async registerMetadata(db: Database, definition: CollectionDefinition): Promise<void> {
+  /**
+   * Adds a single field (column) to an existing collection.
+   * Updates both the physical schema and the zvd_collections metadata atomically.
+   */
+  static async addField(
+    db: Database,
+    collectionName: string,
+    field: z.infer<typeof FieldSchema>,
+  ): Promise<void> {
+    const validated = FieldSchema.parse(field);
+    if (!fieldTypeRegistry.has(validated.type)) {
+      throw new Error(`Unknown field type: "${validated.type}"`);
+    }
+    const tableName = this.getTableName(collectionName);
+    if (!(await this.tableExists(db, collectionName))) {
+      throw new Error(`Collection '${collectionName}' not found`);
+    }
+    const colDDL = fieldTypeRegistry.getColumnDDL(validated as FieldConfig);
+    if (colDDL) {
+      // ALTER TABLE ADD COLUMN → withLockTimeout (AccessExclusiveLock, instant for nullable)
+      await withLockTimeout(db, async (trx) => {
+        await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.raw(colDDL)}`.execute(trx);
+      });
+    }
+    // Create index if requested — CONCURRENTLY to avoid blocking writes
+    const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, validated as FieldConfig);
+    if (indexDDL) {
+      await sql.raw(toConcurrentIndex(indexDDL)).execute(db);
+    }
+    // Update fields array in metadata
+    const existing = await this.getCollection(db, collectionName);
+    if (existing) {
+      const fields: any[] = typeof existing.fields === 'string'
+        ? JSON.parse(existing.fields)
+        : (existing.fields ?? []);
+      if (!fields.some((f: any) => f.name === validated.name)) {
+        fields.push(validated);
+        await this.updateCollectionMetadata(db, collectionName, { fields });
+      }
+    }
+    this.invalidateCache(collectionName);
+  }
+
+  /**
+   * Removes a field (column) from an existing collection.
+   * Updates both the physical schema and the zvd_collections metadata atomically.
+   */
+  static async removeField(
+    db: Database,
+    collectionName: string,
+    fieldName: string,
+  ): Promise<void> {
+    // Validate field name to prevent identifier injection
+    if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
+      throw new Error(`Invalid field name: "${fieldName}". Only lowercase letters, numbers, and underscores are allowed.`);
+    }
+    const tableName = this.getTableName(collectionName);
+    if (!(await this.tableExists(db, collectionName))) {
+      throw new Error(`Collection '${collectionName}' not found`);
+    }
+    // ALTER TABLE DROP COLUMN → withLockTimeout (AccessExclusiveLock)
+    await withLockTimeout(db, async (trx) => {
+      await sql`ALTER TABLE ${sql.id(tableName)} DROP COLUMN IF EXISTS ${sql.id(fieldName)}`.execute(trx);
+    });
+    // Remove field from metadata
+    const existing = await this.getCollection(db, collectionName);
+    if (existing) {
+      const fields: any[] = typeof existing.fields === 'string'
+        ? JSON.parse(existing.fields)
+        : (existing.fields ?? []);
+      const updated = fields.filter((f: any) => f.name !== fieldName);
+      await this.updateCollectionMetadata(db, collectionName, { fields: updated });
+    }
+    this.invalidateCache(collectionName);
+  }
+
+  private static async registerMetadata(
+    db: Database,
+    definition: CollectionDefinition,
+  ): Promise<void> {
     await db
       .insertInto('zvd_collections' as any)
       .values({

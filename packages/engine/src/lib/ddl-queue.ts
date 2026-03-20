@@ -17,16 +17,27 @@ export async function initDDLQueue(db: Database): Promise<void> {
   setInterval(() => processNextJob(), 2000);
 }
 
-export async function enqueueDDLJob(db: Database, type: string, payload: any): Promise<string> {
+export async function enqueueDDLJob(
+  db: Database,
+  type: string,
+  payload: any,
+): Promise<string> {
   const result = await db
     .insertInto('zv_ddl_jobs' as any)
-    .values({ type, payload: JSON.stringify(payload), status: 'pending' } as any)
+    .values({
+      type,
+      payload: JSON.stringify(payload),
+      status: 'pending',
+    } as any)
     .returning('id' as any)
     .executeTakeFirst();
   return (result as any).id;
 }
 
-export async function getDDLJob(db: Database, jobId: string): Promise<any | null> {
+export async function getDDLJob(
+  db: Database,
+  jobId: string,
+): Promise<any | null> {
   const row = await db
     .selectFrom('zv_ddl_jobs' as any)
     .selectAll()
@@ -68,10 +79,15 @@ async function processNextJob(): Promise<void> {
 
     // Execute DDL inside a transaction — on failure, everything rolls back atomically
     await (_db as any).transaction().execute(async (trx: any) => {
-      // BYOD Guard: blocăm DDL pe colecții unmanaged (drop, add_field, remove_field)
-      const byodSensitiveTypes = ['drop_collection', 'add_field', 'remove_field'];
+      // BYOD Guard: block DDL on unmanaged collections (drop, add_field, remove_field)
+      const byodSensitiveTypes = [
+        'drop_collection',
+        'add_field',
+        'remove_field',
+      ];
       if (byodSensitiveTypes.includes((job as any).type)) {
-        const collectionName: string | undefined = payload.collection ?? payload.name;
+        const collectionName: string | undefined =
+          payload.collection ?? payload.name;
         if (collectionName) {
           const meta = await trx
             .selectFrom('zvd_collections' as any)
@@ -102,6 +118,14 @@ async function processNextJob(): Promise<void> {
         case 'drop_collection':
           await DDLManager.dropCollection(trx, payload.name);
           break;
+        case 'add_field':
+          // payload: { collection: string, field: FieldSchema }
+          await DDLManager.addField(trx, payload.collection, payload.field);
+          break;
+        case 'remove_field':
+          // payload: { collection: string, fieldName: string }
+          await DDLManager.removeField(trx, payload.collection, payload.fieldName);
+          break;
         default:
           throw new Error(`Unknown DDL job type: ${(job as any).type}`);
       }
@@ -120,10 +144,18 @@ async function processNextJob(): Promise<void> {
     // Persist failure and increment retry counter (outside the rolled-back transaction)
     await _db
       .updateTable('zv_ddl_jobs' as any)
-      .set({ status: 'failed', error, completed_at: new Date(), retry_count: retryCount } as any)
+      .set({
+        status: 'failed',
+        error,
+        completed_at: new Date(),
+        retry_count: retryCount,
+      } as any)
       .where('id' as any, '=', (job as any).id)
       .execute();
 
-    console.error(`DDL job ${(job as any).id} failed (attempt ${retryCount}):`, error);
+    console.error(
+      `DDL job ${(job as any).id} failed (attempt ${retryCount}):`,
+      error,
+    );
   }
 }

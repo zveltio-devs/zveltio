@@ -9,7 +9,7 @@
  *   packages/engine/src/tests/integration/extensions.integration.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll } from 'bun:test';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';

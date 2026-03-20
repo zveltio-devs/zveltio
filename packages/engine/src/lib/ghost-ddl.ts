@@ -44,13 +44,14 @@ export class GhostDDL {
       db,
     );
 
-    // 2. Apply DDL changes on ghost — validare strictă pentru a preveni SQL injection
-    const ALLOWED_DDL_RE = /^(ADD\s+COLUMN|DROP\s+COLUMN\s+(IF\s+EXISTS\s+)?|ALTER\s+COLUMN|RENAME\s+COLUMN)\s+/i;
+    // 2. Apply DDL changes on ghost — strict validation to prevent SQL injection
+    const ALLOWED_DDL_RE =
+      /^(ADD\s+COLUMN|DROP\s+COLUMN\s+(IF\s+EXISTS\s+)?|ALTER\s+COLUMN|RENAME\s+COLUMN)\s+/i;
     for (const ddl of ddlStatements) {
       if (!ALLOWED_DDL_RE.test(ddl.trim())) {
         throw new Error(
           `Unsafe DDL statement rejected: "${ddl}". ` +
-          `Only ADD COLUMN, DROP COLUMN, ALTER COLUMN, RENAME COLUMN are allowed.`,
+            `Only ADD COLUMN, DROP COLUMN, ALTER COLUMN, RENAME COLUMN are allowed.`,
         );
       }
       await sql.raw(`ALTER TABLE "${ghost}" ${ddl}`).execute(db);
@@ -131,6 +132,7 @@ export class GhostDDL {
     let copied = 0;
     let lastId: string | null = null;
 
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       let batchRows: number;
 
@@ -346,7 +348,10 @@ export class GhostDDL {
     const migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
 
     try {
-      onProgress?.('copying', 'Batch copying data from original to ghost table');
+      onProgress?.(
+        'copying',
+        'Batch copying data from original to ghost table',
+      );
       const copied = await GhostDDL.batchCopy(db, migration, (done, total) => {
         onProgress?.('copying', `Copied ${done}/${total} rows`);
       });
@@ -367,13 +372,28 @@ export class GhostDDL {
     } catch (err) {
       // Cleanup ghost tables on failure to prevent accumulation
       try {
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.ghostTable)} CASCADE`.execute(db);
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)} CASCADE`.execute(db);
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.ghostTable)} CASCADE`.execute(
+          db,
+        );
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)} CASCADE`.execute(
+          db,
+        );
         const triggerFn = `${migration.triggerName}_fn`;
-        await sql.raw(`DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${migration.originalTable}"`).execute(db).catch(() => {});
-        await sql.raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`).execute(db).catch(() => {});
+        await sql
+          .raw(
+            `DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${migration.originalTable}"`,
+          )
+          .execute(db)
+          .catch(() => {});
+        await sql
+          .raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`)
+          .execute(db)
+          .catch(() => {});
       } catch (cleanupErr) {
-        console.warn('[GhostDDL] Cleanup after failure also failed:', cleanupErr);
+        console.warn(
+          '[GhostDDL] Cleanup after failure also failed:',
+          cleanupErr,
+        );
       }
       throw err;
     }

@@ -21,7 +21,6 @@ import { initTelemetry } from './lib/telemetry.js';
 import { engineEvents } from './lib/event-bus.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { sql } from 'kysely';
-import { getCache } from './lib/cache.js';
 
 const app = new Hono();
 
@@ -32,19 +31,19 @@ function getContentType(path: string): string {
     : path.substring(path.lastIndexOf('.')).toLowerCase();
   const map: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
-    '.js':   'application/javascript; charset=utf-8',
-    '.css':  'text/css; charset=utf-8',
-    '.svg':  'image/svg+xml',
-    '.ico':  'image/x-icon',
-    '.png':  'image/png',
-    '.jpg':  'image/jpeg',
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
     '.webp': 'image/webp',
     '.woff': 'font/woff',
-    '.woff2':'font/woff2',
-    '.ttf':  'font/ttf',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
     '.json': 'application/json',
-    '.txt':  'text/plain',
+    '.txt': 'text/plain',
   };
   return map[ext] || 'application/octet-stream';
 }
@@ -52,8 +51,8 @@ function getContentType(path: string): string {
 // ─── Middleware ───────────────────────────────────────────────
 app.use('*', logger());
 
-// Body size limit global — previne OOM din request-uri enorme
-// Excepție: /api/storage/upload și /api/import au limite proprii
+// Global body size limit — prevents OOM from huge requests
+// Exception: /api/storage/upload and /api/import have their own limits
 app.use('/api/*', async (c, next) => {
   const path = c.req.path;
   if (path === '/api/storage/upload' || path.startsWith('/api/import')) {
@@ -62,11 +61,19 @@ app.use('/api/*', async (c, next) => {
   return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next); // 10 MB
 });
 
-app.use('/api/*', cors({
-  origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
-  credentials: true,
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
-}));
+app.use(
+  '/api/*',
+  cors({
+    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true,
+    allowHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Tenant-Slug',
+      'X-Environment',
+    ],
+  }),
+);
 app.use('/api/*', tenantMiddleware);
 
 // ─── Bootstrap ───────────────────────────────────────────────
@@ -98,7 +105,9 @@ async function bootstrap() {
 
   // 4. Field Type Registry — core types
   registerCoreFieldTypes(fieldTypeRegistry);
-  console.log(`✅ Field types registered: ${fieldTypeRegistry.list().join(', ')}`);
+  console.log(
+    `✅ Field types registered: ${fieldTypeRegistry.list().join(', ')}`,
+  );
 
   // 5. Core routes
   registerCoreRoutes(app, { db, auth });
@@ -118,17 +127,21 @@ async function bootstrap() {
       .then(async () => {
         const { aiProviderManager } = await import('./lib/ai-provider.js');
         const aiCount = aiProviderManager.list().length;
-        if (aiCount > 0) console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
+        if (aiCount > 0)
+          console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
       })
       .catch((err: Error) => {
         console.warn('⚠️ AI providers failed (non-fatal):', err.message);
       }),
 
     // Extensions — env-var configured + DB marketplace
-    extensionLoader.loadAll(app, { db, auth, fieldTypeRegistry, events: engineEvents })
+    extensionLoader
+      .loadAll(app, { db, auth, fieldTypeRegistry, events: engineEvents })
       .then(() => extensionLoader.loadFromDB(db, app))
       .then(() => {
-        console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
+        console.log(
+          `✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`,
+        );
       })
       .catch((err: Error) => {
         console.warn('⚠️ Extension loading failed (non-fatal):', err.message);
@@ -142,7 +155,9 @@ async function bootstrap() {
       console.warn('⚠️ Realtime init failed (non-fatal):', err.message);
     }),
   ]);
-  console.log(`✅ Parallel services started in ${Date.now() - parallelStart}ms`);
+  console.log(
+    `✅ Parallel services started in ${Date.now() - parallelStart}ms`,
+  );
 
   // ═══ Background workers (fire-and-forget) ═══
   webhookWorker.start(1000);
@@ -177,7 +192,10 @@ async function bootstrap() {
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('X-Frame-Options', 'DENY');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    c.header(
+      'Strict-Transport-Security',
+      'max-age=31536000; includeSubDomains',
+    );
     await next();
   });
 
@@ -189,7 +207,6 @@ async function bootstrap() {
 
     // Try to load from embedded files first (binary mode), then disk (dev mode)
     let fileContent: string | Uint8Array | null = null;
-    let isBinary = false;
 
     // Attempt embedded (generated at build time)
     try {
@@ -200,7 +217,6 @@ async function bootstrap() {
       if (!result) result = getStudioFile('/index.html');
       if (result) {
         fileContent = result.content;
-        isBinary = result.isBinary;
       }
     } catch {
       // Embedded not available — fall through to disk serving (dev mode)
@@ -211,8 +227,9 @@ async function bootstrap() {
       const diskPath = `${import.meta.dir}/studio-dist${path}`;
       const diskFile = Bun.file(diskPath);
       if (await diskFile.exists()) {
-        fileContent = await diskFile.arrayBuffer().then((b) => new Uint8Array(b));
-        isBinary = true; // serve raw bytes from disk
+        fileContent = await diskFile
+          .arrayBuffer()
+          .then((b) => new Uint8Array(b));
       } else {
         // SPA fallback
         const indexFile = Bun.file(`${import.meta.dir}/studio-dist/index.html`);
@@ -233,23 +250,24 @@ async function bootstrap() {
     return c.body(fileContent as any);
   });
 
-
   // 9. API: active extensions list (Studio consumes this)
-  // Returnăm doar bundle URLs (necesare pentru loading UI), nu lista completă
+  // Returns only bundle URLs (needed for UI loading), not the full list
   app.get('/api/extensions', async (c) => {
     return c.json({
       bundles: extensionLoader.getBundles(),
     });
   });
 
-  // 10. Health check — endpoint public, returnează MINIMAL: doar status
-  // (detalii complete la /api/admin/status — autentificat)
+  // 10. Health check — public endpoint, returns MINIMAL: just status
+  // (full details at /api/admin/status — authenticated)
   app.get('/health', async (c) => {
     const checks: Record<string, 'ok' | 'error'> = {};
     try {
       await sql`SELECT 1`.execute(db);
       checks.database = 'ok';
-    } catch { checks.database = 'error'; }
+    } catch {
+      checks.database = 'error';
+    }
 
     const allOk = Object.values(checks).every((v) => v === 'ok');
     return c.json(
@@ -261,11 +279,15 @@ async function bootstrap() {
   // 11. Prometheus-compatible metrics
   const startTime = Date.now();
   let requestCount = 0;
-  app.use('*', async (c, next) => { requestCount++; await next(); });
+  app.use('*', async (c, next) => {
+    requestCount++;
+    await next();
+  });
   app.get('/metrics', (c) => {
     const metricsToken = process.env.METRICS_TOKEN;
     if (metricsToken) {
-      const provided = c.req.header('Authorization')?.replace('Bearer ', '') ??
+      const provided =
+        c.req.header('Authorization')?.replace('Bearer ', '') ??
         c.req.query('token');
       if (provided !== metricsToken) {
         return c.json({ error: 'Unauthorized' }, 401);
@@ -315,7 +337,9 @@ function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
   webhookWorker.stop();
   flowScheduler.stop();
-  realtimeManager.stop().catch(() => { /* ignore */ });
+  realtimeManager.stop().catch(() => {
+    /* ignore */
+  });
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

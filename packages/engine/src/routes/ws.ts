@@ -220,7 +220,7 @@ export function broadcastToUser(userId: string, event: object): void {
     if (conn.userId === userId) {
       try {
         conn.ws.send(payload);
-      } catch {}
+      } catch { /* ignore closed socket */ }
     }
   }
 }
@@ -233,6 +233,6 @@ export function broadcastToAll(event: object): void {
   for (const [, conn] of connections) {
     try {
       conn.ws.send(payload);
-    } catch {}
+    } catch { /* ignore closed socket */ }
   }
 }

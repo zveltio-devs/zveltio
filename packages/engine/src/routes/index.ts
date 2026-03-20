@@ -16,8 +16,16 @@ import { revisionsRoutes } from './revisions.js';
 import { realtimeRoutes } from './realtime.js';
 import { notificationsRoutes } from './notifications.js';
 import { healthRoutes } from './health.js';
+import { flowsRoutes } from './flows.js';
+import { tenantsRoutes } from './tenants.js';
+import { aiRoutes } from './ai.js';
+import { aiChatsRoutes } from './ai-chats.js';
+import { zveltioAIRoutes } from './zveltio-ai.js';
+import { aiAnalyticsRoutes } from './ai-analytics.js';
+import { aiAlchemistRoutes } from './ai-alchemist.js';
+import { aiQueryRoutes } from './ai-query.js';
+import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 // graphql → extensions/developer/graphql
-// tenants → extensions/multitenancy
 // media → extensions/content/media
 // approvals → extensions/workflow/approvals
 // drafts → extensions/content/drafts
@@ -28,19 +36,22 @@ import { initDDLQueue } from '../lib/ddl-queue.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit } from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
 
-// ── Moved to extensions ──────────────────────────────────────────────────────
+// ── Core routes (always registered) ─────────────────────────────────────────
+// /api/flows         — automation flows (routes/flows.ts)
+// /api/tenants       — multi-tenancy (routes/tenants.ts)
+// /api/ai/*          — AI: providers, chat, embeddings, search, alchemist, query, schema-gen
+// /api/zveltio-ai    — ZveltioAI conversational agent
+// /api/ai-analytics  — AI usage & cost tracking
+//
+// ── Extension routes (registered by extension on load) ───────────────────────
 // /api/mail             → extensions/communications/mail
 // /api/cloud + /share   → extensions/storage/cloud
-// /api/pages            → extensions/content/page-builder (cms-routes)
+// /api/pages            → extensions/content/page-builder
 // /api/document-templates → extensions/content/document-templates
 // /api/documents        → extensions/content/documents
-// /api/ai/alchemist     → extensions/ai/core-ai
-// /api/ai/query         → extensions/ai/core-ai
-// /api/ai (schema-gen)  → extensions/ai/core-ai
 // /api/approvals        → extensions/workflow/approvals
 // /api/drafts           → extensions/content/drafts
 // /api/media            → extensions/content/media
-// /api/tenants          → extensions/multitenancy
 // /api/graphql          → extensions/developer/graphql
 // /api/insights         → extensions/analytics/insights
 // /api/quality          → extensions/analytics/quality
@@ -126,8 +137,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Real-time SSE stream (authenticated)
   app.route('/api/realtime', realtimeRoutes(db, auth));
 
-  // AI core — moved to extensions/ai/core-ai
-
   // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 
   // Schema branches — moved to extensions/developer/schema-branches
@@ -135,10 +144,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // API documentation portal — moved to extensions/developer/api-docs
 
   // Database management — moved to extensions/developer/database
-
-  // Multi-tenancy — moved to extensions/multitenancy
-
-  // Flows — moved to extensions/automation/flows (loaded when extension is active)
 
   // Media library — moved to extensions/content/media
 
@@ -161,6 +166,21 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Analytics Insights — moved to extensions/analytics/insights
 
   // Documents Management — moved to extensions/content/documents
+
+  // Automation flows (core)
+  app.route('/api/flows', flowsRoutes(db, auth));
+
+  // Multi-tenancy management (core)
+  app.route('/api/tenants', tenantsRoutes(db, auth));
+
+  // AI — deeply integrated into the platform (core)
+  app.route('/api/ai', aiRoutes(db, auth));
+  app.route('/api/ai', aiChatsRoutes(db, auth));
+  app.route('/api/ai', aiSchemaGenRoutes(db, auth));
+  app.route('/api/ai/alchemist', aiAlchemistRoutes(db, auth));
+  app.route('/api/ai/query', aiQueryRoutes(db, auth));
+  app.route('/api/zveltio-ai', zveltioAIRoutes(db, auth));
+  app.route('/api/ai-analytics', aiAnalyticsRoutes(db, auth));
 
   // SDK Local-First Sync (push/pull batch operations)
   app.route('/api/sync', syncRoutes(db, auth));

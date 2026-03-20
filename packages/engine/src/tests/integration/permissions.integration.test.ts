@@ -21,8 +21,8 @@ const COLLECTION = `test_perms_${Date.now()}`;
 let db: Database;
 
 let godCookie: string;
-let adminCookie: string;
-let employeeCookie: string;
+let _adminCookie: string;
+let _employeeCookie: string;
 
 let godUserId: string;
 let adminUserId: string;
@@ -82,8 +82,8 @@ beforeAll(async () => {
 
   // Sign in all
   godCookie = await signIn(`god-${ts}@test.local`, pass);
-  adminCookie = await signIn(`admin-${ts}@test.local`, pass);
-  employeeCookie = await signIn(`emp-${ts}@test.local`, pass);
+  _adminCookie = await signIn(`admin-${ts}@test.local`, pass);
+  _employeeCookie = await signIn(`emp-${ts}@test.local`, pass);
 
   // Create test collection
   await fetch(`${BASE_URL}/api/collections`, {

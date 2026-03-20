@@ -22,7 +22,10 @@ function extractImageDimensions(
     if (mimeType === 'image/png') {
       // PNG: IHDR chunk at bytes 8-28; width at 16-19 (BE), height at 20-23 (BE).
       if (buffer.length >= 24) {
-        return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+        return {
+          width: buffer.readUInt32BE(16),
+          height: buffer.readUInt32BE(20),
+        };
       }
     } else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
       // JPEG: scan for SOF0-SOF3 markers (0xFF 0xC0..0xC3), skipping other segments.
@@ -31,7 +34,10 @@ function extractImageDimensions(
         if (buffer[i] !== 0xff) break;
         const marker = buffer[i + 1];
         if (marker >= 0xc0 && marker <= 0xc3) {
-          return { height: buffer.readUInt16BE(i + 5), width: buffer.readUInt16BE(i + 7) };
+          return {
+            height: buffer.readUInt16BE(i + 5),
+            width: buffer.readUInt16BE(i + 7),
+          };
         }
         const segLen = buffer.readUInt16BE(i + 2);
         if (segLen < 2) break; // malformed
@@ -40,7 +46,10 @@ function extractImageDimensions(
     } else if (mimeType === 'image/gif') {
       // GIF: logical screen descriptor at bytes 6-9 (LE).
       if (buffer.length >= 10) {
-        return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+        return {
+          width: buffer.readUInt16LE(6),
+          height: buffer.readUInt16LE(8),
+        };
       }
     } else if (mimeType === 'image/webp') {
       // WebP: RIFF header, then WEBP FourCC, then VP8/VP8L/VP8X chunk.
@@ -56,10 +65,17 @@ function extractImageDimensions(
             width: (buffer.readUInt16LE(26) & 0x3fff) + 1,
             height: (buffer.readUInt16LE(28) & 0x3fff) + 1,
           };
-        } else if (chunkType === 'VP8L' && buffer.length >= 26 && buffer[20] === 0x2f) {
+        } else if (
+          chunkType === 'VP8L' &&
+          buffer.length >= 26 &&
+          buffer[20] === 0x2f
+        ) {
           // Lossless VP8L: packed 28-bit fields (14 bits each) starting at byte 21.
           const bits = buffer.readUInt32LE(21);
-          return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+          return {
+            width: (bits & 0x3fff) + 1,
+            height: ((bits >> 14) & 0x3fff) + 1,
+          };
         } else if (chunkType === 'VP8X' && buffer.length >= 30) {
           // Extended VP8X: 24-bit LE width-1 at bytes 24-26, height-1 at 27-29.
           const w = buffer.readUIntLE(24, 3) + 1;
@@ -134,10 +150,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'No file provided' }, 400);
 
     // Enforce upload size limit (default 50 MB, configurable via MAX_UPLOAD_BYTES env var)
-    const maxBytes = parseInt(process.env.MAX_UPLOAD_BYTES ?? '') || 50 * 1024 * 1024;
+    const maxBytes =
+      parseInt(process.env.MAX_UPLOAD_BYTES ?? '') || 50 * 1024 * 1024;
     if (file.size > maxBytes) {
       return c.json(
-        { error: `File too large. Maximum allowed size is ${Math.round(maxBytes / 1024 / 1024)} MB.` },
+        {
+          error: `File too large. Maximum allowed size is ${Math.round(maxBytes / 1024 / 1024)} MB.`,
+        },
         413,
       );
     }
@@ -146,21 +165,49 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Validare extensie față de allowlist
+    // Validate extension against allowlist
     const ALLOWED_EXTENSIONS = new Set([
-      'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg',
-      'pdf', 'txt', 'md',
-      'csv', 'xlsx', 'xls', 'docx', 'doc', 'pptx', 'ppt',
-      'mp4', 'webm', 'mov', 'avi',
-      'mp3', 'wav', 'ogg', 'flac',
-      'zip', 'tar', 'gz', '7z',
-      'json', 'xml',
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'webp',
+      'avif',
+      'svg',
+      'pdf',
+      'txt',
+      'md',
+      'csv',
+      'xlsx',
+      'xls',
+      'docx',
+      'doc',
+      'pptx',
+      'ppt',
+      'mp4',
+      'webm',
+      'mov',
+      'avi',
+      'mp3',
+      'wav',
+      'ogg',
+      'flac',
+      'zip',
+      'tar',
+      'gz',
+      '7z',
+      'json',
+      'xml',
     ]);
 
-    const rawExt = (file.name.split('.').pop() ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const rawExt = (file.name.split('.').pop() ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
     if (!rawExt || !ALLOWED_EXTENSIONS.has(rawExt)) {
       return c.json(
-        { error: `File type ".${rawExt}" is not allowed. Allowed types: ${[...ALLOWED_EXTENSIONS].join(', ')}` },
+        {
+          error: `File type ".${rawExt}" is not allowed. Allowed types: ${[...ALLOWED_EXTENSIONS].join(', ')}`,
+        },
         400,
       );
     }
@@ -272,15 +319,22 @@ export function storageRoutes(db: Database, auth: any): Hono {
     }
 
     if (client) {
-      await client.send(
-        new DeleteObjectCommand({
-          Bucket: process.env.S3_BUCKET || 'zveltio',
-          Key: (file as any).storage_path,
-        }),
-      ).catch(() => { /* non-fatal if file missing from storage */ });
+      await client
+        .send(
+          new DeleteObjectCommand({
+            Bucket: process.env.S3_BUCKET || 'zveltio',
+            Key: (file as any).storage_path,
+          }),
+        )
+        .catch(() => {
+          /* non-fatal if file missing from storage */
+        });
     }
 
-    await (deleteDb as any).deleteFrom('zv_media_files').where('id', '=', (file as any).id).execute();
+    await (deleteDb as any)
+      .deleteFrom('zv_media_files')
+      .where('id', '=', (file as any).id)
+      .execute();
     return c.json({ success: true });
   });
 

@@ -7,18 +7,6 @@ import { checkPermission } from '../lib/permissions.js';
 import { dynamicUpdate } from '../db/dynamic.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 
-async function requireAuth(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  return session?.user ?? null;
-}
-
-async function requireAdmin(c: any, auth: any): Promise<any | null> {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) return null;
-  if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
-  return session.user;
-}
-
 export function revisionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 

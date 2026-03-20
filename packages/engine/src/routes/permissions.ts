@@ -1,6 +1,13 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+
+// Extend Hono's ContextVariableMap so c.set/c.get('adminUser') pass type-checking.
+declare module 'hono' {
+  interface ContextVariableMap {
+    adminUser: any;
+  }
+}
 import type { Database } from '../db/index.js';
 import {
   checkPermission,

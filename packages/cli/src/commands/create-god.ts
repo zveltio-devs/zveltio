@@ -52,23 +52,29 @@ export async function createGodCommand(opts: {
 
   console.log('\n⚠️  SYSTEM RECOVERY OVERRIDE ACCOUNT');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('Acest cont bypass-ează TOATE permisiunile Casbin.');
-  console.log('Utilizare EXCLUSIVĂ: disaster recovery când politicile');
-  console.log('Casbin sunt corupte sau accesul admin este blocat.');
+  console.log('This account bypasses ALL Casbin permissions.');
+  console.log('EXCLUSIVE USE: disaster recovery when policies');
+  console.log('Casbin are corrupted or admin access is blocked.');
   console.log('');
-  console.log('Recomandări de securitate:');
-  console.log('  • Stochează credențialele OFFLINE (nu în password manager cloud)');
-  console.log('  • Nu folosi acest cont pentru operațiuni zilnice');
-  console.log('  • Activează 2FA imediat după creare');
-  console.log('  • Auditează login-urile acestui cont separat');
+  console.log('Security recommendations:');
+  console.log('  • Store credentials OFFLINE (not in cloud password manager)');
+  console.log('  • Do not use this account for daily operations');
+  console.log('  • Enable 2FA immediately after creation');
+  console.log('  • Audit logins for this account separately');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-  const rlConfirm = createInterface({ input: process.stdin, output: process.stdout });
-  const confirmed = await prompt(rlConfirm, 'Înțeleg riscurile. Creez contul de Recovery Override? (da/nu): ');
+  const rlConfirm = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  const confirmed = await prompt(
+    rlConfirm,
+    'I understand the risks. Create Recovery Override account? (yes/no): ',
+  );
   rlConfirm.close();
 
-  if (confirmed.trim().toLowerCase() !== 'da') {
-    console.log('Operațiune anulată.');
+  if (confirmed.trim().toLowerCase() !== 'yes') {
+    console.log('Operation cancelled.');
     process.exit(0);
   }
 
@@ -89,8 +95,16 @@ export async function createGodCommand(opts: {
       process.exit(1);
     }
 
-    if (password.length < 8) {
-      console.error('\n❌ Password must be at least 8 characters');
+    // God accounts bypass ALL authorization — enforce a strong password policy.
+    const pwErrors: string[] = [];
+    if (password.length < 16)          pwErrors.push('at least 16 characters');
+    if (!/[A-Z]/.test(password))        pwErrors.push('at least one uppercase letter');
+    if (!/[a-z]/.test(password))        pwErrors.push('at least one lowercase letter');
+    if (!/[0-9]/.test(password))        pwErrors.push('at least one digit');
+    if (!/[^A-Za-z0-9]/.test(password)) pwErrors.push('at least one special character');
+    if (pwErrors.length > 0) {
+      console.error('\n❌ God account password is too weak. Required:');
+      for (const e of pwErrors) console.error(`   • ${e}`);
       process.exit(1);
     }
 

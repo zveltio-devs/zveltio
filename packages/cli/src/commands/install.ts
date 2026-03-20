@@ -5,30 +5,31 @@ import { join } from 'path';
 /**
  * zveltio install <extension-name> [--path <path>] [--url <engine-url>] [--force]
  *
- * Două fluxuri:
- *   1. Cu --path: instalare din director local (copiază + activează via API)
- *   2. Fără --path: caută în catalogul engine-ului (/api/marketplace) și activează
- *      extensia bundled direct (fără copiere — extensia e deja în repo).
+ * Two flows:
+ *   1. With --path: install from local directory (copies + activates via API)
+ *   2. Without --path: look in the engine catalog (/api/marketplace) and activate
+ *      the bundled extension directly (no copy — extension is already in repo).
  */
 export async function installCommand(
   name: string,
   opts: { path?: string; url?: string; force?: boolean; registry?: string },
 ) {
-  const engineUrl = opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
+  const engineUrl =
+    opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
 
   console.log(`\n📦 Installing extension: ${name}\n`);
 
-  // ── Flux 1: local path ──────────────────────────────────────────────────
+  // ── Flow 1: local path ──────────────────────────────────────────────────
   if (opts.path) {
     await installFromPath(name, opts.path, engineUrl, opts.force ?? false);
     return;
   }
 
-  // ── Flux 2: engine marketplace catalog ──────────────────────────────────
+  // ── Flow 2: engine marketplace catalog ──────────────────────────────────
   await installFromCatalog(name, engineUrl);
 }
 
-// ── Flux 1: local path ──────────────────────────────────────────────────────
+// ── Flow 1: local path ──────────────────────────────────────────────────────
 
 async function installFromPath(
   name: string,
@@ -43,7 +44,9 @@ async function installFromPath(
 
   let manifest: any;
   try {
-    manifest = JSON.parse(await readFile(join(sourcePath, 'manifest.json'), 'utf-8'));
+    manifest = JSON.parse(
+      await readFile(join(sourcePath, 'manifest.json'), 'utf-8'),
+    );
   } catch {
     console.error('❌ Failed to read manifest.json');
     process.exit(1);
@@ -54,9 +57,25 @@ async function installFromPath(
     process.exit(1);
   }
 
+  // P0 FIX: Validate category and name against a strict allowlist to prevent
+  // path traversal. path.join() normalises '..' segments, so a manifest with
+  // category: '../../../etc/cron.d' would write outside the extensions/ directory.
+  const SAFE_SEGMENT_RE = /^[a-z0-9][a-z0-9_-]*$/;
+  const category = manifest.category || 'custom';
+  if (!SAFE_SEGMENT_RE.test(category)) {
+    console.error(`❌ manifest.json "category" contains invalid characters: "${category}"`);
+    console.error('   Only lowercase letters, digits, hyphens, and underscores are allowed.');
+    process.exit(1);
+  }
+  if (!SAFE_SEGMENT_RE.test(manifest.name)) {
+    console.error(`❌ manifest.json "name" contains invalid characters: "${manifest.name}"`);
+    console.error('   Only lowercase letters, digits, hyphens, and underscores are allowed.');
+    process.exit(1);
+  }
+
   console.log(`  Name:     ${manifest.displayName || manifest.name}`);
   console.log(`  Version:  ${manifest.version || '?'}`);
-  console.log(`  Category: ${manifest.category || 'custom'}`);
+  console.log(`  Category: ${category}`);
 
   // Compatibilitate engine (informational)
   const enginePkgPath = join(process.cwd(), 'packages/engine/package.json');
@@ -64,14 +83,15 @@ async function installFromPath(
     const enginePkg = JSON.parse(await readFile(enginePkgPath, 'utf-8'));
     const engineVersion = enginePkg.version || '2.0.0';
     if (manifest.zveltioMinVersion) {
-      console.log(`  Engine required: >= ${manifest.zveltioMinVersion} (current: ${engineVersion})`);
+      console.log(
+        `  Engine required: >= ${manifest.zveltioMinVersion} (current: ${engineVersion})`,
+      );
     }
     if (manifest.zveltioMaxVersion) {
       console.log(`  Engine max:      <= ${manifest.zveltioMaxVersion}`);
     }
   }
 
-  const category = manifest.category || 'custom';
   const extName = manifest.name;
   const targetDir = join(process.cwd(), 'extensions', category, extName);
 
@@ -87,12 +107,14 @@ async function installFromPath(
 
   await activateViaApi(extName, category, engineUrl);
 
-  console.log(`\n✅ Extension "${manifest.displayName || manifest.name}" installed!`);
+  console.log(
+    `\n✅ Extension "${manifest.displayName || manifest.name}" installed!`,
+  );
   console.log(`\n  Add to your .env:`);
   console.log(`  ZVELTIO_EXTENSIONS=...,${category}/${extName}\n`);
 }
 
-// ── Flux 2: engine catalog ──────────────────────────────────────────────────
+// ── Flow 2: engine catalog ──────────────────────────────────────────────────
 
 async function installFromCatalog(name: string, engineUrl: string) {
   // Fetch catalog
@@ -108,30 +130,36 @@ async function installFromCatalog(name: string, engineUrl: string) {
   }
 
   if (catalogRes.status === 401) {
-    console.error('❌ Admin authentication required. Engine marketplace requires admin session.');
-    console.error('   Tip: use --path <local-path> for unauthenticated install.');
+    console.error(
+      '❌ Admin authentication required. Engine marketplace requires admin session.',
+    );
+    console.error(
+      '   Tip: use --path <local-path> for unauthenticated install.',
+    );
     process.exit(1);
   }
 
   if (!catalogRes.ok) {
-    console.error(`❌ Marketplace error: ${catalogRes.status} ${catalogRes.statusText}`);
+    console.error(
+      `❌ Marketplace error: ${catalogRes.status} ${catalogRes.statusText}`,
+    );
     process.exit(1);
   }
 
-  const { extensions } = await catalogRes.json() as { extensions: any[] };
+  const { extensions } = (await catalogRes.json()) as { extensions: any[] };
 
-  // Găsește extensia în catalog (după name, package sau displayName)
+  // Find the extension in the catalog (by name, package, or displayName)
   const entry = extensions.find(
     (e) =>
       e.name === name ||
       e.package === name ||
       e.name === name.replace('@zveltio/ext-', '') ||
-      (e.displayName?.toLowerCase() === name.toLowerCase()),
+      e.displayName?.toLowerCase() === name.toLowerCase(),
   );
 
   if (!entry) {
     console.error(`❌ Extension "${name}" not found in catalog.`);
-    console.log('\nExtensii disponibile:');
+    console.log('\nAvailable extensions:');
     const byCategory: Record<string, any[]> = {};
     for (const e of extensions) {
       if (!byCategory[e.category]) byCategory[e.category] = [];
@@ -154,7 +182,9 @@ async function installFromCatalog(name: string, engineUrl: string) {
   console.log(`  Description: ${entry.description || ''}`);
 
   if (entry.is_running) {
-    console.log(`\n✅ Extension "${entry.displayName || entry.name}" is already active.`);
+    console.log(
+      `\n✅ Extension "${entry.displayName || entry.name}" is already active.`,
+    );
     return;
   }
 
@@ -168,11 +198,15 @@ async function installFromCatalog(name: string, engineUrl: string) {
     ).catch(() => null);
 
     if (!installRes?.ok) {
-      const err = await installRes?.json().catch(() => ({})) as any;
+      const err = (await installRes?.json().catch(() => ({}))) as any;
       if (installRes?.status === 501) {
-        console.log(`  ℹ️  Bundled extension — skipping install step, enabling directly...`);
+        console.log(
+          `  ℹ️  Bundled extension — skipping install step, enabling directly...`,
+        );
       } else {
-        console.error(`❌ Install failed: ${err?.error || `HTTP ${installRes?.status}`}`);
+        console.error(
+          `❌ Install failed: ${err?.error || `HTTP ${installRes?.status}`}`,
+        );
         process.exit(1);
       }
     } else {
@@ -187,17 +221,23 @@ async function installFromCatalog(name: string, engineUrl: string) {
   ).catch(() => null);
 
   if (!enableRes?.ok) {
-    const err = await enableRes?.json().catch(() => ({})) as any;
-    console.error(`❌ Enable failed: ${err?.error || `HTTP ${enableRes?.status}`}`);
+    const err = (await enableRes?.json().catch(() => ({}))) as any;
+    console.error(
+      `❌ Enable failed: ${err?.error || `HTTP ${enableRes?.status}`}`,
+    );
     process.exit(1);
   }
 
-  const result = await enableRes.json() as any;
+  const result = (await enableRes.json()) as any;
 
   if (result.hot_loaded) {
-    console.log(`\n✅ Extension "${entry.displayName || entry.name}" is now active (hot-loaded).`);
+    console.log(
+      `\n✅ Extension "${entry.displayName || entry.name}" is now active (hot-loaded).`,
+    );
   } else {
-    console.log(`\n✅ Extension "${entry.displayName || entry.name}" installed.`);
+    console.log(
+      `\n✅ Extension "${entry.displayName || entry.name}" installed.`,
+    );
     console.log(`\n  Restart engine to activate:`);
     console.log(`  bun run dev\n`);
     console.log(`  Or add to your .env:`);
@@ -207,18 +247,31 @@ async function installFromCatalog(name: string, engineUrl: string) {
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
-async function activateViaApi(name: string, category: string, engineUrl: string) {
+async function activateViaApi(
+  name: string,
+  category: string,
+  engineUrl: string,
+) {
   try {
-    const res = await fetch(`${engineUrl}/api/marketplace/${category}/${name}/enable`, {
-      method: 'POST',
-    });
+    const res = await fetch(
+      `${engineUrl}/api/marketplace/${category}/${name}/enable`,
+      {
+        method: 'POST',
+      },
+    );
     if (res.ok) {
-      const result = await res.json() as any;
-      console.log(`  ✓ ${result.hot_loaded ? 'Hot-loaded into running engine' : 'Registered (restart engine to activate)'}`);
+      const result = (await res.json()) as any;
+      console.log(
+        `  ✓ ${result.hot_loaded ? 'Hot-loaded into running engine' : 'Registered (restart engine to activate)'}`,
+      );
     } else {
-      console.log(`  ⚠️  Engine responded with ${res.status} — enable manually or restart`);
+      console.log(
+        `  ⚠️  Engine responded with ${res.status} — enable manually or restart`,
+      );
     }
   } catch {
-    console.log(`  ⚠️  Engine not reachable at ${engineUrl} — enable manually or restart`);
+    console.log(
+      `  ⚠️  Engine not reachable at ${engineUrl} — enable manually or restart`,
+    );
   }
 }

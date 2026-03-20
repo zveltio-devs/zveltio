@@ -154,7 +154,7 @@
  {:else if jobs.length === 0}
  <p class="text-center text-base-content/40 py-10 text-sm">No imports yet</p>
  {:else}
- <div class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+ <div class="space-y-2 max-h-105 overflow-y-auto pr-1">
  {#each jobs as job}
  <div class="p-3 bg-base-300 rounded-lg">
  <div class="flex items-center justify-between">

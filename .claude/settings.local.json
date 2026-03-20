@@ -121,7 +121,15 @@
       "Bash(echo \"=== $file ===\")",
       "Bash(grep -r \"SPDX\\\\|spdx\" /c/Users/Liviu/zveltio-ecosystem --include=*.ts --include=*.js --include=*.json ! -path */node_modules/* ! -path */.git/* ! -path */dist/* ! -path */.svelte-kit/* ! -path */.wrangler/*)",
       "Bash(node_modules/.bin/svelte-kit sync:*)",
-      "Bash(find c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/node_modules -name server.js -path */svelte-language-server/*)"
+      "Bash(find c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/node_modules -name server.js -path */svelte-language-server/*)",
+      "Bash(grep -r \"from.*extensions\\\\|import.*extensions\" /c/Users/Liviu/zveltio-ecosystem/zveltio/packages/engine/src --include=*.ts)",
+      "Bash(grep -r \"aiProviderManager\\\\|aiProvider\" /c/Users/Liviu/zveltio-ecosystem/zveltio/packages/engine/src --include=*.ts)",
+      "Bash(find /c/Users/Liviu/zveltio-ecosystem/zveltio/extensions -name manifest.json -exec sh -c \"echo \"\"=== {} ===\"\" && cat \"\"$1\"\"\" _ {})",
+      "Bash(grep -v \"^extensions$\")",
+      "Bash(wc -l c:/Users/Liviu/zveltio-ecosystem/zveltio/extensions/ai/core-ai/engine/zveltio-ai/*.ts)",
+      "Bash(node -e \":*)",
+      "Bash(mkdir -p c:/Users/Liviu/zveltio-ecosystem/zveltio-extensions)",
+      "Bash(cp -r c:/Users/Liviu/zveltio-ecosystem/zveltio/extensions/* c:/Users/Liviu/zveltio-ecosystem/zveltio-extensions/)"
     ]
   }
 }

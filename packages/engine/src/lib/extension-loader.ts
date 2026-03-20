@@ -6,7 +6,6 @@ import { readdir } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
-import { engineEvents } from './event-bus.js';
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
 import { checkPermission } from './permissions.js';
@@ -106,10 +105,13 @@ class ExtensionLoader {
     basePath?: string,
   ): Promise<void> {
     try {
-      // Resolve extension directory
+      // Resolve extension directory.
+      // Priority: explicit basePath > EXTENSIONS_DIR env var > default relative path.
+      const defaultBase = process.env.EXTENSIONS_DIR
+        || join(import.meta.dir, '../../../extensions');
       const extDir = basePath
         ? join(basePath, extName)
-        : join(import.meta.dir, '../../../extensions', extName);
+        : join(defaultBase, extName);
 
       const enginePath = join(extDir, 'engine/index.js');
 
@@ -323,6 +325,7 @@ class ExtensionLoader {
    * where the engine route was importing from the extension-loader lib.
    */
   registerMarketplace(app: Hono, db: Database): void {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this; // capture ExtensionLoader instance for hot-load access
 
     // Admin-only guard

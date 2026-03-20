@@ -4,9 +4,9 @@
  * Proxies CRUD operations to an external API instead of querying PostgreSQL.
  * The calling route sees a uniform interface regardless of data source.
  *
- * REGULA: Niciodată nu aduci toate datele de la API extern și filtrezi în memorie.
- * Adaptorul traduce query AST → parametri URL specifici API-ului extern.
- * Dacă API-ul nu suportă un operator, aruncă eroare clară.
+ * RULE: Never fetch all data from external API and filter in memory.
+ * The adapter translates query AST → URL parameters specific to the external API.
+ * If the API doesn't support an operator, throw a clear error.
  */
 
 export interface VirtualConfig {
@@ -67,7 +67,10 @@ function buildAuthHeaders(config: VirtualConfig): Record<string, string> {
 
 /** Extract a nested value using a simple dot-path selector (e.g. "$.data.items"). */
 function extractByPath(data: any, path: string): any[] {
-  const parts = path.replace(/^\$\.?/, '').split('.').filter(Boolean);
+  const parts = path
+    .replace(/^\$\.?/, '')
+    .split('.')
+    .filter(Boolean);
   let current: any = data;
   for (const part of parts) {
     if (current == null) return [];
@@ -105,11 +108,14 @@ function mapToExternal(item: any, fieldMapping: Record<string, string>): any {
 }
 
 /**
- * Traduce un VirtualQuery în parametri URL pentru API-ul extern.
- * ARUNCĂ EROARE dacă se cere un operator nesuportat și supported_operators e definit.
- * NU face fetch-all — trimite parametrii direct la API.
+ * Translate a VirtualQuery to URL parameters for the external API.
+ * THROWS ERROR if an unsupported operator is requested and supported_operators is defined.
+ * Does NOT do fetch-all — sends parameters directly to API.
  */
-export function translateQuery(config: VirtualConfig, query: VirtualQuery): string {
+export function translateQuery(
+  config: VirtualConfig,
+  query: VirtualQuery,
+): string {
   const params = new URLSearchParams();
   const supportedOps = config.supported_operators;
   const paginationStyle = config.pagination_style ?? 'page';
@@ -149,7 +155,9 @@ export function translateQuery(config: VirtualConfig, query: VirtualQuery): stri
       case 'in':
         params.append(
           `${apiField}[in]`,
-          Array.isArray(filter.value) ? filter.value.join(',') : String(filter.value),
+          Array.isArray(filter.value)
+            ? filter.value.join(',')
+            : String(filter.value),
         );
         break;
       case 'like':
@@ -180,16 +188,20 @@ export function translateQuery(config: VirtualConfig, query: VirtualQuery): stri
 
   // Sort
   if (query.sort) {
-    const apiField = config.field_mapping?.[query.sort.field] ?? query.sort.field;
-    params.append('sort', `${query.sort.direction === 'desc' ? '-' : ''}${apiField}`);
+    const apiField =
+      config.field_mapping?.[query.sort.field] ?? query.sort.field;
+    params.append(
+      'sort',
+      `${query.sort.direction === 'desc' ? '-' : ''}${apiField}`,
+    );
   }
 
   return params.toString();
 }
 
 /**
- * Fetch list de la Virtual Source — NU face fetch-all.
- * Traduce query-ul (filtre, paginare, sort) direct în URL params și îl trimite la API.
+ * Fetch list from Virtual Source — does NOT do fetch-all.
+ * Translates query (filters, pagination, sort) directly to URL params and sends to API.
  */
 export async function virtualList(
   config: VirtualConfig,
@@ -206,38 +218,55 @@ export async function virtualList(
 
   const response = await fetch(url, { headers });
   if (!response.ok) {
-    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `Virtual source returned ${response.status}: ${await response.text()}`,
+    );
   }
 
   const json = await response.json();
   const extractPath = config.list_path || '$.data';
   const items = extractByPath(json, extractPath);
   const data = items.map((item) => mapToZveltio(item, config.field_mapping));
-  const total: number = json.total ?? json.count ?? json.meta?.total ?? data.length;
+  const total: number =
+    json.total ?? json.count ?? json.meta?.total ?? data.length;
 
   return { data, total };
 }
 
-export async function virtualGetOne(config: VirtualConfig, id: string): Promise<any | null> {
+export async function virtualGetOne(
+  config: VirtualConfig,
+  id: string,
+): Promise<any | null> {
   validatePublicUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
-  const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
+  const getPath = (config.get_endpoint ?? '/:id').replace(
+    ':id',
+    encodeURIComponent(id),
+  );
   const url = `${baseUrl}${getPath}`;
 
   const response = await fetch(url, { headers });
   if (response.status === 404) return null;
   if (!response.ok) {
-    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `Virtual source returned ${response.status}: ${await response.text()}`,
+    );
   }
 
   const item = await response.json();
   return mapToZveltio(item, config.field_mapping);
 }
 
-export async function virtualCreate(config: VirtualConfig, body: any): Promise<any> {
+export async function virtualCreate(
+  config: VirtualConfig,
+  body: any,
+): Promise<any> {
   validatePublicUrl(config.source_url);
-  const headers = { 'Content-Type': 'application/json', ...buildAuthHeaders(config) };
+  const headers = {
+    'Content-Type': 'application/json',
+    ...buildAuthHeaders(config),
+  };
   const externalBody = mapToExternal(body, config.field_mapping);
 
   const response = await fetch(config.source_url, {
@@ -246,18 +275,30 @@ export async function virtualCreate(config: VirtualConfig, body: any): Promise<a
     body: JSON.stringify(externalBody),
   });
   if (!response.ok) {
-    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `Virtual source returned ${response.status}: ${await response.text()}`,
+    );
   }
 
   const item = await response.json();
   return mapToZveltio(item, config.field_mapping);
 }
 
-export async function virtualUpdate(config: VirtualConfig, id: string, body: any): Promise<any> {
+export async function virtualUpdate(
+  config: VirtualConfig,
+  id: string,
+  body: any,
+): Promise<any> {
   validatePublicUrl(config.source_url);
-  const headers = { 'Content-Type': 'application/json', ...buildAuthHeaders(config) };
+  const headers = {
+    'Content-Type': 'application/json',
+    ...buildAuthHeaders(config),
+  };
   const baseUrl = config.source_url.replace(/\/$/, '');
-  const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
+  const getPath = (config.get_endpoint ?? '/:id').replace(
+    ':id',
+    encodeURIComponent(id),
+  );
   const url = `${baseUrl}${getPath}`;
   const externalBody = mapToExternal(body, config.field_mapping);
 
@@ -267,23 +308,33 @@ export async function virtualUpdate(config: VirtualConfig, id: string, body: any
     body: JSON.stringify(externalBody),
   });
   if (!response.ok) {
-    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `Virtual source returned ${response.status}: ${await response.text()}`,
+    );
   }
 
   const item = await response.json();
   return mapToZveltio(item, config.field_mapping);
 }
 
-export async function virtualDelete(config: VirtualConfig, id: string): Promise<void> {
+export async function virtualDelete(
+  config: VirtualConfig,
+  id: string,
+): Promise<void> {
   validatePublicUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
-  const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
+  const getPath = (config.get_endpoint ?? '/:id').replace(
+    ':id',
+    encodeURIComponent(id),
+  );
   const url = `${baseUrl}${getPath}`;
 
   const response = await fetch(url, { method: 'DELETE', headers });
   if (response.status === 404 || response.status === 204) return;
   if (!response.ok) {
-    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `Virtual source returned ${response.status}: ${await response.text()}`,
+    );
   }
 }

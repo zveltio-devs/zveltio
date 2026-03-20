@@ -16,6 +16,7 @@ export interface ChatOptions {
   model?: string;
   temperature?: number;
   max_tokens?: number;
+  stream?: boolean;
   tools?: Array<{
     type: 'function';
     function: {
@@ -266,7 +267,7 @@ export class OllamaProvider implements AIProvider {
 
 // ─── Provider Manager ──────────────────────────────────────────
 
-class AIProviderManager {
+export class AIProviderManager {
   private providers = new Map<string, AIProvider>();
   private _defaultName: string | null = null;
 

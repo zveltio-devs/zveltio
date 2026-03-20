@@ -29,27 +29,6 @@ m = g(r.sub, p.sub) && (r.obj == p.obj || p.obj == '*') && (r.act == p.act || p.
 let _db: Database;
 let _enforcer: Enforcer | null = null;
 
-// O(log N) cu SCAN vs O(N) blocant cu KEYS
-// Max 1000 iterations (~100 000 keys) to prevent infinite loops on large keyspaces
-const SCAN_MAX_ITERATIONS = 1_000;
-
-async function scanKeys(cache: Awaited<ReturnType<typeof getCache>>, pattern: string): Promise<string[]> {
-  if (!cache) return [];
-  const keys: string[] = [];
-  let cursor = '0';
-  let iterations = 0;
-  do {
-    const [nextCursor, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-    cursor = nextCursor;
-    keys.push(...batch);
-    if (++iterations >= SCAN_MAX_ITERATIONS) {
-      console.warn(`[permissions] scanKeys hit max iteration limit (${SCAN_MAX_ITERATIONS}) for pattern "${pattern}"`);
-      break;
-    }
-  } while (cursor !== '0');
-  return keys;
-}
-
 class KyselyCasbinAdapter {
   async loadPolicy(model: any): Promise<void> {
     const policies = await sql<{
@@ -80,16 +59,22 @@ class KyselyCasbinAdapter {
   }
 
   async savePolicy(model: any): Promise<boolean> {
-    await sql`DELETE FROM zvd_permissions`.execute(_db);
-    const policies = model.getPolicy();
-    for (const policy of policies) {
-      const [ptype, ...values] = policy;
-      await sql`
-        INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
-        VALUES (${ptype}, ${values[0] ?? null}, ${values[1] ?? null}, ${values[2] ?? null},
-                ${values[3] ?? null}, ${values[4] ?? null}, ${values[5] ?? null})
-      `.execute(_db);
-    }
+    // P0 FIX: wrap DELETE + INSERT in a single transaction so there is never a window
+    // where zvd_permissions is empty. A crash between DELETE and INSERT previously wiped
+    // all Casbin policies, locking out every non-god user permanently.
+    // TRUNCATE is transactional in PostgreSQL and rolls back on failure.
+    await (_db as any).transaction().execute(async (trx: Database) => {
+      await sql`TRUNCATE TABLE zvd_permissions`.execute(trx);
+      const policies = model.getPolicy();
+      for (const policy of policies) {
+        const [ptype, ...values] = policy;
+        await sql`
+          INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
+          VALUES (${ptype}, ${values[0] ?? null}, ${values[1] ?? null}, ${values[2] ?? null},
+                  ${values[3] ?? null}, ${values[4] ?? null}, ${values[5] ?? null})
+        `.execute(trx);
+      }
+    });
     return true;
   }
 
@@ -342,6 +327,48 @@ export async function checkPermission(
   return result;
 }
 
+/**
+ * HMAC helpers for the roles cache.
+ *
+ * Threat model: an attacker with Redis write access could inject a crafted
+ * roles list (e.g. '["admin"]') at key `roles:{userId}`, causing Casbin to
+ * believe the user has elevated roles.  Signing with HMAC-SHA256 prevents
+ * this — any tampered value will fail verification and fall through to DB.
+ *
+ * Format stored in cache: `${rolesJson}:${hmac64hexChars}`
+ * SHA-256 hex is always exactly 64 characters, so the last 65 bytes
+ * (`:` + 64 hex) are unambiguous regardless of the JSON content.
+ */
+function _rolesHmac(userId: string, rolesJson: string): string {
+  const secret = process.env.BETTER_AUTH_SECRET ?? '';
+  return createHmac('sha256', secret)
+    .update(`roles:${userId}:${rolesJson}`)
+    .digest('hex');
+}
+
+function _encodeRolesCache(userId: string, roles: string[]): string {
+  const json = JSON.stringify(roles);
+  return `${json}:${_rolesHmac(userId, json)}`;
+}
+
+/** Returns the roles array if HMAC is valid, `null` if tampered / malformed. */
+function _decodeRolesCache(userId: string, raw: string): string[] | null {
+  // HMAC is always 64 hex chars; separator is ':'
+  const HMAC_LEN = 64;
+  if (raw.length < HMAC_LEN + 2) return null; // at minimum '[]' + ':' + 64 chars
+  const storedHmac = raw.slice(raw.length - HMAC_LEN);
+  const json       = raw.slice(0, raw.length - HMAC_LEN - 1); // strip ':' + hmac
+  try {
+    const expected = Buffer.from(_rolesHmac(userId, json), 'hex');
+    const stored   = Buffer.from(storedHmac, 'hex');
+    if (stored.length !== expected.length) return null;
+    if (!timingSafeEqual(stored, expected)) return null;
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 export async function getUserRoles(userId: string): Promise<string[]> {
   const cache = getCache();
   const cacheKey = `roles:${userId}`;
@@ -350,7 +377,11 @@ export async function getUserRoles(userId: string): Promise<string[]> {
     try {
       // GET — O(1): direct key lookup.
       const cached = await cache.get(cacheKey);
-      if (cached !== null) return JSON.parse(cached);
+      if (cached !== null) {
+        // Verify HMAC — null means tampered, fall through to DB (fail-closed)
+        const decoded = _decodeRolesCache(userId, cached);
+        if (decoded !== null) return decoded;
+      }
     } catch {
       /* cache unavailable */
     }
@@ -361,11 +392,10 @@ export async function getUserRoles(userId: string): Promise<string[]> {
 
   if (cache) {
     try {
-      // SETEX  — O(1): write serialised roles under a single key.
-      // SADD   — O(1): register this key in the per-user tracking Set
-      //                so it is included in bulk invalidation.
+      // SETEX  — O(1): write HMAC-signed roles under a single key.
+      // SADD   — O(1): register this key in the per-user tracking Set.
       // EXPIRE — O(1): keeps the tracking Set TTL aligned with its contents.
-      await cache.setex(cacheKey, ROLE_CACHE_TTL, JSON.stringify(roles));
+      await cache.setex(cacheKey, ROLE_CACHE_TTL, _encodeRolesCache(userId, roles));
       await cache.sadd(`user:perm-keys:${userId}`, cacheKey);
       await cache.expire(`user:perm-keys:${userId}`, ROLE_CACHE_TTL + 60);
     } catch {

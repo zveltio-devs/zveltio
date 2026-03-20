@@ -5,8 +5,7 @@
   "packageManager": "bun@1.2.0",
   "description": "The BaaS that just works — single binary, extensions, no complexity",
   "workspaces": [
-    "packages/*",
-    "extensions/*/*"
+    "packages/*"
   ],
   "scripts": {
     "dev": "turbo run dev",

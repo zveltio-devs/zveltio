@@ -29,7 +29,7 @@ export async function initDatabase(): Promise<Database> {
     }),
   });
 
-  // Test connection — selectăm o constantă fără acces la tabele utilizator
+  // Test connection — select a constant without accessing user tables
   await sql`SELECT 1`.execute(_db);
 
   // Run core migrations
@@ -39,7 +39,8 @@ export async function initDatabase(): Promise<Database> {
 }
 
 export function getDb(): Database {
-  if (!_db) throw new Error('Database not initialized. Call initDatabase() first.');
+  if (!_db)
+    throw new Error('Database not initialized. Call initDatabase() first.');
   return _db;
 }
 
@@ -50,7 +51,9 @@ async function runCoreMigrations(db: Database): Promise<void> {
     .ifNotExists()
     .addColumn('id', 'serial', (col) => col.primaryKey())
     .addColumn('name', 'text', (col) => col.notNull().unique())
-    .addColumn('ran_at', 'timestamptz', (col) => col.notNull().defaultTo(new Date()))
+    .addColumn('ran_at', 'timestamptz', (col) =>
+      col.notNull().defaultTo(new Date()),
+    )
     .execute();
 
   // Core migrations list

@@ -27,8 +27,8 @@ export const webhookWorker = {
     const cache = getCache();
     if (!cache) return;
 
-    // LMPOP — atomic, un singur round-trip Redis, fără race conditions
-    // Fallback la LPOP în buclă dacă serverul nu suportă LMPOP (Redis < 7.0)
+    // LMPOP — atomic, single round-trip Redis, no race conditions
+    // Fallback to LPOP in loop if server doesn't support LMPOP (Redis < 7.0)
     let items: string[] = [];
     try {
       const result = await (cache as any).lmpop(
@@ -38,12 +38,12 @@ export const webhookWorker = {
         'COUNT',
         10,
       );
-      // LMPOP returnează [key, [item1, item2, ...]] sau null
+      // LMPOP returns [key, [item1, item2, ...]] or null
       if (result && Array.isArray(result[1])) {
         items = result[1];
       }
     } catch {
-      // Fallback pentru versiuni Redis/Valkey mai vechi
+      // Fallback for older Redis/Valkey versions
       for (let i = 0; i < 10; i++) {
         const item = await cache.lpop('webhook:queue');
         if (!item) break;
@@ -54,7 +54,7 @@ export const webhookWorker = {
     // Deliver all items concurrently — O(1) wall-clock instead of O(N × timeout)
     await Promise.all(
       items.map(async (item) => {
-        const payload = JSON.parse(item) as {
+        let payload: {
           url: string;
           method?: string;
           headers?: Record<string, string>;
@@ -67,6 +67,13 @@ export const webhookWorker = {
           attempt: number;
           retryAttempts?: number;
         };
+        try {
+          payload = JSON.parse(item);
+        } catch {
+          // Malformed item in queue — log and discard to unblock delivery of other webhooks
+          console.error('[WebhookWorker] Discarding malformed queue item:', item.slice(0, 200));
+          return;
+        }
 
         const ok = await WebhookManager.deliver(payload);
 

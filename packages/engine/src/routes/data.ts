@@ -10,6 +10,7 @@ import { WebhookManager } from '../lib/webhooks.js';
 import { broadcastEvent } from './ws.js';
 import { triggerEmbedding } from '../lib/ai-embed-hook.js';
 import { engineEvents } from '../lib/event-bus.js';
+import { triggerDataFlows } from './flows.js';
 import {
   dynamicSelect,
   dynamicInsert,
@@ -95,7 +96,10 @@ async function checkAccess(
   collection: string,
   action: string,
 ): Promise<boolean> {
-  if (user.role === 'admin') return true;
+  // I5 FIX: removed `user.role === 'admin'` shortcut — Better-Auth may not populate
+  // role on session in all auth flows (magic link, OAuth). checkPermission() handles
+  // god bypass (DB + HMAC cache) first, then Casbin, so admin users with proper
+  // Casbin policies still get access without relying on the session role field.
   if (user.role === 'api_key') {
     // API keys cannot access system tables
     const tableName = DDLManager.getTableName(collection);
@@ -237,6 +241,9 @@ async function afterWrite(
   if (action !== 'delete') {
     triggerEmbedding(db, collection, recordId, data).catch(() => {});
   }
+
+  // Trigger data_event flows (fire-and-forget — must not block the request)
+  triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch(() => {});
 
   engineEvents.emit(`record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}` as any, {
     collection,

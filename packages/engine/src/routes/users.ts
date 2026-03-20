@@ -202,6 +202,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
       if (process.env.SMTP_HOST) {
         try {
           // Dynamic import — email module may not always be present
+          // @ts-ignore — email.ts is an optional module; absence handled by catch below
           const { sendEmail } = await import('../lib/email.js');
           await sendEmail({
             to: email,

@@ -1,9 +1,9 @@
 import type { Context, Next } from 'hono';
 import { getCache } from '../lib/cache.js';
 
-// Fallback in-memory rate limiter — activ când Valkey nu este disponibil.
-// Sliding window simplu: Map<identifier, timestamps[]>
-// ATENȚIE: nu se sincronizează între instanțe — folosit DOAR ca fallback de siguranță.
+// Fallback in-memory rate limiter — active when Valkey is not available.
+// Simple sliding window: Map<identifier, timestamps[]>
+// WARNING: does not synchronize between instances — used ONLY as a safety fallback.
 const memoryStore = new Map<string, number[]>();
 
 function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
@@ -15,7 +15,7 @@ function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
   timestamps.push(now);
   memoryStore.set(key, timestamps);
 
-  // Curăță periodic pentru a preveni memory leak
+  // Periodically clean to prevent memory leak
   if (memoryStore.size > 10_000) {
     for (const [k, ts] of memoryStore) {
       if (ts.every((t) => t <= windowStart)) memoryStore.delete(k);
@@ -39,7 +39,7 @@ export function rateLimit(config: RateLimitConfig) {
   return async (c: Context, next: Next) => {
     const cache = getCache();
 
-    // Fallback in-memory când Redis nu este disponibil — fail CLOSED pentru siguranță
+    // Fallback in-memory when Redis is not available — fail CLOSED for safety
     if (!cache) {
       const session = (c as any).get?.('user');
       const identifier = session?.id ?? 'unknown';
@@ -103,7 +103,7 @@ export function rateLimit(config: RateLimitConfig) {
       // All in a single pipeline for atomicity
       const pipeline = cache.pipeline();
       pipeline.zremrangebyscore(key, 0, windowStart);
-      pipeline.zadd(key, now, `${now}-${Math.random()}`);
+      pipeline.zadd(key, now, `${now}-${crypto.randomUUID()}`);
       pipeline.zcard(key);
       pipeline.pexpire(key, windowMs);
       const results = await pipeline.exec();

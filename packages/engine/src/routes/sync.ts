@@ -25,8 +25,13 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
   // System fields that clients must never be allowed to overwrite via sync.
   const PROTECTED_FIELDS = new Set([
-    'id', 'created_at', 'created_by', 'updated_at', 'tenant_id',
-    'search_vector', 'embedding',
+    'id',
+    'created_at',
+    'created_by',
+    'updated_at',
+    'tenant_id',
+    'search_vector',
+    'embedding',
   ]);
 
   /**
@@ -37,10 +42,19 @@ export function syncRoutes(db: Database, _auth: any): Hono {
   async function sanitizeSyncPayload(
     collectionName: string,
     raw: Record<string, any>,
-  ): Promise<{ safe: true; payload: Record<string, any> } | { safe: false; reason: string }> {
-    const collectionDef = await DDLManager.getCollection(db, collectionName.replace(/^zvd_/, ''));
+  ): Promise<
+    | { safe: true; payload: Record<string, any> }
+    | { safe: false; reason: string }
+  > {
+    const collectionDef = await DDLManager.getCollection(
+      db,
+      collectionName.replace(/^zvd_/, ''),
+    );
     if (!collectionDef) {
-      return { safe: false, reason: `Collection "${collectionName}" not found` };
+      return {
+        safe: false,
+        reason: `Collection "${collectionName}" not found`,
+      };
     }
 
     const allowedFields = new Set(
@@ -51,7 +65,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     for (const [key, value] of Object.entries(raw || {})) {
       if (PROTECTED_FIELDS.has(key)) continue; // silently strip system fields
       if (!allowedFields.has(key)) {
-        return { safe: false, reason: `Unknown field "${key}" in collection "${collectionName}"` };
+        return {
+          safe: false,
+          reason: `Unknown field "${key}" in collection "${collectionName}"`,
+        };
       }
       payload[key] = value;
     }
@@ -141,13 +158,21 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       // Reassign normalized table name for downstream use
       op.collection = tableName;
 
-      // Permission check: user must have write access to this collection
+      // Permission check: user must have write access to this collection.
+      // I5 FIX: use checkPermission() instead of user.role === 'admin' — Better-Auth
+      // may not populate role on session (magic link, OAuth flows). checkPermission()
+      // always checks god bypass (DB + HMAC cache) first, then Casbin policies.
       const collectionShortName = op.collection.replace(/^zvd_/, '');
       const user = c.get('user') as any;
-      const canWrite = user.role === 'admin' ||
-        await checkPermission(user.id, `data:${collectionShortName}`,
-          op.operation === 'delete' ? 'delete' : op.operation === 'create' ? 'create' : 'update',
-        );
+      const canWrite = await checkPermission(
+        user.id,
+        `data:${collectionShortName}`,
+        op.operation === 'delete'
+          ? 'delete'
+          : op.operation === 'create'
+            ? 'create'
+            : 'update',
+      );
       if (!canWrite) {
         results.push({
           recordId: op.recordId,
@@ -161,7 +186,11 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       if (op.operation !== 'delete') {
         const sanitized = await sanitizeSyncPayload(op.collection, op.payload);
         if (!sanitized.safe) {
-          results.push({ recordId: op.recordId, status: 'error', error: sanitized.reason });
+          results.push({
+            recordId: op.recordId,
+            status: 'error',
+            error: sanitized.reason,
+          });
           continue;
         }
         op.payload = sanitized.payload;
@@ -275,7 +304,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
     // Limit max collections per pull request to prevent DoS
     if (body.collections.length > 20) {
-      return c.json({ error: 'Too many collections. Maximum 20 per pull request.' }, 400);
+      return c.json(
+        { error: 'Too many collections. Maximum 20 per pull request.' },
+        400,
+      );
     }
 
     const { collections, since } = body as {
@@ -299,18 +331,20 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     const pullDb = (c.get('tenantTrx') as Database | null) ?? db;
 
     for (const rawName of collections) {
-      const collection: string = typeof rawName === 'string' && rawName.startsWith('zvd_')
-        ? rawName
-        : `zvd_${rawName}`;
+      const collection: string =
+        typeof rawName === 'string' && rawName.startsWith('zvd_')
+          ? rawName
+          : `zvd_${rawName}`;
 
       if (!COLLECTION_RE.test(collection)) continue;
 
-      // SECURITY: verifică că utilizatorul are permisiune de citire pe această colecție
+      // SECURITY: verify that the user has read permission on this collection
       const collectionShortName = collection.replace(/^zvd_/, '');
       const user = c.get('user') as any;
-      const canRead = user.role === 'admin' ||
-        await checkPermission(user.id, `data:${collectionShortName}`, 'read');
-      if (!canRead) continue; // sari silențios colecțiile la care nu are acces
+      const canRead =
+        user.role === 'admin' ||
+        (await checkPermission(user.id, `data:${collectionShortName}`, 'read'));
+      if (!canRead) continue; // silently skip collections the user has no access to
 
       try {
         const updated = await pullDb

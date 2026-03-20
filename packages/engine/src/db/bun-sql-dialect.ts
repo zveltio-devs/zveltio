@@ -1,13 +1,13 @@
 /**
- * BunSqlDialect — Kysely dialect nativ pentru Bun 1.2+ via Bun.SQL
+ * BunSqlDialect — Native Kysely dialect for Bun 1.2+ via Bun.SQL
  *
- * Avantaje față de `pg`:
- *  - I/O nativ Bun (fără libuv overhead)
- *  - Deserializare row nativă C++ (vs JS în pg)
- *  - Connection pool built-in cu reserve() pentru tranzacții corecte
- *  - Zero dependințe externe (Bun.SQL este built-in)
+ * Advantages over `pg`:
+ *  - Native Bun I/O (no libuv overhead)
+ *  - Native C++ row deserialization (vs JS in pg)
+ *  - Built-in connection pool with reserve() for correct transactions
+ *  - Zero external dependencies (Bun.SQL is built-in)
  *
- * Requires: Bun >= 1.2, bun-types în devDependencies
+ * Requires: Bun >= 1.2, bun-types in devDependencies
  */
 
 import {
@@ -26,24 +26,33 @@ import {
   TransactionSettings,
 } from 'kysely';
 
-// ─── Tipuri interne pentru Bun.SQL (bun-types le expune via `Bun` global) ────
+// ─── Internal types for Bun.SQL (bun-types exposes via `Bun` global) ────
 
-/** O conexiune rezervată din pool-ul Bun.SQL (bun >= 1.2) */
+/** A reserved connection from Bun.SQL pool (bun >= 1.2) */
 interface BunReservedConnection {
-  /** Execută un query parametrizat $1/$2/... stil PostgreSQL */
-  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
-  /** Eliberează conexiunea înapoi în pool */
+  /** Execute a parameterized query $1/$2/... PostgreSQL style */
+  query<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<T[]>;
+  /** Release the connection back to the pool */
   release(): void;
 }
 
-/** Pool-ul principal Bun.SQL */
+/** Main Bun.SQL pool */
 interface BunSQLPool {
-  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
-  /** Rezervă o conexiune dedicată din pool (pentru tranzacții) */
+  query<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<T[]>;
+  /** Reserve a dedicated connection from pool (for transactions) */
   reserve(): Promise<BunReservedConnection>;
-  /** Înregistrează un handler pentru LISTEN/NOTIFY */
-  subscribe(channel: string, handler: (payload: string) => void): Promise<BunSubscription>;
-  /** Închide pool-ul și toate conexiunile */
+  /** Register a handler for LISTEN/NOTIFY */
+  subscribe(
+    channel: string,
+    handler: (payload: string) => void,
+  ): Promise<BunSubscription>;
+  /** Close the pool and all connections */
   close(): Promise<void>;
 }
 
@@ -57,12 +66,12 @@ export interface BunSqlDialectConfig {
   /** Connection string PostgreSQL. Fallback: DATABASE_URL env var. */
   connectionString?: string;
   /**
-   * Dimensiunea maximă a pool-ului de conexiuni.
+   * Maximum connection pool size.
    * @default 20
    */
   max?: number;
   /**
-   * Timeout idle pentru conexiuni (ms).
+   * Idle timeout for connections (ms).
    * @default 30000
    */
   idleTimeoutMs?: number;
@@ -82,7 +91,7 @@ export class BunSqlDialect implements Dialect {
   }
 
   createQueryCompiler(): QueryCompiler {
-    // Refolosim compilatorul PostgreSQL din Kysely — sintaxa $1/$2 e identică
+    // Reuse PostgreSQL compiler from Kysely — $1/$2 syntax is identical
     return new PostgresQueryCompiler();
   }
 
@@ -108,7 +117,9 @@ class BunSqlDriver implements Driver {
   async init(): Promise<void> {
     const url = this.#config.connectionString ?? process.env.DATABASE_URL;
     if (!url) {
-      throw new Error('[BunSqlDialect] connectionString sau DATABASE_URL este obligatoriu');
+      throw new Error(
+        '[BunSqlDialect] connectionString or DATABASE_URL is required',
+      );
     }
 
     // Bun.SQL creează automat un connection pool intern.
@@ -125,7 +136,10 @@ class BunSqlDriver implements Driver {
    * ca BEGIN/query.../COMMIT să ruleze pe același backend PostgreSQL.
    */
   async acquireConnection(): Promise<DatabaseConnection> {
-    if (!this.#pool) throw new Error('[BunSqlDriver] Driver neinitialized. Apelați initDatabase().');
+    if (!this.#pool)
+      throw new Error(
+        '[BunSqlDriver] Driver neinitialized. Apelați initDatabase().',
+      );
     const reserved = await this.#pool.reserve();
     return new BunSqlConnection(reserved);
   }
@@ -153,7 +167,7 @@ class BunSqlDriver implements Driver {
   }
 
   async releaseConnection(connection: DatabaseConnection): Promise<void> {
-    // Eliberăm conexiunea rezervată înapoi în pool
+    // Release the reserved connection back to the pool
     (connection as BunSqlConnection).release();
   }
 
@@ -164,9 +178,9 @@ class BunSqlDriver implements Driver {
     }
   }
 
-  /** Expune pool-ul pentru LISTEN/NOTIFY (folosit de RealtimeManager) */
+  /** Exposes pool for LISTEN/NOTIFY (used by RealtimeManager) */
   getPool(): BunSQLPool {
-    if (!this.#pool) throw new Error('[BunSqlDriver] Pool neinitialized.');
+    if (!this.#pool) throw new Error('[BunSqlDriver] Pool not initialized.');
     return this.#pool;
   }
 }
@@ -188,12 +202,15 @@ class BunSqlConnection implements DatabaseConnection {
     return { rows };
   }
 
-  // Streaming nu este suportat de Bun.SQL încă (Bun 1.2)
+  // Streaming is not supported by Bun.SQL yet (Bun 1.2)
+  // eslint-disable-next-line require-yield
   async *streamQuery<R>(
     _compiledQuery: CompiledQuery,
     _chunkSize: number,
   ): AsyncIterableIterator<QueryResult<R>> {
-    throw new Error('[BunSqlConnection] streamQuery nu este suportat în BunSqlDialect');
+    throw new Error(
+      '[BunSqlConnection] streamQuery is not supported in BunSqlDialect',
+    );
   }
 
   release(): void {

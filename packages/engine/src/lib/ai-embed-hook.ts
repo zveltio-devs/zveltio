@@ -1,9 +1,9 @@
 /**
- * AI Embed Hook — auto-generare embeddings la create/update.
+ * AI Embed Hook — auto-generate embeddings on create/update.
  *
- * Apelat non-blocking din data.ts după fiecare scriere.
- * Dacă colecția are `ai_search_enabled = true`, generează embedding
- * și îl upsertează în zvd_ai_embeddings.
+ * Called non-blocking from data.ts after each write.
+ * If collection has `ai_search_enabled = true`, generates embedding
+ * and upserts it to zvd_ai_embeddings.
  */
 
 import { sql } from 'kysely';
@@ -11,16 +11,21 @@ import type { Database } from '../db/index.js';
 import { aiProviderManager } from './ai-provider.js';
 
 const SYSTEM_FIELDS = new Set([
-  'id', 'created_at', 'updated_at', 'created_by', 'updated_by',
-  '_deletedAt', 'deleted_at',
+  'id',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by',
+  '_deletedAt',
+  'deleted_at',
 ]);
 
 /**
- * Extrage textul de embedduit dintr-un record.
+ * Extract text to embed from a record.
  *
- * @param record          - datele înregistrării
- * @param field           - câmpul specific de embedduit (dacă e configurat)
- * @param excludedFields  - câmpuri excluse explicit (PII: cnp, salary, iban…)
+ * @param record          - the record data
+ * @param field           - the specific field to embed (if configured)
+ * @param excludedFields  - explicitly excluded fields (PII: cnp, salary, iban…)
  */
 function extractText(
   record: Record<string, any>,
@@ -33,19 +38,20 @@ function extractText(
   }
   // Full-record mode: concat all non-system, non-excluded string fields
   return Object.entries(record)
-    .filter(([k, v]) =>
-      !SYSTEM_FIELDS.has(k) &&
-      !excludedFields.has(k) &&
-      typeof v === 'string' &&
-      v.length > 0,
+    .filter(
+      ([k, v]) =>
+        !SYSTEM_FIELDS.has(k) &&
+        !excludedFields.has(k) &&
+        typeof v === 'string' &&
+        v.length > 0,
     )
     .map(([, v]) => v)
     .join(' ');
 }
 
 /**
- * Triggerează generarea embedding-ului pentru un record.
- * Non-blocking — eșecul nu afectează operația principală.
+ * Triggers embedding generation for a record.
+ * Non-blocking — failure does not affect the main operation.
  */
 export async function triggerEmbedding(
   db: Database,
@@ -53,10 +59,14 @@ export async function triggerEmbedding(
   recordId: string,
   record: Record<string, any>,
 ): Promise<void> {
-  // Verificăm dacă AI Search e activat pe colecție
+  // Check if AI Search is enabled on the collection
   const collMeta = await (db as any)
     .selectFrom('zvd_collections')
-    .select(['ai_search_enabled', 'ai_search_field', 'ai_embed_excluded_fields'])
+    .select([
+      'ai_search_enabled',
+      'ai_search_field',
+      'ai_embed_excluded_fields',
+    ])
     .where('name', '=', collection)
     .executeTakeFirst()
     .catch(() => null);

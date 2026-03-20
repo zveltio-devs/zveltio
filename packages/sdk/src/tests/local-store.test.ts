@@ -1,5 +1,5 @@
 import './setup';
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { LocalStore } from '../local-store.js';
 
 describe('LocalStore — conflict detection', () => {
@@ -8,6 +8,15 @@ describe('LocalStore — conflict detection', () => {
   beforeEach(async () => {
     store = new LocalStore();
     await store.open();
+    // Reset DB state — fake-indexeddb is a module-level singleton shared across
+    // test files within the same Bun process (src/ and dist/ runs both use it).
+    // Without clearing, dist/ tests find records left by src/ tests and
+    // _localVersion is wrong (e.g. 2 instead of 1 for a fresh put).
+    await store.clear();
+  });
+
+  afterEach(async () => {
+    await store.close();
   });
 
   it('no conflict when record is clean (no local edits)', async () => {

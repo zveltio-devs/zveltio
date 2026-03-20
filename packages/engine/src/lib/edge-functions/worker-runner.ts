@@ -21,42 +21,67 @@ interface WorkerPayload {
   env: Record<string, string>;
 }
 
-// STDLIB este eliminat — _logs și console sunt injectate prin safeGlobals ca parametri.
-// Redeclararea lor în corpul funcției cu 'use strict' activ cauzează SyntaxError.
-const STDLIB = ''; // păstrat pentru compatibilitate — conținut mutat în safeGlobals
+// STDLIB is eliminated — _logs and console are injected via safeGlobals as parameters.
+// Redeclaring them in the function body with 'use strict' active causes SyntaxError.
+const _STDLIB = ''; // kept for compatibility — content moved to safeGlobals
 
 // ═══ SSRF Protection ═══
 const BLOCKED_PREFIXES = [
   // Loopback
-  'http://localhost', 'https://localhost',
-  'http://127.', 'https://127.',
-  'http://0.0.0.0', 'https://0.0.0.0',
-  'http://[::1]', 'https://[::1]',
+  'http://localhost',
+  'https://localhost',
+  'http://127.',
+  'https://127.',
+  'http://0.0.0.0',
+  'https://0.0.0.0',
+  'http://[::1]',
+  'https://[::1]',
   // AWS/GCP/Azure Metadata
-  'http://169.254.', 'https://169.254.',
+  'http://169.254.',
+  'https://169.254.',
   // Private networks (RFC 1918)
-  'http://10.', 'https://10.',
-  'http://172.16.', 'https://172.16.',
-  'http://172.17.', 'https://172.17.',
-  'http://172.18.', 'https://172.18.',
-  'http://172.19.', 'https://172.19.',
-  'http://172.20.', 'https://172.20.',
-  'http://172.21.', 'https://172.21.',
-  'http://172.22.', 'https://172.22.',
-  'http://172.23.', 'https://172.23.',
-  'http://172.24.', 'https://172.24.',
-  'http://172.25.', 'https://172.25.',
-  'http://172.26.', 'https://172.26.',
-  'http://172.27.', 'https://172.27.',
-  'http://172.28.', 'https://172.28.',
-  'http://172.29.', 'https://172.29.',
-  'http://172.30.', 'https://172.30.',
-  'http://172.31.', 'https://172.31.',
-  'http://192.168.', 'https://192.168.',
+  'http://10.',
+  'https://10.',
+  'http://172.16.',
+  'https://172.16.',
+  'http://172.17.',
+  'https://172.17.',
+  'http://172.18.',
+  'https://172.18.',
+  'http://172.19.',
+  'https://172.19.',
+  'http://172.20.',
+  'https://172.20.',
+  'http://172.21.',
+  'https://172.21.',
+  'http://172.22.',
+  'https://172.22.',
+  'http://172.23.',
+  'https://172.23.',
+  'http://172.24.',
+  'https://172.24.',
+  'http://172.25.',
+  'https://172.25.',
+  'http://172.26.',
+  'https://172.26.',
+  'http://172.27.',
+  'https://172.27.',
+  'http://172.28.',
+  'https://172.28.',
+  'http://172.29.',
+  'https://172.29.',
+  'http://172.30.',
+  'https://172.30.',
+  'http://172.31.',
+  'https://172.31.',
+  'http://192.168.',
+  'https://192.168.',
   // Docker internal
-  'http://host.docker.internal', 'https://host.docker.internal',
+  'http://host.docker.internal',
+  'https://host.docker.internal',
   // Kubernetes
-  'http://kubernetes.default', 'https://kubernetes.default',
+  'http://kubernetes.default',
+  'https://kubernetes.default',
 ];
 
 /**
@@ -117,7 +142,11 @@ function normalizeHostname(hostname: string): string {
  * Prevents SSRF attacks from Edge Functions.
  * Handles octal/decimal/hex IP variants to prevent bypass.
  */
-const safeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+const safeFetch = async (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  _hops = 0,
+): Promise<Response> => {
   let url: string;
   if (typeof input === 'string') {
     url = input;
@@ -132,7 +161,9 @@ const safeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
   // Block non-http/https schemes first
   const lower = url.toLowerCase();
   if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
-    throw new Error(`[Zveltio Sandbox] Only http:// and https:// URLs are allowed. Got: ${url}`);
+    throw new Error(
+      `[Zveltio Sandbox] Only http:// and https:// URLs are allowed. Got: ${url}`,
+    );
   }
 
   // Normalise the hostname to canonical dotted-decimal before prefix-matching
@@ -152,12 +183,26 @@ const safeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
     if (canonicalLower.startsWith(prefix)) {
       throw new Error(
         `[Zveltio Sandbox] Network access to internal address blocked: ${url}. ` +
-        `Edge Functions can only access public internet endpoints.`,
+          `Edge Functions can only access public internet endpoints.`,
       );
     }
   }
 
-  return fetch(input, init);
+  if (_hops > 5) throw new Error('[Zveltio Sandbox] Too many redirects.');
+
+  // Prevent redirect-based SSRF: intercept redirects and re-validate the Location URL.
+  const response = await fetch(input, { ...(init ?? {}), redirect: 'manual' });
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get('location');
+    if (!location)
+      throw new Error(
+        '[Zveltio Sandbox] Redirect with no Location header blocked for security.',
+      );
+    // Re-validate the redirect target — blocks chains like public.example.com → 169.254.169.254
+    return safeFetch(new URL(location, url).toString(), init, _hops + 1);
+  }
+
+  return response;
 };
 
 // ═══ Security prefix injected before user code ═══
@@ -189,7 +234,7 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
 
     const safeGlobals: Record<string, any> = {
       // ═══ Allowed globals ═══
-      fetch: safeFetch,   // Proxy securizat, NU fetch direct
+      fetch: safeFetch, // Proxy securizat, NU fetch direct
       Request,
       Response,
       URL,
@@ -222,11 +267,11 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
       globalThis: undefined,
       Bun: undefined,
       Deno: undefined,
-      self: undefined,           // Block access to worker self
-      postMessage: undefined,    // Block direct parent communication
-      importScripts: undefined,  // Block external script loading
-      eval: undefined,           // Block recursive eval
-      Function: undefined,       // Block new Function creation
+      self: undefined, // Block access to worker self
+      postMessage: undefined, // Block direct parent communication
+      importScripts: undefined, // Block external script loading
+      eval: undefined, // Block recursive eval
+      Function: undefined, // Block new Function creation
     };
 
     const fn = new Function(

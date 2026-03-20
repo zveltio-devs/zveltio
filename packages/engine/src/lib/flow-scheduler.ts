@@ -10,7 +10,8 @@
 import type { Database } from '../db/index.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from './garbage-collector.js';
-// cloud/trash and routes/cloud are optional extensions — imported dynamically below
+import { extensionRegistry } from './extension-registry.js';
+import { ZveltioAIEngine } from './zveltio-ai/engine.js';
 
 const SCHEDULER_POLL_MS = 60_000;        // How often the scheduler polls for due flows
 const DEFAULT_CRON_INTERVAL_MS = 60_000; // Default interval when trigger_config.interval_seconds is absent
@@ -90,25 +91,8 @@ export const flowScheduler = {
     // ── AI Task trigger ───────────────────────────────────────────
     if (flow.trigger_type === 'ai_task') {
       try {
-        // @ts-ignore — AI engine is an optional extension (path may not exist)
-        const { ZveltioAIEngine } = await import('../../../extensions/ai/core-ai/engine/zveltio-ai/engine.js').catch(() => ({ ZveltioAIEngine: null as any }));
-
-        if (!ZveltioAIEngine) {
-          console.warn('[FlowScheduler] AI extension not loaded — skipping ai_task flow');
-          // Advance next_run_at even on skip, otherwise retries every poll interval indefinitely
-          const skipIntervalMs = ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 || DEFAULT_AI_INTERVAL_MS;
-          await (_db as any)
-            .updateTable('zv_flows')
-            .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + skipIntervalMs) })
-            .where('id', '=', flow.id)
-            .execute()
-            .catch(() => {});
-          return;
-        }
-
         const engine = new ZveltioAIEngine(_db);
         const cfg = flow.trigger_config ?? {};
-
         await engine.processBackgroundTask(
           cfg.user_id ?? flow.created_by,
           cfg.instruction ?? flow.description ?? 'Generate a status report',
@@ -119,7 +103,6 @@ export const flowScheduler = {
             maxIterations: cfg.max_iterations ?? 5,
           },
         );
-
         console.log(`[FlowScheduler] ai_task completed`, { flow: flow.id, name: flow.name });
       } catch (err: any) {
         console.error(`[FlowScheduler] ai_task failed`, { flow: flow.id, name: flow.name, error: err.message });
@@ -164,36 +147,27 @@ export const flowScheduler = {
 
 /**
  * Schedules the cloud trash purge to run daily at 03:30.
- * Mirrors the GC pattern in garbage-collector.ts.
+ * The actual purge is performed by whichever extension registers a handler
+ * via extensionRegistry.registerTrashPurgeHandler().
  */
 function scheduleTrashPurge(db: Database): void {
   function scheduleNext(): void {
     const now = new Date();
     const next = new Date(now);
     next.setHours(3, 30, 0, 0);
-    if (next <= now) {
-      next.setDate(next.getDate() + 1);
-    }
-
-    const msUntil = next.getTime() - now.getTime();
+    if (next <= now) next.setDate(next.getDate() + 1);
 
     setTimeout(async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const [trashMod, cloudMod] = await Promise.all([
-          // @ts-ignore — cloud/trash is an optional extension
-          import('./cloud/trash.js').catch(() => null as any),
-          // @ts-ignore — routes/cloud is an optional extension
-          import('../routes/cloud.js').catch(() => null as any),
-        ]);
-        if (!trashMod || !cloudMod) return;
-        const s3 = cloudMod.createCloudS3Client();
-        await trashMod.purgeExpiredTrash(db, s3);
-      } catch (err) {
-        console.error('[Trash] Error during trash purge:', err);
+      const handler = extensionRegistry.getTrashPurgeHandler();
+      if (handler) {
+        try {
+          await handler(db);
+        } catch (err) {
+          console.error('[Trash] Error during trash purge:', err);
+        }
       }
       scheduleNext();
-    }, msUntil);
+    }, next.getTime() - now.getTime());
   }
 
   scheduleNext();

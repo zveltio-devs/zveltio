@@ -58,15 +58,16 @@ export function checkQueryDepth(
   maxDepth: number = 5,
 ): string | null {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { parse } = require('graphql') as typeof import('graphql');
     const doc = parse(query);
 
     let exceeded = false;
 
-    function visitSelections(
+    const visitSelections = (
       selections: readonly import('graphql').SelectionNode[],
       depth: number,
-    ): void {
+    ): void => {
       if (depth > maxDepth) {
         exceeded = true;
         return;
@@ -79,7 +80,7 @@ export function checkQueryDepth(
         }
         // FragmentSpread not followed — depth limit is a safety net, not exhaustive
       }
-    }
+    };
 
     for (const def of doc.definitions) {
       if (

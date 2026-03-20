@@ -47,7 +47,7 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
   return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
     const keys = path.split('.');
     // Security: block prototype chain traversal (e.g. {{__proto__.polluted}})
-    if (keys.some((k) => k === '__proto__' || k === 'constructor' || k === 'prototype')) {
+    if (keys.some((k: string) => k === '__proto__' || k === 'constructor' || k === 'prototype')) {
       return match;
     }
     let value: any = context;

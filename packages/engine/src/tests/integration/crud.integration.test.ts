@@ -20,7 +20,7 @@ const skipAll = !TEST_DB_URL;
 const COLLECTION = `test_crud_${Date.now()}`;
 let db: Database;
 let sessionCookie: string;
-let createdIds: string[] = [];
+const createdIds: string[] = [];
 
 async function createGodUser(): Promise<{ email: string; password: string }> {
   const email = `god-crud-${Date.now()}@test.local`;

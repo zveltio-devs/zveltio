@@ -271,8 +271,8 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     }
 
     const fileId = nanoid(21);
-    const ext = file.name.split('.').pop();
-    const filename = `${fileId}.${ext}`;
+    const rawFileExt = file.name.split('.').pop() ?? 'bin';
+    const filename = `${fileId}.${rawFileExt}`;
     const buffer = Buffer.from(await file.arrayBuffer());
 
     // ── Security: file type validation ──────────────────────────────────────
@@ -360,9 +360,9 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       'docx', 'xlsx', 'pptx',
       'mp4', 'webm', 'mp3', 'wav', 'ogg',
     ]);
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      return c.json({ error: `File extension not allowed: .${ext}` }, 415);
+    const fileExt = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!ALLOWED_EXTENSIONS.has(fileExt)) {
+      return c.json({ error: `File extension not allowed: .${fileExt}` }, 415);
     }
     // ── End security validation ──────────────────────────────────────────────
 

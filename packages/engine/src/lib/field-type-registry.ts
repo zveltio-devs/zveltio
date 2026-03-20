@@ -174,14 +174,6 @@ export class FieldTypeRegistry {
       })
       .join('\n');
 
-    const outputFields = fields
-      .map((f) => {
-        const typeDef = this.get(f.type);
-        const tsType = typeDef?.typescript.outputType || 'any';
-        return `  ${f.name}: ${tsType};`;
-      })
-      .join('\n');
-
     return `
 export interface ${typeName}Input {
 ${inputFields}
