@@ -82,7 +82,7 @@ describe.skipIf(skipAll)('Settings — Integration', () => {
   });
 
   it('PATCH /api/settings — updates a setting (god)', async () => {
-    const res = await fetch(`${BASE_URL}/api/settings`, {
+    const res = await fetch(`${BASE_URL}/api/settings/bulk`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Cookie: godCookie },
       body: JSON.stringify({ site_name: 'Zveltio Test' }),

@@ -260,6 +260,39 @@ export function storageRoutes(db: Database, auth: any): Hono {
     return c.json({ file: record }, 201);
   });
 
+  // GET /folders — List folders (must be before GET /:id to prevent route conflict)
+  app.get('/folders', async (c) => {
+    const foldersDb = (c.get('tenantTrx') as Database | null) ?? db;
+    const folders = await (foldersDb as any)
+      .selectFrom('zv_media_folders')
+      .selectAll()
+      .orderBy('name')
+      .execute();
+    return c.json({ folders });
+  });
+
+  // POST /folders — Create folder (must be before GET /:id to prevent route conflict)
+  app.post('/folders', async (c) => {
+    const user = c.get('user') as any;
+    const foldersWriteDb = (c.get('tenantTrx') as Database | null) ?? db;
+    const { name, parent_id } = await c.req.json();
+
+    if (!name) return c.json({ error: 'Folder name required' }, 400);
+
+    try {
+      const folder = await (foldersWriteDb as any)
+        .insertInto('zv_media_folders')
+        .values({ name, parent_id: parent_id || null, created_by: user.id })
+        .returningAll()
+        .executeTakeFirst();
+
+      return c.json({ folder }, 201);
+    } catch (err) {
+      console.error('[Storage] POST /folders error:', err);
+      return c.json({ error: 'Failed to create folder', detail: String(err) }, 503);
+    }
+  });
+
   // GET /:id — Get file metadata
   app.get('/:id', async (c) => {
     const metaDb = (c.get('tenantTrx') as Database | null) ?? db;
@@ -336,39 +369,6 @@ export function storageRoutes(db: Database, auth: any): Hono {
       .where('id', '=', (file as any).id)
       .execute();
     return c.json({ success: true });
-  });
-
-  // GET /folders — List folders
-  app.get('/folders', async (c) => {
-    const foldersDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const folders = await (foldersDb as any)
-      .selectFrom('zv_media_folders')
-      .selectAll()
-      .orderBy('name')
-      .execute();
-    return c.json({ folders });
-  });
-
-  // POST /folders — Create folder
-  app.post('/folders', async (c) => {
-    const user = c.get('user') as any;
-    const foldersWriteDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const { name, parent_id } = await c.req.json();
-
-    if (!name) return c.json({ error: 'Folder name required' }, 400);
-
-    try {
-      const folder = await (foldersWriteDb as any)
-        .insertInto('zv_media_folders')
-        .values({ name, parent_id: parent_id || null, created_by: user.id })
-        .returningAll()
-        .executeTakeFirst();
-
-      return c.json({ folder }, 201);
-    } catch (err) {
-      console.error('[Storage] POST /folders error:', err);
-      return c.json({ error: 'Failed to create folder', detail: String(err) }, 503);
-    }
   });
 
   return app;

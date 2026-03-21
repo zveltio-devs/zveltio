@@ -31,7 +31,15 @@ export async function enqueueDDLJob(
     } as any)
     .returning('id' as any)
     .executeTakeFirst();
-  return (result as any).id;
+  const jobId = (result as any).id;
+
+  // In test mode, process the job immediately so tests don't need to
+  // wait for the 2-second poll interval before the table is available.
+  if (process.env.NODE_ENV === 'test') {
+    await processNextJob();
+  }
+
+  return jobId;
 }
 
 export async function getDDLJob(
@@ -77,66 +85,74 @@ async function processNextJob(): Promise<void> {
         ? JSON.parse((job as any).payload)
         : (job as any).payload;
 
-    // Execute DDL inside a transaction — on failure, everything rolls back atomically
-    await (_db as any).transaction().execute(async (trx: any) => {
-      // BYOD Guard: block DDL on unmanaged collections (drop, add_field, remove_field)
-      const byodSensitiveTypes = [
-        'drop_collection',
-        'add_field',
-        'remove_field',
-      ];
-      if (byodSensitiveTypes.includes((job as any).type)) {
-        const collectionName: string | undefined =
-          payload.collection ?? payload.name;
-        if (collectionName) {
-          const meta = await trx
-            .selectFrom('zvd_collections' as any)
-            .select('is_managed' as any)
-            .where('name' as any, '=', collectionName)
-            .executeTakeFirst()
-            .catch(() => null);
-
-          if (meta && (meta as any).is_managed === false) {
-            await trx
-              .updateTable('zv_ddl_jobs' as any)
-              .set({
-                status: 'completed',
-                completed_at: new Date(),
-                error: `Skipped: collection "${collectionName}" is unmanaged (BYOD). DDL not allowed.`,
-              } as any)
-              .where('id' as any, '=', (job as any).id)
-              .execute();
-            return;
-          }
-        }
-      }
-
-      switch ((job as any).type) {
-        case 'create_collection':
-          await DDLManager.createCollection(trx, payload);
-          break;
-        case 'drop_collection':
-          await DDLManager.dropCollection(trx, payload.name);
-          break;
-        case 'add_field':
-          // payload: { collection: string, field: FieldSchema }
-          await DDLManager.addField(trx, payload.collection, payload.field);
-          break;
-        case 'remove_field':
-          // payload: { collection: string, fieldName: string }
-          await DDLManager.removeField(trx, payload.collection, payload.fieldName);
-          break;
-        default:
-          throw new Error(`Unknown DDL job type: ${(job as any).type}`);
-      }
-
-      // Mark complete inside the same transaction so DDL + status update are atomic
-      await trx
+    if ((job as any).type === 'create_collection') {
+      // CREATE INDEX CONCURRENTLY cannot run inside a transaction block in PostgreSQL.
+      // Run collection creation directly against _db (outside any transaction).
+      await DDLManager.createCollection(_db, payload);
+      await _db
         .updateTable('zv_ddl_jobs' as any)
         .set({ status: 'completed', completed_at: new Date() } as any)
         .where('id' as any, '=', (job as any).id)
         .execute();
-    });
+    } else {
+      // All other DDL ops run in a transaction for atomicity
+      await (_db as any).transaction().execute(async (trx: any) => {
+        // BYOD Guard: block DDL on unmanaged collections (drop, add_field, remove_field)
+        const byodSensitiveTypes = [
+          'drop_collection',
+          'add_field',
+          'remove_field',
+        ];
+        if (byodSensitiveTypes.includes((job as any).type)) {
+          const collectionName: string | undefined =
+            payload.collection ?? payload.name;
+          if (collectionName) {
+            const meta = await trx
+              .selectFrom('zvd_collections' as any)
+              .select('is_managed' as any)
+              .where('name' as any, '=', collectionName)
+              .executeTakeFirst()
+              .catch(() => null);
+
+            if (meta && (meta as any).is_managed === false) {
+              await trx
+                .updateTable('zv_ddl_jobs' as any)
+                .set({
+                  status: 'completed',
+                  completed_at: new Date(),
+                  error: `Skipped: collection "${collectionName}" is unmanaged (BYOD). DDL not allowed.`,
+                } as any)
+                .where('id' as any, '=', (job as any).id)
+                .execute();
+              return;
+            }
+          }
+        }
+
+        switch ((job as any).type) {
+          case 'drop_collection':
+            await DDLManager.dropCollection(trx, payload.name);
+            break;
+          case 'add_field':
+            // payload: { collection: string, field: FieldSchema }
+            await DDLManager.addField(trx, payload.collection, payload.field);
+            break;
+          case 'remove_field':
+            // payload: { collection: string, fieldName: string }
+            await DDLManager.removeField(trx, payload.collection, payload.fieldName);
+            break;
+          default:
+            throw new Error(`Unknown DDL job type: ${(job as any).type}`);
+        }
+
+        // Mark complete inside the same transaction so DDL + status update are atomic
+        await trx
+          .updateTable('zv_ddl_jobs' as any)
+          .set({ status: 'completed', completed_at: new Date() } as any)
+          .where('id' as any, '=', (job as any).id)
+          .execute();
+      });
+    }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     const retryCount = ((job as any).retry_count ?? 0) + 1;

@@ -140,6 +140,17 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
     return c.json({ success: true });
   });
 
+  // DELETE /clear-all — Clear all read notifications (must be before DELETE /:id to prevent route conflict)
+  app.delete('/clear-all', async (c) => {
+    const user = c.get('user') as any;
+    await (db as any)
+      .deleteFrom('zv_notifications')
+      .where('user_id', '=', user.id)
+      .where('is_read', '=', true)
+      .execute();
+    return c.json({ success: true });
+  });
+
   // DELETE /:id — Delete notification
   app.delete('/:id', async (c) => {
     const user = c.get('user') as any;
@@ -147,17 +158,6 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       .deleteFrom('zv_notifications')
       .where('id', '=', c.req.param('id'))
       .where('user_id', '=', user.id)
-      .execute();
-    return c.json({ success: true });
-  });
-
-  // DELETE /clear-all — Clear all read notifications
-  app.delete('/clear-all', async (c) => {
-    const user = c.get('user') as any;
-    await (db as any)
-      .deleteFrom('zv_notifications')
-      .where('user_id', '=', user.id)
-      .where('is_read', '=', true)
       .execute();
     return c.json({ success: true });
   });
