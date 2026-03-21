@@ -110,6 +110,13 @@ jobs:
       - name: Show engine logs
         if: always()
         run: cat /tmp/engine.log || true
+      - name: Smoke test auth endpoint
+        run: |
+          echo "--- Auth sign-up smoke test ---"
+          curl -s -w "\nHTTP %{http_code}" -X POST http://localhost:3099/api/auth/sign-up/email \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@test.local","password":"TestPass123!","name":"Smoke"}' || true
+          echo ""
       - name: Run integration tests
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test

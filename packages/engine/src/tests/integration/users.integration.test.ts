@@ -108,8 +108,8 @@ describe.skipIf(skipAll)('Users — Integration', () => {
     expect(res.status).toBeOneOf([200, 204]);
   });
 
-  it('GET /api/auth/me — returns current user profile', async () => {
-    const res = await fetch(`${BASE_URL}/api/auth/me`, {
+  it('GET /api/me — returns current user profile', async () => {
+    const res = await fetch(`${BASE_URL}/api/me`, {
       headers: { Cookie: regularCookie },
     });
     expect(res.status).toBe(200);
@@ -117,8 +117,8 @@ describe.skipIf(skipAll)('Users — Integration', () => {
     expect(body.user?.email ?? body.email).toBe(regularEmail);
   });
 
-  it('GET /api/auth/me — returns 401 unauthenticated', async () => {
-    const res = await fetch(`${BASE_URL}/api/auth/me`);
+  it('GET /api/me — returns 401 unauthenticated', async () => {
+    const res = await fetch(`${BASE_URL}/api/me`);
     expect(res.status).toBe(401);
   });
 });
