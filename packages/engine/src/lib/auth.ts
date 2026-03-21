@@ -1,5 +1,4 @@
 import { betterAuth } from 'better-auth';
-import { twoFactor } from 'better-auth/plugins';
 import type { Database } from '../db/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
@@ -65,12 +64,7 @@ export async function initAuth(db: Database) {
         : {}),
     },
 
-    plugins: [
-      twoFactor({
-        issuer: 'Zveltio',
-        totpWindow: 1,
-      }),
-    ],
+    plugins: [],
   });
 
   return _auth;

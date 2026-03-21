@@ -113,9 +113,14 @@ jobs:
       - name: Smoke test auth endpoint
         run: |
           echo "--- Auth sign-up smoke test ---"
-          curl -s -w "\nHTTP %{http_code}" -X POST http://localhost:3099/api/auth/sign-up/email \
+          RESP=$(curl -s -w "\n---HTTP_STATUS:%{http_code}" -X POST http://localhost:3099/api/auth/sign-up/email \
             -H "Content-Type: application/json" \
-            -d '{"email":"smoke@test.local","password":"TestPass123!","name":"Smoke"}' || true
+            -d '{"email":"smoke@test.local","password":"TestPass123!","name":"Smoke"}' 2>&1) || true
+          echo "$RESP"
+          echo "--- Auth sign-in smoke test ---"
+          curl -s -w "\n---HTTP_STATUS:%{http_code}" -X POST http://localhost:3099/api/auth/sign-in/email \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@test.local","password":"TestPass123!"}' 2>&1 || true
           echo ""
       - name: Run integration tests
         env:
