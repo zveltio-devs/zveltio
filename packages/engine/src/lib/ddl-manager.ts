@@ -381,8 +381,13 @@ export class DDLManager {
       .orderBy('name' as any)
       .execute();
 
-    _collectionsListCache = { data: rows, ts: now };
-    return rows;
+    // Bun.SQL may return JSONB columns as raw JSON strings — normalize to JS objects.
+    const normalized = (rows as any[]).map((row) => ({
+      ...row,
+      fields: typeof row.fields === 'string' ? JSON.parse(row.fields) : (row.fields ?? []),
+    }));
+    _collectionsListCache = { data: normalized, ts: now };
+    return normalized;
   }
 
   static async getCollection(db: Database, name: string): Promise<any | null> {
@@ -398,7 +403,15 @@ export class DDLManager {
       .where('name' as any, '=', name)
       .executeTakeFirst();
 
-    const result = row || null;
+    // Bun.SQL may return JSONB columns as raw JSON strings — normalize to JS object.
+    const result = row
+      ? {
+          ...row,
+          fields: typeof (row as any).fields === 'string'
+            ? JSON.parse((row as any).fields)
+            : ((row as any).fields ?? []),
+        }
+      : null;
     collectionCache.set(name, { data: result, ts: now });
     return result;
   }
