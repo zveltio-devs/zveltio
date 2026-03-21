@@ -1,12 +1,12 @@
 <script lang="ts">
  import { onMount } from 'svelte';
- import { settingsApi } from '$lib/api.js';
- import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff } from '@lucide/svelte';
+ import { api, settingsApi } from '$lib/api.js';
+ import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff, Gauge, Plus, Trash2 } from '@lucide/svelte';
 
  let loading = $state(true);
  let saving = $state(false);
  let saved = $state(false);
- let tab = $state<'general' | 'branding' | 'smtp' | 'security'>('general');
+ let tab = $state<'general' | 'branding' | 'smtp' | 'security' | 'rate_limiting'>('general');
  let showSmtpPass = $state(false);
 
  let s = $state({
@@ -25,6 +25,17 @@
  api_rate_limit: 100,
  });
 
+ // Rate limiting state
+ let rl = $state({
+ enabled: true,
+ default_ip_limit: 60,
+ default_key_limit: 1000,
+ collection_overrides: [] as Array<{ collection: string; limit: number }>,
+ });
+ let rlSaving = $state(false);
+ let rlSaved = $state(false);
+ let rlError = $state('');
+
  onMount(async () => {
  try {
  const data = await settingsApi.getAll();
@@ -32,7 +43,22 @@
  if (k in s) (s as any)[k] = v;
  }
  } finally { loading = false; }
+ loadRateLimiting();
  });
+
+ async function loadRateLimiting() {
+ try {
+ const data = await api.get<any>('/api/settings/rate_limiting');
+ if (data && typeof data === 'object') {
+ if ('enabled' in data) rl.enabled = data.enabled;
+ if ('default_ip_limit' in data) rl.default_ip_limit = data.default_ip_limit;
+ if ('default_key_limit' in data) rl.default_key_limit = data.default_key_limit;
+ if (Array.isArray(data.collection_overrides)) rl.collection_overrides = data.collection_overrides;
+ }
+ } catch {
+ // Not yet configured — use defaults silently
+ }
+ }
 
  async function save() {
  saving = true; saved = false;
@@ -45,11 +71,31 @@
  } finally { saving = false; }
  }
 
+ async function saveRateLimiting() {
+ rlSaving = true; rlSaved = false; rlError = '';
+ try {
+ await api.patch('/api/settings', { key: 'rate_limiting', value: { ...rl } });
+ rlSaved = true;
+ setTimeout(() => (rlSaved = false), 3000);
+ } catch (err) {
+ rlError = err instanceof Error ? err.message : 'Save failed';
+ } finally { rlSaving = false; }
+ }
+
+ function addCollectionOverride() {
+ rl.collection_overrides = [...rl.collection_overrides, { collection: '', limit: 100 }];
+ }
+
+ function removeCollectionOverride(i: number) {
+ rl.collection_overrides = rl.collection_overrides.filter((_, idx) => idx !== i);
+ }
+
  const TABS = [
  { id: 'general', label: 'General', icon: Globe },
  { id: 'branding', label: 'Branding', icon: Palette },
  { id: 'smtp', label: 'SMTP', icon: Mail },
  { id: 'security', label: 'Security', icon: Shield },
+ { id: 'rate_limiting', label: 'Rate Limiting', icon: Gauge },
  ] as const;
 </script>
 
@@ -59,10 +105,17 @@
  <h1 class="text-2xl font-bold">Settings</h1>
  <p class="text-base-content/60 text-sm mt-1">Platform configuration</p>
  </div>
+ {#if tab !== 'rate_limiting'}
  <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={save} disabled={saving || loading}>
  {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
  {saved ? '✓ Saved' : 'Save Settings'}
  </button>
+ {:else}
+ <button class="btn {rlSaved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveRateLimiting} disabled={rlSaving}>
+ {#if rlSaving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
+ {rlSaved ? '✓ Saved' : 'Save'}
+ </button>
+ {/if}
  </div>
 
  <div class="tabs tabs-bordered">
@@ -152,7 +205,7 @@
  <span class="label-text">Use TLS/SSL</span>
  </label>
 
- {:else}
+ {:else if tab === 'security'}
  <label class="label cursor-pointer justify-start gap-3">
  <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.two_factor_enabled} />
  <div>
@@ -168,6 +221,109 @@
  <label class="label" for="setting-rate-limit"><span class="label-text font-medium">API Rate Limit (requests/minute)</span></label>
  <input id="setting-rate-limit" type="number" class="input w-36" bind:value={s.api_rate_limit} min="1" max="10000" />
  </div>
+
+ {:else if tab === 'rate_limiting'}
+ <!-- Global toggle -->
+ <label class="label cursor-pointer justify-start gap-3">
+ <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={rl.enabled} />
+ <div>
+ <p class="label-text font-medium">Enable Rate Limiting</p>
+ <p class="text-xs text-base-content/50">Apply request limits globally across all API endpoints</p>
+ </div>
+ </label>
+
+ <div class="divider my-2"></div>
+
+ <div class="grid grid-cols-2 gap-4">
+ <div class="form-control">
+ <label class="label" for="rl-ip-limit">
+ <span class="label-text font-medium">Default IP limit</span>
+ <span class="label-text-alt text-base-content/50">req / minute</span>
+ </label>
+ <input
+ id="rl-ip-limit"
+ type="number"
+ class="input"
+ bind:value={rl.default_ip_limit}
+ min="1"
+ max="100000"
+ disabled={!rl.enabled}
+ />
+ </div>
+ <div class="form-control">
+ <label class="label" for="rl-key-limit">
+ <span class="label-text font-medium">Default API key limit</span>
+ <span class="label-text-alt text-base-content/50">req / hour</span>
+ </label>
+ <input
+ id="rl-key-limit"
+ type="number"
+ class="input"
+ bind:value={rl.default_key_limit}
+ min="1"
+ max="1000000"
+ disabled={!rl.enabled}
+ />
+ </div>
+ </div>
+
+ <div class="divider my-2"></div>
+
+ <!-- Per-collection overrides -->
+ <div>
+ <div class="flex items-center justify-between mb-3">
+ <div>
+ <p class="font-medium text-sm">Per-collection overrides</p>
+ <p class="text-xs text-base-content/50">Override the default rate limit for specific collections</p>
+ </div>
+ <button
+ class="btn btn-xs btn-ghost gap-1"
+ onclick={addCollectionOverride}
+ disabled={!rl.enabled}
+ >
+ <Plus size={12} /> Add
+ </button>
+ </div>
+
+ {#if rl.collection_overrides.length === 0}
+ <p class="text-xs text-base-content/40 text-center py-4 border border-dashed border-base-300 rounded-lg">
+ No overrides — all collections use the default limit
+ </p>
+ {:else}
+ <div class="space-y-2">
+ {#each rl.collection_overrides as override, i}
+ <div class="flex gap-2 items-center">
+ <input
+ class="input input-sm flex-1"
+ type="text"
+ placeholder="collection_name"
+ bind:value={override.collection}
+ disabled={!rl.enabled}
+ />
+ <input
+ class="input input-sm w-28"
+ type="number"
+ placeholder="1000"
+ bind:value={override.limit}
+ min="1"
+ disabled={!rl.enabled}
+ />
+ <span class="text-xs text-base-content/50 shrink-0">req/hr</span>
+ <button
+ class="btn btn-ghost btn-xs text-error shrink-0"
+ onclick={() => removeCollectionOverride(i)}
+ >
+ <Trash2 size={13} />
+ </button>
+ </div>
+ {/each}
+ </div>
+ {/if}
+ </div>
+
+ {#if rlError}
+ <p class="text-error text-sm">{rlError}</p>
+ {/if}
  {/if}
  </div>
  </div>
