@@ -37,6 +37,9 @@ export function rateLimit(config: RateLimitConfig) {
   const windowSec = Math.ceil(windowMs / 1000);
 
   return async (c: Context, next: Next) => {
+    // Skip rate limiting in test environment to allow integration tests to run
+    if (process.env.NODE_ENV === 'test') return next();
+
     const cache = getCache();
 
     // Fallback in-memory when Redis is not available — fail CLOSED for safety
