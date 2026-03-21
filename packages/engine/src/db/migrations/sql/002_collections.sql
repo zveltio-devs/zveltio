@@ -78,9 +78,9 @@ INSERT INTO zvd_permissions (ptype, v0, v1, v2)
 VALUES
   ('p', 'admin', '*', '*'),
   ('p', 'member', 'zvd_*', 'read'),
-  ('g', 'admin', 'admin'),
-  ('g', 'manager', 'manager'),
-  ('g', 'member', 'member')
+  ('g', 'admin', 'admin', NULL),
+  ('g', 'manager', 'manager', NULL),
+  ('g', 'member', 'member', NULL)
 ON CONFLICT DO NOTHING;
 
 -- DOWN
