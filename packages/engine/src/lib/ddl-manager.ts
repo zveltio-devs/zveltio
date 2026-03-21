@@ -507,7 +507,7 @@ export class DDLManager {
     this.invalidateCache(collectionName);
   }
 
-  private static async registerMetadata(
+  static async registerMetadata(
     db: Database,
     definition: CollectionDefinition,
   ): Promise<void> {

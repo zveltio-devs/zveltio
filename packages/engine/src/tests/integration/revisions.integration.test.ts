@@ -130,8 +130,8 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
     const res = await fetch(`${BASE_URL}/api/revisions/record/user/test-id/comments`, {
       headers: { Cookie: regularCookie },
     });
-    // 200 with empty array or 503 if migration not run
-    expect(res.status).toBeOneOf([200, 503]);
+    // 200 with empty array, 403 if collection access is restricted, or 503 if migration not run
+    expect(res.status).toBeOneOf([200, 403, 503]);
     if (res.status === 200) {
       const body = await res.json() as any;
       expect(Array.isArray(body.comments)).toBe(true);

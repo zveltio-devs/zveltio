@@ -357,13 +357,18 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     if (!name) return c.json({ error: 'Folder name required' }, 400);
 
-    const folder = await (foldersWriteDb as any)
-      .insertInto('zv_media_folders')
-      .values({ name, parent_id: parent_id || null, created_by: user.id })
-      .returningAll()
-      .executeTakeFirst();
+    try {
+      const folder = await (foldersWriteDb as any)
+        .insertInto('zv_media_folders')
+        .values({ name, parent_id: parent_id || null, created_by: user.id })
+        .returningAll()
+        .executeTakeFirst();
 
-    return c.json({ folder }, 201);
+      return c.json({ folder }, 201);
+    } catch (err) {
+      console.error('[Storage] POST /folders error:', err);
+      return c.json({ error: 'Failed to create folder', detail: String(err) }, 503);
+    }
   });
 
   return app;

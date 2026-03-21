@@ -84,6 +84,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       }
 
       try {
+        // Register metadata immediately so GET /:name works without waiting for DDL job
+        await DDLManager.registerMetadata(db, data);
         const jobId = await enqueueDDLJob(db, 'create_collection', data);
         const user = c.get('user') as any;
         await auditLog(db, {
@@ -97,6 +99,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           {
             success: true,
             message: `Collection '${data.name}' is being created`,
+            name: data.name,
             job_id: jobId,
             collection: data,
           },
