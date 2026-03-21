@@ -17,6 +17,7 @@ name: Version Packages
 on:
   push:
     branches:
+      - master
       - main
 
 concurrency:
