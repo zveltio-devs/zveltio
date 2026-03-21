@@ -34,6 +34,7 @@ import { syncRoutes } from './sync.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit } from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
+import { slowQueryMiddleware } from '../middleware/slow-query.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
 // /api/flows         — automation flows (routes/flows.ts)
@@ -103,6 +104,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Collection relations (admin)
   app.route('/api/relations', relationsRoutes(db, auth));
+
+  // Slow query detection for data endpoints
+  app.use('/api/data/*', slowQueryMiddleware(db));
 
   // Generic data CRUD (session + API key)
   app.route('/api/data', dataRoutes(db, auth));

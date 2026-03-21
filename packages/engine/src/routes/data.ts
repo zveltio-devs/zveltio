@@ -37,7 +37,14 @@ const QuerySchema = z.object({
   filter: z.string().optional(),
   search: z.string().optional(),
   as_of: z.string().optional(),
+  cursor: z.string().optional(), // base64url-encoded {id, val}
 });
+
+async function computeEtag(data: any[]): Promise<string> {
+  const str = JSON.stringify(data);
+  const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
 
 // Authenticate request — session or API key
 async function authenticate(c: any, auth: any, db: Database): Promise<{ user: any; authType: string } | null> {
@@ -353,7 +360,6 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
-    const offset = (query.page - 1) * query.limit;
 
     // Parse filters from JSON query param into safe FilterCondition map
     const filters: Record<string, FilterCondition> = {};
@@ -380,25 +386,108 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     const effectiveDb = getDb(c, db);
+    const sortField = query.sort ?? 'created_at';
 
-    // FTS + filters run in a single query via dynamicSelect (fts param adds
-    // search_vector @@ websearch_to_tsquery() alongside any other WHERE conditions)
-    const result = await dynamicSelect(effectiveDb, tableName, {
-      filters,
-      sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
-      limit: query.limit,
-      offset,
-      fts: query.search ? escapeLike(query.search.trim().substring(0, 500)) : undefined,
-    });
+    // ── Cursor-based pagination ────────────────────────────────────
+    // Used when `cursor` is provided and page is still default (1).
+    // Avoids OFFSET cost on large tables.
+    const useCursor = !!query.cursor && query.page === 1;
+    let result: { records: any[]; total: number };
+
+    if (useCursor) {
+      let decoded: { id: string; val: any } = { id: '', val: null };
+      try {
+        decoded = JSON.parse(Buffer.from(query.cursor!, 'base64url').toString());
+      } catch { /* malformed cursor — fall through to offset path */ }
+
+      if (decoded.id && decoded.val !== undefined) {
+        // Build keyset query directly with Kysely for proper compound pagination
+        let kQuery = (effectiveDb as any)
+          .selectFrom(tableName)
+          .selectAll();
+
+        // Apply existing filters
+        for (const [field, cond] of Object.entries(filters)) {
+          if (cond.op === 'eq') kQuery = kQuery.where(field, '=', cond.value);
+          else if (cond.op === 'neq') kQuery = kQuery.where(field, '!=', cond.value);
+          else if (cond.op === 'lt') kQuery = kQuery.where(field, '<', cond.value);
+          else if (cond.op === 'lte') kQuery = kQuery.where(field, '<=', cond.value);
+          else if (cond.op === 'gt') kQuery = kQuery.where(field, '>', cond.value);
+          else if (cond.op === 'gte') kQuery = kQuery.where(field, '>=', cond.value);
+        }
+
+        // Add keyset condition (compound: sort col + tiebreak by id)
+        if (query.order === 'asc') {
+          kQuery = kQuery.where(
+            sql`(${sql.ref(sortField)} > ${decoded.val}) OR (${sql.ref(sortField)} = ${decoded.val} AND id > ${decoded.id})`,
+          );
+          kQuery = kQuery.orderBy(sortField, 'asc').orderBy('id', 'asc');
+        } else {
+          kQuery = kQuery.where(
+            sql`(${sql.ref(sortField)} < ${decoded.val}) OR (${sql.ref(sortField)} = ${decoded.val} AND id < ${decoded.id})`,
+          );
+          kQuery = kQuery.orderBy(sortField, 'desc').orderBy('id', 'desc');
+        }
+
+        kQuery = kQuery.limit(query.limit);
+        const rows: any[] = await kQuery.execute();
+        result = { records: rows, total: -1 }; // total unknown in cursor mode
+      } else {
+        // Malformed cursor — fall back to offset
+        const offset = (query.page - 1) * query.limit;
+        result = await dynamicSelect(effectiveDb, tableName, {
+          filters,
+          sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
+          limit: query.limit,
+          offset,
+          fts: query.search ? escapeLike(query.search.trim().substring(0, 500)) : undefined,
+        });
+      }
+    } else {
+      // Standard OFFSET-based pagination (backwards-compatible)
+      const offset = (query.page - 1) * query.limit;
+      // FTS + filters run in a single query via dynamicSelect (fts param adds
+      // search_vector @@ websearch_to_tsquery() alongside any other WHERE conditions)
+      result = await dynamicSelect(effectiveDb, tableName, {
+        filters,
+        sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
+        limit: query.limit,
+        offset,
+        fts: query.search ? escapeLike(query.search.trim().substring(0, 500)) : undefined,
+      });
+    }
 
     const serialized = result.records.map((r) => serializeRecord(r, collectionDef));
 
+    // ── ETag + Cache-Control ───────────────────────────────────────
+    const etag = `"${await computeEtag(serialized)}"`;
+    c.header('ETag', etag);
+    c.header('Cache-Control', 'private, max-age=0, must-revalidate');
+    c.header('Vary', 'Cookie, X-API-Key, Authorization');
+
+    const ifNoneMatch = c.req.header('If-None-Match');
+    if (ifNoneMatch && ifNoneMatch === etag) {
+      return c.body(null, 304);
+    }
+
+    // ── Build next_cursor ─────────────────────────────────────────
+    let next_cursor: string | null = null;
+    if (serialized.length > 0 && serialized.length === query.limit) {
+      const lastRow = serialized[serialized.length - 1];
+      if (lastRow?.id !== undefined) {
+        next_cursor = Buffer.from(
+          JSON.stringify({ id: lastRow.id, val: lastRow[sortField] ?? lastRow.created_at }),
+        ).toString('base64url');
+      }
+    }
+
     return c.json({
       data: serialized,
-      total: result.total,
+      total: result.total >= 0 ? result.total : undefined,
       page: query.page,
       limit: query.limit,
-      pages: Math.ceil(result.total / query.limit),
+      pages: result.total >= 0 ? Math.ceil(result.total / query.limit) : undefined,
+      next_cursor,
     });
   });
 
@@ -463,7 +552,20 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
-    return c.json(serializeRecord(record, collectionDef));
+    const serializedRecord = serializeRecord(record, collectionDef);
+
+    // ETag + Cache-Control for single record
+    const singleEtag = `"${await computeEtag([serializedRecord])}"`;
+    c.header('ETag', singleEtag);
+    c.header('Cache-Control', 'private, max-age=0, must-revalidate');
+    c.header('Vary', 'Cookie, X-API-Key, Authorization');
+
+    const ifNoneMatchSingle = c.req.header('If-None-Match');
+    if (ifNoneMatchSingle && ifNoneMatchSingle === singleEtag) {
+      return c.body(null, 304);
+    }
+
+    return c.json(serializedRecord);
   });
 
   // ── POST /:collection — Create record ────────────────────────────

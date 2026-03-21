@@ -359,6 +359,67 @@ export function adminRoutes(db: Database, auth: any): Hono {
     });
   });
 
+  // ── EXPLAIN ANALYZE (dev/staging only) ───────────────────────
+
+  // POST /explain — EXPLAIN ANALYZE a Kysely query (admin only, dev/staging only)
+  app.post('/explain', async (c) => {
+    if (process.env.NODE_ENV === 'production') {
+      return c.json({ error: 'EXPLAIN endpoint is disabled in production' }, 403);
+    }
+
+    const body = await c.req.json().catch(() => null);
+    if (!body?.collection) {
+      return c.json({ error: 'collection is required' }, 400);
+    }
+
+    const { collection, sort = 'created_at', order = 'desc', limit = 20 } = body;
+
+    // Validate collection name (alphanumeric + underscore only)
+    if (!/^[a-zA-Z0-9_]+$/.test(collection)) {
+      return c.json({ error: 'Invalid collection name' }, 400);
+    }
+
+    // Build a safe table name
+    const tableName = collection.startsWith('zvd_') ? collection : `zvd_${collection}`;
+
+    // Validate sort field
+    if (!/^[a-zA-Z0-9_]+$/.test(sort)) {
+      return c.json({ error: 'Invalid sort field' }, 400);
+    }
+
+    const safeOrder = order === 'asc' ? 'ASC' : 'DESC';
+    const safeLimit = Math.min(Math.max(parseInt(String(limit)) || 20, 1), 500);
+
+    try {
+      const { sql: sqlHelper } = await import('kysely');
+      const result = await sqlHelper<any>`
+        EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+        SELECT * FROM ${sqlHelper.table(tableName)}
+        ORDER BY ${sqlHelper.ref(sort)} ${sqlHelper.raw(safeOrder)}
+        LIMIT ${safeLimit}
+      `.execute(db);
+
+      return c.json({ plan: result.rows[0] });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  // ── Slow Queries ──────────────────────────────────────────────
+
+  // GET /slow-queries — list recent slow queries
+  app.get('/slow-queries', async (c) => {
+    const { limit = '50', min_ms = '200' } = c.req.query();
+    const rows = await (db as any)
+      .selectFrom('zv_slow_queries')
+      .selectAll()
+      .where('duration_ms', '>=', parseInt(min_ms) || 200)
+      .orderBy('created_at', 'desc')
+      .limit(Math.min(parseInt(limit) || 50, 500))
+      .execute();
+    return c.json({ slow_queries: rows });
+  });
+
   return app;
 }
 
