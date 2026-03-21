@@ -82,7 +82,7 @@ jobs:
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
-        run: bun run -T packages/engine/src/db/migrate.ts
+        run: bun packages/engine/src/db/migrate.ts
       - name: Start engine in background
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
