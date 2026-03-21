@@ -1,0 +1,26 @@
+{
+  "id": "billing",
+  "name": "Billing & Usage",
+  "version": "1.0.0",
+  "description": "Usage metering and Stripe billing integration",
+  "engine": {
+    "routes": "./engine/routes.ts",
+    "mountPath": "/extensions/billing"
+  },
+  "studio": {
+    "pages": [
+      {
+        "path": "/admin/billing",
+        "component": "./studio/src/pages/BillingPage.svelte",
+        "label": "Billing",
+        "icon": "credit-card"
+      },
+      {
+        "path": "/admin/billing/usage",
+        "component": "./studio/src/pages/UsagePage.svelte",
+        "label": "Usage",
+        "icon": "bar-chart"
+      }
+    ]
+  }
+}
