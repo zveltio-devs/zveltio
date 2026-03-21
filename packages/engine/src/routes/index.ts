@@ -9,7 +9,7 @@ import { permissionsRoutes } from './permissions.js';
 import { storageRoutes } from './storage.js';
 import { webhooksRoutes } from './webhooks.js';
 import { settingsRoutes } from './settings.js';
-import { adminRoutes } from './admin.js';
+import { adminRoutes, apiKeysRoutes } from './admin.js';
 import { wsRoutes } from './ws.js';
 import { relationsRoutes } from './relations.js';
 import { revisionsRoutes } from './revisions.js';
@@ -131,6 +131,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Admin utilities: API keys, notifications, audit, types, onboarding
   app.route('/api/admin', adminRoutes(db, auth));
+
+  // API keys direct endpoint (tests + SDK use /api/api-keys)
+  app.route('/api/api-keys', apiKeysRoutes(db, auth));
 
   // Revisions + record comments (authenticated)
   app.route('/api/revisions', revisionsRoutes(db, auth));
