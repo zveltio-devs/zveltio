@@ -341,7 +341,7 @@
                 <textarea
                   class="textarea textarea-sm font-mono text-xs resize-none"
                   rows="4"
-                  placeholder="{}"
+                  placeholder="&#123;&#125;"
                   value={selectedStep.config.body ?? ''}
                   oninput={(e) => updateStepConfig('body', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
