@@ -16,8 +16,19 @@ export async function initAuth(db: Database) {
     throw new Error('BETTER_AUTH_SECRET environment variable is required');
   }
 
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL environment variable is required for auth');
+  }
+
   const port = process.env.PORT || '3000';
   const baseURL = process.env.BETTER_AUTH_URL || `http://localhost:${port}`;
+
+  // Use pg.Pool for better-auth — pg is a transitive dependency and better-auth
+  // natively supports it via @better-auth/kysely-adapter's PostgresDialect path.
+  // This avoids compatibility issues between BunSqlDialect and the Kysely adapter.
+  const { Pool } = await import('pg');
+  const pgPool = new Pool({ connectionString: databaseUrl, max: 5 });
 
   // Optional cache secondary storage for sessions
   let secondaryStorage: any = undefined;
@@ -30,8 +41,9 @@ export async function initAuth(db: Database) {
   _auth = betterAuth({
     baseURL,
     secret: process.env.BETTER_AUTH_SECRET,
-    // @ts-ignore — better-auth v1.5 accepts { db, type } to use an existing Kysely instance
-    database: { db: db as any, type: 'postgres' },
+    // Pass pg.Pool directly — better-auth detects it via "connect" method
+    // and wraps it in PostgresDialect internally
+    database: pgPool as any,
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
     emailAndPassword: { enabled: true },

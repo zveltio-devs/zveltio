@@ -198,7 +198,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     const siteUrl = xmlEscape(process.env.SITE_URL || 'https://example.com');
     try {
       const pages = await sql<{ slug: string; updated_at: Date }>`
-        SELECT slug, updated_at FROM zv_pages WHERE is_published = true ORDER BY slug
+        SELECT slug, updated_at FROM zv_pages WHERE is_active = true ORDER BY slug
       `.execute(db).catch(() => ({ rows: [] }));
 
       const urls = pages.rows
