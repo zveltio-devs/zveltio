@@ -90,6 +90,10 @@ CREATE INDEX IF NOT EXISTS idx_transactions_type ON zvd_transactions(type, statu
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON zvd_transactions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_number ON zvd_transactions(number);
 
+-- ═══ Extend zvd_collections with system/lock flags ═══
+ALTER TABLE zvd_collections ADD COLUMN IF NOT EXISTS is_system     BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE zvd_collections ADD COLUMN IF NOT EXISTS schema_locked BOOLEAN NOT NULL DEFAULT false;
+
 -- ═══ Register in zvd_collections so they appear in Studio ═══
 INSERT INTO zvd_collections (name, display_name, icon, is_system, schema_locked)
 VALUES
@@ -99,6 +103,8 @@ VALUES
 ON CONFLICT (name) DO NOTHING;
 
 -- DOWN
+ALTER TABLE zvd_collections DROP COLUMN IF EXISTS schema_locked;
+ALTER TABLE zvd_collections DROP COLUMN IF EXISTS is_system;
 DROP TABLE IF EXISTS zvd_contact_organizations;
 DROP INDEX IF EXISTS idx_transactions_number;
 DROP INDEX IF EXISTS idx_transactions_date;
