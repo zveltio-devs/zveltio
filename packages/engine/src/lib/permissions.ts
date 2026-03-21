@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto';
-import { newEnforcer, type Enforcer } from 'casbin';
+import { newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from './cache.js';
@@ -119,7 +119,8 @@ class KyselyCasbinAdapter {
 
 export async function initPermissions(db: Database): Promise<void> {
   _db = db;
-  _enforcer = await newEnforcer(CASBIN_MODEL, new KyselyCasbinAdapter());
+  const model = newModelFromString(CASBIN_MODEL);
+  _enforcer = await newEnforcer(model, new KyselyCasbinAdapter());
 
   // C2 FIX: HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
