@@ -196,10 +196,13 @@ class BunSqlConnection implements DatabaseConnection {
   }
 
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
-    const rows = await this.#conn.unsafe<R>(
-      compiledQuery.sql,
-      compiledQuery.parameters as unknown[],
-    );
+    const params = compiledQuery.parameters as unknown[];
+    // Bun.SQL: passing an empty array activates prepared-statement mode,
+    // which forbids multiple commands (e.g. migration files).
+    // Omit params entirely when there are none → simple-query mode.
+    const rows = params.length > 0
+      ? await this.#conn.unsafe<R>(compiledQuery.sql, params)
+      : await this.#conn.unsafe<R>(compiledQuery.sql);
     return { rows };
   }
 
