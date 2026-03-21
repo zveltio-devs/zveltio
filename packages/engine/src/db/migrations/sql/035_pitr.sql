@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS zv_pitr_restore_points (
   description TEXT,
   lsn         TEXT,
   recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_by  UUID REFERENCES "user"(id) ON DELETE SET NULL
+  created_by  TEXT REFERENCES "user"(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pitr_restore_points_at ON zv_pitr_restore_points(recorded_at DESC);
 
