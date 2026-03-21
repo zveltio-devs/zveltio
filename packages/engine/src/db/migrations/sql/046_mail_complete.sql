@@ -33,7 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_mail_signatures_user ON zv_mail_signatures(user_i
 
 -- FK delayed (after both tables exist)
 ALTER TABLE zv_mail_identities
-  ADD CONSTRAINT IF NOT EXISTS fk_identity_signature
+  ADD CONSTRAINT fk_identity_signature
   FOREIGN KEY (signature_id) REFERENCES zv_mail_signatures(id) ON DELETE SET NULL;
 
 -- ═══ DRAFTS ═══
