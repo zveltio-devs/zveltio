@@ -24,11 +24,18 @@ export async function initAuth(db: Database) {
   const port = process.env.PORT || '3000';
   const baseURL = process.env.BETTER_AUTH_URL || `http://localhost:${port}`;
 
-  // Use pg.Pool for better-auth — pg is a transitive dependency and better-auth
-  // natively supports it via @better-auth/kysely-adapter's PostgresDialect path.
-  // This avoids compatibility issues between BunSqlDialect and the Kysely adapter.
+  // Build a standard Kysely+PostgresDialect instance for better-auth.
+  // Using pg.Pool directly (as `database: pgPool as any`) skips the Kysely
+  // adapter entirely: better-auth falls back to its raw-pg path which does NOT
+  // double-quote camelCase column names ("emailVerified", "createdAt", etc.).
+  // PostgreSQL then lowercases unquoted identifiers → column-not-found errors.
+  // Wrapping via kyselyAdapter(kyselyInstance) ensures Kysely compiles all
+  // queries with properly-quoted identifiers that match our 001_auth.sql schema.
   const { Pool } = await import('pg');
+  const { Kysely, PostgresDialect } = await import('kysely');
+  const { kyselyAdapter } = await import('@better-auth/kysely-adapter');
   const pgPool = new Pool({ connectionString: databaseUrl, max: 5 });
+  const kyselyForBetterAuth = new Kysely({ dialect: new PostgresDialect({ pool: pgPool }) });
 
   // Optional cache secondary storage for sessions
   let secondaryStorage: any = undefined;
@@ -41,9 +48,7 @@ export async function initAuth(db: Database) {
   const authInstance = betterAuth({
     baseURL,
     secret: process.env.BETTER_AUTH_SECRET,
-    // Pass pg.Pool directly — better-auth detects it via "connect" method
-    // and wraps it in PostgresDialect internally
-    database: pgPool as any,
+    database: kyselyAdapter(kyselyForBetterAuth, { type: 'postgres' }),
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
     emailAndPassword: { enabled: true },
@@ -91,6 +96,7 @@ export async function initAuth(db: Database) {
     }
   };
 
+  // @ts-ignore — specific Auth<Options> not assignable to Auth<BetterAuthOptions>
   _auth = authInstance;
   return _auth;
 }
