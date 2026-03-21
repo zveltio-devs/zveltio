@@ -1,6 +1,6 @@
 import { betterAuth } from 'better-auth';
-// @ts-ignore — better-auth/adapters/kysely types may not resolve in all TS modes
-import { kyselyAdapter } from 'better-auth/adapters/kysely';
+// @ts-ignore — better-auth/db/adapter types may not resolve in all TS modes
+import { kyselyAdapter } from 'better-auth/db/adapter';
 import { twoFactor } from 'better-auth/plugins';
 import type { Database } from '../db/index.js';
 
