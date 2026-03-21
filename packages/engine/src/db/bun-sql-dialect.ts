@@ -30,8 +30,8 @@ import {
 
 /** A reserved connection from Bun.SQL pool (bun >= 1.2) */
 interface BunReservedConnection {
-  /** Execute a parameterized query $1/$2/... PostgreSQL style */
-  query<T = Record<string, unknown>>(
+  /** Execute raw parameterized SQL — Bun.SQL's escape hatch for $1/$2 style */
+  unsafe<T = Record<string, unknown>>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]>;
@@ -41,7 +41,8 @@ interface BunReservedConnection {
 
 /** Main Bun.SQL pool */
 interface BunSQLPool {
-  query<T = Record<string, unknown>>(
+  /** Execute raw parameterized SQL */
+  unsafe<T = Record<string, unknown>>(
     sql: string,
     params?: unknown[],
   ): Promise<T[]>;
@@ -195,7 +196,7 @@ class BunSqlConnection implements DatabaseConnection {
   }
 
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
-    const rows = await this.#conn.query<R>(
+    const rows = await this.#conn.unsafe<R>(
       compiledQuery.sql,
       compiledQuery.parameters as unknown[],
     );
