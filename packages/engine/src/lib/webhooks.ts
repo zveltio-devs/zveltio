@@ -32,8 +32,31 @@ export const WebhookManager = {
 
       const cache = getCache();
       for (const wh of matching) {
+        // Create a delivery record immediately so the entry exists regardless of
+        // HTTP delivery timing. Updated with status/error/delivered_at after delivery.
+        let deliveryId: string | null = null;
+        try {
+          const deliveryRow = await (_db as any)
+            .insertInto('zvd_webhook_deliveries')
+            .values({
+              webhook_id: wh.id,
+              payload: JSON.stringify({ event, collection, data, timestamp: new Date().toISOString() }),
+              url: wh.url,
+              method: wh.method || 'POST',
+              headers: JSON.stringify((wh.headers as Record<string, string>) || {}),
+              attempt: 1,
+              max_attempts: wh.retry_attempts ?? 3,
+            })
+            .returning('id')
+            .executeTakeFirst();
+          deliveryId = (deliveryRow as any)?.id ?? null;
+        } catch {
+          /* non-fatal — delivery record missing won't block the webhook queue */
+        }
+
         const payload = {
           webhookId: wh.id,
+          deliveryId,
           url: wh.url,
           method: wh.method || 'POST',
           headers: (wh.headers as Record<string, string>) || {},
@@ -60,16 +83,25 @@ export const WebhookManager = {
   },
 
   async deliver(payload: {
+    webhookId?: string;
+    deliveryId?: string | null;
     url: string;
     method?: string;
     headers?: Record<string, string>;
     secret?: string | null;
     timeout?: number;
+    retryAttempts?: number;
+    attempt?: number;
     event: string;
     collection: string;
     data: any;
     timestamp: string;
   }): Promise<boolean> {
+    let httpStatus: number | null = null;
+    let responseBody: string | null = null;
+    let errorMessage: string | null = null;
+    let ok = false;
+
     try {
       const body = JSON.stringify({
         event: payload.event,
@@ -135,9 +167,36 @@ export const WebhookManager = {
           Math.min(Math.max(payload.timeout || 5_000, 100), 30_000),
         ),
       });
-      return response.ok;
-    } catch {
-      return false;
+
+      httpStatus = response.status;
+      ok = response.ok;
+
+      // Read a short snippet of the response body for the delivery log
+      try {
+        const text = await response.text();
+        responseBody = text.slice(0, 2_000);
+      } catch {
+        /* non-fatal */
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Request failed';
     }
+
+    // Update delivery record with outcome (non-fatal)
+    if (_db && payload.deliveryId) {
+      (_db as any)
+        .updateTable('zvd_webhook_deliveries')
+        .set({
+          status: httpStatus,
+          response_body: responseBody,
+          error: errorMessage,
+          delivered_at: ok ? new Date() : null,
+        })
+        .where('id', '=', payload.deliveryId)
+        .execute()
+        .catch(() => {});
+    }
+
+    return ok;
   },
 };

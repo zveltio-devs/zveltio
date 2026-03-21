@@ -132,7 +132,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       });
 
       // Return the raw key only once
-      return c.json({ api_key: { ...(apiKey as any), key: rawKey } }, 201);
+      return c.json({ ...(apiKey as any), key: rawKey });
     },
   );
 
