@@ -91,6 +91,7 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3099
           PORT: '3099'
           NODE_ENV: test
+          ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/extensions
         run: bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
       - name: Wait for engine to start
         run: |

@@ -24,14 +24,16 @@ describe('Health — Integration', () => {
   it('GET /api/health — returns version string', async () => {
     const res = await fetch(`${BASE_URL}/api/health`);
     const body = await res.json() as any;
-    expect(typeof body.version).toBe('string');
-    expect(body.version.length).toBeGreaterThan(0);
+    // engine version is in body.engine (e.g. "2.0.0")
+    expect(typeof body.engine).toBe('string');
+    expect(body.engine.length).toBeGreaterThan(0);
   });
 
   it('GET /api/health — returns db status', async () => {
     const res = await fetch(`${BASE_URL}/api/health`);
     const body = await res.json() as any;
-    expect(body.db).toBe('ok');
+    // database check is in body.checks.database (boolean)
+    expect(body.checks?.database).toBe(true);
   });
 
   it('GET /metrics — exposes Prometheus metrics', async () => {
@@ -46,7 +48,8 @@ describe('Health — Integration', () => {
     expect(res.status).toBeOneOf([200, 404]); // 404 if endpoint doesn't exist yet
     if (res.status === 200) {
       const body = await res.json() as any;
-      expect(body).toHaveProperty('version');
+      // version info uses body.engine (string) and body.schema (object)
+      expect(body).toHaveProperty('engine');
     }
   });
 

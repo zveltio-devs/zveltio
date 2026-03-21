@@ -1,6 +1,4 @@
 import { betterAuth } from 'better-auth';
-// @ts-ignore — @better-auth/kysely-adapter types may not resolve in all TS modes
-import { kyselyAdapter } from '@better-auth/kysely-adapter';
 import { twoFactor } from 'better-auth/plugins';
 import type { Database } from '../db/index.js';
 
@@ -33,7 +31,8 @@ export async function initAuth(db: Database) {
   _auth = betterAuth({
     baseURL,
     secret: process.env.BETTER_AUTH_SECRET,
-    database: kyselyAdapter(db as any, { type: 'postgres' }),
+    // @ts-ignore — better-auth v1.5 accepts { db, type } to use an existing Kysely instance
+    database: { db: db as any, type: 'postgres' },
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
     emailAndPassword: { enabled: true },

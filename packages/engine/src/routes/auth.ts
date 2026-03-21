@@ -20,7 +20,7 @@ export function authRoutes(db: Database, auth: any): Hono {
       .where('id' as any, '=', session.user.id)
       .executeTakeFirst();
 
-    return c.json({ user: user || session.user });
+    return c.json(user || session.user);
   });
 
   // PATCH /me — update own profile
