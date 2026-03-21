@@ -20,11 +20,12 @@ export const WebhookManager = {
       const matchResult = await sql<any>`
         SELECT * FROM zvd_webhooks
         WHERE active = true
-          AND (events @> ${JSON.stringify([event])}::jsonb OR events @> '["*"]'::jsonb)
+          AND (events @> ARRAY[${event}]::text[] OR events @> ARRAY['*']::text[])
           AND (
-            collections = '[]'::jsonb
-            OR collections @> ${JSON.stringify([collection])}::jsonb
-            OR collections @> '["*"]'::jsonb
+            collections IS NULL
+            OR cardinality(collections) = 0
+            OR collections @> ARRAY[${collection}]::text[]
+            OR collections @> ARRAY['*']::text[]
           )
       `.execute(_db as Database);
       const matching = matchResult.rows;

@@ -72,7 +72,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .returningAll()
       .executeTakeFirst();
 
-    return c.json({ webhook }, 201);
+    return c.json(webhook);
   });
 
   // PATCH /:id — Update webhook

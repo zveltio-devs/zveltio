@@ -205,7 +205,20 @@ class BunSqlConnection implements DatabaseConnection {
   }
 
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
-    const params = compiledQuery.parameters as unknown[];
+    // Bun.SQL's unsafe() does not serialize JS arrays as PostgreSQL array
+    // literals — it calls .toString() which produces e.g. 'insert' for
+    // ['insert'], causing "malformed array literal" errors on text[] columns.
+    // Convert any array parameter to the PostgreSQL literal format {val,...}.
+    const params = (compiledQuery.parameters as unknown[]).map((p) => {
+      if (!Array.isArray(p)) return p;
+      const escaped = (p as unknown[]).map((item) => {
+        if (item === null || item === undefined) return 'NULL';
+        const s = String(item);
+        // Escape backslashes and double-quotes, then wrap in double-quotes
+        return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      });
+      return `{${escaped.join(',')}}`;
+    });
     // Bun.SQL: passing an empty array activates prepared-statement mode,
     // which forbids multiple commands (e.g. migration files).
     // Omit params entirely when there are none → simple-query mode.

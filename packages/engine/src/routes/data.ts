@@ -394,13 +394,11 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const serialized = result.records.map((r) => serializeRecord(r, collectionDef));
 
     return c.json({
-      records: serialized,
-      pagination: {
-        total: result.total,
-        page: query.page,
-        limit: query.limit,
-        pages: Math.ceil(result.total / query.limit),
-      },
+      data: serialized,
+      total: result.total,
+      page: query.page,
+      limit: query.limit,
+      pages: Math.ceil(result.total / query.limit),
     });
   });
 
@@ -465,7 +463,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
-    return c.json({ record: serializeRecord(record, collectionDef) });
+    return c.json(serializeRecord(record, collectionDef));
   });
 
   // ── POST /:collection — Create record ────────────────────────────
@@ -504,7 +502,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id });
 
-    return c.json({ record: serializeRecord(record, collectionDef) }, 201);
+    return c.json(serializeRecord(record, collectionDef));
   });
 
   // ── PUT /:collection/:id — Replace record ────────────────────────
@@ -545,7 +543,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id });
 
-    return c.json({ record: serializeRecord(record, collectionDef) });
+    return c.json(serializeRecord(record, collectionDef));
   });
 
   // ── PATCH /:collection/:id — Partial update ───────────────────────
@@ -586,7 +584,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id });
 
-    return c.json({ record: serializeRecord(record, collectionDef) });
+    return c.json(serializeRecord(record, collectionDef));
   });
 
   // ── DELETE /:collection/:id — Delete record ───────────────────────
