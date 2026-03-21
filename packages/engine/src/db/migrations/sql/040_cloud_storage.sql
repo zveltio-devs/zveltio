@@ -4,8 +4,8 @@
 -- === FILE VERSIONS ===
 -- Each new upload to an existing file creates a version
 CREATE TABLE IF NOT EXISTS zv_media_versions (
-  id            TEXT        PRIMARY KEY,
-  file_id       TEXT        NOT NULL REFERENCES zv_media_files(id) ON DELETE CASCADE,
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  file_id       UUID        NOT NULL REFERENCES zv_media_files(id) ON DELETE CASCADE,
   version_num   INT         NOT NULL DEFAULT 1,
   storage_path  TEXT        NOT NULL,
   size_bytes    BIGINT      NOT NULL,
@@ -31,9 +31,9 @@ ALTER TABLE zv_media_folders ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEF
 
 -- === PUBLIC SHARING ===
 CREATE TABLE IF NOT EXISTS zv_media_shares (
-  id            TEXT        PRIMARY KEY,
-  file_id       TEXT        REFERENCES zv_media_files(id) ON DELETE CASCADE,
-  folder_id     TEXT        REFERENCES zv_media_folders(id) ON DELETE CASCADE,
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  file_id       UUID        REFERENCES zv_media_files(id) ON DELETE CASCADE,
+  folder_id     UUID        REFERENCES zv_media_folders(id) ON DELETE CASCADE,
   token         TEXT        NOT NULL UNIQUE,
   share_type    TEXT        NOT NULL DEFAULT 'view' CHECK (share_type IN ('view', 'download', 'edit')),
   password_hash TEXT,
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_media_shares_folder ON zv_media_shares(folder_id)
 -- === FAVORITES ===
 CREATE TABLE IF NOT EXISTS zv_media_favorites (
   user_id     TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-  file_id     TEXT NOT NULL REFERENCES zv_media_files(id) ON DELETE CASCADE,
+  file_id     UUID NOT NULL REFERENCES zv_media_files(id) ON DELETE CASCADE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (user_id, file_id)
 );
