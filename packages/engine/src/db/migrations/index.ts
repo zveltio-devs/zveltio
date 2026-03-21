@@ -214,25 +214,32 @@ async function applyMigration(
     return; // Already applied
   }
 
-  // Execute each statement individually. Bun.SQL uses the extended-query
-  // (prepared-statement) protocol for all unsafe() calls, which forbids multiple
-  // commands per call — so we must send them one at a time.
+  // Bun.SQL's pool.reserve() begins an implicit transaction; releasing the
+  // connection without an explicit COMMIT rolls it back. Each call to
+  // db.executeQuery() acquires + releases a separate reserved connection, so
+  // DDL committed in statement N is invisible to statement N+1.
+  //
+  // Solution: run all statements inside a single Kysely transaction so they
+  // share one reserved connection with an explicit BEGIN/COMMIT. PostgreSQL
+  // supports transactional DDL, so this is safe.
   const statements = splitSqlStatements(up);
 
-  for (let si = 0; si < statements.length; si++) {
-    const stmt = statements[si];
-    try {
-      await (db as any).executeQuery({ sql: stmt, parameters: [] });
-    } catch (err: any) {
-      throw Object.assign(
-        new Error(
-          `Migration ${migrationNumber} statement ${si + 1}/${statements.length} failed:\n` +
-          `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
-        ),
-        { cause: err },
-      );
+  await (db as any).transaction().execute(async (trx: any) => {
+    for (let si = 0; si < statements.length; si++) {
+      const stmt = statements[si];
+      try {
+        await trx.executeQuery({ sql: stmt, parameters: [] });
+      } catch (err: any) {
+        throw Object.assign(
+          new Error(
+            `Migration ${migrationNumber} statement ${si + 1}/${statements.length} failed:\n` +
+            `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
+          ),
+          { cause: err },
+        );
+      }
     }
-  }
+  });
 
   const executionMs = Date.now() - startTime;
   const name = filename
@@ -361,9 +368,11 @@ export async function rollbackMigration(
       }
 
       console.log(`   ⏪ Rolling back migration ${file.version}...`);
-      for (const stmt of splitSqlStatements(down)) {
-        await (db as any).executeQuery({ sql: stmt, parameters: [] });
-      }
+      await (db as any).transaction().execute(async (trx: any) => {
+        for (const stmt of splitSqlStatements(down)) {
+          await trx.executeQuery({ sql: stmt, parameters: [] });
+        }
+      });
 
       // Mark as rolled back
       await (db as any)
