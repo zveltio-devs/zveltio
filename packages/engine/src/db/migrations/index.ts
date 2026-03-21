@@ -4,6 +4,171 @@ import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 
+/**
+ * Splits a SQL string into individual statements on top-level semicolons.
+ * Correctly handles:
+ *  - Single-quoted strings  'it''s fine'
+ *  - Double-quoted identifiers  "col name"
+ *  - Dollar-quoted bodies  $$ ... $$ / $tag$ ... $tag$
+ *  - Line comments  -- ...
+ *  - Block comments  /* ... * /
+ *  - Nested parentheses  (VALUES (...), (...))
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const results: string[] = [];
+  let current = '';
+  let i = 0;
+  const len = sql.length;
+
+  // State
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let dollarTag: string | null = null; // e.g. '$$' or '$body$'
+  let parenDepth = 0;
+
+  while (i < len) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    // ── Line comment ──────────────────────────────────────────────
+    if (inLineComment) {
+      current += ch;
+      if (ch === '\n') inLineComment = false;
+      i++;
+      continue;
+    }
+
+    // ── Block comment ─────────────────────────────────────────────
+    if (inBlockComment) {
+      current += ch;
+      if (ch === '*' && next === '/') {
+        current += next;
+        i += 2;
+        inBlockComment = false;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    // ── Dollar-quoted string ──────────────────────────────────────
+    if (dollarTag !== null) {
+      current += ch;
+      if (sql.startsWith(dollarTag, i)) {
+        current += sql.slice(i + 1, i + dollarTag.length);
+        i += dollarTag.length;
+        dollarTag = null;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    // ── Single-quoted string ──────────────────────────────────────
+    if (inSingleQuote) {
+      current += ch;
+      if (ch === "'" && next === "'") { // escaped quote
+        current += next;
+        i += 2;
+      } else if (ch === "'") {
+        inSingleQuote = false;
+        i++;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    // ── Double-quoted identifier ──────────────────────────────────
+    if (inDoubleQuote) {
+      current += ch;
+      if (ch === '"' && next === '"') { // escaped quote
+        current += next;
+        i += 2;
+      } else if (ch === '"') {
+        inDoubleQuote = false;
+        i++;
+      } else {
+        i++;
+      }
+      continue;
+    }
+
+    // ── Normal context — detect start of special regions ──────────
+
+    // Line comment
+    if (ch === '-' && next === '-') {
+      inLineComment = true;
+      current += ch;
+      i++;
+      continue;
+    }
+
+    // Block comment
+    if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      current += ch;
+      i++;
+      continue;
+    }
+
+    // Single quote
+    if (ch === "'") {
+      inSingleQuote = true;
+      current += ch;
+      i++;
+      continue;
+    }
+
+    // Double quote
+    if (ch === '"') {
+      inDoubleQuote = true;
+      current += ch;
+      i++;
+      continue;
+    }
+
+    // Dollar quote — scan for closing $...$
+    if (ch === '$') {
+      const end = sql.indexOf('$', i + 1);
+      if (end !== -1) {
+        const tag = sql.slice(i, end + 1); // e.g. '$$' or '$body$'
+        // Only treat as dollar-quote if tag contains no whitespace
+        if (!/\s/.test(tag)) {
+          dollarTag = tag;
+          current += tag;
+          i += tag.length;
+          continue;
+        }
+      }
+    }
+
+    // Parentheses
+    if (ch === '(') { parenDepth++; current += ch; i++; continue; }
+    if (ch === ')') { parenDepth--; current += ch; i++; continue; }
+
+    // Semicolon — statement boundary only at top level
+    if (ch === ';' && parenDepth === 0) {
+      const stmt = current.trim();
+      if (stmt.length > 0) results.push(stmt);
+      current = '';
+      i++;
+      continue;
+    }
+
+    current += ch;
+    i++;
+  }
+
+  // Trailing statement without semicolon
+  const trailing = current.trim();
+  if (trailing.length > 0) results.push(trailing);
+
+  return results;
+}
+
 function getMigrationNumber(filename: string): number {
   const match = filename.match(/^(\d+)/);
   if (!match) throw new Error(`Invalid migration filename: ${filename}`);
@@ -52,15 +217,7 @@ async function applyMigration(
   // Execute UP section — split into individual statements because Bun.SQL's
   // extended query protocol (used by unsafe()) does not allow multiple commands
   // in a single call. Each statement is executed separately.
-  const statements = up
-    .split(/;[ \t]*(?:--[^\n]*)?\n|;[ \t]*$/)
-    .map((s: string) => s.trim())
-    .filter((s: string) => {
-      // Filter out empty statements, but keep statements that have actual SQL
-      // even if they start with comment lines (strip comments before checking)
-      const withoutComments = s.replace(/--[^\n]*/g, '').trim();
-      return withoutComments.length > 0;
-    });
+  const statements = splitSqlStatements(up);
 
   for (const stmt of statements) {
     await (db as any).executeQuery({ sql: stmt, parameters: [] });
@@ -193,7 +350,9 @@ export async function rollbackMigration(
       }
 
       console.log(`   ⏪ Rolling back migration ${file.version}...`);
-      await (db as any).executeQuery({ sql: down, parameters: [] });
+      for (const stmt of splitSqlStatements(down)) {
+        await (db as any).executeQuery({ sql: stmt, parameters: [] });
+      }
 
       // Mark as rolled back
       await (db as any)
