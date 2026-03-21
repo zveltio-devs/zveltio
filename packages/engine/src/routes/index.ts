@@ -86,7 +86,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/*', tenantQuota(db));
 
   // Better-Auth handler — handles all /api/auth/** routes
-  app.on(['GET', 'POST'], '/api/auth/**', async (c) => {
+  app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
     try {
       return await auth.handler(c.req.raw);
     } catch (err) {

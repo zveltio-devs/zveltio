@@ -9,8 +9,8 @@ import type { Database } from '../db/index.js';
 export function authRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
-  // GET /me — current user profile
-  app.get('/me', async (c) => {
+  // GET / — current user profile (mounted at /api/me)
+  app.get('/', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Not authenticated' }, 401);
 
@@ -23,9 +23,9 @@ export function authRoutes(db: Database, auth: any): Hono {
     return c.json(user || session.user);
   });
 
-  // PATCH /me — update own profile
+  // PATCH / — update own profile (mounted at /api/me)
   app.patch(
-    '/me',
+    '/',
     zValidator('json', z.object({
       name: z.string().min(1).max(200).optional(),
       image: z.string().url().max(2048).optional(),

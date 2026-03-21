@@ -153,6 +153,7 @@ jobs:
           TEST_VALKEY_URL: redis://localhost:6379
           TEST_PORT: '3099'
           NODE_ENV: test
+          BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
         run: cd packages/engine && bun run test:integration
       - name: Show engine logs (always)
         if: always()
