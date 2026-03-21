@@ -38,7 +38,7 @@ describe('Health — Integration', () => {
     const res = await fetch(`${BASE_URL}/metrics`);
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(text).toContain('zveltio_http_requests_total');
+    expect(text).toContain('zveltio_requests_total');
   });
 
   it('GET /api/health/version — returns detailed version info', async () => {
