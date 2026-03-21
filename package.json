@@ -15,9 +15,13 @@
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "studio:build": "cd packages/studio && bun run build",
-    "studio:embed": "cp -r packages/studio/build packages/engine/src/studio-dist"
+    "studio:embed": "cp -r packages/studio/build packages/engine/src/studio-dist",
+    "changeset": "changeset",
+    "version-packages": "changeset version && bun run scripts/sync-engine-version.ts",
+    "tag": "changeset tag"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.27.0",
     "turbo": "^2.0.0",
     "bun-types": "latest",
     "typescript": "^5.4.0",

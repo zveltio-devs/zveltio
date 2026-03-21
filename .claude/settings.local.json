@@ -129,7 +129,12 @@
       "Bash(wc -l c:/Users/Liviu/zveltio-ecosystem/zveltio/extensions/ai/core-ai/engine/zveltio-ai/*.ts)",
       "Bash(node -e \":*)",
       "Bash(mkdir -p c:/Users/Liviu/zveltio-ecosystem/zveltio-extensions)",
-      "Bash(cp -r c:/Users/Liviu/zveltio-ecosystem/zveltio/extensions/* c:/Users/Liviu/zveltio-ecosystem/zveltio-extensions/)"
+      "Bash(cp -r c:/Users/Liviu/zveltio-ecosystem/zveltio/extensions/* c:/Users/Liviu/zveltio-ecosystem/zveltio-extensions/)",
+      "Bash(find c:/Users/Liviu -maxdepth 5 -name *component* -type d)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Bash(grep -r import.*from.*components /c/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/)",
+      "Bash(find c:/Users/Liviu/zveltio-ecosystem/zveltio/packages/studio/src/lib/components -name *.svelte)"
     ]
   }
 }

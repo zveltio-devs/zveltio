@@ -1,0 +1,66 @@
+name: Version Packages
+
+# ────────────────────────────────────────────────────────────────────────────
+# This workflow runs on every push to main.
+#
+# PHASE 1 — Changesets found in .changeset/
+#   → Bot opens / updates a PR titled "chore: version packages"
+#     The PR bumps all package.json versions, updates CHANGELOG.md files,
+#     and runs sync-engine-version.ts to keep ENGINE_VERSION in sync.
+#
+# PHASE 2 — That PR is merged (no changeset files left)
+#   → Bot runs `bun run tag` which creates Git tags (e.g. v1.2.0).
+#   → Tags pushed to GitHub trigger the separate `release.yml` workflow,
+#     which builds binaries, Docker images, and creates the GitHub Release.
+# ────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: version-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  version-or-tag:
+    name: Version or Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # push commits / tags
+      pull-requests: write # create / update the Version Packages PR
+
+    steps:
+      - name: Generate token from GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Create Version PR or push tags
+        uses: changesets/action@v1
+        with:
+          # Called when changeset files exist → bumps versions + CHANGELOG
+          version: bun run version-packages
+          # Called when Version PR is merged → creates git tags
+          publish: bun run tag
+          title: 'chore: version packages'
+          commit: 'chore: version packages [skip ci]'
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

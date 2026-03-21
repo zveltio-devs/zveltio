@@ -48,6 +48,18 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     permissions: ['database', 'storage'],
   },
   {
+    name: 'developer/views',
+    displayName: 'Alternative Views',
+    description:
+      'Calendar, Card, and List views for collection data — installable alongside the default Table view.',
+    category: 'developer',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['views', 'calendar', 'kanban', 'list'],
+    bundled: false,
+    permissions: [],
+  },
+  {
     name: 'developer/edge-functions',
     displayName: 'Edge Functions',
     description:
