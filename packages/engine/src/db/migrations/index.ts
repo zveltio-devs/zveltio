@@ -1,5 +1,4 @@
 import type { Database } from '../index.js';
-import { _activeBunPool } from '../bun-sql-dialect.js';
 import { readdir } from 'fs/promises';
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -215,16 +214,25 @@ async function applyMigration(
     return; // Already applied
   }
 
-  // Execute UP section via the raw Bun.SQL pool (not Kysely's reserved connections).
-  // pool.unsafe(sql) uses PostgreSQL simple-query protocol which supports multiple
-  // commands in one message. Kysely's reserved connections (reserve().unsafe())
-  // always use the extended-query (prepared-statement) protocol, which forbids
-  // multiple commands — even when no parameters are bound.
+  // Execute each statement individually. Bun.SQL uses the extended-query
+  // (prepared-statement) protocol for all unsafe() calls, which forbids multiple
+  // commands per call — so we must send them one at a time.
   const statements = splitSqlStatements(up);
-  const combinedSql = statements.join(';\n');
 
-  if (!_activeBunPool) throw new Error('[migrations] Bun.SQL pool not initialized');
-  await (_activeBunPool as any).unsafe(combinedSql);
+  for (let si = 0; si < statements.length; si++) {
+    const stmt = statements[si];
+    try {
+      await (db as any).executeQuery({ sql: stmt, parameters: [] });
+    } catch (err: any) {
+      throw Object.assign(
+        new Error(
+          `Migration ${migrationNumber} statement ${si + 1}/${statements.length} failed:\n` +
+          `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
+        ),
+        { cause: err },
+      );
+    }
+  }
 
   const executionMs = Date.now() - startTime;
   const name = filename
@@ -353,9 +361,9 @@ export async function rollbackMigration(
       }
 
       console.log(`   ⏪ Rolling back migration ${file.version}...`);
-      const downSql = splitSqlStatements(down).join(';\n');
-      if (!_activeBunPool) throw new Error('[migrations] Bun.SQL pool not initialized');
-      await (_activeBunPool as any).unsafe(downSql);
+      for (const stmt of splitSqlStatements(down)) {
+        await (db as any).executeQuery({ sql: stmt, parameters: [] });
+      }
 
       // Mark as rolled back
       await (db as any)
