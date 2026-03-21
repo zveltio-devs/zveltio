@@ -214,14 +214,16 @@ async function applyMigration(
     return; // Already applied
   }
 
-  // Execute UP section — split into individual statements because Bun.SQL's
-  // extended query protocol (used by unsafe()) does not allow multiple commands
-  // in a single call. Each statement is executed separately.
+  // Execute UP section.
+  // We split to filter out empty/comment-only fragments, then rejoin with ";\n"
+  // and send as ONE executeQuery call with no parameters. Bun.SQL uses the
+  // PostgreSQL simple-query protocol when params are omitted, which supports
+  // multiple commands in a single message. Sending each statement through a
+  // separate reserve()/release() cycle can lose DDL visibility between calls.
   const statements = splitSqlStatements(up);
+  const combinedSql = statements.join(';\n');
 
-  for (const stmt of statements) {
-    await (db as any).executeQuery({ sql: stmt, parameters: [] });
-  }
+  await (db as any).executeQuery({ sql: combinedSql, parameters: [] });
 
   const executionMs = Date.now() - startTime;
   const name = filename
@@ -350,9 +352,8 @@ export async function rollbackMigration(
       }
 
       console.log(`   ⏪ Rolling back migration ${file.version}...`);
-      for (const stmt of splitSqlStatements(down)) {
-        await (db as any).executeQuery({ sql: stmt, parameters: [] });
-      }
+      const downSql = splitSqlStatements(down).join(';\n');
+      await (db as any).executeQuery({ sql: downSql, parameters: [] });
 
       // Mark as rolled back
       await (db as any)
