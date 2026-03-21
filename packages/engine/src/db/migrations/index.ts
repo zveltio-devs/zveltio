@@ -49,8 +49,17 @@ async function applyMigration(
     return; // Already applied
   }
 
-  // Execute UP section
-  await (db as any).executeQuery({ sql: up, parameters: [] });
+  // Execute UP section — split into individual statements because Bun.SQL's
+  // extended query protocol (used by unsafe()) does not allow multiple commands
+  // in a single call. Each statement is executed separately.
+  const statements = up
+    .split(/;[ \t]*(?:--[^\n]*)?\n|;[ \t]*$/)
+    .map((s: string) => s.trim())
+    .filter((s: string) => s.length > 0 && !s.startsWith('--'));
+
+  for (const stmt of statements) {
+    await (db as any).executeQuery({ sql: stmt, parameters: [] });
+  }
 
   const executionMs = Date.now() - startTime;
   const name = filename
