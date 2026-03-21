@@ -53,9 +53,12 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     for (const s of settings) {
       const key = (s as any).key as string;
       if (!PUBLIC_SETTINGS_WHITELIST.has(key)) continue; // extra guard
-      result[key] = typeof (s as any).value === 'string'
-        ? JSON.parse((s as any).value)
-        : (s as any).value;
+      const raw = (s as any).value;
+      if (typeof raw === 'string') {
+        try { result[key] = JSON.parse(raw); } catch { result[key] = raw; }
+      } else {
+        result[key] = raw;
+      }
     }
     return c.json(result);
   });
@@ -80,9 +83,12 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
     const result: Record<string, any> = {};
     for (const s of settings) {
-      result[(s as any).key] = typeof (s as any).value === 'string'
-        ? JSON.parse((s as any).value)
-        : (s as any).value;
+      const raw = (s as any).value;
+      if (typeof raw === 'string') {
+        try { result[(s as any).key] = JSON.parse(raw); } catch { result[(s as any).key] = raw; }
+      } else {
+        result[(s as any).key] = raw;
+      }
     }
     return c.json(result);
   });
@@ -97,12 +103,14 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
     if (!setting) return c.json({ error: 'Setting not found' }, 404);
 
-    return c.json({
-      key: (setting as any).key,
-      value: typeof (setting as any).value === 'string'
-        ? JSON.parse((setting as any).value)
-        : (setting as any).value,
-    });
+    const raw = (setting as any).value;
+    let parsed: any;
+    if (typeof raw === 'string') {
+      try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+    } else {
+      parsed = raw;
+    }
+    return c.json({ key: (setting as any).key, value: parsed });
   });
 
   // PUT /:key — Upsert a setting
