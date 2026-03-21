@@ -1,0 +1,294 @@
+#!/usr/bin/env bash
+# Generează toate variantele de docker-compose pentru o versiune dată
+# Usage: ./scripts/generate-compose.sh 2.0.1 ./output/
+
+set -euo pipefail
+
+VERSION="${1:?Usage: $0 <version> <output_dir>}"
+OUTPUT_DIR="${2:?Usage: $0 <version> <output_dir>}"
+REGISTRY="ghcr.io/zveltio/zveltio-engine"
+IMAGE="${REGISTRY}:${VERSION}"
+
+mkdir -p "$OUTPUT_DIR"
+
+# ── docker-compose.yml (Full Stack) ───────────────────────────
+cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
+# Zveltio ${VERSION} — Full Stack
+# Includes: Engine, Studio, PostgreSQL, PgBouncer, Valkey, SeaweedFS
+# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+#
+# Quick start:
+#   curl -fsSL https://get.zveltio.com/releases/${VERSION}/.env.example -o .env
+#   # Edit .env with your credentials
+#   docker compose up -d
+
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: zveltio-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: \${POSTGRES_USER:-zveltio}
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: \${POSTGRES_DB:-zveltio}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \${POSTGRES_USER:-zveltio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: zveltio-pgbouncer
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB:-zveltio}"
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zveltio
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: zveltio-valkey
+    restart: unless-stopped
+    command: valkey-server --save 60 1 --loglevel warning
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio
+
+  seaweedfs-master:
+    image: chrislusf/seaweedfs:3.68
+    container_name: zveltio-seaweedfs-master
+    restart: unless-stopped
+    command: master -mdir=/data -defaultReplication=000
+    volumes:
+      - seaweedfs_master:/data
+    networks:
+      - zveltio
+
+  seaweedfs-volume:
+    image: chrislusf/seaweedfs:3.68
+    container_name: zveltio-seaweedfs-volume
+    restart: unless-stopped
+    command: volume -dir=/data -max=10 -mserver=seaweedfs-master:9333 -port=8080
+    volumes:
+      - seaweedfs_volume:/data
+    depends_on:
+      - seaweedfs-master
+    networks:
+      - zveltio
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs:3.68
+    container_name: zveltio-seaweedfs-filer
+    restart: unless-stopped
+    command: filer -master=seaweedfs-master:9333 -s3
+    ports:
+      - "\${S3_PORT:-8333}:8333"
+    depends_on:
+      - seaweedfs-volume
+    networks:
+      - zveltio
+
+  engine:
+    image: ${IMAGE}
+    container_name: zveltio-engine
+    restart: unless-stopped
+    ports:
+      - "\${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@pgbouncer:5432/\${POSTGRES_DB:-zveltio}
+      REDIS_URL: redis://valkey:6379
+      S3_ENDPOINT: http://seaweedfs-filer:8333
+      S3_ACCESS_KEY: \${S3_ACCESS_KEY:-zveltio}
+      S3_SECRET_KEY: \${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
+      S3_BUCKET: \${S3_BUCKET:-zveltio}
+      PORT: 3000
+      SERVE_STUDIO: "true"
+      NODE_ENV: production
+      SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
+      ZVELTIO_VERSION: ${VERSION}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+      seaweedfs-filer:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - zveltio
+
+volumes:
+  postgres_data:
+  valkey_data:
+  seaweedfs_master:
+  seaweedfs_volume:
+
+networks:
+  zveltio:
+    name: zveltio-network
+EOF
+
+# ── docker-compose.infra.yml (Infrastructure Only) ────────────
+cat > "${OUTPUT_DIR}/docker-compose.infra.yml" << EOF
+# Zveltio ${VERSION} — Infrastructure Only
+# Use this when running the engine natively with Bun
+# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+#
+# Quick start:
+#   docker compose -f docker-compose.infra.yml up -d
+#   zveltio start
+
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: zveltio-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: \${POSTGRES_USER:-zveltio}
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: \${POSTGRES_DB:-zveltio}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "\${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \${POSTGRES_USER:-zveltio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: zveltio-pgbouncer
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB:-zveltio}"
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+    ports:
+      - "\${PGBOUNCER_PORT:-6432}:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: zveltio-valkey
+    restart: unless-stopped
+    command: valkey-server --save 60 1 --loglevel warning
+    volumes:
+      - valkey_data:/data
+    ports:
+      - "\${VALKEY_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  seaweedfs-master:
+    image: chrislusf/seaweedfs:3.68
+    container_name: zveltio-seaweedfs-master
+    restart: unless-stopped
+    command: master -mdir=/data -defaultReplication=000
+    volumes:
+      - seaweedfs_master:/data
+    ports:
+      - "9333:9333"
+
+  seaweedfs-volume:
+    image: chrislusf/seaweedfs:3.68
+    container_name: zveltio-seaweedfs-volume
+    restart: unless-stopped
+    command: volume -dir=/data -max=10 -mserver=seaweedfs-master:9333 -port=8080
+    volumes:
+      - seaweedfs_volume:/data
+    depends_on:
+      - seaweedfs-master
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs:3.68
+    container_name: zveltio-seaweedfs-filer
+    restart: unless-stopped
+    command: filer -master=seaweedfs-master:9333 -s3
+    ports:
+      - "\${S3_PORT:-8333}:8333"
+    depends_on:
+      - seaweedfs-volume
+
+volumes:
+  postgres_data:
+  valkey_data:
+  seaweedfs_master:
+  seaweedfs_volume:
+EOF
+
+# ── docker-compose.engine.yml (Engine Only) ───────────────────
+cat > "${OUTPUT_DIR}/docker-compose.engine.yml" << EOF
+# Zveltio ${VERSION} — Engine Only
+# Use this when you have your own PostgreSQL, Redis, and S3
+# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+#
+# Prerequisites: set DATABASE_URL, REDIS_URL, S3_ENDPOINT in .env
+
+version: '3.9'
+
+services:
+  engine:
+    image: ${IMAGE}
+    container_name: zveltio-engine
+    restart: unless-stopped
+    ports:
+      - "\${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: \${DATABASE_URL:?Set DATABASE_URL in .env}
+      REDIS_URL: \${REDIS_URL:?Set REDIS_URL in .env}
+      S3_ENDPOINT: \${S3_ENDPOINT:?Set S3_ENDPOINT in .env}
+      S3_ACCESS_KEY: \${S3_ACCESS_KEY}
+      S3_SECRET_KEY: \${S3_SECRET_KEY}
+      S3_BUCKET: \${S3_BUCKET:-zveltio}
+      PORT: 3000
+      SERVE_STUDIO: "true"
+      NODE_ENV: production
+      SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
+      ZVELTIO_VERSION: ${VERSION}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+EOF
+
+echo "✅ Generated compose files in ${OUTPUT_DIR}"

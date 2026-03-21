@@ -1,0 +1,298 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/zveltio-engine
+
+jobs:
+  # ── Job 1: Build Studio ─────────────────────────────────────
+  build-studio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '1.2.0' }
+      - run: bun install --frozen-lockfile
+      - run: cd packages/studio && bun run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-dist
+          path: packages/studio/dist/
+          retention-days: 1
+
+  # ── Job 2: Build Binaries ────────────────────────────────────
+  build-binaries:
+    needs: build-studio
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            binary: zveltio-linux-x64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
+            binary: zveltio-linux-arm64
+          - os: macos-latest
+            target: bun-darwin-x64
+            binary: zveltio-macos-x64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            binary: zveltio-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '1.2.0' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: studio-dist
+          path: packages/engine/studio-dist/
+      - run: bun install --frozen-lockfile
+      - name: Build binary
+        run: |
+          bun build packages/engine/src/index.ts \
+            --compile \
+            --outfile ${{ matrix.binary }} \
+            --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.binary }}
+          path: ${{ matrix.binary }}
+          retention-days: 1
+
+  # ── Job 3: Build Docker Image ────────────────────────────────
+  build-docker:
+    needs: build-studio
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: studio-dist
+          path: packages/studio/dist/
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref, 'beta') }}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Job 4: Generate Release Assets ──────────────────────────
+  generate-assets:
+    needs: [build-binaries, build-docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          IS_BETA="false"
+          if [[ "${{ github.ref_name }}" == *"beta"* ]]; then IS_BETA="true"; fi
+          echo "is_beta=${IS_BETA}" >> $GITHUB_OUTPUT
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Generate compose files
+        run: |
+          chmod +x scripts/generate-compose.sh
+          mkdir -p release-assets
+          ./scripts/generate-compose.sh \
+            "${{ steps.version.outputs.version }}" \
+            release-assets/
+
+      - name: Copy other assets
+        run: |
+          cp .env.example release-assets/
+          cp scripts/install.sh release-assets/
+          chmod +x release-assets/install.sh
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum zveltio-* > ../release-assets/checksums.sha256
+          cat ../release-assets/checksums.sha256
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          IS_BETA="${{ steps.version.outputs.is_beta }}"
+          CHANNEL=$([ "$IS_BETA" = "true" ] && echo "beta" || echo "stable")
+          BASE="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
+
+          cat > release-assets/latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "channel": "${CHANNEL}",
+            "published_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "engine_image": "ghcr.io/${{ env.IMAGE_NAME }}:${VERSION}",
+            "binaries": {
+              "linux_x64": "${BASE}/zveltio-linux-x64",
+              "linux_arm64": "${BASE}/zveltio-linux-arm64",
+              "macos_x64": "${BASE}/zveltio-macos-x64",
+              "macos_arm64": "${BASE}/zveltio-macos-arm64"
+            },
+            "compose": {
+              "full": "${BASE}/docker-compose.yml",
+              "infra_only": "${BASE}/docker-compose.infra.yml",
+              "engine_only": "${BASE}/docker-compose.engine.yml"
+            },
+            "checksums": "${BASE}/checksums.sha256",
+            "installer": "${BASE}/install.sh",
+            "release_notes": "https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+          }
+          EOF
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            dist/
+            release-assets/
+          retention-days: 1
+
+  # ── Job 5: Publish Release ───────────────────────────────────
+  publish-release:
+    needs: generate-assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: all-assets/
+          merge-multiple: true
+
+      - name: Extract version info
+        id: info
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          IS_BETA="false"
+          if [[ "${{ github.ref_name }}" == *"beta"* ]]; then IS_BETA="true"; fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "prerelease=${IS_BETA}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.info.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: |
+            all-assets/zveltio-linux-x64
+            all-assets/zveltio-linux-arm64
+            all-assets/zveltio-macos-x64
+            all-assets/zveltio-macos-arm64
+            all-assets/docker-compose.yml
+            all-assets/docker-compose.infra.yml
+            all-assets/docker-compose.engine.yml
+            all-assets/checksums.sha256
+            all-assets/latest.json
+            all-assets/install.sh
+            all-assets/.env.example
+          body: |
+            ## Zveltio v${{ steps.info.outputs.version }}
+
+            ### ⚡ Quick Install
+            ```bash
+            curl -fsSL https://get.zveltio.com | bash
+            ```
+
+            ### 🐳 Docker Only
+            ```bash
+            curl -fsSL https://get.zveltio.com/releases/${{ steps.info.outputs.version }}/docker-compose.yml -o docker-compose.yml
+            curl -fsSL https://get.zveltio.com/releases/${{ steps.info.outputs.version }}/.env.example -o .env
+            # Edit .env then:
+            docker compose up -d
+            ```
+
+            ### 📦 Manual Binary
+            ```bash
+            # Linux x64
+            curl -fsSL https://get.zveltio.com/releases/${{ steps.info.outputs.version }}/zveltio-linux-x64 -o zveltio
+            chmod +x zveltio && ./zveltio start
+            ```
+
+            ### 🔧 Compose Builder
+            Customize your installation: **https://get.zveltio.com/builder**
+
+  # ── Job 6: Update zveltio-get repo ──────────────────────────
+  update-website:
+    needs: publish-release
+    runs-on: ubuntu-latest
+    if: "!contains(github.ref, 'beta')"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/
+
+      - name: Checkout zveltio-get repo
+        uses: actions/checkout@v4
+        with:
+          repository: zveltio/zveltio-get
+          token: ${{ secrets.ZVELTIO_GET_DEPLOY_TOKEN }}
+          path: zveltio-get
+
+      - name: Generate versions.json
+        run: |
+          chmod +x scripts/generate-versions-json.sh
+          ./scripts/generate-versions-json.sh \
+            "${{ github.repository }}" \
+            zveltio-get/versions.json
+
+      - name: Copy latest.json
+        run: cp release-assets/latest.json zveltio-get/latest.json
+
+      - name: Commit and push to zveltio-get
+        run: |
+          cd zveltio-get
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add versions.json latest.json
+          git diff --cached --quiet || git commit -m \
+            "chore: update to ${{ github.ref_name }}"
+          git push

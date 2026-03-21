@@ -1,0 +1,13 @@
+{
+  "app_name": "Zveltio",
+  "sign_in": "Autentificare",
+  "sign_up": "Creeaza cont",
+  "sign_out": "Deconectare",
+  "dashboard": "Tablou de bord",
+  "welcome": "Bun venit",
+  "email": "Email",
+  "password": "Parola",
+  "forgot_password": "Ai uitat parola?",
+  "offline_banner": "Esti offline. Modificarile se vor sincroniza la reconectare.",
+  "syncing": "Se sincronizeaza..."
+}

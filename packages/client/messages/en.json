@@ -1,0 +1,13 @@
+{
+  "app_name": "Zveltio",
+  "sign_in": "Sign In",
+  "sign_up": "Create Account",
+  "sign_out": "Sign Out",
+  "dashboard": "Dashboard",
+  "welcome": "Welcome",
+  "email": "Email",
+  "password": "Password",
+  "forgot_password": "Forgot password?",
+  "offline_banner": "You're offline. Changes will sync when reconnected.",
+  "syncing": "Syncing changes..."
+}

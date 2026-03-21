@@ -1,0 +1,236 @@
+name: zveltio
+
+services:
+  # ── PostgreSQL (PGVector) ───────────────────────────────────────────────────────
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: zveltio-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-zveltio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zveltio}
+      POSTGRES_DB: ${POSTGRES_DB:-zveltio}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: |
+      postgres 
+        -c password_encryption=scram-sha-256
+        -c max_connections=500
+        -c shared_buffers=512MB
+        -c effective_cache_size=1536MB
+        -c maintenance_work_mem=128MB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=16MB
+        -c default_statistics_target=100
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c work_mem=16MB
+        -c min_wal_size=1GB
+        -c max_wal_size=4GB
+        -c wal_level=logical
+        -c max_replication_slots=4
+        -c max_wal_senders=4
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-zveltio} -d ${POSTGRES_DB:-zveltio}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio_internal
+
+  # ── PgBouncer (Connection Pooler) ───────────────────────────────────────────────
+  pooler:
+    image: edoburu/pgbouncer
+    container_name: zveltio-pooler
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_NAME: ${POSTGRES_DB:-zveltio}
+      DB_USER: ${POSTGRES_USER:-zveltio}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-zveltio}
+      DB_HOST: db
+      DB_PORT: 5432
+      LISTEN_ADDR: 0.0.0.0
+      LISTEN_PORT: 6432
+      # session mode is required for Better-Auth (SET commands, advisory locks)
+      # and for PostgreSQL LISTEN/NOTIFY used by the realtime subsystem.
+      # transaction mode breaks both. Tradeoff: lower max concurrency — size
+      # DEFAULT_POOL_SIZE to match PostgreSQL max_connections (500 here).
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 400
+      DEFAULT_POOL_SIZE: 40
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 10
+      RESERVE_POOL_TIMEOUT: 3
+      SERVER_IDLE_TIMEOUT: 600
+      CLIENT_IDLE_TIMEOUT: 0
+      AUTH_TYPE: scram-sha-256
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,client_encoding,timezone,search_path,options
+      SERVER_LOGIN_RETRY: 1
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -p 6432 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - zveltio_internal
+
+  # ── Valkey (Modern Redis Fork) ──────────────────────────────────────────────────
+  cache:
+    image: valkey/valkey:8-alpine
+    container_name: zveltio-cache
+    restart: unless-stopped
+    command: >
+      valkey-server
+      --requirepass ${VALKEY_PASSWORD:-zveltio}
+      --protected-mode no
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ['CMD', 'valkey-cli', '-a', '${VALKEY_PASSWORD:-zveltio}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio_internal
+
+  # ── SeaweedFS (S3-compatible object storage) ────────────────────────────────────
+  storage:
+    # Pin to specific version — avoid silent breaking changes on docker compose pull
+    image: chrislusf/seaweedfs:3.68
+    container_name: zveltio-storage
+    restart: unless-stopped
+    command: server -s3 -filer -ip=0.0.0.0
+    ports:
+      - '${STORAGE_S3_PORT:-8333}:8333'
+      - '${STORAGE_FILER_PORT:-8888}:8888'
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8333/']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio_internal
+
+  # ── Prometheus (Metrics Collection) ──────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: zveltio-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    # ports nu este expus pe host — acces doar prin rețeaua internă Docker
+    # sau prin tunnel/VPN
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:9090/-/healthy']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio_internal
+
+  # ── Grafana (Monitoring Dashboards) ──────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: zveltio-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: '${GRAFANA_ADMIN_PASSWORD:?ERROR: GRAFANA_ADMIN_PASSWORD must be set in .env}'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - '${GRAFANA_PORT:-3001}:3000'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    healthcheck:
+      test:
+        ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/api/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio_internal
+
+  # ── Zveltio Engine ──────────────────────────────────────────────────────────────
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zveltio-engine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      pooler:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      PORT: '3000'
+      HOST: '0.0.0.0'
+      NODE_ENV: production
+
+      # Database (connect via pooler for production)
+      DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@pooler:6432/${POSTGRES_DB:-zveltio}'
+
+      # Auth (change BETTER_AUTH_SECRET in production!)
+      BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?ERROR: BETTER_AUTH_SECRET must be set in .env - generate with: openssl rand -hex 32}'
+      BETTER_AUTH_URL: '${BETTER_AUTH_URL:-http://localhost:3000}'
+
+      # Valkey/Redis
+      VALKEY_URL: 'redis://:${VALKEY_PASSWORD:-zveltio}@cache:6379'
+
+      # S3 / SeaweedFS
+      S3_ENDPOINT: 'http://storage:8333'
+      S3_REGION: 'us-east-1'
+      S3_ACCESS_KEY: '${S3_ACCESS_KEY:?ERROR: S3_ACCESS_KEY must be set}'
+      S3_SECRET_KEY: '${S3_SECRET_KEY:?ERROR: S3_SECRET_KEY must be set}'
+      S3_BUCKET: 'zveltio'
+      S3_PUBLIC_URL: '${S3_PUBLIC_URL:-http://localhost:8333}'
+
+      # Extensions (comma-separated)
+      ZVELTIO_EXTENSIONS: '${ZVELTIO_EXTENSIONS:-}'
+
+    volumes:
+      - ./extensions:/app/extensions:ro
+    networks:
+      - zveltio_internal
+
+  # ── Development overrides ───────────────────────────────────────────────────────
+  # Run: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+networks:
+  zveltio_internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  valkey_data:
+  seaweedfs_data:
+  prometheus_data:
+  grafana_data:

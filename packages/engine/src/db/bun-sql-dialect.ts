@@ -1,0 +1,219 @@
+/**
+ * BunSqlDialect — Native Kysely dialect for Bun 1.2+ via Bun.SQL
+ *
+ * Advantages over `pg`:
+ *  - Native Bun I/O (no libuv overhead)
+ *  - Native C++ row deserialization (vs JS in pg)
+ *  - Built-in connection pool with reserve() for correct transactions
+ *  - Zero external dependencies (Bun.SQL is built-in)
+ *
+ * Requires: Bun >= 1.2, bun-types in devDependencies
+ */
+
+import {
+  CompiledQuery,
+  DatabaseConnection,
+  DatabaseIntrospector,
+  Dialect,
+  DialectAdapter,
+  Driver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+  QueryCompiler,
+  QueryResult,
+  TransactionSettings,
+} from 'kysely';
+
+// ─── Internal types for Bun.SQL (bun-types exposes via `Bun` global) ────
+
+/** A reserved connection from Bun.SQL pool (bun >= 1.2) */
+interface BunReservedConnection {
+  /** Execute a parameterized query $1/$2/... PostgreSQL style */
+  query<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<T[]>;
+  /** Release the connection back to the pool */
+  release(): void;
+}
+
+/** Main Bun.SQL pool */
+interface BunSQLPool {
+  query<T = Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<T[]>;
+  /** Reserve a dedicated connection from pool (for transactions) */
+  reserve(): Promise<BunReservedConnection>;
+  /** Register a handler for LISTEN/NOTIFY */
+  subscribe(
+    channel: string,
+    handler: (payload: string) => void,
+  ): Promise<BunSubscription>;
+  /** Close the pool and all connections */
+  close(): Promise<void>;
+}
+
+export interface BunSubscription {
+  unsubscribe(): Promise<void>;
+}
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+export interface BunSqlDialectConfig {
+  /** Connection string PostgreSQL. Fallback: DATABASE_URL env var. */
+  connectionString?: string;
+  /**
+   * Maximum connection pool size.
+   * @default 20
+   */
+  max?: number;
+  /**
+   * Idle timeout for connections (ms).
+   * @default 30000
+   */
+  idleTimeoutMs?: number;
+}
+
+// ─── Dialect ─────────────────────────────────────────────────────────────────
+
+export class BunSqlDialect implements Dialect {
+  readonly #config: BunSqlDialectConfig;
+
+  constructor(config: BunSqlDialectConfig = {}) {
+    this.#config = config;
+  }
+
+  createDriver(): Driver {
+    return new BunSqlDriver(this.#config);
+  }
+
+  createQueryCompiler(): QueryCompiler {
+    // Reuse PostgreSQL compiler from Kysely — $1/$2 syntax is identical
+    return new PostgresQueryCompiler();
+  }
+
+  createAdapter(): DialectAdapter {
+    return new PostgresAdapter();
+  }
+
+  createIntrospector(db: Kysely<any>): DatabaseIntrospector {
+    return new PostgresIntrospector(db);
+  }
+}
+
+// ─── Driver ──────────────────────────────────────────────────────────────────
+
+class BunSqlDriver implements Driver {
+  readonly #config: BunSqlDialectConfig;
+  #pool: BunSQLPool | null = null;
+
+  constructor(config: BunSqlDialectConfig) {
+    this.#config = config;
+  }
+
+  async init(): Promise<void> {
+    const url = this.#config.connectionString ?? process.env.DATABASE_URL;
+    if (!url) {
+      throw new Error(
+        '[BunSqlDialect] connectionString or DATABASE_URL is required',
+      );
+    }
+
+    // Bun.SQL creează automat un connection pool intern.
+    // @ts-expect-error — Bun global tipat de bun-types, dar Bun.SQL nu e în tipurile standard Kysely
+    this.#pool = new Bun.SQL(url, {
+      max: this.#config.max ?? 20,
+      idleTimeout: this.#config.idleTimeoutMs ?? 30_000,
+    }) as BunSQLPool;
+  }
+
+  /**
+   * Achizitionează o conexiune rezervată din pool.
+   * reserve() pinuiește conexiunea la același socket TCP — necesar pentru
+   * ca BEGIN/query.../COMMIT să ruleze pe același backend PostgreSQL.
+   */
+  async acquireConnection(): Promise<DatabaseConnection> {
+    if (!this.#pool)
+      throw new Error(
+        '[BunSqlDriver] Driver neinitialized. Apelați initDatabase().',
+      );
+    const reserved = await this.#pool.reserve();
+    return new BunSqlConnection(reserved);
+  }
+
+  async beginTransaction(
+    connection: DatabaseConnection,
+    settings: TransactionSettings,
+  ): Promise<void> {
+    await connection.executeQuery(CompiledQuery.raw('BEGIN'));
+    if (settings.isolationLevel) {
+      await connection.executeQuery(
+        CompiledQuery.raw(
+          `SET TRANSACTION ISOLATION LEVEL ${settings.isolationLevel.toUpperCase()}`,
+        ),
+      );
+    }
+  }
+
+  async commitTransaction(connection: DatabaseConnection): Promise<void> {
+    await connection.executeQuery(CompiledQuery.raw('COMMIT'));
+  }
+
+  async rollbackTransaction(connection: DatabaseConnection): Promise<void> {
+    await connection.executeQuery(CompiledQuery.raw('ROLLBACK'));
+  }
+
+  async releaseConnection(connection: DatabaseConnection): Promise<void> {
+    // Release the reserved connection back to the pool
+    (connection as BunSqlConnection).release();
+  }
+
+  async destroy(): Promise<void> {
+    if (this.#pool) {
+      await this.#pool.close();
+      this.#pool = null;
+    }
+  }
+
+  /** Exposes pool for LISTEN/NOTIFY (used by RealtimeManager) */
+  getPool(): BunSQLPool {
+    if (!this.#pool) throw new Error('[BunSqlDriver] Pool not initialized.');
+    return this.#pool;
+  }
+}
+
+// ─── Connection ──────────────────────────────────────────────────────────────
+
+class BunSqlConnection implements DatabaseConnection {
+  readonly #conn: BunReservedConnection;
+
+  constructor(conn: BunReservedConnection) {
+    this.#conn = conn;
+  }
+
+  async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
+    const rows = await this.#conn.query<R>(
+      compiledQuery.sql,
+      compiledQuery.parameters as unknown[],
+    );
+    return { rows };
+  }
+
+  // Streaming is not supported by Bun.SQL yet (Bun 1.2)
+  // eslint-disable-next-line require-yield
+  async *streamQuery<R>(
+    _compiledQuery: CompiledQuery,
+    _chunkSize: number,
+  ): AsyncIterableIterator<QueryResult<R>> {
+    throw new Error(
+      '[BunSqlConnection] streamQuery is not supported in BunSqlDialect',
+    );
+  }
+
+  release(): void {
+    this.#conn.release();
+  }
+}

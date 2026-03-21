@@ -1,0 +1,20 @@
+{
+  "name": "Zveltio Studio",
+  "short_name": "Zveltio",
+  "description": "Zveltio Admin Studio — manage your data, users, and extensions",
+  "start_url": "/admin/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#069494",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/admin/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "en"
+}
