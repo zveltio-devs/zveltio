@@ -16,26 +16,28 @@ export async function initAuth(db: Database) {
     throw new Error('BETTER_AUTH_SECRET environment variable is required');
   }
 
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL environment variable is required for auth');
-  }
-
   const port = process.env.PORT || '3000';
   const baseURL = process.env.BETTER_AUTH_URL || `http://localhost:${port}`;
 
-  // Build a standard Kysely+PostgresDialect instance for better-auth.
-  // Using pg.Pool directly (as `database: pgPool as any`) skips the Kysely
-  // adapter entirely: better-auth falls back to its raw-pg path which does NOT
-  // double-quote camelCase column names ("emailVerified", "createdAt", etc.).
-  // PostgreSQL then lowercases unquoted identifiers → column-not-found errors.
-  // Wrapping via kyselyAdapter(kyselyInstance) ensures Kysely compiles all
-  // queries with properly-quoted identifiers that match our 001_auth.sql schema.
-  const { Pool } = await import('pg');
-  const { Kysely, PostgresDialect } = await import('kysely');
-  const { kyselyAdapter } = await import('@better-auth/kysely-adapter');
-  const pgPool = new Pool({ connectionString: databaseUrl, max: 5 });
-  const kyselyForBetterAuth = new Kysely({ dialect: new PostgresDialect({ pool: pgPool }) });
+  // Pass the engine's own Kysely (BunSqlDialect) instance to better-auth via the
+  // { db, type } object form. createKyselyAdapter detects "db" in database and uses
+  // db.db directly with databaseType = "postgres", skipping auto-detection entirely.
+  //
+  // Why NOT pg.Pool:
+  //   - pg.Pool is a Node.js library; Bun's Node compat has subtle socket-level
+  //     differences that cause silent connection failures at query time.
+  //   - health check uses BunSqlDialect, so pg.Pool failures are invisible until
+  //     the first auth request hits the DB.
+  //
+  // Why NOT BunSqlDialect passed directly (previous attempt):
+  //   - createKyselyAdapter detects it via "createDriver" but can't identify the
+  //     dialect type → falls back to databaseType = null → type: "sqlite" in the
+  //     adapter → wrong SQL generation (no boolean/UUID/JSON support).
+  //
+  // This form is explicit: we reuse the already-working engine Kysely instance and
+  // tell better-auth it's postgres, so all feature flags (booleans, UUIDs, JSON)
+  // are enabled correctly.
+  const database: any = { db, type: 'postgres' };
 
   // Optional cache secondary storage for sessions
   let secondaryStorage: any = undefined;
@@ -48,7 +50,7 @@ export async function initAuth(db: Database) {
   const authInstance = betterAuth({
     baseURL,
     secret: process.env.BETTER_AUTH_SECRET,
-    database: kyselyAdapter(kyselyForBetterAuth, { type: 'postgres' }),
+    database,
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
     emailAndPassword: { enabled: true },
