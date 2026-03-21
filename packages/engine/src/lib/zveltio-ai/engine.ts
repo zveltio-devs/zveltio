@@ -68,7 +68,7 @@ export class ZveltioAIEngine {
       const systemPrompt = this.buildSystemPrompt(context);
 
       // Build conversation messages array
-      let conversationMessages: Array<{
+      const conversationMessages: Array<{
         role: 'system' | 'user' | 'assistant' | 'tool';
         content: any;
         tool_call_id?: string;

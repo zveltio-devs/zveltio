@@ -105,7 +105,7 @@ RESPONSE FORMAT (JSON only, no markdown):
 Generate realistic, complete schemas. Keep to 2-6 collections unless the description demands more.`;
 }
 
-export function aiSchemaGenRoutes(db: Database, appAuth: any): Hono {
+export function aiSchemaGenRoutes(db: Database, _appAuth: any): Hono {
   const router = new Hono();
 
   // Admin-only
