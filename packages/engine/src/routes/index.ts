@@ -30,7 +30,6 @@ import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 // approvals → extensions/workflow/approvals
 // drafts → extensions/content/drafts
 // documents → extensions/content/documents
-// ai → extensions/ai/core-ai
 import { syncRoutes } from './sync.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit } from '../middleware/rate-limit.js';

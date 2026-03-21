@@ -36,18 +36,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     permissions: ['database'],
   },
   {
-    name: 'ai/core-ai',
-    displayName: 'Core AI',
-    description:
-      'AI chat, embeddings, semantic search, and multi-provider management (OpenAI, Anthropic, Mistral, local).',
-    category: 'ai',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['ai', 'chat', 'embeddings', 'search'],
-    bundled: true,
-    permissions: ['database', 'external-api'],
-  },
-  {
     name: 'content/page-builder',
     displayName: 'Page Builder',
     description:
@@ -58,18 +46,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     tags: ['cms', 'pages', 'content'],
     bundled: true,
     permissions: ['database', 'storage'],
-  },
-  {
-    name: 'automation/flows',
-    displayName: 'Flows',
-    description:
-      'Visual automation builder: triggers (event, schedule, webhook), conditions, actions, and run history.',
-    category: 'automation',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['automation', 'flows', 'triggers'],
-    bundled: true,
-    permissions: ['database', 'webhooks'],
   },
   {
     name: 'developer/edge-functions',
