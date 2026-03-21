@@ -42,27 +42,30 @@ Full installation guide: **[get.zveltio.com](https://get.zveltio.com)**
 Monorepo with Turborepo:
 
 ```
-zveltio/
+zveltio/                   # This repo — core engine
 ├── packages/
-│   ├── engine/      # Core API server (Bun + Hono + Kysely)
-│   ├── cli/         # CLI (zveltio start, migrate, update, create-god...)
-│   ├── sdk/         # Vanilla JS/TypeScript client
-│   ├── sdk-react/   # React 18+ hooks (@zveltio/react)
-│   ├── sdk-vue/     # Vue 3 composables (@zveltio/vue)
-│   └── studio/      # Admin UI (SvelteKit 5)
-├── extensions/      # Plugin system
-│   ├── ai/          # AI engine (chat, search, alchemist, text-to-sql)
-│   ├── automation/  # Flows with DLQ
-│   ├── compliance/  # eFactura, SAF-T (RO)
-│   ├── content/     # Page builder, document templates
-│   ├── developer/   # Edge functions, GraphQL, schema branches
-│   ├── geospatial/  # PostGIS field types
-│   └── workflow/    # Approvals, checklists
+│   ├── engine/            # Core API server (Bun + Hono + Kysely)
+│   ├── cli/               # CLI (zveltio start, migrate, update, create-god...)
+│   ├── sdk/               # Vanilla JS/TypeScript client
+│   ├── sdk-react/         # React 18+ hooks (@zveltio/react)
+│   ├── sdk-vue/           # Vue 3 composables (@zveltio/vue)
+│   └── studio/            # Admin UI (SvelteKit 5)
 ├── Dockerfile
 ├── docker-compose.yml
 └── scripts/
     ├── install.sh
     └── generate-compose.sh
+
+zveltio-extensions/        # Separate repo — marketplace extensions
+├── analytics/             # Insights dashboards
+├── auth/                  # LDAP, SAML
+├── communications/        # Mail (IMAP/SMTP)
+├── compliance/            # GDPR, eFactura, SAF-T (RO)
+├── content/               # Page builder, document templates
+├── developer/             # Edge functions, GraphQL, views
+├── geospatial/            # PostGIS field types
+├── storage/               # Cloud storage (S3)
+└── workflow/              # Approvals, checklists
 ```
 
 ### Technology Stack
@@ -87,7 +90,7 @@ zveltio/
 For contributors and extension developers:
 
 ```bash
-git clone https://github.com/zveltio/zveltio.git
+git clone https://github.com/zveltio-devs/zveltio.git
 cd zveltio
 bun install
 
