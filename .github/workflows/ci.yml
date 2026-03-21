@@ -91,19 +91,24 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3099
           PORT: '3099'
           NODE_ENV: test
-        run: bun packages/engine/src/index.ts &
+        run: bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
       - name: Wait for engine to start
         run: |
           echo "Waiting for engine on port 3099..."
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -sf http://localhost:3099/api/health > /dev/null 2>&1; then
               echo "Engine ready after ${i}s"
               exit 0
             fi
             sleep 1
           done
-          echo "Engine did not become ready within 30s"
+          echo "Engine did not become ready within 60s"
+          echo "--- Engine logs ---"
+          cat /tmp/engine.log || true
           exit 1
+      - name: Show engine logs
+        if: always()
+        run: cat /tmp/engine.log || true
       - name: Run integration tests
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
