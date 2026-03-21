@@ -4,6 +4,7 @@
  * Usage: bun packages/engine/src/db/migrate.ts
  */
 
+import { sql } from 'kysely';
 import { createDb } from './index.js';
 import { runMigrations } from './migrations/index.js';
 
@@ -14,6 +15,10 @@ if (!databaseUrl) {
 }
 
 const db = createDb(databaseUrl);
+
+// Force Kysely to initialize the driver (and therefore the Bun.SQL pool)
+// before runMigrations tries to use _activeBunPool.
+await sql`SELECT 1`.execute(db);
 
 try {
   await runMigrations(db);

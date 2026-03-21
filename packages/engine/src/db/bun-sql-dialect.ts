@@ -105,6 +105,13 @@ export class BunSqlDialect implements Dialect {
   }
 }
 
+// ─── Module-level pool ref for migration runner ───────────────────────────────
+// pool.unsafe(sql) (no params) uses PostgreSQL simple-query protocol and
+// supports multiple commands. reserved.unsafe(sql) always uses extended-query
+// protocol (prepared statements) even without params, which forbids multiple
+// commands. Migrations need simple-query, so they use this reference directly.
+export let _activeBunPool: BunSQLPool | null = null;
+
 // ─── Driver ──────────────────────────────────────────────────────────────────
 
 class BunSqlDriver implements Driver {
@@ -129,6 +136,7 @@ class BunSqlDriver implements Driver {
       max: this.#config.max ?? 20,
       idleTimeout: this.#config.idleTimeoutMs ?? 30_000,
     }) as BunSQLPool;
+    _activeBunPool = this.#pool;
   }
 
   /**

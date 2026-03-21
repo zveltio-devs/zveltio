@@ -1,4 +1,5 @@
 import type { Database } from '../index.js';
+import { _activeBunPool } from '../bun-sql-dialect.js';
 import { readdir } from 'fs/promises';
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -214,16 +215,16 @@ async function applyMigration(
     return; // Already applied
   }
 
-  // Execute UP section.
-  // We split to filter out empty/comment-only fragments, then rejoin with ";\n"
-  // and send as ONE executeQuery call with no parameters. Bun.SQL uses the
-  // PostgreSQL simple-query protocol when params are omitted, which supports
-  // multiple commands in a single message. Sending each statement through a
-  // separate reserve()/release() cycle can lose DDL visibility between calls.
+  // Execute UP section via the raw Bun.SQL pool (not Kysely's reserved connections).
+  // pool.unsafe(sql) uses PostgreSQL simple-query protocol which supports multiple
+  // commands in one message. Kysely's reserved connections (reserve().unsafe())
+  // always use the extended-query (prepared-statement) protocol, which forbids
+  // multiple commands — even when no parameters are bound.
   const statements = splitSqlStatements(up);
   const combinedSql = statements.join(';\n');
 
-  await (db as any).executeQuery({ sql: combinedSql, parameters: [] });
+  if (!_activeBunPool) throw new Error('[migrations] Bun.SQL pool not initialized');
+  await (_activeBunPool as any).unsafe(combinedSql);
 
   const executionMs = Date.now() - startTime;
   const name = filename
@@ -353,7 +354,8 @@ export async function rollbackMigration(
 
       console.log(`   ⏪ Rolling back migration ${file.version}...`);
       const downSql = splitSqlStatements(down).join(';\n');
-      await (db as any).executeQuery({ sql: downSql, parameters: [] });
+      if (!_activeBunPool) throw new Error('[migrations] Bun.SQL pool not initialized');
+      await (_activeBunPool as any).unsafe(downSql);
 
       // Mark as rolled back
       await (db as any)
