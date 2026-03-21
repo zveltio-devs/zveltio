@@ -86,7 +86,14 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/*', tenantQuota(db));
 
   // Better-Auth handler — handles all /api/auth/** routes
-  app.on(['GET', 'POST'], '/api/auth/**', (c) => auth.handler(c.req.raw));
+  app.on(['GET', 'POST'], '/api/auth/**', async (c) => {
+    try {
+      return await auth.handler(c.req.raw);
+    } catch (err) {
+      console.error('[Auth Handler] Unhandled error:', err);
+      return c.json({ error: 'Auth handler failed', detail: String(err) }, 500);
+    }
+  });
 
   // Profile convenience routes
   app.route('/api/me', authRoutes(db, auth));

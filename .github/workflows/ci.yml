@@ -118,14 +118,24 @@ jobs:
       - name: Smoke test auth endpoint
         run: |
           echo "--- Auth sign-up smoke test ---"
-          curl -s -w "\n---HTTP_STATUS:%{http_code}" -X POST http://localhost:3099/api/auth/sign-up/email \
+          SIGNUP_BODY=$(curl -s -X POST http://localhost:3099/api/auth/sign-up/email \
             -H "Content-Type: application/json" \
-            -d '{"email":"smoke@test.local","password":"TestPass123!","name":"Smoke"}' 2>&1 || true
+            -d '{"email":"smoke@test.local","password":"TestPass123!","name":"Smoke"}' 2>&1)
+          SIGNUP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3099/api/auth/sign-up/email \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke2@test.local","password":"TestPass123!","name":"Smoke2"}' 2>&1)
+          echo "Sign-up response body: $SIGNUP_BODY"
+          echo "Sign-up HTTP status: $SIGNUP_STATUS"
           echo ""
           echo "--- Auth sign-in smoke test ---"
-          curl -s -w "\n---HTTP_STATUS:%{http_code}" -X POST http://localhost:3099/api/auth/sign-in/email \
+          SIGNIN_BODY=$(curl -s -X POST http://localhost:3099/api/auth/sign-in/email \
             -H "Content-Type: application/json" \
-            -d '{"email":"smoke@test.local","password":"TestPass123!"}' 2>&1 || true
+            -d '{"email":"smoke@test.local","password":"TestPass123!"}' 2>&1)
+          SIGNIN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3099/api/auth/sign-in/email \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@test.local","password":"TestPass123!"}' 2>&1)
+          echo "Sign-in response body: $SIGNIN_BODY"
+          echo "Sign-in HTTP status: $SIGNIN_STATUS"
           echo ""
           echo "--- Settings public test ---"
           curl -s -w "\n---HTTP_STATUS:%{http_code}" http://localhost:3099/api/settings/public 2>&1 || true
@@ -133,6 +143,9 @@ jobs:
           echo "--- Users unauthenticated test ---"
           curl -s -w "\n---HTTP_STATUS:%{http_code}" http://localhost:3099/api/users 2>&1 || true
           echo ""
+          echo "--- Engine logs at smoke test time ---"
+          cat /tmp/engine.log || true
+          echo "--- End engine logs ---"
       - name: Run integration tests
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
