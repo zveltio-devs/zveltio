@@ -1,66 +1,38 @@
 -- Migration: 018_media
--- Media library: folders, files, tags
+-- Extends media library (created in 005_storage) with tags, extra metadata columns
 
-CREATE TABLE IF NOT EXISTS zv_media_folders (
-  id          TEXT PRIMARY KEY,
-  name        TEXT NOT NULL,
-  parent_id   TEXT REFERENCES zv_media_folders(id) ON DELETE CASCADE,
-  description TEXT,
-  created_by  TEXT REFERENCES "user"(id) ON DELETE SET NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Add columns missing from the initial 005 schema
+ALTER TABLE zv_media_files ADD COLUMN IF NOT EXISTS title          TEXT;
+ALTER TABLE zv_media_files ADD COLUMN IF NOT EXISTS description    TEXT;
+ALTER TABLE zv_media_files ADD COLUMN IF NOT EXISTS alt_text       TEXT;
+ALTER TABLE zv_media_files ADD COLUMN IF NOT EXISTS thumbnail_url  TEXT;
+ALTER TABLE zv_media_files ADD COLUMN IF NOT EXISTS duration_seconds INT;
 
-CREATE TABLE IF NOT EXISTS zv_media_files (
-  id                TEXT PRIMARY KEY,
-  folder_id         TEXT REFERENCES zv_media_folders(id) ON DELETE SET NULL,
-  filename          TEXT NOT NULL,
-  original_filename TEXT NOT NULL,
-  mime_type         TEXT NOT NULL,
-  size_bytes        BIGINT NOT NULL,
-  width             INT,
-  height            INT,
-  duration_seconds  INT,
-  url               TEXT NOT NULL,
-  thumbnail_url     TEXT,
-  storage_path      TEXT NOT NULL,
-  uploaded_by       TEXT REFERENCES "user"(id) ON DELETE SET NULL,
-  title             TEXT,
-  description       TEXT,
-  alt_text          TEXT,
-  metadata          JSONB NOT NULL DEFAULT '{}',
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
+-- Tags vocabulary
 CREATE TABLE IF NOT EXISTS zv_media_tags (
-  id         TEXT PRIMARY KEY,
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name       TEXT NOT NULL UNIQUE,
   color      TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- File ↔ tag join table (file_id must be UUID to match zv_media_files.id)
 CREATE TABLE IF NOT EXISTS zv_media_file_tags (
-  file_id TEXT NOT NULL REFERENCES zv_media_files(id) ON DELETE CASCADE,
-  tag_id  TEXT NOT NULL REFERENCES zv_media_tags(id) ON DELETE CASCADE,
+  file_id UUID NOT NULL REFERENCES zv_media_files(id) ON DELETE CASCADE,
+  tag_id  UUID NOT NULL REFERENCES zv_media_tags(id)  ON DELETE CASCADE,
   PRIMARY KEY (file_id, tag_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_zv_media_folders_parent     ON zv_media_folders(parent_id);
-CREATE INDEX IF NOT EXISTS idx_zv_media_files_folder       ON zv_media_files(folder_id);
-CREATE INDEX IF NOT EXISTS idx_zv_media_files_mime         ON zv_media_files(mime_type);
-CREATE INDEX IF NOT EXISTS idx_zv_media_files_created      ON zv_media_files(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_zv_media_file_tags_file     ON zv_media_file_tags(file_id);
-CREATE INDEX IF NOT EXISTS idx_zv_media_file_tags_tag      ON zv_media_file_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_zv_media_file_tags_file ON zv_media_file_tags(file_id);
+CREATE INDEX IF NOT EXISTS idx_zv_media_file_tags_tag  ON zv_media_file_tags(tag_id);
 
 -- DOWN
 DROP INDEX IF EXISTS idx_zv_media_file_tags_tag;
 DROP INDEX IF EXISTS idx_zv_media_file_tags_file;
 DROP TABLE IF EXISTS zv_media_file_tags;
 DROP TABLE IF EXISTS zv_media_tags;
-DROP INDEX IF EXISTS idx_zv_media_files_created;
-DROP INDEX IF EXISTS idx_zv_media_files_mime;
-DROP INDEX IF EXISTS idx_zv_media_files_folder;
-DROP TABLE IF EXISTS zv_media_files;
-DROP INDEX IF EXISTS idx_zv_media_folders_parent;
-DROP TABLE IF EXISTS zv_media_folders;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS duration_seconds;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS thumbnail_url;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS alt_text;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS description;
+ALTER TABLE zv_media_files DROP COLUMN IF EXISTS title;
