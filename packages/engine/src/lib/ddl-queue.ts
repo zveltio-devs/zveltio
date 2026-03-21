@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 
@@ -141,6 +142,60 @@ async function processNextJob(): Promise<void> {
             // payload: { collection: string, fieldName: string }
             await DDLManager.removeField(trx, payload.collection, payload.fieldName);
             break;
+          case 'create_relation': {
+            // payload: { type, source_collection, source_field, target_collection, target_field, on_delete, on_update }
+            const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
+            const SAFE_ACTION = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
+            const relType: string = payload.type ?? 'm2o';
+            const srcCol: string = payload.source_collection ?? '';
+            const tgtCol: string = payload.target_collection ?? '';
+            const srcField: string = payload.source_field ?? '';
+            const tgtField: string = payload.target_field ?? 'id';
+            const onDelete: string = payload.on_delete ?? 'SET NULL';
+            const onUpdate: string = payload.on_update ?? 'NO ACTION';
+
+            if (relType === 'm2o') {
+              if (!SAFE_NAME.test(srcCol) || !SAFE_NAME.test(tgtCol) || !SAFE_NAME.test(srcField) || !SAFE_NAME.test(tgtField)) {
+                throw new Error(`Invalid identifier in create_relation payload`);
+              }
+              if (!SAFE_ACTION.test(onDelete) || !SAFE_ACTION.test(onUpdate)) {
+                throw new Error(`Invalid ON DELETE/ON UPDATE action in create_relation`);
+              }
+              await sql.raw(
+                `ALTER TABLE zvd_${srcCol} ADD COLUMN IF NOT EXISTS "${srcField}" UUID REFERENCES zvd_${tgtCol}(${tgtField}) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
+              ).execute(trx);
+            } else if (relType === 'm2m') {
+              const junctionTable: string = payload.junction_table ?? '';
+              if (junctionTable && SAFE_NAME.test(junctionTable) && SAFE_NAME.test(srcCol) && SAFE_NAME.test(tgtCol)) {
+                await sql.raw(
+                  `CREATE TABLE IF NOT EXISTS ${junctionTable} (` +
+                  `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
+                  `${srcCol}_id UUID REFERENCES zvd_${srcCol}(id) ON DELETE CASCADE, ` +
+                  `${tgtCol}_id UUID REFERENCES zvd_${tgtCol}(id) ON DELETE CASCADE, ` +
+                  `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+                ).execute(trx);
+              }
+            }
+            // o2m and m2a: FK lives on the other side or is handled separately
+            break;
+          }
+          case 'drop_relation': {
+            // payload: { type, source_collection, source_field, junction_table }
+            const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
+            const relType: string = payload.type ?? 'm2o';
+            const srcCol: string = payload.source_collection ?? '';
+            const srcField: string = payload.source_field ?? '';
+            const junctionTable: string = payload.junction_table ?? '';
+
+            if (relType === 'm2o') {
+              if (SAFE_NAME.test(srcCol) && SAFE_NAME.test(srcField)) {
+                await sql.raw(`ALTER TABLE zvd_${srcCol} DROP COLUMN IF EXISTS "${srcField}"`).execute(trx);
+              }
+            } else if (relType === 'm2m' && junctionTable && SAFE_NAME.test(junctionTable)) {
+              await sql.raw(`DROP TABLE IF EXISTS ${junctionTable} CASCADE`).execute(trx);
+            }
+            break;
+          }
           default:
             throw new Error(`Unknown DDL job type: ${(job as any).type}`);
         }

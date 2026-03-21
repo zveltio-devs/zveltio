@@ -181,15 +181,15 @@ describe.skipIf(skipAll)('CRUD — Integration', () => {
   });
 
   it('zv_revisions — records create/update/delete revisions', async () => {
-    const revisions = await sql<{ id: string; event: string }>`
-      SELECT id, event FROM zv_revisions
+    const revisions = await sql<{ id: string; action: string }>`
+      SELECT id, action FROM zv_revisions
       WHERE collection = ${COLLECTION}
       ORDER BY created_at ASC
     `.execute(db);
 
-    const events = revisions.rows.map((r) => r.event);
-    expect(events).toContain('create');
-    expect(events).toContain('update');
-    expect(events).toContain('delete');
+    const actions = revisions.rows.map((r) => r.action);
+    expect(actions).toContain('create');
+    expect(actions).toContain('update');
+    expect(actions).toContain('delete');
   });
 });

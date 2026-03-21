@@ -282,7 +282,7 @@ export class DDLManager {
       const weightsClause = textFields
         .map((f, i) => {
           const weight = i === 0 ? 'A' : i === 1 ? 'B' : i === 2 ? 'C' : 'D';
-          return `setweight(to_tsvector('english', coalesce("${f}", '')), '${weight}')`;
+          return `setweight(to_tsvector('english', coalesce(NEW."${f}", '')), '${weight}')`;
         })
         .join(' || ');
 
