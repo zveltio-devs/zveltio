@@ -131,10 +131,11 @@ class BunSqlDriver implements Driver {
     }
 
     // Bun.SQL creează automat un connection pool intern.
+    // NOTE: Bun.SQL idleTimeout is in SECONDS (not ms). Convert from ms config.
     // @ts-expect-error — Bun global tipat de bun-types, dar Bun.SQL nu e în tipurile standard Kysely
     this.#pool = new Bun.SQL(url, {
       max: this.#config.max ?? 20,
-      idleTimeout: this.#config.idleTimeoutMs ?? 30_000,
+      idleTimeout: Math.ceil((this.#config.idleTimeoutMs ?? 30_000) / 1000),
     }) as BunSQLPool;
     _activeBunPool = this.#pool;
   }

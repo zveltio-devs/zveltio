@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.2.0'
+          bun-version: 'latest'
       - name: Install dependencies
         run: bun install
       - name: Type check engine
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.2.0'
+          bun-version: 'latest'
       - name: Install dependencies
         run: bun install
       - name: Lint
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.2.0'
+          bun-version: 'latest'
       - name: Install dependencies
         run: bun install
       - name: Run unit tests
@@ -76,13 +76,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: '1.2.0'
+          bun-version: 'latest'
       - name: Install dependencies
         run: bun install
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
         run: bun packages/engine/src/db/migrate.ts
+      - name: Verify DB schema
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test -c "\dt" | head -40 || true
+          PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test -c "SELECT version, name FROM zv_schema_versions ORDER BY version DESC LIMIT 5" || true
       - name: Start engine in background
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
@@ -107,24 +111,36 @@ jobs:
           echo "--- Engine logs ---"
           cat /tmp/engine.log || true
           exit 1
-      - name: Show engine logs
-        if: always()
-        run: cat /tmp/engine.log || true
+      - name: Show engine startup logs
+        run: |
+          echo "=== Engine startup log ==="
+          cat /tmp/engine.log || true
       - name: Smoke test auth endpoint
         run: |
           echo "--- Auth sign-up smoke test ---"
-          RESP=$(curl -s -w "\n---HTTP_STATUS:%{http_code}" -X POST http://localhost:3099/api/auth/sign-up/email \
+          curl -s -w "\n---HTTP_STATUS:%{http_code}" -X POST http://localhost:3099/api/auth/sign-up/email \
             -H "Content-Type: application/json" \
-            -d '{"email":"smoke@test.local","password":"TestPass123!","name":"Smoke"}' 2>&1) || true
-          echo "$RESP"
+            -d '{"email":"smoke@test.local","password":"TestPass123!","name":"Smoke"}' 2>&1 || true
+          echo ""
           echo "--- Auth sign-in smoke test ---"
           curl -s -w "\n---HTTP_STATUS:%{http_code}" -X POST http://localhost:3099/api/auth/sign-in/email \
             -H "Content-Type: application/json" \
             -d '{"email":"smoke@test.local","password":"TestPass123!"}' 2>&1 || true
           echo ""
+          echo "--- Settings public test ---"
+          curl -s -w "\n---HTTP_STATUS:%{http_code}" http://localhost:3099/api/settings/public 2>&1 || true
+          echo ""
+          echo "--- Users unauthenticated test ---"
+          curl -s -w "\n---HTTP_STATUS:%{http_code}" http://localhost:3099/api/users 2>&1 || true
+          echo ""
       - name: Run integration tests
         env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
           TEST_VALKEY_URL: redis://localhost:6379
           TEST_PORT: '3099'
+          NODE_ENV: test
         run: cd packages/engine && bun run test:integration
+      - name: Show engine logs (always)
+        if: always()
+        run: cat /tmp/engine.log || true

@@ -79,6 +79,18 @@ export async function initAuth(db: Database) {
     plugins: [],
   });
 
+  // Patch getSession to return null instead of throwing — better-auth v1.5+
+  // can throw APIError when a malformed/expired cookie is sent, causing routes
+  // that use requireAdmin() to return 500 instead of 401.
+  const origGetSession = _auth.api.getSession.bind(_auth.api);
+  (_auth.api as any).getSession = async (...args: any[]) => {
+    try {
+      return await origGetSession(...args as [any]);
+    } catch {
+      return null;
+    }
+  };
+
   return _auth;
 }
 
