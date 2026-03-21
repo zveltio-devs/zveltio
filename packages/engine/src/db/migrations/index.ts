@@ -55,7 +55,12 @@ async function applyMigration(
   const statements = up
     .split(/;[ \t]*(?:--[^\n]*)?\n|;[ \t]*$/)
     .map((s: string) => s.trim())
-    .filter((s: string) => s.length > 0 && !s.startsWith('--'));
+    .filter((s: string) => {
+      // Filter out empty statements, but keep statements that have actual SQL
+      // even if they start with comment lines (strip comments before checking)
+      const withoutComments = s.replace(/--[^\n]*/g, '').trim();
+      return withoutComments.length > 0;
+    });
 
   for (const stmt of statements) {
     await (db as any).executeQuery({ sql: stmt, parameters: [] });
