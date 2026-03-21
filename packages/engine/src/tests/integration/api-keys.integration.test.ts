@@ -130,7 +130,7 @@ describe.skipIf(skipAll)('API Keys — Integration', () => {
 
   it('request with revoked API key returns 401', async () => {
     // Revoke the key directly in DB
-    await sql`UPDATE zvd_api_keys SET is_active = false WHERE id = ${apiKeyId}`.execute(db);
+    await sql`UPDATE zv_api_keys SET is_active = false WHERE id = ${apiKeyId}`.execute(db);
 
     const res = await fetch(`${BASE_URL}/api/data/${COLLECTION}`, {
       headers: { 'X-API-Key': apiKey },
@@ -138,13 +138,13 @@ describe.skipIf(skipAll)('API Keys — Integration', () => {
     expect(res.status).toBe(401);
 
     // Restore for subsequent tests
-    await sql`UPDATE zvd_api_keys SET is_active = true WHERE id = ${apiKeyId}`.execute(db);
+    await sql`UPDATE zv_api_keys SET is_active = true WHERE id = ${apiKeyId}`.execute(db);
   });
 
   it('request with expired API key returns 401', async () => {
     // Expire the key directly in DB
     await sql`
-      UPDATE zvd_api_keys
+      UPDATE zv_api_keys
       SET expires_at = NOW() - INTERVAL '1 day'
       WHERE id = ${apiKeyId}
     `.execute(db);

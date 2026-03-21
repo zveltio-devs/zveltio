@@ -40,7 +40,7 @@ const QuerySchema = z.object({
 });
 
 // Authenticate request — session or API key
-async function authenticate(c: any, auth: any): Promise<{ user: any; authType: string } | null> {
+async function authenticate(c: any, auth: any, db: Database): Promise<{ user: any; authType: string } | null> {
   // Try session
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (session) return { user: session.user, authType: 'session' };
@@ -50,7 +50,7 @@ async function authenticate(c: any, auth: any): Promise<{ user: any; authType: s
     c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
 
   if (rawKey?.startsWith('zvk_')) {
-    const apiKey = await validateApiKey(c.get('db'), rawKey);
+    const apiKey = await validateApiKey(db, rawKey);
     if (apiKey) {
       return {
         user: {
@@ -258,7 +258,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
   // Auth middleware
   app.use('*', async (c, next) => {
-    const result = await authenticate(c, auth);
+    const result = await authenticate(c, auth, db);
     if (!result) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', result.user);
     c.set('authType', result.authType);
