@@ -7,7 +7,7 @@
     "dev": "vite dev --port 5173",
     "build": "vite build",
     "preview": "vite preview",
-    "embed": "cp -r build ../engine/src/studio-dist",
+    "embed": "cp -r dist ../engine/src/studio-dist",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

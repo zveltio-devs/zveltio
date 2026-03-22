@@ -1,11 +1,16 @@
 # ── Stage 1: Build Studio ─────────────────────────────────────
-FROM oven/bun:1.2-alpine AS studio-builder
+FROM oven/bun:1.3-alpine AS studio-builder
 
 WORKDIR /app
 
-COPY package.json bun.lockb turbo.json ./
-COPY packages/studio/package.json ./packages/studio/
+COPY package.json bun.lock turbo.json ./
+COPY packages/cli/package.json ./packages/cli/
+COPY packages/client/package.json ./packages/client/
+COPY packages/engine/package.json ./packages/engine/
 COPY packages/sdk/package.json ./packages/sdk/
+COPY packages/sdk-react/package.json ./packages/sdk-react/
+COPY packages/sdk-vue/package.json ./packages/sdk-vue/
+COPY packages/studio/package.json ./packages/studio/
 
 RUN bun install --frozen-lockfile
 
@@ -16,13 +21,18 @@ ENV PUBLIC_ENGINE_URL=""
 RUN cd packages/studio && bun run build
 
 # ── Stage 2: Build Engine ─────────────────────────────────────
-FROM oven/bun:1.2-alpine AS engine-builder
+FROM oven/bun:1.3-alpine AS engine-builder
 
 WORKDIR /app
 
-COPY package.json bun.lockb turbo.json ./
+COPY package.json bun.lock turbo.json ./
+COPY packages/cli/package.json ./packages/cli/
+COPY packages/client/package.json ./packages/client/
 COPY packages/engine/package.json ./packages/engine/
 COPY packages/sdk/package.json ./packages/sdk/
+COPY packages/sdk-react/package.json ./packages/sdk-react/
+COPY packages/sdk-vue/package.json ./packages/sdk-vue/
+COPY packages/studio/package.json ./packages/studio/
 
 RUN bun install --frozen-lockfile
 
@@ -37,7 +47,7 @@ RUN bun build packages/engine/src/index.ts \
     --target bun-linux-x64
 
 # ── Stage 3: Production image ─────────────────────────────────
-FROM oven/bun:1.2-alpine AS production
+FROM oven/bun:1.3-alpine AS production
 
 LABEL org.opencontainers.image.title="Zveltio Engine"
 LABEL org.opencontainers.image.description="Zveltio Business OS — Engine + Studio"
