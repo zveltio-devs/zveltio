@@ -346,7 +346,7 @@ jobs:
             zveltio-get/versions.json
 
       - name: Copy latest.json
-        run: cp release-assets/latest.json zveltio-get/latest.json
+        run: cp release-assets/latest.json zveltio-get/latest.json || cp latest.json zveltio-get/latest.json
 
       - name: Commit and push to zveltio-get
         run: |
