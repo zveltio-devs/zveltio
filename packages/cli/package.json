@@ -5,7 +5,10 @@
   "bin": {
     "zveltio": "./dist/index.js"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "bun build src/index.ts --outfile dist/index.js --target bun",
     "typecheck": "tsc --noEmit",
@@ -17,5 +20,9 @@
   "devDependencies": {
     "bun-types": "latest",
     "typescript": "^5.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zveltio-devs/zveltio.git"
   }
 }
