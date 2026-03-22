@@ -236,7 +236,15 @@ BETTER_AUTH_SECRET=$(generate_secret 32)
 NODE_ENV=production
 SERVE_STUDIO=true
 ZVELTIO_VERSION=${VERSION}
-ZVELTIO_EXTENSIONS=ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail
+# Extensions are managed via Studio → Marketplace after deployment
+
+# ── Security ───────────────────────────────────────────────────
+# Required if mail extension is enabled (IMAP/SMTP password encryption)
+MAIL_ENCRYPTION_KEY=$(generate_secret 32)
+# Required if AI extension is enabled (AI API key encryption)
+AI_KEY_ENCRYPTION_KEY=$(generate_secret 32)
+# Optional: uncomment to protect /metrics endpoint
+# METRICS_TOKEN=$(generate_secret 32)
 
 # ── Monitoring ─────────────────────────────────────────────────
 GRAFANA_ADMIN_PASSWORD=$(generate_secret 24)
