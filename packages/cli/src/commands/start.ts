@@ -1,6 +1,13 @@
-import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+
+// ── ANSI helpers ─────────────────────────────────────────────────────────────
+const c = {
+  bold:  (s: string) => `\x1b[1m${s}\x1b[0m`,
+  cyan:  (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim:   (s: string) => `\x1b[2m${s}\x1b[0m`,
+  red:   (s: string) => `\x1b[31m${s}\x1b[0m`,
+};
 
 export async function startCommand(opts: { port?: string; binary?: string }) {
   const port = opts.port || process.env.PORT || '3000';
@@ -8,50 +15,44 @@ export async function startCommand(opts: { port?: string; binary?: string }) {
   // Look for a compiled binary first
   const binaryPath = opts.binary || findBinary();
   if (binaryPath) {
-    console.log(`\nStarting Zveltio production binary: ${binaryPath}\n`);
-    const proc = spawn(binaryPath, [], {
+    console.log(`\n${c.bold('Zveltio')} starting production binary: ${c.dim(binaryPath)}\n`);
+    console.log(`  API:   ${c.cyan(`http://localhost:${port}/api`)}`);
+    console.log(`  Admin: ${c.cyan(`http://localhost:${port}/admin`)}\n`);
+    console.log(c.dim('  Press Ctrl+C to stop\n'));
+
+    const proc = Bun.spawn([binaryPath], {
       env: { ...process.env, PORT: port },
-      stdio: 'inherit',
+      stdio: ['inherit', 'inherit', 'inherit'],
     });
 
-    console.log(`  URL: http://localhost:${port}`);
-    console.log(`  Admin: http://localhost:${port}/admin\n`);
-
-    proc.on('error', (err) => {
-      console.error('Failed to start binary:', err.message);
-      process.exit(1);
-    });
-
-    process.on('SIGINT', () => { proc.kill('SIGINT'); process.exit(0); });
-    process.on('SIGTERM', () => { proc.kill('SIGTERM'); process.exit(0); });
+    process.on('SIGINT', () => { proc.kill(); process.exit(0); });
+    process.on('SIGTERM', () => { proc.kill(); process.exit(0); });
+    const exitCode = await proc.exited;
+    process.exit(exitCode);
     return;
   }
 
   // Fall back to running the engine source with bun (production mode, no --watch)
   const engineEntry = findEngineEntry();
   if (!engineEntry) {
-    console.error('❌ Could not find a compiled binary or engine source. Did you run "bun build"?');
+    console.error(c.red('Could not find a compiled binary or engine source. Did you run "bun build"?'));
     process.exit(1);
   }
 
-  console.log(`\nStarting Zveltio in production mode...\n`);
+  console.log(`\n${c.bold('Zveltio')} starting in production mode...\n`);
+  console.log(`  API:   ${c.cyan(`http://localhost:${port}/api`)}`);
+  console.log(`  Admin: ${c.cyan(`http://localhost:${port}/admin`)}\n`);
+  console.log(c.dim('  Press Ctrl+C to stop\n'));
 
-  const proc = spawn('bun', ['run', engineEntry], {
+  const proc = Bun.spawn(['bun', 'run', engineEntry], {
     env: { ...process.env, PORT: port, NODE_ENV: 'production' },
-    stdio: 'inherit',
-    shell: true,
+    stdio: ['inherit', 'inherit', 'inherit'],
   });
 
-  console.log(`  API:   http://localhost:${port}/api`);
-  console.log(`  Admin: http://localhost:${port}/admin\n`);
-
-  proc.on('error', (err) => {
-    console.error('Failed to start engine:', err.message);
-    process.exit(1);
-  });
-
-  process.on('SIGINT', () => { proc.kill('SIGINT'); process.exit(0); });
-  process.on('SIGTERM', () => { proc.kill('SIGTERM'); process.exit(0); });
+  process.on('SIGINT', () => { proc.kill(); process.exit(0); });
+  process.on('SIGTERM', () => { proc.kill(); process.exit(0); });
+  const exitCode = await proc.exited;
+  process.exit(exitCode);
 }
 
 function findBinary(): string | null {

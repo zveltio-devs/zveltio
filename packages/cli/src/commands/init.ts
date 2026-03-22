@@ -1,45 +1,117 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { createInterface } from 'readline';
+
+// ── ANSI helpers ─────────────────────────────────────────────────────────────
+const c = {
+  bold:  (s: string) => `\x1b[1m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+  cyan:  (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim:   (s: string) => `\x1b[2m${s}\x1b[0m`,
+  red:   (s: string) => `\x1b[31m${s}\x1b[0m`,
+  yellow:(s: string) => `\x1b[33m${s}\x1b[0m`,
+};
+
+function rl(): ReturnType<typeof createInterface> {
+  return createInterface({ input: process.stdin, output: process.stdout });
+}
+
+async function ask(iface: ReturnType<typeof createInterface>, question: string): Promise<string> {
+  return new Promise(resolve => iface.question(question, resolve));
+}
+
+async function askWithDefault(iface: ReturnType<typeof createInterface>, question: string, defaultValue: string): Promise<string> {
+  const answer = await ask(iface, question);
+  return answer.trim() || defaultValue;
+}
+
+async function askYesNo(iface: ReturnType<typeof createInterface>, question: string, defaultYes = true): Promise<boolean> {
+  const hint = defaultYes ? 'Y/n' : 'y/N';
+  const answer = await ask(iface, `${question} ${c.dim(`[${hint}]`)}: `);
+  const trimmed = answer.trim().toLowerCase();
+  if (!trimmed) return defaultYes;
+  return trimmed === 'y' || trimmed === 'yes';
+}
 
 export async function initCommand(
   name: string = '.',
   _opts: { template?: string } = {},
 ) {
+  console.log(`\n${c.bold(c.cyan('Zveltio Init'))}\n`);
+
+  const iface = rl();
+
+  // ── Interactive prompts ────────────────────────────────────────────────────
+  const defaultProjectName = name !== '.'
+    ? name.split(/[/\\]/).pop() || 'zveltio-app'
+    : process.cwd().split(/[/\\]/).pop() || 'zveltio-app';
+
+  const projectName = await askWithDefault(
+    iface,
+    `Project name ${c.dim(`[${defaultProjectName}]`)}: `,
+    defaultProjectName,
+  );
+
+  const dbPassword = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+  const defaultDbUrl = `postgresql://zveltio:${dbPassword}@localhost:5432/${projectName}`;
+  const databaseUrl = await askWithDefault(
+    iface,
+    `Database URL ${c.dim(`[${defaultDbUrl}]`)}: `,
+    defaultDbUrl,
+  );
+
+  const portStr = await askWithDefault(
+    iface,
+    `Port ${c.dim('[3000]')}: `,
+    '3000',
+  );
+  const port = parseInt(portStr, 10) || 3000;
+
+  const enableStudio = await askYesNo(
+    iface,
+    'Enable Studio (admin UI)?',
+    true,
+  );
+
+  iface.close();
+
+  // ── Determine target directory ─────────────────────────────────────────────
   const dir = name === '.' ? process.cwd() : join(process.cwd(), name);
-  const projectName = dir.split(/[/\\]/).pop() || 'zveltio-app';
 
   if (name !== '.' && existsSync(dir)) {
-    console.error(`❌ Directory "${name}" already exists`);
+    console.error(c.red(`\nDirectory "${name}" already exists`));
     process.exit(1);
   }
 
   mkdirSync(dir, { recursive: true });
 
-  // Generate random credentials — avoids developers accidentally using 'password' in prod
-  const dbPassword  = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+  // ── Generate remaining secrets ─────────────────────────────────────────────
   const s3AccessKey = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const s3SecretKey = crypto.randomUUID().replace(/-/g, '');
   const authSecret  = crypto.randomUUID().replace(/-/g, '');
 
-  writeFileSync(
+  // ── .env ──────────────────────────────────────────────────────────────────
+  await Bun.write(
     join(dir, '.env'),
     [
-      '# ⚠️  NEVER commit this file to git — it contains secrets.',
+      '# WARNING: NEVER commit this file to git — it contains secrets.',
       '# For production, replace ALL values with strong credentials.',
-      `DATABASE_URL=postgresql://zveltio:${dbPassword}@localhost:5432/${projectName}`,
-      'PORT=3000',
+      `DATABASE_URL=${databaseUrl}`,
+      `PORT=${port}`,
       `BETTER_AUTH_SECRET=${authSecret}`,
       'VALKEY_URL=redis://localhost:6379',
       'S3_ENDPOINT=http://localhost:8333',
       'S3_BUCKET=zveltio',
       `S3_ACCESS_KEY=${s3AccessKey}`,
       `S3_SECRET_KEY=${s3SecretKey}`,
+      `ENABLE_STUDIO=${enableStudio ? 'true' : 'false'}`,
       'ZVELTIO_EXTENSIONS=',
       '',
     ].join('\n'),
   );
 
-  writeFileSync(
+  // ── .env.example ──────────────────────────────────────────────────────────
+  await Bun.write(
     join(dir, '.env.example'),
     [
       '# Copy to .env and fill in real values. Never commit .env to git.',
@@ -51,12 +123,14 @@ export async function initCommand(
       'S3_BUCKET=zveltio',
       'S3_ACCESS_KEY=CHANGE_ME',
       'S3_SECRET_KEY=CHANGE_ME',
+      'ENABLE_STUDIO=true',
       'ZVELTIO_EXTENSIONS=',
       '',
     ].join('\n'),
   );
 
-  writeFileSync(
+  // ── package.json ──────────────────────────────────────────────────────────
+  await Bun.write(
     join(dir, 'package.json'),
     JSON.stringify(
       {
@@ -76,32 +150,49 @@ export async function initCommand(
     ),
   );
 
-  writeFileSync(
+  // ── docker-compose.yml ───────────────────────────────────────────────────
+  // Extract postgres password from the databaseUrl if it was the generated one
+  // (always use a random one for the compose service regardless).
+  const composeDbPassword = dbPassword;
+  const composeDbName = projectName.replace(/[^a-zA-Z0-9_]/g, '_');
+
+  await Bun.write(
     join(dir, 'docker-compose.yml'),
     `version: '3.8'
 services:
   db:
     image: postgis/postgis:16-3.4-alpine
     environment:
-      POSTGRES_DB: ${projectName}
+      POSTGRES_DB: ${composeDbName}
       POSTGRES_USER: zveltio
-      POSTGRES_PASSWORD: ${dbPassword}
+      POSTGRES_PASSWORD: ${composeDbPassword}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zveltio -d ${composeDbName}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   valkey:
     image: valkey/valkey:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:
 `,
   );
 
-  writeFileSync(
+  // ── .gitignore ────────────────────────────────────────────────────────────
+  await Bun.write(
     join(dir, '.gitignore'),
     [
       '.env',
@@ -109,13 +200,20 @@ volumes:
       'dist/',
       '.DS_Store',
       '*.local',
+      'types/',
       '',
     ].join('\n'),
   );
 
-  console.log(`✅ Zveltio project "${projectName}" initialized at ${dir}`);
-  console.log(
-    `\nNext steps:\n  ${name !== '.' ? `cd ${name}\n  ` : ''}docker compose up -d\n  bun install\n  zveltio dev\n`,
-  );
-  console.log('Open http://localhost:3000/admin to access the Studio.');
+  // ── Print next steps ──────────────────────────────────────────────────────
+  console.log(`\n${c.green(`Project "${projectName}" initialized`)} at ${dir}`);
+  console.log(`
+${c.bold('Next steps:')}
+  ${name !== '.' ? `cd ${name}\n  ` : ''}docker compose up -d     ${c.dim('# start PostgreSQL + Valkey')}
+  bun install               ${c.dim('# install dependencies')}
+  zveltio migrate           ${c.dim('# apply database migrations')}
+  zveltio dev               ${c.dim('# start development server')}
+
+  ${c.cyan(`Open http://localhost:${port}${enableStudio ? '/admin' : '/api'}`)}
+`);
 }

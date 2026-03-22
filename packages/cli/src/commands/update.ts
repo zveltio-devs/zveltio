@@ -1,6 +1,5 @@
 import { Command } from 'commander';
-import { execSync, spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 
 interface InstallMeta {
@@ -33,7 +32,7 @@ export const updateCommand = new Command('update')
   .option('--force', 'Skip confirmation')
   .option('--dir <path>', 'Installation directory')
   .action(async (opts) => {
-    console.log('\n🔄 Zveltio Update\n');
+    console.log('\nZveltio Update\n');
 
     const installDir = opts.dir
       || process.env.ZVELTIO_DIR
@@ -43,7 +42,7 @@ export const updateCommand = new Command('update')
 
     let meta: InstallMeta | null = null;
     if (existsSync(metaPath)) {
-      meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+      meta = JSON.parse(await Bun.file(metaPath).text());
     }
 
     const currentVersion = meta?.version
@@ -59,7 +58,7 @@ export const updateCommand = new Command('update')
       );
       versionsData = await res.json() as VersionsJson;
     } catch {
-      console.error('❌ Cannot fetch version information. Check your connection.');
+      console.error('Cannot fetch version information. Check your connection.');
       process.exit(1);
     }
 
@@ -74,26 +73,26 @@ export const updateCommand = new Command('update')
       const hasUpdate = compareVersions(targetVersion, currentVersion) > 0;
       if (hasUpdate) {
         const entry = versionsData.versions.find(v => v.version === targetVersion);
-        console.log(`\n   ⬆️  Update available!\n`);
+        console.log(`\n   Update available!\n`);
         if (entry?.breaking_changes) {
-          console.log(`   ⚠️  Contains BREAKING CHANGES`);
+          console.log(`   Contains BREAKING CHANGES`);
         }
         console.log(`   Release notes: ${entry?.release_notes ?? ''}`);
         console.log(`\n   Run: zveltio update\n`);
       } else {
-        console.log('\n   ✅ Already up to date.\n');
+        console.log('\n   Already up to date.\n');
       }
       return;
     }
 
     if (compareVersions(targetVersion, currentVersion) <= 0) {
-      console.log('\n   ✅ Already up to date.\n');
+      console.log('\n   Already up to date.\n');
       return;
     }
 
     const targetEntry = versionsData.versions.find(v => v.version === targetVersion);
     if (targetEntry?.breaking_changes && !opts.force) {
-      console.log(`\n   ⚠️  This update contains BREAKING CHANGES.`);
+      console.log(`\n   This update contains BREAKING CHANGES.`);
       console.log(`   Review: ${targetEntry.release_notes}`);
       console.log('');
       process.stdout.write('   Continue? (yes/no): ');
@@ -104,42 +103,51 @@ export const updateCommand = new Command('update')
       }
     }
 
-    console.log(`\n   Upgrading v${currentVersion} → v${targetVersion}...\n`);
+    console.log(`\n   Upgrading v${currentVersion} -> v${targetVersion}...\n`);
 
     const envPath = join(installDir, '.env');
     if (existsSync(envPath)) {
       const backupPath = `${envPath}.backup.${Date.now()}`;
-      execSync(`cp ${envPath} ${backupPath}`);
-      console.log(`   ✅ Backed up .env to ${backupPath}`);
+      // Use Bun.write to copy .env backup
+      const envContent = await Bun.file(envPath).text();
+      await Bun.write(backupPath, envContent);
+      console.log(`   Backed up .env to ${backupPath}`);
     }
 
     const installScript = join(installDir, 'install.sh');
 
     if (existsSync(installScript)) {
-      const result = spawnSync('bash', [
+      const proc = Bun.spawn([
+        'bash',
         installScript,
         '--version', targetVersion,
         '--unattended',
         '--dir', installDir,
         '--mode', meta?.mode ?? 'auto',
-      ], { stdio: 'inherit' });
+      ], { stdout: 'inherit', stderr: 'inherit', stdin: 'inherit' });
 
-      if (result.status !== 0) {
-        console.error('\n❌ Update failed. Your previous version is still running.');
-        console.log(`   Restore .env: cp ${envPath}.backup.* ${envPath}`);
+      const code = await proc.exited;
+      if (code !== 0) {
+        console.error('\nUpdate failed. Your previous version is still running.');
+        console.log(`   Restore .env: copy ${envPath}.backup.* to ${envPath}`);
         process.exit(1);
       }
     } else {
       console.log('   Downloading installer...');
-      execSync(
-        `curl -fsSL https://get.zveltio.com/install.sh -o /tmp/zveltio-update.sh ` +
-        `&& bash /tmp/zveltio-update.sh ` +
+      const dlProc = Bun.spawn([
+        'bash', '-c',
+        `curl -fsSL https://get.zveltio.com/install.sh -o /tmp/zveltio-update.sh && ` +
+        `bash /tmp/zveltio-update.sh ` +
         `--version ${targetVersion} --unattended --dir ${installDir}`,
-        { stdio: 'inherit' }
-      );
+      ], { stdout: 'inherit', stderr: 'inherit', stdin: 'inherit' });
+      const code = await dlProc.exited;
+      if (code !== 0) {
+        console.error('\nUpdate download/install failed.');
+        process.exit(1);
+      }
     }
 
-    console.log(`\n✅ Updated to Zveltio v${targetVersion}\n`);
+    console.log(`\nUpdated to Zveltio v${targetVersion}\n`);
   });
 
 async function getCurrentVersionFromAPI(port: number): Promise<string | null> {

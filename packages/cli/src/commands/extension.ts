@@ -1,7 +1,6 @@
-import { mkdir, writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
-import { spawn } from 'child_process';
 
 export async function extensionCommand(
   action: 'create' | 'build' | 'dev' | 'publish',
@@ -29,11 +28,11 @@ async function createExtension(name: string, category: string) {
   const targetDir = join(process.cwd(), 'extensions', category, safeName);
 
   if (existsSync(targetDir)) {
-    console.error(`❌ Extension already exists: ${targetDir}`);
+    console.error(`Extension already exists: ${targetDir}`);
     process.exit(1);
   }
 
-  console.log(`\n🔌 Creating extension: ${category}/${safeName}\n`);
+  console.log(`\nCreating extension: ${category}/${safeName}\n`);
 
   // Create directory structure
   await mkdir(join(targetDir, 'engine'), { recursive: true });
@@ -191,16 +190,16 @@ export default defineConfig({
     ),
   );
 
-  console.log(`✅ Extension scaffolded at extensions/${category}/${safeName}/
+  console.log(`Extension scaffolded at extensions/${category}/${safeName}/
 
 Structure:
   engine/
-    index.ts          ← API routes
-    migrations/       ← SQL migrations
+    index.ts          <- API routes
+    migrations/       <- SQL migrations
   studio/
     src/
-      index.ts        ← Studio registration
-      pages/          ← Svelte UI components
+      index.ts        <- Studio registration
+      pages/          <- Svelte UI components
     vite.config.ts
   manifest.json
 
@@ -212,10 +211,10 @@ Next steps:
 }
 
 async function buildExtension() {
-  console.log('\n📦 Building extension...\n');
+  console.log('\nBuilding extension...\n');
 
   if (!existsSync('manifest.json')) {
-    console.error('❌ No manifest.json found. Run this command from an extension directory.');
+    console.error('No manifest.json found. Run this command from an extension directory.');
     process.exit(1);
   }
 
@@ -223,52 +222,52 @@ async function buildExtension() {
 
   // Build Studio bundle
   if (existsSync('studio')) {
-    const proc = spawn('bun', ['run', 'build'], {
+    const studioProc = Bun.spawn(['bun', 'run', 'build'], {
       cwd: 'studio',
-      stdio: 'inherit',
-      shell: true,
+      stdout: 'inherit',
+      stderr: 'inherit',
     });
-    await new Promise<void>((resolve, reject) => {
-      proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Build failed: ${code}`))));
-    });
-    console.log('  ✓ Studio bundle built');
+    const code = await studioProc.exited;
+    if (code !== 0) throw new Error(`Studio build failed with exit code ${code}`);
+    console.log('  Studio bundle built');
   }
 
   // Bundle engine TypeScript
-  const proc = spawn('bun', ['build', 'engine/index.ts', '--outdir', 'engine/dist', '--target', 'bun'], {
-    stdio: 'inherit',
-    shell: true,
-  });
-  await new Promise<void>((resolve, reject) => {
-    proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Engine build failed: ${code}`))));
-  });
-  console.log('  ✓ Engine built');
+  const engineProc = Bun.spawn(
+    ['bun', 'build', 'engine/index.ts', '--outdir', 'engine/dist', '--target', 'bun'],
+    { stdout: 'inherit', stderr: 'inherit' },
+  );
+  const engineCode = await engineProc.exited;
+  if (engineCode !== 0) throw new Error(`Engine build failed with exit code ${engineCode}`);
+  console.log('  Engine built');
 
-  console.log(`\n✅ Extension built: ${manifest.name} v${manifest.version}`);
+  console.log(`\nExtension built: ${manifest.name} v${manifest.version}`);
 }
 
 async function devExtension() {
-  console.log('\n🔧 Starting extension dev mode...\n');
+  console.log('\nStarting extension dev mode...\n');
 
-  const studioProc = spawn('bun', ['run', 'dev'], {
+  const studioProc = Bun.spawn(['bun', 'run', 'dev'], {
     cwd: 'studio',
-    stdio: 'inherit',
-    shell: true,
+    stdout: 'inherit',
+    stderr: 'inherit',
   });
 
   console.log('  Studio: watching for changes...');
 
   process.on('SIGINT', () => {
-    studioProc.kill('SIGINT');
+    studioProc.kill();
     process.exit(0);
   });
+
+  await studioProc.exited;
 }
 
 async function publishExtension(token?: string) {
   if (!token) {
-    console.error('❌ Marketplace token required. Use --token <token>');
+    console.error('Marketplace token required. Use --token <token>');
     process.exit(1);
   }
-  console.log('\n📤 Publishing to Zveltio marketplace...');
+  console.log('\nPublishing to Zveltio marketplace...');
   console.log('  (Marketplace coming soon!)');
 }
