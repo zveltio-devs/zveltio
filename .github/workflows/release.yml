@@ -345,8 +345,11 @@ jobs:
             "${{ github.repository }}" \
             zveltio-get/versions.json
 
+      - name: Debug artifact contents
+        run: find release-assets/ -type f | head -20 || echo "release-assets dir missing" && ls -la
+
       - name: Copy latest.json
-        run: cp release-assets/latest.json zveltio-get/latest.json || cp latest.json zveltio-get/latest.json
+        run: find release-assets/ -name "latest.json" -exec cp {} zveltio-get/latest.json \;
 
       - name: Commit and push to zveltio-get
         run: |
