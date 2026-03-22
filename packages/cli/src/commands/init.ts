@@ -33,11 +33,85 @@ async function askYesNo(iface: ReturnType<typeof createInterface>, question: str
   return trimmed === 'y' || trimmed === 'yes';
 }
 
+// ── Extension picker ──────────────────────────────────────────────────────────
+
+interface OfficialExtension {
+  name: string;
+  description: string | null;
+  category?: string;
+}
+
+async function fetchOfficialExtensions(): Promise<OfficialExtension[]> {
+  try {
+    const res = await fetch('https://registry.zveltio.com/api/extensions/list?official=true', {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as { extensions: OfficialExtension[] };
+    return data.extensions ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function pickExtensions(
+  iface: ReturnType<typeof createInterface>,
+  extensions: OfficialExtension[],
+): Promise<string[]> {
+  if (extensions.length === 0) return [];
+
+  // Group by category
+  const groups = new Map<string, OfficialExtension[]>();
+  for (const ext of extensions) {
+    const cat = ext.name.split('/')[0] ?? 'general';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(ext);
+  }
+
+  console.log(`\n${c.bold('Available extensions:')}`);
+  console.log(c.dim('  Press enter to skip, or enter numbers separated by spaces.\n'));
+
+  let idx = 1;
+  const indexed: Array<{ num: number; name: string }> = [];
+
+  for (const [cat, exts] of groups) {
+    console.log(`  ${c.cyan(c.bold(cat))}`);
+    for (const ext of exts) {
+      const shortDesc = ext.description
+        ? `  ${c.dim('— ' + ext.description.slice(0, 55) + (ext.description.length > 55 ? '…' : ''))}`
+        : '';
+      console.log(`    ${c.dim(String(idx).padStart(2, ' ') + '.')} ${ext.name.split('/').pop()}${shortDesc}`);
+      indexed.push({ num: idx, name: ext.name });
+      idx++;
+    }
+    console.log('');
+  }
+
+  const answer = await ask(
+    iface,
+    `Extensions to enable ${c.dim('[space-separated numbers, or enter for none]')}: `,
+  );
+
+  if (!answer.trim()) return [];
+
+  const chosen = new Set<string>();
+  for (const token of answer.trim().split(/\s+/)) {
+    const n = parseInt(token, 10);
+    const found = indexed.find(e => e.num === n);
+    if (found) chosen.add(found.name);
+  }
+
+  return [...chosen];
+}
+
 export async function initCommand(
   name: string = '.',
   _opts: { template?: string } = {},
 ) {
   console.log(`\n${c.bold(c.cyan('Zveltio Init'))}\n`);
+
+  // Fetch official extensions early (non-blocking)
+  const extensionsPromise = fetchOfficialExtensions();
 
   const iface = rl();
 
@@ -73,6 +147,16 @@ export async function initCommand(
     true,
   );
 
+  // ── Extension picker ───────────────────────────────────────────────────────
+  const officialExtensions = await extensionsPromise;
+  let selectedExtensions: string[] = [];
+
+  if (officialExtensions.length > 0) {
+    selectedExtensions = await pickExtensions(iface, officialExtensions);
+  } else {
+    console.log(c.dim('\n  (Could not reach registry — extensions can be configured later in .env)\n'));
+  }
+
   iface.close();
 
   // ── Determine target directory ─────────────────────────────────────────────
@@ -90,6 +174,8 @@ export async function initCommand(
   const s3SecretKey = crypto.randomUUID().replace(/-/g, '');
   const authSecret  = crypto.randomUUID().replace(/-/g, '');
 
+  const extensionsValue = selectedExtensions.join(',');
+
   // ── .env ──────────────────────────────────────────────────────────────────
   await Bun.write(
     join(dir, '.env'),
@@ -105,7 +191,7 @@ export async function initCommand(
       `S3_ACCESS_KEY=${s3AccessKey}`,
       `S3_SECRET_KEY=${s3SecretKey}`,
       `ENABLE_STUDIO=${enableStudio ? 'true' : 'false'}`,
-      'ZVELTIO_EXTENSIONS=',
+      `ZVELTIO_EXTENSIONS=${extensionsValue}`,
       '',
     ].join('\n'),
   );
@@ -124,7 +210,7 @@ export async function initCommand(
       'S3_ACCESS_KEY=CHANGE_ME',
       'S3_SECRET_KEY=CHANGE_ME',
       'ENABLE_STUDIO=true',
-      'ZVELTIO_EXTENSIONS=',
+      `ZVELTIO_EXTENSIONS=${extensionsValue}`,
       '',
     ].join('\n'),
   );
@@ -151,8 +237,6 @@ export async function initCommand(
   );
 
   // ── docker-compose.yml ───────────────────────────────────────────────────
-  // Extract postgres password from the databaseUrl if it was the generated one
-  // (always use a random one for the compose service regardless).
   const composeDbPassword = dbPassword;
   const composeDbName = projectName.replace(/[^a-zA-Z0-9_]/g, '_');
 
@@ -206,7 +290,11 @@ volumes:
   );
 
   // ── Print next steps ──────────────────────────────────────────────────────
-  console.log(`\n${c.green(`Project "${projectName}" initialized`)} at ${dir}`);
+  const extSummary = selectedExtensions.length > 0
+    ? `\n  ${c.green('✔')} Extensions: ${selectedExtensions.map(e => e.split('/').pop()).join(', ')}`
+    : '';
+
+  console.log(`\n${c.green(`✔ Project "${projectName}" initialized`)} at ${dir}${extSummary}`);
   console.log(`
 ${c.bold('Next steps:')}
   ${name !== '.' ? `cd ${name}\n  ` : ''}docker compose up -d     ${c.dim('# start PostgreSQL + Valkey')}
