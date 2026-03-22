@@ -429,9 +429,11 @@ export function dataRoutes(db: Database, auth: any): Hono {
           kQuery = kQuery.orderBy(sortField, 'desc').orderBy('id', 'desc');
         }
 
-        kQuery = kQuery.limit(query.limit);
+        // Fetch limit+1 to detect whether a next page exists without a count query
+        kQuery = kQuery.limit(query.limit + 1);
         const rows: any[] = await kQuery.execute();
-        result = { records: rows, total: -1 }; // total unknown in cursor mode
+        const hasMore = rows.length > query.limit;
+        result = { records: hasMore ? rows.slice(0, query.limit) : rows, total: hasMore ? -1 : rows.length };
       } else {
         // Malformed cursor — fall back to offset
         const offset = (query.page - 1) * query.limit;
@@ -471,8 +473,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     // ── Build next_cursor ─────────────────────────────────────────
+    // Cursor mode: result.total === -1 means hasMore (limit+1 trick returned extra row)
+    // Offset mode: compare offset+returned vs total count
     let next_cursor: string | null = null;
-    if (serialized.length > 0 && serialized.length === query.limit) {
+    const offsetHasMore = result.total >= 0
+      ? (query.page - 1) * query.limit + serialized.length < result.total
+      : false;
+    const cursorHasMore = result.total === -1; // set by limit+1 trick above
+    if (serialized.length > 0 && (cursorHasMore || offsetHasMore)) {
       const lastRow = serialized[serialized.length - 1];
       if (lastRow?.id !== undefined) {
         next_cursor = Buffer.from(
