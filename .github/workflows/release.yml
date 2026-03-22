@@ -351,3 +351,30 @@ jobs:
           git diff --cached --quiet || git commit -m \
             "chore: update to ${{ github.ref_name }}"
           git push
+
+  # ── Job 8: Trigger extensions sync ───────────────────────────
+  sync-extensions:
+    needs: publish-release
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: "!contains(github.ref, 'beta')"
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+
+      - name: Dispatch sync to zveltio-extensions
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.EXTENSIONS_REPO_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: 'zveltio-extensions',
+              event_type: 'engine-released',
+              client_payload: {
+                version: '${{ steps.version.outputs.version }}',
+              },
+            });
