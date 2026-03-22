@@ -329,6 +329,7 @@ jobs:
         with:
           name: release-assets
           path: release-assets/
+          merge-multiple: true
 
       - name: Checkout zveltio-get repo
         uses: actions/checkout@v4

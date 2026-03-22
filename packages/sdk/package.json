@@ -14,7 +14,10 @@
       "import": "./dist/extension/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -28,5 +31,9 @@
     "fake-indexeddb": "^6.2.5",
     "hono": "^4.12.5",
     "typescript": "^5.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zveltio-devs/zveltio.git"
   }
 }
