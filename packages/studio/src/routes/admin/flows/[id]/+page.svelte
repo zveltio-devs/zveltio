@@ -352,7 +352,7 @@
                 <label class="label py-0"><span class="label-text text-xs">To</span></label>
                 <input
                   class="input input-sm"
-                  placeholder="{{record.email}}"
+                  placeholder="&#123;&#123;record.email&#125;&#125;"
                   value={selectedStep.config.to ?? ''}
                   oninput={(e) => updateStepConfig('to', (e.target as HTMLInputElement).value)}
                 />
@@ -371,7 +371,7 @@
                 <textarea
                   class="textarea textarea-sm resize-none"
                   rows="4"
-                  placeholder="Hello {{record.name}}, ..."
+                  placeholder="Hello &#123;&#123;record.name&#125;&#125;, ..."
                   value={selectedStep.config.body ?? ''}
                   oninput={(e) => updateStepConfig('body', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
@@ -392,7 +392,7 @@
                 <textarea
                   class="textarea textarea-sm font-mono text-xs resize-none"
                   rows="4"
-                  placeholder='{"field": "{{record.value}}"}'
+                  placeholder="&#123;&quot;field&quot;: &quot;&#123;&#123;record.value&#125;&#125;&quot;&#125;"
                   value={selectedStep.config.data ?? ''}
                   oninput={(e) => updateStepConfig('data', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
@@ -404,7 +404,7 @@
                 <textarea
                   class="textarea textarea-sm resize-none"
                   rows="4"
-                  placeholder="Analyze {{record.text}} and return a decision..."
+                  placeholder="Analyze &#123;&#123;record.text&#125;&#125; and return a decision..."
                   value={selectedStep.config.prompt ?? ''}
                   oninput={(e) => updateStepConfig('prompt', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
@@ -424,7 +424,7 @@
                 <label class="label py-0"><span class="label-text text-xs">Condition expression</span></label>
                 <input
                   class="input input-sm font-mono"
-                  placeholder="{{record.status}} === 'active'"
+                  placeholder="&#123;&#123;record.status&#125;&#125; === 'active'"
                   value={selectedStep.config.expression ?? ''}
                   oninput={(e) => updateStepConfig('expression', (e.target as HTMLInputElement).value)}
                 />
