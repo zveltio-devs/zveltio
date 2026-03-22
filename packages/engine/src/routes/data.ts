@@ -20,6 +20,7 @@ import {
 } from '../db/dynamic.js';
 import { escapeLike } from '../lib/query-utils.js';
 import { hashApiKey } from '../lib/api-key-hash.js';
+import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
 import {
   virtualList,
   virtualGetOne,
@@ -149,11 +150,15 @@ async function broadcastWebhook(
 }
 
 // Serialize a record's field values using the registry
-function serializeRecord(record: any, collectionDef: any): any {
+async function serializeRecord(record: any, collectionDef: any): Promise<any> {
   if (!collectionDef?.fields) return record;
   const result = { ...record };
   for (const field of collectionDef.fields) {
     if (result[field.name] !== undefined) {
+      // Decrypt encrypted fields before serialization
+      if (field.encrypted) {
+        result[field.name] = await maybeDecrypt(result[field.name], true);
+      }
       result[field.name] = fieldTypeRegistry.serialize(field.type, result[field.name]);
     }
   }
@@ -161,10 +166,10 @@ function serializeRecord(record: any, collectionDef: any): any {
 }
 
 // Validate and deserialize incoming data using the registry
-function processInput(
+async function processInput(
   data: Record<string, any>,
   collectionDef: any,
-): { errors: string[]; processed: Record<string, any> } {
+): Promise<{ errors: string[]; processed: Record<string, any> }> {
   const errors: string[] = [];
   const processed: Record<string, any> = {};
 
@@ -182,7 +187,11 @@ function processInput(
 
     // Deserialize
     if (value !== undefined) {
-      processed[field.name] = fieldTypeRegistry.deserialize(field.type, value);
+      const deserialized = fieldTypeRegistry.deserialize(field.type, value);
+      // Encrypt fields marked as encrypted
+      processed[field.name] = field.encrypted
+        ? await maybeEncrypt(deserialized, true)
+        : deserialized;
     }
   }
 
@@ -459,7 +468,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       });
     }
 
-    const serialized = result.records.map((r) => serializeRecord(r, collectionDef));
+    const serialized = await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)));
 
     // ── ETag + Cache-Control ───────────────────────────────────────
     const etag = `"${await computeEtag(serialized)}"`;
@@ -560,7 +569,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
-    const serializedRecord = serializeRecord(record, collectionDef);
+    const serializedRecord = await serializeRecord(record, collectionDef);
 
     // ETag + Cache-Control for single record
     const singleEtag = `"${await computeEtag([serializedRecord])}"`;
@@ -603,7 +612,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const body = await c.req.json();
 
-    const { errors, processed } = processInput(body, collectionDef);
+    const { errors, processed } = await processInput(body, collectionDef);
     if (errors.length > 0) return c.json({ errors }, 422);
 
     const effectiveDb = getDb(c, db);
@@ -612,7 +621,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id });
 
-    return c.json(serializeRecord(record, collectionDef));
+    return c.json(await serializeRecord(record, collectionDef));
   });
 
   // ── PUT /:collection/:id — Replace record ────────────────────────
@@ -643,7 +652,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const body = await c.req.json();
 
-    const { errors, processed } = processInput(body, collectionDef);
+    const { errors, processed } = await processInput(body, collectionDef);
     if (errors.length > 0) return c.json({ errors }, 422);
 
     const effectiveDb = getDb(c, db);
@@ -653,7 +662,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id });
 
-    return c.json(serializeRecord(record, collectionDef));
+    return c.json(await serializeRecord(record, collectionDef));
   });
 
   // ── PATCH /:collection/:id — Partial update ───────────────────────
@@ -684,7 +693,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const body = await c.req.json();
 
-    const { errors, processed } = processInput(body, collectionDef);
+    const { errors, processed } = await processInput(body, collectionDef);
     if (errors.length > 0) return c.json({ errors }, 422);
 
     const effectiveDb = getDb(c, db);
@@ -694,7 +703,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id });
 
-    return c.json(serializeRecord(record, collectionDef));
+    return c.json(await serializeRecord(record, collectionDef));
   });
 
   // ── DELETE /:collection/:id — Delete record ───────────────────────

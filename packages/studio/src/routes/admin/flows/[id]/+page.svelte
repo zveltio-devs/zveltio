@@ -38,7 +38,7 @@
     steps: Step[];
   }
 
-  let flowId = $derived($page.params.id);
+  let flowId = $derived(($page.params as Record<string, string>).id ?? '');
   let flow = $state<Flow | null>(null);
   let loading = $state(true);
   let saving = $state(false);
@@ -183,12 +183,12 @@
         <div>
           <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-2">Flow</p>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Name</span></label>
-            <input class="input input-xs" bind:value={flow.name} />
+            <label class="label py-0" for="sidebar-flow-name"><span class="label-text text-xs">Name</span></label>
+            <input id="sidebar-flow-name" class="input input-xs" bind:value={flow.name} />
           </div>
           <div class="form-control mt-2">
-            <label class="label py-0"><span class="label-text text-xs">Description</span></label>
-            <textarea class="textarea textarea-xs resize-none" rows="2" bind:value={flow.description}></textarea>
+            <label class="label py-0" for="sidebar-flow-desc"><span class="label-text text-xs">Description</span></label>
+            <textarea id="sidebar-flow-desc" class="textarea textarea-xs resize-none" rows="2" bind:value={flow.description}></textarea>
           </div>
         </div>
         <div>
@@ -274,7 +274,7 @@
                 <Plus size={14} /> Add Step <ChevronDown size={12} />
               </button>
               {#if showAddStep}
-                <div class="absolute top-full mt-1 left-0 z-10 bg-base-100 border border-base-300 rounded-lg shadow-lg p-1 min-w-[180px]">
+                <div class="absolute top-full mt-1 left-0 z-10 bg-base-100 border border-base-300 rounded-lg shadow-lg p-1 min-w-45">
                   {#each STEP_TYPES as st}
                     {@const StIcon = st.icon}
                     <button
@@ -302,8 +302,9 @@
 
           <div class="space-y-3">
             <div class="form-control">
-              <label class="label py-0"><span class="label-text text-xs">Step name</span></label>
+              <label class="label py-0" for="step-name"><span class="label-text text-xs">Step name</span></label>
               <input
+                id="step-name"
                 class="input input-sm"
                 value={selectedStep.name}
                 oninput={(e) => updateStepName((e.target as HTMLInputElement).value)}
@@ -311,15 +312,16 @@
             </div>
 
             <div class="form-control">
-              <label class="label py-0"><span class="label-text text-xs">Type</span></label>
+              <p class="label py-0"><span class="label-text text-xs">Type</span></p>
               <span class="badge badge-outline">{selectedStep.type}</span>
             </div>
 
             <!-- Type-specific config fields -->
             {#if selectedStep.type === 'http_request'}
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">URL</span></label>
+                <label class="label py-0" for="step-url"><span class="label-text text-xs">URL</span></label>
                 <input
+                  id="step-url"
                   class="input input-sm font-mono"
                   placeholder="https://api.example.com/endpoint"
                   value={selectedStep.config.url ?? ''}
@@ -327,8 +329,9 @@
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Method</span></label>
+                <label class="label py-0" for="step-method"><span class="label-text text-xs">Method</span></label>
                 <select
+                  id="step-method"
                   class="select select-sm"
                   value={selectedStep.config.method ?? 'POST'}
                   onchange={(e) => updateStepConfig('method', (e.target as HTMLSelectElement).value)}
@@ -337,8 +340,9 @@
                 </select>
               </div>
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Body (JSON)</span></label>
+                <label class="label py-0" for="step-body"><span class="label-text text-xs">Body (JSON)</span></label>
                 <textarea
+                  id="step-body"
                   class="textarea textarea-sm font-mono text-xs resize-none"
                   rows="4"
                   placeholder="&#123;&#125;"
@@ -349,8 +353,9 @@
 
             {:else if selectedStep.type === 'send_email'}
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">To</span></label>
+                <label class="label py-0" for="step-to"><span class="label-text text-xs">To</span></label>
                 <input
+                  id="step-to"
                   class="input input-sm"
                   placeholder="&#123;&#123;record.email&#125;&#125;"
                   value={selectedStep.config.to ?? ''}
@@ -358,8 +363,9 @@
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Subject</span></label>
+                <label class="label py-0" for="step-subject"><span class="label-text text-xs">Subject</span></label>
                 <input
+                  id="step-subject"
                   class="input input-sm"
                   placeholder="Welcome!"
                   value={selectedStep.config.subject ?? ''}
@@ -367,8 +373,9 @@
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Body</span></label>
+                <label class="label py-0" for="step-email-body"><span class="label-text text-xs">Body</span></label>
                 <textarea
+                  id="step-email-body"
                   class="textarea textarea-sm resize-none"
                   rows="4"
                   placeholder="Hello &#123;&#123;record.name&#125;&#125;, ..."
@@ -379,8 +386,9 @@
 
             {:else if selectedStep.type === 'create_record' || selectedStep.type === 'update_record'}
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Collection</span></label>
+                <label class="label py-0" for="step-collection"><span class="label-text text-xs">Collection</span></label>
                 <input
+                  id="step-collection"
                   class="input input-sm"
                   placeholder="collection_name"
                   value={selectedStep.config.collection ?? ''}
@@ -388,8 +396,9 @@
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Data (JSON)</span></label>
+                <label class="label py-0" for="step-data"><span class="label-text text-xs">Data (JSON)</span></label>
                 <textarea
+                  id="step-data"
                   class="textarea textarea-sm font-mono text-xs resize-none"
                   rows="4"
                   placeholder="&#123;&quot;field&quot;: &quot;&#123;&#123;record.value&#125;&#125;&quot;&#125;"
@@ -400,8 +409,9 @@
 
             {:else if selectedStep.type === 'ai_decision'}
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Prompt</span></label>
+                <label class="label py-0" for="step-prompt"><span class="label-text text-xs">Prompt</span></label>
                 <textarea
+                  id="step-prompt"
                   class="textarea textarea-sm resize-none"
                   rows="4"
                   placeholder="Analyze &#123;&#123;record.text&#125;&#125; and return a decision..."
@@ -410,8 +420,9 @@
                 ></textarea>
               </div>
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Model (optional)</span></label>
+                <label class="label py-0" for="step-model"><span class="label-text text-xs">Model (optional)</span></label>
                 <input
+                  id="step-model"
                   class="input input-sm"
                   placeholder="gpt-4o"
                   value={selectedStep.config.model ?? ''}
@@ -421,8 +432,9 @@
 
             {:else if selectedStep.type === 'condition'}
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Condition expression</span></label>
+                <label class="label py-0" for="step-expression"><span class="label-text text-xs">Condition expression</span></label>
                 <input
+                  id="step-expression"
                   class="input input-sm font-mono"
                   placeholder="&#123;&#123;record.status&#125;&#125; === 'active'"
                   value={selectedStep.config.expression ?? ''}
@@ -432,8 +444,9 @@
 
             {:else if selectedStep.type === 'webhook'}
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Webhook URL</span></label>
+                <label class="label py-0" for="step-webhook-url"><span class="label-text text-xs">Webhook URL</span></label>
                 <input
+                  id="step-webhook-url"
                   class="input input-sm font-mono"
                   placeholder="https://hooks.example.com/..."
                   value={selectedStep.config.url ?? ''}

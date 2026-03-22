@@ -103,6 +103,9 @@ export type CollectionName = ${collectionNames || 'never'};
 export interface CollectionTypeMap {
 ${collectionMap}
 }
+
+/** Pass this to createZveltioClient<ZveltioSchema>() for full type inference */
+export type ZveltioSchema = CollectionTypeMap;
 `;
 
   return header + interfaces + clientType;

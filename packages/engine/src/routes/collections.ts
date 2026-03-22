@@ -66,6 +66,23 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     return c.json({ field_types: types });
   });
 
+  // POST /preview — dry-run: returns DDL SQL without executing it
+  app.post(
+    '/preview',
+    zValidator('json', CollectionSchema),
+    async (c) => {
+      const data = c.req.valid('json');
+      // Validate field types
+      for (const field of data.fields) {
+        if (!fieldTypeRegistry.has(field.type)) {
+          return c.json({ error: `Unknown field type: "${field.type}"` }, 400);
+        }
+      }
+      const preview = await DDLManager.previewCollection(data);
+      return c.json(preview);
+    },
+  );
+
   // POST / — Create collection (async via DDL queue)
   app.post(
     '/',

@@ -22,6 +22,53 @@ await client.collection('todos').update('id-123', { done: true });
 await client.collection('todos').delete('id-123');
 ```
 
+## Live TypeScript Types
+
+Get full IntelliSense on every `.collection()` call by pointing the client at your generated schema.
+
+**Step 1 — Generate types** (one-shot or watch mode):
+
+```bash
+# One-shot
+bunx zveltio generate-types --url http://localhost:3000 --out ./src/zveltio-types.d.ts
+
+# Watch mode (re-generates on every schema change while developing)
+bunx zveltio dev --watch
+```
+
+**Step 2 — Import the generated alias:**
+
+```typescript
+import type { ZveltioSchema } from './zveltio-types';
+```
+
+**Step 3 — Pass it to `createZveltioClient`:**
+
+```typescript
+import { createZveltioClient } from '@zveltio/sdk';
+import type { ZveltioSchema } from './zveltio-types';
+
+const client = createZveltioClient<ZveltioSchema>({
+  baseUrl: 'https://api.myapp.com',
+});
+```
+
+**Step 4 — Every `.collection()` call is now fully typed:**
+
+```typescript
+// TypeScript knows the shape of each record automatically
+const { data: products } = await client.collection('products').list();
+//           ^-- typed as Products[] (from your generated CollectionTypeMap)
+
+const order = await client.collection('orders').getOne('ord-123');
+//    ^-- typed as Orders
+
+await client.collection('products').create({ name: 'Widget', price: 9.99 });
+//   TypeScript will error if you pass unknown fields or the wrong types
+```
+
+The generated file (`zveltio-types.d.ts`) exports individual interfaces per collection, a `CollectionTypeMap` interface, and the `ZveltioSchema` alias — all kept in sync automatically when you run in watch mode.
+
 ## Realtime
 
 ```typescript

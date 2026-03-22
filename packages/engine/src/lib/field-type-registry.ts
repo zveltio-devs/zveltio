@@ -71,6 +71,7 @@ export interface FieldConfig {
   description?: string;
   defaultValue?: any;
   options?: Record<string, any>;
+  encrypted?: boolean;
 }
 
 export class FieldTypeRegistry {

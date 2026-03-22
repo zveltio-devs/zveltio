@@ -76,6 +76,7 @@ export const FieldSchema = z.object({
     .optional(),
   label: z.string().max(200).optional(),
   description: z.string().max(1_000).optional(),
+  encrypted: z.boolean().default(false).optional(),
 });
 
 export const CollectionSchema = z.object({
@@ -518,6 +519,38 @@ export class DDLManager {
       await this.updateCollectionMetadata(db, collectionName, { fields: updated });
     }
     this.invalidateCache(collectionName);
+  }
+
+  /** Returns the SQL that would be executed for a new collection — without running it */
+  static async previewCollection(schema: z.infer<typeof CollectionSchema>): Promise<{ sql: string[] }> {
+    const tableName = `zvd_${schema.name}`;
+    const statements: string[] = [];
+
+    statements.push(
+      `CREATE TABLE IF NOT EXISTS ${tableName} (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()${schema.fields.length > 0 ? ',' : ''}
+${schema.fields.map((f) => {
+  const def = fieldTypeRegistry.get(f.type);
+  const colType = def?.db.columnType ?? 'TEXT';
+  const nullable = f.required ? 'NOT NULL' : 'NULL';
+  const defaultVal = def?.db.defaultValue ? ` DEFAULT ${def.db.defaultValue}` : '';
+  return `  ${f.name} ${colType} ${nullable}${defaultVal}`;
+}).join(',\n')}
+);`
+    );
+
+    for (const field of schema.fields) {
+      if (field.indexed) {
+        statements.push(`CREATE INDEX IF NOT EXISTS idx_${schema.name}_${field.name} ON ${tableName}(${field.name});`);
+      }
+      if (field.unique) {
+        statements.push(`ALTER TABLE ${tableName} ADD CONSTRAINT uq_${schema.name}_${field.name} UNIQUE (${field.name});`);
+      }
+    }
+
+    return { sql: statements };
   }
 
   static async registerMetadata(
