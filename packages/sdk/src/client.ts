@@ -45,8 +45,12 @@ class CollectionRef<T extends Record<string, any>> {
     return this.list(params);
   }
 
-  getOne(id: string): Promise<T> {
+  get(id: string): Promise<T> {
     return this.client['request']('GET', `/api/data/${this.name}/${id}`);
+  }
+
+  getOne(id: string): Promise<T> {
+    return this.get(id);
   }
 
   create(data: Omit<T, 'id' | 'created_at' | 'updated_at'>): Promise<T> {
