@@ -405,6 +405,57 @@ export function adminRoutes(db: Database, auth: any): Hono {
     }
   });
 
+  // ── Audit Log ─────────────────────────────────────────────────
+
+  // GET /audit — recent security/admin events from zv_audit_log
+  app.get('/audit', async (c) => {
+    const { limit = '50', page = '1', user_id, event_type } = c.req.query();
+    const parsedLimit = Math.min(parseInt(limit) || 50, 500);
+    const offset = (parseInt(page) - 1) * parsedLimit;
+
+    let query = (db as any)
+      .selectFrom('zv_audit_log')
+      .selectAll()
+      .orderBy('created_at', 'desc')
+      .limit(parsedLimit)
+      .offset(offset);
+
+    if (user_id) query = query.where('user_id', '=', user_id);
+    if (event_type) query = query.where('event_type', '=', event_type);
+
+    const entries = await query.execute();
+    return c.json({ audit: entries });
+  });
+
+  // ── Dashboard Stats ────────────────────────────────────────────
+
+  // GET /stats — aggregate stats for the dashboard
+  app.get('/stats', async (c) => {
+    const [collectionsCount, webhooksCount, slowCount, apiCallsToday] = await Promise.all([
+      sql<{ count: string }>`
+        SELECT COUNT(*) AS count FROM zv_collections
+      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+      sql<{ count: string }>`
+        SELECT COUNT(*) AS count FROM zv_webhooks WHERE active = TRUE
+      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+      sql<{ count: string }>`
+        SELECT COUNT(*) AS count FROM zv_slow_queries
+        WHERE created_at >= NOW() - INTERVAL '24 hours'
+      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+      sql<{ count: string }>`
+        SELECT COALESCE(SUM(api_calls), 0) AS count FROM zv_tenant_quota
+        WHERE date = CURRENT_DATE
+      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+    ]);
+
+    return c.json({
+      collections: collectionsCount,
+      active_webhooks: webhooksCount,
+      slow_queries_24h: slowCount,
+      api_calls_today: apiCallsToday,
+    });
+  });
+
   // ── Slow Queries ──────────────────────────────────────────────
 
   // GET /slow-queries — list recent slow queries
