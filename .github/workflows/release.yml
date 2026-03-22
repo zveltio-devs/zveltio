@@ -299,16 +299,20 @@ jobs:
           cd packages/sdk-vue && bun run build && cd -
           cd packages/cli && bun run build && cd -
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
           IS_BETA="${{ contains(github.ref, 'beta') }}"
           TAG=$([ "$IS_BETA" = "true" ] && echo "beta" || echo "latest")
           for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli; do
             cd $pkg
-            npm publish --access public --tag $TAG
+            npm publish --access public --tag $TAG --provenance
             cd -
           done
 
@@ -330,7 +334,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zveltio-devs/zveltio-get
-          token: ${{ secrets.ZVELTIO_GET_DEPLOY_TOKEN }}
+          token: ${{ secrets.ZVELTIO_GET_DEPLOY_TOKEN || github.token }}
           path: zveltio-get
 
       - name: Generate versions.json
