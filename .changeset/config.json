@@ -4,10 +4,10 @@
   "commit": false,
   "fixed": [],
   "linked": [
-    ["@zveltio/engine", "@zveltio/studio", "@zveltio/sdk", "@zveltio/react", "@zveltio/vue", "@zveltio/cli"]
+    ["@zveltio/sdk", "@zveltio/react", "@zveltio/vue", "@zveltio/cli"]
   ],
-  "access": "restricted",
-  "baseBranch": "main",
+  "access": "public",
+  "baseBranch": "master",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": ["@zveltio/engine", "@zveltio/studio", "@zveltio/client"]
 }

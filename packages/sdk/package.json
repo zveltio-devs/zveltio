@@ -14,6 +14,7 @@
       "import": "./dist/extension/index.js"
     }
   },
+  "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
