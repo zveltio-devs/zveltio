@@ -412,6 +412,94 @@ if [[ "$SKIP_ENGINE" == "false" ]]; then
   ok "Engine running"
 fi
 
+# ── Extras (NPM + Dockge) ─────────────────────────────────────
+INSTALL_NPM=false
+INSTALL_DOCKGE=false
+DOMAIN=""
+NPM_PORT=81
+DOCKGE_PORT=5001
+
+if [[ "$UNATTENDED" == "false" && "$IS_UPDATE" == "false" ]]; then
+  section "🔧 Optional Add-ons"
+
+  echo -e "  ${BOLD}Nginx Proxy Manager${NC} — reverse proxy with SSL (Let's Encrypt)"
+  echo -n "  Install? (y/N): "
+  read -r ans </dev/tty || true
+  if [[ "${ans,,}" == "y" ]]; then
+    INSTALL_NPM=true
+    echo -n "  Your domain (e.g. zveltio.example.com) — leave blank to skip: "
+    read -r DOMAIN </dev/tty || true
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Dockge${NC} — web UI for managing Docker Compose stacks"
+  echo -n "  Install? (y/N): "
+  read -r ans </dev/tty || true
+  [[ "${ans,,}" == "y" ]] && INSTALL_DOCKGE=true
+fi
+
+if [[ "$INSTALL_NPM" == "true" || "$INSTALL_DOCKGE" == "true" ]]; then
+  section "📦 Installing Add-ons"
+
+  EXTRAS_COMPOSE="${INSTALL_DIR}/docker-compose.extras.yml"
+
+  cat > "$EXTRAS_COMPOSE" << 'EXTRAS_EOF'
+# Zveltio — Optional Add-ons
+# Manage with: docker compose -f docker-compose.extras.yml up -d
+
+services:
+EXTRAS_EOF
+
+  if [[ "$INSTALL_NPM" == "true" ]]; then
+    cat >> "$EXTRAS_COMPOSE" << EXTRAS_EOF
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: zveltio-npm
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "${NPM_PORT:-81}:81"
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+EXTRAS_EOF
+    ok "Nginx Proxy Manager added"
+  fi
+
+  if [[ "$INSTALL_DOCKGE" == "true" ]]; then
+    cat >> "$EXTRAS_COMPOSE" << EXTRAS_EOF
+  dockge:
+    image: louislam/dockge:1
+    container_name: zveltio-dockge
+    restart: unless-stopped
+    ports:
+      - "${DOCKGE_PORT:-5001}:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dockge_data:/app/data
+      - /opt/stacks:/opt/stacks
+
+EXTRAS_EOF
+    ok "Dockge added"
+  fi
+
+  # volumes block
+  cat >> "$EXTRAS_COMPOSE" << 'EXTRAS_EOF'
+volumes:
+EXTRAS_EOF
+  [[ "$INSTALL_NPM" == "true" ]]    && echo "  npm_data:" >> "$EXTRAS_COMPOSE" \
+                                    && echo "  npm_letsencrypt:" >> "$EXTRAS_COMPOSE"
+  [[ "$INSTALL_DOCKGE" == "true" ]] && echo "  dockge_data:" >> "$EXTRAS_COMPOSE"
+
+  log "Starting add-ons..."
+  docker compose -f "$EXTRAS_COMPOSE" up -d
+  ok "Add-ons running"
+fi
+
 # ── Success ───────────────────────────────────────────────────
 PORT_FINAL="${PORT:-3000}"
 
@@ -425,10 +513,25 @@ echo "  ║   ✅  Zveltio v${VERSION} installed!           ║"
 fi
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
+if [[ -n "$DOMAIN" ]]; then
+echo -e "  ${BOLD}Studio:${NC}   https://${DOMAIN}/studio"
+echo -e "  ${BOLD}API:${NC}      https://${DOMAIN}/api"
+else
 echo -e "  ${BOLD}Studio:${NC}   http://localhost:${PORT_FINAL}/studio"
 echo -e "  ${BOLD}API:${NC}      http://localhost:${PORT_FINAL}/api"
+fi
 echo -e "  ${BOLD}Docs:${NC}     http://localhost:${PORT_FINAL}/api/docs"
 echo ""
+if [[ "$INSTALL_NPM" == "true" ]]; then
+echo -e "  ${BOLD}Nginx Proxy Manager:${NC}  http://localhost:${NPM_PORT:-81}"
+echo -e "  ${DIM}  Default login: admin@example.com / changeme${NC}"
+[[ -n "$DOMAIN" ]] && echo -e "  ${DIM}  Add proxy host: ${DOMAIN} → http://host.docker.internal:${PORT_FINAL}${NC}"
+echo ""
+fi
+if [[ "$INSTALL_DOCKGE" == "true" ]]; then
+echo -e "  ${BOLD}Dockge:${NC}  http://localhost:${DOCKGE_PORT:-5001}"
+echo ""
+fi
 echo -e "  ${BOLD}Data:${NC}     ${INSTALL_DIR}"
 echo -e "  ${BOLD}Logs:${NC}     ${INSTALL_DIR}/zveltio.log"
 echo ""
