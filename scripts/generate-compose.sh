@@ -6,7 +6,7 @@ set -euo pipefail
 
 VERSION="${1:?Usage: $0 <version> <output_dir>}"
 OUTPUT_DIR="${2:?Usage: $0 <version> <output_dir>}"
-REGISTRY="ghcr.io/zveltio/zveltio-engine"
+REGISTRY="ghcr.io/zveltio-devs/zveltio-engine"
 IMAGE="${REGISTRY}:${VERSION}"
 
 mkdir -p "$OUTPUT_DIR"
@@ -22,7 +22,6 @@ cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
 #   # Edit .env with your credentials
 #   docker compose up -d
 
-version: '3.9'
 
 services:
   postgres:
@@ -165,7 +164,6 @@ cat > "${OUTPUT_DIR}/docker-compose.infra.yml" << EOF
 #   docker compose -f docker-compose.infra.yml up -d
 #   zveltio start
 
-version: '3.9'
 
 services:
   postgres:
@@ -261,7 +259,6 @@ cat > "${OUTPUT_DIR}/docker-compose.engine.yml" << EOF
 #
 # Prerequisites: set DATABASE_URL, REDIS_URL, S3_ENDPOINT in .env
 
-version: '3.9'
 
 services:
   engine:
