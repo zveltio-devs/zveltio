@@ -44,7 +44,7 @@ services:
 
   # ── PgBouncer (Connection Pooler) ───────────────────────────────────────────────
   pooler:
-    image: edoburu/pgbouncer
+    image: pgbouncer/pgbouncer:latest
     container_name: zveltio-pooler
     restart: unless-stopped
     depends_on:
