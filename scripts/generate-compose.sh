@@ -14,7 +14,7 @@ mkdir -p "$OUTPUT_DIR"
 # ── docker-compose.yml (Full Stack) ───────────────────────────
 cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
 # Zveltio ${VERSION} — Full Stack
-# Includes: Engine, Studio, PostgreSQL, PgBouncer, Valkey, SeaweedFS
+# Includes: Engine, Studio, PostgreSQL, PgDog, Valkey, SeaweedFS
 # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 #
 # Quick start:
@@ -42,19 +42,40 @@ services:
     networks:
       - zveltio
 
-  pgbouncer:
-    image: edoburu/pgbouncer:latest
-    container_name: zveltio-pgbouncer
-    restart: unless-stopped
+  pgdog-init:
+    image: alpine:3.19
+    container_name: zveltio-pgdog-init
     environment:
-      DATABASE_URL: "postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB:-zveltio}"
-      POOL_MODE: session
-      AUTH_TYPE: scram-sha-256
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 25
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: \${POSTGRES_DB:-zveltio}
+      DB_USER: \${POSTGRES_USER:-zveltio}
+      DB_PASSWORD: \${POSTGRES_PASSWORD}
+    volumes:
+      - pgdog_config:/pgdog
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf '[general]\\nhost = "0.0.0.0"\\nport = 6432\\ndefault_pool_size = 25\\nmin_pool_size = 5\\npooler_mode = "session"\\nauth_type = "scram"\\n\\n[[databases]]\\nname = "%s"\\nhost = "%s"\\nport = %s\\n' \\
+          "\$\$DB_NAME" "\$\$DB_HOST" "\$\$DB_PORT" > /pgdog/pgdog.toml
+        printf '[[users]]\\nname = "%s"\\ndatabase = "%s"\\npassword = "%s"\\n' \\
+          "\$\$DB_USER" "\$\$DB_NAME" "\$\$DB_PASSWORD" > /pgdog/users.toml
+    restart: "no"
+    networks:
+      - zveltio
+
+  pgdog:
+    image: ghcr.io/pgdogdev/pgdog:v0.1.33
+    container_name: zveltio-pgdog
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      pgdog-init:
+        condition: service_completed_successfully
+    volumes:
+      - pgdog_config:/pgdog
     networks:
       - zveltio
 
@@ -114,7 +135,7 @@ services:
     ports:
       - "\${PORT:-3000}:3000"
     environment:
-      DATABASE_URL: postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@pgbouncer:5432/\${POSTGRES_DB:-zveltio}
+      DATABASE_URL: postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@pgdog:6432/\${POSTGRES_DB:-zveltio}
       REDIS_URL: redis://valkey:6379
       S3_ENDPOINT: http://seaweedfs-filer:8333
       S3_ACCESS_KEY: \${S3_ACCESS_KEY:-zveltio}
@@ -131,7 +152,7 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
-      pgbouncer:
+      pgdog:
         condition: service_started
       seaweedfs-filer:
         condition: service_started
@@ -149,6 +170,7 @@ volumes:
   valkey_data:
   seaweedfs_master:
   seaweedfs_volume:
+  pgdog_config:
 
 networks:
   zveltio:
@@ -185,21 +207,40 @@ services:
       timeout: 5s
       retries: 5
 
-  pgbouncer:
-    image: edoburu/pgbouncer:latest
-    container_name: zveltio-pgbouncer
-    restart: unless-stopped
+  pgdog-init:
+    image: alpine:3.19
+    container_name: zveltio-pgdog-init
     environment:
-      DATABASE_URL: "postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB:-zveltio}"
-      POOL_MODE: session
-      AUTH_TYPE: scram-sha-256
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 25
-    ports:
-      - "\${PGBOUNCER_PORT:-6432}:6432"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: \${POSTGRES_DB:-zveltio}
+      DB_USER: \${POSTGRES_USER:-zveltio}
+      DB_PASSWORD: \${POSTGRES_PASSWORD}
+    volumes:
+      - pgdog_config:/pgdog
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf '[general]\\nhost = "0.0.0.0"\\nport = 6432\\ndefault_pool_size = 25\\nmin_pool_size = 5\\npooler_mode = "session"\\nauth_type = "scram"\\n\\n[[databases]]\\nname = "%s"\\nhost = "%s"\\nport = %s\\n' \\
+          "\$\$DB_NAME" "\$\$DB_HOST" "\$\$DB_PORT" > /pgdog/pgdog.toml
+        printf '[[users]]\\nname = "%s"\\ndatabase = "%s"\\npassword = "%s"\\n' \\
+          "\$\$DB_USER" "\$\$DB_NAME" "\$\$DB_PASSWORD" > /pgdog/users.toml
+    restart: "no"
+
+  pgdog:
+    image: ghcr.io/pgdogdev/pgdog:v0.1.33
+    container_name: zveltio-pgdog
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      pgdog-init:
+        condition: service_completed_successfully
+    volumes:
+      - pgdog_config:/pgdog
+    ports:
+      - "\${PGDOG_PORT:-6432}:6432"
 
   valkey:
     image: valkey/valkey:8-alpine
@@ -251,6 +292,7 @@ volumes:
   valkey_data:
   seaweedfs_master:
   seaweedfs_volume:
+  pgdog_config:
 EOF
 
 # ── docker-compose.engine.yml (Engine Only) ───────────────────
