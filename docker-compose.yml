@@ -44,28 +44,29 @@ services:
 
   # ── PgBouncer (Connection Pooler) ───────────────────────────────────────────────
   pooler:
-    image: bitnami/pgbouncer:latest
+    image: edoburu/pgbouncer:latest
     container_name: zveltio-pooler
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      POSTGRESQL_HOST: db
-      POSTGRESQL_PORT: 5432
-      POSTGRESQL_USERNAME: ${POSTGRES_USER:-zveltio}
-      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:-zveltio}
-      POSTGRESQL_DATABASE: ${POSTGRES_DB:-zveltio}
-      PGBOUNCER_PORT: 6432
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-zveltio}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-zveltio}
+      DB_NAME: ${POSTGRES_DB:-zveltio}
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
       # session mode is required for Better-Auth (SET commands, advisory locks)
       # and for PostgreSQL LISTEN/NOTIFY used by the realtime subsystem.
       # transaction mode breaks both. Tradeoff: lower max concurrency — size
       # DEFAULT_POOL_SIZE to match PostgreSQL max_connections (500 here).
-      PGBOUNCER_POOL_MODE: session
-      PGBOUNCER_MAX_CLIENT_CONN: 400
-      PGBOUNCER_DEFAULT_POOL_SIZE: 40
-      PGBOUNCER_MIN_POOL_SIZE: 5
-      PGBOUNCER_RESERVE_POOL_SIZE: 10
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 400
+      DEFAULT_POOL_SIZE: 40
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 10
       RESERVE_POOL_TIMEOUT: 3
       SERVER_IDLE_TIMEOUT: 600
       CLIENT_IDLE_TIMEOUT: 0
