@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # ── Constante ─────────────────────────────────────────────────
-REPO="zveltio/zveltio"
+REPO="zveltio-devs/zveltio"
 RELEASES_BASE="https://github.com/${REPO}/releases/download"
 DEFAULT_PORT=3000
 INSTALL_DIR="$(pwd)/zveltio"
