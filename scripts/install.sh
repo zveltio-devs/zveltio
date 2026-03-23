@@ -140,22 +140,13 @@ if ! docker compose version &>/dev/null; then
 fi
 ok "Docker Compose $(docker compose version --short)"
 
-HAS_BUN=false
 if command_exists bun; then
-  HAS_BUN=true
   ok "Bun $(bun --version)"
-else
-  warn "Bun not found (native mode unavailable)"
 fi
 
 if [[ "$MODE" == "auto" ]]; then
-  if [[ "$HAS_BUN" == "true" ]]; then
-    MODE="native"
-    info "→ Native mode selected (Bun detected)"
-  else
-    MODE="docker"
-    info "→ Docker mode selected (Bun not found)"
-  fi
+  MODE="native"
+  info "→ Native mode selected (binary + Docker infra)"
 fi
 
 echo ""
