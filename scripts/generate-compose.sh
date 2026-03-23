@@ -43,14 +43,19 @@ services:
       - zveltio
 
   pgbouncer:
-    image: pgbouncer/pgbouncer:latest
+    image: bitnami/pgbouncer:latest
     container_name: zveltio-pgbouncer
     restart: unless-stopped
     environment:
-      DATABASE_URL: "postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB:-zveltio}"
-      POOL_MODE: session
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 25
+      POSTGRESQL_HOST: postgres
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_USERNAME: \${POSTGRES_USER:-zveltio}
+      POSTGRESQL_PASSWORD: \${POSTGRES_PASSWORD}
+      POSTGRESQL_DATABASE: \${POSTGRES_DB:-zveltio}
+      PGBOUNCER_POOL_MODE: session
+      PGBOUNCER_PORT: 6432
+      PGBOUNCER_MAX_CLIENT_CONN: 1000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 25
     depends_on:
       postgres:
         condition: service_healthy
@@ -185,16 +190,21 @@ services:
       retries: 5
 
   pgbouncer:
-    image: pgbouncer/pgbouncer:latest
+    image: bitnami/pgbouncer:latest
     container_name: zveltio-pgbouncer
     restart: unless-stopped
     environment:
-      DATABASE_URL: "postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@postgres:5432/\${POSTGRES_DB:-zveltio}"
-      POOL_MODE: session
-      MAX_CLIENT_CONN: 1000
-      DEFAULT_POOL_SIZE: 25
+      POSTGRESQL_HOST: postgres
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_USERNAME: \${POSTGRES_USER:-zveltio}
+      POSTGRESQL_PASSWORD: \${POSTGRES_PASSWORD}
+      POSTGRESQL_DATABASE: \${POSTGRES_DB:-zveltio}
+      PGBOUNCER_POOL_MODE: session
+      PGBOUNCER_PORT: 6432
+      PGBOUNCER_MAX_CLIENT_CONN: 1000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 25
     ports:
-      - "\${PGBOUNCER_PORT:-6432}:5432"
+      - "\${PGBOUNCER_PORT:-6432}:6432"
     depends_on:
       postgres:
         condition: service_healthy
