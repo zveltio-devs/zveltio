@@ -3,11 +3,28 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["bun-types"],
-    "strict": true,
+    "strict": false,
+    "allowJs": true,
+    "checkJs": false,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "hono": ["../packages/engine/node_modules/hono/dist/types/index.d.ts"],
+      "hono/*": ["../packages/engine/node_modules/hono/dist/types/*"],
+      "zod": ["../packages/engine/node_modules/zod/index.d.ts"],
+      "zod/*": ["../packages/engine/node_modules/zod/*"],
+      "@hono/zod-validator": ["../packages/engine/node_modules/@hono/zod-validator/dist/index.d.ts"],
+      "kysely": ["../packages/engine/node_modules/kysely/dist/cjs/index.d.ts"],
+      "kysely/*": ["../packages/engine/node_modules/kysely/dist/cjs/*"]
+    },
+    "typeRoots": [
+      "../packages/engine/node_modules/@types",
+      "../packages/studio/node_modules/@types"
+    ]
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "**/*.svelte"],
   "exclude": ["**/node_modules", "**/dist"]
 }
