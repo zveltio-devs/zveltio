@@ -123,8 +123,8 @@ The `generate-versions-json.sh` script is now called by the CI/CD pipeline (`rel
 
 Every release is tagged and available as a GitHub Release:
 
-- **Tags**: `https://github.com/zveltio/zveltio/tags`
-- **Releases**: `https://github.com/zveltio/zveltio/releases`
+- **Tags**: `https://github.com/zveltio-devs/zveltio/tags`
+- **Releases**: `https://github.com/zveltio-devs/zveltio/releases`
 - **Changelog**: `packages/engine/CHANGELOG.md`, `packages/cli/CHANGELOG.md`, etc.
 
 ---

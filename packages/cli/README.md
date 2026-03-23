@@ -114,4 +114,4 @@ zveltio version
 ## Links
 
 - [Documentation](https://zveltio.com/docs/cli)
-- [GitHub](https://github.com/zveltio/zveltio)
+- [GitHub](https://github.com/zveltio-devs/zveltio)

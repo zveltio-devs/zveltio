@@ -129,6 +129,6 @@ async function handleFile(e: Event) {
 ## Links
 
 - [Documentation](https://zveltio.com/docs)
-- [GitHub](https://github.com/zveltio/zveltio)
+- [GitHub](https://github.com/zveltio-devs/zveltio)
 - [Core SDK](https://www.npmjs.com/package/@zveltio/sdk)
 - [React SDK](https://www.npmjs.com/package/@zveltio/react)
