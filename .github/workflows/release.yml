@@ -181,13 +181,17 @@ jobs:
           }
           EOF
 
+      - name: Flatten assets into single directory
+        run: |
+          mkdir -p flat-assets
+          cp dist/zveltio-* flat-assets/
+          cp release-assets/* flat-assets/
+
       - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
           name: release-assets
-          path: |
-            dist/
-            release-assets/
+          path: flat-assets/
           retention-days: 1
 
   # ── Job 5: Publish Release ───────────────────────────────────
@@ -237,7 +241,7 @@ jobs:
 
             ### ⚡ Quick Install
             ```bash
-            curl -fsSL https://get.zveltio.com | bash
+            curl -fsSL https://get.zveltio.com/install.sh | bash
             ```
 
             ### 🐳 Docker Only
