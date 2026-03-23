@@ -43,7 +43,7 @@ services:
       - zveltio
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: pgbouncer/pgbouncer:latest
     container_name: zveltio-pgbouncer
     restart: unless-stopped
     environment:
@@ -185,7 +185,7 @@ services:
       retries: 5
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: pgbouncer/pgbouncer:latest
     container_name: zveltio-pgbouncer
     restart: unless-stopped
     environment:
