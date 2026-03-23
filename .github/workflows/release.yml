@@ -316,6 +316,13 @@ jobs:
           TAG=$([ "$IS_BETA" = "true" ] && echo "beta" || echo "latest")
           for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli; do
             cd $pkg
+            PKG_NAME=$(node -e "console.log(require('./package.json').name)")
+            PKG_VER=$(node -e "console.log(require('./package.json').version)")
+            if npm view "${PKG_NAME}@${PKG_VER}" version &>/dev/null 2>&1; then
+              echo "⚠ ${PKG_NAME}@${PKG_VER} already published, skipping"
+              cd -
+              continue
+            fi
             npm publish --access public --tag $TAG --provenance
             cd -
           done
