@@ -62,7 +62,7 @@ export function healthRoutes(db: Database): Hono {
   app.get('/update-check', async (c) => {
     try {
       const res = await fetch(
-        'https://api.github.com/repos/zveltio/zveltio/releases/latest',
+        'https://api.github.com/repos/zveltio-devs/zveltio/releases/latest',
         {
           headers: { 'User-Agent': 'zveltio-engine' },
           signal: AbortSignal.timeout(5000),
