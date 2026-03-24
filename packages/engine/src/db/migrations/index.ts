@@ -3,6 +3,7 @@ import { readdir } from 'fs/promises';
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
+import { EMBEDDED_MIGRATIONS } from './embedded.js';
 
 /**
  * Splits a SQL string into individual statements on top-level semicolons.
@@ -275,18 +276,23 @@ async function applyMigration(
 
 export async function runPending(db: Database): Promise<void> {
   const migrationsDir = join(import.meta.dir, 'sql');
-  if (!existsSync(migrationsDir)) {
-    console.log('  No migrations directory found, skipping.');
-    return;
-  }
 
-  const files = (await readdir(migrationsDir))
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
+  let files: string[];
+  let getContent: (file: string) => Promise<string>;
+
+  if (existsSync(migrationsDir)) {
+    // Development / source mode: read from filesystem
+    files = (await readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
+    getContent = (file) => Bun.file(join(migrationsDir, file)).text();
+  } else {
+    // Compiled binary mode: use embedded migrations bundled at build time
+    files = Object.keys(EMBEDDED_MIGRATIONS).sort();
+    getContent = (file) => Promise.resolve(EMBEDDED_MIGRATIONS[file]);
+  }
 
   for (const file of files) {
     const migrationNumber = getMigrationNumber(file);
-    const fileContent = await Bun.file(join(migrationsDir, file)).text();
+    const fileContent = await getContent(file);
     await applyMigration(db, migrationNumber, file, fileContent);
   }
 }
