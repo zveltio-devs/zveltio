@@ -171,9 +171,11 @@ services:
     volumes:
       - ./studio-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;location ={/}{return 301 /admin/;}location /api/{proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /admin/{alias /usr/share/nginx/html/;try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${STUDIO_PORT:-4174}:80"
+    depends_on:
+      - engine
     networks:
       - zveltio
 
@@ -184,9 +186,11 @@ services:
     volumes:
       - ./client-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /api/{proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${CLIENT_PORT:-4173}:80"
+    depends_on:
+      - engine
     networks:
       - zveltio
 
@@ -282,9 +286,11 @@ services:
     volumes:
       - ./studio-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;location ={/}{return 301 /admin/;}location /api/{proxy_pass http://host.docker.internal:\${PORT:-3000};proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /admin/{alias /usr/share/nginx/html/;try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${STUDIO_PORT:-4174}:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   client:
     image: nginx:alpine
@@ -293,9 +299,11 @@ services:
     volumes:
       - ./client-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /api/{proxy_pass http://host.docker.internal:\${PORT:-3000};proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${CLIENT_PORT:-4173}:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   postgres_data:
@@ -346,9 +354,11 @@ services:
     volumes:
       - ./studio-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;location ={/}{return 301 /admin/;}location /api/{proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /admin/{alias /usr/share/nginx/html/;try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${STUDIO_PORT:-4174}:80"
+    depends_on:
+      - engine
 
   client:
     image: nginx:alpine
@@ -357,9 +367,11 @@ services:
     volumes:
       - ./client-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /api/{proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${CLIENT_PORT:-4173}:80"
+    depends_on:
+      - engine
 EOF
 
 echo "✅ Generated compose files in ${OUTPUT_DIR}"

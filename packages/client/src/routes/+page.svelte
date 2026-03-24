@@ -12,7 +12,7 @@
         {import.meta.env.PUBLIC_APP_NAME || 'Zveltio'}
       </h1>
       <p class="py-6 text-base-content/70">
-        Platforma moderna pentru gestionarea datelor, colaborare si automatizari.
+        Modern platform for data management, collaboration and automation.
       </p>
 
       {#if auth.isPending}
