@@ -12,6 +12,7 @@
 
 import { readdirSync } from 'fs';
 import { join } from 'path';
+import { EMBEDDED_MIGRATIONS } from './db/migrations/embedded.js';
 
 export const ENGINE_VERSION = '2.0.0';
 
@@ -19,7 +20,7 @@ export const ENGINE_VERSION = '2.0.0';
 // Change ONLY on MAJOR version bumps with breaking schema changes.
 export const MIN_SCHEMA_VERSION = 0;
 
-/** Computed dynamically from the SQL migration files on disk. */
+/** Computed from SQL files on disk (dev) or embedded migrations (compiled binary). */
 export function getMaxSchemaVersion(): number {
   try {
     const migrationsDir = join(import.meta.dir, 'db', 'migrations', 'sql');
@@ -28,7 +29,10 @@ export function getMaxSchemaVersion(): number {
       .map((f) => parseInt(f.match(/^(\d+)/)?.[1] ?? '0'));
     return Math.max(...files, 0);
   } catch {
-    return 0;
+    // Compiled binary: derive max version from embedded migrations
+    const versions = Object.keys(EMBEDDED_MIGRATIONS)
+      .map((f) => parseInt(f.match(/^(\d+)/)?.[1] ?? '0'));
+    return Math.max(...versions, 0);
   }
 }
 
