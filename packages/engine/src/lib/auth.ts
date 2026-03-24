@@ -19,6 +19,15 @@ export async function initAuth(db: Database) {
   const port = process.env.PORT || '3000';
   const baseURL = process.env.BETTER_AUTH_URL || `http://localhost:${port}`;
 
+  // Trusted origins: allow CORS_ORIGINS (client/studio nginx) + baseURL itself.
+  // Without this, better-auth rejects session requests from ports 4173/4174.
+  const trustedOrigins = [
+    baseURL,
+    ...(process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+      : [`http://localhost:4173`, `http://localhost:4174`]),
+  ];
+
   // Pass the engine's own Kysely (BunSqlDialect) instance to better-auth via the
   // { db, type } object form. createKyselyAdapter detects "db" in database and uses
   // db.db directly with databaseType = "postgres", skipping auto-detection entirely.
@@ -49,6 +58,7 @@ export async function initAuth(db: Database) {
   // @ts-ignore — better-auth generics diverge between plugin overloads
   const authInstance = betterAuth({
     baseURL,
+    trustedOrigins,
     secret: process.env.BETTER_AUTH_SECRET,
     database,
     ...(secondaryStorage ? { secondaryStorage } : {}),
