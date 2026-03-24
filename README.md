@@ -11,7 +11,7 @@
 ## ⚡ Quick Install
 
 ```bash
-curl -fsSL https://get.zveltio.com | bash
+curl -fsSL https://get.zveltio.com/install.sh | bash
 ```
 
 Full installation guide: **[get.zveltio.com](https://get.zveltio.com)**
