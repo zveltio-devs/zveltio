@@ -438,7 +438,6 @@ INSTALL_DOCKGE=false
 INSTALL_NPM=false
 NPM_PORT=81
 DOCKGE_PORT=5001
-STALWART_HTTP_PORT=8080
 
 ADDONS_CONFIGURED=false
 [[ -f ".zveltio-install.json" ]] && grep -q '"addons_configured":true' .zveltio-install.json 2>/dev/null && ADDONS_CONFIGURED=true
@@ -488,9 +487,9 @@ EXTRAS_EOF
 
   if [[ "$INSTALL_STALWART" == "true" ]]; then
     cat >> "$EXTRAS_COMPOSE" << EXTRAS_EOF
-  stalwart:
-    image: stalwartlabs/mail-server:latest
-    container_name: zveltio-stalwart
+  stalwart-mail:
+    image: stalwartlabs/stalwart:latest
+    container_name: stalwart-mail
     restart: unless-stopped
     ports:
       - "25:25"
@@ -498,11 +497,13 @@ EXTRAS_EOF
       - "465:465"
       - "143:143"
       - "993:993"
-      - "${STALWART_HTTP_PORT:-8080}:8080"
+      - "4190:4190"
+      - "110:110"
+      - "995:995"
     volumes:
-      - stalwart_data:/opt/stalwart-mail
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ./stalwart-data:/opt/stalwart
+    networks:
+      - npm_network
 
 EXTRAS_EOF
     ok "Stalwart Mail Server added"
@@ -540,19 +541,24 @@ EXTRAS_EOF
       - npm_letsencrypt:/etc/letsencrypt
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - npm_network
 
 EXTRAS_EOF
     ok "Nginx Proxy Manager added"
   fi
 
-  # volumes block
-  cat >> "$EXTRAS_COMPOSE" << 'EXTRAS_EOF'
-volumes:
-EXTRAS_EOF
-  [[ "$INSTALL_STALWART" == "true" ]] && echo "  stalwart_data:" >> "$EXTRAS_COMPOSE"
-  [[ "$INSTALL_DOCKGE" == "true" ]]   && echo "  dockge_data:"   >> "$EXTRAS_COMPOSE"
-  [[ "$INSTALL_NPM" == "true" ]]      && echo "  npm_data:"      >> "$EXTRAS_COMPOSE" \
-                                       && echo "  npm_letsencrypt:" >> "$EXTRAS_COMPOSE"
+  # volumes + networks block
+  {
+    echo "volumes:"
+    [[ "$INSTALL_DOCKGE" == "true" ]]   && echo "  dockge_data:"
+    [[ "$INSTALL_NPM" == "true" ]]      && echo "  npm_data:" && echo "  npm_letsencrypt:"
+    echo ""
+    echo "networks:"
+    echo "  npm_network:"
+    echo "    name: npm_network"
+    echo "    driver: bridge"
+  } >> "$EXTRAS_COMPOSE"
 
   log "Starting add-ons..."
   docker compose -f "$EXTRAS_COMPOSE" up -d
@@ -583,7 +589,6 @@ EXTRAS_EOF
       STUDIO_PORT_VAL="${STUDIO_PORT:-4174}"
       ENGINE_PORT_VAL="${PORT:-3000}"
       DOCKGE_PORT_VAL="${DOCKGE_PORT:-5001}"
-      STALWART_HTTP_VAL="${STALWART_HTTP_PORT:-8080}"
 
       _npm_proxy() {
         local domain="$1" host="$2" port="$3"
@@ -598,7 +603,7 @@ EXTRAS_EOF
       _npm_proxy "studio.${DOMAIN}"        "$HOST_IP" "$STUDIO_PORT_VAL"  && ok "studio.${DOMAIN} → studio"
       _npm_proxy "api.${DOMAIN}"           "$HOST_IP" "$ENGINE_PORT_VAL"  && ok "api.${DOMAIN} → engine"
       [[ "$INSTALL_DOCKGE" == "true" ]]   && _npm_proxy "dockge.${DOMAIN}"   "$HOST_IP" "$DOCKGE_PORT_VAL"  && ok "dockge.${DOMAIN} → dockge"
-      [[ "$INSTALL_STALWART" == "true" ]] && _npm_proxy "mail.${DOMAIN}"     "$HOST_IP" "$STALWART_HTTP_VAL" && ok "mail.${DOMAIN} → stalwart"
+      [[ "$INSTALL_STALWART" == "true" ]] && _npm_proxy "mail.${DOMAIN}"     "stalwart-mail" 8080 && ok "mail.${DOMAIN} → stalwart"
 
       ok "Proxy hosts created — enable SSL in NPM admin after DNS propagates"
     else
@@ -641,7 +646,11 @@ echo -e "  ${BOLD}Dockge:${NC}  http://localhost:${DOCKGE_PORT:-5001}"
 echo ""
 fi
 if [[ "$INSTALL_STALWART" == "true" ]]; then
-echo -e "  ${BOLD}Stalwart Mail:${NC}  http://localhost:${STALWART_HTTP_PORT:-8080}"
+if [[ -n "$DOMAIN" ]]; then
+echo -e "  ${BOLD}Stalwart Mail:${NC}  http://mail.${DOMAIN}  (via NPM)"
+else
+echo -e "  ${BOLD}Stalwart Mail:${NC}  acces via NPM → proxy intern stalwart-mail:8080"
+fi
 if [[ -n "$DOMAIN" ]]; then
 echo ""
 echo -e "  ${YELLOW}📧 DNS records to add at your registrar:${NC}"
