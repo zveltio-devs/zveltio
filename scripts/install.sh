@@ -207,7 +207,7 @@ POSTGRES_PASSWORD=${POSTGRES_PASS}
 POSTGRES_DB=zveltio
 POSTGRES_PORT=5432
 PGDOG_PORT=6432
-DATABASE_URL=postgres://zveltio:${POSTGRES_PASS}@localhost:5432/zveltio
+DATABASE_URL=postgres://zveltio:${POSTGRES_PASS}@localhost:5432/zveltio?sslmode=disable
 
 # ── Cache ──────────────────────────────────────────────────────
 VALKEY_PORT=6379
@@ -354,7 +354,7 @@ else
 fi
 
 if [[ "$MODE" == "native" ]]; then
-  DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
+  DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
   ./zveltio-engine migrate
 elif [[ "$MODE" == "docker" ]]; then
   docker compose -f docker-compose.yml run --rm engine migrate
@@ -380,7 +380,7 @@ if [[ "$IS_UPDATE" == "false" ]]; then
   fi
 
   if [[ "$MODE" == "native" ]]; then
-    DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
+    DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
     ./zveltio-engine create-god \
       --email "$ADMIN_EMAIL" \
       --password "$ADMIN_PASSWORD"
@@ -405,7 +405,7 @@ if [[ "$SKIP_ENGINE" == "false" ]]; then
     fi
 
     nohup env \
-      DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
+      DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
       REDIS_URL="redis://localhost:${VALKEY_PORT:-6379}" \
       S3_ENDPOINT="http://localhost:${S3_PORT:-8333}" \
       S3_ACCESS_KEY="${S3_ACCESS_KEY:-zveltio}" \
