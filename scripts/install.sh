@@ -16,12 +16,7 @@ set -euo pipefail
 REPO="zveltio-devs/zveltio"
 RELEASES_BASE="https://github.com/${REPO}/releases/download"
 DEFAULT_PORT=3000
-# If Dockge is installed, use its stacks directory so the stack is managed there
-if [[ -d "/opt/stacks" ]]; then
-  INSTALL_DIR="/opt/stacks/zveltio"
-else
-  INSTALL_DIR="$(pwd)/zveltio"
-fi
+INSTALL_DIR="$(pwd)/zveltio"
 
 # ── Culori ────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -457,11 +452,8 @@ fi
 
 # ── Optional Add-ons ──────────────────────────────────────────
 DOMAIN=""
-INSTALL_STALWART=false
-INSTALL_DOCKGE=false
 INSTALL_NPM=false
 NPM_PORT=81
-DOCKGE_PORT=5001
 
 ADDONS_CONFIGURED=false
 [[ -f ".zveltio-install.json" ]] && grep -q '"addons_configured":true' .zveltio-install.json 2>/dev/null && ADDONS_CONFIGURED=true
@@ -476,18 +468,6 @@ if [[ "$UNATTENDED" == "false" && "$ADDONS_CONFIGURED" == "false" ]]; then
 
   section "🔧 Optional Add-ons"
 
-  echo -e "  ${BOLD}Stalwart Mail Server${NC} — self-hosted SMTP/IMAP (own your email)"
-  echo -n "  Install? (y/N): "
-  read -r ans </dev/tty || true
-  [[ "${ans,,}" == "y" ]] && INSTALL_STALWART=true
-
-  echo ""
-  echo -e "  ${BOLD}Dockge${NC} — web UI for managing Docker Compose stacks ${GREEN}[recommended]${NC}"
-  echo -n "  Install? (Y/n): "
-  read -r ans </dev/tty || true
-  [[ "${ans,,}" != "n" ]] && INSTALL_DOCKGE=true
-
-  echo ""
   echo -e "  ${BOLD}Nginx Proxy Manager${NC} — reverse proxy with SSL ${GREEN}[recommended]${NC}"
   if [[ -z "$DOMAIN" ]]; then
     echo -e "  ${DIM}  Tip: set a domain above to get auto-configured proxy hosts${NC}"
@@ -497,61 +477,16 @@ if [[ "$UNATTENDED" == "false" && "$ADDONS_CONFIGURED" == "false" ]]; then
   [[ "${ans,,}" != "n" ]] && INSTALL_NPM=true
 fi
 
-if [[ "$INSTALL_STALWART" == "true" || "$INSTALL_DOCKGE" == "true" || "$INSTALL_NPM" == "true" ]]; then
+if [[ "$INSTALL_NPM" == "true" ]]; then
   section "📦 Installing Add-ons"
 
   EXTRAS_COMPOSE="${INSTALL_DIR}/docker-compose.extras.yml"
 
-  cat > "$EXTRAS_COMPOSE" << 'EXTRAS_EOF'
+  cat > "$EXTRAS_COMPOSE" << EXTRAS_EOF
 # Zveltio — Optional Add-ons
 # Manage with: docker compose -f docker-compose.extras.yml up -d
 
 services:
-EXTRAS_EOF
-
-  if [[ "$INSTALL_STALWART" == "true" ]]; then
-    cat >> "$EXTRAS_COMPOSE" << EXTRAS_EOF
-  stalwart-mail:
-    image: stalwartlabs/stalwart:latest
-    container_name: stalwart-mail
-    restart: unless-stopped
-    ports:
-      - "25:25"
-      - "587:587"
-      - "465:465"
-      - "143:143"
-      - "993:993"
-      - "4190:4190"
-      - "110:110"
-      - "995:995"
-    volumes:
-      - ./stalwart-data:/opt/stalwart
-    networks:
-      - npm_network
-
-EXTRAS_EOF
-    ok "Stalwart Mail Server added"
-  fi
-
-  if [[ "$INSTALL_DOCKGE" == "true" ]]; then
-    cat >> "$EXTRAS_COMPOSE" << EXTRAS_EOF
-  dockge:
-    image: louislam/dockge:1
-    container_name: zveltio-dockge
-    restart: unless-stopped
-    ports:
-      - "${DOCKGE_PORT:-5001}:5001"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - dockge_data:/app/data
-      - /opt/stacks:/opt/stacks
-
-EXTRAS_EOF
-    ok "Dockge added"
-  fi
-
-  if [[ "$INSTALL_NPM" == "true" ]]; then
-    cat >> "$EXTRAS_COMPOSE" << EXTRAS_EOF
   nginx-proxy-manager:
     image: jc21/nginx-proxy-manager:latest
     container_name: zveltio-npm
@@ -568,40 +503,33 @@ EXTRAS_EOF
     networks:
       - npm_network
 
+volumes:
+  npm_data:
+  npm_letsencrypt:
+
+networks:
+  npm_network:
+    name: npm_network
+    driver: bridge
 EXTRAS_EOF
-    ok "Nginx Proxy Manager added"
-  fi
 
-  # volumes + networks block
-  {
-    echo "volumes:"
-    [[ "$INSTALL_DOCKGE" == "true" ]]   && echo "  dockge_data:"
-    [[ "$INSTALL_NPM" == "true" ]]      && echo "  npm_data:" && echo "  npm_letsencrypt:"
-    echo ""
-    echo "networks:"
-    echo "  npm_network:"
-    echo "    name: npm_network"
-    echo "    driver: bridge"
-  } >> "$EXTRAS_COMPOSE"
-
+  ok "Nginx Proxy Manager added"
   log "Starting add-ons..."
   docker compose -f "$EXTRAS_COMPOSE" up -d
   ok "Add-ons running"
 
   # ── NPM auto-proxy via API ─────────────────────────────────
-  if [[ "$INSTALL_NPM" == "true" && -n "$DOMAIN" ]]; then
+  if [[ -n "$DOMAIN" ]]; then
     section "🔀 Configuring Nginx Proxy Manager"
     log "Waiting for NPM API..."
     NPM_URL="http://localhost:${NPM_PORT:-81}"
     NPM_API="${NPM_URL}/api"
 
-    # Wait up to 60s for NPM
     for i in $(seq 1 30); do
       if curl -sf "${NPM_API}/nginx/proxy-hosts" &>/dev/null 2>&1; then break; fi
       sleep 2
     done
 
-    # Get auth token (default credentials)
     NPM_TOKEN=$(curl -sf -X POST "${NPM_API}/tokens" \
       -H "Content-Type: application/json" \
       -d '{"identity":"admin@example.com","secret":"changeme"}' \
@@ -609,10 +537,6 @@ EXTRAS_EOF
 
     if [[ -n "$NPM_TOKEN" ]]; then
       HOST_IP="host.docker.internal"
-      CLIENT_PORT_VAL="${CLIENT_PORT:-4173}"
-      STUDIO_PORT_VAL="${STUDIO_PORT:-4174}"
-      ENGINE_PORT_VAL="${PORT:-3000}"
-      DOCKGE_PORT_VAL="${DOCKGE_PORT:-5001}"
 
       _npm_proxy() {
         local domain="$1" host="$2" port="$3"
@@ -623,11 +547,9 @@ EXTRAS_EOF
           &>/dev/null || true
       }
 
-      _npm_proxy "${DOMAIN}"               "$HOST_IP" "$CLIENT_PORT_VAL"  && ok "${DOMAIN} → client"
-      _npm_proxy "studio.${DOMAIN}"        "$HOST_IP" "$STUDIO_PORT_VAL"  && ok "studio.${DOMAIN} → studio"
-      _npm_proxy "api.${DOMAIN}"           "$HOST_IP" "$ENGINE_PORT_VAL"  && ok "api.${DOMAIN} → engine"
-      [[ "$INSTALL_DOCKGE" == "true" ]]   && _npm_proxy "dockge.${DOMAIN}"   "$HOST_IP" "$DOCKGE_PORT_VAL"  && ok "dockge.${DOMAIN} → dockge"
-      [[ "$INSTALL_STALWART" == "true" ]] && _npm_proxy "mail.${DOMAIN}"     "stalwart-mail" 8080 && ok "mail.${DOMAIN} → stalwart"
+      _npm_proxy "${DOMAIN}"        "$HOST_IP" "${CLIENT_PORT:-4173}" && ok "${DOMAIN} → client"
+      _npm_proxy "studio.${DOMAIN}" "$HOST_IP" "${STUDIO_PORT:-4174}" && ok "studio.${DOMAIN} → studio"
+      _npm_proxy "api.${DOMAIN}"    "$HOST_IP" "${PORT:-3000}"        && ok "api.${DOMAIN} → engine"
 
       ok "Proxy hosts created — enable SSL in NPM admin after DNS propagates"
     else
@@ -663,27 +585,6 @@ if [[ "$INSTALL_NPM" == "true" ]]; then
 echo -e "  ${BOLD}Nginx Proxy Manager:${NC}  http://localhost:${NPM_PORT:-81}"
 echo -e "  ${DIM}  Default login: admin@example.com / changeme${NC}"
 echo -e "  ${DIM}  ⚠  Change password immediately after first login!${NC}"
-echo ""
-fi
-if [[ "$INSTALL_DOCKGE" == "true" ]]; then
-echo -e "  ${BOLD}Dockge:${NC}  http://localhost:${DOCKGE_PORT:-5001}"
-echo ""
-fi
-if [[ "$INSTALL_STALWART" == "true" ]]; then
-if [[ -n "$DOMAIN" ]]; then
-echo -e "  ${BOLD}Stalwart Mail:${NC}  http://mail.${DOMAIN}  (via NPM)"
-else
-echo -e "  ${BOLD}Stalwart Mail:${NC}  acces via NPM → proxy intern stalwart-mail:8080"
-fi
-if [[ -n "$DOMAIN" ]]; then
-echo ""
-echo -e "  ${YELLOW}📧 DNS records to add at your registrar:${NC}"
-echo -e "  ${DIM}  MX    ${DOMAIN}          mail.${DOMAIN}  (priority 10)${NC}"
-echo -e "  ${DIM}  A     mail.${DOMAIN}     <your-server-IP>${NC}"
-echo -e "  ${DIM}  TXT   ${DOMAIN}          v=spf1 mx ~all${NC}"
-echo -e "  ${DIM}  TXT   _dmarc.${DOMAIN}   v=DMARC1; p=quarantine; rua=mailto:dmarc@${DOMAIN}${NC}"
-echo -e "  ${DIM}  DKIM key → available in Stalwart admin after first login${NC}"
-fi
 echo ""
 fi
 echo -e "  ${BOLD}Data:${NC}     ${INSTALL_DIR}"
