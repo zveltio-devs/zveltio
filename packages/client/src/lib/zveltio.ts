@@ -18,5 +18,5 @@ export const sync = new SyncManager(client, {
  * Porneste SyncManager + WebSocket realtime.
  */
 export async function initZveltio(): Promise<void> {
-  await sync.start(`${ENGINE_URL}/api/ws`);
+  await sync.start(ENGINE_URL);
 }
