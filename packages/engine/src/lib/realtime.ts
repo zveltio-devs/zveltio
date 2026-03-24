@@ -29,7 +29,8 @@ export class RealtimeManager {
 
     try {
       // @ts-ignore — Bun.SQL global tipat de bun-types
-      const sql = new Bun.SQL(databaseUrl, { max: 1 });
+      // No pool options — subscribe() requires a raw (non-pooled) SQL instance.
+      const sql = new Bun.SQL(databaseUrl);
 
       // @ts-ignore — Bun.SQL.subscribe exists at runtime but not in TS types
       this.subscription = await sql.subscribe(
@@ -63,6 +64,12 @@ export class RealtimeManager {
       this.retryAttempt = 0; // Reset on success
       console.log('✅ Realtime LISTEN/NOTIFY started (Bun.SQL native)');
     } catch (err: any) {
+      // If subscribe is not available (e.g. compiled binary without native support),
+      // do not retry — it will never succeed and would spam the logs.
+      if (err.message?.includes('is not a function')) {
+        console.warn('[realtime] LISTEN/NOTIFY not available in this environment — single-instance realtime only.');
+        return;
+      }
       const delayMs = Math.min(
         REALTIME_RETRY_BASE_MS * Math.pow(2, this.retryAttempt),
         REALTIME_RETRY_MAX_MS,
