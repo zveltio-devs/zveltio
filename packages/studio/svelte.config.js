@@ -12,8 +12,5 @@ export default {
       assets: 'dist',
       fallback: 'index.html', // SPA mode — client-side routing
     }),
-    paths: {
-      base: '/admin', // Served at /admin from engine
-    },
   },
 };

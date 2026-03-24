@@ -144,7 +144,7 @@
 <div class="flex flex-col h-full min-h-screen">
   <!-- Toolbar -->
   <div class="flex items-center gap-3 px-4 py-3 bg-base-200 border-b border-base-300 shrink-0">
-    <button class="btn btn-ghost btn-sm gap-1" onclick={() => goto('/admin/flows')}>
+    <button class="btn btn-ghost btn-sm gap-1" onclick={() => goto('/flows')}>
       <ArrowLeft size={16} /> Flows
     </button>
     <div class="divider divider-horizontal m-0 h-6"></div>

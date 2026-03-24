@@ -182,7 +182,7 @@
  </div>
  <div class="flex gap-2">
  <a
- href="/admin/collections/{col.name}/data"
+ href="/collections/{col.name}/data"
  class="btn btn-ghost btn-sm"
  title="Browse data"
  >
