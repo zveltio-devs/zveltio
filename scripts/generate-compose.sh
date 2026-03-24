@@ -144,6 +144,9 @@ services:
       PORT: 3000
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
+      BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
+      AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
       ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail}
     depends_on:
@@ -338,6 +341,9 @@ services:
       PORT: 3000
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
+      BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
+      AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
       ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail}
     healthcheck:
