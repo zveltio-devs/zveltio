@@ -29,8 +29,19 @@ export async function initDatabase(): Promise<Database> {
     }),
   });
 
-  // Test connection — select a constant without accessing user tables
-  await sql`SELECT 1`.execute(_db);
+  // Test connection with retry — PgDog/pooler may need a few seconds to initialize
+  const maxAttempts = 15;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await sql`SELECT 1`.execute(_db);
+      break;
+    } catch (err) {
+      if (attempt === maxAttempts) throw err;
+      const wait = Math.min(1000 * attempt, 5000);
+      console.log(`⏳ Database not ready (attempt ${attempt}/${maxAttempts}), retrying in ${wait / 1000}s...`);
+      await Bun.sleep(wait);
+    }
+  }
 
   // Run core migrations
   await runCoreMigrations(_db);
