@@ -284,6 +284,16 @@ if [[ "$MODE" == "native" ]]; then
     fi
   fi
 
+  echo -n "  Downloading Studio..."
+  if curl -fsSL "${RELEASE_URL}/studio.tar.gz" -o studio.tar.gz 2>/dev/null; then
+    mkdir -p studio-dist
+    tar -xzf studio.tar.gz -C studio-dist
+    rm studio.tar.gz
+    echo -e " ${GREEN}✓${NC}"
+  else
+    echo -e " ${YELLOW}⚠ Studio not bundled in this release${NC}"
+  fi
+
   if [[ -w "/usr/local/bin" ]]; then
     ln -sf "$(pwd)/zveltio-engine" /usr/local/bin/zveltio
     ok "Installed to /usr/local/bin/zveltio"
