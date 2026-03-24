@@ -10,7 +10,7 @@ export function useRealtime() {
   $effect(() => {
     if (typeof window === 'undefined') return;
 
-    const engineUrl = import.meta.env.PUBLIC_ENGINE_URL || 'http://localhost:3000';
+    const engineUrl = import.meta.env.PUBLIC_ENGINE_URL || window.location.origin;
     const sse = new EventSource(`${engineUrl}/api/realtime`, {
       withCredentials: true,
     });
