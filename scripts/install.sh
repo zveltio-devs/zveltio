@@ -368,7 +368,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
       section "🚀 Starting Zveltio"
       docker compose -f "$COMPOSE_FILE" up -d engine studio client
       wait_for_service "Engine" \
-        "curl -sf http://localhost:${PORT:-3000}/health"
+        "curl -sf http://localhost:${PORT:-3000}/health" 60
       ok "Engine running"
     fi
 
