@@ -171,7 +171,7 @@ services:
     volumes:
       - ./studio-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${STUDIO_PORT:-4174}:80"
     networks:
@@ -184,7 +184,7 @@ services:
     volumes:
       - ./client-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${CLIENT_PORT:-4173}:80"
     networks:
@@ -282,7 +282,7 @@ services:
     volumes:
       - ./studio-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${STUDIO_PORT:-4174}:80"
 
@@ -293,7 +293,7 @@ services:
     volumes:
       - ./client-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${CLIENT_PORT:-4173}:80"
 
@@ -346,7 +346,7 @@ services:
     volumes:
       - ./studio-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${STUDIO_PORT:-4174}:80"
 
@@ -357,7 +357,7 @@ services:
     volumes:
       - ./client-dist:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     ports:
       - "\${CLIENT_PORT:-4173}:80"
 EOF
