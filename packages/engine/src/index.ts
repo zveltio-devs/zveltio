@@ -76,6 +76,63 @@ app.use(
 );
 app.use('/api/*', tenantMiddleware);
 
+// ─── CLI subcommands ─────────────────────────────────────────
+const _cmd = process.argv[2];
+
+if (_cmd === 'migrate') {
+  const { initDatabase: _initDb } = await import('./db/index.js');
+  await _initDb();
+  console.log('✅ Migrations complete');
+  process.exit(0);
+}
+
+if (_cmd === 'create-god') {
+  const _args = process.argv.slice(3);
+  let _email = '';
+  let _password = '';
+  for (let i = 0; i < _args.length; i++) {
+    if (_args[i] === '--email' && _args[i + 1]) _email = _args[i + 1];
+    if (_args[i] === '--password' && _args[i + 1]) _password = _args[i + 1];
+  }
+  if (!_email || !_password) {
+    console.error(
+      'Usage: zveltio-engine create-god --email <email> --password <password>',
+    );
+    process.exit(1);
+  }
+  const { initDatabase: _initDb2 } = await import('./db/index.js');
+  const _db = await _initDb2();
+  const _hash = await Bun.password.hash(_password);
+  const _now = new Date();
+  const _id = crypto.randomUUID();
+  await _db
+    .insertInto('user' as any)
+    .values({
+      id: _id,
+      email: _email,
+      name: 'Admin',
+      emailVerified: true,
+      role: 'god',
+      createdAt: _now,
+      updatedAt: _now,
+    })
+    .execute();
+  await _db
+    .insertInto('account' as any)
+    .values({
+      id: crypto.randomUUID(),
+      accountId: _id,
+      providerId: 'credential',
+      userId: _id,
+      password: _hash,
+      createdAt: _now,
+      updatedAt: _now,
+    })
+    .execute();
+  console.log(`✅ God user created: ${_email}`);
+  process.exit(0);
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────
 async function bootstrap() {
   // OTel — no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set
