@@ -335,7 +335,9 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
 
     # 2. Migrations (run-and-exit container)
     section "🗄️  Database Migrations"
-    docker compose -f "$COMPOSE_FILE" run -T --rm engine migrate
+    docker compose -f "$COMPOSE_FILE" run -T --rm \
+      -e DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-zveltio}?sslmode=disable" \
+      engine migrate
     ok "Migrations complete"
 
     # 3. Create admin account (fresh install only)
@@ -353,7 +355,9 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
         info "(save these credentials!)"
       fi
-      docker compose -f "$COMPOSE_FILE" run -T --rm engine create-god \
+      docker compose -f "$COMPOSE_FILE" run -T --rm \
+        -e DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-zveltio}?sslmode=disable" \
+        engine create-god \
         --email "$ADMIN_EMAIL" \
         --password "$ADMIN_PASSWORD"
       ok "Admin account created"
