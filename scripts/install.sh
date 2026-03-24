@@ -227,6 +227,10 @@ S3_ACCESS_KEY=zveltio
 S3_SECRET_KEY=${S3_SECRET}
 S3_BUCKET=zveltio
 
+# ── Ports ──────────────────────────────────────────────────────
+CLIENT_PORT=4173
+STUDIO_PORT=4174
+
 # ── Engine ─────────────────────────────────────────────────────
 PORT=${DEFAULT_PORT}
 SECRET_KEY=${SECRET_KEY}
@@ -234,6 +238,7 @@ BETTER_AUTH_SECRET=$(generate_secret 32)
 NODE_ENV=production
 SERVE_STUDIO=true
 ZVELTIO_VERSION=${VERSION}
+CORS_ORIGINS=http://localhost:4173,http://localhost:4174
 # Extensions are managed via Studio → Marketplace after deployment
 
 # ── Security ───────────────────────────────────────────────────
