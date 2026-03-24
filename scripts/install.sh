@@ -440,7 +440,10 @@ NPM_PORT=81
 DOCKGE_PORT=5001
 STALWART_HTTP_PORT=8080
 
-if [[ "$UNATTENDED" == "false" && "$IS_UPDATE" == "false" ]]; then
+ADDONS_CONFIGURED=false
+[[ -f ".zveltio-install.json" ]] && grep -q '"addons_configured":true' .zveltio-install.json 2>/dev/null && ADDONS_CONFIGURED=true
+
+if [[ "$UNATTENDED" == "false" && "$ADDONS_CONFIGURED" == "false" ]]; then
   section "🌐 Configuration"
 
   echo -n "  Your domain (e.g. example.com) — leave blank to use IP only: "
@@ -668,6 +671,13 @@ cat > .zveltio-install.json << EOF
   "mode": "${MODE}",
   "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "install_dir": "${INSTALL_DIR}",
-  "port": ${PORT_FINAL}
+  "port": ${PORT_FINAL},
+  "domain": "${DOMAIN}",
+  "addons_configured": true,
+  "addons": {
+    "stalwart": ${INSTALL_STALWART},
+    "dockge": ${INSTALL_DOCKGE},
+    "npm": ${INSTALL_NPM}
+  }
 }
 EOF
