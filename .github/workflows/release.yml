@@ -131,6 +131,15 @@ jobs:
           path: dist/
           merge-multiple: true
 
+      - name: Download studio
+        uses: actions/download-artifact@v4
+        with:
+          name: studio-dist
+          path: studio-dist-download/
+
+      - name: Package studio
+        run: tar -czf dist/studio.tar.gz -C studio-dist-download .
+
       - name: Generate compose files
         run: |
           chmod +x scripts/generate-compose.sh
@@ -185,6 +194,7 @@ jobs:
         run: |
           mkdir -p flat-assets
           cp dist/zveltio-* flat-assets/
+          cp dist/studio.tar.gz flat-assets/
           cp release-assets/* flat-assets/
 
       - name: Upload release assets
@@ -229,6 +239,7 @@ jobs:
             all-assets/zveltio-linux-arm64
             all-assets/zveltio-macos-x64
             all-assets/zveltio-macos-arm64
+            all-assets/studio.tar.gz
             all-assets/docker-compose.yml
             all-assets/docker-compose.infra.yml
             all-assets/docker-compose.engine.yml
