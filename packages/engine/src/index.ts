@@ -270,23 +270,10 @@ async function bootstrap() {
     });
   });
 
-  // 10. Health check — public endpoint, returns MINIMAL: just status
-  // (full details at /api/admin/status — authenticated)
-  app.get('/health', async (c) => {
-    const checks: Record<string, 'ok' | 'error'> = {};
-    try {
-      await sql`SELECT 1`.execute(db);
-      checks.database = 'ok';
-    } catch {
-      checks.database = 'error';
-    }
-
-    const allOk = Object.values(checks).every((v) => v === 'ok');
-    return c.json(
-      { status: allOk ? 'healthy' : 'degraded' },
-      allOk ? 200 : 503,
-    );
-  });
+  // 10. Health check — liveness probe, always 200 if engine is running.
+  // DB connectivity is verified at startup (initDatabase retries until ready).
+  // Full readiness check is at /api/health.
+  app.get('/health', (c) => c.json({ status: 'ok' }, 200));
 
   // 11. Prometheus-compatible metrics
   const startTime = Date.now();

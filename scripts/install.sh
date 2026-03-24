@@ -124,6 +124,13 @@ wait_for_service() {
     sleep 1
   done
   echo -e " ${RED}✗${NC}"
+  # Show last 30 lines of engine logs to help diagnose
+  if [[ "$name" == "Engine" ]]; then
+    echo ""
+    warn "Engine logs (last 30 lines):"
+    docker compose -f "${COMPOSE_FILE:-docker-compose.yml}" logs --tail=30 engine 2>/dev/null || true
+    echo ""
+  fi
   error "${name} did not become ready in ${max}s"
 }
 

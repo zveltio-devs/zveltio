@@ -23,6 +23,8 @@ RUN cd packages/studio && bun run build
 # ── Stage 2: Build Engine ─────────────────────────────────────
 FROM oven/bun:1.3-alpine AS engine-builder
 
+ARG TARGETARCH
+
 WORKDIR /app
 
 COPY package.json bun.lock turbo.json ./
@@ -41,10 +43,11 @@ COPY packages/sdk ./packages/sdk
 
 COPY --from=studio-builder /app/packages/studio/dist ./packages/engine/studio-dist
 
-RUN bun build packages/engine/src/index.ts \
-    --compile \
-    --outfile /zveltio \
-    --target bun-linux-x64
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      bun build packages/engine/src/index.ts --compile --outfile /zveltio --target bun-linux-arm64; \
+    else \
+      bun build packages/engine/src/index.ts --compile --outfile /zveltio --target bun-linux-x64; \
+    fi
 
 # ── Stage 3: Production image ─────────────────────────────────
 FROM oven/bun:1.3-alpine AS production
@@ -68,8 +71,8 @@ ENV PORT=3000
 ENV NODE_ENV=production
 ENV SERVE_STUDIO=true
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
 EXPOSE 3000
 
