@@ -238,7 +238,7 @@ BETTER_AUTH_SECRET=$(generate_secret 32)
 NODE_ENV=production
 SERVE_STUDIO=true
 ZVELTIO_VERSION=${VERSION}
-CORS_ORIGINS=http://localhost:4173,http://localhost:4174
+CORS_ORIGINS=http://localhost:4173,http://localhost:4174,http://127.0.0.1:4173,http://127.0.0.1:4174
 # Extensions are managed via Studio → Marketplace after deployment
 
 # ── Security ───────────────────────────────────────────────────
@@ -261,6 +261,13 @@ else
 fi
 
 source .env
+
+# Add server LAN IP to CORS_ORIGINS (allows access via http://IP:port)
+SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
+if [[ -n "$SERVER_IP" && "$SERVER_IP" != "127.0.0.1" ]]; then
+  sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=http://localhost:4173,http://localhost:4174,http://127.0.0.1:4173,http://127.0.0.1:4174,http://${SERVER_IP}:4173,http://${SERVER_IP}:4174|" .env
+  source .env
+fi
 
 # ── Download fișiere ──────────────────────────────────────────
 section "⬇️  Downloading v${VERSION}"
@@ -577,8 +584,13 @@ echo -e "  ${BOLD}Studio:${NC}   http://studio.${DOMAIN}"
 echo -e "  ${BOLD}API:${NC}      http://api.${DOMAIN}"
 else
 echo -e "  ${BOLD}Client:${NC}   http://localhost:${CLIENT_PORT:-4173}"
-echo -e "  ${BOLD}Studio:${NC}   http://localhost:${STUDIO_PORT:-4174}"
+echo -e "  ${BOLD}Studio:${NC}   http://localhost:${STUDIO_PORT:-4174}/admin/"
 echo -e "  ${BOLD}API:${NC}      http://localhost:${PORT_FINAL}"
+if [[ -n "$SERVER_IP" && "$SERVER_IP" != "127.0.0.1" ]]; then
+echo ""
+echo -e "  ${BOLD}Client (LAN):${NC}  http://${SERVER_IP}:${CLIENT_PORT:-4173}"
+echo -e "  ${BOLD}Studio (LAN):${NC}  http://${SERVER_IP}:${STUDIO_PORT:-4174}/admin/"
+fi
 fi
 echo ""
 if [[ "$INSTALL_NPM" == "true" ]]; then
@@ -609,8 +621,6 @@ cat > .zveltio-install.json << EOF
   "domain": "${DOMAIN}",
   "addons_configured": true,
   "addons": {
-    "stalwart": ${INSTALL_STALWART},
-    "dockge": ${INSTALL_DOCKGE},
     "npm": ${INSTALL_NPM}
   }
 }
