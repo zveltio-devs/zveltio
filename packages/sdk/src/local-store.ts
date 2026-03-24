@@ -1,5 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { LamportClock, mergeLWW, toDocument, fromDocument, type LWWDocument } from './crdt.js';
+import { generateUUID } from './utils.js';
 
 export interface LocalRecord {
   id: string;
@@ -74,7 +75,7 @@ export class LocalStore {
     // Initialize CRDT Lamport clock (persisted in meta store)
     let clientId = (await this.db.get('meta', 'crdt_client_id'))?.value as string | undefined;
     if (!clientId) {
-      clientId = crypto.randomUUID();
+      clientId = generateUUID();
       await this.db.put('meta', { key: 'crdt_client_id', value: clientId });
     }
     const storedLamport = ((await this.db.get('meta', 'crdt_lamport'))?.value as number) ?? 0;
@@ -324,7 +325,7 @@ export class LocalStore {
     field: string,
   ): Promise<string> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const id = `local_blob_${crypto.randomUUID()}`;
+    const id = `local_blob_${generateUUID()}`;
     const item: OfflineBlob = {
       id,
       blob,
