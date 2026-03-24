@@ -4,11 +4,11 @@
 # https://get.zveltio.com
 #
 # Usage:
-#   curl -fsSL https://get.zveltio.com | bash
-#   curl -fsSL https://get.zveltio.com | bash -s -- --version 2.0.1
-#   curl -fsSL https://get.zveltio.com | bash -s -- --mode docker
-#   curl -fsSL https://get.zveltio.com | bash -s -- --mode native
-#   curl -fsSL https://get.zveltio.com | bash -s -- --mode infra-only
+#   curl -fsSL https://get.zveltio.com/install.sh | bash
+#   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --version 2.0.1
+#   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode docker
+#   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode native
+#   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode infra-only
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -175,7 +175,7 @@ if [[ -f "${INSTALL_DIR}/.env" ]]; then
 
   if [[ "$UNATTENDED" == "false" ]]; then
     echo -n "  Continue? (yes/no): "
-    read -r confirm
+    read -r confirm </dev/tty
     [[ "$confirm" != "yes" ]] && { echo "  Cancelled."; exit 0; }
   fi
 
@@ -368,9 +368,9 @@ if [[ "$IS_UPDATE" == "false" ]]; then
 
   if [[ "$UNATTENDED" == "false" ]]; then
     echo -n "  Email: "
-    read -r ADMIN_EMAIL
+    read -r ADMIN_EMAIL </dev/tty
     echo -n "  Password: "
-    read -rs ADMIN_PASSWORD
+    read -rs ADMIN_PASSWORD </dev/tty
     echo ""
   else
     ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"
@@ -420,12 +420,12 @@ if [[ "$SKIP_ENGINE" == "false" ]]; then
 
     echo $! > .zveltio.pid
     wait_for_service "Engine" \
-      "curl -sf http://localhost:${PORT:-3000}/api/health"
+      "curl -sf http://localhost:${PORT:-3000}/health"
 
   elif [[ "$MODE" == "docker" ]]; then
     docker compose -f docker-compose.yml up -d engine
     wait_for_service "Engine" \
-      "curl -sf http://localhost:${PORT:-3000}/api/health"
+      "curl -sf http://localhost:${PORT:-3000}/health"
   fi
 
   ok "Engine running"
