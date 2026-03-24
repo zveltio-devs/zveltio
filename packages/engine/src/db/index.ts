@@ -29,8 +29,8 @@ export async function initDatabase(): Promise<Database> {
     }),
   });
 
-  // Test connection with retry — PgDog/pooler may need a few seconds to initialize
-  const maxAttempts = 15;
+  // Test connection with retry — PgDog/pooler may need up to ~60s to initialize its backend pool
+  const maxAttempts = 20;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await sql`SELECT 1`.execute(_db);
