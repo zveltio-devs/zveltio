@@ -16,7 +16,12 @@ set -euo pipefail
 REPO="zveltio-devs/zveltio"
 RELEASES_BASE="https://github.com/${REPO}/releases/download"
 DEFAULT_PORT=3000
-INSTALL_DIR="$(pwd)/zveltio"
+# If Dockge is installed, use its stacks directory so the stack is managed there
+if [[ -d "/opt/stacks" ]]; then
+  INSTALL_DIR="/opt/stacks/zveltio"
+else
+  INSTALL_DIR="$(pwd)/zveltio"
+fi
 
 # ── Culori ────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
