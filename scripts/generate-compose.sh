@@ -14,7 +14,7 @@ mkdir -p "$OUTPUT_DIR"
 # ── docker-compose.yml (Full Stack) ───────────────────────────
 cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
 # Zveltio ${VERSION} — Full Stack
-# Includes: Engine, Studio, PostgreSQL, PgDog, Valkey, SeaweedFS
+# Includes: Engine, Studio, Client, PostgreSQL, PgDog, Valkey, SeaweedFS
 # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 #
 # Quick start:
@@ -142,7 +142,6 @@ services:
       S3_SECRET_KEY: \${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
       S3_BUCKET: \${S3_BUCKET:-zveltio}
       PORT: 3000
-      SERVE_STUDIO: "true"
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       ZVELTIO_VERSION: ${VERSION}
@@ -157,11 +156,37 @@ services:
       seaweedfs-filer:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    networks:
+      - zveltio
+
+  studio:
+    image: nginx:alpine
+    container_name: zveltio-studio
+    restart: unless-stopped
+    volumes:
+      - ./studio-dist:/usr/share/nginx/html:ro
+    command: >
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    ports:
+      - "\${STUDIO_PORT:-4174}:80"
+    networks:
+      - zveltio
+
+  client:
+    image: nginx:alpine
+    container_name: zveltio-client
+    restart: unless-stopped
+    volumes:
+      - ./client-dist:/usr/share/nginx/html:ro
+    command: >
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    ports:
+      - "\${CLIENT_PORT:-4173}:80"
     networks:
       - zveltio
 
@@ -207,41 +232,6 @@ services:
       timeout: 5s
       retries: 5
 
-  pgdog-init:
-    image: alpine:3.19
-    container_name: zveltio-pgdog-init
-    environment:
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: \${POSTGRES_DB:-zveltio}
-      DB_USER: \${POSTGRES_USER:-zveltio}
-      DB_PASSWORD: \${POSTGRES_PASSWORD}
-    volumes:
-      - pgdog_config:/pgdog
-    command:
-      - /bin/sh
-      - -c
-      - |
-        printf '[general]\\nhost = "0.0.0.0"\\nport = 6432\\ndefault_pool_size = 25\\nmin_pool_size = 5\\npooler_mode = "session"\\nauth_type = "scram"\\n\\n[[databases]]\\nname = "%s"\\nhost = "%s"\\nport = %s\\n' \\
-          "\$\$DB_NAME" "\$\$DB_HOST" "\$\$DB_PORT" > /pgdog/pgdog.toml
-        printf '[[users]]\\nname = "%s"\\ndatabase = "%s"\\npassword = "%s"\\n' \\
-          "\$\$DB_USER" "\$\$DB_NAME" "\$\$DB_PASSWORD" > /pgdog/users.toml
-    restart: "no"
-
-  pgdog:
-    image: ghcr.io/pgdogdev/pgdog:v0.1.33
-    container_name: zveltio-pgdog
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      pgdog-init:
-        condition: service_completed_successfully
-    volumes:
-      - pgdog_config:/pgdog
-    ports:
-      - "\${PGDOG_PORT:-6432}:6432"
-
   valkey:
     image: valkey/valkey:8-alpine
     container_name: zveltio-valkey
@@ -264,8 +254,6 @@ services:
     command: master -mdir=/data -defaultReplication=000
     volumes:
       - seaweedfs_master:/data
-    ports:
-      - "9333:9333"
 
   seaweedfs-volume:
     image: chrislusf/seaweedfs:3.68
@@ -287,12 +275,33 @@ services:
     depends_on:
       - seaweedfs-volume
 
+  studio:
+    image: nginx:alpine
+    container_name: zveltio-studio
+    restart: unless-stopped
+    volumes:
+      - ./studio-dist:/usr/share/nginx/html:ro
+    command: >
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    ports:
+      - "\${STUDIO_PORT:-4174}:80"
+
+  client:
+    image: nginx:alpine
+    container_name: zveltio-client
+    restart: unless-stopped
+    volumes:
+      - ./client-dist:/usr/share/nginx/html:ro
+    command: >
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    ports:
+      - "\${CLIENT_PORT:-4173}:80"
+
 volumes:
   postgres_data:
   valkey_data:
   seaweedfs_master:
   seaweedfs_volume:
-  pgdog_config:
 EOF
 
 # ── docker-compose.engine.yml (Engine Only) ───────────────────
@@ -319,17 +328,38 @@ services:
       S3_SECRET_KEY: \${S3_SECRET_KEY}
       S3_BUCKET: \${S3_BUCKET:-zveltio}
       PORT: 3000
-      SERVE_STUDIO: "true"
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       ZVELTIO_VERSION: ${VERSION}
       ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail}
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  studio:
+    image: nginx:alpine
+    container_name: zveltio-studio
+    restart: unless-stopped
+    volumes:
+      - ./studio-dist:/usr/share/nginx/html:ro
+    command: >
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    ports:
+      - "\${STUDIO_PORT:-4174}:80"
+
+  client:
+    image: nginx:alpine
+    container_name: zveltio-client
+    restart: unless-stopped
+    volumes:
+      - ./client-dist:/usr/share/nginx/html:ro
+    command: >
+      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files \$\$\$\$uri \$\$\$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    ports:
+      - "\${CLIENT_PORT:-4173}:80"
 EOF
 
 echo "✅ Generated compose files in ${OUTPUT_DIR}"

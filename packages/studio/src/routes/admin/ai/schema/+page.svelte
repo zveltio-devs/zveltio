@@ -272,7 +272,7 @@
 
       <div class="flex gap-3">
         <a
-          href="/admin/collections"
+          href="/collections"
           class="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
         >
           View Collections
