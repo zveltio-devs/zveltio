@@ -1,7 +1,9 @@
 import { ZveltioClient } from '@zveltio/sdk';
 import { SyncManager } from '@zveltio/sdk';
 
-const ENGINE_URL = import.meta.env.PUBLIC_ENGINE_URL || 'http://localhost:3000';
+const ENGINE_URL: string =
+  import.meta.env.PUBLIC_ENGINE_URL ||
+  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
 
 export const client = new ZveltioClient({ baseUrl: ENGINE_URL });
 

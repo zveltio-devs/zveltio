@@ -145,8 +145,8 @@ if command_exists bun; then
 fi
 
 if [[ "$MODE" == "auto" ]]; then
-  MODE="native"
-  info "→ Native mode selected (binary + Docker infra)"
+  MODE="docker"
+  info "→ Docker mode selected (full stack in containers)"
 fi
 
 echo ""
@@ -253,25 +253,41 @@ source .env
 # ── Download fișiere ──────────────────────────────────────────
 section "⬇️  Downloading v${VERSION}"
 
-if [[ "$MODE" == "native" ]] || [[ "$MODE" == "infra-only" ]]; then
-  curl -fsSL "${RELEASE_URL}/docker-compose.infra.yml" \
-    -o docker-compose.infra.yml
+if [[ "$MODE" == "docker" ]]; then
+  curl -fsSL "${RELEASE_URL}/docker-compose.yml" -o docker-compose.yml
+  ok "docker-compose.yml"
+elif [[ "$MODE" == "native" ]] || [[ "$MODE" == "infra-only" ]]; then
+  curl -fsSL "${RELEASE_URL}/docker-compose.infra.yml" -o docker-compose.infra.yml
   ok "docker-compose.infra.yml"
 fi
 
-if [[ "$MODE" == "docker" ]]; then
-  curl -fsSL "${RELEASE_URL}/docker-compose.yml" \
-    -o docker-compose.yml
-  ok "docker-compose.yml"
+# Studio + Client static files (needed by nginx containers in all modes)
+echo -n "  Downloading Studio..."
+if curl -fsSL "${RELEASE_URL}/studio.tar.gz" -o studio.tar.gz 2>/dev/null; then
+  mkdir -p studio-dist
+  tar -xzf studio.tar.gz -C studio-dist
+  rm studio.tar.gz
+  echo -e " ${GREEN}✓${NC}"
+else
+  echo -e " ${YELLOW}⚠ studio.tar.gz not found in release${NC}"
+fi
+
+echo -n "  Downloading Client..."
+if curl -fsSL "${RELEASE_URL}/client.tar.gz" -o client.tar.gz 2>/dev/null; then
+  mkdir -p client-dist
+  tar -xzf client.tar.gz -C client-dist
+  rm client.tar.gz
+  echo -e " ${GREEN}✓${NC}"
+else
+  echo -e " ${YELLOW}⚠ client.tar.gz not found in release${NC}"
 fi
 
 if [[ "$MODE" == "native" ]]; then
   PLATFORM=$(get_platform)
   BINARY_NAME="zveltio-${PLATFORM}"
-  BINARY_URL="${RELEASE_URL}/${BINARY_NAME}"
 
   echo -n "  Downloading binary for ${PLATFORM}..."
-  curl -fsSL "$BINARY_URL" -o zveltio-engine 2>/dev/null
+  curl -fsSL "${RELEASE_URL}/${BINARY_NAME}" -o zveltio-engine 2>/dev/null
   chmod +x zveltio-engine
   echo -e " ${GREEN}✓${NC}"
 
@@ -284,26 +300,6 @@ if [[ "$MODE" == "native" ]]; then
     fi
   fi
 
-  echo -n "  Downloading Studio..."
-  if curl -fsSL "${RELEASE_URL}/studio.tar.gz" -o studio.tar.gz 2>/dev/null; then
-    mkdir -p studio-dist
-    tar -xzf studio.tar.gz -C studio-dist
-    rm studio.tar.gz
-    echo -e " ${GREEN}✓${NC}"
-  else
-    echo -e " ${YELLOW}⚠ Studio not bundled in this release${NC}"
-  fi
-
-  echo -n "  Downloading Client..."
-  if curl -fsSL "${RELEASE_URL}/client.tar.gz" -o client.tar.gz 2>/dev/null; then
-    mkdir -p client-dist
-    tar -xzf client.tar.gz -C client-dist
-    rm client.tar.gz
-    echo -e " ${GREEN}✓${NC}"
-  else
-    echo -e " ${YELLOW}⚠ Client not bundled in this release${NC}"
-  fi
-
   if [[ -w "/usr/local/bin" ]]; then
     ln -sf "$(pwd)/zveltio-engine" /usr/local/bin/zveltio
     ok "Installed to /usr/local/bin/zveltio"
@@ -312,14 +308,12 @@ if [[ "$MODE" == "native" ]]; then
   fi
 fi
 
-# ── Infrastructură ────────────────────────────────────────────
+# ── Infrastructură + Engine ───────────────────────────────────
 if [[ "$SKIP_INFRA" == "false" ]]; then
-  section "🐳 Starting Infrastructure"
+  section "🐳 Starting Services"
 
-  COMPOSE_FILE="docker-compose.infra.yml"
-  if [[ "$MODE" == "docker" ]]; then
-    COMPOSE_FILE="docker-compose.yml"
-  fi
+  COMPOSE_FILE="docker-compose.yml"
+  [[ "$MODE" == "native" || "$MODE" == "infra-only" ]] && COMPOSE_FILE="docker-compose.infra.yml"
 
   log "Pulling Docker images..."
   docker compose -f "$COMPOSE_FILE" pull
@@ -330,105 +324,110 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
   fi
 
   if [[ "$MODE" == "docker" ]]; then
+    # 1. Start infra first, wait for it to be healthy
     docker compose -f "$COMPOSE_FILE" up -d postgres pgdog-init pgdog valkey \
       seaweedfs-master seaweedfs-volume seaweedfs-filer
-  else
-    docker compose -f "$COMPOSE_FILE" up -d
-  fi
+    wait_for_service "PostgreSQL" \
+      "docker compose -f $COMPOSE_FILE exec -T postgres pg_isready -U ${POSTGRES_USER:-zveltio}"
+    wait_for_service "Valkey" \
+      "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli ping"
+    ok "Infrastructure running"
 
-  wait_for_service "PostgreSQL" \
-    "docker compose -f $COMPOSE_FILE exec -T postgres pg_isready -U ${POSTGRES_USER:-zveltio}"
-  wait_for_service "Valkey" \
-    "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli ping"
+    # 2. Migrations (run-and-exit container)
+    section "🗄️  Database Migrations"
+    docker compose -f "$COMPOSE_FILE" run --rm engine migrate
+    ok "Migrations complete"
 
-  ok "Infrastructure running"
-fi
-
-# ── Migrări ───────────────────────────────────────────────────
-section "🗄️  Database Migrations"
-
-if [[ "$IS_UPDATE" == "true" ]]; then
-  log "Running upgrade migrations..."
-else
-  log "Initializing database..."
-fi
-
-if [[ "$MODE" == "native" ]]; then
-  DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
-  ./zveltio-engine migrate
-elif [[ "$MODE" == "docker" ]]; then
-  docker compose -f docker-compose.yml run --rm engine migrate
-fi
-
-ok "Migrations complete"
-
-# ── Admin user ────────────────────────────────────────────────
-if [[ "$IS_UPDATE" == "false" ]]; then
-  section "👤 Create Admin Account"
-
-  if [[ "$UNATTENDED" == "false" ]]; then
-    echo -n "  Email: "
-    read -r ADMIN_EMAIL </dev/tty
-    echo -n "  Password: "
-    read -rs ADMIN_PASSWORD </dev/tty
-    echo ""
-  else
-    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"
-    ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(generate_secret 16)}"
-    info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
-    info "(save these credentials!)"
-  fi
-
-  if [[ "$MODE" == "native" ]]; then
-    DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
-    ./zveltio-engine create-god \
-      --email "$ADMIN_EMAIL" \
-      --password "$ADMIN_PASSWORD"
-  elif [[ "$MODE" == "docker" ]]; then
-    docker compose -f docker-compose.yml run --rm engine create-god \
-      --email "$ADMIN_EMAIL" \
-      --password "$ADMIN_PASSWORD"
-  fi
-
-  ok "Admin account created"
-fi
-
-# ── Pornire engine ────────────────────────────────────────────
-if [[ "$SKIP_ENGINE" == "false" ]]; then
-  section "🚀 Starting Zveltio"
-
-  if [[ "$MODE" == "native" ]]; then
-    if [[ -f ".zveltio.pid" ]]; then
-      OLD_PID=$(cat .zveltio.pid)
-      kill "$OLD_PID" 2>/dev/null || true
-      sleep 1
+    # 3. Create admin account (fresh install only)
+    if [[ "$IS_UPDATE" == "false" && "$SKIP_ENGINE" == "false" ]]; then
+      section "👤 Create Admin Account"
+      if [[ "$UNATTENDED" == "false" ]]; then
+        echo -n "  Email: "
+        read -r ADMIN_EMAIL </dev/tty
+        echo -n "  Password: "
+        read -rs ADMIN_PASSWORD </dev/tty
+        echo ""
+      else
+        ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"
+        ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(generate_secret 16)}"
+        info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
+        info "(save these credentials!)"
+      fi
+      docker compose -f "$COMPOSE_FILE" run --rm engine create-god \
+        --email "$ADMIN_EMAIL" \
+        --password "$ADMIN_PASSWORD"
+      ok "Admin account created"
     fi
 
-    nohup env \
+    # 4. Start engine + studio + client
+    if [[ "$SKIP_ENGINE" == "false" ]]; then
+      section "🚀 Starting Zveltio"
+      docker compose -f "$COMPOSE_FILE" up -d engine studio client
+      wait_for_service "Engine" \
+        "curl -sf http://localhost:${PORT:-3000}/health"
+      ok "Engine running"
+    fi
+
+  else
+    # Native / infra-only mode — start all infra containers
+    docker compose -f "$COMPOSE_FILE" up -d
+    wait_for_service "PostgreSQL" \
+      "docker compose -f $COMPOSE_FILE exec -T postgres pg_isready -U ${POSTGRES_USER:-zveltio}"
+    wait_for_service "Valkey" \
+      "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli ping"
+    ok "Infrastructure running"
+
+    if [[ "$MODE" == "native" && "$SKIP_ENGINE" == "false" ]]; then
+      section "🗄️  Database Migrations"
       DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
-      REDIS_URL="redis://localhost:${VALKEY_PORT:-6379}" \
-      S3_ENDPOINT="http://localhost:${S3_PORT:-8333}" \
-      S3_ACCESS_KEY="${S3_ACCESS_KEY:-zveltio}" \
-      S3_SECRET_KEY="${S3_SECRET_KEY}" \
-      S3_BUCKET="${S3_BUCKET:-zveltio}" \
-      PORT="${PORT:-3000}" \
-      SECRET_KEY="${SECRET_KEY}" \
-      NODE_ENV="production" \
-      ZVELTIO_VERSION="${VERSION}" \
-      ./zveltio-engine start \
-      > zveltio.log 2>&1 &
+      ./zveltio-engine migrate
+      ok "Migrations complete"
 
-    echo $! > .zveltio.pid
-    wait_for_service "Engine" \
-      "curl -sf http://localhost:${PORT:-3000}/health"
+      if [[ "$IS_UPDATE" == "false" ]]; then
+        section "👤 Create Admin Account"
+        if [[ "$UNATTENDED" == "false" ]]; then
+          echo -n "  Email: "
+          read -r ADMIN_EMAIL </dev/tty
+          echo -n "  Password: "
+          read -rs ADMIN_PASSWORD </dev/tty
+          echo ""
+        else
+          ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"
+          ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(generate_secret 16)}"
+          info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
+          info "(save these credentials!)"
+        fi
+        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
+        ./zveltio-engine create-god \
+          --email "$ADMIN_EMAIL" \
+          --password "$ADMIN_PASSWORD"
+        ok "Admin account created"
+      fi
 
-  elif [[ "$MODE" == "docker" ]]; then
-    docker compose -f docker-compose.yml up -d engine
-    wait_for_service "Engine" \
-      "curl -sf http://localhost:${PORT:-3000}/health"
+      section "🚀 Starting Zveltio"
+      if [[ -f ".zveltio.pid" ]]; then
+        kill "$(cat .zveltio.pid)" 2>/dev/null || true
+        sleep 1
+      fi
+      nohup env \
+        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
+        REDIS_URL="redis://localhost:${VALKEY_PORT:-6379}" \
+        S3_ENDPOINT="http://localhost:${S3_PORT:-8333}" \
+        S3_ACCESS_KEY="${S3_ACCESS_KEY:-zveltio}" \
+        S3_SECRET_KEY="${S3_SECRET_KEY}" \
+        S3_BUCKET="${S3_BUCKET:-zveltio}" \
+        PORT="${PORT:-3000}" \
+        SECRET_KEY="${SECRET_KEY}" \
+        NODE_ENV="production" \
+        ZVELTIO_VERSION="${VERSION}" \
+        ./zveltio-engine \
+        > zveltio.log 2>&1 &
+      echo $! > .zveltio.pid
+      wait_for_service "Engine" \
+        "curl -sf http://localhost:${PORT:-3000}/health"
+      ok "Engine running"
+    fi
   fi
-
-  ok "Engine running"
 fi
 
 # ── Optional Add-ons ──────────────────────────────────────────
