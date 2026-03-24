@@ -363,12 +363,16 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
       ok "Admin account created"
     fi
 
-    # 4. Start engine + studio + client
+    # 4. Wait for PgDog connection pool to be fully established
+    wait_for_service "PgDog" \
+      "docker compose -f $COMPOSE_FILE exec -T postgres pg_isready -h pgdog -p 6432 -U ${POSTGRES_USER:-zveltio}" 60
+
+    # 5. Start engine + studio + client
     if [[ "$SKIP_ENGINE" == "false" ]]; then
       section "🚀 Starting Zveltio"
       docker compose -f "$COMPOSE_FILE" up -d engine studio client
       wait_for_service "Engine" \
-        "curl -sf http://localhost:${PORT:-3000}/health" 60
+        "curl -sf http://localhost:${PORT:-3000}/health" 120
       ok "Engine running"
     fi
 
