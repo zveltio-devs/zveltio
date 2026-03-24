@@ -199,55 +199,10 @@ async function bootstrap() {
     await next();
   });
 
-  // 7b. Studio — serve embedded static files at /admin
-  app.get('/admin', (c) => c.redirect('/admin/'));
-  app.use('/admin/*', async (c) => {
-    let path = c.req.path.replace('/admin', '') || '/';
-    if (path === '/') path = '/index.html';
-
-    // Try to load from embedded files first (binary mode), then disk (dev mode)
-    let fileContent: string | Uint8Array | null = null;
-
-    // Attempt embedded (generated at build time)
-    try {
-      // @ts-ignore — studio-embed is generated at build time
-      const { getStudioFile } = await import('./studio-embed/index.js');
-      let result = getStudioFile(path);
-      // SPA fallback
-      if (!result) result = getStudioFile('/index.html');
-      if (result) {
-        fileContent = result.content;
-      }
-    } catch {
-      // Embedded not available — fall through to disk serving (dev mode)
-    }
-
-    // Disk fallback (dev mode: studio-dist/ on filesystem)
-    if (fileContent === null) {
-      const diskPath = `${import.meta.dir}/studio-dist${path}`;
-      const diskFile = Bun.file(diskPath);
-      if (await diskFile.exists()) {
-        fileContent = await diskFile
-          .arrayBuffer()
-          .then((b) => new Uint8Array(b));
-      } else {
-        // SPA fallback
-        const indexFile = Bun.file(`${import.meta.dir}/studio-dist/index.html`);
-        if (await indexFile.exists()) {
-          fileContent = await indexFile.text();
-        }
-      }
-    }
-
-    if (fileContent === null) {
-      return c.text('Studio not built. Run: bun run build:studio', 404);
-    }
-
-    c.header('Content-Type', getContentType(path));
-    if (path.match(/\.(js|css|woff2?)(\?.*)?$/)) {
-      c.header('Cache-Control', 'public, max-age=31536000, immutable');
-    }
-    return c.body(fileContent as any);
+  // 7b. Studio is served from its own container (studio:4174).
+  // Redirect /admin to studio for convenience when accessed directly via engine port.
+  app.get('/admin*', (c) => {
+    return c.text('Studio runs as a separate service. Access it at studio.<your-domain> or localhost:4174', 200);
   });
 
   // 9. API: active extensions list (Studio consumes this)

@@ -12,7 +12,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── Job 1: Build Studio ─────────────────────────────────────
+  # ── Job 1: Build Studio + Client ────────────────────────────
   build-studio:
     runs-on: ubuntu-latest
     steps:
@@ -25,6 +25,12 @@ jobs:
         with:
           name: studio-dist
           path: packages/studio/dist/
+          retention-days: 1
+      - run: cd packages/client && bun run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-dist
+          path: packages/client/dist/
           retention-days: 1
 
   # ── Job 2: Build Binaries ────────────────────────────────────
@@ -137,8 +143,16 @@ jobs:
           name: studio-dist
           path: studio-dist-download/
 
-      - name: Package studio
-        run: tar -czf dist/studio.tar.gz -C studio-dist-download .
+      - name: Download client
+        uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: client-dist-download/
+
+      - name: Package studio + client
+        run: |
+          tar -czf dist/studio.tar.gz -C studio-dist-download .
+          tar -czf dist/client.tar.gz -C client-dist-download .
 
       - name: Generate compose files
         run: |
@@ -195,6 +209,7 @@ jobs:
           mkdir -p flat-assets
           cp dist/zveltio-* flat-assets/
           cp dist/studio.tar.gz flat-assets/
+          cp dist/client.tar.gz flat-assets/
           cp release-assets/* flat-assets/
 
       - name: Upload release assets
@@ -240,6 +255,7 @@ jobs:
             all-assets/zveltio-macos-x64
             all-assets/zveltio-macos-arm64
             all-assets/studio.tar.gz
+            all-assets/client.tar.gz
             all-assets/docker-compose.yml
             all-assets/docker-compose.infra.yml
             all-assets/docker-compose.engine.yml
