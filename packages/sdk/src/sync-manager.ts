@@ -2,6 +2,7 @@ import type { ZveltioClient } from './client.js';
 import type { ZveltioRealtime } from './realtime.js';
 import { LocalStore } from './local-store.js';
 import { mergeLWW, fromDocument } from './crdt.js';
+import { generateUUID } from './utils.js';
 
 export type CRDTConflictResolution = 'lww' | 'custom';
 
@@ -104,7 +105,7 @@ export class SyncManager {
 
       /** Create — writes LOCAL + queues sync */
       create: async (data: Record<string, any>) => {
-        const id = data.id || crypto.randomUUID();
+        const id = data.id || generateUUID();
         const record = await this.store.put(name, id, data);
         this.notifyListeners(name);
         this.syncNow(); // Trigger sync immediately (non-blocking)

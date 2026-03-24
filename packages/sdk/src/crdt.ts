@@ -2,6 +2,7 @@
  * Lightweight CRDT primitives for offline-first sync.
  * No external dependencies — pure TypeScript.
  */
+import { generateUUID } from './utils.js';
 
 // LWW-Register (Last Write Wins) with Lamport timestamp per field
 export interface LWWField<T = any> {
@@ -69,7 +70,7 @@ export interface ORSetElement<T = any> {
 export type ORSet<T = any> = ORSetElement<T>[];
 
 export function orSetAdd<T>(set: ORSet<T>, value: T): ORSet<T> {
-  return [...set, { value, uid: crypto.randomUUID(), removed: false }];
+  return [...set, { value, uid: generateUUID(), removed: false }];
 }
 
 export function orSetRemove<T>(set: ORSet<T>, uid: string): ORSet<T> {
