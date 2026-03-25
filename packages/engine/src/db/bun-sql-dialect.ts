@@ -130,12 +130,29 @@ class BunSqlDriver implements Driver {
       );
     }
 
+    // Normalize URL: replace "localhost" with "127.0.0.1" to force IPv4
+    // (some systems resolve localhost → ::1 which may not be bound by Docker).
+    // Strip query params (e.g. ?sslmode=disable) — Bun.SQL doesn't reliably
+    // parse them; pass ssl option explicitly instead.
+    let cleanUrl = url.replace(/^(postgres(?:ql)?:\/\/[^@]*@)localhost([:\/])/i, '$1127.0.0.1$2');
+    let sslDisabled = false;
+    try {
+      const u = new URL(cleanUrl);
+      if (u.searchParams.get('sslmode') === 'disable') sslDisabled = true;
+      u.search = '';
+      cleanUrl = u.toString();
+    } catch {
+      // URL parsing failed — use as-is, assume no SSL
+      sslDisabled = true;
+    }
+
     // Bun.SQL creează automat un connection pool intern.
     // NOTE: Bun.SQL idleTimeout is in SECONDS (not ms). Convert from ms config.
     // @ts-expect-error — Bun global tipat de bun-types, dar Bun.SQL nu e în tipurile standard Kysely
-    this.#pool = new Bun.SQL(url, {
+    this.#pool = new Bun.SQL(cleanUrl, {
       max: this.#config.max ?? 20,
       idleTimeout: Math.ceil((this.#config.idleTimeoutMs ?? 30_000) / 1000),
+      ...(sslDisabled ? { ssl: false } : {}),
     }) as BunSQLPool;
     _activeBunPool = this.#pool;
   }
