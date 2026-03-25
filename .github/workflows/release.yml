@@ -46,6 +46,9 @@ jobs:
             target: bun-linux-x64
             binary: zveltio-linux-x64
           - os: ubuntu-latest
+            target: bun-linux-x64-baseline
+            binary: zveltio-linux-x64-baseline
+          - os: ubuntu-latest
             target: bun-linux-arm64
             binary: zveltio-linux-arm64
           - os: macos-latest
@@ -188,6 +191,7 @@ jobs:
             "engine_image": "ghcr.io/${{ env.IMAGE_NAME }}:${VERSION}",
             "binaries": {
               "linux_x64": "${BASE}/zveltio-linux-x64",
+              "linux_x64_baseline": "${BASE}/zveltio-linux-x64-baseline",
               "linux_arm64": "${BASE}/zveltio-linux-arm64",
               "macos_x64": "${BASE}/zveltio-macos-x64",
               "macos_arm64": "${BASE}/zveltio-macos-arm64"
@@ -250,6 +254,7 @@ jobs:
           generate_release_notes: true
           files: |
             all-assets/zveltio-linux-x64
+            all-assets/zveltio-linux-x64-baseline
             all-assets/zveltio-linux-arm64
             all-assets/zveltio-macos-x64
             all-assets/zveltio-macos-arm64

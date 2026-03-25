@@ -301,6 +301,17 @@ if [[ "$MODE" == "native" ]]; then
   chmod +x zveltio-engine
   echo -e " ${GREEN}✓${NC}"
 
+  # For Linux x64: test if CPU supports modern binary, fall back to baseline if not
+  if [[ "$PLATFORM" == "linux-x64" ]]; then
+    if ! ./zveltio-engine --version &>/dev/null 2>&1; then
+      warn "CPU requires baseline binary (no AVX2), downloading..."
+      curl -fsSL "${RELEASE_URL}/zveltio-linux-x64-baseline" -o zveltio-engine 2>/dev/null
+      chmod +x zveltio-engine
+      BINARY_NAME="zveltio-linux-x64-baseline"
+      ok "Baseline binary ready"
+    fi
+  fi
+
   CHECKSUMS_URL="${RELEASE_URL}/checksums.sha256"
   if curl -fsSL "$CHECKSUMS_URL" -o checksums.sha256 2>/dev/null; then
     EXPECTED=$(grep "$BINARY_NAME" checksums.sha256 | cut -d' ' -f1)
@@ -377,10 +388,10 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
     wait_for_service "PgDog" \
       "docker compose -f $COMPOSE_FILE exec -T postgres pg_isready -h pgdog -p 6432 -U ${POSTGRES_USER:-zveltio}" 60
 
-    # 5. Start engine + studio + client
+    # 5. Start engine
     if [[ "$SKIP_ENGINE" == "false" ]]; then
       section "🚀 Starting Zveltio"
-      docker compose -f "$COMPOSE_FILE" up -d engine studio client
+      docker compose -f "$COMPOSE_FILE" up -d engine
       wait_for_service "Engine" \
         "curl -sf http://localhost:${PORT:-3000}/health" 120
       ok "Engine running"
@@ -545,9 +556,7 @@ EXTRAS_EOF
           &>/dev/null || true
       }
 
-      _npm_proxy "${DOMAIN}"        "$HOST_IP" "${CLIENT_PORT:-4173}" && ok "${DOMAIN} → client"
-      _npm_proxy "studio.${DOMAIN}" "$HOST_IP" "${STUDIO_PORT:-4174}" && ok "studio.${DOMAIN} → studio"
-      _npm_proxy "api.${DOMAIN}"    "$HOST_IP" "${PORT:-3000}"        && ok "api.${DOMAIN} → engine"
+      _npm_proxy "${DOMAIN}" "$HOST_IP" "${PORT:-3000}" && ok "${DOMAIN} → zveltio"
 
       ok "Proxy hosts created — enable SSL in NPM admin after DNS propagates"
     else
@@ -570,8 +579,8 @@ fi
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
 if [[ -n "$DOMAIN" ]]; then
-echo -e "  ${BOLD}App:${NC}      http://${DOMAIN}            (client)"
-echo -e "  ${BOLD}Studio:${NC}   http://${DOMAIN}/admin/     (admin panel)"
+echo -e "  ${BOLD}App:${NC}      http://${DOMAIN}"
+echo -e "  ${BOLD}Studio:${NC}   http://${DOMAIN}/admin/"
 echo -e "  ${BOLD}API:${NC}      http://${DOMAIN}/api/"
 else
 echo -e "  ${BOLD}App:${NC}      http://localhost:${PORT_FINAL}"
