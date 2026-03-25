@@ -124,7 +124,13 @@ wait_for_service() {
     sleep 1
   done
   echo -e " ${RED}✗${NC}"
-  # Show last 30 lines of engine logs to help diagnose
+  if [[ "$name" == "PostgreSQL" ]]; then
+    echo ""
+    warn "PostgreSQL auth failed. This usually means the data volume has a different password."
+    warn "To reset: docker volume rm \$(docker volume ls -q | grep postgres_data)"
+    warn "Then re-run the installer."
+    echo ""
+  fi
   if [[ "$name" == "Engine" ]]; then
     echo ""
     warn "Engine logs (last 30 lines):"
@@ -199,6 +205,19 @@ section "⚙️  Configuration"
 
 if [[ ! -f ".env" ]]; then
   log "Generating secure credentials..."
+
+  # If postgres volume already exists from a previous install, the new password
+  # won't be applied (postgres ignores POSTGRES_PASSWORD when data dir exists).
+  # We must remove the volume so postgres re-initializes with the new credentials.
+  POSTGRES_VOLUME="${INSTALL_DIR##*/}_postgres_data"
+  # Also check common compose project name (directory basename)
+  COMPOSE_PROJECT=$(basename "$INSTALL_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+  for vol in "${COMPOSE_PROJECT}_postgres_data" "zveltio_postgres_data" "postgres_data"; do
+    if docker volume ls -q 2>/dev/null | grep -qx "$vol"; then
+      warn "Found existing postgres volume ($vol) — removing to avoid auth mismatch"
+      docker volume rm "$vol" 2>/dev/null || true
+    fi
+  done
 
   POSTGRES_PASS=$(generate_secret 32)
   SECRET_KEY=$(generate_secret 64)
@@ -348,8 +367,9 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
     # 1. Start infra first, wait for it to be healthy
     docker compose -f "$COMPOSE_FILE" up -d postgres pgdog-init pgdog valkey \
       seaweedfs-master seaweedfs-volume seaweedfs-filer
+    # Use auth test (not just pg_isready) — pg_isready returns OK before auth is ready
     wait_for_service "PostgreSQL" \
-      "docker compose -f $COMPOSE_FILE exec -T postgres pg_isready -U ${POSTGRES_USER:-zveltio}"
+      "docker compose -f $COMPOSE_FILE exec -T postgres psql -U ${POSTGRES_USER:-zveltio} -d ${POSTGRES_DB:-zveltio} -c 'SELECT 1' -q" 60
     wait_for_service "Valkey" \
       "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli ping"
     ok "Infrastructure running"
@@ -400,8 +420,9 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
   else
     # Native / infra-only mode — start all infra containers
     docker compose -f "$COMPOSE_FILE" up -d
+    # Use auth test (not just pg_isready) — pg_isready returns OK before auth is ready
     wait_for_service "PostgreSQL" \
-      "docker compose -f $COMPOSE_FILE exec -T postgres pg_isready -U ${POSTGRES_USER:-zveltio}"
+      "docker compose -f $COMPOSE_FILE exec -T postgres psql -U ${POSTGRES_USER:-zveltio} -d ${POSTGRES_DB:-zveltio} -c 'SELECT 1' -q" 60
     wait_for_service "Valkey" \
       "docker compose -f $COMPOSE_FILE exec -T valkey valkey-cli ping"
     ok "Infrastructure running"
