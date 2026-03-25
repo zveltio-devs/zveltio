@@ -279,6 +279,15 @@ fi
 
 source .env
 
+# ── Fix DATABASE_URL for native mode ─────────────────────────
+# .env has `localhost` (works inside containers via Unix socket), but the
+# binary on the host must reach Postgres via TCP — 127.0.0.1, not localhost,
+# because on many systems localhost resolves to ::1 (IPv6) which may not be
+# bound.  We also keep ?sslmode=disable so Bun.SQL skips SSL negotiation
+# (plain local Postgres has no SSL configured).
+DATABASE_URL="${DATABASE_URL//localhost/127.0.0.1}"
+export DATABASE_URL
+
 # Detect server LAN IP (used in success message)
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
 
@@ -444,8 +453,9 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         fi
       done
 
-      PG_HOST="127.0.0.1"
-      DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@${PG_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
+      # DATABASE_URL is already fixed (127.0.0.1 + ?sslmode=disable) from the
+      # source .env + substitution above — use it directly for all commands.
+      info "Using DATABASE_URL: ${DATABASE_URL%%:*}://***@${DATABASE_URL#*@}"
       ./zveltio-engine migrate
       ok "Migrations complete"
 
@@ -463,7 +473,6 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
           info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
           info "(save these credentials!)"
         fi
-        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
         ./zveltio-engine create-god \
           --email "$ADMIN_EMAIL" \
           --password "$ADMIN_PASSWORD"
@@ -476,7 +485,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         sleep 1
       fi
       nohup env \
-        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
+        DATABASE_URL="${DATABASE_URL}" \
         REDIS_URL="redis://localhost:${VALKEY_PORT:-6379}" \
         S3_ENDPOINT="http://localhost:${S3_PORT:-8333}" \
         S3_ACCESS_KEY="${S3_ACCESS_KEY:-zveltio}" \
