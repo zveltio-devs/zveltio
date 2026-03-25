@@ -38,7 +38,8 @@ export async function initDatabase(): Promise<Database> {
     } catch (err) {
       if (attempt === maxAttempts) throw err;
       const wait = Math.min(1000 * attempt, 5000);
-      console.log(`⏳ Database not ready (attempt ${attempt}/${maxAttempts}), retrying in ${wait / 1000}s...`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`⏳ Database not ready (attempt ${attempt}/${maxAttempts}), retrying in ${wait / 1000}s... [${msg}]`);
       await Bun.sleep(wait);
     }
   }
