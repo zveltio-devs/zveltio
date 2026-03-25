@@ -145,7 +145,7 @@ services:
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
-      CORS_ORIGINS: \${CORS_ORIGINS:-http://localhost:\${CLIENT_PORT:-4173},http://localhost:\${STUDIO_PORT:-4174}}
+      CORS_ORIGINS: \${CORS_ORIGINS:-}
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
       AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
@@ -165,36 +165,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - zveltio
-
-  studio:
-    image: nginx:alpine
-    container_name: zveltio-studio
-    restart: unless-stopped
-    volumes:
-      - ./studio-dist:/usr/share/nginx/html:ro
-    command: >
-      /bin/sh -c "printf 'server{listen 80;location /api/{proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /admin/{alias /usr/share/nginx/html/;try_files \$\$uri \$\$uri/ @spa;}location @spa{root /usr/share/nginx/html;try_files /index.html =404;}location = /{return 301 /admin/;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-    ports:
-      - "\${STUDIO_PORT:-4174}:80"
-    depends_on:
-      - engine
-    networks:
-      - zveltio
-
-  client:
-    image: nginx:alpine
-    container_name: zveltio-client
-    restart: unless-stopped
-    volumes:
-      - ./client-dist:/usr/share/nginx/html:ro
-    command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /api/ {proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location / {try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-    ports:
-      - "\${CLIENT_PORT:-4173}:80"
-    depends_on:
-      - engine
     networks:
       - zveltio
 
@@ -283,32 +253,6 @@ services:
     depends_on:
       - seaweedfs-volume
 
-  studio:
-    image: nginx:alpine
-    container_name: zveltio-studio
-    restart: unless-stopped
-    volumes:
-      - ./studio-dist:/usr/share/nginx/html:ro
-    command: >
-      /bin/sh -c "printf 'server{listen 80;location /api/{proxy_pass http://host.docker.internal:\${PORT:-3000};proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /admin/{alias /usr/share/nginx/html/;try_files \$\$uri \$\$uri/ @spa;}location @spa{root /usr/share/nginx/html;try_files /index.html =404;}location = /{return 301 /admin/;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-    ports:
-      - "\${STUDIO_PORT:-4174}:80"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  client:
-    image: nginx:alpine
-    container_name: zveltio-client
-    restart: unless-stopped
-    volumes:
-      - ./client-dist:/usr/share/nginx/html:ro
-    command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /api/ {proxy_pass http://host.docker.internal:\${PORT:-3000};proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location / {try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-    ports:
-      - "\${CLIENT_PORT:-4173}:80"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
 volumes:
   postgres_data:
   valkey_data:
@@ -343,7 +287,7 @@ services:
       NODE_ENV: production
       SECRET_KEY: \${SECRET_KEY:?Set SECRET_KEY in .env}
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
-      CORS_ORIGINS: \${CORS_ORIGINS:-http://localhost:\${CLIENT_PORT:-4173},http://localhost:\${STUDIO_PORT:-4174}}
+      CORS_ORIGINS: \${CORS_ORIGINS:-}
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
       AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
@@ -354,32 +298,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  studio:
-    image: nginx:alpine
-    container_name: zveltio-studio
-    restart: unless-stopped
-    volumes:
-      - ./studio-dist:/usr/share/nginx/html:ro
-    command: >
-      /bin/sh -c "printf 'server{listen 80;location /api/{proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location /admin/{alias /usr/share/nginx/html/;try_files \$\$uri \$\$uri/ @spa;}location @spa{root /usr/share/nginx/html;try_files /index.html =404;}location = /{return 301 /admin/;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-    ports:
-      - "\${STUDIO_PORT:-4174}:80"
-    depends_on:
-      - engine
-
-  client:
-    image: nginx:alpine
-    container_name: zveltio-client
-    restart: unless-stopped
-    volumes:
-      - ./client-dist:/usr/share/nginx/html:ro
-    command: >
-      /bin/sh -c "printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /api/ {proxy_pass http://engine:3000;proxy_http_version 1.1;proxy_set_header Upgrade \$\$http_upgrade;proxy_set_header Connection upgrade;proxy_set_header Host \$\$host;}location / {try_files \$\$uri \$\$uri/ /index.html;}}' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
-    ports:
-      - "\${CLIENT_PORT:-4173}:80"
-    depends_on:
-      - engine
 EOF
 
 echo "✅ Generated compose files in ${OUTPUT_DIR}"

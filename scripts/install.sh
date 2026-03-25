@@ -236,9 +236,7 @@ PORT=${DEFAULT_PORT}
 SECRET_KEY=${SECRET_KEY}
 BETTER_AUTH_SECRET=$(generate_secret 32)
 NODE_ENV=production
-SERVE_STUDIO=true
 ZVELTIO_VERSION=${VERSION}
-CORS_ORIGINS=http://localhost:4173,http://localhost:4174,http://127.0.0.1:4173,http://127.0.0.1:4174
 # Extensions are managed via Studio → Marketplace after deployment
 
 # ── Security ───────────────────────────────────────────────────
@@ -262,12 +260,8 @@ fi
 
 source .env
 
-# Add server LAN IP to CORS_ORIGINS (allows access via http://IP:port)
+# Detect server LAN IP (used in success message)
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
-if [[ -n "$SERVER_IP" && "$SERVER_IP" != "127.0.0.1" ]]; then
-  sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=http://localhost:4173,http://localhost:4174,http://127.0.0.1:4173,http://127.0.0.1:4174,http://${SERVER_IP}:4173,http://${SERVER_IP}:4174|" .env
-  source .env
-fi
 
 # ── Download fișiere ──────────────────────────────────────────
 section "⬇️  Downloading v${VERSION}"
@@ -275,30 +269,27 @@ section "⬇️  Downloading v${VERSION}"
 if [[ "$MODE" == "docker" ]]; then
   curl -fsSL "${RELEASE_URL}/docker-compose.yml" -o docker-compose.yml
   ok "docker-compose.yml"
+  info "→ Studio and Client are bundled inside the Docker image"
 elif [[ "$MODE" == "native" ]] || [[ "$MODE" == "infra-only" ]]; then
   curl -fsSL "${RELEASE_URL}/docker-compose.infra.yml" -o docker-compose.infra.yml
   ok "docker-compose.infra.yml"
-fi
 
-# Studio + Client static files (needed by nginx containers in all modes)
-echo -n "  Downloading Studio..."
-if curl -fsSL "${RELEASE_URL}/studio.tar.gz" -o studio.tar.gz 2>/dev/null; then
-  mkdir -p studio-dist
-  tar -xzf studio.tar.gz -C studio-dist
-  rm studio.tar.gz
-  echo -e " ${GREEN}✓${NC}"
-else
-  echo -e " ${YELLOW}⚠ studio.tar.gz not found in release${NC}"
-fi
+  # Native mode: download Studio + Client static files served by the binary at runtime
+  echo -n "  Downloading Studio..."
+  if curl -fsSL "${RELEASE_URL}/studio.tar.gz" -o studio.tar.gz 2>/dev/null; then
+    mkdir -p studio-dist && tar -xzf studio.tar.gz -C studio-dist && rm studio.tar.gz
+    echo -e " ${GREEN}✓${NC}"
+  else
+    echo -e " ${YELLOW}⚠ studio.tar.gz not found${NC}"
+  fi
 
-echo -n "  Downloading Client..."
-if curl -fsSL "${RELEASE_URL}/client.tar.gz" -o client.tar.gz 2>/dev/null; then
-  mkdir -p client-dist
-  tar -xzf client.tar.gz -C client-dist
-  rm client.tar.gz
-  echo -e " ${GREEN}✓${NC}"
-else
-  echo -e " ${YELLOW}⚠ client.tar.gz not found in release${NC}"
+  echo -n "  Downloading Client..."
+  if curl -fsSL "${RELEASE_URL}/client.tar.gz" -o client.tar.gz 2>/dev/null; then
+    mkdir -p client-dist && tar -xzf client.tar.gz -C client-dist && rm client.tar.gz
+    echo -e " ${GREEN}✓${NC}"
+  else
+    echo -e " ${YELLOW}⚠ client.tar.gz not found${NC}"
+  fi
 fi
 
 if [[ "$MODE" == "native" ]]; then
@@ -579,17 +570,17 @@ fi
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
 if [[ -n "$DOMAIN" ]]; then
-echo -e "  ${BOLD}Client:${NC}   http://${DOMAIN}  (→ https after NPM SSL setup)"
-echo -e "  ${BOLD}Studio:${NC}   http://studio.${DOMAIN}"
-echo -e "  ${BOLD}API:${NC}      http://api.${DOMAIN}"
+echo -e "  ${BOLD}App:${NC}      http://${DOMAIN}            (client)"
+echo -e "  ${BOLD}Studio:${NC}   http://${DOMAIN}/admin/     (admin panel)"
+echo -e "  ${BOLD}API:${NC}      http://${DOMAIN}/api/"
 else
-echo -e "  ${BOLD}Client:${NC}   http://localhost:${CLIENT_PORT:-4173}"
-echo -e "  ${BOLD}Studio:${NC}   http://localhost:${STUDIO_PORT:-4174}/admin/"
-echo -e "  ${BOLD}API:${NC}      http://localhost:${PORT_FINAL}"
+echo -e "  ${BOLD}App:${NC}      http://localhost:${PORT_FINAL}"
+echo -e "  ${BOLD}Studio:${NC}   http://localhost:${PORT_FINAL}/admin/"
+echo -e "  ${BOLD}API:${NC}      http://localhost:${PORT_FINAL}/api/"
 if [[ -n "$SERVER_IP" && "$SERVER_IP" != "127.0.0.1" ]]; then
 echo ""
-echo -e "  ${BOLD}Client (LAN):${NC}  http://${SERVER_IP}:${CLIENT_PORT:-4173}"
-echo -e "  ${BOLD}Studio (LAN):${NC}  http://${SERVER_IP}:${STUDIO_PORT:-4174}/admin/"
+echo -e "  ${BOLD}App (LAN):${NC}    http://${SERVER_IP}:${PORT_FINAL}"
+echo -e "  ${BOLD}Studio (LAN):${NC} http://${SERVER_IP}:${PORT_FINAL}/admin/"
 fi
 fi
 echo ""
@@ -597,6 +588,16 @@ if [[ "$INSTALL_NPM" == "true" ]]; then
 echo -e "  ${BOLD}Nginx Proxy Manager:${NC}  http://localhost:${NPM_PORT:-81}"
 echo -e "  ${DIM}  Default login: admin@example.com / changeme${NC}"
 echo -e "  ${DIM}  ⚠  Change password immediately after first login!${NC}"
+echo ""
+echo -e "  ${BOLD}NPM → Reverse Proxy setup:${NC}"
+echo -e "  ${DIM}  1. Create proxy host: domain.com → http://localhost:${PORT_FINAL}${NC}"
+echo -e "  ${DIM}  2. To protect /admin/ (studio) by IP, add custom nginx config:${NC}"
+echo -e "  ${DIM}     location /admin/ {${NC}"
+echo -e "  ${DIM}       allow 192.168.0.0/24;  # your LAN subnet${NC}"
+echo -e "  ${DIM}       allow 10.0.0.0/8;       # VPN range (if any)${NC}"
+echo -e "  ${DIM}       deny all;${NC}"
+echo -e "  ${DIM}       proxy_pass http://localhost:${PORT_FINAL};${NC}"
+echo -e "  ${DIM}     }${NC}"
 echo ""
 fi
 echo -e "  ${BOLD}Data:${NC}     ${INSTALL_DIR}"
