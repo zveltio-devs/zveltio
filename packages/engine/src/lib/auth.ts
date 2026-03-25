@@ -19,13 +19,29 @@ export async function initAuth(db: Database) {
   const port = process.env.PORT || '3000';
   const baseURL = process.env.BETTER_AUTH_URL || `http://localhost:${port}`;
 
-  // Trusted origins: allow CORS_ORIGINS (client/studio nginx) + baseURL itself.
-  // Without this, better-auth rejects session requests from ports 4173/4174.
+  // Trusted origins: since studio and client are served by THIS engine (same origin),
+  // we need to trust requests from any IP/hostname the server might be accessed via.
+  // Detect all local network interfaces and add them as trusted origins.
+  const localOrigins: string[] = [baseURL, `http://localhost:${port}`, `https://localhost:${port}`];
+  try {
+    const { networkInterfaces } = await import('os');
+    for (const ifaces of Object.values(networkInterfaces())) {
+      for (const iface of (ifaces || [])) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          localOrigins.push(`http://${iface.address}:${port}`);
+          localOrigins.push(`https://${iface.address}:${port}`);
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+
   const trustedOrigins = [
-    baseURL,
-    ...(process.env.CORS_ORIGINS
-      ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-      : [`http://localhost:4173`, `http://localhost:4174`]),
+    ...new Set([
+      ...localOrigins,
+      ...(process.env.CORS_ORIGINS
+        ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+        : []),
+    ]),
   ];
 
   // Pass the engine's own Kysely (BunSqlDialect) instance to better-auth via the

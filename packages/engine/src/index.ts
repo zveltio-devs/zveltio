@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { logger } from 'hono/logger';
 import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
+import { join } from 'path';
 import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions } from './lib/permissions.js';
@@ -23,6 +24,11 @@ import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { sql } from 'kysely';
 
 const app = new Hono();
+
+// ─── Static file paths ────────────────────────────────────────
+// Runtime paths — relative to CWD (Docker: /data, Native: install dir)
+const STUDIO_DIST = process.env.STUDIO_DIST_PATH || join(process.cwd(), 'studio-dist');
+const CLIENT_DIST = process.env.CLIENT_DIST_PATH || join(process.cwd(), 'client-dist');
 
 // ─── Static file content type helper ─────────────────────────
 function getContentType(path: string): string {
@@ -46,6 +52,45 @@ function getContentType(path: string): string {
     '.txt': 'text/plain',
   };
   return map[ext] || 'application/octet-stream';
+}
+
+// ─── Static file serving ──────────────────────────────────────
+async function serveStaticFile(distRoot: string, urlPath: string): Promise<Response | null> {
+  // Prevent directory traversal
+  const safe = urlPath.replace(/\.\./g, '').replace(/\/+/g, '/') || '/';
+
+  const candidates = [
+    join(distRoot, safe),
+    join(distRoot, safe, 'index.html'),
+  ];
+
+  for (const candidate of candidates) {
+    const file = Bun.file(candidate);
+    if (await file.exists()) {
+      const ct = getContentType(candidate);
+      const immutable = safe.includes('/_app/immutable/');
+      return new Response(file, {
+        headers: {
+          'Content-Type': ct,
+          'Cache-Control': immutable
+            ? 'public, max-age=31536000, immutable'
+            : ct.startsWith('text/html')
+            ? 'no-store'
+            : 'public, max-age=3600',
+        },
+      });
+    }
+  }
+
+  // SPA fallback — serve index.html for client-side routing
+  const fallback = Bun.file(join(distRoot, 'index.html'));
+  if (await fallback.exists()) {
+    return new Response(fallback, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
+
+  return null;
 }
 
 // ─── Middleware ───────────────────────────────────────────────
@@ -256,10 +301,13 @@ async function bootstrap() {
     await next();
   });
 
-  // 7b. Studio is served from its own container (studio:4174).
-  // Redirect /admin to studio for convenience when accessed directly via engine port.
-  app.get('/admin*', (c) => {
-    return c.text('Studio runs as a separate service. Access it at studio.<your-domain> or localhost:4174', 200);
+  // 7b. Studio static files — served at /admin/ (SvelteKit base: '/admin')
+  app.get('/admin', (c) => c.redirect('/admin/'));
+  app.use('/admin/*', async (c, next) => {
+    const path = c.req.path.replace(/^\/admin/, '') || '/';
+    const res = await serveStaticFile(STUDIO_DIST, path);
+    if (res) return res;
+    return next();
   });
 
   // 9. API: active extensions list (Studio consumes this)
@@ -308,6 +356,13 @@ async function bootstrap() {
     return c.text(lines.join('\n') + '\n', 200, {
       'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
     });
+  });
+
+  // 12. Client SPA — catch-all (must be registered AFTER all API/admin routes)
+  app.use('/*', async (c) => {
+    const res = await serveStaticFile(CLIENT_DIST, c.req.path);
+    if (res) return res;
+    return c.notFound();
   });
 
   // Start server

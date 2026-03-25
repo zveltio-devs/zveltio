@@ -1,5 +1,5 @@
-# ── Stage 1: Build Studio ─────────────────────────────────────
-FROM oven/bun:1.3-alpine AS studio-builder
+# ── Stage 1: Build Studio + Client ────────────────────────────
+FROM oven/bun:1.3-alpine AS frontend-builder
 
 WORKDIR /app
 
@@ -14,13 +14,18 @@ COPY packages/studio/package.json ./packages/studio/
 
 RUN bun install --frozen-lockfile
 
-COPY packages/studio ./packages/studio
 COPY packages/sdk ./packages/sdk
+COPY packages/studio ./packages/studio
+COPY packages/client ./packages/client
 
+# Studio at /admin/ — PUBLIC_ENGINE_URL="" means same-origin API calls
 ENV PUBLIC_ENGINE_URL=""
 RUN cd packages/studio && bun run build
 
-# ── Stage 2: Build Engine ─────────────────────────────────────
+# Client at / — same-origin API calls
+RUN cd packages/client && bun run build
+
+# ── Stage 2: Build Engine Binary ──────────────────────────────
 FROM oven/bun:1.3-alpine AS engine-builder
 
 ARG TARGETARCH
@@ -40,8 +45,6 @@ RUN bun install --frozen-lockfile
 
 COPY packages/engine ./packages/engine
 COPY packages/sdk ./packages/sdk
-
-COPY --from=studio-builder /app/packages/studio/dist ./packages/engine/studio-dist
 
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       bun build packages/engine/src/index.ts --compile --outfile /zveltio --target bun-linux-arm64; \
@@ -67,9 +70,12 @@ RUN chmod +x /usr/local/bin/zveltio
 
 WORKDIR /data
 
+# Static files served at runtime from CWD (/data)
+COPY --from=frontend-builder /app/packages/studio/dist ./studio-dist
+COPY --from=frontend-builder /app/packages/client/dist ./client-dist
+
 ENV PORT=3000
 ENV NODE_ENV=production
-ENV SERVE_STUDIO=true
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
