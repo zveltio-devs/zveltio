@@ -18,6 +18,9 @@ COPY packages/sdk ./packages/sdk
 COPY packages/studio ./packages/studio
 COPY packages/client ./packages/client
 
+# Build SDK first — client imports from @zveltio/sdk (dist/index.js must exist)
+RUN cd packages/sdk && bun run build
+
 # Studio at /admin/ — PUBLIC_ENGINE_URL="" means same-origin API calls
 ENV PUBLIC_ENGINE_URL=""
 RUN cd packages/studio && bun run build
