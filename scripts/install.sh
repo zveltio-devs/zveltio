@@ -429,7 +429,23 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
 
     if [[ "$MODE" == "native" && "$SKIP_ENGINE" == "false" ]]; then
       section "🗄️  Database Migrations"
-      DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
+
+      # Verify TCP connectivity from the host (psql inside container uses Unix socket,
+      # so wait_for_service "PostgreSQL" passing does NOT guarantee the TCP port is ready)
+      echo -n "   Waiting for postgres TCP on 127.0.0.1:${POSTGRES_PORT:-5432}"
+      for _i in $(seq 1 30); do
+        if bash -c "echo > /dev/tcp/127.0.0.1/${POSTGRES_PORT:-5432}" 2>/dev/null; then
+          echo -e " ${GREEN}✓${NC}"; break
+        fi
+        echo -n "."; sleep 1
+        if [[ $_i -eq 30 ]]; then
+          echo -e " ${RED}✗${NC}"
+          error "Postgres TCP port not reachable from host on 127.0.0.1:${POSTGRES_PORT:-5432}. Check Docker port bindings."
+        fi
+      done
+
+      PG_HOST="127.0.0.1"
+      DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@${PG_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
       ./zveltio-engine migrate
       ok "Migrations complete"
 
@@ -447,7 +463,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
           info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
           info "(save these credentials!)"
         fi
-        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
+        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
         ./zveltio-engine create-god \
           --email "$ADMIN_EMAIL" \
           --password "$ADMIN_PASSWORD"
@@ -460,7 +476,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         sleep 1
       fi
       nohup env \
-        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}?sslmode=disable" \
+        DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-zveltio}" \
         REDIS_URL="redis://localhost:${VALKEY_PORT:-6379}" \
         S3_ENDPOINT="http://localhost:${S3_PORT:-8333}" \
         S3_ACCESS_KEY="${S3_ACCESS_KEY:-zveltio}" \
