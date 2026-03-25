@@ -134,7 +134,7 @@ class BunSqlDriver implements Driver {
     // (some systems resolve localhost → ::1 which may not be bound by Docker).
     // Strip query params (e.g. ?sslmode=disable) — Bun.SQL doesn't reliably
     // parse them; pass ssl option explicitly instead.
-    let cleanUrl = url.replace(/^(postgres(?:ql)?:\/\/[^@]*@)localhost([:\/])/i, '$1127.0.0.1$2');
+    let cleanUrl = url.replace(/^(postgres(?:ql)?:\/\/[^@]*@)localhost([:/])/i, '$1127.0.0.1$2');
     let sslDisabled = false;
     try {
       const u = new URL(cleanUrl);
