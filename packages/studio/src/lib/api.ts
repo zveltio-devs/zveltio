@@ -89,6 +89,10 @@ export const webhooksApi = {
   deliveries: (id: string) => api.get<{ deliveries: any[] }>(`/api/webhooks/${id}/deliveries`),
 };
 
+export const importApi = {
+  jobs: () => api.get<{ jobs: any[] }>('/api/import/jobs'),
+};
+
 export const portalApi = {
   // Theme
   getTheme: () => api.get<{ theme: any }>('/api/portal/theme'),
