@@ -179,7 +179,10 @@ RELEASE_URL="${RELEASES_BASE}/v${VERSION}"
 section "📁 Setting Up Directory"
 
 IS_UPDATE=false
-if [[ -f "${INSTALL_DIR}/.env" ]]; then
+# A real completed install writes .zveltio-install.json at the very end.
+# If only .env exists (e.g. a previous failed install), treat as fresh install
+# so the create-god step is not skipped.
+if [[ -f "${INSTALL_DIR}/.env" && -f "${INSTALL_DIR}/.zveltio-install.json" ]]; then
   IS_UPDATE=true
   EXISTING_VERSION=$(grep "^ZVELTIO_VERSION=" "${INSTALL_DIR}/.env" 2>/dev/null \
     | cut -d= -f2 || echo "unknown")
