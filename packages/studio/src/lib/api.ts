@@ -88,3 +88,28 @@ export const webhooksApi = {
   test: (id: string) => api.post(`/api/webhooks/${id}/test`),
   deliveries: (id: string) => api.get<{ deliveries: any[] }>(`/api/webhooks/${id}/deliveries`),
 };
+
+export const portalApi = {
+  // Theme
+  getTheme: () => api.get<{ theme: any }>('/api/portal/theme'),
+  saveTheme: (data: any) => api.put<{ theme: any }>('/api/portal/theme', data),
+
+  // Pages
+  listPages: () => api.get<{ pages: any[] }>('/api/portal/pages?include_inactive=true'),
+  createPage: (data: any) => api.post<{ page: any }>('/api/portal/pages', data),
+  updatePage: (id: string, data: any) => api.put<{ page: any }>(`/api/portal/pages/${id}`, data),
+  deletePage: (id: string) => api.delete(`/api/portal/pages/${id}`),
+
+  // Sections
+  listSections: (pageId: string) => api.get<{ sections: any[] }>(`/api/portal/pages/${pageId}/sections`),
+  createSection: (pageId: string, data: any) => api.post<{ section: any }>(`/api/portal/pages/${pageId}/sections`, data),
+  updateSection: (id: string, data: any) => api.put<{ section: any }>(`/api/portal/sections/${id}`, data),
+  deleteSection: (id: string) => api.delete(`/api/portal/sections/${id}`),
+  reorderSections: (pageId: string, ids: string[]) => api.post(`/api/portal/sections/reorder`, { page_id: pageId, ids }),
+
+  // Collection Views
+  listViews: (collection: string) => api.get<{ views: any[] }>(`/api/portal/collections/${collection}/views`),
+  createView: (collection: string, data: any) => api.post<{ view: any }>(`/api/portal/collections/${collection}/views`, data),
+  updateView: (id: string, data: any) => api.put<{ view: any }>(`/api/portal/views/${id}`, data),
+  deleteView: (id: string) => api.delete(`/api/portal/views/${id}`),
+};
