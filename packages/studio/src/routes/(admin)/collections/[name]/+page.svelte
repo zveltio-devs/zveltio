@@ -1,17 +1,28 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { page } from '$app/state';
- import { collectionsApi, dataApi, api } from '$lib/api.js';
- import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork, Sparkles, Save, Code } from '@lucide/svelte';
+ import { collectionsApi, dataApi, api, portalApi } from '$lib/api.js';
+ import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork, Sparkles, Save, Code, LayoutGrid } from '@lucide/svelte';
  import { base } from '$app/paths';
  import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
+ import ViewWrapper from '$lib/components/views/ViewWrapper.svelte';
 
  const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
  let records = $state<any[]>([]);
  let pagination = $state<any>({ total: 0, page: 1, limit: 20 });
  let loading = $state(true);
- let activeTab = $state<'data' | 'schema' | 'ai' | 'code'>('data');
+ let activeTab = $state<'data' | 'schema' | 'ai' | 'code' | 'views'>('data');
+
+ // Views tab state
+ let savedViews = $state<any[]>([]);
+ let activeViewId = $state<string | null>(null);
+ let viewsLoading = $state(false);
+ let savingView = $state(false);
+ let newViewName = $state('');
+ let showNewViewForm = $state(false);
+
+ const activeViewConfig = $derived(savedViews.find(v => v.id === activeViewId)?.config ?? {});
 
  // AI Search settings
  let aiSearchEnabled = $state(false);
@@ -50,6 +61,47 @@
  if (!confirm('Delete this record?')) return;
  await dataApi.delete(collectionName, id);
  await load();
+ }
+
+ async function loadViews() {
+ viewsLoading = true;
+ try {
+   const res = await portalApi.listViews(collectionName);
+   savedViews = res.views ?? [];
+   if (savedViews.length && !activeViewId) activeViewId = savedViews[0].id;
+ } catch { savedViews = []; }
+ finally { viewsLoading = false; }
+ }
+
+ async function createView() {
+ if (!newViewName.trim()) return;
+ savingView = true;
+ try {
+   const res = await portalApi.createView(collectionName, {
+     name: newViewName.trim(),
+     view_type: 'table',
+     config: { pageSize: 25 },
+   });
+   savedViews = [...savedViews, res.view];
+   activeViewId = res.view.id;
+   newViewName = '';
+   showNewViewForm = false;
+ } finally { savingView = false; }
+ }
+
+ async function saveViewConfig(config: Record<string, any>) {
+ if (!activeViewId) return;
+ try {
+   const res = await portalApi.updateView(activeViewId, { config });
+   savedViews = savedViews.map(v => v.id === activeViewId ? res.view : v);
+ } catch { /* silent */ }
+ }
+
+ async function deleteView(id: string) {
+ if (!confirm('Delete this view?')) return;
+ await portalApi.deleteView(id);
+ savedViews = savedViews.filter(v => v.id !== id);
+ if (activeViewId === id) activeViewId = savedViews[0]?.id ?? null;
  }
 
  async function saveAISettings() {
@@ -115,6 +167,13 @@
  >
  <Code size={14} />
  Code
+ </button>
+ <button
+ class="tab gap-1 {activeTab === 'views' ? 'tab-active' : ''}"
+ onclick={() => { activeTab = 'views'; loadViews(); }}
+ >
+ <LayoutGrid size={14} />
+ Views
  </button>
  </div>
 
@@ -278,5 +337,96 @@
  </div>
  {:else if activeTab === 'code'}
  <SnippetGenerator collectionName={collectionName} fields={getFields()} />
- {/if}
+{:else if activeTab === 'views'}
+ <!-- Views tab -->
+ <div class="flex gap-4 h-150 min-h-0">
+   <!-- Sidebar: saved views list -->
+   <div class="w-52 shrink-0 flex flex-col gap-2">
+     <div class="flex items-center justify-between">
+       <span class="text-xs font-medium text-base-content/50 uppercase tracking-wide">Saved Views</span>
+       <button class="btn btn-ghost btn-xs" onclick={() => showNewViewForm = !showNewViewForm} title="New view">
+         <Plus size={12}/>
+       </button>
+     </div>
+
+     {#if showNewViewForm}
+       <div class="flex gap-1">
+         <input
+           class="input input-xs input-bordered flex-1 min-w-0"
+           type="text"
+           placeholder="View name…"
+           bind:value={newViewName}
+           onkeydown={(e) => e.key === 'Enter' && createView()}
+           autofocus
+         />
+         <button class="btn btn-primary btn-xs" onclick={createView} disabled={savingView}>
+           {#if savingView}<span class="loading loading-spinner loading-xs"/>{:else}<Save size={12}/>{/if}
+         </button>
+       </div>
+     {/if}
+
+     {#if viewsLoading}
+       <div class="flex flex-col gap-1.5">
+         {#each Array(3) as _}<div class="skeleton h-8 rounded-lg"/>{/each}
+       </div>
+     {:else if savedViews.length === 0}
+       <p class="text-xs text-base-content/40 py-2">No views yet. Click + to create one.</p>
+     {:else}
+       {#each savedViews as v}
+         <div class="flex items-center gap-1">
+           <button
+             class="flex-1 text-left px-2 py-1.5 rounded-lg text-sm truncate transition-colors"
+             class:bg-primary={activeViewId === v.id}
+             class:text-primary-content={activeViewId === v.id}
+             class:bg-base-200={activeViewId !== v.id}
+             class:hover:bg-base-300={activeViewId !== v.id}
+             onclick={() => activeViewId = v.id}
+           >
+             {v.name}
+           </button>
+           <button
+             class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 hover:opacity-100"
+             onclick={() => deleteView(v.id)}
+             title="Delete view"
+           >
+             <Trash2 size={11}/>
+           </button>
+         </div>
+       {/each}
+     {/if}
+   </div>
+
+   <!-- Main: ViewWrapper -->
+   <div class="flex-1 min-w-0 border border-base-300 rounded-xl overflow-hidden">
+     {#if activeViewId}
+       <ViewWrapper
+         collection={collectionName}
+         fields={getFields()}
+         data={records}
+         total={pagination.total}
+         {loading}
+         config={activeViewConfig}
+         onConfigChange={saveViewConfig}
+         onFetch={async ({ page: p, pageSize, sort, sortDir, filters, search }) => {
+           loading = true;
+           const params: Record<string,string> = { limit: String(pageSize), page: String(p) };
+           if (sort) params.sort = sortDir === 'desc' ? `-${sort}` : sort;
+           if (search) params.search = search;
+           try {
+             const res = await dataApi.list(collectionName, params);
+             records = res.records;
+             pagination = res.pagination;
+           } finally { loading = false; }
+         }}
+         onCreate={() => { /* TODO: open create modal */ }}
+         onDelete={async (row) => { await deleteRecord(row.id); }}
+       />
+     {:else}
+       <div class="flex items-center justify-center h-full text-base-content/40 text-sm">
+         Select or create a view to get started
+       </div>
+     {/if}
+   </div>
+ </div>
+{/if}
 </div>

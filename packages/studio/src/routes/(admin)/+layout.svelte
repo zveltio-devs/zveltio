@@ -10,7 +10,7 @@
  LayoutDashboard, Database, Users, Shield, Webhook, Settings,
  Puzzle, ChevronDown, LogOut, Menu, X, HardDrive, Key, ClipboardList, Languages, Upload, Bot,
  Bell, Download, Workflow, Package, GitBranch, Plug, Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare, ScanSearch, Mail, FlaskConical, Search, Code, Bookmark, BarChart2,
- CreditCard, FileText, MessageSquare, SearchCode
+ CreditCard, FileText, MessageSquare, SearchCode, LayoutGrid
  } from '@lucide/svelte';
  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
  import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
@@ -48,6 +48,7 @@
  { href: `${base}/media`, icon: Images, label: 'Media' },
  { href: `${base}/flows`, icon: Workflow, label: 'Flows' },
  { href: `${base}/pages`, icon: Layout, label: 'Pages' },
+ { href: `${base}/portal`, icon: LayoutGrid, label: 'Portal Builder' },
  { href: `${base}/backup`, icon: DatabaseBackup, label: 'Backup' },
  { href: `${base}/introspect`, icon: ScanSearch, label: 'BYOD Import' },
  { href: `${base}/notifications`, icon: Bell, label: 'Notifications' },

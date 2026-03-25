@@ -1,18 +1,23 @@
 import type { PageServerLoad } from './$types';
 
-/**
- * Fetch page data from Engine's page-builder extension.
- * Catch-all slug: /about, /pricing, /contact → looks up in zv_pages.
- */
-export const load: PageServerLoad = async ({ params, fetch }) => {
-  const engineUrl = import.meta.env.PUBLIC_ENGINE_URL ?? 'http://localhost:3000';
+const ENGINE_URL = process.env.PUBLIC_ENGINE_URL ?? 'http://localhost:3000';
 
-  const res = await fetch(`${engineUrl}/api/pages/${params.slug}`);
+/**
+ * Loads a portal page by slug from the portal render API.
+ * Supports both single-tenant (no tenant_id) and multi-tenant (X-Tenant-Id header) modes.
+ */
+export const load: PageServerLoad = async ({ params, fetch, request }) => {
+  // Forward tenant header if present (multi-tenant mode)
+  const tenantId = request.headers.get('x-tenant-id');
+  const headers: Record<string, string> = {};
+  if (tenantId) headers['x-tenant-id'] = tenantId;
+
+  const res = await fetch(`${ENGINE_URL}/api/portal/render/${encodeURIComponent(params.slug)}`, { headers });
 
   if (!res.ok) {
-    return { status: 404, page: null };
+    return { portalPage: null, sections: [], status: res.status };
   }
 
-  const { page } = await res.json();
-  return { page };
+  const data = await res.json();
+  return { portalPage: data.page ?? null, sections: data.sections ?? [], status: 200 };
 };
