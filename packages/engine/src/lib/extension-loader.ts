@@ -284,12 +284,13 @@ class ExtensionLoader {
       if (existing) continue;
 
       const sqlContent = await Bun.file(migrationPath).text();
-      await (db as any).executeQuery({ sql: sqlContent, parameters: [] });
-
-      await db
-        .insertInto('zv_migrations' as any)
-        .values({ name } as any)
-        .execute();
+      await db.transaction().execute(async (trx) => {
+        await (trx as any).executeQuery({ sql: sqlContent, parameters: [] });
+        await trx
+          .insertInto('zv_migrations' as any)
+          .values({ name } as any)
+          .execute();
+      });
 
       console.log(`  ✓ Extension migration: ${name}`);
     }
