@@ -25,6 +25,7 @@ import { aiAnalyticsRoutes } from './ai-analytics.js';
 import { aiAlchemistRoutes } from './ai-alchemist.js';
 import { aiQueryRoutes } from './ai-query.js';
 import { aiSchemaGenRoutes } from './ai-schema-gen.js';
+import { portalRoutes } from './portal.js';
 // graphql → extensions/developer/graphql
 // media → extensions/content/media
 // approvals → extensions/workflow/approvals
@@ -149,6 +150,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Real-time SSE stream (authenticated)
   app.route('/api/realtime', realtimeRoutes(db, auth));
+
+  // Portal: theme, pages, sections, collection views + public render API
+  app.route('/api/portal', portalRoutes(db, auth));
 
   // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 
