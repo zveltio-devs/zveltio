@@ -6,7 +6,9 @@ export const prerender = false;
 
 export async function load() {
   if (browser) {
-    await initZveltio();
+    // Don't let SDK/WebSocket connection failures block the page from rendering.
+    // The app works fine without realtime sync (degraded mode).
+    initZveltio().catch(() => {});
   }
   return {};
 }
