@@ -107,15 +107,23 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ !contains(github.ref, 'beta') }}
       - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        shell: bash
+        run: |
+          TAG_ARGS=$(echo "${{ steps.meta.outputs.tags }}" | awk '{print "--tag "$0}' | tr '\n' ' ')
+          LABEL_ARGS=$(echo "${{ steps.meta.outputs.labels }}" | awk '{print "--label "$0}' | tr '\n' ' ')
+          for attempt in 1 2 3; do
+            eval docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              --push \
+              $TAG_ARGS \
+              $LABEL_ARGS \
+              --cache-from type=gha \
+              --cache-to "type=gha,mode=max" \
+              . && exit 0
+            echo "::warning::Build attempt $attempt failed; retrying in 30s…"
+            sleep 30
+          done
+          exit 1
 
   # ── Job 4: Generate Release Assets ──────────────────────────
   generate-assets:
