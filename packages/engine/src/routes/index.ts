@@ -26,9 +26,10 @@ import { aiAlchemistRoutes } from './ai-alchemist.js';
 import { aiQueryRoutes } from './ai-query.js';
 import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 import { portalRoutes } from './portal.js';
+import { approvalsRoutes } from './approvals.js';
+import { exportRoutes } from './export.js';
 // graphql → extensions/developer/graphql
 // media → extensions/content/media
-// approvals → extensions/workflow/approvals
 // drafts → extensions/content/drafts
 // documents → extensions/content/documents
 import { syncRoutes } from './sync.js';
@@ -153,6 +154,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Portal: theme, pages, sections, collection views + public render API
   app.route('/api/portal', portalRoutes(db, auth));
+
+  // Approval Workflows (core)
+  app.route('/api/approvals', approvalsRoutes(db, auth));
+
+  // Data Export: JSON / CSV / NDJSON
+  app.route('/api/export', exportRoutes(db, auth));
 
   // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 
