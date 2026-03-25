@@ -28,6 +28,7 @@ import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 import { portalRoutes } from './portal.js';
 import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
+import { importRoutes } from './import.js';
 // graphql → extensions/developer/graphql
 // media → extensions/content/media
 // drafts → extensions/content/drafts
@@ -60,7 +61,7 @@ import { slowQueryMiddleware } from '../middleware/slow-query.js';
 // /api/saved-queries    → extensions/developer/saved-queries
 // /api/validation       → extensions/developer/validation
 // /api/export           → extensions/data/export
-// /api/import           → extensions/data/import
+// /api/import           — data import CSV/JSON/NDJSON (routes/import.ts)
 // /api/translations     → extensions/i18n/translations
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Data Export: JSON / CSV / NDJSON
   app.route('/api/export', exportRoutes(db, auth));
+
+  // Data Import: CSV / JSON / NDJSON (core — universal feature)
+  app.route('/api/import', importRoutes(db, auth));
 
   // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 
