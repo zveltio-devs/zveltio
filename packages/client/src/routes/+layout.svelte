@@ -59,8 +59,7 @@
           {#each nav as item}
             <a
               href="/{item.slug === '/' ? '' : item.slug}"
-              class="flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/10"
-              class:bg-white/20={isActive(item.slug)}
+              class="flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/10 {isActive(item.slug) ? 'bg-white/20' : ''}"
             >
               {item.title}
             </a>
@@ -91,8 +90,7 @@
             {#each nav as item}
               <a
                 href="/{item.slug === '/' ? '' : item.slug}"
-                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-white/20"
-                class:bg-white/25={isActive(item.slug)}
+                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-white/20 {isActive(item.slug) ? 'bg-white/25' : ''}"
               >
                 {item.title}
               </a>

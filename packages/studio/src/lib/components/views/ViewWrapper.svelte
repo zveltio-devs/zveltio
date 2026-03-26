@@ -334,8 +334,7 @@
               {@const day = idx + 1}
               {@const dayDate = new Date(year, month, day).toDateString()}
               {@const dayRecords = dateField ? data.filter(r => r[dateField.name] && new Date(r[dateField.name]).toDateString() === dayDate) : []}
-              <div class="min-h-16 rounded-lg border border-base-300 p-1 text-xs"
-                   class:bg-primary/10={day === today.getDate()}>
+              <div class="min-h-16 rounded-lg border border-base-300 p-1 text-xs {day === today.getDate() ? 'bg-primary/10' : ''}">
                 <span class="font-medium" class:text-primary={day === today.getDate()}>{day}</span>
                 {#each dayRecords.slice(0, 3) as row}
                   {@const titleField = fields.find(f => ['name','title','label'].includes(f.name))}

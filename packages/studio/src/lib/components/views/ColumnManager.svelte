@@ -18,9 +18,9 @@
   let { fields = [], columns = [], onChange }: Props = $props();
 
   // Build column list: merge config columns with all non-system fields
-  const allColumns = $derived<Column[]>(() => {
+  const allColumns: Column[] = $derived.by(() => {
     const configured = new Map(columns.map(c => [c.field, c]));
-    const fromFields = fields
+    return fields
       .filter((f: any) => !f.is_system)
       .map((f: any) => configured.get(f.name) ?? {
         field: f.name,
@@ -28,10 +28,9 @@
         visible: true,
         sortable: true,
       });
-    return fromFields;
-  }());
+  });
 
-  let dragging = $state<number | null>(null);
+  let dragging: number | null = $state(null);
 
   function toggleVisible(i: number) {
     const next = allColumns.map((c, idx) =>
