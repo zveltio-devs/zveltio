@@ -1,0 +1,47 @@
+name: Deprecate npm packages
+
+# Run once manually to mark all pre-release versions as deprecated.
+# Safe to run multiple times — deprecating an already-deprecated version is a no-op.
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Deprecation message shown to users'
+        required: false
+        default: 'Pre-release development build — not intended for production use. A stable release is coming soon.'
+
+jobs:
+  deprecate:
+    name: Deprecate all published versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Deprecate all versions
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          MSG: ${{ github.event.inputs.message }}
+        run: |
+          PACKAGES="@zveltio/sdk @zveltio/react @zveltio/vue @zveltio/cli"
+          for PKG in $PACKAGES; do
+            echo "── Fetching versions for $PKG …"
+            VERSIONS=$(npm view "$PKG" versions --json 2>/dev/null | \
+              node -e "process.stdin.resume(); let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{ try { const v=JSON.parse(d); const arr=Array.isArray(v)?v:[v]; arr.forEach(x=>console.log(x)); } catch(e){} })")
+
+            if [ -z "$VERSIONS" ]; then
+              echo "  ⚠ No versions found for $PKG (not published or no access) — skipping"
+              continue
+            fi
+
+            while IFS= read -r VER; do
+              echo "  deprecating $PKG@$VER"
+              npm deprecate "$PKG@$VER" "$MSG" || echo "  ⚠ Failed to deprecate $PKG@$VER (may already be deprecated)"
+            done <<< "$VERSIONS"
+
+            echo "  ✓ Done with $PKG"
+          done
+          echo "All packages processed."
