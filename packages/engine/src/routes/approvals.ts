@@ -50,7 +50,7 @@ const SubmitSchema = z.object({
   workflow_id:  z.string().uuid(),
   collection:   z.string().min(1).max(100),
   record_id:    z.string().min(1),
-  metadata:     z.record(z.unknown()).optional(),
+  metadata:     z.record(z.string(), z.unknown()).optional(),
 });
 
 const DecideSchema = z.object({
@@ -383,11 +383,8 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Load all steps with decisions
     const steps = await db
       .selectFrom('zv_approval_steps as s')
-      .leftJoin('zv_approval_decisions as d', eb =>
-        eb.and([
-          eb('d.step_id', '=', sql`s.id`),
-          eb('d.request_id', '=', id),
-        ])
+      .leftJoin('zv_approval_decisions as d', join =>
+        join.onRef('d.step_id', '=', 's.id').on('d.request_id', '=', id)
       )
       .leftJoin('user as du', 'du.id', 'd.decided_by')
       .select([
