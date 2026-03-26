@@ -80,7 +80,7 @@ const SectionCreateSchema = z.object({
   title:              z.string().max(200).optional(),
   collection:         z.string().max(100).optional(),
   collection_view_id: z.string().uuid().nullable().optional(),
-  config:             z.record(z.unknown()).optional(),
+  config:             z.record(z.string(), z.unknown()).optional(),
   sort_order:         z.number().int().min(0).optional(),
   col_span:           z.number().int().min(1).max(12).optional(),
   is_visible:         z.boolean().optional(),
@@ -98,7 +98,7 @@ const COLLECTION_VIEW_TYPES = ['table', 'kanban', 'calendar', 'gallery', 'stats'
 const CollectionViewCreateSchema = z.object({
   name:       z.string().min(1).max(100),
   view_type:  z.enum(COLLECTION_VIEW_TYPES),
-  config:     z.record(z.unknown()).optional(),
+  config:     z.record(z.string(), z.unknown()).optional(),
   is_default: z.boolean().optional(),
 });
 
@@ -108,8 +108,8 @@ const CollectionViewUpdateSchema = CollectionViewCreateSchema.partial();
 
 function tenantFilter(tenantId: string | null) {
   return tenantId === null
-    ? sql`tenant_id IS NULL`
-    : sql`tenant_id = ${tenantId}::uuid`;
+    ? sql<boolean>`tenant_id IS NULL`
+    : sql<boolean>`tenant_id = ${tenantId}::uuid`;
 }
 
 async function requireAdmin(c: any): Promise<Response | null> {
@@ -136,7 +136,7 @@ export function portalRoutes(db: Database, auth: any) {
     const rows = await db
       .selectFrom('zvd_portal_theme as t')
       .selectAll()
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .limit(1)
       .execute();
 
@@ -158,7 +158,7 @@ export function portalRoutes(db: Database, auth: any) {
     const existing = await db
       .selectFrom('zvd_portal_theme')
       .select('id')
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .limit(1)
       .execute();
 
@@ -174,7 +174,7 @@ export function portalRoutes(db: Database, auth: any) {
     const row = await db
       .updateTable('zvd_portal_theme' as any)
       .set({ ...data, updated_at: new Date() })
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .returningAll()
       .executeTakeFirstOrThrow();
     return c.json({ theme: row });
@@ -191,7 +191,7 @@ export function portalRoutes(db: Database, auth: any) {
     let query = db
       .selectFrom('zvd_portal_pages as p')
       .selectAll()
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .orderBy('sort_order asc')
       .orderBy('created_at asc');
 
@@ -217,7 +217,7 @@ export function portalRoutes(db: Database, auth: any) {
       await db
         .updateTable('zvd_portal_pages' as any)
         .set({ is_homepage: false })
-        .where(sql`${tenantFilter(tenantId)}`)
+        .where(tenantFilter(tenantId))
         .where('is_homepage', '=', true)
         .execute();
     }
@@ -256,7 +256,7 @@ export function portalRoutes(db: Database, auth: any) {
       await db
         .updateTable('zvd_portal_pages' as any)
         .set({ is_homepage: false })
-        .where(sql`${tenantFilter(tenantId)}`)
+        .where(tenantFilter(tenantId))
         .where('is_homepage', '=', true)
         .execute();
     }
@@ -265,7 +265,7 @@ export function portalRoutes(db: Database, auth: any) {
       .updateTable('zvd_portal_pages' as any)
       .set({ ...data, updated_at: new Date() })
       .where('id', '=', id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .returningAll()
       .executeTakeFirst();
 
@@ -285,7 +285,7 @@ export function portalRoutes(db: Database, auth: any) {
     await db
       .deleteFrom('zvd_portal_pages' as any)
       .where('id', '=', id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .execute();
 
     return c.json({ success: true });
@@ -303,7 +303,7 @@ export function portalRoutes(db: Database, auth: any) {
       .selectFrom('zvd_portal_sections as s')
       .selectAll()
       .where('s.page_id', '=', id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .orderBy('s.sort_order asc')
       .execute();
 
@@ -325,7 +325,7 @@ export function portalRoutes(db: Database, auth: any) {
       .selectFrom('zvd_portal_pages')
       .select('id')
       .where('id', '=', pageId)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .executeTakeFirst();
     if (!page) return c.json({ error: 'Page not found' }, 404);
 
@@ -366,7 +366,7 @@ export function portalRoutes(db: Database, auth: any) {
       .updateTable('zvd_portal_sections' as any)
       .set(update)
       .where('id', '=', id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .returningAll()
       .executeTakeFirst();
 
@@ -386,7 +386,7 @@ export function portalRoutes(db: Database, auth: any) {
     await db
       .deleteFrom('zvd_portal_sections' as any)
       .where('id', '=', id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .execute();
 
     return c.json({ success: true });
@@ -407,7 +407,7 @@ export function portalRoutes(db: Database, auth: any) {
           .updateTable('zvd_portal_sections' as any)
           .set({ sort_order: index })
           .where('id', '=', id)
-          .where(sql`${tenantFilter(tenantId)}`)
+          .where(tenantFilter(tenantId))
           .execute(),
       ),
     );
@@ -427,7 +427,7 @@ export function portalRoutes(db: Database, auth: any) {
       .selectFrom('zvd_collection_views as v')
       .selectAll()
       .where('v.collection', '=', name)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .orderBy('v.is_default desc')
       .orderBy('v.created_at asc')
       .execute();
@@ -453,7 +453,7 @@ export function portalRoutes(db: Database, auth: any) {
         .set({ is_default: false })
         .where('collection', '=', name)
         .where('is_default', '=', true)
-        .where(sql`${tenantFilter(tenantId)}`)
+        .where(tenantFilter(tenantId))
         .execute();
     }
 
@@ -491,7 +491,7 @@ export function portalRoutes(db: Database, auth: any) {
         .where('collection', '=', name)
         .where('is_default', '=', true)
         .where('id', '!=', id)
-        .where(sql`${tenantFilter(tenantId)}`)
+        .where(tenantFilter(tenantId))
         .execute();
     }
 
@@ -503,7 +503,7 @@ export function portalRoutes(db: Database, auth: any) {
       .set(update)
       .where('id', '=', id)
       .where('collection', '=', name)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .returningAll()
       .executeTakeFirst();
 
@@ -524,7 +524,7 @@ export function portalRoutes(db: Database, auth: any) {
       .deleteFrom('zvd_collection_views' as any)
       .where('id', '=', id)
       .where('collection', '=', name)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .execute();
 
     return c.json({ success: true });
@@ -549,7 +549,7 @@ export function portalRoutes(db: Database, auth: any) {
       .updateTable('zvd_collection_views' as any)
       .set(update)
       .where('id', '=', id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .returningAll()
       .executeTakeFirst();
 
@@ -569,7 +569,7 @@ export function portalRoutes(db: Database, auth: any) {
     await db
       .deleteFrom('zvd_collection_views' as any)
       .where('id', '=', id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .execute();
 
     return c.json({ success: true });
@@ -587,14 +587,14 @@ export function portalRoutes(db: Database, auth: any) {
       db
         .selectFrom('zvd_portal_theme')
         .selectAll()
-        .where(sql`${tenantFilter(tenantId)}`)
+        .where(tenantFilter(tenantId))
         .limit(1)
         .executeTakeFirst(),
       db
         .selectFrom('zvd_portal_pages as p')
         .selectAll()
         .where('p.is_active', '=', true)
-        .where(sql`${tenantFilter(tenantId)}`)
+        .where(tenantFilter(tenantId))
         .orderBy('p.sort_order asc')
         .execute(),
     ]);
@@ -623,7 +623,7 @@ export function portalRoutes(db: Database, auth: any) {
       .selectAll()
       .where('p.slug', '=', slug)
       .where('p.is_active', '=', true)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .executeTakeFirst();
 
     if (!page) return c.json({ error: 'Page not found' }, 404);
@@ -642,7 +642,7 @@ export function portalRoutes(db: Database, auth: any) {
       .selectFrom('zvd_portal_sections as s')
       .selectAll()
       .where('s.page_id', '=', (page as any).id)
-      .where(sql`${tenantFilter(tenantId)}`)
+      .where(tenantFilter(tenantId))
       .orderBy('s.sort_order asc')
       .execute();
 
