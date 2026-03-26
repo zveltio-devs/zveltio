@@ -146,8 +146,12 @@ if (_cmd === 'create-god') {
     process.exit(1);
   }
   const { initDatabase: _initDb2 } = await import('./db/index.js');
+  const { scryptSync, randomBytes: _randomBytes } = await import('crypto');
   const _db = await _initDb2();
-  const _hash = await Bun.password.hash(_password);
+  // Use the same scrypt format as better-auth: "salt:hexkey"
+  const _salt = _randomBytes(16).toString('hex');
+  const _key = scryptSync(_password, _salt, 64, { N: 16384, r: 16, p: 1 });
+  const _hash = `${_salt}:${_key.toString('hex')}`;
   const _now = new Date();
   const _id = crypto.randomUUID();
   await _db
