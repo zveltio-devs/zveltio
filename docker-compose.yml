@@ -200,6 +200,8 @@ services:
 
       # Database (connect via pooler for production)
       DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@pooler:6432/${POSTGRES_DB:-zveltio}'
+      # Direct Postgres connection — used by migrate/create-god to bypass PgDog
+      NATIVE_DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@db:5432/${POSTGRES_DB:-zveltio}'
 
       # Auth (change BETTER_AUTH_SECRET in production!)
       BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?ERROR: BETTER_AUTH_SECRET must be set in .env - generate with: openssl rand -hex 32}'
