@@ -79,7 +79,33 @@ export async function initAuth(db: Database) {
     database,
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
-    emailAndPassword: { enabled: true },
+    emailAndPassword: {
+      enabled: true,
+      // Use argon2id via Bun.password (4 MB RAM) instead of better-auth's
+      // default scrypt (32 MB RAM) so create-god and login work on small VMs.
+      // Legacy scrypt hashes (salt:hexkey format) are verified transparently
+      // so existing users are not locked out after upgrading.
+      password: {
+        hash: (password: string) =>
+          Bun.password.hash(password, { algorithm: 'argon2id', memoryCost: 4096, timeCost: 3 }),
+        verify: async ({ hash, password }: { hash: string; password: string }) => {
+          // New hashes: argon2id / bcrypt — start with '$'
+          if (hash.startsWith('$')) {
+            return Bun.password.verify(password, hash);
+          }
+          // Legacy hashes: better-auth default scrypt format "salt:hexkey"
+          const [salt, key] = hash.split(':');
+          if (!salt || !key) return false;
+          try {
+            const { scryptSync } = await import('crypto');
+            const derived = scryptSync(password, salt, 64, { N: 16384, r: 16, p: 1 });
+            return derived.toString('hex') === key;
+          } catch {
+            return false;
+          }
+        },
+      },
+    },
 
     socialProviders: {
       ...(process.env.GOOGLE_CLIENT_ID
