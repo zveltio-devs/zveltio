@@ -125,6 +125,11 @@ app.use('/api/*', tenantMiddleware);
 const _cmd = process.argv[2];
 
 if (_cmd === 'migrate') {
+  // Bypass PgDog/pooler — connect directly to Postgres so migrate works
+  // even before the pooler has initialized its backend pool.
+  if (process.env.NATIVE_DATABASE_URL) {
+    process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
+  }
   const { initDatabase: _initDb } = await import('./db/index.js');
   await _initDb();
   console.log('✅ Migrations complete');
@@ -132,6 +137,10 @@ if (_cmd === 'migrate') {
 }
 
 if (_cmd === 'create-god') {
+  // Bypass PgDog/pooler — same reason as migrate above.
+  if (process.env.NATIVE_DATABASE_URL) {
+    process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
+  }
   const _args = process.argv.slice(3);
   let _email = '';
   let _password = '';
@@ -149,8 +158,23 @@ if (_cmd === 'create-god') {
   const { scryptSync, randomBytes: _randomBytes } = await import('crypto');
   const _db = await _initDb2();
   // Use the same scrypt format as better-auth: "salt:hexkey"
+  // scrypt(N=16384, r=16, p=1) requires ~32MB RAM — fails on very constrained VMs.
   const _salt = _randomBytes(16).toString('hex');
-  const _key = scryptSync(_password, _salt, 64, { N: 16384, r: 16, p: 1 });
+  let _key: Buffer;
+  try {
+    _key = scryptSync(_password, _salt, 64, { N: 16384, r: 16, p: 1 });
+  } catch (err: any) {
+    if (err?.message?.includes('memory')) {
+      console.error(
+        '❌ Insufficient memory to hash password.\n' +
+        '   scrypt(N=16384, r=16) requires ~32 MB of free RAM.\n' +
+        '   Ensure the engine container has at least 256 MB available.',
+      );
+    } else {
+      console.error('❌ Password hashing failed:', err?.message ?? err);
+    }
+    process.exit(1);
+  }
   const _hash = `${_salt}:${_key.toString('hex')}`;
   const _now = new Date();
   const _id = crypto.randomUUID();
