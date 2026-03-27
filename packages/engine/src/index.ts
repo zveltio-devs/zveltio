@@ -125,8 +125,8 @@ app.use('/api/*', tenantMiddleware);
 const _cmd = process.argv[2];
 
 if (_cmd === 'migrate') {
-  // Bypass PgDog/pooler — connect directly to Postgres so migrate works
-  // even before the pooler has initialized its backend pool.
+  // NATIVE_DATABASE_URL can be set to bypass PgDog (e.g. if pgdog-init failed).
+  // Otherwise initDatabase() retries up to 20× until PgDog is ready.
   if (process.env.NATIVE_DATABASE_URL) {
     process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
   }
@@ -137,7 +137,7 @@ if (_cmd === 'migrate') {
 }
 
 if (_cmd === 'create-god') {
-  // Bypass PgDog/pooler — same reason as migrate above.
+  // NATIVE_DATABASE_URL can be set to bypass PgDog — same as migrate above.
   if (process.env.NATIVE_DATABASE_URL) {
     process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
   }
@@ -155,27 +155,10 @@ if (_cmd === 'create-god') {
     process.exit(1);
   }
   const { initDatabase: _initDb2 } = await import('./db/index.js');
-  const { scryptSync, randomBytes: _randomBytes } = await import('crypto');
   const _db = await _initDb2();
-  // Use the same scrypt format as better-auth: "salt:hexkey"
-  // scrypt(N=16384, r=16, p=1) requires ~32MB RAM — fails on very constrained VMs.
-  const _salt = _randomBytes(16).toString('hex');
-  let _key: Buffer;
-  try {
-    _key = scryptSync(_password, _salt, 64, { N: 16384, r: 16, p: 1 });
-  } catch (err: any) {
-    if (err?.message?.includes('memory')) {
-      console.error(
-        '❌ Insufficient memory to hash password.\n' +
-        '   scrypt(N=16384, r=16) requires ~32 MB of free RAM.\n' +
-        '   Ensure the engine container has at least 256 MB available.',
-      );
-    } else {
-      console.error('❌ Password hashing failed:', err?.message ?? err);
-    }
-    process.exit(1);
-  }
-  const _hash = `${_salt}:${_key.toString('hex')}`;
+  // Use argon2id via Bun.password — matches auth.ts password.hash config.
+  // argon2id(memoryCost=4096) uses only ~4 MB RAM, works on small VMs.
+  const _hash = await Bun.password.hash(_password, { algorithm: 'argon2id', memoryCost: 4096, timeCost: 3 });
   const _now = new Date();
   const _id = crypto.randomUUID();
   await _db
