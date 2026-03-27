@@ -145,7 +145,9 @@ export async function initAuth(db: Database) {
   (authInstance.api as any).getSession = async (...args: any[]) => {
     try {
       return await origGetSession(...args as [any]);
-    } catch {
+    } catch (err) {
+      // Log the error so we can diagnose session failures — do NOT swallow silently.
+      console.error('[getSession] Error (returning null):', err instanceof Error ? err.message : err);
       return null;
     }
   };
