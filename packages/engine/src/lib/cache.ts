@@ -27,7 +27,13 @@ export async function createCacheSecondaryStorage() {
   return {
     get: async (key: string) => {
       const value = await cache.get(key);
-      return value ? JSON.parse(value) : null;
+      if (!value) return null;
+      try {
+        return JSON.parse(value);
+      } catch {
+        // Corrupted cache entry — treat as miss so DB is used instead
+        return null;
+      }
     },
     set: async (key: string, value: any, ttl?: number) => {
       if (ttl) await cache.setex(key, ttl, JSON.stringify(value));
