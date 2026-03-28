@@ -8,6 +8,7 @@
  const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
  let fieldTypes = $state<any[]>([]);
+ let allCollections = $state<any[]>([]);
  let loading = $state(true);
  let saving = $state(false);
  let showAddForm = $state(false);
@@ -21,17 +22,22 @@
  unique: false,
  indexed: false,
  description: '',
+ related_collection: '',
  });
+
+ const RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m', 'polymorphic']);
 
  let addError = $state('');
 
  onMount(async () => {
- const [colRes, typesRes] = await Promise.all([
+ const [colRes, typesRes, colsRes] = await Promise.all([
  collectionsApi.get(collectionName),
  collectionsApi.fieldTypes(),
+ collectionsApi.list(),
  ]);
  collection = colRes.collection;
  fieldTypes = typesRes.field_types;
+ allCollections = (colsRes.collections ?? []).filter((c: any) => c.name !== collectionName);
  loading = false;
  });
 
@@ -66,16 +72,25 @@
  const existing = getFields().find((f: any) => f.name === newField.name);
  if (existing) { addError = `Field '${newField.name}' already exists`; return; }
 
+ if (RELATION_TYPES.has(newField.type) && newField.type !== 'polymorphic' && !newField.related_collection) {
+ addError = 'Please select a target collection for this relation field';
+ return;
+ }
+
  saving = true;
  try {
- await api.post(`/api/collections/${collectionName}/fields`, {
+ const body: Record<string, any> = {
  ...newField,
  label: newField.label || newField.name,
- });
+ };
+ if (newField.related_collection) {
+ body.options = { related_collection: newField.related_collection };
+ }
+ await api.post(`/api/collections/${collectionName}/fields`, body);
  const res = await collectionsApi.get(collectionName);
  collection = res.collection;
  showAddForm = false;
- newField = { name: '', type: 'text', label: '', required: false, unique: false, indexed: false, description: '' };
+ newField = { name: '', type: 'text', label: '', required: false, unique: false, indexed: false, description: '', related_collection: '' };
  } catch (err: any) {
  addError = err.message || 'Failed to add field';
  } finally {
@@ -180,6 +195,24 @@
  {/each}
  </div>
  </div>
+
+ {#if RELATION_TYPES.has(newField.type) && newField.type !== 'polymorphic'}
+ <div class="form-control">
+ <label class="label" for="related_collection">
+ <span class="label-text">Target collection <span class="text-error">*</span></span>
+ </label>
+ <select
+ id="related_collection"
+ class="select select-sm"
+ bind:value={newField.related_collection}
+ >
+ <option value="">— Select collection —</option>
+ {#each allCollections as col}
+ <option value={col.name}>{col.display_name || col.name}</option>
+ {/each}
+ </select>
+ </div>
+ {/if}
 
  <div class="flex gap-4">
  <label class="flex items-center gap-2 cursor-pointer">
