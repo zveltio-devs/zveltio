@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Shield, Save, Plus, Trash2, LoaderCircle } from '@lucide/svelte';
+ import { Shield, Save, Plus, Trash2, LoaderCircle, GitBranch, ChevronRight, ArrowRight } from '@lucide/svelte';
 
  let collections = $state<any[]>([]);
  let roles = $state<any[]>([]);
@@ -9,10 +9,45 @@
  let loading = $state(true);
  let saving = $state(false);
  let saved = $state(false);
- let tab = $state<'matrix' | 'roles'>('matrix');
+ let tab = $state<'matrix' | 'roles' | 'hierarchy'>('matrix');
  let newRoleName = $state('');
  let newRoleDesc = $state('');
  let creatingRole = $state(false);
+
+ // Hierarchy state
+ let hierarchy = $state<Array<{ child: string; parent: string }>>([]);
+ let hierChild = $state('');
+ let hierParent = $state('');
+ let hierSaving = $state(false);
+ let hierError = $state('');
+
+ // Build inheritance tree for display
+ const roleNames = $derived([
+   'god', 'admin', 'member',
+   ...roles.map((r) => r.name),
+ ]);
+
+ async function loadHierarchy() {
+   const res = await api.get<{ hierarchy: Array<{ child: string; parent: string }> }>('/api/admin/roles/hierarchy');
+   hierarchy = res.hierarchy ?? [];
+ }
+
+ async function addInheritance() {
+   if (!hierChild || !hierParent) return;
+   hierSaving = true; hierError = '';
+   try {
+     await api.post('/api/admin/roles/hierarchy', { child: hierChild, parent: hierParent });
+     hierChild = ''; hierParent = '';
+     await loadHierarchy();
+   } catch (e: any) {
+     hierError = e.message || 'Failed to add inheritance';
+   } finally { hierSaving = false; }
+ }
+
+ async function removeInheritance(child: string, parent: string) {
+   await api.delete('/api/admin/roles/hierarchy', { child, parent });
+   await loadHierarchy();
+ }
 
  const ACTIONS = ['view', 'create', 'update', 'delete'] as const;
  const ACTION_CLASSES: Record<string, string> = {
@@ -20,7 +55,7 @@
  update: 'checkbox-warning', delete: 'checkbox-error',
  };
 
- onMount(loadAll);
+ onMount(async () => { await loadAll(); await loadHierarchy(); });
 
  async function loadAll() {
  loading = true;
@@ -110,6 +145,7 @@
  <div class="tabs tabs-bordered">
  <button class="tab {tab === 'matrix' ? 'tab-active' : ''}" onclick={() => (tab = 'matrix')}>Permission Matrix</button>
  <button class="tab {tab === 'roles' ? 'tab-active' : ''}" onclick={() => (tab = 'roles')}>Roles ({roles.length})</button>
+ <button class="tab {tab === 'hierarchy' ? 'tab-active' : ''}" onclick={() => (tab = 'hierarchy')}>Role Hierarchy</button>
  </div>
 
  {#if loading}
@@ -203,6 +239,101 @@
  {/each}
  </div>
  {/if}
+ </div>
+ {:else}
+ <!-- ── Role Hierarchy tab ───────────────────────────────── -->
+ <div class="space-y-6">
+
+ <!-- Explanation -->
+ <div class="alert alert-info text-sm">
+ <GitBranch size={16} class="shrink-0" />
+ <div>
+ <p class="font-semibold">Casbin Role Inheritance</p>
+ <p class="text-xs mt-0.5 opacity-80">
+ When role A inherits role B, every permission granted to B is automatically available to A.
+ Example: <code class="bg-base-100/50 px-1 rounded">manager → employee</code> means managers can do everything employees can, plus their own extra permissions.
+ </p>
+ </div>
+ </div>
+
+ <!-- Add new edge -->
+ <div class="card bg-base-200">
+ <div class="card-body p-4">
+ <h3 class="font-semibold mb-3">Add Inheritance Rule</h3>
+ <div class="flex items-center gap-3 flex-wrap">
+ <select class="select select-sm flex-1 min-w-32" bind:value={hierChild}>
+ <option value="">Child role (inheritor)</option>
+ {#each roleNames as r}<option value={r}>{r}</option>{/each}
+ </select>
+ <ArrowRight size={16} class="text-base-content/40 shrink-0" />
+ <select class="select select-sm flex-1 min-w-32" bind:value={hierParent}>
+ <option value="">Parent role (inherited)</option>
+ {#each roleNames as r}<option value={r}>{r}</option>{/each}
+ </select>
+ <button
+ class="btn btn-primary btn-sm"
+ onclick={addInheritance}
+ disabled={!hierChild || !hierParent || hierChild === hierParent || hierSaving}
+ >
+ {#if hierSaving}<LoaderCircle size={14} class="animate-spin" />{:else}<Plus size={14} />{/if}
+ Add
+ </button>
+ </div>
+ {#if hierError}<p class="text-error text-sm mt-2">{hierError}</p>{/if}
+ <p class="text-xs text-base-content/40 mt-2">
+ Reads as: <em>"[Child] inherits all permissions from [Parent]"</em>
+ </p>
+ </div>
+ </div>
+
+ <!-- Current hierarchy -->
+ <div>
+ <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wider mb-3">
+ Active Inheritance Rules ({hierarchy.length})
+ </h3>
+ {#if hierarchy.length === 0}
+ <div class="text-center py-10 text-base-content/35">
+ <GitBranch size={32} class="mx-auto mb-2 opacity-40" />
+ <p class="text-sm">No inheritance rules defined yet.</p>
+ <p class="text-xs mt-1">Built-in: <code>admin → *</code>, <code>god → admin</code></p>
+ </div>
+ {:else}
+ <div class="space-y-2">
+ {#each hierarchy as edge}
+ <div class="card bg-base-200 hover:bg-base-300 transition-colors">
+ <div class="card-body p-3 flex-row items-center gap-3">
+ <div class="flex items-center gap-2 flex-1 min-w-0">
+ <span class="badge badge-outline badge-sm font-mono">{edge.child}</span>
+ <ChevronRight size={14} class="text-base-content/30 shrink-0" />
+ <span class="badge badge-primary badge-sm font-mono">{edge.parent}</span>
+ <span class="text-xs text-base-content/40 ml-1">inherits</span>
+ </div>
+ <button
+ class="btn btn-ghost btn-xs text-error shrink-0"
+ onclick={() => removeInheritance(edge.child, edge.parent)}
+ title="Remove inheritance"
+ >
+ <Trash2 size={13} />
+ </button>
+ </div>
+ </div>
+ {/each}
+ </div>
+ {/if}
+ </div>
+
+ <!-- Built-in note -->
+ <div class="text-xs text-base-content/40 border border-base-300 rounded-lg p-3">
+ <p class="font-semibold mb-1">Built-in Casbin roles (always active):</p>
+ <ul class="space-y-0.5 ml-2">
+ <li>• <code>god</code> → superadmin, bypasses all permission checks</li>
+ <li>• <code>admin</code> → full access to everything (<code>*, *, *</code>)</li>
+ <li>• <code>member</code> → read access to all <code>zvd_*</code> collections</li>
+ <li>• <code>employee</code> → read/write access to the intranet portal</li>
+ <li>• <code>manager</code> → inherits from <code>employee</code></li>
+ </ul>
+ </div>
+
  </div>
  {/if}
 </div>

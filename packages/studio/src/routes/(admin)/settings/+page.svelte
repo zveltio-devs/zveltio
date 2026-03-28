@@ -48,7 +48,8 @@
 
  async function loadRateLimiting() {
  try {
- const data = await api.get<any>('/api/settings/rate_limiting');
+ const res = await api.get<{ key: string; value: any }>('/api/settings/rate_limiting');
+ const data = res?.value;
  if (data && typeof data === 'object') {
  if ('enabled' in data) rl.enabled = data.enabled;
  if ('default_ip_limit' in data) rl.default_ip_limit = data.default_ip_limit;
@@ -74,7 +75,7 @@
  async function saveRateLimiting() {
  rlSaving = true; rlSaved = false; rlError = '';
  try {
- await api.patch('/api/settings', { key: 'rate_limiting', value: { ...rl } });
+ await api.put('/api/settings/rate_limiting', { value: { ...rl } });
  rlSaved = true;
  setTimeout(() => (rlSaved = false), 3000);
  } catch (err) {

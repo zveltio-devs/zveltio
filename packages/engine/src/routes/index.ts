@@ -26,6 +26,7 @@ import { aiAlchemistRoutes } from './ai-alchemist.js';
 import { aiQueryRoutes } from './ai-query.js';
 import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 import { portalRoutes } from './portal.js';
+import { clientPortalRoutes } from './client-portal.js';
 import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
@@ -155,6 +156,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Portal: theme, pages, sections, collection views + public render API
   app.route('/api/portal', portalRoutes(db, auth));
+
+  // Client Portal: multi-template client-facing portal
+  app.route('/api/portal-client', clientPortalRoutes(db, auth));
 
   // Approval Workflows (core)
   app.route('/api/approvals', approvalsRoutes(db, auth));

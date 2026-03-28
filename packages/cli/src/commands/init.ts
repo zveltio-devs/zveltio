@@ -147,6 +147,38 @@ export async function initCommand(
     true,
   );
 
+  // ── Employee Intranet zone ─────────────────────────────────────────────────
+  const enableIntranet = await askYesNo(
+    iface,
+    'Enable Employee Intranet zone? (portal for non-admin employees)',
+    false,
+  );
+
+  // ── Client Portal zone ────────────────────────────────────────────────────
+  const enableClientPortal = await askYesNo(
+    iface,
+    'Enable Client Portal? (customer-facing portal with multiple templates)',
+    false,
+  );
+
+  let clientPortalTemplate = 'generic';
+  if (enableClientPortal) {
+    console.log('');
+    console.log(c.dim('  Available templates:'));
+    console.log(c.dim('    1. generic      — Dashboard + support tickets + profile'));
+    console.log(c.dim('    2. saas         — Subscription management + support'));
+    console.log(c.dim('    3. services     — Professional services portal'));
+    console.log(c.dim('    4. regulatory   — Authorizations, inspections, business locations'));
+    console.log('');
+    const tmplAnswer = await ask(iface, `  Template ${c.dim('[1-4, default: 1]')}: `);
+    const tmplMap: Record<string, string> = {
+      '1': 'generic', '2': 'saas', '3': 'services', '4': 'regulatory',
+      'generic': 'generic', 'saas': 'saas', 'services': 'services', 'regulatory': 'regulatory',
+    };
+    clientPortalTemplate = tmplMap[tmplAnswer.trim()] ?? 'generic';
+    console.log(`  ${c.green('✔')} Template: ${clientPortalTemplate}`);
+  }
+
   // ── Extension picker ───────────────────────────────────────────────────────
   const officialExtensions = await extensionsPromise;
   let selectedExtensions: string[] = [];
@@ -177,24 +209,35 @@ export async function initCommand(
   const extensionsValue = selectedExtensions.join(',');
 
   // ── .env ──────────────────────────────────────────────────────────────────
-  await Bun.write(
-    join(dir, '.env'),
-    [
-      '# WARNING: NEVER commit this file to git — it contains secrets.',
-      '# For production, replace ALL values with strong credentials.',
-      `DATABASE_URL=${databaseUrl}`,
-      `PORT=${port}`,
-      `BETTER_AUTH_SECRET=${authSecret}`,
-      'VALKEY_URL=redis://localhost:6379',
-      'S3_ENDPOINT=http://localhost:8333',
-      'S3_BUCKET=zveltio',
-      `S3_ACCESS_KEY=${s3AccessKey}`,
-      `S3_SECRET_KEY=${s3SecretKey}`,
-      `ENABLE_STUDIO=${enableStudio ? 'true' : 'false'}`,
-      `ZVELTIO_EXTENSIONS=${extensionsValue}`,
-      '',
-    ].join('\n'),
-  );
+  const envLines = [
+    '# WARNING: NEVER commit this file to git — it contains secrets.',
+    '# For production, replace ALL values with strong credentials.',
+    `DATABASE_URL=${databaseUrl}`,
+    `PORT=${port}`,
+    `BETTER_AUTH_SECRET=${authSecret}`,
+    'VALKEY_URL=redis://localhost:6379',
+    'S3_ENDPOINT=http://localhost:8333',
+    'S3_BUCKET=zveltio',
+    `S3_ACCESS_KEY=${s3AccessKey}`,
+    `S3_SECRET_KEY=${s3SecretKey}`,
+    `ENABLE_STUDIO=${enableStudio ? 'true' : 'false'}`,
+    `ZVELTIO_EXTENSIONS=${extensionsValue}`,
+  ];
+
+  if (enableIntranet) {
+    envLines.push('# Intranet employee zone is enabled');
+    envLines.push('ENABLE_INTRANET=true');
+  }
+
+  if (enableClientPortal) {
+    envLines.push('# Client Portal');
+    envLines.push('ENABLE_CLIENT_PORTAL=true');
+    envLines.push(`CLIENT_PORTAL_TEMPLATE=${clientPortalTemplate}`);
+  }
+
+  envLines.push('');
+
+  await Bun.write(join(dir, '.env'), envLines.join('\n'));
 
   // ── .env.example ──────────────────────────────────────────────────────────
   await Bun.write(
@@ -211,6 +254,10 @@ export async function initCommand(
       'S3_SECRET_KEY=CHANGE_ME',
       'ENABLE_STUDIO=true',
       `ZVELTIO_EXTENSIONS=${extensionsValue}`,
+      '# Optional zones',
+      '# ENABLE_INTRANET=true',
+      '# ENABLE_CLIENT_PORTAL=true',
+      '# CLIENT_PORTAL_TEMPLATE=generic   # generic | saas | services | regulatory',
       '',
     ].join('\n'),
   );
@@ -293,8 +340,20 @@ volumes:
   const extSummary = selectedExtensions.length > 0
     ? `\n  ${c.green('✔')} Extensions: ${selectedExtensions.map(e => e.split('/').pop()).join(', ')}`
     : '';
+  const intranetSummary = enableIntranet ? `\n  ${c.green('✔')} Employee Intranet: enabled` : '';
+  const portalSummary = enableClientPortal
+    ? `\n  ${c.green('✔')} Client Portal: ${clientPortalTemplate} template`
+    : '';
 
-  console.log(`\n${c.green(`✔ Project "${projectName}" initialized`)} at ${dir}${extSummary}`);
+  console.log(`\n${c.green(`✔ Project "${projectName}" initialized`)} at ${dir}${extSummary}${intranetSummary}${portalSummary}`);
+
+  const portalNote = enableClientPortal
+    ? `\n  ${c.cyan(`Client Portal:  http://localhost:${port}/portal-client/login`)}`
+    : '';
+  const intranetNote = enableIntranet
+    ? `\n  ${c.cyan(`Intranet:       http://localhost:${port}/admin/intranet`)}`
+    : '';
+
   console.log(`
 ${c.bold('Next steps:')}
   ${name !== '.' ? `cd ${name}\n  ` : ''}docker compose up -d     ${c.dim('# start PostgreSQL + Valkey')}
@@ -302,6 +361,6 @@ ${c.bold('Next steps:')}
   zveltio migrate           ${c.dim('# apply database migrations')}
   zveltio dev               ${c.dim('# start development server')}
 
-  ${c.cyan(`Open http://localhost:${port}${enableStudio ? '/admin' : '/api'}`)}
+  ${c.cyan(`Studio:         http://localhost:${port}${enableStudio ? '/admin' : '/api'}`)}${intranetNote}${portalNote}
 `);
 }

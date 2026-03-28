@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission, getEnforcer } from '../lib/permissions.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { getCache } from '../lib/cache.js';
@@ -471,7 +471,215 @@ export function adminRoutes(db: Database, auth: any): Hono {
     return c.json({ slow_queries: rows });
   });
 
+  // ── Permissions UI helpers ────────────────────────────────────
+  // These endpoints back the Studio permissions matrix page.
+
+  // GET /collections — Collections list (for permission matrix columns)
+  app.get('/collections', async (c) => {
+    const collections = await DDLManager.getCollections(db);
+    return c.json({ collections });
+  });
+
+  // GET /roles — List custom roles
+  app.get('/roles', async (c) => {
+    const roles = await (db as any)
+      .selectFrom('zv_roles')
+      .selectAll()
+      .orderBy('name', 'asc')
+      .execute();
+    return c.json({ roles });
+  });
+
+  // POST /roles — Create a custom role
+  app.post(
+    '/roles',
+    zValidator('json', z.object({
+      name: z.string().min(1).regex(/^[a-z][a-z0-9_-]*$/, 'Role name must be lowercase letters, digits, _ or -'),
+      description: z.string().optional(),
+    })),
+    async (c) => {
+      const { name, description } = c.req.valid('json');
+      const existing = await (db as any)
+        .selectFrom('zv_roles')
+        .where('name', '=', name)
+        .selectAll()
+        .executeTakeFirst();
+      if (existing) return c.json({ error: `Role "${name}" already exists` }, 409);
+      const role = await (db as any)
+        .insertInto('zv_roles')
+        .values({ name, description: description ?? null })
+        .returningAll()
+        .executeTakeFirst();
+      return c.json({ role }, 201);
+    },
+  );
+
+  // DELETE /roles/:id — Delete a custom role and its Casbin policies
+  app.delete('/roles/:id', async (c) => {
+    const id = c.req.param('id');
+    const role = await (db as any)
+      .selectFrom('zv_roles')
+      .where('id', '=', id)
+      .selectAll()
+      .executeTakeFirst();
+    if (!role) return c.json({ error: 'Role not found' }, 404);
+
+    // Remove all Casbin policies for this role name
+    const e = await getEnforcer();
+    await e.deletePermissionsForUser(role.name);
+    await e.deleteRole(role.name);
+
+    await (db as any).deleteFrom('zv_roles').where('id', '=', id).execute();
+    await invalidatePermissionCache();
+    return c.json({ success: true });
+  });
+
+  // GET /permissions — All custom-role permissions (ptype='p' from zvd_permissions)
+  app.get('/permissions', async (c) => {
+    const roles = await (db as any).selectFrom('zv_roles').selectAll().execute();
+    const roleNameToId = new Map<string, string>(roles.map((r: any) => [r.name, r.id]));
+
+    const policies = await (db as any)
+      .selectFrom('zvd_permissions')
+      .selectAll()
+      .where('ptype', '=', 'p')
+      .execute();
+
+    const permissions = policies
+      .filter((p: any) => roleNameToId.has(p.v0))
+      .map((p: any) => ({
+        role_id: roleNameToId.get(p.v0),
+        resource: p.v1,
+        action: p.v2,
+      }));
+
+    return c.json({ permissions });
+  });
+
+  // POST /permissions/bulk — Replace all custom-role permissions atomically
+  app.post(
+    '/permissions/bulk',
+    zValidator('json', z.object({
+      permissions: z.array(z.object({
+        role_id: z.string().uuid(),
+        resource: z.string().min(1),
+        action: z.enum(['view', 'create', 'update', 'delete', 'read', 'write', '*']),
+      })),
+    })),
+    async (c) => {
+      const { permissions } = c.req.valid('json');
+      const roles = await (db as any).selectFrom('zv_roles').selectAll().execute();
+      const roleIdToName = new Map<string, string>(roles.map((r: any) => [r.id, r.name]));
+
+      const e = await getEnforcer();
+
+      // Remove all existing policies for custom roles
+      for (const role of roles) {
+        await e.deletePermissionsForUser(role.name);
+      }
+
+      // Add new policies
+      for (const perm of permissions) {
+        const roleName = roleIdToName.get(perm.role_id);
+        if (!roleName) continue;
+        await e.addPolicy(roleName, perm.resource, perm.action);
+      }
+
+      await invalidatePermissionCache();
+      return c.json({ success: true });
+    },
+  );
+
+  // ── Role Hierarchy (Casbin `g` role-role inheritance) ────────
+  //
+  // Casbin supports: g, child_role, parent_role
+  // Example: g, manager, employee  → manager inherits all employee perms
+  //
+  // This enables RBAC hierarchies like:
+  //   god → admin → manager → employee
+  //
+  // The UI can visualize this as an inheritance tree and let admins
+  // define which roles inherit from which others.
+
+  // GET /roles/hierarchy — All role-role inheritance edges
+  app.get('/roles/hierarchy', async (c) => {
+    const edges = await (db as any)
+      .selectFrom('zvd_permissions')
+      .select(['v0 as child', 'v1 as parent'])
+      .where('ptype', '=', 'g')
+      // Only role-role edges: v0 must NOT be a UUID (user-role assignments have UUID v0)
+      .where(
+        (eb: any) => eb(
+          eb.fn('length', ['v0']).notEq(36)
+        )
+      )
+      .execute()
+      .catch(() => [] as any[]);
+
+    // Fallback: filter by UUID pattern in JS (more reliable cross-DB)
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const filtered = (edges as any[]).filter((e: any) => !uuidRe.test(e.child));
+
+    return c.json({ hierarchy: filtered });
+  });
+
+  // POST /roles/hierarchy — Add inheritance: child_role inherits parent_role
+  app.post(
+    '/roles/hierarchy',
+    zValidator('json', z.object({
+      child: z.string().min(1),
+      parent: z.string().min(1),
+    })),
+    async (c) => {
+      const { child, parent } = c.req.valid('json');
+      if (child === parent) return c.json({ error: 'A role cannot inherit from itself' }, 400);
+
+      const e = await getEnforcer();
+      // Check for circular inheritance
+      const parentRoles = await e.getRolesForUser(parent);
+      if (parentRoles.includes(child)) {
+        return c.json({ error: `Circular inheritance: "${parent}" already inherits from "${child}"` }, 409);
+      }
+      await e.addRoleForUser(child, parent);
+      await invalidatePermissionCache();
+      return c.json({ success: true, child, parent });
+    },
+  );
+
+  // DELETE /roles/hierarchy — Remove inheritance
+  app.delete(
+    '/roles/hierarchy',
+    zValidator('json', z.object({
+      child: z.string().min(1),
+      parent: z.string().min(1),
+    })),
+    async (c) => {
+      const { child, parent } = c.req.valid('json');
+      const e = await getEnforcer();
+      await e.deleteRoleForUser(child, parent);
+      await invalidatePermissionCache();
+      return c.json({ success: true });
+    },
+  );
+
   return app;
+}
+
+async function invalidatePermissionCache() {
+  const cache = getCache();
+  if (!cache) return;
+  try {
+    const allKeys: string[] = [];
+    for (const pattern of ['perm:*', 'roles:*', 'god:*']) {
+      let cursor = '0';
+      do {
+        const [nextCursor, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = nextCursor;
+        allKeys.push(...batch);
+      } while (cursor !== '0');
+    }
+    if (allKeys.length > 0) await cache.del(...allKeys);
+  } catch { /* cache unavailable */ }
 }
 
 /**

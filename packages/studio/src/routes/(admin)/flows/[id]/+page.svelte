@@ -56,7 +56,7 @@
     loading = true;
     error = '';
     try {
-      const data = await api.get<{ flow: Flow }>(`/extensions/flows/flows/${flowId}`);
+      const data = await api.get<{ flow: Flow }>(`/api/flows/${flowId}`);
       flow = data.flow;
       if (flow && !flow.steps) flow.steps = [];
     } catch (e: any) {
@@ -71,7 +71,7 @@
     saving = true;
     saveError = '';
     try {
-      await api.patch(`/extensions/flows/flows/${flow.id}`, {
+      await api.patch(`/api/flows/${flow.id}`, {
         name: flow.name,
         description: flow.description,
         steps: flow.steps,

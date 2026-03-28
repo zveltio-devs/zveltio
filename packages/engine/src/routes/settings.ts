@@ -13,14 +13,21 @@ const WRITABLE_SETTINGS_KEYS = new Set([
   // Feature toggles (non-security)
   'maintenance_mode', 'registration_enabled', 'api_docs_public',
   'max_upload_size_mb', 'allowed_file_types', 'default_collection_permissions',
-  // Email configuration (non-secret values only)
-  'smtp_host', 'smtp_port', 'smtp_from_name', 'smtp_from_email', 'smtp_secure',
+  // General
+  'app_name',
+  // Email configuration
+  'smtp_host', 'smtp_port', 'smtp_from_name', 'smtp_from_email', 'smtp_from', 'smtp_secure',
+  'smtp_user', 'smtp_pass',
+  // Security
+  'two_factor_enabled', 'session_expiry_hours', 'api_rate_limit',
   // AI configuration (non-secret)
   'ai_enabled', 'ai_default_provider', 'ai_default_model', 'ai_max_tokens_per_request',
   // Storage configuration (non-secret)
   's3_public_url', 's3_bucket_public',
   // Monitoring
   'audit_log_retention_days', 'session_max_age_days',
+  // Rate limiting
+  'rate_limiting',
 ]);
 
 // These keys are system-managed and NEVER writable via the settings API.
