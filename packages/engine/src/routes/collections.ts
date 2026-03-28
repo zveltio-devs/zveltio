@@ -184,6 +184,11 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     }
   });
 
+  // Reserved system column names that cannot be used as field names
+  const SYSTEM_FIELDS = new Set([
+    'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector',
+  ]);
+
   // POST /:name/fields — Add a field to existing collection
   app.post(
     '/:name/fields',
@@ -192,38 +197,46 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const name = c.req.param('name');
       const field = c.req.valid('json');
 
-      const collection = await DDLManager.getCollection(db, name);
-      if (!collection) return c.json({ error: 'Collection not found' }, 404);
+      if (SYSTEM_FIELDS.has(field.name)) {
+        return c.json({ error: `"${field.name}" is a reserved system field name` }, 400);
+      }
 
       if (!fieldTypeRegistry.has(field.type)) {
         return c.json({ error: `Unknown field type: "${field.type}"` }, 400);
       }
 
-      const existingFields: any[] = typeof collection.fields === 'string'
-        ? JSON.parse(collection.fields)
-        : (collection.fields ?? []);
+      const collection = await DDLManager.getCollection(db, name);
+      if (!collection) return c.json({ error: 'Collection not found' }, 404);
+
+      let existingFields: any[];
+      try {
+        existingFields = typeof collection.fields === 'string'
+          ? JSON.parse(collection.fields)
+          : (collection.fields ?? []);
+      } catch {
+        existingFields = [];
+      }
+
       if (existingFields.some((f: any) => f.name === field.name)) {
         return c.json({ error: `Field "${field.name}" already exists in collection "${name}"` }, 409);
       }
 
-      const tableName = DDLManager.getTableName(name);
-      const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
+      try {
+        const tableName = DDLManager.getTableName(name);
+        const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
 
-      if (colDDL) {
-        // Always use dynamicAddColumn — it applies lock_timeout (2s) so a slow
-        // ALTER TABLE never blocks the entire table for other queries.
-        // The previous approach of passing field.type as SQL type caused Postgres
-        // errors for relation types (m2o, reference, etc.) AND acquired an
-        // AccessExclusiveLock before failing, which queued behind any ongoing
-        // CREATE INDEX CONCURRENTLY and froze all reads on the table.
-        await dynamicAddColumn(db, tableName, colDDL);
+        if (colDDL) {
+          // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
+          await dynamicAddColumn(db, tableName, colDDL);
+        }
+
+        const updatedFields = [...existingFields, field];
+        await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+
+        return c.json({ success: true, field });
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : 'Failed to add field' }, 400);
       }
-
-      // Update fields array in metadata
-      const updatedFields = [...(collection.fields || []), field];
-      await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
-
-      return c.json({ success: true, field });
     },
   );
 
@@ -232,17 +245,37 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const name = c.req.param('name');
     const fieldName = c.req.param('field');
 
+    if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
+      return c.json({ error: 'Invalid field name' }, 400);
+    }
+
     const collection = await DDLManager.getCollection(db, name);
     if (!collection) return c.json({ error: 'Collection not found' }, 404);
 
-    const tableName = DDLManager.getTableName(name);
-    // dynamicDropColumn uses sql.id() for both identifiers and applies lock_timeout.
-    await dynamicDropColumn(db, tableName, fieldName);
+    let existingFields: any[];
+    try {
+      existingFields = typeof collection.fields === 'string'
+        ? JSON.parse(collection.fields)
+        : (collection.fields ?? []);
+    } catch {
+      existingFields = [];
+    }
 
-    const updatedFields = (collection.fields || []).filter((f: any) => f.name !== fieldName);
-    await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+    if (!existingFields.some((f: any) => f.name === fieldName)) {
+      return c.json({ error: `Field "${fieldName}" not found in collection "${name}"` }, 404);
+    }
 
-    return c.json({ success: true });
+    try {
+      const tableName = DDLManager.getTableName(name);
+      await dynamicDropColumn(db, tableName, fieldName);
+
+      const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
+      await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+
+      return c.json({ success: true });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : 'Failed to delete field' }, 400);
+    }
   });
 
   return app;
