@@ -25,7 +25,9 @@
  related_collection: '',
  });
 
- const RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m', 'polymorphic']);
+ // Relation types that need a target collection (m2a = polymorphic, doesn't need one)
+ const RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m', 'm2a']);
+ const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 
  let addError = $state('');
 
@@ -72,7 +74,7 @@
  const existing = getFields().find((f: any) => f.name === newField.name);
  if (existing) { addError = `Field '${newField.name}' already exists`; return; }
 
- if (RELATION_TYPES.has(newField.type) && newField.type !== 'polymorphic' && !newField.related_collection) {
+ if (RELATION_NEEDS_TARGET.has(newField.type) && !newField.related_collection) {
  addError = 'Please select a target collection for this relation field';
  return;
  }
@@ -196,7 +198,7 @@
  </div>
  </div>
 
- {#if RELATION_TYPES.has(newField.type) && newField.type !== 'polymorphic'}
+ {#if RELATION_NEEDS_TARGET.has(newField.type)}
  <div class="form-control">
  <label class="label" for="related_collection">
  <span class="label-text">Target collection <span class="text-error">*</span></span>
