@@ -9,3 +9,12 @@
   --color-accent: oklch(0.57 0.10 188);
   --color-accent-content: oklch(1 0 0);
 }
+
+[data-theme="dark"] {
+  --color-primary: oklch(0.67 0.13 188);
+  --color-primary-content: oklch(0.12 0.02 188);
+  --color-secondary: oklch(0.57 0.10 188);
+  --color-secondary-content: oklch(0.12 0.02 188);
+  --color-accent: oklch(0.67 0.13 188);
+  --color-accent-content: oklch(0.12 0.02 188);
+}
