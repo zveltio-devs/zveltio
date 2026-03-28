@@ -56,6 +56,18 @@ async function runMigrationsViaAPI(opts: any): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
     });
 
+    if (res.status === 401 || res.status === 403) {
+      console.error(`\n❌ The engine requires authentication for migrations via API.`);
+      console.log('');
+      console.log('   Run migrations directly instead (no running engine needed):');
+      console.log(`     DATABASE_URL=<your-url> zveltio migrate`);
+      console.log(`     zveltio migrate --database-url postgresql://...`);
+      console.log('');
+      console.log('   Or set DATABASE_URL in your .env and run:');
+      console.log('     source .env && zveltio migrate\n');
+      process.exit(1);
+    }
+
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as any;
       throw new Error(body.error ?? `Engine returned ${res.status}`);
@@ -66,8 +78,16 @@ async function runMigrationsViaAPI(opts: any): Promise<void> {
       `✅ ${data.applied} migration(s) applied. Schema version: ${data.schema_version}\n`,
     );
   } catch (err: any) {
-    console.error(`\n❌ ${err.message}`);
-    console.log('   Tip: Start the engine first, or use --database-url for direct migration\n');
+    if (err.message?.includes('fetch') || err.code === 'ECONNREFUSED') {
+      console.error(`\n❌ Cannot reach engine at ${opts.url}`);
+      console.log('');
+      console.log('   Run migrations directly (no engine needed):');
+      console.log(`     DATABASE_URL=<your-url> zveltio migrate`);
+      console.log(`     zveltio migrate --database-url postgresql://...\n`);
+    } else {
+      console.error(`\n❌ ${err.message}`);
+      console.log('   Tip: use --database-url for direct migration without a running engine\n');
+    }
     process.exit(1);
   }
 }

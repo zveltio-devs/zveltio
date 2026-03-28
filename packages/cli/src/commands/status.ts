@@ -72,8 +72,10 @@ export async function statusCommand(opts: { url?: string; json?: boolean }) {
   const db     = healthData.database ?? healthData.db;
   const cache  = healthData.cache ?? healthData.redis ?? healthData.valkey;
   const uptime = healthData.uptime_seconds ?? healthData.uptime;
-  const version = healthData.version ?? healthData.engine_version ?? healthData.engine;
   const status = healthData.status ?? 'ok';
+  // Version: try health response first, then fall back to local package.json
+  const version = healthData.version ?? healthData.engine_version ?? healthData.engine
+    ?? await getLocalVersion();
 
   const overallIcon = status === 'ok' || status === 'healthy'
     ? c.green('HEALTHY')
@@ -140,4 +142,21 @@ export async function statusCommand(opts: { url?: string; json?: boolean }) {
   }
 
   console.log('');
+}
+
+async function getLocalVersion(): Promise<string | undefined> {
+  const { existsSync } = await import('fs');
+  const { join } = await import('path');
+  const candidates = [
+    join(process.cwd(), 'packages/engine/package.json'),
+    join(process.cwd(), 'package.json'),
+  ];
+  for (const p of candidates) {
+    if (!existsSync(p)) continue;
+    try {
+      const pkg = JSON.parse(await Bun.file(p).text());
+      if (pkg.name === '@zveltio/engine' || pkg._zveltio_version) return pkg.version;
+    } catch { /* ignore */ }
+  }
+  return undefined;
 }

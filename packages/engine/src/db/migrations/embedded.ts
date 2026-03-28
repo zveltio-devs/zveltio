@@ -58,6 +58,8 @@ import m053 from './sql/053_slow_queries.sql' with { type: 'text' };
 import m054 from './sql/054_encrypted_fields.sql' with { type: 'text' };
 import m055 from './sql/055_portal.sql' with { type: 'text' };
 import m056 from './sql/056_portal_extras.sql' with { type: 'text' };
+import m057 from './sql/057_roles.sql' with { type: 'text' };
+import m058 from './sql/058_client_portal.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -114,4 +116,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '054_encrypted_fields.sql': m054,
   '055_portal.sql': m055,
   '056_portal_extras.sql': m056,
+  '057_roles.sql': m057,
+  '058_client_portal.sql': m058,
 };

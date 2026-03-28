@@ -215,9 +215,12 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
 
-    const payload = typeof entry.payload === 'string'
-      ? JSON.parse(entry.payload)
-      : (entry.payload ?? {});
+    let payload: any;
+    try {
+      payload = typeof entry.payload === 'string' ? JSON.parse(entry.payload) : (entry.payload ?? {});
+    } catch {
+      payload = {};
+    }
 
     await (db as any).deleteFrom('zv_flow_dlq').where('id', '=', entry.id).execute();
     executeFlow(db, flow.id, payload.trigger_data ?? {}).catch(console.error);
