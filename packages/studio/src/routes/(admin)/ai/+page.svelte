@@ -337,7 +337,9 @@
  <p class="text-lg font-semibold">AI Assistant</p>
  <p class="text-sm">Start a new chat or select an existing one</p>
  {#if providers.length === 0}
- <p class="text-sm text-warning">No AI provider configured. Add one in Settings.</p>
+ <p class="text-sm text-warning">No AI provider configured.
+ <button class="underline" onclick={() => activeTab = 'settings'}>Add one here →</button>
+ </p>
  {/if}
  <button class="btn btn-primary" onclick={newChat}>
  <Plus size={16} />
