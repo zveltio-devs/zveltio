@@ -71,8 +71,9 @@ describe.skipIf(skipAll)('Auth — Integration', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toHaveProperty('email');
-    expect(body.email).toBe(createdEmail);
+    expect(body).toHaveProperty('user');
+    expect(body.user).toHaveProperty('email');
+    expect(body.user.email).toBe(createdEmail);
   });
 
   it('GET /api/me — returns 401 without cookie', async () => {
