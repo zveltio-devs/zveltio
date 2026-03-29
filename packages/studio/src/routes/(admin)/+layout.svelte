@@ -244,14 +244,13 @@
 
         <!-- Settings (pinned at bottom of nav) -->
         <div class="px-2 py-0.5 mt-1">
-          {@const active = isActive(`${base}/settings`)}
           <a
             href="{base}/settings"
             title={collapsed ? 'Settings' : undefined}
             class="
               flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
               transition-colors duration-100
-              {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+              {isActive(`${base}/settings`) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
               {collapsed ? 'justify-center' : ''}
             "
           >
