@@ -372,7 +372,7 @@ async function bootstrap() {
   // 11b. API 404 — any unmatched /api/* returns JSON, not the SPA index.html.
   // Without this, Hono falls through to the SPA catch-all below and serves
   // index.html, which the client then tries to JSON.parse → "Unexpected token '<'".
-  app.use('/api/*', (c) => c.json({ error: 'Not found' }, 404));
+  app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 
   // 12. Client SPA — catch-all (must be registered AFTER all API/admin routes)
   app.use('/*', async (c) => {
