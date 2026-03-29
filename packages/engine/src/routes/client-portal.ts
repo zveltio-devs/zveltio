@@ -496,7 +496,7 @@ export function clientPortalRoutes(db: Database, auth: any): Hono {
       site_name: z.string().optional(),
       site_logo: z.string().optional(),
       primary_color: z.string().optional(),
-      config: z.record(z.any()).optional(),
+      config: z.record(z.string(), z.any()).optional(),
     })),
     async (c) => {
       const user = c.get('user') as any;
