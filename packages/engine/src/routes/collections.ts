@@ -100,6 +100,16 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         }
       }
 
+      // Reject duplicate names immediately
+      const existing = await (db as any)
+        .selectFrom('zvd_collections')
+        .select('name')
+        .where('name', '=', data.name)
+        .executeTakeFirst();
+      if (existing) {
+        return c.json({ error: `Collection '${data.name}' already exists` }, 409);
+      }
+
       try {
         // Register metadata immediately so GET /:name works without waiting for DDL job
         await DDLManager.registerMetadata(db, data);
