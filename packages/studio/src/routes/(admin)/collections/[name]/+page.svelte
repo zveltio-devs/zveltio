@@ -234,41 +234,46 @@
  {/if}
 {:else if activeTab === 'schema'}
  <!-- Schema tab -->
- <div class="space-y-3">
+ {#if loading}
+   <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
+ {:else}
+ <div class="space-y-2">
+ {#if getFields().length === 0}
+   <div class="text-sm text-base-content/40 py-4">No custom fields defined. <a href="{base}/collections/{collectionName}/fields" class="link">Add fields →</a></div>
+ {:else}
  {#each getFields() as field}
- <div class="card bg-base-200">
- <div class="card-body p-4">
- <div class="flex items-center justify-between">
- <div>
- <span class="font-mono font-semibold">{field.name}</span>
- {#if field.label && field.label !== field.name}
- <span class="text-base-content/50 text-sm ml-2">({field.label})</span>
- {/if}
- </div>
- <div class="flex gap-2">
- <span class="badge badge-outline">{field.type}</span>
- {#if field.required}
- <span class="badge badge-warning badge-sm">required</span>
- {/if}
- {#if field.unique}
- <span class="badge badge-info badge-sm">unique</span>
- {/if}
- </div>
- </div>
- </div>
+ <div class="flex items-center justify-between px-4 py-3 rounded-lg bg-base-200 hover:bg-base-300 transition-colors">
+   <div class="flex items-center gap-3">
+     <code class="font-mono font-semibold text-sm">{field.name}</code>
+     {#if field.label && field.label !== field.name}
+       <span class="text-base-content/40 text-xs">{field.label}</span>
+     {/if}
+   </div>
+   <div class="flex gap-1.5 items-center">
+     <span class="badge badge-outline badge-sm font-mono">{field.type}</span>
+     {#if field.required}<span class="badge badge-warning badge-xs">required</span>{/if}
+     {#if field.unique}<span class="badge badge-info badge-xs">unique</span>{/if}
+   </div>
  </div>
  {/each}
+ {/if}
 
- <!-- System fields -->
- <div class="divider text-xs">System fields (auto-managed)</div>
- {#each ['id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by'] as sysField}
- <div class="card bg-base-100 opacity-50">
- <div class="card-body p-3">
- <span class="font-mono text-sm">{sysField}</span>
- </div>
+ <div class="divider text-xs opacity-50 my-4">System fields (auto-managed)</div>
+ {#each [
+   { name: 'id', type: 'uuid' },
+   { name: 'created_at', type: 'timestamp' },
+   { name: 'updated_at', type: 'timestamp' },
+   { name: 'status', type: 'text' },
+   { name: 'created_by', type: 'uuid' },
+   { name: 'updated_by', type: 'uuid' },
+ ] as sf}
+ <div class="flex items-center justify-between px-4 py-2 rounded-lg opacity-40">
+   <code class="font-mono text-sm">{sf.name}</code>
+   <span class="badge badge-ghost badge-xs font-mono">{sf.type}</span>
  </div>
  {/each}
  </div>
+ {/if}
  {:else if activeTab === 'ai'}
  <!-- AI Search settings -->
  <div class="card bg-base-200 max-w-xl">
@@ -278,9 +283,9 @@
  <h2 class="card-title text-base">AI Semantic Search</h2>
  </div>
  <p class="text-sm text-base-content/60 mb-4">
- Activează auto-embedding la create/update. Recordurile vor fi indexate semantic
- și pot fi căutate via <code class="text-primary">POST /api/ai/search</code>.
- Necesită un AI provider cu suport embedding configurat.
+ Enable auto-embedding on create/update. Records will be indexed semantically
+ and can be queried via <code class="text-primary">POST /api/ai/search</code>.
+ Requires an AI provider with embedding support configured.
  </p>
 
  <div class="form-control mb-4">
@@ -290,18 +295,18 @@
  class="toggle toggle-primary"
  bind:checked={aiSearchEnabled}
  />
- <span class="label-text font-medium">Activează AI Search pentru această colecție</span>
+ <span class="label-text font-medium">Enable AI Search for this collection</span>
  </label>
  </div>
 
  {#if aiSearchEnabled}
  <div class="form-control mb-4">
  <label class="label">
- <span class="label-text">Câmp de embedduit</span>
- <span class="label-text-alt text-base-content/50">opțional — gol = concat toate câmpurile text</span>
+ <span class="label-text">Field to embed</span>
+ <span class="label-text-alt text-base-content/50">optional — blank = concat all text fields</span>
  </label>
  <select class="select" bind:value={aiSearchField}>
- <option value="">— Auto (toate câmpurile text) —</option>
+ <option value="">— Auto (all text fields) —</option>
  {#each getFields().filter((f) => ['text', 'textarea', 'richtext'].includes(f.type)) as field}
  <option value={field.name}>{field.label || field.name} ({field.type})</option>
  {/each}
@@ -320,7 +325,7 @@
  {:else}
  <Save size={14} />
  {/if}
- {aiSaved ? 'Salvat!' : 'Salvează setările AI'}
+ {aiSaved ? 'Saved!' : 'Save AI settings'}
  </button>
  </div>
  </div>
@@ -329,10 +334,10 @@
  <div class="alert alert-info max-w-xl">
  <Sparkles size={16} />
  <div class="text-sm">
- <strong>Cum funcționează:</strong> La fiecare create/update, Zveltio generează automat
- un embedding pentru câmpul selectat (sau pentru toate câmpurile text) și îl stochează
- în <code>zvd_ai_embeddings</code>. Căutarea semantică returnează recordurile ordonate
- după similaritate cosine.
+ <strong>How it works:</strong> On every create/update, Zveltio automatically generates
+ an embedding for the selected field (or all text fields) and stores it in
+ <code>zvd_ai_embeddings</code>. Semantic search returns records ordered
+ by cosine similarity.
  </div>
  </div>
  {:else if activeTab === 'code'}
