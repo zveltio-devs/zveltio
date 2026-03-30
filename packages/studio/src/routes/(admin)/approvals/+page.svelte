@@ -4,6 +4,8 @@
  import {
  CheckCircle, XCircle, Clock, Eye, X, AlertCircle, Check, Ban, RefreshCw,
  } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  interface ApprovalRequest {
  id: string;
@@ -39,6 +41,7 @@
  let showDetailModal = $state(false);
  let deciding = $state(false);
  let decisionComment = $state('');
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  const tabs = [
  { key: 'all' as const, label: 'All' },
@@ -112,21 +115,29 @@
  await loadRequests();
  closeDetail();
  } catch (e) {
- alert(e instanceof Error ? e.message : 'Failed to submit decision');
+ toast.error(e instanceof Error ? e.message : 'Failed to submit decision');
  } finally {
  deciding = false;
  }
  }
 
  async function cancelRequest(requestId: string) {
- if (!confirm('Cancel this request?')) return;
+ confirmState = {
+ open: true,
+ title: 'Cancel Request',
+ message: 'Cancel this request?',
+ confirmLabel: 'Cancel Request',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.post(`/api/approvals/${requestId}/cancel`);
  await loadRequests();
  closeDetail();
  } catch (e) {
- alert(e instanceof Error ? e.message : 'Failed to cancel request');
+ toast.error(e instanceof Error ? e.message : 'Failed to cancel request');
  }
+ },
+ };
  }
 
  function getStepStatus(step: ApprovalStep) {
@@ -295,3 +306,12 @@
  <button class="modal-backdrop" aria-label="Close" onclick={closeDetail}></button>
  </dialog>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

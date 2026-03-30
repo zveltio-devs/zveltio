@@ -18,10 +18,9 @@ import { webhookWorker } from './lib/webhook-worker.js';
 import { flowScheduler } from './lib/flow-scheduler.js';
 import { initTenantManager } from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
-import { initTelemetry } from './lib/telemetry.js';
+import { initTelemetry, getZoneMetricsLines } from './lib/telemetry.js';
 import { engineEvents } from './lib/event-bus.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
-import { sql } from 'kysely';
 
 const app = new Hono();
 
@@ -223,7 +222,7 @@ async function bootstrap() {
   );
 
   // 5. Core routes
-  registerCoreRoutes(app, { db, auth });
+  await registerCoreRoutes(app, { db, auth });
   console.log('✅ Core routes registered');
 
   // 5b. Marketplace routes — always-on, registered on the loader itself
@@ -294,9 +293,9 @@ async function bootstrap() {
         // A hash-based CSP could replace this but requires recalculating hashes at build time.
         "script-src 'self' 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob:",
+        "img-src 'self' data: blob: https:",
         "font-src 'self' data:",
-        "connect-src 'self'",
+        "connect-src 'self' ws: wss:",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
@@ -363,6 +362,7 @@ async function bootstrap() {
       '# HELP zveltio_extensions_active Number of active extensions',
       '# TYPE zveltio_extensions_active gauge',
       `zveltio_extensions_active ${extensionLoader.getActive().length}`,
+      ...getZoneMetricsLines(),
     ];
     return c.text(lines.join('\n') + '\n', 200, {
       'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',

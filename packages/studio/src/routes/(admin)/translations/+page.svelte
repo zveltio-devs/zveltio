@@ -2,6 +2,8 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import { Plus, Search, Trash2, Globe, Check, X } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  let locales = $state<any[]>([]);
  let keys = $state<any[]>([]);
@@ -17,6 +19,7 @@
  let newLocale = $state({ code: '', name: '', is_default: false });
  let editingCell = $state<{ keyId: string; locale: string } | null>(null);
  let editValue = $state('');
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  onMount(async () => {
  await loadAll();
@@ -51,7 +54,7 @@
  showAddKey = false;
  newKey = { key: '', context: '', default_value: '', description: '' };
  } catch (err: any) {
- alert(err.message);
+ toast.error(err.message);
  } finally {
  saving = false;
  }
@@ -67,16 +70,24 @@
  showAddLocale = false;
  newLocale = { code: '', name: '', is_default: false };
  } catch (err: any) {
- alert(err.message);
+ toast.error(err.message);
  } finally {
  saving = false;
  }
  }
 
  async function deleteKey(id: string, key: string) {
- if (!confirm(`Delete key '${key}' and all its translations?`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Translation Key',
+ message: `Delete key '${key}' and all its translations?`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  await api.delete(`/api/translations/${id}`);
  keys = keys.filter((k) => k.id !== id);
+ },
+ };
  }
 
  function startEdit(keyId: string, locale: string, currentValue: string) {
@@ -107,7 +118,7 @@
  keys[keyIdx] = { ...keys[keyIdx], translations };
  }
  } catch (err: any) {
- alert(err.message);
+ toast.error(err.message);
  } finally {
  saving = false;
  editingCell = null;
@@ -343,3 +354,12 @@
  {/if}
  {/if}
 </div>
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

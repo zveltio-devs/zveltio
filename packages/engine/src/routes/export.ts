@@ -78,7 +78,7 @@ export function exportRoutes(db: Database, auth: any) {
 
     // Fetch the collection schema to know which columns exist
     const schemaRow = await db
-      .selectFrom('zv_collections')
+      .selectFrom('zvd_collections')
       .select(['name', 'fields'])
       .where('name', '=', collection)
       .executeTakeFirst();

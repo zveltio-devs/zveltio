@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Bookmark, Play, Trash2, Plus, Share2, Filter, ChevronDown, ChevronRight, Copy, Check, X } from '@lucide/svelte';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 
   const engineUrl = (import.meta as any).env?.PUBLIC_ENGINE_URL ?? '';
 
@@ -35,6 +36,8 @@
   let editName = $state('');
   let editDescription = $state('');
   let editIsShared = $state(false);
+
+  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
   // Inline execute (no save)
   let executeResult = $state<any>(null);
@@ -159,9 +162,17 @@
 
   // ── Delete ────────────────────────────────────────────────────────────────────
   async function deleteQuery(id: string) {
-    if (!confirm('Delete this saved query?')) return;
-    await fetch(`${engineUrl}/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
-    await loadQueries();
+    confirmState = {
+      open: true,
+      title: 'Delete Query',
+      message: 'Delete this saved query?',
+      confirmLabel: 'Delete',
+      onconfirm: async () => {
+        confirmState.open = false;
+        await fetch(`${engineUrl}/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
+        await loadQueries();
+      },
+    };
   }
 
   // ── Update ────────────────────────────────────────────────────────────────────
@@ -461,3 +472,12 @@
     </div>
   {/if}
 </div>
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

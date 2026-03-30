@@ -4,6 +4,8 @@
   import { collectionsApi, api } from '$lib/api.js';
   import { ArrowLeft, Plus, Trash2, ArrowRight, GitFork } from '@lucide/svelte';
   import { base } from '$app/paths';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
 
   const collectionName = $derived(page.params.name ?? '');
   let relations = $state<any[]>([]);
@@ -14,6 +16,7 @@
   let saving = $state(false);
   let showForm = $state(false);
   let error = $state('');
+  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
   let form = $state({
     name: '',
@@ -86,9 +89,17 @@
   }
 
   async function deleteRelation(id: string, name: string) {
-    if (!confirm(`Delete relation '${name}'?`)) return;
-    await api.delete(`/api/relations/${id}`);
-    relations = relations.filter((r) => r.id !== id);
+    confirmState = {
+      open: true,
+      title: 'Delete Relation',
+      message: `Delete relation '${name}'?`,
+      confirmLabel: 'Delete',
+      onconfirm: async () => {
+        confirmState.open = false;
+        await api.delete(`/api/relations/${id}`);
+        relations = relations.filter((r) => r.id !== id);
+      },
+    };
   }
 
   function typeColor(type: string): string {
@@ -107,11 +118,14 @@
 </script>
 
 <div class="space-y-6">
+  <!-- Breadcrumb -->
+  <Breadcrumb crumbs={[
+    { label: 'Collections', href: `${base}/collections` },
+    { label: collectionName, href: `${base}/collections/${collectionName}` },
+    { label: 'Relations' },
+  ]} />
   <!-- Header -->
   <div class="flex items-center gap-3">
-    <a href="{base}/collections/{collectionName}" class="btn btn-ghost btn-sm">
-      <ArrowLeft size={16} />
-    </a>
     <div>
       <h1 class="text-2xl font-bold">
         {collectionName}
@@ -284,3 +298,12 @@
     </div>
   {/if}
 </div>
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

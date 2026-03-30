@@ -1,7 +1,8 @@
 import { Kysely, sql } from 'kysely';
 import { BunSqlDialect } from './bun-sql-dialect.js';
+import type { DbSchema } from './schema.js';
 
-export type Database = Kysely<any>;
+export type Database = Kysely<DbSchema>;
 
 /**
  * Creates a standalone Kysely instance for a given connection string.

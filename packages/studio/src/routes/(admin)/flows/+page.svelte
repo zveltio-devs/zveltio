@@ -2,6 +2,8 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import { Plus, Play, Pause, Trash2, LoaderCircle, Workflow, Zap, Clock, Webhook, RefreshCw } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  interface Flow {
  id: string;
@@ -18,7 +20,7 @@
 
  let flows = $state<Flow[]>([]);
  let loading = $state(true);
- let error = $state('');
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
  let showModal = $state(false);
  let saving = $state(false);
  let formError = $state('');
@@ -35,12 +37,11 @@
 
  async function loadFlows() {
  loading = true;
- error = '';
  try {
  const data = await api.get<{ flows: Flow[] }>('/api/flows');
  flows = data.flows || [];
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Something went wrong');
  } finally {
  loading = false;
  }
@@ -90,18 +91,26 @@
  });
  flows = flows.map(f => f.id === flow.id ? data.flow : f);
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Something went wrong');
  }
  }
 
  async function deleteFlow(id: string, flowName: string) {
- if (!confirm(`Delete flow "${flowName}"?`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Flow',
+ message: `Delete flow "${flowName}"?`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.delete(`/api/flows/${id}`);
  flows = flows.filter(f => f.id !== id);
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Something went wrong');
  }
+ },
+ };
  }
 
  async function runFlow(id: string) {
@@ -109,7 +118,7 @@
  await api.post(`/api/flows/${id}/run`, {});
  await loadFlows();
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Something went wrong');
  }
  }
 
@@ -153,21 +162,16 @@
  </div>
  </div>
 
- {#if error}
- <div class="alert alert-error text-sm">{error}</div>
- {/if}
-
  {#if loading}
  <div class="flex justify-center py-16">
  <LoaderCircle size={32} class="animate-spin text-primary" />
  </div>
  {:else if flows.length === 0}
- <div class="text-center py-16 text-base-content/40">
- <Workflow size={48} class="mx-auto mb-3" />
- <p class="text-sm">No flows yet.</p>
- <button class="btn btn-primary btn-sm mt-4" onclick={openModal}>
- <Plus size={14} /> Create First Flow
- </button>
+ <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
+ <Workflow size={48} class="opacity-20" />
+ <p class="text-lg font-semibold text-base-content/60">No flows yet</p>
+ <p class="text-sm text-center max-w-sm">Automate business logic with event-driven flows.</p>
+ <button class="btn btn-primary btn-sm mt-2" onclick={openModal}>Create Flow</button>
  </div>
  {:else}
  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -307,3 +311,12 @@
  ></div>
  </div>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

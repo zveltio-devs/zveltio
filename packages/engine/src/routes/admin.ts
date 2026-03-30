@@ -8,6 +8,7 @@ import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { getCache } from '../lib/cache.js';
 import { auditLog } from '../lib/audit.js';
+import type { RequestUser } from './data.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -60,9 +61,9 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 50, 200);
     const offset = (parseInt(page) - 1) * parsedLimit;
     const keys = await db
-      .selectFrom('zv_api_keys' as any)
-      .select(['id', 'name', 'key_prefix', 'scopes', 'rate_limit', 'expires_at', 'last_used_at', 'is_active', 'created_at'] as any)
-      .orderBy('created_at' as any, 'desc')
+      .selectFrom('zv_api_keys')
+      .select(['id', 'name', 'key_prefix', 'scopes', 'rate_limit', 'expires_at', 'last_used_at', 'is_active', 'created_at'])
+      .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset)
       .execute();
@@ -85,7 +86,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = c.get('user') as any;
+      const user = c.get('user') as RequestUser;
       const { name, scopes, rate_limit, expires_at } = c.req.valid('json');
 
       // Generate key
@@ -110,7 +111,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
         .join('');
 
       const apiKey = await db
-        .insertInto('zv_api_keys' as any)
+        .insertInto('zv_api_keys')
         .values({
           name,
           key_hash: keyHash,
@@ -119,20 +120,22 @@ export function adminRoutes(db: Database, auth: any): Hono {
           rate_limit,
           expires_at: expires_at ? new Date(expires_at) : null,
           created_by: user.id,
-        } as any)
+          is_active: true,
+          request_count: 0,
+        })
         .returningAll()
         .executeTakeFirst();
 
       await auditLog(db, {
         type: 'api_key.created',
         userId: user.id,
-        resourceId: (apiKey as any)?.id,
+        resourceId: apiKey?.id,
         resourceType: 'api_key',
         metadata: { name, scopes },
       });
 
       // Return the raw key only once
-      return c.json({ ...(apiKey as any), key: rawKey });
+      return c.json({ ...apiKey, key: rawKey });
     },
   );
 
@@ -140,11 +143,11 @@ export function adminRoutes(db: Database, auth: any): Hono {
   app.delete('/api-keys/:id', async (c) => {
     const keyId = c.req.param('id');
     await db
-      .updateTable('zv_api_keys' as any)
-      .set({ is_active: false } as any)
-      .where('id' as any, '=', keyId)
+      .updateTable('zv_api_keys')
+      .set({ is_active: false })
+      .where('id', '=', keyId)
       .execute();
-    const user = c.get('user') as any;
+    const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
       userId: user?.id,
@@ -173,7 +176,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
-      await db.updateTable('zv_api_keys' as any).set(data as any).where('id' as any, '=', id).execute();
+      await db.updateTable('zv_api_keys').set(data).where('id', '=', id).execute();
       return c.json({ success: true });
     },
   );
@@ -192,10 +195,10 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // GET /notifications — User notifications
   app.get('/notifications', async (c) => {
-    const user = c.get('user') as any;
+    const user = c.get('user') as RequestUser;
     const { unread_only } = c.req.query();
 
-    let query = (db as any)
+    let query = db
       .selectFrom('zv_notifications')
       .selectAll()
       .where('user_id', '=', user.id)
@@ -210,8 +213,8 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // PATCH /notifications/:id/read — Mark notification as read
   app.patch('/notifications/:id/read', async (c) => {
-    const user = c.get('user') as any;
-    await (db as any)
+    const user = c.get('user') as RequestUser;
+    await db
       .updateTable('zv_notifications')
       .set({ is_read: true })
       .where('id', '=', c.req.param('id'))
@@ -222,8 +225,8 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // POST /notifications/mark-all-read — Mark all as read
   app.post('/notifications/mark-all-read', async (c) => {
-    const user = c.get('user') as any;
-    await (db as any)
+    const user = c.get('user') as RequestUser;
+    await db
       .updateTable('zv_notifications')
       .set({ is_read: true })
       .where('user_id', '=', user.id)
@@ -241,7 +244,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 50, 500);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = (db as any)
+    let query = db
       .selectFrom('zv_revisions')
       .selectAll()
       .orderBy('created_at', 'desc')
@@ -339,12 +342,12 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // GET /onboarding/status
   app.get('/onboarding/status', async (c) => {
     const [users, collections, branding] = await Promise.all([
-      (db as any).selectFrom('user').select((eb: any) => eb.fn.count('id').as('count')).executeTakeFirst(),
+      db.selectFrom('user').select((eb) => eb.fn.count('id').as('count')).executeTakeFirst(),
       DDLManager.getCollections(db),
-      (db as any).selectFrom('zv_settings').selectAll().where('key', '=', 'branding').executeTakeFirst(),
+      db.selectFrom('zv_settings').selectAll().where('key', '=', 'branding').executeTakeFirst(),
     ]);
 
-    const userCount = parseInt(users?.count ?? '0');
+    const userCount = Number(users?.count ?? 0);
     const brandingVal = branding
       ? (typeof branding.value === 'string' ? JSON.parse(branding.value) : branding.value)
       : {};
@@ -413,7 +416,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 50, 500);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = (db as any)
+    let query = db
       .selectFrom('zv_audit_log')
       .selectAll()
       .orderBy('created_at', 'desc')
@@ -461,7 +464,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // GET /slow-queries — list recent slow queries
   app.get('/slow-queries', async (c) => {
     const { limit = '50', min_ms = '200' } = c.req.query();
-    const rows = await (db as any)
+    const rows = await db
       .selectFrom('zv_slow_queries')
       .selectAll()
       .where('duration_ms', '>=', parseInt(min_ms) || 200)
@@ -482,7 +485,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // GET /roles — List custom roles
   app.get('/roles', async (c) => {
-    const roles = await (db as any)
+    const roles = await db
       .selectFrom('zv_roles')
       .selectAll()
       .orderBy('name', 'asc')
@@ -499,13 +502,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
     })),
     async (c) => {
       const { name, description } = c.req.valid('json');
-      const existing = await (db as any)
+      const existing = await db
         .selectFrom('zv_roles')
         .where('name', '=', name)
         .selectAll()
         .executeTakeFirst();
       if (existing) return c.json({ error: `Role "${name}" already exists` }, 409);
-      const role = await (db as any)
+      const role = await db
         .insertInto('zv_roles')
         .values({ name, description: description ?? null })
         .returningAll()
@@ -517,7 +520,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // DELETE /roles/:id — Delete a custom role and its Casbin policies
   app.delete('/roles/:id', async (c) => {
     const id = c.req.param('id');
-    const role = await (db as any)
+    const role = await db
       .selectFrom('zv_roles')
       .where('id', '=', id)
       .selectAll()
@@ -529,25 +532,25 @@ export function adminRoutes(db: Database, auth: any): Hono {
     await e.deletePermissionsForUser(role.name);
     await e.deleteRole(role.name);
 
-    await (db as any).deleteFrom('zv_roles').where('id', '=', id).execute();
+    await db.deleteFrom('zv_roles').where('id', '=', id).execute();
     await invalidatePermissionCache();
     return c.json({ success: true });
   });
 
   // GET /permissions — All custom-role permissions (ptype='p' from zvd_permissions)
   app.get('/permissions', async (c) => {
-    const roles = await (db as any).selectFrom('zv_roles').selectAll().execute();
-    const roleNameToId = new Map<string, string>(roles.map((r: any) => [r.name, r.id]));
+    const roles = await db.selectFrom('zv_roles').selectAll().execute();
+    const roleNameToId = new Map<string, string>(roles.map((r) => [r.name, r.id]));
 
-    const policies = await (db as any)
+    const policies = await db
       .selectFrom('zvd_permissions')
       .selectAll()
       .where('ptype', '=', 'p')
       .execute();
 
     const permissions = policies
-      .filter((p: any) => roleNameToId.has(p.v0))
-      .map((p: any) => ({
+      .filter((p) => roleNameToId.has(p.v0))
+      .map((p) => ({
         role_id: roleNameToId.get(p.v0),
         resource: p.v1,
         action: p.v2,
@@ -568,8 +571,8 @@ export function adminRoutes(db: Database, auth: any): Hono {
     })),
     async (c) => {
       const { permissions } = c.req.valid('json');
-      const roles = await (db as any).selectFrom('zv_roles').selectAll().execute();
-      const roleIdToName = new Map<string, string>(roles.map((r: any) => [r.id, r.name]));
+      const roles = await db.selectFrom('zv_roles').selectAll().execute();
+      const roleIdToName = new Map<string, string>(roles.map((r) => [r.id, r.name]));
 
       const e = await getEnforcer();
 
@@ -603,22 +606,16 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // GET /roles/hierarchy — All role-role inheritance edges
   app.get('/roles/hierarchy', async (c) => {
-    const edges = await (db as any)
+    const edges = await db
       .selectFrom('zvd_permissions')
       .select(['v0 as child', 'v1 as parent'])
       .where('ptype', '=', 'g')
-      // Only role-role edges: v0 must NOT be a UUID (user-role assignments have UUID v0)
-      .where(
-        (eb: any) => eb(
-          eb.fn('length', ['v0']).notEq(36)
-        )
-      )
       .execute()
-      .catch(() => [] as any[]);
+      .catch(() => [] as { child: string; parent: string }[]);
 
-    // Fallback: filter by UUID pattern in JS (more reliable cross-DB)
+    // Filter out user-role assignments (UUID v0) — keep only role-role edges
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const filtered = (edges as any[]).filter((e: any) => !uuidRe.test(e.child));
+    const filtered = edges.filter((e) => !uuidRe.test(e.child));
 
     return c.json({ hierarchy: filtered });
   });
@@ -708,9 +705,9 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 50, 200);
     const offset = (parseInt(page) - 1) * parsedLimit;
     const keys = await db
-      .selectFrom('zv_api_keys' as any)
-      .select(['id', 'name', 'key_prefix', 'scopes', 'rate_limit', 'expires_at', 'last_used_at', 'is_active', 'created_at'] as any)
-      .orderBy('created_at' as any, 'desc')
+      .selectFrom('zv_api_keys')
+      .select(['id', 'name', 'key_prefix', 'scopes', 'rate_limit', 'expires_at', 'last_used_at', 'is_active', 'created_at'])
+      .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset)
       .execute();
@@ -733,7 +730,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = c.get('user') as any;
+      const user = c.get('user') as RequestUser;
       const { name, scopes, rate_limit, expires_at } = c.req.valid('json');
 
       const rawKey = `zvk_${crypto.randomUUID().replace(/-/g, '')}`;
@@ -754,7 +751,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         .join('');
 
       const apiKey = await db
-        .insertInto('zv_api_keys' as any)
+        .insertInto('zv_api_keys')
         .values({
           name,
           key_hash: keyHash,
@@ -763,19 +760,21 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
           rate_limit,
           expires_at: expires_at ? new Date(expires_at) : null,
           created_by: user.id,
-        } as any)
+          is_active: true,
+          request_count: 0,
+        })
         .returningAll()
         .executeTakeFirst();
 
       await auditLog(db, {
         type: 'api_key.created',
         userId: user.id,
-        resourceId: (apiKey as any)?.id,
+        resourceId: apiKey?.id,
         resourceType: 'api_key',
         metadata: { name, scopes },
       });
 
-      return c.json({ ...(apiKey as any), key: rawKey });
+      return c.json({ ...apiKey, key: rawKey });
     },
   );
 
@@ -783,11 +782,11 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   app.delete('/:id', async (c) => {
     const keyId = c.req.param('id');
     await db
-      .updateTable('zv_api_keys' as any)
-      .set({ is_active: false } as any)
-      .where('id' as any, '=', keyId)
+      .updateTable('zv_api_keys')
+      .set({ is_active: false })
+      .where('id', '=', keyId)
       .execute();
-    const user = c.get('user') as any;
+    const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
       userId: user?.id,

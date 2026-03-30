@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { BarChart2, Plus, Trash2, Play, Grid, Code2, X, GripVertical, RefreshCw } from '@lucide/svelte';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 
   const engineUrl = (import.meta as any).env?.PUBLIC_ENGINE_URL ?? '';
 
@@ -56,6 +57,7 @@
   let adHocResult = $state<any>(null);
   let adHocError = $state('');
   let adHocRunning = $state(false);
+  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
   const PANEL_TYPES = ['table', 'bar', 'line', 'pie', 'stat', 'text'];
   const DASH_ICONS = ['BarChart', 'LineChart', 'PieChart', 'Activity', 'Database', 'Globe', 'Users', 'ShoppingCart'];
@@ -98,13 +100,21 @@
   }
 
   async function deleteDashboard(id: string) {
-    if (!confirm('Delete this dashboard and all its panels?')) return;
-    await fetch(`${engineUrl}/api/insights/dashboards/${id}`, { method: 'DELETE', credentials: 'include' });
-    if (activeDashboard?.id === id) {
-      activeDashboard = null;
-      panels = [];
-    }
-    await loadDashboards();
+    confirmState = {
+      open: true,
+      title: 'Delete Dashboard',
+      message: 'Delete this dashboard and all its panels?',
+      confirmLabel: 'Delete',
+      onconfirm: async () => {
+        confirmState.open = false;
+        await fetch(`${engineUrl}/api/insights/dashboards/${id}`, { method: 'DELETE', credentials: 'include' });
+        if (activeDashboard?.id === id) {
+          activeDashboard = null;
+          panels = [];
+        }
+        await loadDashboards();
+      },
+    };
   }
 
   async function addPanel() {
@@ -443,3 +453,12 @@
     {/if}
   </div>
 {/if}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { executeFlow } from '../lib/flow-executor.js';
+import { validateStepConfig } from '../lib/flow-step-schemas.js';
 
 async function getUser(c: any, auth: any) {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -226,6 +227,152 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     executeFlow(db, flow.id, payload.trigger_data ?? {}).catch(console.error);
 
     return c.json({ message: 'DLQ entry requeued', flow_id: entry.flow_id }, 202);
+  });
+
+  // POST /:id/steps — add a validated step to an existing flow
+  app.post(
+    '/:id/steps',
+    zValidator(
+      'json',
+      z.object({
+        type:        z.string().min(1),
+        name:        z.string().optional(),
+        description: z.string().optional(),
+        config:      z.record(z.string(), z.unknown()).default({}),
+      }),
+    ),
+    async (c) => {
+      const user = await getUser(c, auth);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const body = c.req.valid('json');
+
+      // Validate step config before persisting
+      const validation = validateStepConfig(body.type, body.config);
+      if (!validation.valid) {
+        return c.json({ error: 'Invalid step configuration', errors: validation.errors }, 400);
+      }
+
+      const flow = await (db as any)
+        .selectFrom('zv_flows')
+        .select(['id', 'steps'])
+        .where('id', '=', c.req.param('id'))
+        .executeTakeFirst();
+
+      if (!flow) return c.json({ error: 'Flow not found' }, 404);
+
+      const existingSteps: any[] = typeof flow.steps === 'string'
+        ? JSON.parse(flow.steps)
+        : (flow.steps ?? []);
+
+      const newStep = {
+        id:          crypto.randomUUID(),
+        type:        body.type,
+        name:        body.name ?? body.type,
+        description: body.description,
+        config:      validation.config,
+      };
+
+      const updatedSteps = [...existingSteps, newStep];
+
+      await (db as any)
+        .updateTable('zv_flows')
+        .set({ steps: JSON.stringify(updatedSteps), updated_at: new Date() })
+        .where('id', '=', c.req.param('id'))
+        .execute();
+
+      return c.json({ step: newStep, total_steps: updatedSteps.length }, 201);
+    },
+  );
+
+  // PUT /:id/steps/:stepId — update a step's config with validation
+  app.put(
+    '/:id/steps/:stepId',
+    zValidator(
+      'json',
+      z.object({
+        type:        z.string().optional(),
+        name:        z.string().optional(),
+        description: z.string().optional(),
+        config:      z.record(z.string(), z.unknown()).optional(),
+      }),
+    ),
+    async (c) => {
+      const user = await getUser(c, auth);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const body = c.req.valid('json');
+
+      const flow = await (db as any)
+        .selectFrom('zv_flows')
+        .select(['id', 'steps'])
+        .where('id', '=', c.req.param('id'))
+        .executeTakeFirst();
+
+      if (!flow) return c.json({ error: 'Flow not found' }, 404);
+
+      const steps: any[] = typeof flow.steps === 'string'
+        ? JSON.parse(flow.steps)
+        : (flow.steps ?? []);
+
+      const stepIndex = steps.findIndex((s) => s.id === c.req.param('stepId'));
+      if (stepIndex === -1) return c.json({ error: 'Step not found' }, 404);
+
+      const existing = steps[stepIndex];
+      const newType   = body.type ?? existing.type;
+      const newConfig = body.config ?? existing.config;
+
+      // Validate updated config
+      const validation = validateStepConfig(newType, newConfig);
+      if (!validation.valid) {
+        return c.json({ error: 'Invalid step configuration', errors: validation.errors }, 400);
+      }
+
+      steps[stepIndex] = {
+        ...existing,
+        type:        newType,
+        name:        body.name ?? existing.name,
+        description: body.description ?? existing.description,
+        config:      validation.config,
+      };
+
+      await (db as any)
+        .updateTable('zv_flows')
+        .set({ steps: JSON.stringify(steps), updated_at: new Date() })
+        .where('id', '=', c.req.param('id'))
+        .execute();
+
+      return c.json({ step: steps[stepIndex] });
+    },
+  );
+
+  // DELETE /:id/steps/:stepId — remove a step
+  app.delete('/:id/steps/:stepId', async (c) => {
+    const user = await getUser(c, auth);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const flow = await (db as any)
+      .selectFrom('zv_flows')
+      .select(['id', 'steps'])
+      .where('id', '=', c.req.param('id'))
+      .executeTakeFirst();
+
+    if (!flow) return c.json({ error: 'Flow not found' }, 404);
+
+    const steps: any[] = typeof flow.steps === 'string'
+      ? JSON.parse(flow.steps)
+      : (flow.steps ?? []);
+
+    const filtered = steps.filter((s) => s.id !== c.req.param('stepId'));
+    if (filtered.length === steps.length) return c.json({ error: 'Step not found' }, 404);
+
+    await (db as any)
+      .updateTable('zv_flows')
+      .set({ steps: JSON.stringify(filtered), updated_at: new Date() })
+      .where('id', '=', c.req.param('id'))
+      .execute();
+
+    return c.json({ success: true, total_steps: filtered.length });
   });
 
   return app;

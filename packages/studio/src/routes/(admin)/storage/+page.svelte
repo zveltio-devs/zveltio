@@ -2,6 +2,8 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import { Upload, Trash2, Copy, Check, HardDrive, File, FileText, Image, LoaderCircle } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  interface MediaFile {
  id: string;
@@ -18,6 +20,7 @@
  let dragging = $state(false);
  let filter = $state<'all' | 'images' | 'documents'>('all');
  let copied = $state<string | null>(null);
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  const filtered = $derived(
  filter === 'all' ? files :
@@ -50,18 +53,26 @@
  }
  await loadFiles();
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Upload failed');
+ toast.error(err instanceof Error ? err.message : 'Upload failed');
  } finally { uploading = false; }
  }
 
  async function deleteFile(id: string, name: string) {
- if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete File',
+ message: `Delete "${name}"? This cannot be undone.`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.delete(`/api/storage/files/${id}`);
  files = files.filter(f => f.id !== id);
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Delete failed');
+ toast.error(err instanceof Error ? err.message : 'Delete failed');
  }
+ },
+ };
  }
 
  async function copyUrl(url: string, id: string) {
@@ -167,3 +178,12 @@
  </div>
  {/if}
 </div>
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

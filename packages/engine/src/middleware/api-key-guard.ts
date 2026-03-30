@@ -90,7 +90,6 @@ export function apiKeyGuard(db: Database) {
       id: `api_key:${apiKey.id}`,
       name: apiKey.name,
       role: 'api_key',
-      organization: apiKey.organization,
     });
     c.set('apiKey', apiKey);
 
