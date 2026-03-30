@@ -192,50 +192,50 @@
 <div class="flex h-full -m-6">
  <!-- Left sidebar: chats list -->
  <aside class="w-64 border-r border-base-300 bg-base-200 flex flex-col shrink-0">
- <!-- Header with tabs -->
- <div class="p-3 border-b border-base-300">
- <div class="flex gap-1">
+ <!-- Header with tabs — scrollable so all 6 fit -->
+ <div class="px-3 pt-3 pb-0 border-b border-base-300">
+ <div class="flex gap-1 overflow-x-auto pb-3 scrollbar-none">
  <button
- class="btn btn-xs flex-1 {activeTab === 'chat' ? 'btn-primary' : 'btn-ghost'}"
+ class="btn btn-xs shrink-0 {activeTab === 'chat' ? 'btn-primary' : 'btn-ghost'}"
  onclick={() => (activeTab = 'chat')}
  >
  <Bot size={12} />
  Chat
  </button>
  <button
- class="btn btn-xs flex-1 {activeTab === 'templates' ? 'btn-primary' : 'btn-ghost'}"
+ class="btn btn-xs shrink-0 {activeTab === 'templates' ? 'btn-primary' : 'btn-ghost'}"
  onclick={() => (activeTab = 'templates')}
  >
  <BookTemplate size={12} />
  Templates
  </button>
  <button
- class="btn btn-xs flex-1 {activeTab === 'settings' ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => (activeTab = 'settings')}
- >
- <Settings2 size={12} />
- Settings
- </button>
- <button
- class="btn btn-xs flex-1 {activeTab === 'search' ? 'btn-primary' : 'btn-ghost'}"
+ class="btn btn-xs shrink-0 {activeTab === 'search' ? 'btn-primary' : 'btn-ghost'}"
  onclick={() => (activeTab = 'search')}
  >
  <Search size={12} />
  Search
  </button>
  <button
- class="btn btn-xs flex-1 {activeTab === 'query' ? 'btn-primary' : 'btn-ghost'}"
+ class="btn btn-xs shrink-0 {activeTab === 'query' ? 'btn-primary' : 'btn-ghost'}"
  onclick={() => (activeTab = 'query')}
  >
  <Code2 size={12} />
  Query
  </button>
  <button
- class="btn btn-xs flex-1 {activeTab === 'schema' ? 'btn-primary' : 'btn-ghost'}"
+ class="btn btn-xs shrink-0 {activeTab === 'schema' ? 'btn-primary' : 'btn-ghost'}"
  onclick={() => (activeTab = 'schema')}
  >
  <Wand2 size={12} />
- Schema
+ Alchemist
+ </button>
+ <button
+ class="btn btn-xs shrink-0 {activeTab === 'settings' ? 'btn-primary' : 'btn-ghost'}"
+ onclick={() => (activeTab = 'settings')}
+ >
+ <Settings2 size={12} />
+ Settings
  </button>
  </div>
  </div>

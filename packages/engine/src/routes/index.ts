@@ -30,9 +30,9 @@ import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
 // graphql → extensions/developer/graphql
-// media → extensions/content/media
 // drafts → extensions/content/drafts
 // documents → extensions/content/documents
+import { mediaRoutes } from './media.js';
 import { syncRoutes } from './sync.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit } from '../middleware/rate-limit.js';
@@ -182,7 +182,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Database management — moved to extensions/developer/database
 
-  // Media library — moved to extensions/content/media
+  // Media library
+  app.route('/api/media', mediaRoutes(db, auth));
 
   // Database backups — moved to extensions/operations/backup
 
