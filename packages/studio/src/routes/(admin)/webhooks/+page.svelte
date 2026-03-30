@@ -2,6 +2,8 @@
  import { onMount } from 'svelte';
  import { webhooksApi, collectionsApi } from '$lib/api.js';
  import { Plus, Webhook, Trash2, Edit, Play, LoaderCircle } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  let webhooks = $state<any[]>([]);
  let collections = $state<any[]>([]);
@@ -11,6 +13,7 @@
  let saving = $state(false);
  let testing = $state<string | null>(null);
  let testResults = $state<Record<string, { ok: boolean; error?: string }>>({});
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  const emptyForm = () => ({
  name: '', url: '', method: 'POST',
@@ -70,14 +73,22 @@
  showModal = false;
  await load();
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Save failed');
+ toast.error(err instanceof Error ? err.message : 'Save failed');
  } finally { saving = false; }
  }
 
  async function remove(id: string, name: string) {
- if (!confirm(`Delete webhook "${name}"?`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Webhook',
+ message: `Delete webhook "${name}"?`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  await webhooksApi.delete(id);
  await load();
+ },
+ };
  }
 
  async function testWebhook(id: string) {
@@ -105,11 +116,11 @@
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if webhooks.length === 0}
- <div class="card bg-base-200 text-center py-16">
- <Webhook size={48} class="mx-auto opacity-30 mb-3" />
- <p class="font-semibold">No webhooks yet</p>
- <p class="text-sm text-base-content/50 mt-1">Create one to receive HTTP notifications on data events</p>
- <button class="btn btn-primary btn-sm mt-4" onclick={openCreate}>Create Webhook</button>
+ <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
+ <Webhook size={48} class="opacity-20" />
+ <p class="text-lg font-semibold text-base-content/60">No webhooks yet</p>
+ <p class="text-sm text-center max-w-sm">Send HTTP callbacks to external services when events occur.</p>
+ <button class="btn btn-primary btn-sm mt-2" onclick={openCreate}>Add Webhook</button>
  </div>
  {:else}
  <div class="space-y-3">
@@ -226,3 +237,12 @@
  <button class="modal-backdrop" aria-label="Close" onclick={() => (showModal = false)}></button>
  </dialog>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

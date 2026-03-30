@@ -3,6 +3,8 @@
   import { collectionsApi } from '$lib/api.js';
   import { Plus, Table, Trash2, Settings, LoaderCircle, Database, Search } from '@lucide/svelte';
   import { base } from '$app/paths';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { toast } from '$lib/stores/toast.svelte.js';
 
   let collections = $state<any[]>([]);
   let loading = $state(true);
@@ -13,6 +15,7 @@
   let fieldTypes = $state<any[]>([]);
   let newFields = $state([{ name: '', type: 'text', required: false }]);
   let search = $state('');
+  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
   const filtered = $derived(
     search.trim()
@@ -78,13 +81,21 @@
   }
 
   async function deleteCollection(name: string) {
-    if (!confirm(`Delete collection "${name}"? This cannot be undone.`)) return;
-    try {
-      await collectionsApi.delete(name);
-      await loadCollections();
-    } catch (err: any) {
-      alert(err?.message ?? 'Failed to delete collection');
-    }
+    confirmState = {
+      open: true,
+      title: 'Delete Collection',
+      message: `Delete collection "${name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      onconfirm: async () => {
+        confirmState.open = false;
+        try {
+          await collectionsApi.delete(name);
+          await loadCollections();
+        } catch (err: any) {
+          toast.error(err?.message ?? 'Failed to delete collection');
+        }
+      },
+    };
   }
 
   function fieldCount(col: any): number {
@@ -119,17 +130,11 @@
       <LoaderCircle size={28} class="animate-spin text-primary" />
     </div>
   {:else if collections.length === 0}
-    <div class="flex flex-col items-center justify-center py-20 text-center gap-3">
-      <div class="p-4 rounded-2xl bg-base-200">
-        <Database size={40} class="text-base-content/30" />
-      </div>
-      <h3 class="font-semibold text-base-content/70">No collections yet</h3>
-      <p class="text-sm text-base-content/50 max-w-xs">
-        Collections are the tables in your database. Create one to start storing data.
-      </p>
-      <button class="btn btn-primary btn-sm mt-1" onclick={() => (showCreateModal = true)}>
-        Create your first collection
-      </button>
+    <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
+      <Database size={48} class="opacity-20" />
+      <p class="text-lg font-semibold text-base-content/60">No collections yet</p>
+      <p class="text-sm text-center max-w-sm">Collections store your data. Create one to get started.</p>
+      <button class="btn btn-primary btn-sm mt-2" onclick={() => (showCreateModal = true)}>New Collection</button>
     </div>
   {:else}
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -253,3 +258,12 @@
     <button class="modal-backdrop" aria-label="Close" onclick={() => { showCreateModal = false; nameError = ''; }}></button>
   </dialog>
 {/if}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

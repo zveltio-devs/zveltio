@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api, settingsApi } from '$lib/api.js';
  import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff, Gauge, Plus, Trash2 } from '@lucide/svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  let loading = $state(true);
  let saving = $state(false);
@@ -34,7 +35,6 @@
  });
  let rlSaving = $state(false);
  let rlSaved = $state(false);
- let rlError = $state('');
 
  onMount(async () => {
  try {
@@ -68,18 +68,18 @@
  saved = true;
  setTimeout(() => (saved = false), 3000);
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Save failed');
+ toast.error(err instanceof Error ? err.message : 'Save failed');
  } finally { saving = false; }
  }
 
  async function saveRateLimiting() {
- rlSaving = true; rlSaved = false; rlError = '';
+ rlSaving = true; rlSaved = false;
  try {
  await api.put('/api/settings/rate_limiting', { value: { ...rl } });
  rlSaved = true;
  setTimeout(() => (rlSaved = false), 3000);
  } catch (err) {
- rlError = err instanceof Error ? err.message : 'Save failed';
+ toast.error(err instanceof Error ? err.message : 'Save failed');
  } finally { rlSaving = false; }
  }
 
@@ -322,10 +322,7 @@
  {/if}
  </div>
 
- {#if rlError}
- <p class="text-error text-sm">{rlError}</p>
- {/if}
- {/if}
+  {/if}
  </div>
  </div>
  {/if}

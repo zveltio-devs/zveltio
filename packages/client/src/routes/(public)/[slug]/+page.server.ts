@@ -12,12 +12,12 @@ export const load: PageServerLoad = async ({ params, fetch, request }) => {
   const headers: Record<string, string> = {};
   if (tenantId) headers['x-tenant-id'] = tenantId;
 
-  const res = await fetch(`${ENGINE_URL}/api/portal/render/${encodeURIComponent(params.slug)}`, { headers });
+  const res = await fetch(`${ENGINE_URL}/api/zones/client/render/${encodeURIComponent(params.slug)}`, { headers });
 
   if (!res.ok) {
-    return { portalPage: null, sections: [], status: res.status };
+    return { portalPage: null, views: [], status: res.status };
   }
 
   const data = await res.json();
-  return { portalPage: data.page ?? null, sections: data.sections ?? [], status: 200 };
+  return { portalPage: data.page ?? null, views: data.views ?? [], status: 200 };
 };

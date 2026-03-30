@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import { DatabaseBackup, Plus, Download, Trash2, RefreshCw, LoaderCircle, Clock, CheckCircle, XCircle } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 
  interface Backup {
  id: string;
@@ -23,6 +24,7 @@
  let notes = $state('');
  let showModal = $state(false);
  let pollingIds = $state<Set<string>>(new Set());
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  onMount(loadBackups);
 
@@ -81,13 +83,21 @@
  }
 
  async function deleteBackup(id: string, filename: string) {
- if (!confirm(`Delete backup "${filename}"?`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Backup',
+ message: `Delete backup "${filename}"?`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.delete(`/api/backup/${id}`);
  backups = backups.filter(b => b.id !== id);
  } catch (e: any) {
  error = e.message;
  }
+ },
+ };
  }
 
  function downloadBackup(id: string) {
@@ -216,3 +226,12 @@
  ></div>
  </div>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

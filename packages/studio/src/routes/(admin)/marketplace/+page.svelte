@@ -7,6 +7,8 @@
  Circle
  } from '@lucide/svelte';
  import { ENGINE_URL } from '$lib/config.js';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  const CATEGORY_ICONS: Record<string, any> = {
  workflow: Workflow,
@@ -54,6 +56,7 @@
  let searchQuery = $state('');
  let selectedCategory = $state('all');
  let configuringExt = $state<Extension | null>(null);
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; confirmClass?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
  let configJson = $state('{}');
  let configError = $state('');
 
@@ -110,7 +113,7 @@
  await api(`/api/marketplace/${encodeURIComponent(ext.name)}/install`, { method: 'POST' });
  await load();
  } catch (e: any) {
- alert(`Install failed: ${e.message}`);
+ toast.error(`Install failed: ${e.message}`);
  } finally {
  processingId = null;
  }
@@ -123,37 +126,54 @@
  if (res.needs_restart) restartNeeded = true;
  await load();
  } catch (e: any) {
- alert(`Enable failed: ${e.message}`);
+ toast.error(`Enable failed: ${e.message}`);
  } finally {
  processingId = null;
  }
  }
 
  async function disable(ext: Extension) {
- if (!confirm(`Disable "${ext.displayName}"?${ext.is_running ? ' Takes effect after restart.' : ''}`)) return;
+ confirmState = {
+ open: true,
+ title: 'Disable Extension',
+ message: `Disable "${ext.displayName}"?${ext.is_running ? ' Takes effect after restart.' : ''}`,
+ confirmLabel: 'Disable',
+ confirmClass: 'btn-warning',
+ onconfirm: async () => {
+ confirmState.open = false;
  processingId = ext.name;
  try {
  const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
  if (res.needs_restart) restartNeeded = true;
  await load();
  } catch (e: any) {
- alert(`Disable failed: ${e.message}`);
+ toast.error(`Disable failed: ${e.message}`);
  } finally {
  processingId = null;
  }
+ },
+ };
  }
 
  async function uninstall(ext: Extension) {
- if (!confirm(`Uninstall "${ext.displayName}"? Configuration will be lost.`)) return;
+ confirmState = {
+ open: true,
+ title: 'Uninstall Extension',
+ message: `Uninstall "${ext.displayName}"? Configuration will be lost.`,
+ confirmLabel: 'Uninstall',
+ onconfirm: async () => {
+ confirmState.open = false;
  processingId = ext.name;
  try {
  await api(`/api/marketplace/${encodeURIComponent(ext.name)}/uninstall`, { method: 'POST' });
  await load();
  } catch (e: any) {
- alert(`Uninstall failed: ${e.message}`);
+ toast.error(`Uninstall failed: ${e.message}`);
  } finally {
  processingId = null;
  }
+ },
+ };
  }
 
  function openConfig(ext: Extension) {
@@ -374,3 +394,12 @@
  <button class="modal-backdrop" aria-label="Close" onclick={() => configuringExt = null}></button>
  </div>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

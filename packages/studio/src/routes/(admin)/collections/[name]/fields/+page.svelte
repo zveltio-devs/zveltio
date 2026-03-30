@@ -4,6 +4,9 @@
  import { collectionsApi, api } from '$lib/api.js';
  import { ArrowLeft, Plus, Trash2, GripVertical, ChevronDown } from '@lucide/svelte';
  import { base } from '$app/paths';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
@@ -30,6 +33,7 @@
  const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 
  let addError = $state('');
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  onMount(async () => {
  const [colRes, typesRes, colsRes] = await Promise.all([
@@ -101,26 +105,37 @@
  }
 
  async function deleteField(fieldName: string) {
- if (!confirm(`Delete field '${fieldName}'? This will DROP the column and all its data.`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Field',
+ message: `Delete field '${fieldName}'? This will DROP the column and all its data.`,
+ confirmLabel: 'Drop Field',
+ onconfirm: async () => {
+ confirmState.open = false;
  saving = true;
  try {
  await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
  const res = await collectionsApi.get(collectionName);
  collection = res.collection;
  } catch (err: any) {
- alert(err.message);
+ toast.error(err.message);
  } finally {
  saving = false;
  }
+ },
+ };
  }
 </script>
 
 <div class="space-y-6">
+ <!-- Breadcrumb -->
+ <Breadcrumb crumbs={[
+   { label: 'Collections', href: `${base}/collections` },
+   { label: collection?.display_name || collectionName, href: `${base}/collections/${collectionName}` },
+   { label: 'Fields' },
+ ]} />
  <!-- Header -->
  <div class="flex items-center gap-3">
- <a href="{base}/collections/{collectionName}" class="btn btn-ghost btn-sm">
- <ArrowLeft size={16} />
- </a>
  <div>
  <h1 class="text-2xl font-bold">
  {collection?.display_name || collectionName}
@@ -338,3 +353,12 @@
  </div>
  {/if}
 </div>
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

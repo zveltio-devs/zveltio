@@ -21,6 +21,24 @@ import {
 import { escapeLike } from '../lib/query-utils.js';
 import { hashApiKey } from '../lib/api-key-hash.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
+
+/** Minimal user shape attached to every authenticated request context */
+export interface RequestUser {
+  id: string;
+  name: string;
+  role: string;
+  /** Present only for API-key auth — collection/action scopes */
+  scopes?: unknown;
+  /** Email — present for session auth */
+  email?: string;
+}
+
+declare module 'hono' {
+  interface ContextVariableMap {
+    user: RequestUser;
+    authType: 'session' | 'api_key';
+  }
+}
 import {
   virtualList,
   virtualGetOne,
@@ -63,10 +81,10 @@ async function authenticate(c: any, auth: any, db: Database): Promise<{ user: an
       return {
         user: {
           id: `apikey:${apiKey.id}`,
-          name: (apiKey as any).name,
+          name: apiKey.name,
           role: 'api_key',
           // C3 FIX: pass scopes so checkAccess() can enforce them per collection/action
-          scopes: (apiKey as any).scopes,
+          scopes: apiKey.scopes,
         },
         authType: 'api_key',
       };
@@ -76,22 +94,22 @@ async function authenticate(c: any, auth: any, db: Database): Promise<{ user: an
   return null;
 }
 
-async function validateApiKey(db: Database, rawKey: string): Promise<any | null> {
+async function validateApiKey(db: Database, rawKey: string): Promise<import('../db/schema.js').ZvApiKeyRow | null> {
   const hash = await hashApiKey(rawKey);
   const apiKey = await db
-    .selectFrom('zv_api_keys' as any)
+    .selectFrom('zv_api_keys')
     .selectAll()
-    .where('key_hash' as any, '=', hash)
-    .where('is_active' as any, '=', true)
+    .where('key_hash', '=', hash)
+    .where('is_active', '=', true)
     .executeTakeFirst();
 
   if (!apiKey) return null;
-  if ((apiKey as any).expires_at && new Date((apiKey as any).expires_at) < new Date()) return null;
+  if (apiKey.expires_at && new Date(apiKey.expires_at) < new Date()) return null;
 
   // Update last_used_at — fire-and-forget; non-blocking on hot path
-  db.updateTable('zv_api_keys' as any)
-    .set({ last_used_at: new Date() } as any)
-    .where('id' as any, '=', (apiKey as any).id)
+  db.updateTable('zv_api_keys')
+    .set({ last_used_at: new Date() })
+    .where('id', '=', apiKey.id)
     .execute()
     .catch(() => { /* non-fatal */ });
 
@@ -146,7 +164,7 @@ async function broadcastWebhook(
   // - queuing via Redis (webhook:queue)
   // - audit trail in zvd_webhook_deliveries
   // - retry logic via webhook:retry sorted set
-  await WebhookManager.trigger(event as any, collection, data);
+  await WebhookManager.trigger(event, collection, data);
 }
 
 // Serialize a record's field values using the registry
@@ -228,7 +246,7 @@ async function afterWrite(
   const { collection, recordId, action, data, delta, userId } = opts;
 
   // Revision log — non-fatal
-  db.insertInto('zv_revisions' as any)
+  db.insertInto('zv_revisions')
     .values({
       collection,
       record_id: recordId,
@@ -236,7 +254,7 @@ async function afterWrite(
       data: JSON.stringify(data),
       ...(delta ? { delta: JSON.stringify(delta) } : {}),
       user_id: userId,
-    } as any)
+    })
     .execute()
     .catch(() => {});
 
@@ -261,7 +279,8 @@ async function afterWrite(
   // Trigger data_event flows (fire-and-forget — must not block the request)
   triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch(() => {});
 
-  engineEvents.emit(`record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}` as any, {
+  const engineEvent = action === 'create' ? 'record.created' : action === 'update' ? 'record.updated' : 'record.deleted';
+  engineEvents.emit(engineEvent, {
     collection,
     record: data,
     id: recordId,
@@ -277,14 +296,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const result = await authenticate(c, auth, db);
     if (!result) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', result.user);
-    c.set('authType', result.authType);
+    c.set('authType', result.authType as 'session' | 'api_key');
     await next();
   });
 
   // ── GET /:collection — List records ─────────────────────────────
   app.get('/:collection', zValidator('query', QuerySchema), async (c) => {
     const collection = c.req.param('collection');
-    const user = c.get('user') as any;
+    const user = c.get('user');
     const query = c.req.valid('query');
 
     if (!(await checkAccess(db, user, collection, 'read'))) {
@@ -411,6 +430,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
       if (decoded.id && decoded.val !== undefined) {
         // Build keyset query directly with Kysely for proper compound pagination
+        // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
         let kQuery = (effectiveDb as any)
           .selectFrom(tableName)
           .selectAll();
@@ -512,7 +532,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
   app.get('/:collection/:id', async (c) => {
     const collection = c.req.param('collection');
     const id = c.req.param('id');
-    const user = c.get('user') as any;
+    const user = c.get('user');
     const asOfRaw = c.req.query('as_of');
 
     if (!(await checkAccess(db, user, collection, 'read'))) {
@@ -561,6 +581,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
 
+    // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
     const record = await (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
@@ -588,7 +609,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
   // ── POST /:collection — Create record ────────────────────────────
   app.post('/:collection', async (c) => {
     const collection = c.req.param('collection');
-    const user = c.get('user') as any;
+    const user = c.get('user');
 
     if (!(await checkAccess(db, user, collection, 'create'))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -628,7 +649,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
   app.put('/:collection/:id', async (c) => {
     const collection = c.req.param('collection');
     const id = c.req.param('id');
-    const user = c.get('user') as any;
+    const user = c.get('user');
 
     if (!(await checkAccess(db, user, collection, 'update'))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -669,7 +690,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
   app.patch('/:collection/:id', async (c) => {
     const collection = c.req.param('collection');
     const id = c.req.param('id');
-    const user = c.get('user') as any;
+    const user = c.get('user');
 
     if (!(await checkAccess(db, user, collection, 'update'))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -710,7 +731,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
   app.delete('/:collection/:id', async (c) => {
     const collection = c.req.param('collection');
     const id = c.req.param('id');
-    const user = c.get('user') as any;
+    const user = c.get('user');
 
     if (!(await checkAccess(db, user, collection, 'delete'))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -734,6 +755,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
 
+    // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
     // Fetch existing for revision log, then delete atomically
     const existing = await (effectiveDb as any)
       .selectFrom(tableName)

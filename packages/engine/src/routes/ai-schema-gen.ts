@@ -114,7 +114,7 @@ export function aiSchemaGenRoutes(db: Database, _appAuth: any): Hono {
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     const isAdmin = await checkPermission(session.user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
-    c.set('user', session.user);
+    c.set('user', { ...session.user, role: (session.user as any).role ?? 'admin' });
     await next();
   });
 

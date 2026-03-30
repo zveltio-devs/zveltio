@@ -1,7 +1,9 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { usersApi } from '$lib/api.js';
- import { UserPlus, Trash2, Shield } from '@lucide/svelte';
+ import { UserPlus, Trash2, Shield, Users } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  let users = $state<any[]>([]);
  let loading = $state(true);
@@ -9,6 +11,7 @@
  let inviting = $state(false);
 
  let inviteForm = $state({ email: '', name: '', role: 'member' });
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  onMount(async () => {
  await loadUsers();
@@ -32,16 +35,24 @@
  inviteForm = { email: '', name: '', role: 'member' };
  await loadUsers();
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Failed to invite user');
+ toast.error(err instanceof Error ? err.message : 'Failed to invite user');
  } finally {
  inviting = false;
  }
  }
 
  async function deleteUser(id: string, email: string) {
- if (!confirm(`Delete user ${email}?`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete User',
+ message: `Delete user ${email}?`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  await usersApi.delete(id);
  await loadUsers();
+ },
+ };
  }
 
  function formatDate(d: string) {
@@ -70,6 +81,13 @@
  {#if loading}
  <div class="flex justify-center py-12">
  <span class="loading loading-spinner loading-lg"></span>
+ </div>
+ {:else if users.length === 0}
+ <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
+ <Users size={48} class="opacity-20" />
+ <p class="text-lg font-semibold text-base-content/60">No users found</p>
+ <p class="text-sm text-center max-w-sm">Users can be invited or created directly.</p>
+ <button class="btn btn-primary btn-sm mt-2" onclick={() => (showInviteModal = true)}>Invite User</button>
  </div>
  {:else}
  <div class="card bg-base-200">
@@ -107,7 +125,7 @@
  <button
  class="btn btn-ghost btn-xs"
  title="Manage permissions"
- onclick={() => alert('Role management coming soon')}
+ onclick={() => toast.info('Role management coming soon')}
  >
  <Shield size={14} />
  </button>
@@ -175,3 +193,12 @@
  <button class="modal-backdrop" aria-label="Close" onclick={() => (showInviteModal = false)}></button>
  </dialog>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

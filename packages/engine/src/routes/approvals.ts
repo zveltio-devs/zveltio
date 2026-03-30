@@ -282,7 +282,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Count total (same filters without limit/offset)
     const countResult = await db
       .selectFrom('zv_approval_requests as r')
-      .select(db.fn.count('r.id').as('total'))
+      .select((eb) => eb.fn.count('r.id' as any).as('total'))
       .executeTakeFirst();
 
     return c.json({ requests, total: Number(countResult?.total ?? 0) });

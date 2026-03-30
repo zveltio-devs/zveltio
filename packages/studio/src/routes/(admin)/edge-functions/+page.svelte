@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Plus, Play, Trash2, Save, Code, CheckCircle } from '@lucide/svelte';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 
   const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ || '';
 
@@ -16,6 +17,7 @@
   let creating = $state(false);
 
   let form = $state({ name: '', display_name: '', description: '', http_method: 'POST' });
+  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
   const DEFAULT_CODE = `// Edge function — runs inside the Zveltio engine
 export default async function handler(ctx) {
@@ -105,10 +107,18 @@ export default async function handler(ctx) {
   }
 
   async function deleteFunction(id: string) {
-    if (!confirm('Delete this function?')) return;
-    await fetch(`${engineUrl}/api/edge-functions/${id}`, { method: 'DELETE', credentials: 'include' });
-    selected = null;
-    await loadFunctions();
+    confirmState = {
+      open: true,
+      title: 'Delete Function',
+      message: 'Delete this edge function? This cannot be undone.',
+      confirmLabel: 'Delete',
+      onconfirm: async () => {
+        confirmState.open = false;
+        await fetch(`${engineUrl}/api/edge-functions/${id}`, { method: 'DELETE', credentials: 'include' });
+        selected = null;
+        await loadFunctions();
+      },
+    };
   }
 
   async function toggleActive(fn: any) {
@@ -302,3 +312,12 @@ export default async function handler(ctx) {
     <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
   </dialog>
 {/if}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

@@ -13,12 +13,12 @@ export async function load({ fetch }) {
     initZveltio().catch(() => {});
   }
 
-  // Load portal theme + nav for every page
+  // Load zone theme + nav — uses the 'client' zone from the Zones API
   try {
-    const res = await fetch(`${ENGINE_URL}/api/portal/render`);
+    const res = await fetch(`${ENGINE_URL}/api/zones/client/render`);
     if (res.ok) {
       const data = await res.json();
-      return { theme: data.theme ?? null, nav: data.nav ?? [] };
+      return { theme: data.zone ?? null, nav: data.pages ?? [] };
     }
   } catch { /* engine not ready — degrade gracefully */ }
 

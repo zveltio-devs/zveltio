@@ -1,13 +1,14 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search } from '@lucide/svelte';
+ import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search, Code2, Wand2 } from '@lucide/svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  let providers = $state<any[]>([]);
  let chats = $state<any[]>([]);
  let templates = $state<any[]>([]);
  let activeChat = $state<any>(null);
- let activeTab = $state<'chat' | 'templates' | 'settings' | 'search'>('chat');
+ let activeTab = $state<'chat' | 'templates' | 'settings' | 'search' | 'query' | 'schema'>('chat');
 
  // Chat state
  let input = $state('');
@@ -20,6 +21,16 @@
  let searchResults = $state<any[]>([]);
  let searching = $state(false);
  let searchError = $state('');
+
+ // AI Query (natural language → SQL) state
+ let queryPrompt = $state('');
+ let queryResult = $state<{ sql: string; data: any[]; columns: string[] } | null>(null);
+ let queryRunning = $state(false);
+
+ // Schema Gen (Alchemist) state
+ let schemaDescription = $state('');
+ let schemaResult = $state<any | null>(null);
+ let schemaGenerating = $state(false);
 
  // Provider form
  let showProviderForm = $state(false);
@@ -71,7 +82,7 @@
  chats = updated;
  } catch (err: any) {
  messages = messages.slice(0, -1); // remove optimistic user message
- alert('Error: ' + err.message);
+ toast.error('Error: ' + err.message);
  } finally {
  sending = false;
  }
@@ -91,7 +102,7 @@
  showProviderForm = false;
  providerForm = { name: 'openai', label: 'OpenAI', api_key: '', base_url: '', default_model: '', is_default: false };
  } catch (err: any) {
- alert(err.message);
+ toast.error(err.message);
  } finally {
  savingProvider = false;
  }
@@ -113,6 +124,46 @@
  searchError = err.message || 'Search failed';
  } finally {
  searching = false;
+ }
+ }
+
+ async function runAiQuery() {
+ if (!queryPrompt.trim() || queryRunning) return;
+ queryRunning = true;
+ queryResult = null;
+ try {
+  const res = await api.post<{ sql: string; data: any[]; columns: string[] }>('/api/ai/query', { prompt: queryPrompt.trim() });
+  queryResult = res;
+ } catch (err: any) {
+  toast.error(err.message ?? 'Query failed');
+ } finally {
+  queryRunning = false;
+ }
+ }
+
+ async function generateSchema() {
+ if (!schemaDescription.trim() || schemaGenerating) return;
+ schemaGenerating = true;
+ schemaResult = null;
+ try {
+  const res = await api.post<{ schema: any }>('/api/ai/schema-gen', { description: schemaDescription.trim() });
+  schemaResult = res.schema;
+ } catch (err: any) {
+  toast.error(err.message ?? 'Schema generation failed');
+ } finally {
+  schemaGenerating = false;
+ }
+ }
+
+ async function applySchema() {
+ if (!schemaResult) return;
+ try {
+  await api.post('/api/collections', schemaResult);
+  toast.success(`Collection "${schemaResult.name}" created!`);
+  schemaResult = null;
+  schemaDescription = '';
+ } catch (err: any) {
+  toast.error(err.message ?? 'Failed to create collection');
  }
  }
 
@@ -171,6 +222,20 @@
  >
  <Search size={12} />
  Search
+ </button>
+ <button
+ class="btn btn-xs flex-1 {activeTab === 'query' ? 'btn-primary' : 'btn-ghost'}"
+ onclick={() => (activeTab = 'query')}
+ >
+ <Code2 size={12} />
+ Query
+ </button>
+ <button
+ class="btn btn-xs flex-1 {activeTab === 'schema' ? 'btn-primary' : 'btn-ghost'}"
+ onclick={() => (activeTab = 'schema')}
+ >
+ <Wand2 size={12} />
+ Schema
  </button>
  </div>
  </div>
@@ -326,6 +391,45 @@
  </div>
  {/if}
  </div>
+ {:else if activeTab === 'query'}
+ <div class="flex-1 p-3 space-y-3">
+  <p class="text-xs text-base-content/60">Ask in natural language — get SQL + results.</p>
+  <textarea
+   class="textarea textarea-xs w-full resize-none"
+   rows={4}
+   placeholder="ex: Show me the 10 most recent users who signed up this month"
+   bind:value={queryPrompt}
+   onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runAiQuery(); }}
+  ></textarea>
+  <button
+   class="btn btn-primary btn-sm w-full"
+   onclick={runAiQuery}
+   disabled={queryRunning || !queryPrompt.trim()}
+  >
+   {#if queryRunning}<span class="loading loading-spinner loading-xs"></span>{:else}<Code2 size={12}/>{/if}
+   Run Query
+  </button>
+ </div>
+
+ {:else if activeTab === 'schema'}
+ <div class="flex-1 p-3 space-y-3">
+  <p class="text-xs text-base-content/60">Describe your data model — AI generates the schema.</p>
+  <textarea
+   class="textarea textarea-xs w-full resize-none"
+   rows={5}
+   placeholder="ex: A blog with posts (title, content, status), authors (name, bio), and tags"
+   bind:value={schemaDescription}
+  ></textarea>
+  <button
+   class="btn btn-primary btn-sm w-full"
+   onclick={generateSchema}
+   disabled={schemaGenerating || !schemaDescription.trim()}
+  >
+   {#if schemaGenerating}<span class="loading loading-spinner loading-xs"></span>{:else}<Wand2 size={12}/>{/if}
+   Generate Schema
+  </button>
+ </div>
+
  {/if}
  </aside>
 
@@ -455,10 +559,85 @@
  </div>
  {/if}
  </div>
- {:else}
- <div class="flex-1 flex items-center justify-center text-base-content/40">
- <p>Select a tab on the left</p>
+
+ {:else if activeTab === 'query'}
+ <div class="flex-1 overflow-auto p-6">
+  {#if queryRunning}
+   <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg text-primary"></span></div>
+  {:else if queryResult}
+   <div class="space-y-4">
+    <div class="rounded-lg bg-base-200 p-4">
+     <p class="text-xs font-semibold text-base-content/50 uppercase mb-2">Generated SQL</p>
+     <pre class="text-xs font-mono whitespace-pre-wrap text-primary">{queryResult.sql}</pre>
+    </div>
+    {#if queryResult.data.length > 0}
+     <div class="overflow-x-auto rounded-lg border border-base-300">
+      <table class="table table-xs table-zebra">
+       <thead><tr>{#each queryResult.columns as col}<th>{col}</th>{/each}</tr></thead>
+       <tbody>
+        {#each queryResult.data as row}
+         <tr>{#each queryResult.columns as col}<td class="max-w-xs truncate">{row[col] ?? ''}</td>{/each}</tr>
+        {/each}
+       </tbody>
+      </table>
+     </div>
+     <p class="text-xs text-base-content/40">{queryResult.data.length} row(s) returned</p>
+    {:else}
+     <p class="text-sm text-base-content/40 text-center py-4">No rows returned</p>
+    {/if}
+   </div>
+  {:else}
+   <div class="flex flex-col items-center justify-center h-full text-base-content/40 gap-3">
+    <Code2 size={48} class="opacity-20" />
+    <p class="text-lg font-semibold">AI Query Builder</p>
+    <p class="text-sm text-center max-w-sm">Type a question in plain language — AI generates and runs the SQL read-only query.</p>
+   </div>
+  {/if}
  </div>
+
+ {:else if activeTab === 'schema'}
+ <div class="flex-1 overflow-auto p-6">
+  {#if schemaGenerating}
+   <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg text-primary"></span></div>
+  {:else if schemaResult}
+   <div class="space-y-4">
+    <div class="flex items-center justify-between">
+     <h2 class="font-bold text-lg">Generated: <code class="text-primary">{schemaResult.name}</code></h2>
+     <div class="flex gap-2">
+      <button class="btn btn-ghost btn-sm" onclick={() => (schemaResult = null)}>Discard</button>
+      <button class="btn btn-primary btn-sm" onclick={applySchema}><Plus size={14}/> Create Collection</button>
+     </div>
+    </div>
+    <div class="overflow-x-auto rounded-lg border border-base-300">
+     <table class="table table-sm">
+      <thead><tr><th>Field</th><th>Type</th><th>Label</th><th>Required</th><th>Unique</th></tr></thead>
+      <tbody>
+       {#each (schemaResult.fields || []) as field}
+        <tr>
+         <td class="font-mono text-xs">{field.name}</td>
+         <td><span class="badge badge-sm badge-outline">{field.type}</span></td>
+         <td class="text-sm">{field.label || ''}</td>
+         <td>{field.required ? '✓' : ''}</td>
+         <td>{field.unique ? '✓' : ''}</td>
+        </tr>
+       {/each}
+      </tbody>
+     </table>
+    </div>
+    <details class="collapse collapse-arrow border border-base-300 rounded-lg">
+     <summary class="collapse-title text-xs font-semibold">Raw JSON</summary>
+     <div class="collapse-content"><pre class="text-xs font-mono whitespace-pre-wrap">{JSON.stringify(schemaResult, null, 2)}</pre></div>
+    </details>
+   </div>
+  {:else}
+   <div class="flex flex-col items-center justify-center h-full text-base-content/40 gap-3">
+    <Wand2 size={48} class="opacity-20" />
+    <p class="text-lg font-semibold">Schema Generator</p>
+    <p class="text-sm text-center max-w-sm">Describe your data model in plain language — AI generates the collection schema ready to apply.</p>
+   </div>
+  {/if}
+ </div>
+
  {/if}
  </div>
 </div>

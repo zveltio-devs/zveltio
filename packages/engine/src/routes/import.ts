@@ -164,7 +164,7 @@ export function importRoutes(db: Database, auth: any) {
 
     // Validate collection exists + get schema
     const schemaRow = await db
-      .selectFrom('zv_collections')
+      .selectFrom('zvd_collections')
       .select(['name', 'fields'])
       .where('name', '=', collection)
       .executeTakeFirst();

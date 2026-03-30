@@ -10,6 +10,8 @@ import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
 import { checkPermission } from './permissions.js';
 import { EXTENSION_CATALOG } from './extension-catalog.js';
+import { createRestrictedDb } from './extension-context.js';
+import { auditLog } from './audit.js';
 
 export type { EventBus };
 
@@ -50,11 +52,22 @@ export interface ZveltioExtension {
   register: (app: Hono, ctx: ExtensionContext) => Promise<void>;
   registerFieldTypes?: (registry: FieldTypeRegistry) => void;
   getMigrations?: () => string[]; // paths to SQL files
+  /**
+   * Optional cleanup function — called when the extension is unloaded.
+   * Use to close connections, clear timers, etc.
+   * NOTE: Hono routes registered by the extension cannot be removed at runtime
+   * (Hono does not support de-registration). Those require a process restart.
+   */
+  cleanup?: () => Promise<void>;
 }
 
 interface LoadedExtension {
   name: string;
   bundleUrl?: string;
+  /** Cleanup callback captured from the extension module, if exported. */
+  cleanup?: () => Promise<void>;
+  /** True if the extension registered HTTP routes — unload requires restart. */
+  registeredRoutes: boolean;
 }
 
 class ExtensionLoader {
@@ -178,8 +191,11 @@ class ExtensionLoader {
         extension.registerFieldTypes(ctx.fieldTypeRegistry);
       }
 
+      // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables
+      const restrictedCtx: ExtensionContext = { ...ctx, db: createRestrictedDb(ctx.db, extName) };
+
       // Register routes
-      await extension.register(app, ctx);
+      await extension.register(app, restrictedCtx);
 
       // Register Studio bundle if it exists
       const studioBundlePath = join(extDir, 'studio/dist/bundle.js');
@@ -197,11 +213,36 @@ class ExtensionLoader {
         });
       }
 
-      this.loaded.set(extName, { name: extName, bundleUrl });
+      this.loaded.set(extName, {
+        name: extName,
+        bundleUrl,
+        cleanup: typeof extension.cleanup === 'function' ? extension.cleanup.bind(extension) : undefined,
+        // Mark as route-registering so unload() can warn about restart requirement
+        registeredRoutes: true,
+      });
       console.log(`🔌 Extension loaded: ${extName}${bundleUrl ? ' (with Studio UI)' : ''}`);
+
+      // Audit trail — record successful load
+      auditLog(ctx.db, {
+        type: 'extension.loaded',
+        userId: 'system',
+        resourceId: extName,
+        resourceType: 'extension',
+        metadata: { version: extension.name },
+      }).catch(() => {});
 
     } catch (err) {
       console.error(`❌ Failed to load extension "${extName}":`, err);
+      // Audit trail — record load failure
+      if (this.ctx) {
+        auditLog(this.ctx.db, {
+          type: 'extension.load_failed',
+          userId: 'system',
+          resourceId: extName,
+          resourceType: 'extension',
+          metadata: { error: (err as Error).message },
+        }).catch(() => {});
+      }
     }
   }
 
@@ -532,6 +573,57 @@ class ExtensionLoader {
         message:       `Extension ${name} uninstalled.`,
       });
     });
+  }
+
+  /**
+   * Unloads an extension from memory.
+   *
+   * Limitations:
+   * - HTTP routes registered via `extension.register(app)` cannot be removed
+   *   at runtime because Hono does not support route de-registration.
+   *   If the extension registered routes, a process restart is required for
+   *   those routes to disappear. `needs_restart` is set to true in that case.
+   * - If the extension exported a `cleanup()` function it will be called
+   *   before removal (good for closing DB connections, timers, etc.).
+   */
+  async unload(name: string): Promise<{ unloaded: boolean; needs_restart: boolean; message: string }> {
+    const ext = this.loaded.get(name);
+    if (!ext) {
+      return { unloaded: false, needs_restart: false, message: `Extension "${name}" is not loaded.` };
+    }
+
+    // Call extension-provided cleanup if available
+    if (ext.cleanup) {
+      try {
+        await ext.cleanup();
+        console.log(`🔌 Extension "${name}" cleanup() completed.`);
+      } catch (err) {
+        console.error(`🔌 Extension "${name}" cleanup() threw an error:`, err);
+      }
+    }
+
+    this.loaded.delete(name);
+    console.log(`🔌 Extension unloaded from memory: ${name}`);
+
+    // Audit trail — record unload
+    if (this.ctx) {
+      auditLog(this.ctx.db, {
+        type: 'extension.unloaded',
+        userId: 'system',
+        resourceId: name,
+        resourceType: 'extension',
+        metadata: { needs_restart: ext.registeredRoutes },
+      }).catch(() => {});
+    }
+
+    const needsRestart = ext.registeredRoutes;
+    return {
+      unloaded: true,
+      needs_restart: needsRestart,
+      message: needsRestart
+        ? `Extension "${name}" unloaded. Routes are still active — restart the server to remove them.`
+        : `Extension "${name}" unloaded successfully.`,
+    };
   }
 
   getActive(): string[] {

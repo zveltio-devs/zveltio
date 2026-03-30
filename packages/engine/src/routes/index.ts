@@ -25,8 +25,7 @@ import { aiAnalyticsRoutes } from './ai-analytics.js';
 import { aiAlchemistRoutes } from './ai-alchemist.js';
 import { aiQueryRoutes } from './ai-query.js';
 import { aiSchemaGenRoutes } from './ai-schema-gen.js';
-import { portalRoutes } from './portal.js';
-import { clientPortalRoutes } from './client-portal.js';
+import { zonesRoutes, viewsRoutes } from './zones.js';
 import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
@@ -36,9 +35,10 @@ import { importRoutes } from './import.js';
 // documents → extensions/content/documents
 import { syncRoutes } from './sync.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
-import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit } from '../middleware/rate-limit.js';
+import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit } from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
 import { slowQueryMiddleware } from '../middleware/slow-query.js';
+import { godAuditMiddleware } from '../middleware/god-audit.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
 // /api/flows         — automation flows (routes/flows.ts)
@@ -85,10 +85,17 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/sync/*', writeRateLimit);
+
+  // Destructive rate limit — DELETE on collections (schema) and data rows: 10/min
+  app.on(['DELETE'], '/api/collections/*', destructiveRateLimit);
+  app.on(['DELETE'], '/api/data/*', destructiveRateLimit);
   app.use('/api/*', apiRateLimit);
 
   // ── Tenant daily quota enforcement (runs after tenant middleware in index.ts) ──
   app.use('/api/*', tenantQuota(db));
+
+  // ── God-role audit trail — logs all actions by users with role='god' ──────
+  app.use('/api/*', godAuditMiddleware(db));
 
   // Better-Auth handler — handles all /api/auth/** routes
   app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
@@ -154,11 +161,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Real-time SSE stream (authenticated)
   app.route('/api/realtime', realtimeRoutes(db, auth));
 
-  // Portal: theme, pages, sections, collection views + public render API
-  app.route('/api/portal', portalRoutes(db, auth));
-
-  // Client Portal: multi-template client-facing portal
-  app.route('/api/portal-client', clientPortalRoutes(db, auth));
+  // Zones / Pages / Views — 3-layer portal architecture
+  app.route('/api/zones', zonesRoutes(db, auth));
+  app.route('/api/views', viewsRoutes(db, auth));
 
   // Approval Workflows (core)
   app.route('/api/approvals', approvalsRoutes(db, auth));

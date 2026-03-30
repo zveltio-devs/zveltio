@@ -93,27 +93,25 @@ export const importApi = {
   jobs: () => api.get<{ jobs: any[] }>('/api/import/jobs'),
 };
 
-export const portalApi = {
-  // Theme
-  getTheme: () => api.get<{ theme: any }>('/api/portal/theme'),
-  saveTheme: (data: any) => api.put<{ theme: any }>('/api/portal/theme', data),
+export const zonesApi = {
+  list: () => api.get<{ zones: any[] }>('/api/zones'),
+  create: (data: any) => api.post<{ zone: any }>('/api/zones', data),
+  get: (slug: string) => api.get<{ zone: any }>(`/api/zones/${slug}`),
+  update: (slug: string, data: any) => api.put<{ zone: any }>(`/api/zones/${slug}`, data),
+  delete: (slug: string) => api.delete(`/api/zones/${slug}`),
+  listPages: (slug: string) => api.get<{ pages: any[] }>(`/api/zones/${slug}/pages`),
+  createPage: (slug: string, data: any) => api.post<{ page: any }>(`/api/zones/${slug}/pages`, data),
+  updatePage: (slug: string, pageSlug: string, data: any) => api.put<{ page: any }>(`/api/zones/${slug}/pages/${pageSlug}`, data),
+  deletePage: (slug: string, pageSlug: string) => api.delete(`/api/zones/${slug}/pages/${pageSlug}`),
+  reorderPages: (slug: string, ids: string[]) => api.post(`/api/zones/${slug}/pages/reorder`, { ids }),
+  render: (slug: string) => api.get<{ zone: any; pages: any[] }>(`/api/zones/${slug}/render`),
+  renderPage: (slug: string, pageSlug: string) => api.get<{ page: any; zone: any; views: any[] }>(`/api/zones/${slug}/render/${pageSlug}`),
+};
 
-  // Pages
-  listPages: () => api.get<{ pages: any[] }>('/api/portal/pages?include_inactive=true'),
-  createPage: (data: any) => api.post<{ page: any }>('/api/portal/pages', data),
-  updatePage: (id: string, data: any) => api.put<{ page: any }>(`/api/portal/pages/${id}`, data),
-  deletePage: (id: string) => api.delete(`/api/portal/pages/${id}`),
-
-  // Sections
-  listSections: (pageId: string) => api.get<{ sections: any[] }>(`/api/portal/pages/${pageId}/sections`),
-  createSection: (pageId: string, data: any) => api.post<{ section: any }>(`/api/portal/pages/${pageId}/sections`, data),
-  updateSection: (id: string, data: any) => api.put<{ section: any }>(`/api/portal/sections/${id}`, data),
-  deleteSection: (id: string) => api.delete(`/api/portal/sections/${id}`),
-  reorderSections: (pageId: string, ids: string[]) => api.post(`/api/portal/sections/reorder`, { page_id: pageId, ids }),
-
-  // Collection Views
-  listViews: (collection: string) => api.get<{ views: any[] }>(`/api/portal/collections/${collection}/views`),
-  createView: (collection: string, data: any) => api.post<{ view: any }>(`/api/portal/collections/${collection}/views`, data),
-  updateView: (id: string, data: any) => api.put<{ view: any }>(`/api/portal/views/${id}`, data),
-  deleteView: (id: string) => api.delete(`/api/portal/views/${id}`),
+export const viewsApi = {
+  list: () => api.get<{ views: any[] }>('/api/views'),
+  create: (data: any) => api.post<{ view: any }>('/api/views', data),
+  get: (id: string) => api.get<{ view: any }>(`/api/views/${id}`),
+  update: (id: string, data: any) => api.put<{ view: any }>(`/api/views/${id}`, data),
+  delete: (id: string) => api.delete(`/api/views/${id}`),
 };
