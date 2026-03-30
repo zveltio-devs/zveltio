@@ -391,7 +391,7 @@
           <div class="form-control gap-1">
             <label class="label py-0"><span class="label-text text-xs font-medium">Custom CSS <span class="text-base-content/40">(optional)</span></span></label>
             <textarea class="textarea textarea-sm font-mono text-xs h-24"
-              placeholder=":root { --p: 220 90% 56%; }"
+              placeholder=":root { --primary: #3b82f6; }"
               bind:value={zone.custom_css}></textarea>
           </div>
 
