@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { page } from '$app/state';
   import { collectionsApi, api } from '$lib/api.js';
   import { ArrowLeft, Plus, Trash2, ArrowRight, GitFork } from '@lucide/svelte';
@@ -21,7 +21,7 @@
   let form = $state({
     name: '',
     type: 'o2m' as 'o2m' | 'm2o' | 'm2m' | 'm2a',
-    source_collection: collectionName,
+    source_collection: untrack(() => collectionName),
     source_field: '',
     target_collection: '',
     target_field: '',
