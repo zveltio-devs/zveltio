@@ -91,22 +91,7 @@ CREATE TABLE IF NOT EXISTS zvd_page_views (
 CREATE INDEX IF NOT EXISTS idx_zvd_page_views_page ON zvd_page_views(page_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_zvd_page_views_view ON zvd_page_views(view_id);
 
--- ═══ DATA MIGRATION ════════════════════════════════════════════════════════
-
--- Migrate zvd_collection_views → zvd_views
-INSERT INTO zvd_views (id, name, collection, view_type, fields, filters, config, created_at, updated_at)
-SELECT
-  id,
-  COALESCE(name, 'View ' || id::text),
-  collection,
-  COALESCE(view_type, 'table'),
-  COALESCE((config->>'fields')::jsonb, '[]'::jsonb),
-  '[]'::jsonb,
-  COALESCE(config, '{}'),
-  COALESCE(created_at, NOW()),
-  COALESCE(updated_at, NOW())
-FROM zvd_collection_views
-ON CONFLICT (id) DO NOTHING;
+-- ═══ SEED DATA ════════════════════════════════════════════════════════════
 
 -- Seed default client zone
 INSERT INTO zvd_zones (name, slug, description, is_active, base_path, site_name, primary_color, nav_position)
@@ -116,22 +101,6 @@ ON CONFLICT DO NOTHING;
 -- Create default "intranet" zone
 INSERT INTO zvd_zones (name, slug, description, is_active, base_path, access_roles, site_name, nav_position)
 VALUES ('Intranet', 'intranet', 'Internal portal for staff', false, '/intranet', ARRAY['employee','manager'], 'Intranet', 'sidebar')
-ON CONFLICT DO NOTHING;
-
--- Migrate zvd_portal_pages → zvd_pages (into client zone)
-INSERT INTO zvd_pages (id, zone_id, title, slug, icon, is_active, auth_required, sort_order, created_at, updated_at)
-SELECT
-  p.id,
-  (SELECT id FROM zvd_zones WHERE slug = 'client' LIMIT 1),
-  COALESCE(p.title, 'Page'),
-  COALESCE(p.slug, 'page-' || p.id::text),
-  p.icon,
-  COALESCE(p.is_active, true),
-  COALESCE(p.auth_required, true),
-  COALESCE(p.sort_order, 0),
-  COALESCE(p.created_at, NOW()),
-  COALESCE(p.updated_at, NOW())
-FROM zvd_portal_pages p
 ON CONFLICT DO NOTHING;
 
 -- DOWN

@@ -53,8 +53,8 @@
       <div class="flex flex-col gap-3">
         {#each Array(6) as _}
           <div class="flex flex-col gap-1">
-            <div class="skeleton h-3 w-20 rounded"/>
-            <div class="skeleton h-5 w-48 rounded"/>
+            <div class="skeleton h-3 w-20 rounded"></div>
+            <div class="skeleton h-5 w-48 rounded"></div>
           </div>
         {/each}
       </div>

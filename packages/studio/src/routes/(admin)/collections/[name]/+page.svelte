@@ -325,11 +325,11 @@
 
  {#if aiSearchEnabled}
  <div class="form-control mb-4">
- <label class="label">
+ <label class="label" for="ai-search-field">
  <span class="label-text">Field to embed</span>
  <span class="label-text-alt text-base-content/50">optional — blank = concat all text fields</span>
  </label>
- <select class="select" bind:value={aiSearchField}>
+ <select id="ai-search-field" class="select" bind:value={aiSearchField}>
  <option value="">— Auto (all text fields) —</option>
  {#each getFields().filter((f) => ['text', 'textarea', 'richtext'].includes(f.type)) as field}
  <option value={field.name}>{field.label || field.name} ({field.type})</option>
@@ -386,17 +386,16 @@
            placeholder="View name…"
            bind:value={newViewName}
            onkeydown={(e) => e.key === 'Enter' && createView()}
-           autofocus
          />
          <button class="btn btn-primary btn-xs" onclick={createView} disabled={savingView}>
-           {#if savingView}<span class="loading loading-spinner loading-xs"/>{:else}<Save size={12}/>{/if}
+           {#if savingView}<span class="loading loading-spinner loading-xs"></span>{:else}<Save size={12}/>{/if}
          </button>
        </div>
      {/if}
 
      {#if viewsLoading}
        <div class="flex flex-col gap-1.5">
-         {#each Array(3) as _}<div class="skeleton h-8 rounded-lg"/>{/each}
+         {#each Array(3) as _}<div class="skeleton h-8 rounded-lg"></div>{/each}
        </div>
      {:else if savedViews.length === 0}
        <p class="text-xs text-base-content/40 py-2">No views yet. Click + to create one.</p>

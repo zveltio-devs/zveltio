@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Table2, LayoutGrid, Calendar, Kanban, BarChart2, List, SlidersHorizontal, Columns3, Search, X } from '@lucide/svelte';
   import TableView from './TableView.svelte';
   import FilterBar from './FilterBar.svelte';
@@ -50,7 +51,7 @@
   }: Props = $props();
 
   // ── Active view type ───────────────────────────────────────────────────────
-  let activeView = $state<ViewType>((config.default_view as ViewType) ?? 'table');
+  let activeView = $state<ViewType>(untrack(() => (config.default_view as ViewType) ?? 'table'));
 
   // ── Toolbar panels ─────────────────────────────────────────────────────────
   let showFilters = $state(false);
@@ -60,10 +61,10 @@
 
   // ── Pagination / sort ──────────────────────────────────────────────────────
   let page = $state(1);
-  let sort = $state(config.default_sort ?? '');
-  let sortDir = $state<'asc' | 'desc'>(config.default_sort_dir ?? 'asc');
-  let filters = $state<any[]>(config.default_filters ?? []);
-  let columns = $state<any[]>(config.columns ?? []);
+  let sort = $state(untrack(() => config.default_sort ?? ''));
+  let sortDir = $state<'asc' | 'desc'>(untrack(() => config.default_sort_dir ?? 'asc'));
+  let filters = $state<any[]>(untrack(() => config.default_filters ?? []));
+  let columns = $state<any[]>(untrack(() => config.columns ?? []));
 
   // ── Selected detail record ─────────────────────────────────────────────────
   let detailRecord = $state<any | null>(null);
@@ -150,7 +151,7 @@
           </button>
         {/each}
       </div>
-      <div class="divider divider-horizontal mx-0 h-5 self-center"/>
+      <div class="divider divider-horizontal mx-0 h-5 self-center"></div>
     {/if}
 
     <!-- Search -->
@@ -242,7 +243,7 @@
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {#if loading}
             {#each Array(8) as _}
-              <div class="skeleton h-40 rounded-xl"/>
+              <div class="skeleton h-40 rounded-xl"></div>
             {/each}
           {:else if data.length === 0}
             <p class="col-span-full text-center py-16 text-base-content/40 text-sm">No records found</p>
@@ -282,8 +283,8 @@
           {#if loading}
             {#each Array(3) as _}
               <div class="w-64 shrink-0 flex flex-col gap-2">
-                <div class="skeleton h-6 w-32 rounded"/>
-                {#each Array(3) as _}<div class="skeleton h-20 rounded-xl"/>{/each}
+                <div class="skeleton h-6 w-32 rounded"></div>
+                {#each Array(3) as _}<div class="skeleton h-20 rounded-xl"></div>{/each}
               </div>
             {/each}
           {:else}
@@ -329,7 +330,7 @@
             {#each ['Su','Mo','Tu','We','Th','Fr','Sa'] as d}<div>{d}</div>{/each}
           </div>
           <div class="grid grid-cols-7 gap-1">
-            {#each Array(firstDay) as _}<div/>{/each}
+            {#each Array(firstDay) as _}<div></div>{/each}
             {#each Array(daysInMonth) as _, idx}
               {@const day = idx + 1}
               {@const dayDate = new Date(year, month, day).toDateString()}
@@ -361,7 +362,7 @@
         }))}
         {@const maxVal = Math.max(...chartData.map(d => d.value), 1)}
         {#if loading}
-          <div class="skeleton h-64 rounded-xl"/>
+          <div class="skeleton h-64 rounded-xl"></div>
         {:else if !numField}
           <div class="flex items-center justify-center h-48 text-base-content/40 text-sm">
             No numeric field found. Configure <code class="mx-1 font-mono bg-base-200 px-1 rounded">chart_value_field</code> in view config.
@@ -378,7 +379,7 @@
                     class="w-full bg-primary rounded-t transition-all hover:bg-primary/80"
                     style="height: {(bar.value / maxVal) * 160}px"
                     title="{bar.label}: {bar.value}"
-                  />
+                  ></div>
                   <span class="text-xs text-base-content/50 truncate w-full text-center">{bar.label}</span>
                 </div>
               {/each}

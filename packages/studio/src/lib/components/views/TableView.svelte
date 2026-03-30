@@ -127,9 +127,9 @@
         {#if loading}
           {#each Array(5) as _}
             <tr>
-              {#if selectable}<td><div class="skeleton h-4 w-4 rounded"/></td>{/if}
-              {#each columns as _c}<td><div class="skeleton h-4 w-24 rounded"/></td>{/each}
-              <td/>
+              {#if selectable}<td><div class="skeleton h-4 w-4 rounded"></div></td>{/if}
+              {#each columns as _c}<td><div class="skeleton h-4 w-24 rounded"></div></td>{/each}
+              <td></td>
             </tr>
           {/each}
         {:else if data.length === 0}
