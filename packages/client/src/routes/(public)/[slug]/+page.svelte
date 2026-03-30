@@ -1,9 +1,10 @@
 <script lang="ts">
   import { error } from '@sveltejs/kit';
+  import { untrack } from 'svelte';
 
   let { data } = $props();
 
-  if (data.status === 404 || !data.portalPage) {
+  if (untrack(() => data.status === 404 || !data.portalPage)) {
     error(404, 'Page not found');
   }
 
