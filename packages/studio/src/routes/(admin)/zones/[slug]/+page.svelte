@@ -12,7 +12,7 @@
   import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
-  const zoneSlug = $derived(page.params.slug ?? '');
+  const zoneSlug = $derived((page.params as Record<string, string>).slug ?? '');
 
   let zone = $state<any>(null);
   let pages = $state<any[]>([]);
@@ -162,7 +162,7 @@
         <h1 class="text-2xl font-bold">{zone.name}</h1>
         <p class="text-base-content/60 text-sm font-mono">{zone.base_path}</p>
       {:else if loading}
-        <div class="skeleton h-7 w-48 rounded"/>
+        <div class="skeleton h-7 w-48 rounded"></div>
       {/if}
     </div>
     {#if zone}
@@ -209,8 +209,8 @@
             <h4 class="font-semibold text-sm">New Page</h4>
             <div class="grid grid-cols-2 gap-3">
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Title *</span></label>
-                <input type="text" class="input input-sm" placeholder="e.g. Dashboard"
+                <label class="label py-0" for="new-page-title"><span class="label-text text-xs">Title *</span></label>
+                <input id="new-page-title" type="text" class="input input-sm" placeholder="e.g. Dashboard"
                   bind:value={newPage.title}
                   oninput={(e) => {
                     newPage.title = e.currentTarget.value;
@@ -219,8 +219,8 @@
                   }}/>
               </div>
               <div class="form-control">
-                <label class="label py-0"><span class="label-text text-xs">Slug *</span></label>
-                <input type="text" class="input input-sm font-mono" placeholder="dashboard"
+                <label class="label py-0" for="new-page-slug"><span class="label-text text-xs">Slug *</span></label>
+                <input id="new-page-slug" type="text" class="input input-sm font-mono" placeholder="dashboard"
                   bind:value={newPage.slug}/>
               </div>
             </div>
@@ -312,10 +312,10 @@
           </div>
 
           <div class="form-control">
-            <label class="label"><span class="label-text text-sm font-medium">Access roles</span>
+            <label class="label" for="zone-access-roles"><span class="label-text text-sm font-medium">Access roles</span>
               <span class="label-text-alt text-xs text-base-content/40">empty = all roles</span>
             </label>
-            <input type="text" class="input input-sm"
+            <input id="zone-access-roles" type="text" class="input input-sm"
               placeholder="employee, manager, client (comma-separated)"
               value={zone.access_roles?.join(', ') ?? ''}
               oninput={rolesInput}/>
@@ -337,27 +337,27 @@
         <div class="card-body gap-4">
           <div class="grid sm:grid-cols-2 gap-4">
             <div class="form-control gap-1">
-              <label class="label py-0"><span class="label-text text-xs font-medium">Portal name</span></label>
-              <input type="text" class="input input-sm" placeholder="Client Portal"
+              <label class="label py-0" for="zone-site-name"><span class="label-text text-xs font-medium">Portal name</span></label>
+              <input id="zone-site-name" type="text" class="input input-sm" placeholder="Client Portal"
                 bind:value={zone.site_name}/>
             </div>
             <div class="form-control gap-1">
-              <label class="label py-0"><span class="label-text text-xs font-medium">Primary colour</span></label>
+              <label class="label py-0" for="zone-primary-color"><span class="label-text text-xs font-medium">Primary color</span></label>
               <div class="flex gap-2">
                 <input type="color" bind:value={zone.primary_color}
                   class="w-10 h-8 rounded border border-base-300 cursor-pointer p-0.5"/>
-                <input type="text" bind:value={zone.primary_color}
+                <input id="zone-primary-color" type="text" bind:value={zone.primary_color}
                   class="input input-sm flex-1 font-mono text-xs" placeholder="#069494"/>
               </div>
             </div>
             <div class="form-control gap-1 sm:col-span-2">
-              <label class="label py-0"><span class="label-text text-xs font-medium">Logo URL <span class="text-base-content/40">(optional)</span></span></label>
-              <input type="url" class="input input-sm" placeholder="https://…"
+              <label class="label py-0" for="zone-logo-url"><span class="label-text text-xs font-medium">Logo URL <span class="text-base-content/40">(optional)</span></span></label>
+              <input id="zone-logo-url" type="url" class="input input-sm" placeholder="https://…"
                 bind:value={zone.site_logo_url}/>
             </div>
             <div class="form-control gap-1">
-              <label class="label py-0"><span class="label-text text-xs font-medium">Navigation</span></label>
-              <select class="select select-sm" bind:value={zone.nav_position}>
+              <label class="label py-0" for="zone-nav-position"><span class="label-text text-xs font-medium">Navigation</span></label>
+              <select id="zone-nav-position" class="select select-sm" bind:value={zone.nav_position}>
                 <option value="sidebar">Sidebar</option>
                 <option value="topbar">Top bar</option>
                 <option value="both">Both</option>
@@ -389,9 +389,9 @@
           </div>
 
           <div class="form-control gap-1">
-            <label class="label py-0"><span class="label-text text-xs font-medium">Custom CSS <span class="text-base-content/40">(optional)</span></span></label>
-            <textarea class="textarea textarea-sm font-mono text-xs h-24"
-              placeholder=":root { --primary: #3b82f6; }"
+            <label class="label py-0" for="zone-custom-css"><span class="label-text text-xs font-medium">Custom CSS <span class="text-base-content/40">(optional)</span></span></label>
+            <textarea id="zone-custom-css" class="textarea textarea-sm font-mono text-xs h-24"
+              placeholder="/* e.g. --primary: #3b82f6; */"
               bind:value={zone.custom_css}></textarea>
           </div>
 
