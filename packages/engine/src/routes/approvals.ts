@@ -58,32 +58,29 @@ const DecideSchema = z.object({
   comment:  z.string().max(2000).optional(),
 });
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-async function isAdmin(c: any): Promise<boolean> {
-  const user = c.get('user');
-  if (!user) return false;
-  if (user.role === 'god' || user.role === 'admin') return true;
-  return checkPermission(user.id, 'approvals', 'manage').catch(() => false);
-}
-
-async function requireAuth(c: any): Promise<Response | null> {
-  const user = c.get('user');
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  return null;
-}
-
 // ── Route factory ──────────────────────────────────────────────────────────
 
 export function approvalsRoutes(db: Database, auth: any) {
+  // ── Helpers (auth-scoped) ────────────────────────────────────────────────
+
+  async function getUser(c: any) {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    return session?.user ?? null;
+  }
+
+  async function isAdmin(user: any): Promise<boolean> {
+    if (!user) return false;
+    if (user.role === 'god' || user.role === 'admin') return true;
+    return checkPermission(user.id, 'approvals', 'manage').catch(() => false);
+  }
   const app = new Hono();
 
   // ── Workflows ────────────────────────────────────────────────────────────
 
   /** GET /api/approvals/workflows */
   app.get('/workflows', async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const workflows = await db
       .selectFrom('zv_approval_workflows as w')
@@ -111,11 +108,10 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** POST /api/approvals/workflows */
   app.post('/workflows', zValidator('json', WorkflowCreateSchema), async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
-    if (!(await isAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await isAdmin(user))) return c.json({ error: 'Forbidden' }, 403);
 
-    const user = c.get('user');
     const data = c.req.valid('json');
 
     const workflow = await db
@@ -153,9 +149,9 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** PUT /api/approvals/workflows/:id */
   app.put('/workflows/:id', zValidator('json', WorkflowUpdateSchema), async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
-    if (!(await isAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await isAdmin(user))) return c.json({ error: 'Forbidden' }, 403);
 
     const { id } = c.req.param();
     const data = c.req.valid('json');
@@ -200,9 +196,9 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** DELETE /api/approvals/workflows/:id */
   app.delete('/workflows/:id', async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
-    if (!(await isAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await isAdmin(user))) return c.json({ error: 'Forbidden' }, 403);
 
     const { id } = c.req.param();
     await db.deleteFrom('zv_approval_workflows' as any).where('id', '=', id).execute();
@@ -213,11 +209,10 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** GET /api/approvals?status=pending&my_pending=true&limit=50&offset=0 */
   app.get('/', async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const user = c.get('user');
-    const admin = await isAdmin(c);
+    const admin = await isAdmin(user);
 
     const limit  = Math.min(parseInt(c.req.query('limit')  ?? '50'),  200);
     const offset = parseInt(c.req.query('offset') ?? '0');
@@ -292,10 +287,9 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** POST /api/approvals/submit */
   app.post('/submit', zValidator('json', SubmitSchema), async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const user = c.get('user');
     const { workflow_id, collection, record_id, metadata } = c.req.valid('json');
 
     // Load workflow + first step
@@ -352,11 +346,10 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** GET /api/approvals/:id */
   app.get('/:id', async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const user = c.get('user');
-    const admin = await isAdmin(c);
+    const admin = await isAdmin(user);
     const { id } = c.req.param();
 
     const request = await db
@@ -407,11 +400,10 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** POST /api/approvals/:id/decide */
   app.post('/:id/decide', zValidator('json', DecideSchema), async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const user = c.get('user');
-    const admin = await isAdmin(c);
+    const admin = await isAdmin(user);
     const { id } = c.req.param();
     const { decision, comment } = c.req.valid('json');
 
@@ -499,11 +491,10 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   /** POST /api/approvals/:id/cancel */
   app.post('/:id/cancel', async (c) => {
-    const denied = await requireAuth(c);
-    if (denied) return denied;
+    const user = await getUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const user = c.get('user');
-    const admin = await isAdmin(c);
+    const admin = await isAdmin(user);
     const { id } = c.req.param();
 
     const request = await db

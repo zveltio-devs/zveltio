@@ -1,8 +1,7 @@
 <script lang="ts">
- import { onMount } from 'svelte';
  import { page } from '$app/state';
  import { collectionsApi, dataApi, api, viewsApi } from '$lib/api.js';
- import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork, Sparkles, Save, Code, LayoutGrid } from '@lucide/svelte';
+ import { Plus, Trash2, RefreshCw, Columns, GitFork, Sparkles, Save, Code, LayoutGrid, X } from '@lucide/svelte';
  import { base } from '$app/paths';
  import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
  import ViewWrapper from '$lib/components/views/ViewWrapper.svelte';
@@ -34,8 +33,15 @@
  let savingAI = $state(false);
  let aiSaved = $state(false);
 
- onMount(async () => {
- await load();
+ // Insert row state
+ let showInsertModal = $state(false);
+ let insertForm = $state<Record<string, any>>({});
+ let inserting = $state(false);
+
+ // Re-load whenever collection route changes (handles SvelteKit client-side nav)
+ $effect(() => {
+   const name = collectionName; // tracked synchronously
+   if (name) load();
  });
 
  async function load() {
@@ -126,6 +132,18 @@
  };
  }
 
+ async function insertRecord() {
+ inserting = true;
+ try {
+   await dataApi.create(collectionName, insertForm);
+   showInsertModal = false;
+   insertForm = {};
+   await load();
+ } finally {
+   inserting = false;
+ }
+ }
+
  async function saveAISettings() {
  savingAI = true;
  aiSaved = false;
@@ -203,58 +221,67 @@
 
  {#if activeTab === 'data'}
  <div class="flex justify-between items-center">
- <span class="text-sm text-base-content/60">{pagination.total} records</span>
- <button onclick={load} class="btn btn-ghost btn-sm">
- <RefreshCw size={14} />
- </button>
+   <span class="text-sm text-base-content/60">{pagination.total} records</span>
+   <div class="flex gap-2">
+     <button onclick={() => { insertForm = {}; showInsertModal = true; }} class="btn btn-primary btn-sm gap-1">
+       <Plus size={14} /> New Record
+     </button>
+     <button onclick={load} class="btn btn-ghost btn-sm">
+       <RefreshCw size={14} />
+     </button>
+   </div>
  </div>
 
  {#if loading}
- <div class="flex justify-center py-12">
- <span class="loading loading-spinner loading-lg"></span>
- </div>
+   <div class="flex justify-center py-12">
+     <span class="loading loading-spinner loading-lg"></span>
+   </div>
+ {:else if records.length === 0}
+   <div class="flex flex-col items-center justify-center py-16 text-base-content/40 gap-3">
+     <p class="text-sm">No records yet.</p>
+     <button onclick={() => { insertForm = {}; showInsertModal = true; }} class="btn btn-primary btn-sm gap-1">
+       <Plus size={14} /> Add first record
+     </button>
+   </div>
  {:else}
- <div class="overflow-x-auto">
- <table class="table table-sm">
- <thead>
- <tr>
- {#each getFields().filter((f) => f.type !== 'computed') as field}
- <th>{field.label || field.name}</th>
- {/each}
- <th>Created</th>
- <th></th>
- </tr>
- </thead>
- <tbody>
- {#each records as record}
- <tr>
- {#each getFields().filter((f) => f.type !== 'computed') as field}
- <td class="max-w-xs truncate">
- {#if record[field.name] === null || record[field.name] === undefined}
- <span class="text-base-content/30">—</span>
- {:else if typeof record[field.name] === 'object'}
- <code class="text-xs">{JSON.stringify(record[field.name])}</code>
- {:else}
- {record[field.name]}
- {/if}
- </td>
- {/each}
- <td class="text-xs text-base-content/50">
- {new Date(record.created_at).toLocaleDateString()}
- </td>
- <td>
- <button
- onclick={() => deleteRecord(record.id)}
- class="btn btn-ghost btn-xs text-error"
- >
- <Trash2 size={12} />
- </button>
- </td>
- </tr>
- {/each}
- </tbody>
- </table>
- </div>
+   <div class="overflow-x-auto">
+     <table class="table table-sm">
+       <thead>
+         <tr>
+           {#each getFields().filter((f) => f.type !== 'computed') as field}
+             <th>{field.label || field.name}</th>
+           {/each}
+           <th>Created</th>
+           <th></th>
+         </tr>
+       </thead>
+       <tbody>
+         {#each records as record}
+           <tr>
+             {#each getFields().filter((f) => f.type !== 'computed') as field}
+               <td class="max-w-xs truncate">
+                 {#if record[field.name] === null || record[field.name] === undefined}
+                   <span class="text-base-content/30">—</span>
+                 {:else if typeof record[field.name] === 'object'}
+                   <code class="text-xs">{JSON.stringify(record[field.name])}</code>
+                 {:else}
+                   {record[field.name]}
+                 {/if}
+               </td>
+             {/each}
+             <td class="text-xs text-base-content/50">
+               {new Date(record.created_at).toLocaleDateString()}
+             </td>
+             <td>
+               <button onclick={() => deleteRecord(record.id)} class="btn btn-ghost btn-xs text-error">
+                 <Trash2 size={12} />
+               </button>
+             </td>
+           </tr>
+         {/each}
+       </tbody>
+     </table>
+   </div>
  {/if}
 {:else if activeTab === 'schema'}
  <!-- Schema tab -->
@@ -467,3 +494,77 @@
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />
+
+{#if showInsertModal}
+ <div class="modal modal-open">
+   <div class="modal-box max-w-lg">
+     <div class="flex items-center justify-between mb-4">
+       <h3 class="font-bold text-lg">New Record</h3>
+       <button class="btn btn-ghost btn-sm btn-square" onclick={() => showInsertModal = false}>
+         <X size={16} />
+       </button>
+     </div>
+
+     <div class="flex flex-col gap-3">
+       {#each getFields().filter(f => !f.is_system && f.type !== 'computed') as field}
+         <div class="form-control gap-1">
+           <label class="label py-0" for="insert-{field.name}">
+             <span class="label-text text-xs font-medium">{field.label || field.name}</span>
+             {#if field.required}<span class="label-text-alt text-error text-xs">required</span>{/if}
+           </label>
+           {#if field.type === 'boolean'}
+             <input id="insert-{field.name}" type="checkbox"
+               class="toggle toggle-sm toggle-primary"
+               bind:checked={insertForm[field.name]} />
+           {:else if field.type === 'textarea' || field.type === 'richtext'}
+             <textarea id="insert-{field.name}" class="textarea textarea-sm textarea-bordered"
+               rows="3" placeholder={field.label || field.name}
+               bind:value={insertForm[field.name]}></textarea>
+           {:else if field.type === 'number' || field.type === 'integer'}
+             <input id="insert-{field.name}" type="number"
+               class="input input-sm input-bordered"
+               placeholder="0"
+               bind:value={insertForm[field.name]} />
+           {:else if field.type === 'date'}
+             <input id="insert-{field.name}" type="date"
+               class="input input-sm input-bordered"
+               bind:value={insertForm[field.name]} />
+           {:else if field.type === 'datetime'}
+             <input id="insert-{field.name}" type="datetime-local"
+               class="input input-sm input-bordered"
+               bind:value={insertForm[field.name]} />
+           {:else if field.type === 'select' && field.options?.length}
+             <select id="insert-{field.name}" class="select select-sm select-bordered"
+               bind:value={insertForm[field.name]}>
+               <option value="">— select —</option>
+               {#each field.options as opt}
+                 <option value={opt.value ?? opt}>{opt.label ?? opt}</option>
+               {/each}
+             </select>
+           {:else}
+             <input id="insert-{field.name}" type="text"
+               class="input input-sm input-bordered"
+               placeholder={field.label || field.name}
+               bind:value={insertForm[field.name]} />
+           {/if}
+         </div>
+       {/each}
+
+       {#if getFields().filter(f => !f.is_system && f.type !== 'computed').length === 0}
+         <p class="text-sm text-base-content/50">No custom fields defined. <a href="{base}/collections/{collectionName}/fields" class="link">Add fields first →</a></p>
+       {/if}
+     </div>
+
+     <div class="modal-action">
+       <button class="btn btn-ghost btn-sm" onclick={() => showInsertModal = false}>Cancel</button>
+       <button class="btn btn-primary btn-sm gap-1" onclick={insertRecord} disabled={inserting}>
+         {#if inserting}<span class="loading loading-spinner loading-xs"></span>{:else}<Plus size={14} />{/if}
+         Insert Record
+       </button>
+     </div>
+   </div>
+   <div class="modal-backdrop" role="button" tabindex="0"
+     onclick={() => showInsertModal = false}
+     onkeydown={(e) => e.key === 'Escape' && (showInsertModal = false)}></div>
+ </div>
+{/if}
