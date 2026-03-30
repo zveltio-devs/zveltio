@@ -165,3 +165,9 @@ export const ddlRateLimit = rateLimit({
   max: 10,
   keyPrefix: 'ddl',
 });
+export const destructiveRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyPrefix: 'destructive',
+  message: 'Too Many Destructive Requests — DELETE operations are limited to 10 per minute',
+});

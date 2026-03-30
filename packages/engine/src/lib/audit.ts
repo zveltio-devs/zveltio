@@ -14,7 +14,10 @@ export type AuditEventType =
   | 'api_key.revoked'
   | 'user.role_changed'
   | 'settings.changed'
-  | 'god_mode.used';
+  | 'god_mode.used'
+  | 'extension.loaded'
+  | 'extension.load_failed'
+  | 'extension.unloaded';
 
 export interface AuditEvent {
   type: AuditEventType;

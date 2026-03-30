@@ -16,11 +16,13 @@
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
   import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
+  import CommandPalette from '$lib/components/common/CommandPalette.svelte';
 
   let { children } = $props();
   let collapsed = $state(false);
   let mobileOpen = $state(false);
   let dark = $state(false);
+  let cmdOpen = $state(false);
 
   $effect(() => {
     if (typeof localStorage !== 'undefined')
@@ -51,6 +53,17 @@
     await initExtensions();
   });
 
+  $effect(() => {
+    function onKeydown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        cmdOpen = !cmdOpen;
+      }
+    }
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  });
+
   type NavItem = { href: string; icon: any; label: string };
   type NavGroup = { label?: string; items: NavItem[] };
 
@@ -63,11 +76,15 @@
     {
       label: 'Content & Data',
       items: [
-        { href: `${base}/collections`, icon: Database,   label: 'Collections'    },
-        { href: `${base}/media`,       icon: Images,      label: 'Media'          },
-        { href: `${base}/pages`,       icon: Layout,      label: 'Pages'          },
-        { href: `${base}/portal`,         icon: LayoutGrid,  label: 'Portal Builder'   },
-        { href: `${base}/client-portal`, icon: Users2,      label: 'Client Portal'    },
+        { href: `${base}/collections`, icon: Database,    label: 'Collections' },
+        { href: `${base}/views`,       icon: Layout,      label: 'Views'       },
+        { href: `${base}/media`,       icon: Images,      label: 'Media'       },
+      ]
+    },
+    {
+      label: 'Portals & Zones',
+      items: [
+        { href: `${base}/zones`,       icon: LayoutGrid,  label: 'Zones'       },
       ]
     },
     {
@@ -91,10 +108,7 @@
     {
       label: 'Intelligence',
       items: [
-        { href: `${base}/ai`,               icon: Bot,         label: 'AI Assistant' },
-        { href: `${base}/prompt-to-schema`, icon: Wand2,       label: 'Schema Gen'   },
-        { href: `${base}/ai/query`,         icon: Search,      label: 'AI Query'     },
-        { href: `${base}/ai/alchemist`,     icon: FlaskConical, label: 'Alchemist'   },
+        { href: `${base}/ai`,               icon: Bot,         label: 'AI Hub'       },
         { href: `${base}/insights`,         icon: BarChart2,   label: 'Insights'     },
       ]
     },
@@ -327,11 +341,11 @@
 
     <!-- ─── Mobile overlay ──────────────────────────────────── -->
     {#if mobileOpen}
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div
-        class="fixed inset-0 z-40 bg-black/50 lg:hidden"
+      <button
+        class="fixed inset-0 z-40 bg-black/50 lg:hidden cursor-default"
+        aria-label="Close menu"
         onclick={() => (mobileOpen = false)}
-      ></div>
+      ></button>
 
       <aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-base-200 border-r border-base-300 lg:hidden">
         <div class="flex items-center h-14 px-3 border-b border-base-300 gap-2">
@@ -402,6 +416,9 @@
         </div>
         <span class="font-bold text-sm">Zveltio</span>
         <div class="ml-auto flex items-center gap-1">
+          <button onclick={() => (cmdOpen = true)} class="btn btn-ghost btn-sm" title="Search (⌘K)">
+            <Search size={16} />
+          </button>
           <button onclick={() => (dark = !dark)} class="btn btn-ghost btn-sm">
             {#if dark}<Sun size={16} />{:else}<Moon size={16} />{/if}
           </button>
@@ -417,3 +434,4 @@
 
 <ToastContainer />
 <UpdateBanner />
+<CommandPalette open={cmdOpen} onclose={() => (cmdOpen = false)} />

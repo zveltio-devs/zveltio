@@ -2,6 +2,8 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import { Shield, Save, Plus, Trash2, LoaderCircle, GitBranch, ChevronRight, ArrowRight } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  let collections = $state<any[]>([]);
  let roles = $state<any[]>([]);
@@ -19,7 +21,7 @@
  let hierChild = $state('');
  let hierParent = $state('');
  let hierSaving = $state(false);
- let hierError = $state('');
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  // Build inheritance tree for display
  const roleNames = $derived([
@@ -34,13 +36,13 @@
 
  async function addInheritance() {
    if (!hierChild || !hierParent) return;
-   hierSaving = true; hierError = '';
+   hierSaving = true;
    try {
      await api.post('/api/admin/roles/hierarchy', { child: hierChild, parent: hierParent });
      hierChild = ''; hierParent = '';
      await loadHierarchy();
    } catch (e: any) {
-     hierError = e.message || 'Failed to add inheritance';
+     toast.error(e.message ?? 'Failed to add inheritance');
    } finally { hierSaving = false; }
  }
 
@@ -101,7 +103,7 @@
  saved = true;
  setTimeout(() => (saved = false), 3000);
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Save failed');
+ toast.error(err instanceof Error ? err.message : 'Save failed');
  } finally { saving = false; }
  }
 
@@ -113,18 +115,26 @@
  newRoleName = ''; newRoleDesc = '';
  await loadAll();
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Failed to create role');
+ toast.error(err instanceof Error ? err.message : 'Failed to create role');
  } finally { creatingRole = false; }
  }
 
  async function deleteRole(id: string, name: string) {
- if (!confirm(`Delete role "${name}"? All permissions for this role will be removed.`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Role',
+ message: `Delete role "${name}"? All permissions for this role will be removed.`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.delete(`/api/admin/roles/${id}`);
  await loadAll();
  } catch (err) {
- alert(err instanceof Error ? err.message : 'Failed to delete role');
+ toast.error(err instanceof Error ? err.message : 'Failed to delete role');
  }
+ },
+ };
  }
 </script>
 
@@ -279,8 +289,7 @@
  Add
  </button>
  </div>
- {#if hierError}<p class="text-error text-sm mt-2">{hierError}</p>{/if}
- <p class="text-xs text-base-content/40 mt-2">
+  <p class="text-xs text-base-content/40 mt-2">
  Reads as: <em>"[Child] inherits all permissions from [Parent]"</em>
  </p>
  </div>
@@ -337,3 +346,12 @@
  </div>
  {/if}
 </div>
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

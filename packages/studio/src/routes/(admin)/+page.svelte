@@ -3,11 +3,13 @@
   import { goto } from '$app/navigation';
   import { base } from '$app/paths';
   import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
   import {
     Database, Webhook, Activity, Zap, Clock, CheckCircle,
     XCircle, AlertCircle, Plus, Key, Search, GitPullRequest,
-    RefreshCw, ExternalLink,
+    RefreshCw, ExternalLink, Circle,
   } from '@lucide/svelte';
+  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
 
   // ── State ──────────────────────────────────────────────────────
   let statsLoading = $state(true);
@@ -31,6 +33,17 @@
   } | null>(null);
 
   let collections = $state<Array<{ name: string; label?: string; record_count: number }>>([]);
+  let apiKeys = $state<any[]>([]);
+  let webhooks = $state<any[]>([]);
+
+  // Getting Started checklist (derived from loaded data)
+  const gettingStarted = $derived([
+    { label: 'Create a collection', done: collections.length > 0, href: `${base}/collections` },
+    { label: 'Generate an API key', done: apiKeys.length > 0, href: `${base}/api-keys` },
+    { label: 'Set up a webhook', done: webhooks.length > 0, href: `${base}/webhooks` },
+    { label: 'Configure a zone/portal', done: false, href: `${base}/zones` },
+  ]);
+  const allDone = $derived(gettingStarted.every(i => i.done));
 
   // ── Load ───────────────────────────────────────────────────────
   onMount(async () => {
@@ -38,7 +51,17 @@
     loadActivity();
     loadSystem();
     loadCollections();
+    loadSidebarData();
   });
+
+  async function loadSidebarData() {
+    const [keysRes, hooksRes] = await Promise.allSettled([
+      api.get<{ keys: any[] }>('/api/api-keys'),
+      api.get<{ webhooks: any[] }>('/api/webhooks'),
+    ]);
+    if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.keys ?? [];
+    if (hooksRes.status === 'fulfilled') webhooks = hooksRes.value.webhooks ?? [];
+  }
 
   async function loadStats() {
     statsLoading = true;
@@ -181,11 +204,7 @@
 
   <!-- Stats cards -->
   {#if statsLoading}
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
-      {#each [1, 2, 3, 4, 5] as _}
-        <div class="card bg-base-200 animate-pulse h-24"></div>
-      {/each}
-    </div>
+    <LoadingSkeleton type="card" rows={5} />
   {:else}
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
       <div class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer" role="button" tabindex="0" onclick={() => goto(`${base}/collections`)} onkeypress={() => {}}>
@@ -248,7 +267,7 @@
         <div class="card-body p-4">
           <div class="flex items-center gap-3">
             <div class="p-2 {stats.slow_queries_24h > 0 ? 'bg-warning/10' : 'bg-success/10'} rounded-lg shrink-0">
-              <Clock size={20} class="{stats.slow_queries_24h > 0 ? 'text-warning' : 'text-success'}" />
+              <Clock size={20} class={stats.slow_queries_24h > 0 ? 'text-warning' : 'text-success'} />
             </div>
             <div class="min-w-0">
               <p class="text-2xl font-bold">{stats.slow_queries_24h}</p>
@@ -275,11 +294,7 @@
         </div>
 
         {#if activityLoading}
-          <div class="space-y-2">
-            {#each [1, 2, 3, 4, 5] as _}
-              <div class="h-8 bg-base-300 rounded animate-pulse"></div>
-            {/each}
-          </div>
+          <LoadingSkeleton type="list" rows={5} />
         {:else if activity.length === 0}
           <p class="text-base-content/50 text-sm text-center py-6">No recent audit events</p>
         {:else}
@@ -301,10 +316,10 @@
                         {eventLabel(entry.event_type)}
                       </span>
                     </td>
-                    <td class="text-base-content/60 text-xs font-mono truncate max-w-[8rem]">
+                    <td class="text-base-content/60 text-xs font-mono truncate max-w-32">
                       {entry.user_id ? entry.user_id.slice(0, 8) + '…' : '—'}
                     </td>
-                    <td class="text-base-content/60 text-xs truncate max-w-[8rem]">
+                    <td class="text-base-content/60 text-xs truncate max-w-32">
                       {entry.resource_type ?? '—'}
                       {#if entry.resource_id}
                         <span class="font-mono">{entry.resource_id.slice(0, 6)}…</span>
@@ -346,9 +361,9 @@
               onclick={async () => {
                 try {
                   await api.post('/api/admin/migrate', {});
-                  alert('Migrations complete');
+                  toast.success('Migrations complete');
                 } catch (e: any) {
-                  alert('Migration error: ' + e.message);
+                  toast.error('Migration error: ' + e.message);
                 }
               }}
             >
@@ -364,26 +379,24 @@
         <div class="card-body p-4">
           <h2 class="font-semibold mb-3">System Status</h2>
           {#if systemLoading}
-            <div class="space-y-2">
-              {#each [1, 2, 3] as _}
-                <div class="h-6 bg-base-300 rounded animate-pulse"></div>
-              {/each}
-            </div>
+            <LoadingSkeleton type="text" rows={3} />
           {:else if !system}
             <p class="text-error text-sm">Could not load system status</p>
           {:else}
+            {@const DbIcon = statusIcon(system.database.status)}
+            {@const CacheIcon = statusIcon(system.cache.status)}
             <div class="space-y-2 text-sm">
               <div class="flex items-center justify-between">
                 <span class="text-base-content/60">Database</span>
                 <span class="flex items-center gap-1 {statusColor(system.database.status)}">
-                  <svelte:component this={statusIcon(system.database.status)} size={14} />
+                  <DbIcon size={14} />
                   {system.database.status}
                 </span>
               </div>
               <div class="flex items-center justify-between">
                 <span class="text-base-content/60">Cache</span>
                 <span class="flex items-center gap-1 {statusColor(system.cache.status)}">
-                  <svelte:component this={statusIcon(system.cache.status)} size={14} />
+                  <CacheIcon size={14} />
                   {system.cache.status}
                 </span>
               </div>
@@ -402,6 +415,31 @@
         </div>
       </div>
     </div>
+
+    <!-- Getting Started checklist -->
+    {#if !allDone}
+    <div class="card bg-base-200">
+      <div class="card-body p-4">
+        <h2 class="font-semibold mb-3 flex items-center gap-2">
+          <CheckCircle size={16} class="text-success" />
+          Getting Started
+        </h2>
+        <ul class="space-y-2">
+          {#each gettingStarted as step}
+            <li class="flex items-center gap-3">
+              {#if step.done}
+                <CheckCircle size={16} class="text-success shrink-0" />
+                <span class="text-sm line-through text-base-content/40">{step.label}</span>
+              {:else}
+                <Circle size={16} class="text-base-content/30 shrink-0" />
+                <a href={step.href} class="text-sm text-base-content hover:text-primary hover:underline">{step.label}</a>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </div>
+    </div>
+    {/if}
   </div>
 
   <!-- Collections Overview -->
@@ -418,11 +456,7 @@
       </div>
 
       {#if collectionsLoading}
-        <div class="space-y-2">
-          {#each [1, 2, 3, 4] as _}
-            <div class="h-8 bg-base-300 rounded animate-pulse"></div>
-          {/each}
-        </div>
+        <LoadingSkeleton type="table" rows={4} cols={3} />
       {:else if collections.length === 0}
         <div class="text-center py-8">
           <p class="text-base-content/50 text-sm mb-3">No collections yet</p>

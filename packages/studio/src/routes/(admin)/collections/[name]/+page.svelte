@@ -1,11 +1,14 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { page } from '$app/state';
- import { collectionsApi, dataApi, api, portalApi } from '$lib/api.js';
+ import { collectionsApi, dataApi, api, viewsApi } from '$lib/api.js';
  import { ArrowLeft, Plus, Trash2, RefreshCw, Columns, GitFork, Sparkles, Save, Code, LayoutGrid } from '@lucide/svelte';
  import { base } from '$app/paths';
  import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
  import ViewWrapper from '$lib/components/views/ViewWrapper.svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+ import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
 
  const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
@@ -21,6 +24,7 @@
  let savingView = $state(false);
  let newViewName = $state('');
  let showNewViewForm = $state(false);
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  const activeViewConfig = $derived(savedViews.find(v => v.id === activeViewId)?.config ?? {});
 
@@ -58,16 +62,25 @@
  }
 
  async function deleteRecord(id: string) {
- if (!confirm('Delete this record?')) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Record',
+ message: 'Delete this record? This cannot be undone.',
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  await dataApi.delete(collectionName, id);
  await load();
+ },
+ };
  }
 
  async function loadViews() {
  viewsLoading = true;
  try {
-   const res = await portalApi.listViews(collectionName);
-   savedViews = res.views ?? [];
+   const res = await viewsApi.list();
+   // Filter views that belong to this collection
+   savedViews = (res.views ?? []).filter((v: any) => v.collection === collectionName);
    if (savedViews.length && !activeViewId) activeViewId = savedViews[0].id;
  } catch { savedViews = []; }
  finally { viewsLoading = false; }
@@ -77,8 +90,9 @@
  if (!newViewName.trim()) return;
  savingView = true;
  try {
-   const res = await portalApi.createView(collectionName, {
+   const res = await viewsApi.create({
      name: newViewName.trim(),
+     collection: collectionName,
      view_type: 'table',
      config: { pageSize: 25 },
    });
@@ -92,16 +106,24 @@
  async function saveViewConfig(config: Record<string, any>) {
  if (!activeViewId) return;
  try {
-   const res = await portalApi.updateView(activeViewId, { config });
+   const res = await viewsApi.update(activeViewId, { config });
    savedViews = savedViews.map(v => v.id === activeViewId ? res.view : v);
  } catch { /* silent */ }
  }
 
  async function deleteView(id: string) {
- if (!confirm('Delete this view?')) return;
- await portalApi.deleteView(id);
+ confirmState = {
+ open: true,
+ title: 'Delete View',
+ message: 'Delete this view? This cannot be undone.',
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
+ await viewsApi.delete(id);
  savedViews = savedViews.filter(v => v.id !== id);
  if (activeViewId === id) activeViewId = savedViews[0]?.id ?? null;
+ },
+ };
  }
 
  async function saveAISettings() {
@@ -121,11 +143,13 @@
 </script>
 
 <div class="space-y-6">
+ <!-- Breadcrumb -->
+ <Breadcrumb crumbs={[
+   { label: 'Collections', href: `${base}/collections` },
+   { label: collection?.display_name || collectionName },
+ ]} />
  <!-- Header -->
  <div class="flex items-center gap-3">
- <a href="{base}/collections" class="btn btn-ghost btn-sm">
- <ArrowLeft size={16} />
- </a>
  <div>
  <h1 class="text-2xl font-bold">{collection?.display_name || collectionName}</h1>
  <p class="text-base-content/60 text-sm">{collectionName}</p>
@@ -235,7 +259,7 @@
 {:else if activeTab === 'schema'}
  <!-- Schema tab -->
  {#if loading}
-   <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
+   <LoadingSkeleton type="table" rows={6} cols={4} />
  {:else}
  <div class="space-y-2">
  {#if getFields().length === 0}
@@ -435,3 +459,12 @@
  </div>
 {/if}
 </div>
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

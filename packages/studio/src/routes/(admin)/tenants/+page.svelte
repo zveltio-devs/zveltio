@@ -14,11 +14,12 @@
  X,
  Check,
  } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  // ── State ──────────────────────────────────────────────────────────────────
  let tenants = $state<any[]>([]);
  let loading = $state(false);
- let error = $state('');
 
  // Create tenant modal
  let showCreateModal = $state(false);
@@ -48,18 +49,19 @@
  let creatingEnv = $state(false);
  let createEnvError = $state('');
 
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+
  // ── Lifecycle ──────────────────────────────────────────────────────────────
  onMount(loadTenants);
 
  // ── API helpers ────────────────────────────────────────────────────────────
  async function loadTenants() {
  loading = true;
- error = '';
  try {
  const data = await api.get<{ tenants: any[] }>('/api/tenants');
  tenants = data.tenants;
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Something went wrong');
  } finally {
  loading = false;
  }
@@ -88,13 +90,22 @@
 
  async function suspendTenant(tenant: any) {
  const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
- if (!confirm(`${newStatus === 'suspended' ? 'Suspend' : 'Reactivate'} tenant "${tenant.name}"?`)) return;
+ const action = newStatus === 'suspended' ? 'Suspend' : 'Reactivate';
+ confirmState = {
+ open: true,
+ title: `${action} Tenant`,
+ message: `${action} tenant "${tenant.name}"?`,
+ confirmLabel: action,
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.patch(`/api/tenants/${tenant.id}`, { status: newStatus });
  await loadTenants();
  } catch (e: any) {
- alert(e.message);
+ toast.error(e.message);
  }
+ },
+ };
  }
 
  function openEditLimits(tenant: any) {
@@ -115,7 +126,7 @@
  editingTenant = null;
  await loadTenants();
  } catch (e: any) {
- alert(e.message);
+ toast.error(e.message);
  } finally {
  saving = false;
  }
@@ -197,13 +208,6 @@
  </button>
  </div>
  </div>
-
- <!-- Error banner -->
- {#if error}
- <div class="alert alert-error mb-4">
- <span>{error}</span>
- </div>
- {/if}
 
  <!-- Tenants table -->
  <div class="card bg-base-100 shadow-xl">
@@ -637,3 +641,12 @@
  ></div>
  </div>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

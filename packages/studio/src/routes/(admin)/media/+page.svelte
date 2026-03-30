@@ -5,6 +5,8 @@
  Folder, FolderPlus, Upload, Image, Video, FileText, Trash2,
  Tag, Search, Grid3x3, List, Download, X, Plus,
  } from '@lucide/svelte';
+ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  let folders = $state<any[]>([]);
  let files = $state<any[]>([]);
@@ -30,7 +32,7 @@
 
  let showFileDetails = $state<any>(null);
  let stats = $state<any>(null);
- let error = $state('');
+ let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  onMount(async () => {
  await Promise.all([loadFolders(), loadFiles(), loadTags(), loadStats()]);
@@ -40,7 +42,7 @@
  try {
  const data = await api.get<{ folders: any[] }>('/api/media/folders');
  folders = data.folders || [];
- } catch (e: any) { error = e.message; }
+ } catch (e: any) { toast.error(e.message ?? 'Something went wrong'); }
  }
 
  async function loadFiles() {
@@ -52,14 +54,14 @@
  params.set('limit', '100');
  const data = await api.get<{ files: any[] }>(`/api/media/files?${params}`);
  files = data.files || [];
- } catch (e: any) { error = e.message; }
+ } catch (e: any) { toast.error(e.message ?? 'Something went wrong'); }
  }
 
  async function loadTags() {
  try {
  const data = await api.get<{ tags: any[] }>('/api/media/tags');
  tags = data.tags || [];
- } catch (e: any) { error = e.message; }
+ } catch (e: any) { toast.error(e.message ?? 'Something went wrong'); }
  }
 
  async function loadStats() {
@@ -82,16 +84,24 @@
  showFolderModal = false;
  folderName = '';
  await loadFolders();
- } catch (e: any) { alert(e.message); }
+ } catch (e: any) { toast.error(e.message); }
  }
 
  async function deleteFolder(id: string) {
- if (!confirm('Delete this folder?')) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Folder',
+ message: 'Delete this folder?',
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.delete(`/api/media/folders/${id}`);
  await loadFolders();
  if (selectedFolder === id) selectFolder(null);
- } catch (e: any) { alert(e.message); }
+ } catch (e: any) { toast.error(e.message); }
+ },
+ };
  }
 
  function handleFileSelect(e: Event) {
@@ -126,24 +136,40 @@
  }
 
  async function deleteFile(id: string) {
- if (!confirm('Delete this file?')) return;
+ confirmState = {
+ open: true,
+ title: 'Delete File',
+ message: 'Delete this file?',
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.delete(`/api/media/files/${id}`);
  await loadFiles();
  await loadStats();
  if (showFileDetails?.id === id) showFileDetails = null;
- } catch (e: any) { alert(e.message); }
+ } catch (e: any) { toast.error(e.message); }
+ },
+ };
  }
 
  async function deleteSelectedFiles() {
  if (selectedFiles.size === 0) return;
- if (!confirm(`Delete ${selectedFiles.size} selected files?`)) return;
+ confirmState = {
+ open: true,
+ title: 'Delete Files',
+ message: `Delete ${selectedFiles.size} selected files?`,
+ confirmLabel: 'Delete',
+ onconfirm: async () => {
+ confirmState.open = false;
  try {
  await api.post('/api/media/files/batch-delete', { ids: Array.from(selectedFiles) });
  selectedFiles = new Set();
  await loadFiles();
  await loadStats();
- } catch (e: any) { alert(e.message); }
+ } catch (e: any) { toast.error(e.message); }
+ },
+ };
  }
 
  async function createTag() {
@@ -153,7 +179,7 @@
  showTagModal = false;
  tagName = '';
  await loadTags();
- } catch (e: any) { alert(e.message); }
+ } catch (e: any) { toast.error(e.message); }
  }
 
  async function addTagToFile(fileId: string, tagId: string) {
@@ -303,10 +329,6 @@
  </label>
  </div>
  </div>
-
- {#if error}
- <div class="alert alert-error text-sm m-4">{error}</div>
- {/if}
 
  <!-- Files Grid/List -->
  <div class="flex-1 overflow-y-auto p-4">
@@ -583,3 +605,12 @@
  onkeydown={(e) => e.key === 'Escape' && (showFileDetails = null)} tabindex="0" aria-label="Close"></button>
  </div>
 {/if}
+
+<ConfirmModal
+ open={confirmState.open}
+ title={confirmState.title}
+ message={confirmState.message}
+ confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ onconfirm={confirmState.onconfirm}
+ oncancel={() => (confirmState.open = false)}
+/>

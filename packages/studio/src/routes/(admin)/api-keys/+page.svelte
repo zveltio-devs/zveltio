@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { Plus, Key, Trash2, Copy, Check, LoaderCircle } from '@lucide/svelte';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { toast } from '$lib/stores/toast.svelte.js';
 
   interface ApiKey {
     id: string;
@@ -18,10 +20,10 @@
   let apiKeys = $state<ApiKey[]>([]);
   let loading = $state(true);
   let showCreateModal = $state(false);
+  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
   let creating = $state(false);
   let newlyCreatedKey = $state<string | null>(null);
   let copied = $state(false);
-  let error = $state('');
 
   const ALL_ACTIONS = ['read', 'write', 'delete'];
 
@@ -37,12 +39,11 @@
 
   async function loadKeys() {
     loading = true;
-    error = '';
     try {
       const res = await api.get<{ api_keys: ApiKey[] }>('/api/api-keys');
       apiKeys = res.api_keys || [];
     } catch (e: any) {
-      error = e.message;
+      toast.error(e.message ?? 'Something went wrong');
     } finally {
       loading = false;
     }
@@ -63,20 +64,28 @@
       form = emptyForm();
       await loadKeys();
     } catch (e: any) {
-      alert(e.message || 'Failed to create key');
+      toast.error(e.message || 'Failed to create key');
     } finally {
       creating = false;
     }
   }
 
   async function revokeKey(id: string) {
-    if (!confirm('Revoke this API key? This cannot be undone.')) return;
-    try {
-      await api.delete(`/api/api-keys/${id}`);
-      await loadKeys();
-    } catch (e: any) {
-      alert(e.message || 'Failed to revoke key');
-    }
+    confirmState = {
+      open: true,
+      title: 'Revoke API Key',
+      message: 'Revoke this API key? This cannot be undone.',
+      confirmLabel: 'Revoke',
+      onconfirm: async () => {
+        confirmState.open = false;
+        try {
+          await api.delete(`/api/api-keys/${id}`);
+          await loadKeys();
+        } catch (e: any) {
+          toast.error(e.message || 'Failed to revoke key');
+        }
+      },
+    };
   }
 
   async function copyKey() {
@@ -125,10 +134,6 @@
       <Plus size={16} /> Create Key
     </button>
   </div>
-
-  {#if error}
-    <div class="alert alert-error text-sm">{error}</div>
-  {/if}
 
   {#if loading}
     <div class="flex justify-center py-16">
@@ -286,3 +291,12 @@
     </div>
   </dialog>
 {/if}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  onconfirm={confirmState.onconfirm}
+  oncancel={() => (confirmState.open = false)}
+/>

@@ -57,107 +57,82 @@
   }
 </script>
 
-<div class="forms-page">
-  <div class="page-header">
-    <h1>Forms</h1>
-    <button class="btn-primary" onclick={() => goto('/admin/forms/new')}>+ Create Form</button>
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between flex-wrap gap-4">
+    <div>
+      <h1 class="text-2xl font-bold">Forms</h1>
+      <p class="text-base-content/60 text-sm mt-0.5">Manage embeddable forms and their submissions</p>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick={() => goto('/admin/forms/new')}>+ Create Form</button>
   </div>
 
   {#if loading}
-    <p class="loading">Loading forms…</p>
+    <div class="flex justify-center py-16">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+    </div>
   {:else if error}
-    <p class="error">{error}</p>
+    <div class="alert alert-error">
+      <span>{error}</span>
+    </div>
   {:else if forms.length === 0}
-    <div class="empty-state">
-      <p>No forms yet.</p>
-      <button class="btn-primary" onclick={() => goto('/admin/forms/new')}>Create your first form</button>
+    <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
+      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-20"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      <p class="text-lg font-semibold text-base-content/60">No forms yet</p>
+      <p class="text-sm text-center max-w-sm">Create embeddable forms to collect data from your users.</p>
+      <button class="btn btn-primary btn-sm mt-2" onclick={() => goto('/admin/forms/new')}>Create Form</button>
     </div>
   {:else}
-    <div class="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Slug</th>
-            <th>Fields</th>
-            <th>Submissions</th>
-            <th>Active</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each forms as form}
-            <tr
-              class="clickable-row"
-              onclick={() => goto(`/admin/forms/${form.id}`)}
-            >
-              <td class="form-name">{form.name}</td>
-              <td class="slug"><code>{form.slug}</code></td>
-              <td>{fieldCount(form)}</td>
-              <td>{form.submission_count ?? 0}</td>
-              <td onclick={(e) => e.stopPropagation()}>
-                <button
-                  class="toggle"
-                  class:active={form.active}
-                  disabled={togglingId === form.id}
-                  onclick={() => toggleActive(form)}
-                  aria-label={form.active ? 'Deactivate' : 'Activate'}
-                >
-                  <span class="toggle-knob"></span>
-                </button>
-              </td>
-              <td onclick={(e) => e.stopPropagation()}>
-                <button class="btn-sm" onclick={() => goto(`/admin/forms/${form.id}/responses`)}>
-                  Responses
-                </button>
-                <button class="btn-sm btn-danger" onclick={() => deleteForm(form.id, form.name)}>
-                  Delete
-                </button>
-              </td>
+    <div class="card bg-base-100 shadow-sm border border-base-300">
+      <div class="overflow-x-auto">
+        <table class="table table-zebra">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Slug</th>
+              <th>Fields</th>
+              <th>Submissions</th>
+              <th>Status</th>
+              <th>Actions</th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {#each forms as form}
+              <tr
+                class="cursor-pointer hover"
+                onclick={() => goto(`/admin/forms/${form.id}`)}
+              >
+                <td class="font-medium">{form.name}</td>
+                <td onclick={(e) => e.stopPropagation()}>
+                  <code class="badge badge-outline badge-sm font-mono">{form.slug}</code>
+                </td>
+                <td>{fieldCount(form)}</td>
+                <td>{form.submission_count ?? 0}</td>
+                <td onclick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-success toggle-sm"
+                    checked={form.active}
+                    disabled={togglingId === form.id}
+                    onchange={() => toggleActive(form)}
+                    aria-label={form.active ? 'Deactivate' : 'Activate'}
+                  />
+                </td>
+                <td onclick={(e) => e.stopPropagation()}>
+                  <div class="flex gap-1">
+                    <button class="btn btn-ghost btn-xs" onclick={() => goto(`/admin/forms/${form.id}/responses`)}>
+                      Responses
+                    </button>
+                    <button class="btn btn-error btn-xs btn-ghost" onclick={() => deleteForm(form.id, form.name)}>
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </div>
   {/if}
 </div>
-
-<style>
-  .forms-page { max-width: 1100px; margin: 0 auto; padding: 2rem; }
-  .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-  h1 { font-size: 1.75rem; font-weight: 700; }
-  .loading { color: #6b7280; }
-  .error { color: #ef4444; }
-  .empty-state { text-align: center; padding: 3rem; color: #6b7280; }
-  .empty-state p { margin-bottom: 1rem; }
-  .table-wrapper { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-  th { text-align: left; padding: 0.65rem 0.75rem; background: #f9fafb; border-bottom: 2px solid #e5e7eb; font-weight: 600; color: #374151; }
-  td { padding: 0.65rem 0.75rem; border-bottom: 1px solid #f3f4f6; }
-  .clickable-row { cursor: pointer; }
-  .clickable-row:hover td { background: #f9fafb; }
-  .form-name { font-weight: 500; }
-  .slug code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; }
-  .toggle {
-    width: 40px; height: 22px; background: #d1d5db; border: none; border-radius: 11px;
-    position: relative; cursor: pointer; padding: 0; transition: background 0.2s;
-  }
-  .toggle.active { background: #22c55e; }
-  .toggle-knob {
-    position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
-    background: white; border-radius: 50%; transition: left 0.2s;
-  }
-  .toggle.active .toggle-knob { left: 21px; }
-  .btn-primary {
-    padding: 0.5rem 1rem; background: #6366f1; color: white; border: none;
-    border-radius: 6px; cursor: pointer; font-weight: 500;
-  }
-  .btn-primary:hover { background: #4f46e5; }
-  .btn-sm {
-    padding: 0.25rem 0.6rem; border: 1px solid #e5e7eb; background: white;
-    border-radius: 4px; cursor: pointer; font-size: 0.8rem; margin-right: 0.25rem;
-  }
-  .btn-sm:hover { background: #f9fafb; }
-  .btn-danger { border-color: #fca5a5; color: #dc2626; }
-  .btn-danger:hover { background: #fef2f2; }
-</style>
