@@ -61,7 +61,7 @@ services:
       - /bin/sh
       - -c
       - |
-        printf '[general]\nhost = "0.0.0.0"\nport = 6432\ndefault_pool_size = 40\nmin_pool_size = 5\npooler_mode = "session"\nauth_type = "scram"\n\n[[databases]]\nname = "%s"\nhost = "%s"\nport = %s\n' \
+        printf '[general]\nhost = "0.0.0.0"\nport = 6432\ndefault_pool_size = 20\nmin_pool_size = 5\npooler_mode = "session"\nauth_type = "scram"\n\n[[databases]]\nname = "%s"\nhost = "%s"\nport = %s\n' \
           "$$DB_NAME" "$$DB_HOST" "$$DB_PORT" > /pgdog/pgdog.toml
         printf '[[users]]\nname = "%s"\ndatabase = "%s"\npassword = "%s"\n' \
           "$$DB_USER" "$$DB_NAME" "$$DB_PASSWORD" > /pgdog/users.toml

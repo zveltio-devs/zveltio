@@ -359,8 +359,8 @@ export class DDLManager {
     });
 
     await db
-      .deleteFrom('zvd_collections' as any)
-      .where('name' as any, '=', name)
+      .deleteFrom('zvd_collections')
+      .where('name', '=', name)
       .execute();
 
     DDLManager.invalidateCache(name);
@@ -376,10 +376,10 @@ export class DDLManager {
     }
 
     const rows = await db
-      .selectFrom('zvd_collections' as any)
+      .selectFrom('zvd_collections')
       .selectAll()
-      .orderBy('sort' as any)
-      .orderBy('name' as any)
+      .orderBy('sort')
+      .orderBy('name')
       .execute();
 
     // Bun.SQL may return JSONB columns as raw JSON strings — normalize to JS objects.
@@ -399,9 +399,9 @@ export class DDLManager {
     }
 
     const row = await db
-      .selectFrom('zvd_collections' as any)
+      .selectFrom('zvd_collections')
       .selectAll()
-      .where('name' as any, '=', name)
+      .where('name', '=', name)
       .executeTakeFirst();
 
     // Bun.SQL may return JSONB columns as raw JSON strings — normalize to JS object.
@@ -423,7 +423,7 @@ export class DDLManager {
     updates: Partial<CollectionDefinition>,
   ): Promise<void> {
     await db
-      .updateTable('zvd_collections' as any)
+      .updateTable('zvd_collections')
       .set({
         ...(updates.displayName ? { display_name: updates.displayName } : {}),
         ...(updates.icon ? { icon: updates.icon } : {}),
@@ -558,7 +558,7 @@ ${schema.fields.map((f) => {
     definition: CollectionDefinition,
   ): Promise<void> {
     await db
-      .insertInto('zvd_collections' as any)
+      .insertInto('zvd_collections')
       .values({
         name: definition.name,
         display_name: definition.displayName || definition.name,
@@ -569,13 +569,13 @@ ${schema.fields.map((f) => {
         singular_name: definition.singularName || definition.name,
         description: definition.description || null,
         fields: JSON.stringify(definition.fields),
-      } as any)
+      })
       .onConflict((oc) =>
-        oc.column('name' as any).doUpdateSet({
+        oc.column('name').doUpdateSet({
           display_name: definition.displayName || definition.name,
           fields: JSON.stringify(definition.fields),
           updated_at: new Date(),
-        } as any),
+        }),
       )
       .execute();
 

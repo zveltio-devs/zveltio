@@ -215,14 +215,11 @@ async function applyMigration(
     return; // Already applied
   }
 
-  // Bun.SQL's pool.reserve() begins an implicit transaction; releasing the
-  // connection without an explicit COMMIT rolls it back. Each call to
-  // db.executeQuery() acquires + releases a separate reserved connection, so
-  // DDL committed in statement N is invisible to statement N+1.
-  //
-  // Solution: run all statements inside a single Kysely transaction so they
-  // share one reserved connection with an explicit BEGIN/COMMIT. PostgreSQL
-  // supports transactional DDL, so this is safe.
+  // Run all statements inside a single Kysely transaction so they share one
+  // reserved backend connection with an explicit BEGIN/COMMIT. PostgreSQL
+  // supports transactional DDL — if any statement fails the whole migration
+  // rolls back cleanly. BunSqlSmartConnection.reserveForTransaction() is called
+  // by beginTransaction() to pin the connection for the duration.
   const statements = splitSqlStatements(up);
 
   await (db as any).transaction().execute(async (trx: any) => {
