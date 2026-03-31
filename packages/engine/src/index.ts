@@ -259,11 +259,15 @@ async function bootstrap() {
         console.warn('⚠️ Extension loading failed (non-fatal):', err.message);
       }),
 
-    // Realtime LISTEN/NOTIFY — enables cross-instance WebSocket broadcasts
-    (process.env.DATABASE_URL
-      ? realtimeManager.start(process.env.DATABASE_URL)
-      : Promise.resolve()
-    ).catch((err: Error) => {
+    // Realtime LISTEN/NOTIFY — must connect directly to PostgreSQL, not through
+    // PgDog/PgBouncer, because LISTEN requires a persistent dedicated connection.
+    // NATIVE_DATABASE_URL bypasses the pooler; falls back to DATABASE_URL if unset.
+    (() => {
+      const realtimeUrl = process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
+      return realtimeUrl
+        ? realtimeManager.start(realtimeUrl)
+        : Promise.resolve();
+    })().catch((err: Error) => {
       console.warn('⚠️ Realtime init failed (non-fatal):', err.message);
     }),
   ]);

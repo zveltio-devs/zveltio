@@ -76,7 +76,7 @@ zveltio-extensions/        # Separate repo — marketplace extensions
 | Framework     | Hono 4.4        | Ultra-fast web framework         |
 | Database      | PostgreSQL 17   | Primary DB + pgvector            |
 | ORM           | Kysely 0.27     | Type-safe query builder          |
-| Pool          | PgBouncer       | Connection pooler                |
+| Pool          | PgDog 0.1.33    | Connection pooler (session mode) |
 | Cache         | Valkey 8        | Redis-compatible cache           |
 | Auth          | Better-Auth     | Authentication                   |
 | RBAC          | Casbin 5.30     | Authorization                    |
