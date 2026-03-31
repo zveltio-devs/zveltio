@@ -25,7 +25,7 @@ export async function initDatabase(): Promise<Database> {
   _db = new Kysely({
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,
-      max: Number(process.env.DB_POOL_MAX ?? 20),
+      max: Number(process.env.DB_POOL_MAX ?? 10), // PgDog handles real pooling; 10 is sufficient
       idleTimeoutMs: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30_000),
     }),
   });
