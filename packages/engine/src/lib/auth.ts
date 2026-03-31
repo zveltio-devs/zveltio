@@ -35,14 +35,21 @@ export async function initAuth(db: Database) {
     }
   } catch { /* non-fatal */ }
 
-  const trustedOrigins = [
-    ...new Set([
-      ...localOrigins,
-      ...(process.env.CORS_ORIGINS
-        ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-        : []),
-    ]),
-  ];
+  // If CORS_ORIGINS is explicitly set, restrict to those origins only.
+  // Otherwise trust any origin — for self-hosted deployments the server
+  // can be reached via any hostname/IP and restricting origins here would
+  // lock out legitimate admins. Auth security comes from credentials, not CORS.
+  // If CORS_ORIGINS is explicitly set, restrict to those origins only.
+  // Otherwise trust any origin — for self-hosted deployments the server
+  // can be reached via any hostname/IP and restricting origins here would
+  // lock out legitimate admins. Auth security comes from credentials, not CORS.
+  const trustedOrigins: string[] | ((_req?: Request) => string[]) =
+    process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+      : (_req?: Request) => {
+          const origin = _req?.headers?.get('origin');
+          return origin ? [origin] : [];
+        };
 
   // Pass the engine's own Kysely (BunSqlDialect) instance to better-auth via the
   // { db, type } object form. createKyselyAdapter detects "db" in database and uses
