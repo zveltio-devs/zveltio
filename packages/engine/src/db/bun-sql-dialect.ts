@@ -130,13 +130,7 @@ class BunSqlDriver implements Driver {
       );
     }
 
-    // Normalize URL: replace "localhost" with "127.0.0.1" to force IPv4
-    // (some systems resolve localhost → ::1 which may not be bound by Docker).
-    // Strip query params — Bun.SQL doesn't reliably parse them; pass options
-    // explicitly instead.
     let cleanUrl = url.replace(/^(postgres(?:ql)?:\/\/[^@]*@)localhost([:/])/i, '$1127.0.0.1$2');
-    // Default to SSL disabled for local/plain-Postgres installs.
-    // Only enable SSL when sslmode=require/verify-* is explicitly set.
     let sslEnabled = false;
     try {
       const u = new URL(cleanUrl);
@@ -144,14 +138,9 @@ class BunSqlDriver implements Driver {
       sslEnabled = sslmode === 'require' || sslmode.startsWith('verify');
       u.search = '';
       cleanUrl = u.toString();
-    } catch {
-      // URL parsing failed — use as-is, SSL disabled
-    }
+    } catch { /* URL parsing failed — use as-is */ }
 
-    // Bun.SQL creează automat un connection pool intern.
-    // NOTE: Bun.SQL idleTimeout is in SECONDS (not ms). Convert from ms config.
-    // Pass both `ssl` and `tls` keys — Bun versions differ on which one they honour.
-    // @ts-expect-error — Bun global tipat de bun-types, dar Bun.SQL nu e în tipurile standard Kysely
+    // @ts-expect-error — Bun.SQL not in standard Kysely types
     this.#pool = new Bun.SQL(cleanUrl, {
       max: this.#config.max ?? 20,
       idleTimeout: Math.ceil((this.#config.idleTimeoutMs ?? 30_000) / 1000),
@@ -161,29 +150,27 @@ class BunSqlDriver implements Driver {
   }
 
   /**
-   * Achizitionează o conexiune rezervată din pool.
-   * reserve() pinuiește conexiunea la același socket TCP — necesar pentru
-   * ca BEGIN/query.../COMMIT să ruleze pe același backend PostgreSQL.
+   * Returns a smart connection that uses pool.unsafe() directly for normal
+   * queries (no reservation) and lazily reserves a connection only when a
+   * transaction begins. This prevents pool exhaustion — reserve() pins a
+   * dedicated backend connection; using it for every query drains max quickly.
    */
   async acquireConnection(): Promise<DatabaseConnection> {
     if (!this.#pool)
-      throw new Error(
-        '[BunSqlDriver] Driver neinitialized. Apelați initDatabase().',
-      );
-    const reserved = await this.#pool.reserve();
-    return new BunSqlConnection(reserved);
+      throw new Error('[BunSqlDriver] Driver not initialized. Call initDatabase().');
+    return new BunSqlSmartConnection(this.#pool);
   }
 
   async beginTransaction(
     connection: DatabaseConnection,
     settings: TransactionSettings,
   ): Promise<void> {
+    // Upgrade to reserved connection before sending BEGIN
+    await (connection as BunSqlSmartConnection).reserveForTransaction();
     await connection.executeQuery(CompiledQuery.raw('BEGIN'));
     if (settings.isolationLevel) {
       await connection.executeQuery(
-        CompiledQuery.raw(
-          `SET TRANSACTION ISOLATION LEVEL ${settings.isolationLevel.toUpperCase()}`,
-        ),
+        CompiledQuery.raw(`SET TRANSACTION ISOLATION LEVEL ${settings.isolationLevel.toUpperCase()}`),
       );
     }
   }
@@ -197,8 +184,7 @@ class BunSqlDriver implements Driver {
   }
 
   async releaseConnection(connection: DatabaseConnection): Promise<void> {
-    // Release the reserved connection back to the pool
-    (connection as BunSqlConnection).release();
+    (connection as BunSqlSmartConnection).release();
   }
 
   async destroy(): Promise<void> {
@@ -217,49 +203,67 @@ class BunSqlDriver implements Driver {
 
 // ─── Connection ──────────────────────────────────────────────────────────────
 
-class BunSqlConnection implements DatabaseConnection {
-  readonly #conn: BunReservedConnection;
+/**
+ * Smart connection:
+ * - Normal queries: routes through pool.unsafe() — no connection reservation,
+ *   pool manages concurrency efficiently.
+ * - Transactions: reserves a dedicated connection on beginTransaction so that
+ *   BEGIN / queries / COMMIT all run on the same PostgreSQL backend socket.
+ */
+class BunSqlSmartConnection implements DatabaseConnection {
+  readonly #pool: BunSQLPool;
+  #reserved: BunReservedConnection | null = null;
 
-  constructor(conn: BunReservedConnection) {
-    this.#conn = conn;
+  constructor(pool: BunSQLPool) {
+    this.#pool = pool;
+  }
+
+  /** Called by beginTransaction() to pin a backend connection. */
+  async reserveForTransaction(): Promise<void> {
+    if (!this.#reserved) {
+      this.#reserved = await this.#pool.reserve();
+    }
   }
 
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
-    // Bun.SQL's unsafe() does not serialize JS arrays as PostgreSQL array
-    // literals — it calls .toString() which produces e.g. 'insert' for
-    // ['insert'], causing "malformed array literal" errors on text[] columns.
-    // Convert any array parameter to the PostgreSQL literal format {val,...}.
     const params = (compiledQuery.parameters as unknown[]).map((p) => {
       if (!Array.isArray(p)) return p;
       const escaped = (p as unknown[]).map((item) => {
         if (item === null || item === undefined) return 'NULL';
         const s = String(item);
-        // Escape backslashes and double-quotes, then wrap in double-quotes
         return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
       });
       return `{${escaped.join(',')}}`;
     });
-    // Bun.SQL: passing an empty array activates prepared-statement mode,
-    // which forbids multiple commands (e.g. migration files).
-    // Omit params entirely when there are none → simple-query mode.
+
+    if (this.#reserved) {
+      // Transaction mode — use pinned reserved connection
+      const rows = params.length > 0
+        ? await this.#reserved.unsafe<R>(compiledQuery.sql, params)
+        : await this.#reserved.unsafe<R>(compiledQuery.sql);
+      return { rows };
+    }
+
+    // Normal mode — use pool directly, no reservation needed
     const rows = params.length > 0
-      ? await this.#conn.unsafe<R>(compiledQuery.sql, params)
-      : await this.#conn.unsafe<R>(compiledQuery.sql);
+      ? await this.#pool.unsafe<R>(compiledQuery.sql, params)
+      : await this.#pool.unsafe<R>(compiledQuery.sql);
     return { rows };
   }
 
-  // Streaming is not supported by Bun.SQL yet (Bun 1.2)
   // eslint-disable-next-line require-yield
   async *streamQuery<R>(
     _compiledQuery: CompiledQuery,
     _chunkSize: number,
   ): AsyncIterableIterator<QueryResult<R>> {
-    throw new Error(
-      '[BunSqlConnection] streamQuery is not supported in BunSqlDialect',
-    );
+    throw new Error('[BunSqlConnection] streamQuery is not supported in BunSqlDialect');
   }
 
   release(): void {
-    this.#conn.release();
+    if (this.#reserved) {
+      this.#reserved.release();
+      this.#reserved = null;
+    }
+    // No-op for non-transaction connections — pool manages itself
   }
 }
