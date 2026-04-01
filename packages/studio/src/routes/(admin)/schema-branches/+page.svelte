@@ -4,6 +4,7 @@
  import {
  GitBranch, Plus, RefreshCw, Trash2, Eye, Merge, AlertCircle, CheckCircle, Clock, X,
  } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
 
  interface SchemaBranch {
  id: string;
@@ -149,16 +150,12 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold flex items-center gap-2"><GitBranch size={24} /> Schema Branches</h1>
- <p class="text-base-content/60 text-sm mt-1">Create isolated schema branches to safely test changes before applying to production</p>
- </div>
- <div class="flex gap-2">
- <button class="btn btn-ghost btn-sm" onclick={loadBranches} title="Refresh"><RefreshCw size={14} /></button>
- <button class="btn btn-primary btn-sm gap-1" onclick={openCreateModal}><Plus size={14} /> Create Branch</button>
- </div>
- </div>
+ <PageHeader title="Schema Branches" subtitle="Manage database schema versions">
+  <div class="flex gap-2">
+  <button class="btn btn-ghost btn-sm" onclick={loadBranches} title="Refresh"><RefreshCw size={14} /></button>
+  <button class="btn btn-primary btn-sm gap-1" onclick={openCreateModal}><Plus size={14} /> Create Branch</button>
+  </div>
+ </PageHeader>
 
  <div class="alert alert-info">
  <AlertCircle size={16} />

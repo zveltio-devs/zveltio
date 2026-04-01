@@ -8,6 +8,7 @@
  } from '@lucide/svelte';
  import { ENGINE_URL } from '$lib/config.js';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  const CATEGORY_ICONS: Record<string, any> = {
@@ -62,6 +63,10 @@
 
  const allCategories = $derived(['all', ...new Set(extensions.map(e => e.category))]);
 
+ let cat = $state('all');
+
+ const CATEGORIES = ['data', 'ai', 'automation', 'communications', 'developer', 'compliance'];
+
  const filtered = $derived(
  extensions.filter(e => {
  const q = searchQuery.toLowerCase();
@@ -70,7 +75,8 @@
  e.description.toLowerCase().includes(q) ||
  e.tags.some(t => t.includes(q));
  const matchCat = selectedCategory === 'all' || e.category === selectedCategory;
- return matchSearch && matchCat;
+ const matchSideCat = cat === 'all' || e.category === cat;
+ return matchSearch && matchCat && matchSideCat;
  })
  );
 
@@ -201,33 +207,18 @@
  onMount(load);
 </script>
 
-<div class="p-6 max-w-7xl mx-auto">
+<div class="space-y-6">
 
- <!-- Header -->
- <div class="flex items-center justify-between mb-6">
- <div>
- <h1 class="text-3xl font-bold flex items-center gap-3">
- <Package size={32} class="text-primary" />
- Extension Marketplace
- </h1>
- <p class="opacity-60 mt-1 text-sm">
- {stats.running} running · {stats.installed} installed · {stats.total} available
- </p>
- </div>
- <button class="btn btn-ghost btn-sm gap-1" onclick={load} disabled={loading}>
- <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
- Refresh
- </button>
- </div>
+ <PageHeader title="Marketplace" subtitle="Browse and install extensions">
+  <button class="btn btn-ghost btn-sm gap-1" onclick={load} disabled={loading}>
+  <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
+  Refresh
+  </button>
+ </PageHeader>
 
- <!-- Restart banner -->
  {#if restartNeeded}
- <div class="alert alert-warning mb-6">
- <AlertTriangle size={20} />
- <div>
- <p class="font-semibold">Restart required</p>
- <p class="text-sm">Some extension changes will take effect after restarting the server.</p>
- </div>
+ <div class="alert alert-warning py-2 mb-4 text-sm">
+ <span>Some extensions require a server restart to take effect.</span>
  </div>
  {/if}
 
@@ -235,27 +226,37 @@
  <div class="alert alert-error mb-6">{error}</div>
  {/if}
 
- <!-- Search + Category filters -->
- <div class="flex flex-wrap gap-3 mb-6">
+ <!-- Search bar -->
+ <div class="mb-5">
  <input
  type="text"
- class="input input-sm flex-1 min-w-48"
+ class="input input-sm w-full"
  placeholder="Search extensions..."
  bind:value={searchQuery}
  />
- <div class="join flex-wrap">
- {#each allCategories as cat}
- <button
- class="btn btn-sm join-item capitalize {selectedCategory === cat ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => selectedCategory = cat}
- >
- {cat}
- </button>
- {/each}
- </div>
  </div>
 
- <!-- Grid -->
+ <!-- Sidebar + Grid -->
+ <div class="flex gap-5">
+
+  <!-- Sidebar categorii -->
+  <nav class="w-36 shrink-0 space-y-0.5">
+   <button class="w-full text-left px-3 py-1.5 rounded-lg text-sm
+                  {cat === 'all' ? 'bg-primary/10 text-primary font-medium' : 'text-base-content/60 hover:bg-base-200'}"
+           onclick={() => cat = 'all'}>
+    All ({extensions.length})
+   </button>
+   {#each CATEGORIES as c}
+    <button class="w-full text-left px-3 py-1.5 rounded-lg text-sm capitalize
+                   {cat === c ? 'bg-primary/10 text-primary font-medium' : 'text-base-content/60 hover:bg-base-200'}"
+            onclick={() => cat = c}>
+     {c}
+    </button>
+   {/each}
+  </nav>
+
+  <!-- Grid -->
+  <div class="flex-1">
  {#if loading}
  <div class="flex justify-center py-20">
  <span class="loading loading-spinner loading-lg text-primary"></span>
@@ -364,6 +365,8 @@
  {/each}
  </div>
  {/if}
+  </div><!-- /flex-1 -->
+ </div><!-- /flex gap-5 -->
 
 </div>
 

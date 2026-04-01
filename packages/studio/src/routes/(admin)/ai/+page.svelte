@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search, Code2, Wand2 } from '@lucide/svelte';
+ import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search, Code2, Wand2, MessageSquare, FileText } from '@lucide/svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let providers = $state<any[]>([]);
@@ -9,6 +9,15 @@
  let templates = $state<any[]>([]);
  let activeChat = $state<any>(null);
  let activeTab = $state<'chat' | 'templates' | 'settings' | 'search' | 'query' | 'schema'>('chat');
+
+ const AI_TABS: Array<{ id: typeof activeTab; label: string; icon: any }> = [
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'search', label: 'Semantic Search', icon: Search },
+  { id: 'query', label: 'NL → SQL', icon: Code2 },
+  { id: 'schema', label: 'Schema Gen', icon: Wand2 },
+  { id: 'templates', label: 'Templates', icon: BookTemplate },
+  { id: 'settings', label: 'Settings', icon: Settings2 },
+ ];
 
  // Chat state
  let input = $state('');
@@ -192,53 +201,22 @@
 <div class="flex h-full -m-6">
  <!-- Left sidebar: chats list -->
  <aside class="w-64 border-r border-base-300 bg-base-200 flex flex-col shrink-0">
- <!-- Header with tabs — scrollable so all 6 fit -->
- <div class="px-3 pt-3 pb-0 border-b border-base-300">
- <div class="flex gap-1 overflow-x-auto pb-3 scrollbar-none">
- <button
- class="btn btn-xs shrink-0 {activeTab === 'chat' ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => (activeTab = 'chat')}
- >
- <Bot size={12} />
- Chat
- </button>
- <button
- class="btn btn-xs shrink-0 {activeTab === 'templates' ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => (activeTab = 'templates')}
- >
- <BookTemplate size={12} />
- Templates
- </button>
- <button
- class="btn btn-xs shrink-0 {activeTab === 'search' ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => (activeTab = 'search')}
- >
- <Search size={12} />
- Search
- </button>
- <button
- class="btn btn-xs shrink-0 {activeTab === 'query' ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => (activeTab = 'query')}
- >
- <Code2 size={12} />
- Query
- </button>
- <button
- class="btn btn-xs shrink-0 {activeTab === 'schema' ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => (activeTab = 'schema')}
- >
- <Wand2 size={12} />
- Alchemist
- </button>
- <button
- class="btn btn-xs shrink-0 {activeTab === 'settings' ? 'btn-primary' : 'btn-ghost'}"
- onclick={() => (activeTab = 'settings')}
- >
- <Settings2 size={12} />
- Settings
- </button>
+ <!-- Sidebar nav -->
+ <div class="px-2 pt-3 pb-2 space-y-0.5">
+  {#each AI_TABS as tab}
+   <button
+    class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] font-medium transition-colors
+           {activeTab === tab.id
+             ? 'bg-primary/10 text-primary'
+             : 'text-base-content/60 hover:bg-base-200 hover:text-base-content'}"
+    onclick={() => (activeTab = tab.id)}
+   >
+    <tab.icon size={14} class="shrink-0" />
+    {tab.label}
+   </button>
+  {/each}
  </div>
- </div>
+ <div class="border-b border-base-300"></div>
 
  {#if activeTab === 'chat'}
  <div class="p-2">
@@ -435,22 +413,44 @@
 
  <!-- Main chat area -->
  <div class="flex-1 flex flex-col bg-base-100">
- {#if !activeChat && activeTab === 'chat'}
- <div class="flex-1 flex flex-col items-center justify-center text-base-content/40 gap-3">
- <Bot size={48} class="opacity-20" />
- <p class="text-lg font-semibold">AI Assistant</p>
- <p class="text-sm">Start a new chat or select an existing one</p>
- {#if providers.length === 0}
- <p class="text-sm text-warning">No AI provider configured.
- <button class="underline" onclick={() => activeTab = 'settings'}>Add one here →</button>
- </p>
- {/if}
- <button class="btn btn-primary" onclick={newChat}>
- <Plus size={16} />
- New Chat
- </button>
+ {#if activeTab === 'chat' && (!activeChat || messages.length === 0)}
+ <div class="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+  <div class="p-4 rounded-2xl bg-primary/5">
+   <Bot size={40} class="text-primary/60" />
+  </div>
+  <div class="text-center max-w-sm">
+   <h2 class="font-semibold text-lg">AI Studio</h2>
+   <p class="text-sm text-base-content/50 mt-1">
+    Chat with your data, generate schemas, run SQL queries, and search semantically.
+   </p>
+   {#if providers.length === 0}
+    <p class="text-sm text-warning mt-2">No AI provider configured.
+     <button class="underline" onclick={() => activeTab = 'settings'}>Add one here →</button>
+    </p>
+   {/if}
+  </div>
+  <div class="grid grid-cols-2 gap-2 w-full max-w-md">
+   {#each [
+    'Show me all collections with their record counts',
+    'Generate a schema for an e-commerce product catalog',
+    'Find records where status is pending from the last 7 days',
+    'What are the most active collections this week?'
+   ] as prompt}
+    <button
+     class="text-left p-3 rounded-lg border border-base-300 text-xs text-base-content/60 hover:border-primary/40 hover:text-base-content transition-all"
+     onclick={async () => { if (!activeChat) await newChat(); input = prompt; }}
+    >
+     {prompt}
+    </button>
+   {/each}
+  </div>
+  {#if !activeChat}
+  <button class="btn btn-primary btn-sm" onclick={newChat}>
+   <Plus size={14} /> New Chat
+  </button>
+  {/if}
  </div>
- {:else if activeTab === 'chat' || !activeChat}
+ {:else if activeTab === 'chat'}
  <!-- Chat messages -->
  <div class="flex-1 overflow-y-auto p-4 space-y-4">
  {#if messages.length === 0}

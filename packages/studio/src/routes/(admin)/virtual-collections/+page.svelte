@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
 
  interface VirtualCollection {
  name: string;
@@ -130,26 +131,17 @@
  onMount(load);
 </script>
 
-<div class="p-6 max-w-4xl mx-auto">
- <div class="flex items-center justify-between mb-6">
- <div>
- <h1 class="text-3xl font-bold flex items-center gap-2">
- <Plug size={28} class="text-primary" />
- Virtual Collections
- </h1>
- <p class="text-base-content/60 mt-1">
- Proxy external APIs (Stripe, Shopify, ERPs) as Zveltio collections.
- </p>
- </div>
- <div class="flex gap-2">
- <button class="btn btn-ghost btn-sm" onclick={load}>
- <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
- </button>
- <button class="btn btn-primary btn-sm" onclick={() => (showCreate = true)}>
- <Plus size={14} /> New Virtual Collection
- </button>
- </div>
- </div>
+<div class="space-y-6">
+ <PageHeader title="Virtual Collections" subtitle="External data source integrations">
+  <div class="flex gap-2">
+  <button class="btn btn-ghost btn-sm" onclick={load}>
+  <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
+  </button>
+  <button class="btn btn-primary btn-sm" onclick={() => (showCreate = true)}>
+  <Plus size={14} /> New Virtual Collection
+  </button>
+  </div>
+ </PageHeader>
 
  {#if error}
  <div class="alert alert-error mb-4">{error}</div>

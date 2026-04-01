@@ -15,6 +15,7 @@
  Check,
  } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  // ── State ──────────────────────────────────────────────────────────────────
@@ -173,45 +174,32 @@
  }
 
  // ── Helpers ────────────────────────────────────────────────────────────────
- const planBadge: Record<string, string> = {
+ const PLAN_BADGES: Record<string, string> = {
  free: 'badge-ghost',
  pro: 'badge-primary',
  enterprise: 'badge-secondary',
  custom: 'badge-accent',
  };
 
- const statusBadge: Record<string, string> = {
- active: 'badge-success',
- suspended: 'badge-warning',
- deleted: 'badge-error',
- };
+
 </script>
 
-<div class="p-6">
- <!-- Header -->
- <div class="flex items-center justify-between mb-6">
- <div>
- <h1 class="text-3xl font-bold flex items-center gap-3">
- <Building2 size={32} />
- Tenants
- </h1>
- <p class="text-lg opacity-70 mt-1">Manage SaaS tenants and their environments</p>
- </div>
- <div class="flex gap-2">
- <button class="btn btn-ghost btn-sm gap-2" onclick={loadTenants} disabled={loading}>
- <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
- Refresh
- </button>
- <button class="btn btn-primary gap-2" onclick={() => (showCreateModal = true)}>
- <Plus size={18} />
- New Tenant
- </button>
- </div>
- </div>
+<div class="space-y-6">
+ <PageHeader title="Tenants" subtitle="Manage SaaS tenants and their environments" count={tenants.length}>
+  <div class="flex gap-2">
+  <button class="btn btn-ghost btn-sm gap-2" onclick={loadTenants} disabled={loading}>
+  <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
+  Refresh
+  </button>
+  <button class="btn btn-primary btn-sm gap-1.5" onclick={() => (showCreateModal = true)}>
+  <Plus size={16} />
+  New Tenant
+  </button>
+  </div>
+ </PageHeader>
 
  <!-- Tenants table -->
- <div class="card bg-base-100 shadow-xl">
- <div class="card-body p-0">
+ <div class="card bg-base-100 shadow-sm overflow-x-auto">
  {#if loading && tenants.length === 0}
  <div class="flex justify-center py-16">
  <span class="loading loading-spinner loading-lg"></span>
@@ -222,47 +210,43 @@
  <p class="opacity-60">No tenants yet. Create the first one.</p>
  </div>
  {:else}
- <div class="overflow-x-auto">
- <table class="table">
+ <table class="table table-sm w-full">
  <thead>
  <tr>
  <th>Tenant</th>
  <th>Plan</th>
+ <th>Records</th>
+ <th>API calls today</th>
  <th>Status</th>
- <th>Limits</th>
- <th>Created</th>
- <th>Actions</th>
+ <th class="text-right">Actions</th>
  </tr>
  </thead>
  <tbody>
  {#each tenants as tenant}
  <!-- Main row -->
- <tr class="hover">
+ <tr class="hover group">
  <td>
- <div>
- <span class="font-semibold">{tenant.name}</span>
- <br />
- <code class="text-xs opacity-60">{tenant.slug}</code>
+ <div class="font-medium text-sm">{tenant.name}</div>
+ <div class="text-xs text-base-content/40 font-mono">{tenant.slug}</div>
+ </td>
+ <td>
+ <span class="badge badge-xs {PLAN_BADGES[tenant.plan] ?? 'badge-ghost'} capitalize">{tenant.plan ?? 'free'}</span>
+ </td>
+ <td>
+ <div class="flex items-center gap-2">
+ <div class="w-16 h-1.5 bg-base-200 rounded-full overflow-hidden">
+ <div class="h-full bg-primary rounded-full"
+      style="width: {Math.min(((tenant._record_count ?? 0) / (tenant.max_records ?? 10000)) * 100, 100)}%"></div>
+ </div>
+ <span class="text-xs text-base-content/50">{(tenant._record_count ?? 0).toLocaleString()}</span>
  </div>
  </td>
+ <td class="text-xs text-base-content/50">{tenant._api_calls_today?.toLocaleString() ?? '—'}</td>
  <td>
- <span class="badge {planBadge[tenant.plan] ?? 'badge-ghost'}">{tenant.plan}</span>
+ <span class="badge badge-xs {tenant.status === 'active' ? 'badge-success' : 'badge-error'}">{tenant.status ?? 'active'}</span>
  </td>
- <td>
- <span class="badge {statusBadge[tenant.status] ?? 'badge-ghost'}">
- {tenant.status}
- </span>
- </td>
- <td class="text-xs opacity-70">
- <div>{tenant.max_records.toLocaleString()} records</div>
- <div>{tenant.max_api_calls_day.toLocaleString()} calls/day</div>
- <div>{tenant.max_users} users</div>
- </td>
- <td class="text-xs opacity-60">
- {new Date(tenant.created_at).toLocaleDateString()}
- </td>
- <td>
- <div class="flex gap-1">
+ <td class="text-right">
+ <div class="flex gap-1 justify-end">
  <!-- Environments toggle -->
  <button
  class="btn btn-ghost btn-xs gap-1 tooltip"
@@ -279,7 +263,7 @@
 
  <!-- Edit limits -->
  <button
- class="btn btn-ghost btn-xs tooltip"
+ class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 tooltip"
  data-tip="Edit Limits"
  onclick={() => openEditLimits(tenant)}
  >
@@ -350,9 +334,7 @@
  {/each}
  </tbody>
  </table>
- </div>
  {/if}
- </div>
  </div>
 </div>
 

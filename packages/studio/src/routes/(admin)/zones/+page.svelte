@@ -7,6 +7,8 @@
     ToggleLeft, ToggleRight, ExternalLink,
   } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   let zones = $state<any[]>([]);
@@ -106,20 +108,14 @@
 
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between flex-wrap gap-4">
-    <div>
-      <h1 class="text-2xl font-bold">Zones</h1>
-      <p class="text-base-content/60 text-sm mt-0.5">Each zone is a complete portal — with its own pages, navigation, and access rules</p>
-    </div>
+  <PageHeader title="Zones" subtitle="Each zone is a complete portal with its own pages and access rules" count={zones.length}>
     <button class="btn btn-primary btn-sm gap-1" onclick={() => (showModal = true)}>
       <Plus size={15}/> New Zone
     </button>
-  </div>
+  </PageHeader>
 
   {#if loading}
-    <div class="flex justify-center py-16">
-      <LoaderCircle size={28} class="animate-spin text-primary"/>
-    </div>
+    <LoadingSkeleton type="card" rows={6} />
   {:else if zones.length === 0}
     <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
       <Layout size={48} class="opacity-20" />
@@ -130,7 +126,7 @@
   {:else}
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {#each zones as z (z.id)}
-        <div class="group card bg-base-200 hover:bg-base-300 transition-colors border border-transparent hover:border-base-300">
+        <div class="group card bg-base-200 hover:bg-base-300 transition-all border border-transparent hover:border-primary/30 hover:shadow-sm">
           <div class="card-body p-4 gap-3">
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">

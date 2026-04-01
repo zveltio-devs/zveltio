@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import { Bell, BellOff, CheckCheck, RefreshCw, LoaderCircle } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
 
  interface Notification {
  id: string;
@@ -17,6 +18,7 @@
  let loading = $state(true);
  let markingAll = $state(false);
  let unreadOnly = $state(false);
+ let activeTab = $state<'inbox' | 'rules'>('inbox');
 
  const unreadCount = $derived(notifications.filter(n => !n.is_read).length);
  const filtered = $derived(unreadOnly ? notifications.filter(n => !n.is_read) : notifications);
@@ -73,31 +75,44 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Notifications</h1>
- <p class="text-base-content/60 text-sm mt-1">
- {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
- </p>
- </div>
- <div class="flex gap-2">
- <label class="flex items-center gap-2 text-sm cursor-pointer">
- <input type="checkbox" class="checkbox checkbox-sm" bind:checked={unreadOnly}
- onchange={loadNotifications} />
- Unread only
- </label>
- <button class="btn btn-ghost btn-sm" onclick={loadNotifications}>
- <RefreshCw size={15} />
- </button>
- {#if unreadCount > 0}
- <button class="btn btn-outline btn-sm" onclick={markAllRead} disabled={markingAll}>
- {#if markingAll}<LoaderCircle size={14} class="animate-spin" />{:else}<CheckCheck size={14} />{/if}
- Mark all read
- </button>
- {/if}
- </div>
+ <PageHeader title="Notifications" subtitle="{unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}">
+  <div class="flex gap-2">
+  <label class="flex items-center gap-2 text-sm cursor-pointer">
+  <input type="checkbox" class="checkbox checkbox-sm" bind:checked={unreadOnly}
+  onchange={loadNotifications} />
+  Unread only
+  </label>
+  <button class="btn btn-ghost btn-sm" onclick={loadNotifications}>
+  <RefreshCw size={15} />
+  </button>
+  {#if unreadCount > 0}
+  <button class="btn btn-outline btn-sm" onclick={markAllRead} disabled={markingAll}>
+  {#if markingAll}<LoaderCircle size={14} class="animate-spin" />{:else}<CheckCheck size={14} />{/if}
+  Mark all read
+  </button>
+  {/if}
+  </div>
+ </PageHeader>
+
+ <div class="border-b border-base-200 mb-4">
+  <div class="flex gap-0">
+    <button class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+      {activeTab === 'inbox' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+      onclick={() => activeTab = 'inbox'}>
+      Inbox
+      {#if unreadCount > 0}
+        <span class="badge badge-primary badge-xs ml-1">{unreadCount}</span>
+      {/if}
+    </button>
+    <button class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+      {activeTab === 'rules' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+      onclick={() => activeTab = 'rules'}>
+      Rules
+    </button>
+  </div>
  </div>
 
+ {#if activeTab === 'inbox'}
  {#if loading}
  <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
  {:else if filtered.length === 0}
@@ -140,5 +155,10 @@
  </div>
  {/each}
  </div>
+ {/if}
+ {/if}
+
+ {#if activeTab === 'rules'}
+ <div class="text-sm text-base-content/50 py-8 text-center">Notification rules coming soon.</div>
  {/if}
 </div>

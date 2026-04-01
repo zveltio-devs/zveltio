@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api, settingsApi } from '$lib/api.js';
  import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff, Gauge, Plus, Trash2 } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let loading = $state(true);
@@ -66,6 +67,7 @@
  try {
  await settingsApi.updateBulk(s);
  saved = true;
+ toast.success('Settings saved successfully');
  setTimeout(() => (saved = false), 3000);
  } catch (err) {
  toast.error(err instanceof Error ? err.message : 'Save failed');
@@ -77,6 +79,7 @@
  try {
  await api.put('/api/settings/rate_limiting', { value: { ...rl } });
  rlSaved = true;
+ toast.success('Rate limiting settings saved');
  setTimeout(() => (rlSaved = false), 3000);
  } catch (err) {
  toast.error(err instanceof Error ? err.message : 'Save failed');
@@ -101,23 +104,19 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Settings</h1>
- <p class="text-base-content/60 text-sm mt-1">Platform configuration</p>
- </div>
- {#if tab !== 'rate_limiting'}
- <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={save} disabled={saving || loading}>
- {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
- {saved ? '✓ Saved' : 'Save Settings'}
- </button>
- {:else}
- <button class="btn {rlSaved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveRateLimiting} disabled={rlSaving}>
- {#if rlSaving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
- {rlSaved ? '✓ Saved' : 'Save'}
- </button>
- {/if}
- </div>
+ <PageHeader title="Settings" subtitle="Configure your Zveltio instance">
+  {#if tab !== 'rate_limiting'}
+  <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={save} disabled={saving || loading}>
+  {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
+  {saved ? '✓ Saved' : 'Save Settings'}
+  </button>
+  {:else}
+  <button class="btn {rlSaved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveRateLimiting} disabled={rlSaving}>
+  {#if rlSaving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
+  {rlSaved ? '✓ Saved' : 'Save'}
+  </button>
+  {/if}
+ </PageHeader>
 
  <div class="tabs tabs-bordered">
  {#each TABS as t}

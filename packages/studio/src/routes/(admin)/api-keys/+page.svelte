@@ -3,6 +3,9 @@
   import { api } from '$lib/api.js';
   import { Plus, Key, Trash2, Copy, Check, LoaderCircle } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import Pagination from '$lib/components/common/Pagination.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   interface ApiKey {
@@ -19,6 +22,9 @@
 
   let apiKeys = $state<ApiKey[]>([]);
   let loading = $state(true);
+  let currentPage = $state(1);
+  let total = $state(0);
+  const LIMIT = 20;
   let showCreateModal = $state(false);
   let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
   let creating = $state(false);
@@ -40,8 +46,9 @@
   async function loadKeys() {
     loading = true;
     try {
-      const res = await api.get<{ api_keys: ApiKey[] }>('/api/api-keys');
+      const res = await api.get<{ api_keys: ApiKey[]; total?: number }>(`/api/api-keys?limit=${LIMIT}&offset=${(currentPage - 1) * LIMIT}`);
       apiKeys = res.api_keys || [];
+      total = res.total ?? apiKeys.length;
     } catch (e: any) {
       toast.error(e.message ?? 'Something went wrong');
     } finally {
@@ -122,23 +129,27 @@
     if (scopes.length === 1 && scopes[0].collection === '*') return 'All collections';
     return scopes.map(s => s.collection || '?').join(', ');
   }
+
+  function formatRelative(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }
 </script>
 
 <div class="space-y-6">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold">API Keys</h1>
-      <p class="text-base-content/60 text-sm mt-1">Manage programmatic access to the Zveltio API</p>
-    </div>
-    <button class="btn btn-primary btn-sm gap-2" onclick={() => (showCreateModal = true)}>
-      <Plus size={16} /> Create Key
+  <PageHeader title="API Keys" subtitle="Manage programmatic access to the API" count={apiKeys.length}>
+    <button class="btn btn-primary btn-sm gap-1.5" onclick={() => (showCreateModal = true)}>
+      <Plus size={14} /> Create Key
     </button>
-  </div>
+  </PageHeader>
 
   {#if loading}
-    <div class="flex justify-center py-16">
-      <LoaderCircle size={32} class="animate-spin text-primary" />
-    </div>
+    <LoadingSkeleton type="table" rows={5} />
   {:else if apiKeys.length === 0}
     <div class="card bg-base-200 text-center py-16">
       <Key size={40} class="mx-auto text-base-content/30 mb-3" />
@@ -172,7 +183,7 @@
                 <td class="text-sm">{key.rate_limit}/hr</td>
                 <td class="text-sm">{formatExpiry(key.expires_at)}</td>
                 <td class="text-sm text-base-content/60">
-                  {key.last_used_at ? new Date(key.last_used_at).toLocaleDateString() : 'Never'}
+                  {key.last_used_at ? formatRelative(key.last_used_at) : 'Never'}
                 </td>
                 <td>
                   <span class="badge badge-sm {key.is_active ? 'badge-success' : 'badge-error'}">
@@ -193,6 +204,7 @@
       </div>
     </div>
   {/if}
+  <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; loadKeys(); }} />
 </div>
 
 <!-- Create modal -->
@@ -212,10 +224,10 @@
             <input id="api-key-rate-limit" type="number" bind:value={form.rate_limit} min="1" class="input" />
           </div>
           <div class="form-control">
-            <label class="label">
+            <div class="label">
               <span class="label-text">Expiry date</span>
               <span class="label-text-alt">Optional</span>
-            </label>
+            </div>
             <input type="date" bind:value={form.expires_at} class="input" />
           </div>
         </div>

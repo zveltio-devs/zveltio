@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { collectionsApi } from '$lib/api.js';
-  import { Plus, Table, Trash2, Settings, LoaderCircle, Database, Search } from '@lucide/svelte';
+  import { Plus, Table, Trash2, Settings, LoaderCircle, Database } from '@lucide/svelte';
   import { base } from '$app/paths';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import EmptyState from '$lib/components/common/EmptyState.svelte';
+  import SearchBar from '$lib/components/common/SearchBar.svelte';
 
   let collections = $state<any[]>([]);
   let loading = $state(true);
@@ -12,7 +15,7 @@
   let newCollectionName = $state('');
   let nameError = $state('');
   let showCreateModal = $state(false);
-  let fieldTypes = $state<any[]>([]);
+
   let newFields = $state([{ name: '', type: 'text', required: false }]);
   let search = $state('');
   let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
@@ -29,8 +32,6 @@
 
   onMount(async () => {
     await loadCollections();
-    const ft = await collectionsApi.fieldTypes();
-    fieldTypes = ft.field_types;
   });
 
   async function loadCollections() {
@@ -102,27 +103,90 @@
     const f = typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields;
     return f?.length ?? 0;
   }
+
+  const TEMPLATES = [
+    {
+      id: 'blog',
+      label: 'Blog Posts',
+      fields: [
+        { name: 'title', type: 'text', required: true },
+        { name: 'content', type: 'richtext', required: false },
+        { name: 'slug', type: 'text', required: false },
+        { name: 'status', type: 'text', required: false },
+        { name: 'published_at', type: 'datetime', required: false },
+      ],
+    },
+    {
+      id: 'products',
+      label: 'Products',
+      fields: [
+        { name: 'name', type: 'text', required: true },
+        { name: 'price', type: 'number', required: false },
+        { name: 'description', type: 'text', required: false },
+        { name: 'status', type: 'text', required: false },
+      ],
+    },
+    {
+      id: 'team',
+      label: 'Team Members',
+      fields: [
+        { name: 'name', type: 'text', required: true },
+        { name: 'email', type: 'email', required: true },
+        { name: 'role', type: 'text', required: false },
+        { name: 'department', type: 'text', required: false },
+      ],
+    },
+    {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { name: 'order_number', type: 'text', required: true },
+        { name: 'customer_name', type: 'text', required: true },
+        { name: 'amount', type: 'number', required: true },
+        { name: 'status', type: 'text', required: false },
+      ],
+    },
+    {
+      id: 'events',
+      label: 'Events',
+      fields: [
+        { name: 'title', type: 'text', required: true },
+        { name: 'description', type: 'text', required: false },
+        { name: 'start_date', type: 'datetime', required: true },
+        { name: 'location', type: 'text', required: false },
+      ],
+    },
+  ];
+
+  let selectedTemplate = $state<string | null>(null);
+
+  function applyTemplate(tmpl: typeof TEMPLATES[0]) {
+    selectedTemplate = tmpl.id;
+    newFields = tmpl.fields.map(f => ({ ...f }));
+    if (!newCollectionName) {
+      newCollectionName = tmpl.id;
+      nameError = validateName(tmpl.id);
+    }
+  }
+
+  function clearTemplate() {
+    selectedTemplate = null;
+    newFields = [{ name: '', type: 'text', required: false }];
+  }
 </script>
 
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between gap-4 flex-wrap">
-    <div>
-      <h1 class="text-2xl font-bold">Collections</h1>
-      <p class="text-base-content/60 text-sm mt-0.5">Define and manage your data models</p>
-    </div>
+  <PageHeader title="Collections" subtitle="Define and manage your data models" count={collections.length}>
     <button class="btn btn-primary btn-sm" onclick={() => { showCreateModal = true; nameError = ''; }}>
       <Plus size={16} />
       New Collection
     </button>
-  </div>
+  </PageHeader>
 
   <!-- Search -->
   {#if collections.length > 4}
-    <label class="input input-sm w-64 flex items-center gap-2">
-      <Search size={14} class="text-base-content/40" />
-      <input type="text" placeholder="Filter collections…" bind:value={search} class="grow" />
-    </label>
+    <SearchBar value={search} onchange={(v: string) => search = v} placeholder="Search collections..." />
   {/if}
 
   {#if loading}
@@ -130,12 +194,13 @@
       <LoaderCircle size={28} class="animate-spin text-primary" />
     </div>
   {:else if collections.length === 0}
-    <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
-      <Database size={48} class="opacity-20" />
-      <p class="text-lg font-semibold text-base-content/60">No collections yet</p>
-      <p class="text-sm text-center max-w-sm">Collections store your data. Create one to get started.</p>
-      <button class="btn btn-primary btn-sm mt-2" onclick={() => (showCreateModal = true)}>New Collection</button>
-    </div>
+    <EmptyState
+      icon={Database}
+      title="No collections yet"
+      description="Collections are database tables. Create one to start storing and managing data."
+      actionLabel="Create your first collection"
+      onaction={() => showCreateModal = true}
+    />
   {:else}
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {#each filtered as col (col.name)}
@@ -192,6 +257,37 @@
     <div class="modal-box w-11/12 max-w-2xl">
       <h3 class="font-bold text-lg mb-5">New Collection</h3>
 
+      <!-- Template picker -->
+      <div class="mb-5">
+        <p class="text-sm font-medium mb-2">Start from a template</p>
+        <div class="grid grid-cols-3 gap-2">
+          {#each TEMPLATES as tmpl}
+            <button
+              type="button"
+              class="border rounded-lg p-2.5 text-left transition-all
+                     {selectedTemplate === tmpl.id
+                       ? 'border-primary bg-primary/5'
+                       : 'border-base-300 hover:border-primary/40'}"
+              onclick={() => applyTemplate(tmpl)}
+            >
+              <div class="font-medium text-xs">{tmpl.label}</div>
+              <div class="text-base-content/40 text-[10px] mt-0.5">{tmpl.fields.length} fields</div>
+            </button>
+          {/each}
+          <button
+            type="button"
+            class="border rounded-lg p-2.5 text-left transition-all
+                   {selectedTemplate === null
+                     ? 'border-primary bg-primary/5'
+                     : 'border-base-300 hover:border-primary/40'}"
+            onclick={clearTemplate}
+          >
+            <div class="font-medium text-xs">Blank</div>
+            <div class="text-base-content/40 text-[10px] mt-0.5">Start empty</div>
+          </button>
+        </div>
+      </div>
+
       <div class="form-control mb-4">
         <label class="label" for="col-name">
           <span class="label-text font-medium">Collection name</span>
@@ -221,28 +317,63 @@
         </div>
 
         {#each newFields as field, i}
-          <div class="flex gap-2 items-center">
-            <input
-              type="text"
-              bind:value={field.name}
-              placeholder="field_name"
-              class="input input-sm flex-1 font-mono"
-              pattern="[a-z][a-z0-9_]*"
-            />
-            <select bind:value={field.type} class="select select-sm w-36">
-              {#each fieldTypes as ft}
-                <option value={ft.type}>{ft.label}</option>
-              {/each}
-            </select>
-            <label class="flex items-center gap-1 text-xs whitespace-nowrap">
-              <input type="checkbox" bind:checked={field.required} class="checkbox checkbox-xs" />
-              Required
-            </label>
-            {#if newFields.length > 1}
-              <button onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error">
-                <Trash2 size={13} />
-              </button>
-            {/if}
+          <div class="border border-base-300 rounded-lg p-3 space-y-2">
+            <div class="flex gap-2 items-center">
+              <input
+                type="text"
+                bind:value={field.name}
+                placeholder="field_name"
+                class="input input-sm flex-1 font-mono"
+                pattern="[a-z][a-z0-9_]*"
+              />
+              <label class="flex items-center gap-1 text-xs whitespace-nowrap">
+                <input type="checkbox" bind:checked={field.required} class="checkbox checkbox-xs" />
+                Required
+              </label>
+              {#if newFields.length > 1}
+                <button onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error">
+                  <Trash2 size={13} />
+                </button>
+              {/if}
+            </div>
+            <div class="space-y-1.5">
+              <div>
+                <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">Text</p>
+                <div class="flex flex-wrap gap-1">
+                  {#each ['text', 'textarea', 'richtext', 'email', 'url', 'slug'] as t}
+                    <button type="button"
+                      class="badge cursor-pointer transition-all {field.type === t ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
+                      onclick={() => { field.type = t; }}>
+                      {t}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+              <div>
+                <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">Number & Date</p>
+                <div class="flex flex-wrap gap-1">
+                  {#each ['number', 'decimal', 'date', 'datetime', 'time'] as t}
+                    <button type="button"
+                      class="badge cursor-pointer transition-all {field.type === t ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
+                      onclick={() => { field.type = t; }}>
+                      {t}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+              <div>
+                <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">Other</p>
+                <div class="flex flex-wrap gap-1">
+                  {#each ['boolean', 'enum', 'json', 'file', 'relation', 'computed'] as t}
+                    <button type="button"
+                      class="badge cursor-pointer transition-all {field.type === t ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
+                      onclick={() => { field.type = t; }}>
+                      {t}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            </div>
           </div>
         {/each}
       </div>

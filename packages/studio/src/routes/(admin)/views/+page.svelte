@@ -8,6 +8,8 @@
     LoaderCircle, Database,
   } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   let views = $state<any[]>([]);
@@ -117,15 +119,11 @@
 
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between flex-wrap gap-4">
-    <div>
-      <h1 class="text-2xl font-bold">Views</h1>
-      <p class="text-base-content/60 text-sm mt-0.5">Reusable data views — assign them to pages in any zone</p>
-    </div>
+  <PageHeader title="Views" subtitle="Reusable data display blocks" count={views.length}>
     <button class="btn btn-primary btn-sm gap-1" onclick={() => (showModal = true)}>
       <Plus size={15}/> New View
     </button>
-  </div>
+  </PageHeader>
 
   <!-- Search -->
   {#if views.length > 4}
@@ -136,9 +134,7 @@
   {/if}
 
   {#if loading}
-    <div class="flex justify-center py-16">
-      <LoaderCircle size={28} class="animate-spin text-primary"/>
-    </div>
+    <LoadingSkeleton type="card" rows={6} />
   {:else if views.length === 0}
     <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
       <LayoutGrid size={48} class="opacity-20" />

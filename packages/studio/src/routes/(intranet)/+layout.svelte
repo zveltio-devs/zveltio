@@ -4,8 +4,9 @@
   import { base } from '$app/paths';
   import { page } from '$app/state';
   import { auth } from '$lib/auth.svelte.js';
+  import { api } from '$lib/api.js';
   import {
-    LayoutDashboard, Database, CheckSquare, Bell, Settings,
+    LayoutDashboard, Database, SquareCheck, Bell,
     LogOut, Sun, Moon, Menu, X, ShieldCheck, User,
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
@@ -14,11 +15,23 @@
   let mobileOpen = $state(false);
   let dark = $state(false);
 
+  const ZONE_SLUG = 'intranet';
+  let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
+  let navPages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
+
+  // Fallback static nav (used when zone has no pages configured)
+  const staticNav = [
+    { href: `${base}/intranet`,               icon: LayoutDashboard, label: 'My Dashboard'  },
+    { href: `${base}/intranet/collections`,   icon: Database,        label: 'Data'          },
+    { href: `${base}/intranet/tasks`,         icon: SquareCheck,     label: 'My Tasks'      },
+    { href: `${base}/intranet/notifications`, icon: Bell,            label: 'Notifications' },
+    { href: `${base}/intranet/profile`,       icon: User,            label: 'My Profile'    },
+  ];
+
   $effect(() => {
-    const theme = dark ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     if (typeof localStorage !== 'undefined')
-      localStorage.setItem('zveltio-theme', theme);
+      localStorage.setItem('zveltio-theme', dark ? 'dark' : 'light');
   });
 
   function isActive(href: string): boolean {
@@ -36,15 +49,17 @@
       goto(`${base}/login`);
       return;
     }
+
+    try {
+      const res = await api.get<{ zone: any; pages: any[] }>(`/api/zones/${ZONE_SLUG}/render`);
+      zone = res.zone;
+      navPages = (res.pages ?? []).filter((p: any) => p.is_active);
+    } catch {
+      // Zone not configured yet — fall back to static nav
+    }
   });
 
-  const nav = [
-    { href: `${base}/intranet`,              icon: LayoutDashboard, label: 'My Dashboard'  },
-    { href: `${base}/intranet/collections`,  icon: Database,        label: 'Data'          },
-    { href: `${base}/intranet/tasks`,        icon: CheckSquare,     label: 'My Tasks'      },
-    { href: `${base}/intranet/notifications`,icon: Bell,            label: 'Notifications' },
-    { href: `${base}/intranet/profile`,      icon: User,            label: 'My Profile'    },
-  ];
+  const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Intranet');
 
   async function signOut() {
     await auth.signOut();
@@ -65,16 +80,19 @@
 
       <!-- Header -->
       <div class="flex items-center h-14 px-4 border-b border-base-300 gap-3">
-        <div class="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-          <span class="text-primary-content font-bold text-sm">Z</span>
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+          style="background: {zone?.primary_color ? zone.primary_color : 'linear-gradient(135deg, #6366f1, #8b5cf6)'}">
+          <span class="text-white font-bold text-sm leading-none">
+            {siteName[0]?.toUpperCase() ?? 'I'}
+          </span>
         </div>
         <div class="flex-1 min-w-0">
-          <p class="font-semibold text-sm leading-none text-base-content">Intranet</p>
+          <p class="font-semibold text-sm leading-none text-base-content truncate">{siteName}</p>
           <p class="text-[11px] text-base-content/45 mt-0.5">Employee Portal</p>
         </div>
       </div>
 
-      <!-- Nav -->
+      <!-- Nav — dynamic from Zones API, static fallback -->
       <nav class="flex-1 overflow-y-auto py-3 space-y-0.5">
         <div class="px-3 pb-1">
           <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 select-none">
@@ -82,22 +100,42 @@
           </span>
         </div>
 
-        {#each nav as item}
-          {@const active = isActive(item.href)}
-          <div class="px-2 py-0.5">
-            <a
-              href={item.href}
-              class="
-                flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-                transition-colors duration-100
-                {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-              "
-            >
-              <item.icon size={16} class="shrink-0" />
-              <span class="truncate leading-none">{item.label}</span>
-            </a>
-          </div>
-        {/each}
+        {#if navPages.length > 0}
+          {#each navPages as p}
+            {@const href = `${base}/intranet/${p.slug}`}
+            {@const active = isActive(href)}
+            <div class="px-2 py-0.5">
+              <a
+                href={href}
+                class="
+                  flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+                  transition-colors duration-100
+                  {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+                "
+              >
+                {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{/if}
+                <span class="truncate leading-none">{p.title}</span>
+              </a>
+            </div>
+          {/each}
+        {:else}
+          {#each staticNav as item}
+            {@const active = isActive(item.href)}
+            <div class="px-2 py-0.5">
+              <a
+                href={item.href}
+                class="
+                  flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+                  transition-colors duration-100
+                  {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+                "
+              >
+                <item.icon size={16} class="shrink-0" />
+                <span class="truncate leading-none">{item.label}</span>
+              </a>
+            </div>
+          {/each}
+        {/if}
 
         <!-- Admin link (for users who also have admin access) -->
         <div class="px-2 pt-4">
@@ -147,20 +185,34 @@
       <div class="fixed inset-0 z-40 bg-black/50 lg:hidden" onclick={() => (mobileOpen = false)}></div>
       <aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-base-200 border-r border-base-300 lg:hidden">
         <div class="flex items-center h-14 px-4 border-b border-base-300">
-          <span class="font-semibold text-sm">Intranet</span>
+          <span class="font-semibold text-sm">{siteName}</span>
           <button onclick={() => (mobileOpen = false)} class="btn btn-ghost btn-xs ml-auto"><X size={16} /></button>
         </div>
         <nav class="flex-1 overflow-y-auto py-3 space-y-0.5">
-          {#each nav as item}
-            <div class="px-2 py-0.5">
-              <a href={item.href} onclick={() => (mobileOpen = false)}
-                class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-                  transition-colors {isActive(item.href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}">
-                <item.icon size={16} class="shrink-0" />
-                <span class="truncate">{item.label}</span>
-              </a>
-            </div>
-          {/each}
+          {#if navPages.length > 0}
+            {#each navPages as p}
+              {@const href = `${base}/intranet/${p.slug}`}
+              <div class="px-2 py-0.5">
+                <a href={href} onclick={() => (mobileOpen = false)}
+                  class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors
+                    {isActive(href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}">
+                  {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{/if}
+                  <span class="truncate">{p.title}</span>
+                </a>
+              </div>
+            {/each}
+          {:else}
+            {#each staticNav as item}
+              <div class="px-2 py-0.5">
+                <a href={item.href} onclick={() => (mobileOpen = false)}
+                  class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors
+                    {isActive(item.href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}">
+                  <item.icon size={16} class="shrink-0" />
+                  <span class="truncate">{item.label}</span>
+                </a>
+              </div>
+            {/each}
+          {/if}
         </nav>
       </aside>
     {/if}
