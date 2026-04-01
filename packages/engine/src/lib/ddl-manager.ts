@@ -100,6 +100,9 @@ export const CollectionSchema = z.object({
   singularName: z.string().optional(),
   aiSearchEnabled: z.boolean().optional(),
   aiSearchField: z.string().nullable().optional(),
+  isManaged: z.boolean().optional(),
+  isSystem: z.boolean().optional(),
+  schemaLocked: z.boolean().optional(),
 });
 
 export type CollectionDefinition = z.infer<typeof CollectionSchema>;
@@ -565,6 +568,10 @@ ${schema.fields.map((f) => {
         icon: definition.icon || 'Table',
         route_group: definition.routeGroup || 'private',
         is_permissioned: definition.isPermissioned ?? true,
+        is_managed: definition.isManaged ?? false,
+        ai_search_enabled: definition.aiSearchEnabled ?? false,
+        is_system: definition.isSystem ?? false,
+        schema_locked: definition.schemaLocked ?? false,
         sort: definition.sort ?? 99,
         singular_name: definition.singularName || definition.name,
         description: definition.description || null,
