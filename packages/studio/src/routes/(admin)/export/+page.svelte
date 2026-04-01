@@ -87,10 +87,10 @@
  </div>
 
  <div class="form-control">
- <label class="label">
+ <div class="label">
  <span class="label-text font-medium">Row limit</span>
  <span class="label-text-alt text-base-content/50">max 10,000</span>
- </label>
+ </div>
  <input type="number" class="input" bind:value={limit}
  min="1" max="10000" step="100" />
  </div>

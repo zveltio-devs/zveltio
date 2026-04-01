@@ -2,19 +2,19 @@
 @plugin 'daisyui';
 
 [data-theme="light"] {
-  --color-primary: oklch(0.57 0.10 188);
+  --color-primary: oklch(0.51 0.21 264);        /* indigo #6366f1 */
   --color-primary-content: oklch(1 0 0);
-  --color-secondary: oklch(0.43 0.08 188);
+  --color-secondary: oklch(0.44 0.18 264);       /* indigo închis */
   --color-secondary-content: oklch(1 0 0);
-  --color-accent: oklch(0.57 0.10 188);
+  --color-accent: oklch(0.63 0.19 294);          /* violet */
   --color-accent-content: oklch(1 0 0);
 }
 
 [data-theme="dark"] {
-  --color-primary: oklch(0.67 0.13 188);
-  --color-primary-content: oklch(0.12 0.02 188);
-  --color-secondary: oklch(0.57 0.10 188);
-  --color-secondary-content: oklch(0.12 0.02 188);
-  --color-accent: oklch(0.67 0.13 188);
-  --color-accent-content: oklch(0.12 0.02 188);
+  --color-primary: oklch(0.67 0.19 264);
+  --color-primary-content: oklch(0.13 0.02 264);
+  --color-secondary: oklch(0.55 0.16 264);
+  --color-secondary-content: oklch(0.13 0.02 264);
+  --color-accent: oklch(0.72 0.17 294);
+  --color-accent-content: oklch(0.13 0.02 264);
 }

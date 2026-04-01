@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { BarChart2, Plus, Trash2, Play, Grid, Code2, X, GripVertical, RefreshCw } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
 
   const engineUrl = (import.meta as any).env?.PUBLIC_ENGINE_URL ?? '';
 
@@ -191,7 +192,9 @@
   }
 </script>
 
-<div class="flex h-[calc(100vh-8rem)] gap-0 -mx-4 -mt-4">
+<div class="space-y-0">
+<PageHeader title="Insights" subtitle="Query analytics and performance metrics" />
+<div class="flex h-[calc(100vh-10rem)] gap-0 -mx-4">
   <!-- Sidebar: dashboard list -->
   <div class="w-56 border-r border-base-300 bg-base-200 flex flex-col shrink-0">
     <div class="p-3 border-b border-base-300 flex items-center justify-between">
@@ -341,6 +344,7 @@
     {/if}
   </div>
 </div>
+</div>
 
 <!-- Modal: New Dashboard -->
 {#if showNewDash}
@@ -349,16 +353,16 @@
       <h3 class="font-bold text-lg mb-4">New Dashboard</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label py-0"><span class="label-text text-xs">Name *</span></label>
-          <input class="input input-sm" type="text" placeholder="e.g. Sales Overview" bind:value={newDashName} />
+          <label class="label py-0" for="dash-name"><span class="label-text text-xs">Name *</span></label>
+          <input id="dash-name" class="input input-sm" type="text" placeholder="e.g. Sales Overview" bind:value={newDashName} />
         </div>
         <div class="form-control">
-          <label class="label py-0"><span class="label-text text-xs">Description</span></label>
-          <input class="input input-sm" type="text" placeholder="Optional" bind:value={newDashDescription} />
+          <label class="label py-0" for="dash-desc"><span class="label-text text-xs">Description</span></label>
+          <input id="dash-desc" class="input input-sm" type="text" placeholder="Optional" bind:value={newDashDescription} />
         </div>
         <div class="form-control">
-          <label class="label py-0"><span class="label-text text-xs">Icon</span></label>
-          <select class="select select-sm" bind:value={newDashIcon}>
+          <label class="label py-0" for="dash-icon"><span class="label-text text-xs">Icon</span></label>
+          <select id="dash-icon" class="select select-sm" bind:value={newDashIcon}>
             {#each DASH_ICONS as icon}<option value={icon}>{icon}</option>{/each}
           </select>
         </div>
@@ -380,28 +384,28 @@
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Name *</span></label>
-            <input class="input input-sm" type="text" placeholder="e.g. Orders by month" bind:value={newPanelName} />
+            <label class="label py-0" for="panel-name"><span class="label-text text-xs">Name *</span></label>
+            <input id="panel-name" class="input input-sm" type="text" placeholder="e.g. Orders by month" bind:value={newPanelName} />
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Type</span></label>
-            <select class="select select-sm" bind:value={newPanelType}>
+            <label class="label py-0" for="panel-type"><span class="label-text text-xs">Type</span></label>
+            <select id="panel-type" class="select select-sm" bind:value={newPanelType}>
               {#each PANEL_TYPES as t}<option value={t}>{t}</option>{/each}
             </select>
           </div>
         </div>
         <div class="form-control">
-          <label class="label py-0"><span class="label-text text-xs">SQL Query * (SELECT only)</span></label>
-          <textarea class="textarea textarea-sm font-mono text-xs" rows="5" placeholder="SELECT COUNT(*) as total FROM zvd_orders" bind:value={newPanelQuery}></textarea>
+          <label class="label py-0" for="panel-query"><span class="label-text text-xs">SQL Query * (SELECT only)</span></label>
+          <textarea id="panel-query" class="textarea textarea-sm font-mono text-xs" rows="5" placeholder="SELECT COUNT(*) as total FROM zvd_orders" bind:value={newPanelQuery}></textarea>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Width (cols/12)</span></label>
-            <input class="input input-sm" type="number" min="1" max="12" bind:value={newPanelWidth} />
+            <label class="label py-0" for="panel-width"><span class="label-text text-xs">Width (cols/12)</span></label>
+            <input id="panel-width" class="input input-sm" type="number" min="1" max="12" bind:value={newPanelWidth} />
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Height (rows)</span></label>
-            <input class="input input-sm" type="number" min="1" max="20" bind:value={newPanelHeight} />
+            <label class="label py-0" for="panel-height"><span class="label-text text-xs">Height (rows)</span></label>
+            <input id="panel-height" class="input input-sm" type="number" min="1" max="20" bind:value={newPanelHeight} />
           </div>
         </div>
       </div>
@@ -414,43 +418,48 @@
   </dialog>
 {/if}
 
-<!-- Ad-hoc SQL Console (slide-up) -->
+<!-- Ad-hoc SQL Console (right-side drawer) -->
 {#if showAdHoc}
-  <div class="fixed bottom-0 left-0 right-0 bg-base-100 border-t border-base-300 shadow-2xl z-40 p-4 space-y-3">
-    <div class="flex items-center justify-between">
-      <span class="font-semibold text-sm flex items-center gap-2"><Code2 size={16} /> SQL Console (admin)</span>
-      <button class="btn btn-xs btn-ghost" onclick={() => (showAdHoc = false)}><X size={14} /></button>
+  <div class="fixed right-0 top-0 h-full w-96 bg-base-100 border-l border-base-300 shadow-2xl z-40 flex flex-col">
+    <div class="flex items-center justify-between p-4 border-b border-base-300 shrink-0">
+      <span class="font-semibold text-sm flex items-center gap-2">
+        <Code2 size={16} /> SQL Console
+      </span>
+      <button class="btn btn-ghost btn-xs" onclick={() => (showAdHoc = false)}><X size={14} /></button>
     </div>
-    <div class="flex gap-2">
+    <div class="flex-1 overflow-auto p-4 space-y-3 flex flex-col">
       <textarea
-        class="textarea textarea-sm font-mono text-xs flex-1"
-        rows="3"
+        class="textarea textarea-sm font-mono text-xs w-full resize-none flex-1 min-h-32"
         placeholder="SELECT COUNT(*) FROM zvd_orders WHERE status = 'active'"
         bind:value={adHocQuery}
       ></textarea>
-      <button class="btn btn-primary btn-sm self-end gap-1" onclick={runAdHoc} disabled={adHocRunning}>
+      <button class="btn btn-primary btn-sm w-full gap-1" onclick={runAdHoc} disabled={adHocRunning}>
         {#if adHocRunning}<span class="loading loading-spinner loading-xs"></span>{:else}<Play size={14} />{/if}
-        Run
+        Run Query
       </button>
+      {#if adHocError}
+        <div class="text-error text-xs">{adHocError}</div>
+      {/if}
+      {#if adHocResult}
+        <div class="overflow-auto max-h-64">
+          {#if adHocResult.data?.length > 0}
+            <table class="table table-xs w-full">
+              <thead>
+                <tr>{#each (adHocResult.columns ?? Object.keys(adHocResult.data[0])) as col}<th>{col}</th>{/each}</tr>
+              </thead>
+              <tbody>
+                {#each adHocResult.data as row}
+                  <tr>{#each (adHocResult.columns ?? Object.keys(row)) as col}<td class="font-mono text-xs">{row[col] ?? '—'}</td>{/each}</tr>
+                {/each}
+              </tbody>
+            </table>
+            <p class="text-xs text-base-content/40 mt-1">{adHocResult.data.length} rows</p>
+          {:else}
+            <p class="text-xs text-base-content/50">Query returned no rows.</p>
+          {/if}
+        </div>
+      {/if}
     </div>
-    {#if adHocError}
-      <div class="alert alert-error py-2 text-xs">{adHocError}</div>
-    {/if}
-    {#if adHocResult}
-      <div class="overflow-x-auto max-h-40 border border-base-300 rounded text-xs">
-        <table class="table table-xs">
-          <thead>
-            <tr>{#each (adHocResult.columns ?? []) as col}<th>{col}</th>{/each}</tr>
-          </thead>
-          <tbody>
-            {#each adHocResult.data as row}
-              <tr>{#each (adHocResult.columns ?? []) as col}<td>{String(row[col] ?? '')}</td>{/each}</tr>
-            {/each}
-          </tbody>
-        </table>
-        <p class="p-2 text-base-content/40">{adHocResult.data?.length} rows</p>
-      </div>
-    {/if}
   </div>
 {/if}
 

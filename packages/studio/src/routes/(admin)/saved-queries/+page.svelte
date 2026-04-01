@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Bookmark, Play, Trash2, Plus, Share2, Filter, ChevronDown, ChevronRight, Copy, Check, X } from '@lucide/svelte';
+  import { Bookmark, Play, Trash2, Plus, Share2, X } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
 
   const engineUrl = (import.meta as any).env?.PUBLIC_ENGINE_URL ?? '';
 
@@ -25,19 +26,13 @@
   let builderPage = $state(1);
   let builderMode = $state<'AND' | 'OR'>('AND');
 
-  // Results state
-  let runningId = $state<string | null>(null);
-  let results = $state<Record<string, { records: any[]; pagination: any; api_url: string }>>({});
-  let expandedId = $state<string | null>(null);
-  let copiedId = $state<string | null>(null);
-
-  // Edit state
-  let editingId = $state<string | null>(null);
-  let editName = $state('');
-  let editDescription = $state('');
-  let editIsShared = $state(false);
 
   let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+  // Split-view state
+  let activeQuery = $state<any>(null);
+  let queryResults = $state<any>(null);
+  let running = $state(false);
 
   // Inline execute (no save)
   let executeResult = $state<any>(null);
@@ -148,18 +143,6 @@
     apiUrlPreview = '';
   }
 
-  // ── Run saved query ───────────────────────────────────────────────────────────
-  async function runQuery(q: any) {
-    runningId = q.id;
-    expandedId = q.id;
-    const res = await fetch(`${engineUrl}/api/saved-queries/${q.id}/run`, {
-      method: 'POST',
-      credentials: 'include',
-    }).then(r => r.json());
-    results[q.id] = res;
-    runningId = null;
-  }
-
   // ── Delete ────────────────────────────────────────────────────────────────────
   async function deleteQuery(id: string) {
     confirmState = {
@@ -175,34 +158,40 @@
     };
   }
 
-  // ── Update ────────────────────────────────────────────────────────────────────
-  async function updateQuery(id: string) {
-    await fetch(`${engineUrl}/api/saved-queries/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ name: editName, description: editDescription, is_shared: editIsShared }),
-    });
-    editingId = null;
+  // ── Split-view helpers ────────────────────────────────────────────────────────
+  function selectQuery(q: any) { activeQuery = { ...q }; queryResults = null; }
+  function newQuery() { activeQuery = { id: null, name: 'Untitled', sql: '' }; queryResults = null; }
+
+  async function runActiveQuery() {
+    if (!activeQuery) return;
+    running = true;
+    queryResults = null;
+    try {
+      if (activeQuery.id) {
+        const res = await fetch(`${engineUrl}/api/saved-queries/${activeQuery.id}/run`, {
+          method: 'POST', credentials: 'include',
+        }).then(r => r.json());
+        queryResults = { rows: res.records ?? [], columns: res.records?.length ? Object.keys(res.records[0]) : [] };
+      }
+    } finally {
+      running = false;
+    }
+  }
+
+  async function saveActiveQuery() {
+    if (!activeQuery) return;
+    if (activeQuery.id) {
+      await fetch(`${engineUrl}/api/saved-queries/${activeQuery.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: activeQuery.name }),
+      });
+    }
     await loadQueries();
   }
 
-  function startEdit(q: any) {
-    editingId = q.id;
-    editName = q.name;
-    editDescription = q.description ?? '';
-    editIsShared = q.is_shared;
-  }
-
   // ── Copy API URL ──────────────────────────────────────────────────────────────
-  function copyUrl(q: any) {
-    const res = results[q.id];
-    const url = res?.api_url ?? '';
-    navigator.clipboard.writeText(url);
-    copiedId = q.id;
-    setTimeout(() => (copiedId = null), 1500);
-  }
-
   // ── Filter helpers ────────────────────────────────────────────────────────────
   const OPERATORS = ['equals','not_equals','contains','not_contains','starts_with','ends_with','gt','lt','gte','lte','is_null','is_not_null','is_true','is_false'];
 
@@ -210,26 +199,16 @@
   function removeFilter(i: number) { builderFilters = builderFilters.filter((_, idx) => idx !== i); }
   function addSort() { builderSorts = [...builderSorts, { field: '', direction: 'asc' }]; }
   function removeSort(i: number) { builderSorts = builderSorts.filter((_, idx) => idx !== i); }
-
-  function resultColumns(q: any): string[] {
-    const res = results[q.id];
-    if (!res?.records?.length) return [];
-    return Object.keys(res.records[0]);
-  }
 </script>
 
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold">Saved Queries</h1>
-      <p class="text-base-content/60 text-sm mt-1">Build, save, and reuse filtered collection queries</p>
-    </div>
+  <PageHeader title="Saved Queries" subtitle="Reusable SQL query templates">
     <button class="btn btn-primary btn-sm gap-2" onclick={() => (showBuilder = !showBuilder)}>
       <Plus size={16} />
       New Query
     </button>
-  </div>
+  </PageHeader>
 
   <!-- Query Builder -->
   {#if showBuilder}
@@ -240,18 +219,18 @@
         <!-- Collection + Name -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Collection *</span></label>
+            <div class="label py-0"><span class="label-text text-xs">Collection *</span></div>
             <select class="select select-sm" bind:value={builderCollection} onchange={previewUrl}>
               <option value="">Select collection</option>
               {#each collections as c}<option value={c}>{c}</option>{/each}
             </select>
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Query name *</span></label>
+            <div class="label py-0"><span class="label-text text-xs">Query name *</span></div>
             <input class="input input-sm" type="text" placeholder="e.g. Active orders" bind:value={builderName} />
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Description</span></label>
+            <div class="label py-0"><span class="label-text text-xs">Description</span></div>
             <input class="input input-sm" type="text" placeholder="Optional" bind:value={builderDescription} />
           </div>
         </div>
@@ -259,15 +238,15 @@
         <!-- Columns + Limit + Mode -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Columns (comma-separated, empty = all)</span></label>
+            <div class="label py-0"><span class="label-text text-xs">Columns (comma-separated, empty = all)</span></div>
             <input class="input input-sm" type="text" placeholder="id, name, status" bind:value={builderColumns} />
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Limit</span></label>
+            <div class="label py-0"><span class="label-text text-xs">Limit</span></div>
             <input class="input input-sm" type="number" min="1" max="1000" bind:value={builderLimit} />
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Filter mode</span></label>
+            <div class="label py-0"><span class="label-text text-xs">Filter mode</span></div>
             <select class="select select-sm" bind:value={builderMode}>
               <option value="AND">AND (all conditions)</option>
               <option value="OR">OR (any condition)</option>
@@ -360,7 +339,7 @@
   <!-- Filters bar -->
   <div class="flex flex-wrap gap-3 items-end">
     <div class="form-control">
-      <label class="label py-0"><span class="label-text text-xs">Collection</span></label>
+      <div class="label py-0"><span class="label-text text-xs">Collection</span></div>
       <select class="select select-sm w-40" bind:value={filterCollection} onchange={loadQueries}>
         <option value="">All collections</option>
         {#each collections as c}<option value={c}>{c}</option>{/each}
@@ -375,100 +354,83 @@
     </div>
   </div>
 
-  <!-- Queries list -->
+  <!-- Split-view: list left + editor right -->
   {#if loading}
     <div class="flex justify-center py-12"><span class="loading loading-spinner"></span></div>
-  {:else if filtered.length === 0}
-    <div class="card bg-base-200 text-center py-16">
-      <Bookmark size={40} class="mx-auto mb-3 text-base-content/20" />
-      <p class="text-base-content/50">No saved queries yet</p>
-      <button class="btn btn-primary btn-sm mt-4" onclick={() => (showBuilder = true)}>Create first query</button>
-    </div>
   {:else}
-    <div class="space-y-3">
-      {#each filtered as q}
-        <div class="card bg-base-100 border border-base-300 shadow-sm">
-          <div class="card-body p-4 space-y-0">
-            <!-- Header row -->
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex-1 min-w-0">
-                {#if editingId === q.id}
-                  <div class="flex gap-2 items-center mb-1">
-                    <input class="input input-sm flex-1" bind:value={editName} />
-                    <button class="btn btn-xs btn-primary" onclick={() => updateQuery(q.id)}>Save</button>
-                    <button class="btn btn-xs btn-ghost" onclick={() => (editingId = null)}>Cancel</button>
-                  </div>
-                  <input class="input input-xs w-full mb-1" placeholder="Description" bind:value={editDescription} />
-                  <label class="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" class="checkbox checkbox-xs" bind:checked={editIsShared} />
-                    Share with all users
-                  </label>
-                {:else}
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-semibold">{q.name}</span>
-                    <span class="badge badge-ghost badge-xs">{q.collection}</span>
-                    {#if q.is_shared}<span class="badge badge-info badge-xs gap-1"><Share2 size={10} />Shared</span>{/if}
-                    {#if q.is_owner}<span class="badge badge-success badge-xs">Mine</span>{/if}
-                  </div>
-                  {#if q.description}<p class="text-base-content/60 text-xs mt-0.5">{q.description}</p>{/if}
-                  <p class="text-base-content/40 text-xs mt-0.5">{new Date(q.created_at).toLocaleDateString()}</p>
-                {/if}
-              </div>
+    <div class="flex gap-0 h-[calc(100vh-160px)] -mx-6 border-t border-base-200">
+      <!-- Query list (left panel) -->
+      <div class="w-64 shrink-0 flex flex-col border-r border-base-200">
+        <div class="p-3 border-b border-base-200 flex items-center justify-between">
+          <span class="text-sm font-medium">Saved Queries</span>
+          <button class="btn btn-ghost btn-xs" onclick={newQuery}>+</button>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+          {#each filtered as q}
+            <button class="w-full text-left px-3 py-2.5 border-b border-base-200/50 hover:bg-base-200 transition-colors
+                           {activeQuery?.id === q.id ? 'bg-primary/8 border-l-2 border-l-primary' : ''}"
+                    onclick={() => selectQuery(q)}>
+              <div class="text-sm font-medium truncate">{q.name}</div>
+              <div class="text-xs text-base-content/40 font-mono truncate mt-0.5">{(q.sql || q.query || q.collection || '').slice(0, 40)}...</div>
+            </button>
+          {/each}
+          {#if filtered.length === 0}
+            <div class="text-xs text-base-content/30 text-center py-8">No saved queries</div>
+          {/if}
+        </div>
+      </div>
 
-              <div class="flex gap-1 shrink-0">
-                <button class="btn btn-xs btn-ghost" title="Run" onclick={() => runQuery(q)} disabled={runningId === q.id}>
-                  {#if runningId === q.id}<span class="loading loading-spinner loading-xs"></span>{:else}<Play size={14} />{/if}
-                </button>
-                {#if results[q.id]?.api_url}
-                  <button class="btn btn-xs btn-ghost" title="Copy API URL" onclick={() => copyUrl(q)}>
-                    {#if copiedId === q.id}<Check size={14} class="text-success" />{:else}<Copy size={14} />{/if}
-                  </button>
-                {/if}
-                {#if q.is_owner}
-                  <button class="btn btn-xs btn-ghost" title="Edit" onclick={() => startEdit(q)}>
-                    <Filter size={14} />
-                  </button>
-                  <button class="btn btn-xs btn-ghost btn-error" title="Delete" onclick={() => deleteQuery(q.id)}>
-                    <Trash2 size={14} />
-                  </button>
-                {/if}
-                <button class="btn btn-xs btn-ghost" onclick={() => (expandedId = expandedId === q.id ? null : q.id)}>
-                  {#if expandedId === q.id}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-                </button>
-              </div>
-            </div>
-
-            <!-- Results panel -->
-            {#if expandedId === q.id && results[q.id]}
-              {@const res = results[q.id]}
-              <div class="mt-3 space-y-2">
-                {#if res.api_url}
-                  <div class="bg-base-200 rounded px-3 py-1.5 text-xs font-mono text-base-content/60">{res.api_url}</div>
-                {/if}
-                {#if res.records?.length > 0}
-                  <div class="overflow-x-auto max-h-64 border border-base-300 rounded text-xs">
-                    <table class="table table-xs">
-                      <thead>
-                        <tr>{#each resultColumns(q) as col}<th>{col}</th>{/each}</tr>
-                      </thead>
-                      <tbody>
-                        {#each res.records as row}
-                          <tr>{#each resultColumns(q) as col}<td>{String(row[col] ?? '')}</td>{/each}</tr>
-                        {/each}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p class="text-xs text-base-content/40">
-                    Page {res.pagination?.page} · {res.pagination?.total} total rows · {res.pagination?.totalPages} pages
-                  </p>
-                {:else}
-                  <p class="text-xs text-base-content/40 py-2">No records returned</p>
-                {/if}
-              </div>
+      <!-- Editor + results (right panel) -->
+      <div class="flex-1 flex flex-col min-w-0">
+        {#if activeQuery}
+          <div class="flex items-center gap-2 px-4 py-2 border-b border-base-200 shrink-0">
+            <span class="text-sm font-medium truncate flex-1">{activeQuery.name}</span>
+            {#if activeQuery.collection}
+              <span class="badge badge-ghost badge-xs">{activeQuery.collection}</span>
+            {/if}
+            <button class="btn btn-ghost btn-sm gap-1" onclick={runActiveQuery} disabled={running}>
+              {#if running}<span class="loading loading-spinner loading-xs"></span>{:else}▶{/if} Run
+            </button>
+            <button class="btn btn-primary btn-sm" onclick={saveActiveQuery}>Save</button>
+            {#if activeQuery.id && activeQuery.is_owner}
+              <button class="btn btn-ghost btn-sm btn-error" onclick={() => deleteQuery(activeQuery.id)}>
+                <Trash2 size={14} />
+              </button>
             {/if}
           </div>
-        </div>
-      {/each}
+          <!-- Query info (read-only for filter-based queries) -->
+          <div class="flex-1 overflow-auto p-4 bg-base-50 border-b border-base-200 min-h-0">
+            {#if activeQuery.config}
+              <div class="space-y-2">
+                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide">Collection</div>
+                <div class="font-mono text-sm">{activeQuery.collection}</div>
+                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide mt-3">Config</div>
+                <pre class="text-xs font-mono bg-base-200 rounded p-3 overflow-auto">{JSON.stringify(activeQuery.config, null, 2)}</pre>
+              </div>
+            {:else}
+              <textarea class="w-full h-full font-mono text-xs resize-none outline-none bg-transparent"
+                        bind:value={activeQuery.sql}
+                        placeholder="-- SQL query..."></textarea>
+            {/if}
+          </div>
+          {#if queryResults}
+            <div class="shrink-0 max-h-48 overflow-auto border-t border-base-200">
+              {#if queryResults.rows?.length > 0}
+                <table class="table table-xs w-full">
+                  <thead><tr>{#each queryResults.columns ?? Object.keys(queryResults.rows[0]) as col}<th>{col}</th>{/each}</tr></thead>
+                  <tbody>{#each queryResults.rows as row}<tr>{#each queryResults.columns ?? Object.keys(row) as col}<td class="font-mono text-xs">{row[col] ?? '—'}</td>{/each}</tr>{/each}</tbody>
+                </table>
+              {:else}
+                <div class="p-3 text-xs text-base-content/50">No results</div>
+              {/if}
+            </div>
+          {/if}
+        {:else}
+          <div class="flex-1 flex items-center justify-center text-base-content/30 text-sm">
+            Select a query or create a new one
+          </div>
+        {/if}
+      </div>
     </div>
   {/if}
 </div>

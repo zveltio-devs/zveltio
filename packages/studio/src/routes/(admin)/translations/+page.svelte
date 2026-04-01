@@ -3,6 +3,7 @@
  import { api } from '$lib/api.js';
  import { Plus, Search, Trash2, Globe, Check, X } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let locales = $state<any[]>([]);
@@ -148,22 +149,18 @@
 
 <div class="space-y-6">
  <!-- Header -->
- <div class="flex items-center justify-between flex-wrap gap-3">
- <div>
- <h1 class="text-2xl font-bold">Translations</h1>
- <p class="text-base-content/60 text-sm">Manage your application's i18n strings</p>
- </div>
- <div class="flex gap-2">
- <button class="btn btn-ghost btn-sm" onclick={() => (showAddLocale = !showAddLocale)}>
- <Globe size={16} />
- Add Locale
- </button>
- <button class="btn btn-primary btn-sm" onclick={() => (showAddKey = !showAddKey)}>
- <Plus size={16} />
- Add Key
- </button>
- </div>
- </div>
+ <PageHeader title="Translations" subtitle="Manage multilingual content">
+  <div class="flex gap-2">
+  <button class="btn btn-ghost btn-sm" onclick={() => (showAddLocale = !showAddLocale)}>
+  <Globe size={16} />
+  Add Locale
+  </button>
+  <button class="btn btn-primary btn-sm" onclick={() => (showAddKey = !showAddKey)}>
+  <Plus size={16} />
+  Add Key
+  </button>
+  </div>
+ </PageHeader>
 
  <!-- Add locale form -->
  {#if showAddLocale}

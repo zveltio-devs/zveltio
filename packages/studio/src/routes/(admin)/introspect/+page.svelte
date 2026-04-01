@@ -1,6 +1,7 @@
 <script lang="ts">
  import { api } from '$lib/api.js';
  import { ScanSearch, RefreshCw, Download, CheckCircle, AlertCircle, Eye } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
 
  type TablePreview = {
  tableName: string;
@@ -59,18 +60,8 @@
  }
 </script>
 
-<div class="p-6 max-w-4xl mx-auto">
- <div class="flex items-center justify-between mb-6">
- <div class="flex items-center gap-3">
- <ScanSearch size={28} class="text-primary" />
- <div>
- <h1 class="text-3xl font-bold">BYOD Import</h1>
- <p class="text-base-content/60 text-sm mt-0.5">
- Importă tabele existente din PostgreSQL ca Unmanaged Collections. Zveltio nu va modifica schema lor.
- </p>
- </div>
- </div>
- </div>
+<div class="space-y-6">
+ <PageHeader title="BYOD Import" subtitle="Import tables from an external database" />
 
  {#if error}
  <div class="alert alert-error mb-4">

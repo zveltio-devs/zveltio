@@ -3,6 +3,7 @@
  import { api } from '$lib/api.js';
  import { Upload, Trash2, Copy, Check, HardDrive, File, FileText, Image, LoaderCircle } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  interface MediaFile {
@@ -20,6 +21,7 @@
  let dragging = $state(false);
  let filter = $state<'all' | 'images' | 'documents'>('all');
  let copied = $state<string | null>(null);
+ let selectedFiles = $state<Set<string>>(new Set());
  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  const filtered = $derived(
@@ -75,6 +77,19 @@
  };
  }
 
+ async function bulkDelete() {
+ if (selectedFiles.size === 0) return;
+ for (const id of selectedFiles) {
+ try {
+ await api.delete(`/api/storage/files/${id}`);
+ } catch (err) {
+ toast.error(err instanceof Error ? err.message : 'Delete failed');
+ }
+ }
+ selectedFiles = new Set();
+ await loadFiles();
+ }
+
  async function copyUrl(url: string, id: string) {
  await navigator.clipboard.writeText(url);
  copied = id;
@@ -92,19 +107,15 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Storage</h1>
- <p class="text-base-content/60 text-sm mt-1">{files.length} file{files.length !== 1 ? 's' : ''} stored</p>
- </div>
- <label class="btn btn-primary btn-sm cursor-pointer" class:loading={uploading}>
- {#if uploading}<LoaderCircle size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
- Upload
- <input type="file" class="hidden" multiple
- onchange={(e) => upload((e.target as HTMLInputElement).files)}
- disabled={uploading} />
- </label>
- </div>
+ <PageHeader title="Storage" subtitle="File storage and asset management" count={files.length}>
+  <label class="btn btn-primary btn-sm cursor-pointer" class:loading={uploading}>
+  {#if uploading}<LoaderCircle size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
+  Upload
+  <input type="file" class="hidden" multiple
+  onchange={(e) => upload((e.target as HTMLInputElement).files)}
+  disabled={uploading} />
+  </label>
+ </PageHeader>
 
  <!-- Drag & Drop zone -->
  <div
@@ -143,7 +154,19 @@
  {:else}
  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
  {#each filtered as file}
- <div class="card bg-base-200 overflow-hidden">
+ <div class="card bg-base-200 overflow-hidden relative group {selectedFiles.has(file.id) ? 'ring-2 ring-primary' : ''}">
+ <!-- Checkbox overlay -->
+ <div class="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity {selectedFiles.has(file.id) ? 'opacity-100' : ''}">
+ <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+ checked={selectedFiles.has(file.id)}
+ onclick={(e: MouseEvent) => {
+ e.stopPropagation();
+ const next = new Set(selectedFiles);
+ if ((e.currentTarget as HTMLInputElement).checked) next.add(file.id);
+ else next.delete(file.id);
+ selectedFiles = next;
+ }} />
+ </div>
  <!-- Thumbnail -->
  <div class="h-36 bg-base-300 flex items-center justify-center overflow-hidden">
  {#if isImage(file.mime_type)}

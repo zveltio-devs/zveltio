@@ -5,11 +5,13 @@
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import {
-    Database, Webhook, Activity, Zap, Clock, CheckCircle,
-    XCircle, AlertCircle, Plus, Key, Search, GitPullRequest,
-    RefreshCw, ExternalLink, Circle,
+    Database, Webhook, Zap, CheckCircle,
+    XCircle, AlertCircle, Plus, Key,
+    RefreshCw, ExternalLink, Circle, UserPlus, Bot, Workflow, LayoutGrid,
   } from '@lucide/svelte';
   import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import SectionCard from '$lib/components/common/SectionCard.svelte';
 
   // ── State ──────────────────────────────────────────────────────
   let statsLoading = $state(true);
@@ -188,11 +190,7 @@
 
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold">Dashboard</h1>
-      <p class="text-base-content/60 mt-1">Welcome to Zveltio Studio</p>
-    </div>
+  <PageHeader title="Dashboard" subtitle="Welcome to Zveltio Studio">
     <button
       class="btn btn-ghost btn-sm gap-2"
       onclick={() => { loadStats(); loadActivity(); loadSystem(); loadCollections(); }}
@@ -200,13 +198,13 @@
       <RefreshCw size={14} />
       Refresh
     </button>
-  </div>
+  </PageHeader>
 
   <!-- Stats cards -->
   {#if statsLoading}
     <LoadingSkeleton type="card" rows={5} />
   {:else}
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer" role="button" tabindex="0" onclick={() => goto(`${base}/collections`)} onkeypress={() => {}}>
         <div class="card-body p-4">
           <div class="flex items-center gap-3">
@@ -262,37 +260,19 @@
           </div>
         </div>
       </div>
-
-      <div class="card bg-base-200 {stats.slow_queries_24h > 0 ? 'border border-warning/40' : ''}">
-        <div class="card-body p-4">
-          <div class="flex items-center gap-3">
-            <div class="p-2 {stats.slow_queries_24h > 0 ? 'bg-warning/10' : 'bg-success/10'} rounded-lg shrink-0">
-              <Clock size={20} class={stats.slow_queries_24h > 0 ? 'text-warning' : 'text-success'} />
-            </div>
-            <div class="min-w-0">
-              <p class="text-2xl font-bold">{stats.slow_queries_24h}</p>
-              <p class="text-xs text-base-content/60 truncate">Slow Queries (24h)</p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   {/if}
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Recent Activity -->
-    <div class="lg:col-span-2 card bg-base-200">
-      <div class="card-body p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="font-semibold flex items-center gap-2">
-            <Activity size={16} />
-            Recent Activity
-          </h2>
+  <div class="grid lg:grid-cols-12 gap-4">
+    <!-- Left column -->
+    <div class="lg:col-span-7 space-y-4">
+      <!-- Recent Activity -->
+      <SectionCard title="Recent Activity">
+        <svelte:fragment slot="action">
           <a href="{base}/audit" class="btn btn-ghost btn-xs gap-1">
             View all <ExternalLink size={10} />
           </a>
-        </div>
-
+        </svelte:fragment>
         {#if activityLoading}
           <LoadingSkeleton type="list" rows={5} />
         {:else if activity.length === 0}
@@ -334,173 +314,129 @@
             </table>
           </div>
         {/if}
-      </div>
+      </SectionCard>
+
+      <!-- Collections Overview -->
+      <SectionCard title="Collections Overview">
+        <svelte:fragment slot="action">
+          <a href="{base}/collections" class="btn btn-ghost btn-xs gap-1">
+            Manage <ExternalLink size={10} />
+          </a>
+        </svelte:fragment>
+        {#if collectionsLoading}
+          <LoadingSkeleton type="table" rows={4} cols={3} />
+        {:else if collections.length === 0}
+          <div class="text-center py-8">
+            <p class="text-base-content/50 text-sm mb-3">No collections yet</p>
+            <a href="{base}/collections" class="btn btn-primary btn-sm gap-2">
+              <Plus size={14} />
+              Create your first collection
+            </a>
+          </div>
+        {:else}
+          <div class="overflow-x-auto">
+            <table class="table table-sm w-full">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th class="text-right">Records</th>
+                  <th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each collections as col}
+                  <tr class="hover">
+                    <td>
+                      <div class="flex items-center gap-2">
+                        <Database size={14} class="text-base-content/40" />
+                        <span class="font-medium">{col.label ?? col.name}</span>
+                        {#if col.label}
+                          <span class="text-base-content/40 text-xs font-mono">{col.name}</span>
+                        {/if}
+                      </div>
+                    </td>
+                    <td class="text-right font-mono text-sm">{col.record_count.toLocaleString()}</td>
+                    <td class="text-right">
+                      <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs">Open</a>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      </SectionCard>
     </div>
 
-    <!-- Right column: Quick Actions + System Status -->
-    <div class="space-y-4">
+    <!-- Right column -->
+    <div class="lg:col-span-5 space-y-4">
       <!-- Quick Actions -->
-      <div class="card bg-base-200">
-        <div class="card-body p-4">
-          <h2 class="font-semibold mb-3">Quick Actions</h2>
-          <div class="grid grid-cols-2 gap-2">
-            <a href="{base}/collections" class="btn btn-outline btn-sm gap-2 justify-start">
-              <Plus size={14} />
-              New Collection
-            </a>
-            <a href="{base}/api-keys" class="btn btn-outline btn-sm gap-2 justify-start">
-              <Key size={14} />
-              API Keys
-            </a>
-            <a href="{base}/insights" class="btn btn-outline btn-sm gap-2 justify-start">
-              <Search size={14} />
-              Slow Queries
-            </a>
-            <button
-              class="btn btn-outline btn-sm gap-2 justify-start"
-              onclick={async () => {
-                try {
-                  await api.post('/api/admin/migrate', {});
-                  toast.success('Migrations complete');
-                } catch (e: any) {
-                  toast.error('Migration error: ' + e.message);
-                }
-              }}
-            >
-              <GitPullRequest size={14} />
-              Run Migrations
-            </button>
-          </div>
+      <SectionCard title="Quick Actions">
+        <div class="grid grid-cols-2 gap-2">
+          <a href="{base}/collections" class="btn btn-outline btn-sm justify-start gap-2"><Database size={13} /> New Collection</a>
+          <a href="{base}/users" class="btn btn-outline btn-sm justify-start gap-2"><UserPlus size={13} /> Invite User</a>
+          <a href="{base}/api-keys" class="btn btn-outline btn-sm justify-start gap-2"><Key size={13} /> API Keys</a>
+          <a href="{base}/flows" class="btn btn-outline btn-sm justify-start gap-2"><Workflow size={13} /> New Flow</a>
+          <a href="{base}/zones" class="btn btn-outline btn-sm justify-start gap-2"><LayoutGrid size={13} /> Zones</a>
+          <a href="{base}/ai" class="btn btn-outline btn-sm justify-start gap-2"><Bot size={13} /> AI Studio</a>
         </div>
-      </div>
+      </SectionCard>
 
       <!-- System Status -->
-      <div class="card bg-base-200">
-        <div class="card-body p-4">
-          <h2 class="font-semibold mb-3">System Status</h2>
-          {#if systemLoading}
-            <LoadingSkeleton type="text" rows={3} />
-          {:else if !system}
-            <p class="text-error text-sm">Could not load system status</p>
-          {:else}
-            {@const DbIcon = statusIcon(system.database.status)}
-            {@const CacheIcon = statusIcon(system.cache.status)}
-            <div class="space-y-2 text-sm">
-              <div class="flex items-center justify-between">
-                <span class="text-base-content/60">Database</span>
-                <span class="flex items-center gap-1 {statusColor(system.database.status)}">
-                  <DbIcon size={14} />
-                  {system.database.status}
-                </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-base-content/60">Cache</span>
-                <span class="flex items-center gap-1 {statusColor(system.cache.status)}">
-                  <CacheIcon size={14} />
-                  {system.cache.status}
-                </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-base-content/60">Uptime</span>
-                <span class="text-base-content font-mono">{formatUptime(system.uptime)}</span>
-              </div>
-              {#if system.database.tables}
-                <div class="flex items-center justify-between">
-                  <span class="text-base-content/60">DB Tables</span>
-                  <span class="text-base-content font-mono">{system.database.tables}</span>
-                </div>
-              {/if}
+      <SectionCard title="System Status">
+        {#if systemLoading}
+          <LoadingSkeleton type="text" rows={3} />
+        {:else if !system}
+          <p class="text-error text-sm">Could not load system status</p>
+        {:else}
+          {@const DbIcon = statusIcon(system.database.status)}
+          {@const CacheIcon = statusIcon(system.cache.status)}
+          <div class="space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-base-content/60">Database</span>
+              <span class="flex items-center gap-1 {statusColor(system.database.status)}">
+                <DbIcon size={14} />
+                {system.database.status}
+              </span>
             </div>
-          {/if}
-        </div>
-      </div>
-    </div>
+            <div class="flex items-center justify-between">
+              <span class="text-base-content/60">Cache</span>
+              <span class="flex items-center gap-1 {statusColor(system.cache.status)}">
+                <CacheIcon size={14} />
+                {system.cache.status}
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-base-content/60">Uptime</span>
+              <span class="text-base-content font-mono">{formatUptime(system.uptime)}</span>
+            </div>
+            {#if system.database.tables}
+              <div class="flex items-center justify-between">
+                <span class="text-base-content/60">DB Tables</span>
+                <span class="text-base-content font-mono">{system.database.tables}</span>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </SectionCard>
 
-    <!-- Getting Started checklist -->
-    {#if !allDone}
-    <div class="card bg-base-200">
-      <div class="card-body p-4">
-        <h2 class="font-semibold mb-3 flex items-center gap-2">
-          <CheckCircle size={16} class="text-success" />
-          Getting Started
-        </h2>
-        <ul class="space-y-2">
-          {#each gettingStarted as step}
-            <li class="flex items-center gap-3">
-              {#if step.done}
-                <CheckCircle size={16} class="text-success shrink-0" />
-                <span class="text-sm line-through text-base-content/40">{step.label}</span>
-              {:else}
-                <Circle size={16} class="text-base-content/30 shrink-0" />
-                <a href={step.href} class="text-sm text-base-content hover:text-primary hover:underline">{step.label}</a>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      </div>
-    </div>
-    {/if}
-  </div>
-
-  <!-- Collections Overview -->
-  <div class="card bg-base-200">
-    <div class="card-body p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold flex items-center gap-2">
-          <Database size={16} />
-          Collections Overview
-        </h2>
-        <a href="{base}/collections" class="btn btn-ghost btn-xs gap-1">
-          Manage <ExternalLink size={10} />
-        </a>
-      </div>
-
-      {#if collectionsLoading}
-        <LoadingSkeleton type="table" rows={4} cols={3} />
-      {:else if collections.length === 0}
-        <div class="text-center py-8">
-          <p class="text-base-content/50 text-sm mb-3">No collections yet</p>
-          <a href="{base}/collections" class="btn btn-primary btn-sm gap-2">
-            <Plus size={14} />
-            Create your first collection
-          </a>
-        </div>
-      {:else}
-        <div class="overflow-x-auto">
-          <table class="table table-sm w-full">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th class="text-right">Records</th>
-                <th class="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each collections as col}
-                <tr class="hover">
-                  <td>
-                    <div class="flex items-center gap-2">
-                      <Database size={14} class="text-base-content/40" />
-                      <span class="font-medium">{col.label ?? col.name}</span>
-                      {#if col.label}
-                        <span class="text-base-content/40 text-xs font-mono">{col.name}</span>
-                      {/if}
-                    </div>
-                  </td>
-                  <td class="text-right font-mono text-sm">{col.record_count.toLocaleString()}</td>
-                  <td class="text-right">
-                    <a
-                      href="{base}/collections/{col.name}"
-                      class="btn btn-ghost btn-xs"
-                    >
-                      Open
-                    </a>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+      <!-- Getting Started checklist -->
+      {#if !allDone}
+        <SectionCard title="Getting Started">
+          <ul class="space-y-2">
+            {#each gettingStarted as step}
+              <li class="flex items-center gap-3">
+                {#if step.done}
+                  <CheckCircle size={16} class="text-success shrink-0" />
+                  <span class="text-sm line-through text-base-content/40">{step.label}</span>
+                {:else}
+                  <Circle size={16} class="text-base-content/30 shrink-0" />
+                  <a href={step.href} class="text-sm text-base-content hover:text-primary hover:underline">{step.label}</a>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </SectionCard>
       {/if}
     </div>
   </div>

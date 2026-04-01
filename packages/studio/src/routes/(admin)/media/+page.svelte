@@ -6,6 +6,7 @@
  Tag, Search, Grid3x3, List, Download, X, Plus,
  } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let folders = $state<any[]>([]);
@@ -217,7 +218,8 @@
  let isAllSelected = $derived(files.length > 0 && selectedFiles.size === files.length);
 </script>
 
-<div class="h-[calc(100vh-4rem)] flex">
+<PageHeader title="Media" subtitle="Image and media library" />
+<div class="h-[calc(100vh-8rem)] flex">
  <!-- Sidebar -->
  <div class="w-64 bg-base-200 border-r border-base-300 p-4 overflow-y-auto flex flex-col shrink-0">
  <div class="flex items-center justify-between mb-4">
