@@ -169,9 +169,9 @@
  placeholder="e.g. product_name"
  class="input input-sm font-mono"
  />
- <label class="label">
+ <div class="label">
  <span class="label-text-alt text-base-content/50">lowercase_with_underscores</span>
- </label>
+ </div>
  </div>
 
  <div class="form-control">
@@ -267,6 +267,9 @@
  <span class="loading loading-spinner loading-lg"></span>
  </div>
  {:else}
+ <div class="grid lg:grid-cols-3 gap-4">
+  <!-- Left: fields content (2/3) -->
+  <div class="lg:col-span-2 space-y-4">
  <!-- User-defined fields -->
  <div class="space-y-2">
  <h2 class="text-sm font-semibold text-base-content/60 uppercase tracking-wider">
@@ -350,6 +353,20 @@
  </tbody>
  </table>
  </div>
+ </div>
+  </div>
+
+  <!-- Right: Schema Preview (1/3) -->
+  <div class="lg:col-span-1">
+   <div class="border border-base-200 rounded-xl bg-base-100 overflow-hidden sticky top-4">
+    <div class="px-4 py-3 border-b border-base-200">
+     <h2 class="text-sm font-medium text-base-content">Schema Preview</h2>
+    </div>
+    <div class="p-3 font-mono text-xs text-base-content/60 overflow-auto max-h-96">
+     <pre>{JSON.stringify(getFields().map((f: any) => ({ name: f.name, type: f.type, required: !!f.required })), null, 2)}</pre>
+    </div>
+   </div>
+  </div>
  </div>
  {/if}
 </div>

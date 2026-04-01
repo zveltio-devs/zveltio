@@ -1,13 +1,18 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { webhooksApi, collectionsApi } from '$lib/api.js';
- import { Plus, Webhook, Trash2, Edit, Play, LoaderCircle } from '@lucide/svelte';
+ import { Plus, Webhook, LoaderCircle } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import Pagination from '$lib/components/common/Pagination.svelte';
+ import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let webhooks = $state<any[]>([]);
  let collections = $state<any[]>([]);
  let loading = $state(true);
+ let currentPage = $state(1);
+ let total = $state(0);
+ const LIMIT = 20;
  let showModal = $state(false);
  let editTarget = $state<any>(null);
  let saving = $state(false);
@@ -34,7 +39,9 @@
  loading = true;
  try {
  const [wh, col] = await Promise.all([webhooksApi.list(), collectionsApi.list()]);
- webhooks = wh;
+ const allWebhooks: any[] = Array.isArray(wh) ? wh : (wh as any).webhooks ?? wh;
+ total = (wh as any).total ?? allWebhooks.length;
+ webhooks = allWebhooks.slice((currentPage - 1) * LIMIT, currentPage * LIMIT);
  collections = col.collections || [];
  } finally { loading = false; }
  }
@@ -114,7 +121,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
+ <LoadingSkeleton type="list" rows={5} />
  {:else if webhooks.length === 0}
  <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
  <Webhook size={48} class="opacity-20" />
@@ -123,43 +130,55 @@
  <button class="btn btn-primary btn-sm mt-2" onclick={openCreate}>Add Webhook</button>
  </div>
  {:else}
- <div class="space-y-3">
+ <div class="card bg-base-100 shadow-sm overflow-x-auto">
+ <table class="table table-sm w-full">
+ <thead>
+ <tr>
+ <th>Name</th><th>URL</th><th>Events</th><th>Status</th><th class="text-right">Actions</th>
+ </tr>
+ </thead>
+ <tbody>
  {#each webhooks as wh}
- <div class="card bg-base-200">
- <div class="card-body p-4 flex-row items-start gap-3">
- <div class="flex-1 min-w-0">
- <div class="flex items-center gap-2 flex-wrap">
- <span class="font-semibold">{wh.name}</span>
- <span class="badge badge-outline badge-sm">{wh.method || 'POST'}</span>
- <span class="badge badge-sm {wh.active ? 'badge-success' : 'badge-ghost'}">
- {wh.active ? 'active' : 'inactive'}
- </span>
- </div>
- <p class="font-mono text-xs text-base-content/50 truncate mt-0.5">{wh.url}</p>
- <div class="flex gap-1 flex-wrap mt-1">
- {#each (wh.events || []) as ev}
- <span class="badge badge-outline badge-xs">{ev}</span>
+ <tr class="hover group">
+ <td class="font-medium">{wh.name}</td>
+ <td class="font-mono text-xs text-base-content/50 max-w-48 truncate">{wh.url}</td>
+ <td>
+ <div class="flex flex-wrap gap-1">
+ {#each (wh.events || []).slice(0, 3) as ev}
+ <span class="badge badge-ghost badge-xs">{ev}</span>
  {/each}
+ {#if wh.events?.length > 3}
+ <span class="badge badge-ghost badge-xs">+{wh.events.length - 3}</span>
+ {/if}
  </div>
  {#if testResults[wh.id]}
  <p class="text-xs mt-1 {testResults[wh.id].ok ? 'text-success' : 'text-error'}">
- {testResults[wh.id].ok ? '✓ Test payload delivered' : `✗ ${testResults[wh.id].error}`}
+ {testResults[wh.id].ok ? '✓ Delivered' : `✗ ${testResults[wh.id].error}`}
  </p>
  {/if}
- </div>
- <div class="flex gap-1 shrink-0">
- <button class="btn btn-ghost btn-xs" title="Test" onclick={() => testWebhook(wh.id)} disabled={testing === wh.id}>
- {#if testing === wh.id}<LoaderCircle size={14} class="animate-spin" />{:else}<Play size={14} />{/if}
+ </td>
+ <td>
+ <span class="badge badge-sm {wh.active ? 'badge-success' : 'badge-ghost'}">
+ {wh.active ? 'active' : 'paused'}
+ </span>
+ </td>
+ <td class="text-right">
+ <button class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100" onclick={() => testWebhook(wh.id)} disabled={testing === wh.id}>
+ {#if testing === wh.id}<LoaderCircle size={12} class="animate-spin" />{:else}Test{/if}
  </button>
- <button class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)}><Edit size={14} /></button>
- <button class="btn btn-ghost btn-xs text-error" onclick={() => remove(wh.id, wh.name)}><Trash2 size={14} /></button>
- </div>
- </div>
- </div>
+ <button class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100" onclick={() => openEdit(wh)}>Edit</button>
+ <button class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100" onclick={() => remove(wh.id, wh.name)}>Del</button>
+ </td>
+ </tr>
  {/each}
+ </tbody>
+ </table>
  </div>
  {/if}
+ <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; load(); }} />
 </div>
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }} />
 
 {#if showModal}
  <dialog class="modal modal-open">

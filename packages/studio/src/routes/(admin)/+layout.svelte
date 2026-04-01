@@ -164,15 +164,17 @@
       <!-- Logo + collapse toggle -->
       <div class="flex items-center h-14 px-3 border-b border-base-300 shrink-0 gap-2">
         {#if collapsed}
-          <div class="mx-auto w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-            <span class="text-primary-content font-bold text-sm leading-none">Z</span>
+          <div class="mx-auto w-7 h-7 rounded-lg shrink-0 flex items-center justify-center"
+               style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
+            <span class="text-white font-bold text-sm leading-none">Z</span>
           </div>
         {:else}
-          <a href="{base}/" class="flex items-center gap-2 flex-1 min-w-0">
-            <div class="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <span class="text-primary-content font-bold text-sm leading-none">Z</span>
+          <a href="{base}/" class="flex items-center gap-2.5 flex-1 min-w-0">
+            <div class="w-7 h-7 rounded-lg shrink-0 flex items-center justify-center"
+                 style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
+              <span class="text-white font-bold text-sm leading-none">Z</span>
             </div>
-            <span class="font-bold text-sm tracking-tight text-base-content truncate">Zveltio</span>
+            <span class="font-semibold text-sm tracking-tight text-base-content truncate">Zveltio</span>
           </a>
         {/if}
         <button
@@ -191,7 +193,7 @@
           {#if group.label}
             {#if !collapsed}
               <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">
-                <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 select-none">
+                <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
                   {group.label}
                 </span>
               </div>
@@ -207,7 +209,7 @@
                 href={item.href}
                 title={collapsed ? item.label : undefined}
                 class="
-                  flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+                  flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
                   transition-colors duration-100 outline-none
                   {active
                     ? 'bg-primary/10 text-primary'
@@ -241,7 +243,7 @@
                 href="{base}/extensions/{route.path}"
                 title={collapsed ? route.label : undefined}
                 class="
-                  flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+                  flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
                   transition-colors duration-100
                   {isActive(`${base}/extensions/${route.path}`)
                     ? 'bg-primary/10 text-primary'
@@ -262,7 +264,7 @@
             href="{base}/settings"
             title={collapsed ? 'Settings' : undefined}
             class="
-              flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+              flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
               transition-colors duration-100
               {isActive(`${base}/settings`) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
               {collapsed ? 'justify-center' : ''}
@@ -282,7 +284,7 @@
           href="{base}/intranet"
           title={collapsed ? 'Employee Intranet' : undefined}
           class="
-            flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+            flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
             text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
             {collapsed ? 'justify-center' : ''}
           "
@@ -324,7 +326,7 @@
           </div>
           {#if !collapsed}
             <div class="flex-1 min-w-0">
-              <p class="text-[13px] font-medium leading-none truncate text-base-content">{auth.user?.name || 'User'}</p>
+              <p class="text-[11px] font-medium leading-none truncate text-base-content">{auth.user?.name || 'User'}</p>
               <p class="text-[11px] text-base-content/45 mt-0.5 truncate">{auth.user?.email}</p>
             </div>
           {/if}
@@ -349,10 +351,11 @@
 
       <aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-base-200 border-r border-base-300 lg:hidden">
         <div class="flex items-center h-14 px-3 border-b border-base-300 gap-2">
-          <div class="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-            <span class="text-primary-content font-bold text-sm">Z</span>
+          <div class="w-7 h-7 rounded-lg shrink-0 flex items-center justify-center"
+               style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
+            <span class="text-white font-bold text-sm">Z</span>
           </div>
-          <span class="font-bold text-sm tracking-tight text-base-content">Zveltio</span>
+          <span class="font-semibold text-sm tracking-tight text-base-content">Zveltio</span>
           <button onclick={() => (mobileOpen = false)} class="btn btn-ghost btn-xs ml-auto">
             <X size={16} />
           </button>
@@ -362,7 +365,7 @@
           {#each nav as group, gi}
             {#if group.label}
               <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">
-                <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 select-none">
+                <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
                   {group.label}
                 </span>
               </div>
@@ -374,7 +377,7 @@
                   href={item.href}
                   onclick={() => (mobileOpen = false)}
                   class="
-                    flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+                    flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
                     transition-colors duration-100
                     {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
                   "
@@ -390,7 +393,7 @@
               href="{base}/settings"
               onclick={() => (mobileOpen = false)}
               class="
-                flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
+                flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
                 transition-colors duration-100
                 {isActive(`${base}/settings`) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
               "

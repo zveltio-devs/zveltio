@@ -8,6 +8,7 @@
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
@@ -31,12 +32,30 @@
  let aiSearchEnabled = $state(false);
  let aiSearchField = $state('');
  let savingAI = $state(false);
- let aiSaved = $state(false);
 
  // Insert row state
  let showInsertModal = $state(false);
  let insertForm = $state<Record<string, any>>({});
  let inserting = $state(false);
+
+ // Inline add row state
+ let inlineNewRow = $state<Record<string, any>>({});
+ let savingInline = $state(false);
+
+ async function saveInlineRow() {
+   const hasData = Object.values(inlineNewRow).some(v => v !== '' && v !== undefined);
+   if (!hasData) return;
+   savingInline = true;
+   try {
+     await dataApi.create(collectionName, inlineNewRow);
+     inlineNewRow = {};
+     await load();
+   } catch (e: any) {
+     // silent, use modal for complex cases
+   } finally {
+     savingInline = false;
+   }
+ }
 
  // Re-load whenever collection route changes (handles SvelteKit client-side nav)
  $effect(() => {
@@ -146,14 +165,12 @@
 
  async function saveAISettings() {
  savingAI = true;
- aiSaved = false;
  try {
  await api.patch(`/api/collections/${collectionName}`, {
  aiSearchEnabled,
  aiSearchField: aiSearchField || null,
  });
- aiSaved = true;
- setTimeout(() => { aiSaved = false; }, 3000);
+ toast.success('AI settings saved successfully');
  } finally {
  savingAI = false;
  }
@@ -175,48 +192,42 @@
  </div>
 
  <!-- Tabs -->
- <div class="tabs tabs-bordered">
- <button
- class="tab {activeTab === 'data' ? 'tab-active' : ''}"
- onclick={() => (activeTab = 'data')}
- >
- Data
- </button>
- <button
- class="tab {activeTab === 'schema' ? 'tab-active' : ''}"
- onclick={() => (activeTab = 'schema')}
- >
- Schema
- </button>
- <a href="{base}/collections/{collectionName}/fields" class="tab gap-1">
- <Columns size={14} />
- Fields
- </a>
- <a href="{base}/collections/{collectionName}/relations" class="tab gap-1">
- <GitFork size={14} />
- Relations
- </a>
- <button
- class="tab gap-1 {activeTab === 'ai' ? 'tab-active' : ''}"
- onclick={() => (activeTab = 'ai')}
- >
- <Sparkles size={14} />
- AI Search
- </button>
- <button
- class="tab gap-1 {activeTab === 'code' ? 'tab-active' : ''}"
- onclick={() => (activeTab = 'code')}
- >
- <Code size={14} />
- Code
- </button>
- <button
- class="tab gap-1 {activeTab === 'views' ? 'tab-active' : ''}"
- onclick={() => { activeTab = 'views'; loadViews(); }}
- >
- <LayoutGrid size={14} />
- Views
- </button>
+ <div class="border-b border-base-200 mb-4">
+   <div class="flex gap-0">
+     <button
+       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors gap-1 flex items-center
+              {activeTab === 'data' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+       onclick={() => (activeTab = 'data')}
+     >Data</button>
+     <button
+       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors gap-1 flex items-center
+              {activeTab === 'schema' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+       onclick={() => (activeTab = 'schema')}
+     >Schema</button>
+     <a href="{base}/collections/{collectionName}/fields"
+        class="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-base-content/50 hover:text-base-content flex items-center gap-1">
+       <Columns size={13} />Fields
+     </a>
+     <a href="{base}/collections/{collectionName}/relations"
+        class="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-base-content/50 hover:text-base-content flex items-center gap-1">
+       <GitFork size={13} />Relations
+     </a>
+     <button
+       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1
+              {activeTab === 'ai' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+       onclick={() => (activeTab = 'ai')}
+     ><Sparkles size={13} />AI Search</button>
+     <button
+       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1
+              {activeTab === 'code' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+       onclick={() => (activeTab = 'code')}
+     ><Code size={13} />Code</button>
+     <button
+       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1
+              {activeTab === 'views' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
+       onclick={() => { activeTab = 'views'; loadViews(); }}
+     ><LayoutGrid size={13} />Views</button>
+   </div>
  </div>
 
  {#if activeTab === 'data'}
@@ -279,6 +290,39 @@
              </td>
            </tr>
          {/each}
+         <!-- Inline add row -->
+         <tr class="hover:bg-primary/5 transition-colors">
+           <td class="px-3 py-2">
+             <span class="text-primary/60 font-medium text-sm">+</span>
+           </td>
+           {#each getFields().filter((f) => !f.is_system && f.type !== 'computed') as field}
+             <td class="px-1 py-1">
+               {#if ['text', 'email', 'url'].includes(field.type)}
+                 <input
+                   type="text"
+                   class="input input-xs w-full"
+                   placeholder={field.label || field.name}
+                   bind:value={inlineNewRow[field.name]}
+                 />
+               {:else if field.type === 'number'}
+                 <input
+                   type="number"
+                   class="input input-xs w-full"
+                   placeholder="0"
+                   bind:value={inlineNewRow[field.name]}
+                 />
+               {:else}
+                 <span class="text-xs text-base-content/30 italic">modal</span>
+               {/if}
+             </td>
+           {/each}
+           <td></td>
+           <td class="px-1 py-1 text-right">
+             <button class="btn btn-primary btn-xs" onclick={saveInlineRow} disabled={savingInline}>
+               {#if savingInline}<span class="loading loading-spinner loading-xs"></span>{:else}Save{/if}
+             </button>
+           </td>
+         </tr>
        </tbody>
      </table>
    </div>
@@ -376,7 +420,7 @@
  {:else}
  <Save size={14} />
  {/if}
- {aiSaved ? 'Saved!' : 'Save AI settings'}
+ Save AI settings
  </button>
  </div>
  </div>

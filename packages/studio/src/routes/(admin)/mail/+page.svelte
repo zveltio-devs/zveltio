@@ -5,6 +5,7 @@
     Reply, ReplyAll, Forward, Wand2, X, Paperclip, Filter,
     ChevronDown, Settings, FileText, Users, Check, AlertCircle
   } from '@lucide/svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
 
   // ── Types ─────────────────────────────────────────────────────────────────
   type Tab = 'mail' | 'drafts' | 'contacts' | 'signatures' | 'filters';
@@ -445,10 +446,11 @@
   const hasSelection = $derived(selectedIds.size > 0);
 </script>
 
-<div class="flex h-[calc(100vh-64px)] overflow-hidden">
+<PageHeader title="Mail" subtitle="Integrated email client" />
+<div class="flex h-[calc(100vh-100px)] -mx-6 border-t border-base-200 overflow-hidden">
 
   <!-- ═══ SIDEBAR ═══ -->
-  <div class="w-56 shrink-0 border-r border-base-300 bg-base-200 flex flex-col">
+  <div class="w-48 shrink-0 border-r border-base-200 bg-base-200 flex flex-col">
     <div class="p-3 border-b border-base-300 flex items-center justify-between">
       <span class="font-semibold text-sm flex items-center gap-1">
         <Mail class="w-4 h-4"/>
@@ -541,7 +543,7 @@
     <!-- ─── MAIL TAB ─── -->
     {#if activeTab === 'mail'}
       <!-- Message list -->
-      <div class="w-80 shrink-0 border-r border-base-300 flex flex-col bg-base-100">
+      <div class="w-72 shrink-0 border-r border-base-200 flex flex-col bg-base-100">
         <!-- Search + bulk -->
         <div class="p-2 border-b border-base-300 space-y-1">
           <div class="join w-full">
@@ -610,7 +612,7 @@
       </div>
 
       <!-- Message detail -->
-      <div class="flex-1 flex flex-col overflow-hidden">
+      <div class="flex-1 overflow-y-auto flex flex-col">
         {#if selectedMessage}
           <div class="p-4 border-b border-base-300 bg-base-100">
             <div class="flex items-start justify-between gap-3">
@@ -783,11 +785,11 @@
             <div class="card-body gap-3">
               <h3 class="font-semibold text-sm">{editSig ? 'Edit Signature' : 'New Signature'}</h3>
               <div class="form-control">
-                <label class="label py-1"><span class="label-text text-sm">Name</span></label>
+                <div class="label py-1"><span class="label-text text-sm">Name</span></div>
                 <input class="input input-sm input-bordered" bind:value={sigName} placeholder="Work, Personal..."/>
               </div>
               <div class="form-control">
-                <label class="label py-1"><span class="label-text text-sm">Signature HTML</span></label>
+                <div class="label py-1"><span class="label-text text-sm">Signature HTML</span></div>
                 <textarea class="textarea textarea-bordered min-h-24 font-mono text-xs" bind:value={sigHtml} placeholder="<p>Your signature here...</p>"></textarea>
               </div>
               <label class="label cursor-pointer justify-start gap-2">
@@ -891,7 +893,7 @@
       <div class="space-y-2">
         <!-- To field with autocomplete -->
         <div class="form-control relative">
-          <label class="label py-1"><span class="label-text text-sm">To</span></label>
+          <div class="label py-1"><span class="label-text text-sm">To</span></div>
           <input class="input input-bordered input-sm" bind:value={composeTo}
             oninput={(e) => { fetchSuggestions((e.target as HTMLInputElement).value.split(',').pop()?.trim() ?? ''); showToSuggestions = true; }}
             onblur={() => setTimeout(() => showToSuggestions = false, 200)}
@@ -911,15 +913,15 @@
         </div>
 
         <div class="form-control">
-          <label class="label py-1"><span class="label-text text-sm">Cc</span></label>
+          <div class="label py-1"><span class="label-text text-sm">Cc</span></div>
           <input class="input input-bordered input-sm" bind:value={composeCc} placeholder="Optional"/>
         </div>
         <div class="form-control">
-          <label class="label py-1"><span class="label-text text-sm">Bcc</span></label>
+          <div class="label py-1"><span class="label-text text-sm">Bcc</span></div>
           <input class="input input-bordered input-sm" bind:value={composeBcc} placeholder="Optional"/>
         </div>
         <div class="form-control">
-          <label class="label py-1"><span class="label-text text-sm">Subject</span></label>
+          <div class="label py-1"><span class="label-text text-sm">Subject</span></div>
           <input class="input input-bordered input-sm" bind:value={composeSubject} placeholder="Subject"/>
         </div>
 
@@ -940,7 +942,7 @@
         </div>
 
         <div class="form-control">
-          <label class="label py-1"><span class="label-text text-sm">Message</span></label>
+          <div class="label py-1"><span class="label-text text-sm">Message</span></div>
           <textarea class="textarea textarea-bordered min-h-48" bind:value={composeBody} placeholder="Write your message..."></textarea>
         </div>
       </div>
@@ -968,36 +970,36 @@
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Account Name</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Account Name</span></div>
             <input class="input input-bordered input-sm" bind:value={newAccount.name} placeholder="Work, Personal..."/>
           </div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Email Address</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Email Address</span></div>
             <input class="input input-bordered input-sm" type="email" bind:value={newAccount.email_address}/>
           </div>
         </div>
         <div class="form-control">
-          <label class="label py-1"><span class="label-text text-sm">Display Name</span></label>
+          <div class="label py-1"><span class="label-text text-sm">Display Name</span></div>
           <input class="input input-bordered input-sm" bind:value={newAccount.display_name} placeholder="Optional"/>
         </div>
         <div class="divider text-xs">IMAP (Incoming)</div>
         <div class="grid grid-cols-3 gap-2">
           <div class="form-control col-span-2">
-            <label class="label py-1"><span class="label-text text-sm">Host</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Host</span></div>
             <input class="input input-bordered input-sm" bind:value={newAccount.imap_host} placeholder="imap.gmail.com"/>
           </div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Port</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Port</span></div>
             <input class="input input-bordered input-sm" type="number" bind:value={newAccount.imap_port}/>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Username</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Username</span></div>
             <input class="input input-bordered input-sm" bind:value={newAccount.imap_user}/>
           </div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Password</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Password</span></div>
             <input class="input input-bordered input-sm" type="password" bind:value={newAccount.imap_password}/>
           </div>
         </div>
@@ -1008,11 +1010,11 @@
         <div class="divider text-xs">SMTP (Outgoing)</div>
         <div class="grid grid-cols-3 gap-2">
           <div class="form-control col-span-2">
-            <label class="label py-1"><span class="label-text text-sm">Host</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Host</span></div>
             <input class="input input-bordered input-sm" bind:value={newAccount.smtp_host} placeholder="smtp.gmail.com"/>
           </div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Port</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Port</span></div>
             <input class="input input-bordered input-sm" type="number" bind:value={newAccount.smtp_port}/>
           </div>
         </div>
@@ -1051,7 +1053,7 @@
       <h3 class="font-bold text-lg mb-4">New Mail Filter</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label py-1"><span class="label-text text-sm">Filter Name</span></label>
+          <div class="label py-1"><span class="label-text text-sm">Filter Name</span></div>
           <input class="input input-bordered input-sm" bind:value={newFilter.name} placeholder="Block newsletters..."/>
         </div>
 

@@ -3,6 +3,7 @@
  import { api } from '$lib/api.js';
  import { DatabaseBackup, Plus, Download, Trash2, RefreshCw, LoaderCircle, Clock, CheckCircle, XCircle } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
 
  interface Backup {
  id: string;
@@ -113,20 +114,16 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Backup</h1>
- <p class="text-base-content/60 text-sm mt-1">Create and manage database backups</p>
- </div>
- <div class="flex gap-2">
- <button class="btn btn-ghost btn-sm" onclick={loadBackups} disabled={loading}>
- <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
- </button>
- <button class="btn btn-primary btn-sm" onclick={() => (showModal = true)}>
- <Plus size={16} /> New Backup
- </button>
- </div>
- </div>
+ <PageHeader title="Backup" subtitle="Database snapshots and restore points">
+  <div class="flex gap-2">
+  <button class="btn btn-ghost btn-sm" onclick={loadBackups} disabled={loading}>
+  <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
+  </button>
+  <button class="btn btn-primary btn-sm" onclick={() => (showModal = true)}>
+  <Plus size={16} /> New Backup
+  </button>
+  </div>
+ </PageHeader>
 
  {#if error}
  <div class="alert alert-error text-sm">{error}</div>
@@ -145,41 +142,31 @@
  </button>
  </div>
  {:else}
- <div class="card bg-base-200">
- <div class="card-body p-0">
- <table class="table table-sm">
- <thead>
- <tr>
- <th>Filename</th>
- <th>Status</th>
- <th>Size</th>
- <th>Created</th>
- <th>Notes</th>
- <th class="w-24">Actions</th>
- </tr>
- </thead>
- <tbody>
+ <div class="space-y-3">
  {#each backups as backup}
- <tr class="hover">
- <td class="font-mono text-xs truncate max-w-xs">{backup.filename}</td>
- <td>
+ <div class="flex items-center gap-4 p-3 border border-base-200 rounded-xl hover:bg-base-50 transition-colors">
+ <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0
+ {backup.status === 'completed' ? 'bg-success/10' : backup.status === 'failed' ? 'bg-error/10' : 'bg-warning/10'}">
  {#if backup.status === 'completed'}
- <span class="badge badge-success badge-sm gap-1"><CheckCircle size={11} /> Done</span>
+ <CheckCircle size={20} class="text-success" />
  {:else if backup.status === 'in_progress'}
- <span class="badge badge-warning badge-sm gap-1">
- <LoaderCircle size={11} class="animate-spin" /> Running
- </span>
+ <LoaderCircle size={20} class="text-warning animate-spin" />
  {:else}
- <span class="badge badge-error badge-sm gap-1" title={backup.error || ''}>
- <XCircle size={11} /> Failed
- </span>
+ <XCircle size={20} class="text-error" />
  {/if}
- </td>
- <td class="text-xs">{backup.size_human || '—'}</td>
- <td class="text-xs">{fmtDate(backup.created_at)}</td>
- <td class="text-xs text-base-content/60 max-w-xs truncate">{backup.notes || '—'}</td>
- <td>
- <div class="flex gap-1">
+ </div>
+ <div class="flex-1 min-w-0">
+ <div class="flex items-center gap-2 flex-wrap">
+ <span class="font-medium text-sm">{fmtDate(backup.created_at)}</span>
+ <span class="badge badge-xs {backup.status === 'completed' ? 'badge-success' : backup.status === 'failed' ? 'badge-error' : 'badge-warning'}">{backup.status}</span>
+ </div>
+ <div class="text-xs text-base-content/40 mt-0.5 font-mono truncate">
+ {backup.filename}
+ {#if backup.size_human} · {backup.size_human}{/if}
+ {#if backup.notes} · {backup.notes}{/if}
+ </div>
+ </div>
+ <div class="flex gap-2 shrink-0">
  {#if backup.status === 'completed'}
  <button class="btn btn-ghost btn-xs" onclick={() => downloadBackup(backup.id)} title="Download">
  <Download size={13} />
@@ -189,12 +176,11 @@
  <Trash2 size={13} />
  </button>
  </div>
- </td>
- </tr>
- {/each}
- </tbody>
- </table>
  </div>
+ {/each}
+ {#if backups.length === 0}
+ <div class="text-center py-12 text-base-content/40 text-sm">No backups yet.</div>
+ {/if}
  </div>
  {/if}
 </div>

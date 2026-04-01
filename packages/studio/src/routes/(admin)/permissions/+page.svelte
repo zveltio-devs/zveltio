@@ -3,6 +3,8 @@
  import { api } from '$lib/api.js';
  import { Shield, Save, Plus, Trash2, LoaderCircle, GitBranch, ChevronRight, ArrowRight } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let collections = $state<any[]>([]);
@@ -101,6 +103,7 @@
  }
  await api.post('/api/admin/permissions/bulk', { permissions: list });
  saved = true;
+ toast.success('Permissions saved successfully');
  setTimeout(() => (saved = false), 3000);
  } catch (err) {
  toast.error(err instanceof Error ? err.message : 'Save failed');
@@ -139,18 +142,14 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Permissions</h1>
- <p class="text-base-content/60 text-sm mt-1">Role-based access control matrix</p>
- </div>
- {#if tab === 'matrix'}
- <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveMatrix} disabled={saving}>
- {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
- {saved ? '✓ Saved' : 'Save Matrix'}
- </button>
- {/if}
- </div>
+ <PageHeader title="Permissions" subtitle="Role-based access control matrix">
+  {#if tab === 'matrix'}
+  <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveMatrix} disabled={saving}>
+  {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
+  {saved ? '✓ Saved' : 'Save Matrix'}
+  </button>
+  {/if}
+ </PageHeader>
 
  <div class="tabs tabs-bordered">
  <button class="tab {tab === 'matrix' ? 'tab-active' : ''}" onclick={() => (tab = 'matrix')}>Permission Matrix</button>
@@ -159,7 +158,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-16"><LoaderCircle size={32} class="animate-spin text-primary" /></div>
+ <LoadingSkeleton type="table" rows={5} />
  {:else if tab === 'matrix'}
  {#if roles.length === 0 || collections.length === 0}
  <div class="alert alert-info">
@@ -167,11 +166,11 @@
  <span>You need at least one role and one collection to configure permissions.</span>
  </div>
  {:else}
- <div class="overflow-x-auto rounded-lg border border-base-300">
- <table class="table table-xs table-pin-rows">
- <thead>
+ <div class="overflow-auto max-h-[calc(100vh-280px)] border border-base-200 rounded-xl">
+ <table class="table table-xs w-full">
+ <thead class="sticky top-0 z-10 bg-base-100">
  <tr>
- <th class="bg-base-200 min-w-32">Role</th>
+ <th class="sticky left-0 bg-base-100 z-20 min-w-32">Role</th>
  {#each collections as col}
  <th class="bg-base-200 text-center border-l border-base-300" colspan={ACTIONS.length}>
  <span class="text-xs font-medium">{col.display_name || col.name}</span>
@@ -212,7 +211,12 @@
  </tbody>
  </table>
  </div>
- <p class="text-xs text-base-content/40">Per collection: <b>V</b>=view <b>C</b>=create <b>U</b>=update <b>D</b>=delete. Click Save Matrix to persist.</p>
+ <div class="flex gap-3 mt-2 text-xs text-base-content/50">
+  <span class="flex items-center gap-1"><span class="w-3 h-3 bg-info rounded-sm"></span> view</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 bg-success rounded-sm"></span> create</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 bg-warning rounded-sm"></span> update</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 bg-error rounded-sm"></span> delete</span>
+ </div>
  {/if}
  {:else}
  <div class="space-y-4">

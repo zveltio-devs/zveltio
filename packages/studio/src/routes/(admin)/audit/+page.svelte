@@ -1,17 +1,24 @@
 <script lang="ts">
  import { onMount } from 'svelte';
- import { ClipboardList, Filter, ChevronLeft, ChevronRight } from '@lucide/svelte';
+ import { ClipboardList, Filter } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import Pagination from '$lib/components/common/Pagination.svelte';
 
  const engineUrl = import.meta.env.PUBLIC_ENGINE_URL || '';
 
  let revisions = $state<any[]>([]);
  let loading = $state(true);
  let page = $state(1);
+ let total = $state(0);
  const limit = 25;
 
  let filterCollection = $state('');
  let filterUserId = $state('');
  let filterOp = $state('');
+
+ let filterType = $state('');
+ let filterUser = $state('');
+ let filterFrom = $state('');
 
  onMount(() => load());
 
@@ -20,9 +27,13 @@
  const params = new URLSearchParams({ limit: String(limit), page: String(page) });
  if (filterCollection) params.set('collection', filterCollection);
  if (filterUserId) params.set('user_id', filterUserId);
+ if (filterType) params.set('event_type', filterType);
+ if (filterUser) params.set('user', encodeURIComponent(filterUser));
+ if (filterFrom) params.set('from', filterFrom);
 
  const res = await fetch(`${engineUrl}/api/admin/revisions?${params}`, { credentials: 'include' }).then((r) => r.json());
  revisions = (res.revisions || []).filter((r: any) => !filterOp || r.operation === filterOp);
+ total = res.total ?? (revisions.length < limit ? (page - 1) * limit + revisions.length : page * limit + 1);
  loading = false;
  }
 
@@ -54,19 +65,14 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Audit Log</h1>
- <p class="text-base-content/60 text-sm mt-1">Record change history across all collections</p>
- </div>
- </div>
+ <PageHeader title="Audit Log" subtitle="Track all system events" />
 
  <!-- Filters -->
  <div class="card bg-base-200">
  <div class="card-body p-4">
  <div class="flex flex-wrap gap-3">
  <div class="form-control">
- <label class="label py-0"><span class="label-text text-xs">Collection</span></label>
+ <div class="label py-0"><span class="label-text text-xs">Collection</span></div>
  <input
  type="text"
  bind:value={filterCollection}
@@ -75,7 +81,7 @@
  />
  </div>
  <div class="form-control">
- <label class="label py-0"><span class="label-text text-xs">User ID</span></label>
+ <div class="label py-0"><span class="label-text text-xs">User ID</span></div>
  <input
  type="text"
  bind:value={filterUserId}
@@ -84,7 +90,7 @@
  />
  </div>
  <div class="form-control">
- <label class="label py-0"><span class="label-text text-xs">Operation</span></label>
+ <div class="label py-0"><span class="label-text text-xs">Operation</span></div>
  <select bind:value={filterOp} class="select select-sm">
  <option value="">All</option>
  <option value="insert">Insert</option>
@@ -99,6 +105,21 @@
  </div>
  </div>
  </div>
+ </div>
+
+ <div class="flex gap-2 mb-4 flex-wrap">
+  <select class="select select-sm" bind:value={filterType} onchange={load}>
+    <option value="">All events</option>
+    <option value="auth">Auth</option>
+    <option value="data">Data</option>
+    <option value="admin">Admin</option>
+    <option value="api_key">API Keys</option>
+  </select>
+  <input type="text" class="input input-sm max-w-40" placeholder="Filter by user..." bind:value={filterUser} onblur={load} />
+  <input type="date" class="input input-sm" bind:value={filterFrom} onchange={load} />
+  {#if filterType || filterUser || filterFrom}
+    <button class="btn btn-ghost btn-sm" onclick={() => { filterType = ''; filterUser = ''; filterFrom = ''; load(); }}>Clear</button>
+  {/if}
  </div>
 
  {#if loading}
@@ -178,15 +199,6 @@
  </div>
  </div>
 
- <!-- Pagination -->
- <div class="flex justify-center gap-2">
- <button class="btn btn-sm btn-ghost" onclick={() => { page--; load(); }} disabled={page <= 1}>
- <ChevronLeft size={16} />Prev
- </button>
- <span class="btn btn-sm btn-ghost no-animation">Page {page}</span>
- <button class="btn btn-sm btn-ghost" onclick={() => { page++; load(); }} disabled={revisions.length < limit}>
- Next<ChevronRight size={16} />
- </button>
- </div>
+ <Pagination {total} {page} {limit} onchange={(p) => { page = p; load(); }} />
  {/if}
 </div>

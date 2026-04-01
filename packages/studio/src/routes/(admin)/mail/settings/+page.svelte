@@ -194,21 +194,21 @@
         <div class="grid grid-cols-2 gap-3">
           <div class="col-span-2 font-semibold text-sm text-base-content/70">Gmail</div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Client ID</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Client ID</span></div>
             <input class="input input-bordered input-sm" bind:value={config.oauth2_gmail_client_id} placeholder="xxx.apps.googleusercontent.com"/>
           </div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Client Secret</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Client Secret</span></div>
             <input class="input input-bordered input-sm" type="password" bind:value={config.oauth2_gmail_client_secret}/>
           </div>
 
           <div class="col-span-2 font-semibold text-sm text-base-content/70 mt-2">Outlook / Microsoft 365</div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Client ID</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Client ID</span></div>
             <input class="input input-bordered input-sm" bind:value={config.oauth2_outlook_client_id} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"/>
           </div>
           <div class="form-control">
-            <label class="label py-1"><span class="label-text text-sm">Client Secret</span></label>
+            <div class="label py-1"><span class="label-text text-sm">Client Secret</span></div>
             <input class="input input-bordered input-sm" type="password" bind:value={config.oauth2_outlook_client_secret}/>
           </div>
         </div>

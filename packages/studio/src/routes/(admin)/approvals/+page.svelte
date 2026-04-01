@@ -5,6 +5,7 @@
  CheckCircle, XCircle, Clock, Eye, X, AlertCircle, Check, Ban, RefreshCw,
  } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  interface ApprovalRequest {
@@ -155,16 +156,28 @@
  function truncateId(id: string, length = 8) {
  return id.length <= length ? id : id.substring(0, length) + '…';
  }
+
+ let viewMode = $state<'list' | 'kanban'>('list');
+
+ function formatRelative(dateStr: string): string {
+  if (!dateStr) return '—';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+ }
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Approval Requests</h1>
- <p class="text-base-content/60 text-sm mt-1">Manage approval workflows and requests</p>
- </div>
- <button class="btn btn-ghost btn-sm" onclick={loadRequests} title="Refresh"><RefreshCw size={16} /></button>
- </div>
+ <PageHeader title="Approvals" subtitle="Review and manage pending requests">
+  <button class="btn btn-ghost btn-xs gap-1" onclick={() => viewMode = viewMode === 'list' ? 'kanban' : 'list'}>
+   {viewMode === 'list' ? 'Kanban view' : 'List view'}
+  </button>
+  <button class="btn btn-ghost btn-sm" onclick={loadRequests} title="Refresh"><RefreshCw size={16} /></button>
+ </PageHeader>
 
  <div class="tabs tabs-boxed bg-base-200 p-1">
  {#each tabs as tab}
@@ -181,48 +194,83 @@
  <div class="alert alert-error"><AlertCircle size={20} /><span>{error}</span></div>
  {/if}
 
- <div class="card bg-base-100 shadow-sm">
  {#if loading}
- <div class="card-body text-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
- {:else if requests.length === 0}
- <div class="card-body text-center py-12">
- <CheckCircle size={48} class="mx-auto opacity-30" />
- <p class="mt-4 opacity-60">No approval requests found.</p>
+ <div class="card bg-base-100 shadow-sm">
+  <div class="card-body text-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
+ </div>
+ {:else if viewMode === 'kanban'}
+ <div class="grid grid-cols-3 gap-4">
+  {#each ['pending', 'approved', 'rejected'] as status}
+   <div>
+    <div class="flex items-center gap-2 mb-3">
+     <span class="w-2 h-2 rounded-full {status === 'pending' ? 'bg-warning' : status === 'approved' ? 'bg-success' : 'bg-error'}"></span>
+     <span class="text-sm font-medium capitalize">{status}</span>
+     <span class="badge badge-ghost badge-xs">{requests.filter(r => r.status === status).length}</span>
+    </div>
+    <div class="space-y-2">
+     {#each requests.filter(r => r.status === status) as req}
+      <button
+       class="w-full text-left card bg-base-100 border border-base-200 p-3 hover:border-primary/30 transition-colors"
+       onclick={() => { selectedRequest = req; showDetailModal = true; }}
+      >
+       <div class="font-medium text-sm">{req.workflow_name}</div>
+       <div class="text-xs text-base-content/50 mt-1">
+        {req.requester_name ?? 'Unknown'} · {formatRelative(req.requested_at)}
+       </div>
+       {#if req.current_step_name}
+        <div class="text-xs text-primary mt-1">{req.current_step_name}</div>
+       {/if}
+      </button>
+     {/each}
+     {#if requests.filter(r => r.status === status).length === 0}
+      <div class="text-xs text-base-content/30 text-center py-4">Empty</div>
+     {/if}
+    </div>
+   </div>
+  {/each}
  </div>
  {:else}
- <div class="overflow-x-auto">
- <table class="table table-zebra">
- <thead>
- <tr>
- <th>Collection</th><th>Record ID</th><th>Workflow</th>
- <th>Step</th><th>Status</th><th>Requested By</th><th>Requested At</th><th></th>
- </tr>
- </thead>
- <tbody>
- {#each requests as request}
- {@const badge = getStatusBadge(request.status)}
- <tr
- class="hover cursor-pointer"
- role="button"
- tabindex="0"
- onclick={() => openDetail(request)}
- onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDetail(request)}
- >
- <td><span class="badge badge-ghost font-mono text-sm">{request.collection}</span></td>
- <td><span class="font-mono text-sm">{truncateId(request.record_id)}</span></td>
- <td>{request.workflow_name}</td>
- <td>{request.current_step_name || '—'}</td>
- <td><span class="badge {badge.cls} badge-sm">{badge.text}</span></td>
- <td>{request.requester_name || 'Unknown'}</td>
- <td class="text-sm opacity-60">{formatDate(request.requested_at)}</td>
- <td><button class="btn btn-ghost btn-sm btn-square" title="View details"><Eye size={14} /></button></td>
- </tr>
- {/each}
- </tbody>
- </table>
+ <div class="card bg-base-100 shadow-sm">
+  {#if requests.length === 0}
+  <div class="card-body text-center py-12">
+  <CheckCircle size={48} class="mx-auto opacity-30" />
+  <p class="mt-4 opacity-60">No approval requests found.</p>
+  </div>
+  {:else}
+  <div class="overflow-x-auto">
+  <table class="table table-zebra">
+  <thead>
+  <tr>
+  <th>Collection</th><th>Record ID</th><th>Workflow</th>
+  <th>Step</th><th>Status</th><th>Requested By</th><th>Requested At</th><th></th>
+  </tr>
+  </thead>
+  <tbody>
+  {#each requests as request}
+  {@const badge = getStatusBadge(request.status)}
+  <tr
+  class="hover cursor-pointer"
+  role="button"
+  tabindex="0"
+  onclick={() => openDetail(request)}
+  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openDetail(request)}
+  >
+  <td><span class="badge badge-ghost font-mono text-sm">{request.collection}</span></td>
+  <td><span class="font-mono text-sm">{truncateId(request.record_id)}</span></td>
+  <td>{request.workflow_name}</td>
+  <td>{request.current_step_name || '—'}</td>
+  <td><span class="badge {badge.cls} badge-sm">{badge.text}</span></td>
+  <td>{request.requester_name || 'Unknown'}</td>
+  <td class="text-sm opacity-60">{formatDate(request.requested_at)}</td>
+  <td><button class="btn btn-ghost btn-sm btn-square" title="View details"><Eye size={14} /></button></td>
+  </tr>
+  {/each}
+  </tbody>
+  </table>
+  </div>
+  {/if}
  </div>
  {/if}
- </div>
 </div>
 
 {#if showDetailModal && selectedRequest}
