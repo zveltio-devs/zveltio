@@ -1,0 +1,107 @@
+/* Zveltio Design System - OKLCH Colors */
+:root {
+  /* Brand Colors - OKLCH */
+  --z-primary: oklch(0.55 0.22 260);
+  --z-primary-dark: oklch(0.45 0.22 260);
+  --z-primary-light: oklch(0.65 0.18 260);
+  --z-secondary: oklch(0.55 0.18 300);
+  --z-secondary-dark: oklch(0.45 0.15 300);
+  --z-accent: oklch(0.65 0.16 200);
+  --z-accent-dark: oklch(0.55 0.14 200);
+
+  /* Semantic Colors */
+  --z-success: oklch(0.62 0.18 150);
+  --z-success-dark: oklch(0.52 0.16 150);
+  --z-warning: oklch(0.75 0.18 80);
+  --z-warning-dark: oklch(0.65 0.16 80);
+  --z-error: oklch(0.65 0.22 30);
+  --z-error-dark: oklch(0.55 0.2 30);
+
+  /* Neutre - Gray Scale */
+  --z-gray-50: oklch(0.97 0.004 260);
+  --z-gray-100: oklch(0.93 0.008 260);
+  --z-gray-200: oklch(0.87 0.008 260);
+  --z-gray-300: oklch(0.78 0.008 260);
+  --z-gray-400: oklch(0.68 0.008 260);
+  --z-gray-500: oklch(0.58 0.008 260);
+  --z-gray-600: oklch(0.48 0.008 260);
+  --z-gray-700: oklch(0.38 0.008 260);
+  --z-gray-800: oklch(0.28 0.008 260);
+  --z-gray-900: oklch(0.21 0.012 260);
+  --z-gray-950: oklch(0.15 0.012 260);
+
+  /* Spacing System */
+  --z-space-xs: 0.25rem;
+  --z-space-sm: 0.5rem;
+  --z-space-md: 1rem;
+  --z-space-lg: 1.5rem;
+  --z-space-xl: 2rem;
+  --z-space-2xl: 3rem;
+
+  /* Border Radius */
+  --z-radius-xs: 0.125rem;
+  --z-radius-sm: 0.25rem;
+  --z-radius-md: 0.375rem;
+  --z-radius-lg: 0.5rem;
+  --z-radius-xl: 0.75rem;
+  --z-radius-2xl: 1rem;
+  --z-radius-full: 9999px;
+
+  /* Typography */
+  --z-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --z-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --z-font-size-base: 0.875rem;
+  --z-font-size-sm: 0.75rem;
+  --z-font-size-lg: 1rem;
+  --z-font-size-xl: 1.125rem;
+  --z-font-size-2xl: 1.25rem;
+  --z-font-size-3xl: 1.5rem;
+  --z-font-size-4xl: 2rem;
+
+  /* Shadows */
+  --z-shadow-sm: 0 1px 2px 0 var(--z-gray-950);
+  --z-shadow: 0 1px 3px 0 var(--z-gray-950), 0 1px 2px -1px var(--z-gray-950);
+  --z-shadow-md:
+    0 4px 6px -1px var(--z-gray-950), 0 2px 4px -2px var(--z-gray-950);
+  --z-shadow-lg:
+    0 10px 15px -3px var(--z-gray-950), 0 4px 6px -4px var(--z-gray-950);
+  --z-shadow-xl:
+    0 20px 25px -5px var(--z-gray-950), 0 8px 10px -6px var(--z-gray-950);
+
+  /* Transitions */
+  --z-transition-fast: 150ms ease;
+  --z-transition-normal: 200ms ease;
+  --z-transition-slow: 300ms ease;
+}
+
+[data-theme='dark'] {
+  /* Brand Colors - Dark Mode */
+  --z-primary: oklch(0.65 0.18 260);
+  --z-primary-dark: oklch(0.55 0.18 260);
+  --z-primary-light: oklch(0.72 0.16 260);
+  --z-secondary: oklch(0.65 0.15 300);
+  --z-secondary-dark: oklch(0.55 0.13 300);
+  --z-accent: oklch(0.75 0.14 200);
+  --z-accent-dark: oklch(0.65 0.12 200);
+
+  /* Semantic Colors - Dark Mode */
+  --z-success: oklch(0.68 0.16 150);
+  --z-success-dark: oklch(0.58 0.14 150);
+  --z-warning: oklch(0.82 0.16 80);
+  --z-warning-dark: oklch(0.72 0.14 80);
+  --z-error: oklch(0.72 0.2 30);
+  --z-error-dark: oklch(0.62 0.18 30);
+
+  /* Neutre - Dark Mode */
+  --z-gray-50: oklch(0.15 0.01 260);
+  --z-gray-100: oklch(0.2 0.012 260);
+  --z-gray-200: oklch(0.28 0.012 260);
+  --z-gray-300: oklch(0.38 0.012 260);
+  --z-gray-400: oklch(0.52 0.012 260);
+  --z-gray-500: oklch(0.62 0.012 260);
+  --z-gray-600: oklch(0.72 0.012 260);
+  --z-gray-700: oklch(0.82 0.012 260);
+  --z-gray-800: oklch(0.88 0.012 260);
+  --z-gray-900: oklch(0.93 0.008 260);
+  --z-gray-950: oklch(0.97 0.004 260);
+}

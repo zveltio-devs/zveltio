@@ -221,6 +221,21 @@ const self = undefined;
 const eval = undefined;
 const Function = undefined;
 const importScripts = undefined;
+
+// Enforce timeout via wrapper
+let _timeoutFired = false;
+const _originalFetch = fetch;
+const _wrapFetch = (input, init) => {
+  if (_timeoutFired) throw new Error('Function execution timeout - fetch not allowed');
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => {
+      _timeoutFired = true;
+      reject(new Error('Fetch timeout'));
+    }, 5000)
+  );
+  return Promise.race([_originalFetch(input, init), timeoutPromise]);
+};
+const fetch = _wrapFetch;
 `;
 
 self.onmessage = async (e: MessageEvent<WorkerPayload>) => {

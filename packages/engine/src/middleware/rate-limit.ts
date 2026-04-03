@@ -2,27 +2,53 @@ import type { Context, Next } from 'hono';
 import { getCache } from '../lib/cache.js';
 
 // Fallback in-memory rate limiter — active when Valkey is not available.
-// Simple sliding window: Map<identifier, timestamps[]>
+// Optimized sliding window: Map<identifier, { count: number, windowStart: number }>
 // WARNING: does not synchronize between instances — used ONLY as a safety fallback.
-const memoryStore = new Map<string, number[]>();
+interface RateLimitEntry {
+  count: number;
+  windowStart: number;
+}
+
+const memoryStore = new Map<string, RateLimitEntry>();
+let lastCleanup = Date.now();
+const CLEANUP_INTERVAL = 60_000; // Clean every minute
+const MAX_STORE_SIZE = 5_000; // Reduced from 10_000 to prevent memory bloat
 
 function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
   const now = Date.now();
   const windowStart = now - windowMs;
-  const timestamps = (memoryStore.get(key) ?? []).filter(
-    (t) => t > windowStart,
-  );
-  timestamps.push(now);
-  memoryStore.set(key, timestamps);
 
-  // Periodically clean to prevent memory leak
-  if (memoryStore.size > 10_000) {
-    for (const [k, ts] of memoryStore) {
-      if (ts.every((t) => t <= windowStart)) memoryStore.delete(k);
+  // Periodic cleanup to prevent memory leaks
+  if (
+    now - lastCleanup > CLEANUP_INTERVAL ||
+    memoryStore.size > MAX_STORE_SIZE
+  ) {
+    lastCleanup = now;
+    for (const [k, entry] of memoryStore) {
+      if (entry.windowStart < windowStart) {
+        memoryStore.delete(k);
+      }
     }
   }
 
-  return timestamps.length <= max;
+  const entry = memoryStore.get(key);
+
+  if (!entry) {
+    // New entry
+    memoryStore.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+
+  // Check if window expired
+  if (entry.windowStart < windowStart) {
+    // Reset counter for new window
+    memoryStore.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+
+  // Increment counter in current window
+  entry.count++;
+  return entry.count <= max;
 }
 
 interface RateLimitConfig {
@@ -169,5 +195,6 @@ export const destructiveRateLimit = rateLimit({
   windowMs: 60_000,
   max: 10,
   keyPrefix: 'destructive',
-  message: 'Too Many Destructive Requests — DELETE operations are limited to 10 per minute',
+  message:
+    'Too Many Destructive Requests — DELETE operations are limited to 10 per minute',
 });

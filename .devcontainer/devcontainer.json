@@ -1,0 +1,53 @@
+{
+  "name": "Zveltio Extension Development",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:20-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/node:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "svelte.svelte-vscode"
+      ],
+      "settings": {
+        "typescript.tsdk": "./node_modules/typescript/lib",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true
+        }
+      }
+    }
+  },
+  "mounts": [
+    {
+      "source": "${localWorkspaceFolder}/../zveltio-extensions",
+      "target": "/workspace/zveltio-extensions",
+      "type": "bind"
+    }
+  ],
+  "remoteUser": "node",
+  "postCreateCommand": "bun install",
+  "forwardPorts": [3000, 3001, 5173],
+  "portsAttributes": {
+    "3000": {
+      "label": "Zveltio Engine",
+      "protocol": "http"
+    },
+    "3001": {
+      "label": "Grafana",
+      "protocol": "http"
+    },
+    "5173": {
+      "label": "Studio Dev Server",
+      "protocol": "http"
+    }
+  },
+  "workspaceFolder": "/workspace",
+  "containerEnv": {
+    "EXTENSIONS_DIR": "/workspace/zveltio-extensions",
+    "ZVELTIO_EXTENSIONS": "graphql,edge-functions,storage/cloud"
+  }
+}
