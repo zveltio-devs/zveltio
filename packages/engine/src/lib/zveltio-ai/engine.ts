@@ -22,8 +22,8 @@ import type {
 import { checkPermission } from '../permissions.js';
 import { sendNotification } from '../notifications.js';
 
-// Minimal nanoid implementation for edge environments
-function nanoid(size = 21): string {
+// Bun native crypto.randomUUID() - 128-bit UUID (version 4)
+function generateId(size: number = 21): string {
   const chars =
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let id = '';
@@ -768,7 +768,7 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
       { collection, filters, limit: 1000 },
       request,
     );
-    const reportId = nanoid(8);
+    const reportId = generateId(8);
     const downloadUrl = `/api/export/${collection}?format=${format}&report=${reportId}`;
 
     return {
@@ -893,7 +893,7 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
     }
     const recordData = {
       ...safeData,
-      id: nanoid(),
+      id: generateId(),
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -1189,7 +1189,7 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
 
   private async toolTextToSQL(
     args: any,
-    request: ZveltioAIRequest,
+    _request: ZveltioAIRequest,
   ): Promise<any> {
     const { question, collections_hint = [] } = args;
 
@@ -1305,7 +1305,7 @@ Rules:
   // ── Helpers ────────────────────────────────────────────────────
 
   private generateConversationId(): string {
-    return nanoid();
+    return generateId();
   }
 
   private async getConversationHistory(conversationId: string): Promise<any[]> {

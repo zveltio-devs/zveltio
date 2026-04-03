@@ -1,11 +1,23 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { nanoid } from 'nanoid';
 import { S3Client } from '@aws-sdk/client-s3';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/query-utils.js';
+
+// Bun native crypto.randomUUID() - 128-bit UUID (version 4)
+function generateId(size: number = 21): string {
+  const chars =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let id = '';
+  const randomValues = new Uint8Array(size);
+  crypto.getRandomValues(randomValues);
+  for (let i = 0; i < size; i++) {
+    id += chars[randomValues[i] % chars.length];
+  }
+  return id;
+}
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
@@ -59,7 +71,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const user = c.get('user' as never) as any;
       const data = c.req.valid('json');
       const folder = {
-        id: nanoid(21),
+        id: generateId(21),
         name: data.name,
         parent_id: data.parent_id || null,
         description: data.description || null,
@@ -326,7 +338,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Storage quota exceeded' }, 413);
     }
 
-    const fileId = nanoid(21);
+    const fileId = generateId(21);
     const rawFileExt = file.name.split('.').pop() ?? 'bin';
     const filename = `${fileId}.${rawFileExt}`;
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -638,7 +650,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const data = c.req.valid('json');
       const tag = {
-        id: nanoid(21),
+        id: generateId(21),
         name: data.name,
         color: data.color || null,
       };
