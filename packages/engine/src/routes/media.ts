@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/query-utils.js';
 // @ts-ignore — cloud/trash is an optional extension
@@ -46,11 +47,14 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
   router.post(
     '/folders',
-    zValidator('json', z.object({
-      name: z.string().min(1),
-      parent_id: z.string().optional(),
-      description: z.string().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().min(1),
+        parent_id: z.string().optional(),
+        description: z.string().optional(),
+      }),
+    ),
     async (c) => {
       const user = c.get('user' as never) as any;
       const data = c.req.valid('json');
@@ -68,11 +72,14 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
   router.put(
     '/folders/:id',
-    zValidator('json', z.object({
-      name: z.string().min(1).optional(),
-      description: z.string().optional(),
-      parent_id: z.string().nullable().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().min(1).optional(),
+        description: z.string().optional(),
+        parent_id: z.string().nullable().optional(),
+      }),
+    ),
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
@@ -84,7 +91,11 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .executeTakeFirst();
       if (!folder) return c.json({ error: 'Folder not found' }, 404);
       const user = c.get('user' as never) as any;
-      if (folder.created_by !== user.id && user.role !== 'admin' && user.role !== 'god') {
+      if (
+        folder.created_by !== user.id &&
+        user.role !== 'admin' &&
+        user.role !== 'god'
+      ) {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
@@ -107,7 +118,11 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
     if (!folder) return c.json({ error: 'Folder not found' }, 404);
     const user = c.get('user' as never) as any;
-    if (folder.created_by !== user.id && user.role !== 'admin' && user.role !== 'god') {
+    if (
+      folder.created_by !== user.id &&
+      user.role !== 'admin' &&
+      user.role !== 'god'
+    ) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -118,7 +133,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (Number(subfolders?.count) > 0) {
-      return c.json({ error: 'Folder has subfolders. Delete them first.' }, 400);
+      return c.json(
+        { error: 'Folder has subfolders. Delete them first.' },
+        400,
+      );
     }
 
     const fileCount = await (db as any)
@@ -128,10 +146,16 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (Number(fileCount?.count) > 0) {
-      return c.json({ error: 'Folder is not empty. Move or delete files first.' }, 400);
+      return c.json(
+        { error: 'Folder is not empty. Move or delete files first.' },
+        400,
+      );
     }
 
-    await (db as any).deleteFrom('zv_media_folders').where('id', '=', id).execute();
+    await (db as any)
+      .deleteFrom('zv_media_folders')
+      .where('id', '=', id)
+      .execute();
     return c.json({ success: true });
   });
 
@@ -140,7 +164,14 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   // ==========================================
 
   router.get('/files', async (c) => {
-    const { folder_id, tag, search, limit = '50', offset = '0', mime_type } = c.req.query();
+    const {
+      folder_id,
+      tag,
+      search,
+      limit = '50',
+      offset = '0',
+      mime_type,
+    } = c.req.query();
 
     let query = (db as any)
       .selectFrom('zv_media_files')
@@ -166,8 +197,16 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
     if (tag) {
       query = query
-        .innerJoin('zv_media_file_tags', 'zv_media_file_tags.file_id', 'zv_media_files.id')
-        .innerJoin('zv_media_tags', 'zv_media_tags.id', 'zv_media_file_tags.tag_id')
+        .innerJoin(
+          'zv_media_file_tags',
+          'zv_media_file_tags.file_id',
+          'zv_media_files.id',
+        )
+        .innerJoin(
+          'zv_media_tags',
+          'zv_media_tags.id',
+          'zv_media_file_tags.tag_id',
+        )
         .where('zv_media_tags.name', '=', tag);
     }
 
@@ -179,8 +218,17 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const fileIds = files.map((f: any) => f.id);
       const allTags = await (db as any)
         .selectFrom('zv_media_file_tags')
-        .innerJoin('zv_media_tags', 'zv_media_tags.id', 'zv_media_file_tags.tag_id')
-        .select(['zv_media_file_tags.file_id', 'zv_media_tags.id', 'zv_media_tags.name', 'zv_media_tags.color'])
+        .innerJoin(
+          'zv_media_tags',
+          'zv_media_tags.id',
+          'zv_media_file_tags.tag_id',
+        )
+        .select([
+          'zv_media_file_tags.file_id',
+          'zv_media_tags.id',
+          'zv_media_tags.name',
+          'zv_media_tags.color',
+        ])
         .where('zv_media_file_tags.file_id', 'in', fileIds)
         .execute();
       const tagsByFile = new Map<string, any[]>();
@@ -200,7 +248,8 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .where('deleted_at', 'is', null);
 
     if (folder_id) countQuery = countQuery.where('folder_id', '=', folder_id);
-    if (mime_type) countQuery = countQuery.where('mime_type', 'ilike', `${mime_type}%`);
+    if (mime_type)
+      countQuery = countQuery.where('mime_type', 'ilike', `${mime_type}%`);
     if (search) {
       const safeSearchCount = `%${escapeLike(search)}%`;
       countQuery = countQuery.where(({ or, cmpr }: any) =>
@@ -216,7 +265,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const countResult = await countQuery.executeTakeFirst();
     const total = Number(countResult?.count || 0);
 
-    return c.json({ files, pagination: { total, limit: Number(limit), offset: Number(offset) } });
+    return c.json({
+      files,
+      pagination: { total, limit: Number(limit), offset: Number(offset) },
+    });
   });
 
   router.get('/files/:id', async (c) => {
@@ -233,7 +285,11 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
     file.tags = await (db as any)
       .selectFrom('zv_media_file_tags')
-      .innerJoin('zv_media_tags', 'zv_media_tags.id', 'zv_media_file_tags.tag_id')
+      .innerJoin(
+        'zv_media_tags',
+        'zv_media_tags.id',
+        'zv_media_file_tags.tag_id',
+      )
       .select(['zv_media_tags.id', 'zv_media_tags.name', 'zv_media_tags.color'])
       .where('zv_media_file_tags.file_id', '=', id)
       .execute();
@@ -278,16 +334,25 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     // ── Security: file type validation ──────────────────────────────────────
     // 1. Allowlist declared MIME types — reject anything not in the list
     const ALLOWED_MIME_TYPES = new Set([
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
-      'image/avif', 'image/tiff',
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/svg+xml',
+      'image/avif',
+      'image/tiff',
       'application/pdf',
-      'text/plain', 'text/csv',
+      'text/plain',
+      'text/csv',
       'application/json',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'video/mp4', 'video/webm',
-      'audio/mpeg', 'audio/wav', 'audio/ogg',
+      'video/mp4',
+      'video/webm',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/ogg',
     ]);
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
       return c.json({ error: `File type not allowed: ${file.type}` }, 415);
@@ -298,11 +363,15 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     // also making the file invalid for its true format.
     // Read 12 bytes: needed for WEBP (RIFF header 4B + size 4B + "WEBP" marker 4B).
     const magic = buffer.slice(0, 12);
-    const MAGIC_SIGNATURES: Array<{ mime: string; bytes: number[]; offset?: number }> = [
-      { mime: 'image/jpeg',      bytes: [0xFF, 0xD8, 0xFF] },
-      { mime: 'image/png',       bytes: [0x89, 0x50, 0x4E, 0x47] },
-      { mime: 'image/gif',       bytes: [0x47, 0x49, 0x46] },
-      { mime: 'image/webp',      bytes: [0x52, 0x49, 0x46, 0x46] }, // RIFF header at 0; WEBP marker checked separately below
+    const MAGIC_SIGNATURES: Array<{
+      mime: string;
+      bytes: number[];
+      offset?: number;
+    }> = [
+      { mime: 'image/jpeg', bytes: [0xff, 0xd8, 0xff] },
+      { mime: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47] },
+      { mime: 'image/gif', bytes: [0x47, 0x49, 0x46] },
+      { mime: 'image/webp', bytes: [0x52, 0x49, 0x46, 0x46] }, // RIFF header at 0; WEBP marker checked separately below
       { mime: 'application/pdf', bytes: [0x25, 0x50, 0x44, 0x46] }, // %PDF
     ];
     const signatureMatch = MAGIC_SIGNATURES.find((sig) => {
@@ -310,21 +379,27 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       return sig.bytes.every((b, i) => magic[off + i] === b);
     });
     if (signatureMatch && signatureMatch.mime !== file.type) {
-      return c.json({
-        error: `File content does not match declared type. Expected ${file.type} but content looks like ${signatureMatch.mime}`,
-      }, 415);
+      return c.json(
+        {
+          error: `File content does not match declared type. Expected ${file.type} but content looks like ${signatureMatch.mime}`,
+        },
+        415,
+      );
     }
 
     // WEBP: RIFF header must be followed by "WEBP" marker at bytes 8-11.
     if (file.type === 'image/webp') {
       const WEBP_MARKER = [0x57, 0x45, 0x42, 0x50]; // "WEBP"
       if (!WEBP_MARKER.every((b, i) => magic[8 + i] === b)) {
-        return c.json({ error: 'File content does not match declared type.' }, 415);
+        return c.json(
+          { error: 'File content does not match declared type.' },
+          415,
+        );
       }
     }
 
     // Office Open XML formats (docx, xlsx, pptx) are ZIP archives — require PK\x03\x04 signature.
-    const ZIP_MAGIC = [0x50, 0x4B, 0x03, 0x04];
+    const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
     const OFFICE_MIMES = new Set([
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -332,7 +407,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     ]);
     if (OFFICE_MIMES.has(file.type)) {
       if (!ZIP_MAGIC.every((b, i) => magic[i] === b)) {
-        return c.json({ error: 'File content does not match declared type.' }, 415);
+        return c.json(
+          { error: 'File content does not match declared type.' },
+          415,
+        );
       }
     }
 
@@ -343,22 +421,44 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       // xlink:href / href pointing to external/JS resources, <use> with external targets.
       const SVG_XSS = [
         /<script/i,
-        /\bon\w+\s*=/i,       // onload=, onerror=, onclick=, etc.
+        /\bon\w+\s*=/i, // onload=, onerror=, onclick=, etc.
         /javascript\s*:/i,
         /xlink:href\s*=\s*["'][^"'#]/i, // external xlink:href (allow same-doc #fragments)
-        /\shref\s*=\s*["'](?!#)/i,      // href that isn't a same-doc fragment reference
+        /\shref\s*=\s*["'](?!#)/i, // href that isn't a same-doc fragment reference
       ];
       if (SVG_XSS.some((re) => re.test(svgText))) {
-        return c.json({ error: 'SVG files with embedded scripts or event handlers are not allowed' }, 415);
+        return c.json(
+          {
+            error:
+              'SVG files with embedded scripts or event handlers are not allowed',
+          },
+          415,
+        );
       }
     }
 
     // 4. Extension allowlist — reject files whose names end in executable extensions
     const ALLOWED_EXTENSIONS = new Set([
-      'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'tiff', 'svg',
-      'pdf', 'txt', 'csv', 'json',
-      'docx', 'xlsx', 'pptx',
-      'mp4', 'webm', 'mp3', 'wav', 'ogg',
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'webp',
+      'avif',
+      'tiff',
+      'svg',
+      'pdf',
+      'txt',
+      'csv',
+      'json',
+      'docx',
+      'xlsx',
+      'pptx',
+      'mp4',
+      'webm',
+      'mp3',
+      'wav',
+      'ogg',
     ]);
     const fileExt = file.name.split('.').pop()?.toLowerCase() ?? '';
     if (!ALLOWED_EXTENSIONS.has(fileExt)) {
@@ -387,12 +487,14 @@ export function mediaRoutes(db: Database, auth: any): Hono {
             .toBuffer();
 
           const thumbnailKey = `thumbnails/${fileId}.webp`;
-          await s3.send(new PutObjectCommand({
-            Bucket: process.env.S3_BUCKET || 'zveltio',
-            Key: thumbnailKey,
-            Body: thumbnailBuffer,
-            ContentType: 'image/webp',
-          }));
+          await s3.send(
+            new PutObjectCommand({
+              Bucket: process.env.S3_BUCKET || 'zveltio',
+              Key: thumbnailKey,
+              Body: thumbnailBuffer,
+              ContentType: 'image/webp',
+            }),
+          );
           thumbnailUrl = `${process.env.S3_PUBLIC_URL}/${thumbnailKey}`;
         }
       } catch (error) {
@@ -401,12 +503,14 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     }
 
     const key = `media/${filename}`;
-    await s3.send(new PutObjectCommand({
-      Bucket: process.env.S3_BUCKET || 'zveltio',
-      Key: key,
-      Body: buffer,
-      ContentType: file.type,
-    }));
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: process.env.S3_BUCKET || 'zveltio',
+        Key: key,
+        Body: buffer,
+        ContentType: file.type,
+      }),
+    );
 
     const url = `${process.env.S3_PUBLIC_URL}/${key}`;
 
@@ -438,12 +542,15 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
   router.put(
     '/files/:id',
-    zValidator('json', z.object({
-      title: z.string().optional(),
-      description: z.string().optional(),
-      alt_text: z.string().optional(),
-      folder_id: z.string().nullable().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        title: z.string().optional(),
+        description: z.string().optional(),
+        alt_text: z.string().optional(),
+        folder_id: z.string().nullable().optional(),
+      }),
+    ),
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
@@ -455,7 +562,11 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .executeTakeFirst();
       if (!file) return c.json({ error: 'File not found' }, 404);
       const user = c.get('user' as never) as any;
-      if (file.uploaded_by !== user.id && user.role !== 'admin' && user.role !== 'god') {
+      if (
+        file.uploaded_by !== user.id &&
+        user.role !== 'admin' &&
+        user.role !== 'god'
+      ) {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
@@ -517,13 +628,20 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
   router.post(
     '/tags',
-    zValidator('json', z.object({
-      name: z.string().min(1),
-      color: z.string().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().min(1),
+        color: z.string().optional(),
+      }),
+    ),
     async (c) => {
       const data = c.req.valid('json');
-      const tag = { id: nanoid(21), name: data.name, color: data.color || null };
+      const tag = {
+        id: nanoid(21),
+        name: data.name,
+        color: data.color || null,
+      };
       try {
         await (db as any).insertInto('zv_media_tags').values(tag).execute();
         return c.json({ tag }, 201);
@@ -535,20 +653,30 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
   router.put(
     '/tags/:id',
-    zValidator('json', z.object({
-      name: z.string().min(1).optional(),
-      color: z.string().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().min(1).optional(),
+        color: z.string().optional(),
+      }),
+    ),
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
-      await (db as any).updateTable('zv_media_tags').set(data).where('id', '=', id).execute();
+      await (db as any)
+        .updateTable('zv_media_tags')
+        .set(data)
+        .where('id', '=', id)
+        .execute();
       return c.json({ success: true });
     },
   );
 
   router.delete('/tags/:id', async (c) => {
-    await (db as any).deleteFrom('zv_media_tags').where('id', '=', c.req.param('id')).execute();
+    await (db as any)
+      .deleteFrom('zv_media_tags')
+      .where('id', '=', c.req.param('id'))
+      .execute();
     return c.json({ success: true });
   });
 
@@ -585,35 +713,36 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   // ==========================================
 
   router.get('/stats', async (c) => {
-    const [totalFiles, totalSize, filesByType, totalFolders, totalTags] = await Promise.all([
-      (db as any)
-        .selectFrom('zv_media_files')
-        .select(({ fn }: any) => fn.count('id').as('count'))
-        .where('deleted_at', 'is', null)
-        .executeTakeFirst(),
-      (db as any)
-        .selectFrom('zv_media_files')
-        .select(({ fn }: any) => fn.sum('size_bytes').as('total'))
-        .where('deleted_at', 'is', null)
-        .executeTakeFirst(),
-      (db as any)
-        .selectFrom('zv_media_files')
-        .select(['mime_type', (eb: any) => eb.fn.count('id').as('count')])
-        .where('deleted_at', 'is', null)
-        .groupBy('mime_type')
-        .orderBy('count', 'desc')
-        .limit(10)
-        .execute(),
-      (db as any)
-        .selectFrom('zv_media_folders')
-        .select(({ fn }: any) => fn.count('id').as('count'))
-        .where('deleted_at', 'is', null)
-        .executeTakeFirst(),
-      (db as any)
-        .selectFrom('zv_media_tags')
-        .select(({ fn }: any) => fn.count('id').as('count'))
-        .executeTakeFirst(),
-    ]);
+    const [totalFiles, totalSize, filesByType, totalFolders, totalTags] =
+      await Promise.all([
+        (db as any)
+          .selectFrom('zv_media_files')
+          .select(({ fn }: any) => fn.count('id').as('count'))
+          .where('deleted_at', 'is', null)
+          .executeTakeFirst(),
+        (db as any)
+          .selectFrom('zv_media_files')
+          .select(({ fn }: any) => fn.sum('size_bytes').as('total'))
+          .where('deleted_at', 'is', null)
+          .executeTakeFirst(),
+        (db as any)
+          .selectFrom('zv_media_files')
+          .select(['mime_type', (eb: any) => eb.fn.count('id').as('count')])
+          .where('deleted_at', 'is', null)
+          .groupBy('mime_type')
+          .orderBy('count', 'desc')
+          .limit(10)
+          .execute(),
+        (db as any)
+          .selectFrom('zv_media_folders')
+          .select(({ fn }: any) => fn.count('id').as('count'))
+          .where('deleted_at', 'is', null)
+          .executeTakeFirst(),
+        (db as any)
+          .selectFrom('zv_media_tags')
+          .select(({ fn }: any) => fn.count('id').as('count'))
+          .executeTakeFirst(),
+      ]);
 
     return c.json({
       totalFiles: Number(totalFiles?.count || 0),
