@@ -1,0 +1,161 @@
+/* Zveltio Accessibility - WCAG 2.1 Compliance */
+
+/* Focus Styles - Visible keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--z-primary);
+  outline-offset: 2px;
+  border-radius: var(--z-radius-md);
+}
+
+/* Reduced Motion - Respect user preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High Contrast Mode Support */
+.high-contrast {
+  --z-primary: oklch(0.25 0.25 260);
+  --z-primary-dark: oklch(0.15 0.25 260);
+  --z-gray-100: oklch(0.95 0.01 260);
+  --z-gray-900: oklch(0.1 0.01 260);
+  --z-error: oklch(0.7 0.3 30);
+  --z-success: oklch(0.65 0.25 150);
+  --z-warning: oklch(0.8 0.3 80);
+}
+
+/* High Contrast Focus */
+.high-contrast :focus-visible {
+  outline: 3px solid var(--z-gray-900);
+  outline-offset: 3px;
+}
+
+/* Screen Reader Only - Visually hidden but accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Screen Reader Only - Visible on focus */
+.sr-only-focusable:active,
+.sr-only-focusable:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* Color Blindness Support */
+/* Deuteranopia (Green-Blind) */
+.deuteranopia {
+  --z-success: oklch(0.62 0.18 170);
+  --z-warning: oklch(0.75 0.2 60);
+}
+
+/* Protanopia (Red-Blind) */
+.protanopia {
+  --z-success: oklch(0.62 0.2 140);
+  --z-error: oklch(0.65 0.25 30);
+}
+
+/* Tritanopia (Blue-Blind) */
+.tritanopia {
+  --z-primary: oklch(0.6 0.2 280);
+  --z-error: oklch(0.65 0.18 30);
+  --z-warning: oklch(0.75 0.2 80);
+}
+
+/* Text Contrast - Minimum WCAG AA */
+.text-contrast {
+  --z-text-contrast: 4.5;
+}
+
+/* Large Text Contrast - WCAG AA 18pt+ or 14pt Bold */
+.text-contrast-large {
+  --z-text-contrast: 3;
+}
+
+/* Skip Links for Keyboard Navigation */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--z-primary);
+  color: white;
+  padding: var(--z-space-sm) var(--z-space-md);
+  z-index: 100;
+  text-decoration: none;
+  border-radius: 0 0 var(--z-radius-md) 0;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Table Accessibility */
+.table-scrollable {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Animation Pause - User Control */
+.pause-animations {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Prefers Light/Dark Theme Support */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+  }
+}
+
+/* Print Styles - Better Print Output */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  a {
+    text-decoration: underline;
+  }
+
+  a::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.8em;
+    color: #666;
+  }
+}

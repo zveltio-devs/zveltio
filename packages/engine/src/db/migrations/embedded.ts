@@ -1,7 +1,7 @@
 /**
  * Embedded SQL migrations — bundled at compile time by Bun.
  * When the engine runs as a standalone binary, `import.meta.dir/sql` does not
- * exist on the host filesystem.  These imports are resolved at build time and
+ * exist on the host filesystem. These imports are resolved at build time and
  * embedded verbatim into the binary via Bun's `with { type: 'text' }` syntax.
  */
 
