@@ -2,8 +2,20 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { nanoid } from 'nanoid';
 import type { Database } from '../db/index.js';
+
+// Bun native crypto.randomUUID() - 128-bit UUID (version 4)
+function generateId(size: number = 16): string {
+  const chars =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let id = '';
+  const randomValues = new Uint8Array(size);
+  crypto.getRandomValues(randomValues);
+  for (let i = 0; i < size; i++) {
+    id += chars[randomValues[i] % chars.length];
+  }
+  return id;
+}
 import { DDLManager } from '../lib/ddl-manager.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { aiProviderManager } from '../lib/ai-provider.js';
@@ -47,7 +59,11 @@ export function aiAlchemistRoutes(db: Database, auth: any): Hono {
     }
 
     // Extract text from each file
-    const documents: Array<{ name: string; content: string; mimeType: string }> = [];
+    const documents: Array<{
+      name: string;
+      content: string;
+      mimeType: string;
+    }> = [];
 
     for (const file of files) {
       const buffer = Buffer.from(await file.arrayBuffer());
@@ -90,14 +106,16 @@ export function aiAlchemistRoutes(db: Database, auth: any): Hono {
 
     const availableTypes = fieldTypeRegistry.list().join(', ');
 
-    const analysisResult = await provider.chat([
-      {
-        role: 'system',
-        content: 'You are a data extraction and schema design expert. Analyze documents and propose optimal database structures. Return ONLY valid JSON, no markdown.',
-      },
-      {
-        role: 'user',
-        content: `Analyze these ${documents.length} document(s) and propose a database schema.
+    const analysisResult = await provider.chat(
+      [
+        {
+          role: 'system',
+          content:
+            'You are a data extraction and schema design expert. Analyze documents and propose optimal database structures. Return ONLY valid JSON, no markdown.',
+        },
+        {
+          role: 'user',
+          content: `Analyze these ${documents.length} document(s) and propose a database schema.
 
 DOCUMENTS:
 ${documents.map((d, i) => `--- Document ${i + 1}: ${d.name} (${d.mimeType}) ---\n${d.content}`).join('\n\n')}
@@ -131,8 +149,10 @@ RESPONSE FORMAT (JSON only):
   "confidence": 0.85,
   "notes": "Any caveats or suggestions"
 }`,
-      },
-    ], { temperature: 0.2, max_tokens: 4000 });
+        },
+      ],
+      { temperature: 0.2, max_tokens: 4000 },
+    );
 
     // Parse AI response
     let proposal: any;
@@ -140,7 +160,10 @@ RESPONSE FORMAT (JSON only):
       const jsonStr = analysisResult.content.match(/\{[\s\S]*\}/)?.[0];
       proposal = JSON.parse(jsonStr || '{}');
     } catch {
-      return c.json({ error: 'AI returned invalid JSON', raw: analysisResult.content }, 422);
+      return c.json(
+        { error: 'AI returned invalid JSON', raw: analysisResult.content },
+        422,
+      );
     }
 
     // Validate field types — unknown types fall back to 'text'
@@ -155,137 +178,172 @@ RESPONSE FORMAT (JSON only):
     }
 
     // Cache proposal for step 2 (15-minute TTL)
-    const sessionId = nanoid(16);
+    const sessionId = generateId(16);
     try {
       const { getCache } = await import('../lib/cache.js');
       const cache = getCache();
       if (cache) {
-        await (cache as any).setex(`alchemist:${sessionId}`, 900, JSON.stringify({ documents, proposal }));
+        await (cache as any).setex(
+          `alchemist:${sessionId}`,
+          900,
+          JSON.stringify({ documents, proposal }),
+        );
       }
-    } catch { /* cache unavailable — client must pass data back in execute */ }
+    } catch {
+      /* cache unavailable — client must pass data back in execute */
+    }
 
     return c.json({ session_id: sessionId, ...proposal });
   });
 
   // POST /api/ai/alchemist/execute — Step 2
-  app.post('/execute', zValidator('json', z.object({
-    session_id: z.string(),
-    collections: z.array(z.object({
-      name: z.string().regex(/^[a-z][a-z0-9_]*$/),
-      displayName: z.string().optional(),
-      description: z.string().optional(),
-      fields: z.array(z.object({
-        name: z.string(),
-        type: z.string(),
-        required: z.boolean().optional(),
-        label: z.string().optional(),
-      })).min(1),
-    })),
-    extracted_data: z.record(z.string(), z.array(z.record(z.string(), z.any()))).optional(),
-    skip_existing: z.boolean().default(true),
-  })), async (c) => {
-    const user = c.get('user') as any;
-    const { session_id, collections, extracted_data, skip_existing } = c.req.valid('json');
+  app.post(
+    '/execute',
+    zValidator(
+      'json',
+      z.object({
+        session_id: z.string(),
+        collections: z.array(
+          z.object({
+            name: z.string().regex(/^[a-z][a-z0-9_]*$/),
+            displayName: z.string().optional(),
+            description: z.string().optional(),
+            fields: z
+              .array(
+                z.object({
+                  name: z.string(),
+                  type: z.string(),
+                  required: z.boolean().optional(),
+                  label: z.string().optional(),
+                }),
+              )
+              .min(1),
+          }),
+        ),
+        extracted_data: z
+          .record(z.string(), z.array(z.record(z.string(), z.any())))
+          .optional(),
+        skip_existing: z.boolean().default(true),
+      }),
+    ),
+    async (c) => {
+      const user = c.get('user') as any;
+      const { session_id, collections, extracted_data, skip_existing } =
+        c.req.valid('json');
 
-    const results = {
-      collections_created: [] as string[],
-      collections_skipped: [] as string[],
-      records_inserted: {} as Record<string, number>,
-      errors: [] as string[],
-    };
+      const results = {
+        collections_created: [] as string[],
+        collections_skipped: [] as string[],
+        records_inserted: {} as Record<string, number>,
+        errors: [] as string[],
+      };
 
-    // Create collections via DDLManager
-    for (const col of collections) {
-      try {
-        const exists = await DDLManager.tableExists(db, col.name);
-        if (exists && skip_existing) {
-          results.collections_skipped.push(col.name);
-          continue;
-        }
-
-        if (!exists) {
-          // Filter to valid field types
-          const validFields = col.fields
-            .filter((f) => fieldTypeRegistry.has(f.type))
-            .map((f) => ({
-              name: f.name,
-              type: f.type,
-              required: f.required ?? false,
-              unique: false,
-              indexed: false,
-              label: f.label,
-            }));
-
-          if (validFields.length === 0) {
-            validFields.push({ name: 'title', type: 'text', required: true, unique: false, indexed: false, label: 'Title' });
+      // Create collections via DDLManager
+      for (const col of collections) {
+        try {
+          const exists = await DDLManager.tableExists(db, col.name);
+          if (exists && skip_existing) {
+            results.collections_skipped.push(col.name);
+            continue;
           }
 
-          await DDLManager.createCollection(db, {
-            name: col.name,
-            displayName: col.displayName || col.name,
-            description: col.description,
-            fields: validFields,
-          });
-          results.collections_created.push(col.name);
-        }
-      } catch (err: any) {
-        results.errors.push(`${col.name}: ${err.message}`);
-      }
-    }
+          if (!exists) {
+            // Filter to valid field types
+            const validFields = col.fields
+              .filter((f) => fieldTypeRegistry.has(f.type))
+              .map((f) => ({
+                name: f.name,
+                type: f.type,
+                required: f.required ?? false,
+                unique: false,
+                indexed: false,
+                label: f.label,
+              }));
 
-    // Insert extracted data
-    if (extracted_data) {
-      for (const [colName, rows] of Object.entries(extracted_data)) {
-        if (!rows || rows.length === 0) continue;
-        const tableName = DDLManager.getTableName(colName);
-
-        // Validate that the table name is safe (should always be zvd_ prefixed)
-        const SAFE_TABLE_RE = /^zvd_[a-z][a-z0-9_]*$/;
-        if (!SAFE_TABLE_RE.test(tableName)) continue;
-
-        // Validate column names against regex to prevent SQL injection from AI response
-        const SAFE_COL_RE = /^[a-z][a-z0-9_]*$/;
-
-        let inserted = 0;
-        for (const row of rows) {
-          try {
-            const cleanRow: any = {};
-            for (const [k, v] of Object.entries(row)) {
-              if (k === 'id') continue; // strip id — let DB generate
-              if (!SAFE_COL_RE.test(k)) continue; // skip unsafe column names from AI response
-              cleanRow[k] = v;
+            if (validFields.length === 0) {
+              validFields.push({
+                name: 'title',
+                type: 'text',
+                required: true,
+                unique: false,
+                indexed: false,
+                label: 'Title',
+              });
             }
-            cleanRow.created_by = user.id;
 
-            // Build dynamic INSERT; column names already validated by SAFE_COL_RE above
-            const cols = Object.keys(cleanRow);
-            if (cols.length === 0) continue;
-            const vals = Object.values(cleanRow);
-            // sql.id() quotes identifiers; sql.join() assembles the fragment list
-            const colParts = sql.join(cols.map((c) => sql.id(c)));
-            const valParts = sql.join(vals.map((v) => sql`${v}`));
-
-            await sql`INSERT INTO ${sql.id(tableName)} (${colParts}) VALUES (${valParts})`.execute(db);
-            inserted++;
-          } catch { /* row-level failure: continue */ }
+            await DDLManager.createCollection(db, {
+              name: col.name,
+              displayName: col.displayName || col.name,
+              description: col.description,
+              fields: validFields,
+            });
+            results.collections_created.push(col.name);
+          }
+        } catch (err: any) {
+          results.errors.push(`${col.name}: ${err.message}`);
         }
-        results.records_inserted[colName] = inserted;
       }
-    }
 
-    // Clean up cache session
-    try {
-      const { getCache } = await import('../lib/cache.js');
-      const cache = getCache();
-      if (cache) await (cache as any).del(`alchemist:${session_id}`);
-    } catch { /* ignore */ }
+      // Insert extracted data
+      if (extracted_data) {
+        for (const [colName, rows] of Object.entries(extracted_data)) {
+          if (!rows || rows.length === 0) continue;
+          const tableName = DDLManager.getTableName(colName);
 
-    return c.json({
-      success: true,
-      ...results,
-      message: `Created ${results.collections_created.length} collection(s), inserted data into ${Object.keys(results.records_inserted).length} collection(s)`,
-    });
-  });
+          // Validate that the table name is safe (should always be zvd_ prefixed)
+          const SAFE_TABLE_RE = /^zvd_[a-z][a-z0-9_]*$/;
+          if (!SAFE_TABLE_RE.test(tableName)) continue;
+
+          // Validate column names against regex to prevent SQL injection from AI response
+          const SAFE_COL_RE = /^[a-z][a-z0-9_]*$/;
+
+          let inserted = 0;
+          for (const row of rows) {
+            try {
+              const cleanRow: any = {};
+              for (const [k, v] of Object.entries(row)) {
+                if (k === 'id') continue; // strip id — let DB generate
+                if (!SAFE_COL_RE.test(k)) continue; // skip unsafe column names from AI response
+                cleanRow[k] = v;
+              }
+              cleanRow.created_by = user.id;
+
+              // Build dynamic INSERT; column names already validated by SAFE_COL_RE above
+              const cols = Object.keys(cleanRow);
+              if (cols.length === 0) continue;
+              const vals = Object.values(cleanRow);
+              // sql.id() quotes identifiers; sql.join() assembles the fragment list
+              const colParts = sql.join(cols.map((c) => sql.id(c)));
+              const valParts = sql.join(vals.map((v) => sql`${v}`));
+
+              await sql`INSERT INTO ${sql.id(tableName)} (${colParts}) VALUES (${valParts})`.execute(
+                db,
+              );
+              inserted++;
+            } catch {
+              /* row-level failure: continue */
+            }
+          }
+          results.records_inserted[colName] = inserted;
+        }
+      }
+
+      // Clean up cache session
+      try {
+        const { getCache } = await import('../lib/cache.js');
+        const cache = getCache();
+        if (cache) await (cache as any).del(`alchemist:${session_id}`);
+      } catch {
+        /* ignore */
+      }
+
+      return c.json({
+        success: true,
+        ...results,
+        message: `Created ${results.collections_created.length} collection(s), inserted data into ${Object.keys(results.records_inserted).length} collection(s)`,
+      });
+    },
+  );
 
   // GET /api/ai/alchemist/sessions/:id — Retrieve cached proposal
   app.get('/sessions/:id', async (c) => {

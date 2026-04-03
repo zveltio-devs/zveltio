@@ -49,7 +49,7 @@ export async function createCacheSecondaryStorage() {
    * - Minimal serialization overhead
    */
   return {
-    get: async (key: string, ttl?: number) => {
+    get: async (key: string, _ttl?: number) => {
       const value = await cache.get(key);
       if (!value) return null;
       try {
