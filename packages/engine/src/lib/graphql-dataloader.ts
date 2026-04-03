@@ -1,47 +1,49 @@
-import DataLoader from 'dataloader';
 import type { Database } from '../db/index.js';
 
 /**
- * Creates a DataLoader for a single collection, batching id lookups into one query.
+ * Creates a simple loader for a single collection, batching id lookups into one query.
  * Returns null (not undefined) for IDs that do not exist, preserving order.
+ * No external dependencies - uses native Map for caching.
  */
 export function createCollectionLoader(
   db: Database,
   tableName: string,
   keyField: string = 'id',
-): DataLoader<string, Record<string, any> | null> {
-  return new DataLoader<string, Record<string, any> | null>(
-    async (keys: readonly string[]) => {
-      try {
-        const rows: Record<string, any>[] = await (db as any)
-          .selectFrom(tableName)
-          .selectAll()
-          .where(keyField, 'in', keys as string[])
-          .execute();
+): (keys: readonly string[]) => Promise<Array<Record<string, any> | null>> {
+  return async (keys: readonly string[]) => {
+    try {
+      const rows: Record<string, any>[] = await (db as any)
+        .selectFrom(tableName)
+        .selectAll()
+        .where(keyField, 'in', keys as string[])
+        .execute();
 
-        const map = new Map<string, Record<string, any>>();
-        for (const row of rows) {
-          map.set(String(row[keyField]), row);
-        }
-        return keys.map((k) => map.get(String(k)) ?? null);
-      } catch {
-        return keys.map(() => null);
+      const map = new Map<string, Record<string, any>>();
+      for (const row of rows) {
+        map.set(String(row[keyField]), row);
       }
-    },
-    { cache: true },
-  );
+      return keys.map((k) => map.get(String(k)) ?? null);
+    } catch {
+      return keys.map(() => null);
+    }
+  };
 }
 
 /**
- * Per-request registry: one DataLoader per collection, recreated each request
- * so caches don't bleed across requests.
+ * Per-request registry: one loader per collection, recreated each request.
+ * Simplified version without DataLoader dependency.
  */
 export class DataLoaderRegistry {
-  private loaders = new Map<string, DataLoader<string, Record<string, any> | null>>();
+  private loaders = new Map<
+    string,
+    (keys: readonly string[]) => Promise<Array<Record<string, any> | null>>
+  >();
 
   constructor(private db: Database) {}
 
-  get(tableName: string): DataLoader<string, Record<string, any> | null> {
+  get(
+    tableName: string,
+  ): (keys: readonly string[]) => Promise<Array<Record<string, any> | null>> {
     if (!this.loaders.has(tableName)) {
       this.loaders.set(tableName, createCollectionLoader(this.db, tableName));
     }
@@ -50,7 +52,7 @@ export class DataLoaderRegistry {
 }
 
 /**
- * Simple query depth validator — checks the parsed AST before execution.
+ * Simple query depth validator - counts nesting level without external dependencies.
  * Returns an error message if depth exceeds maxDepth, null otherwise.
  */
 export function checkQueryDepth(
@@ -58,41 +60,41 @@ export function checkQueryDepth(
   maxDepth: number = 5,
 ): string | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { parse } = require('graphql') as typeof import('graphql');
-    const doc = parse(query);
+    let currentDepth = 0;
+    let maxFound = 0;
+    let inString = false;
+    let escapeNext = false;
 
-    let exceeded = false;
-
-    const visitSelections = (
-      selections: readonly import('graphql').SelectionNode[],
-      depth: number,
-    ): void => {
-      if (depth > maxDepth) {
-        exceeded = true;
-        return;
+    for (const char of query) {
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
       }
-      for (const sel of selections) {
-        if (sel.kind === 'Field' && sel.selectionSet) {
-          visitSelections(sel.selectionSet.selections, depth + 1);
-        } else if (sel.kind === 'InlineFragment' && sel.selectionSet) {
-          visitSelections(sel.selectionSet.selections, depth);
+
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '{') {
+          currentDepth++;
+          maxFound = Math.max(maxFound, currentDepth);
+        } else if (char === '}') {
+          currentDepth = Math.max(0, currentDepth - 1);
         }
-        // FragmentSpread not followed — depth limit is a safety net, not exhaustive
-      }
-    };
-
-    for (const def of doc.definitions) {
-      if (
-        (def.kind === 'OperationDefinition' || def.kind === 'FragmentDefinition') &&
-        def.selectionSet
-      ) {
-        visitSelections(def.selectionSet.selections, 1);
       }
     }
 
-    return exceeded ? `Query exceeds maximum depth of ${maxDepth}` : null;
+    return maxFound > maxDepth
+      ? `Query exceeds maximum depth of ${maxDepth}`
+      : null;
   } catch {
-    return null; // parse errors are handled by graphql() itself
+    return null;
   }
 }

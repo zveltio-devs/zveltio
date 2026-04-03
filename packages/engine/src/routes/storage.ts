@@ -2,12 +2,10 @@ import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
-import {
-  S3Client,
-  PutObjectCommand,
-  DeleteObjectCommand,
-  GetObjectCommand,
-} from '@aws-sdk/client-s3';
+import { S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 let s3: S3Client | null = null;
@@ -289,7 +287,10 @@ export function storageRoutes(db: Database, auth: any): Hono {
       return c.json({ folder }, 201);
     } catch (err) {
       console.error('[Storage] POST /folders error:', err);
-      return c.json({ error: 'Failed to create folder', detail: String(err) }, 503);
+      return c.json(
+        { error: 'Failed to create folder', detail: String(err) },
+        503,
+      );
     }
   });
 
