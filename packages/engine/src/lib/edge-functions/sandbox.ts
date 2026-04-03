@@ -25,7 +25,7 @@ export interface RunResult {
 }
 
 const WORKER_MEMORY_LIMIT = 64 * 1024 * 1024; // 64 MB per worker
-const MEMORY_CHECK_INTERVAL = 50;              // ms between heap checks
+const MEMORY_CHECK_INTERVAL = 50; // ms between heap checks
 
 export async function runFunction(
   code: string,
@@ -38,13 +38,21 @@ export async function runFunction(
   request.headers.forEach((value, key) => {
     headers[key] = value;
   });
-  const body = request.method !== 'GET' && request.method !== 'HEAD'
-    ? await request.text().catch(() => null)
-    : null;
+  const body =
+    request.method !== 'GET' && request.method !== 'HEAD'
+      ? await request.text().catch(() => null)
+      : null;
 
-  const requestData = { url: request.url, method: request.method, headers, body };
+  const requestData = {
+    url: request.url,
+    method: request.method,
+    headers,
+    body,
+  };
 
-  const worker = new Worker(new URL('./worker-runner.ts', import.meta.url), { type: 'module' });
+  const worker = new Worker(new URL('./worker-runner.ts', import.meta.url), {
+    type: 'module',
+  });
 
   const start = Date.now();
 
@@ -73,6 +81,7 @@ export async function runFunction(
 
     // Memory watchdog — kills worker if heap spikes above safety threshold
     const memCheck = setInterval(() => {
+      if (resolved) return; // Prevent multiple cleanup calls
       try {
         const usage = process.memoryUsage();
         if (usage.heapUsed > WORKER_MEMORY_LIMIT * 4) {
@@ -95,7 +104,14 @@ export async function runFunction(
 
     worker.onmessage = (e) => {
       cleanup();
-      const { success, status, body: respBody, logs, duration_ms, error } = e.data;
+      const {
+        success,
+        status,
+        body: respBody,
+        logs,
+        duration_ms,
+        error,
+      } = e.data;
       resolve({
         status: success ? status : 500,
         body: respBody ?? '',

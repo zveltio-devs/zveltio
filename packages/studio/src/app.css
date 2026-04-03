@@ -1,20 +1,229 @@
-@import 'tailwindcss';
-@plugin 'daisyui';
+/**
+ * Zveltio - UI/UX Design System for BaaS/SaaS
+ * Tailwind CSS v4 + DaisyUI classes
+ * @format
+ */
 
-[data-theme="light"] {
-  --color-primary: oklch(0.51 0.21 264);        /* indigo #6366f1 */
-  --color-primary-content: oklch(1 0 0);
-  --color-secondary: oklch(0.44 0.18 264);       /* indigo închis */
-  --color-secondary-content: oklch(1 0 0);
-  --color-accent: oklch(0.63 0.19 294);          /* violet */
-  --color-accent-content: oklch(1 0 0);
+/* Import Tailwind CSS v4 */
+@import 'tailwindcss';
+
+/* Zveltio Design System */
+@import './theme/zveltio-design-system.css';
+
+/* Accessibility */
+@import './theme/accessibility.css';
+
+/* Zveltio Brand Colors - Light Theme */
+[data-theme='light'] {
+  --z-primary: oklch(0.55 0.22 260);
+  --z-primary-content: oklch(1 0 0);
+  --z-secondary: oklch(0.55 0.18 300);
+  --z-secondary-content: oklch(1 0 0);
+  --z-accent: oklch(0.65 0.16 200);
+  --z-accent-content: oklch(1 0 0);
 }
 
-[data-theme="dark"] {
-  --color-primary: oklch(0.67 0.19 264);
-  --color-primary-content: oklch(0.13 0.02 264);
-  --color-secondary: oklch(0.55 0.16 264);
-  --color-secondary-content: oklch(0.13 0.02 264);
-  --color-accent: oklch(0.72 0.17 294);
-  --color-accent-content: oklch(0.13 0.02 264);
+/* Zveltio Brand Colors - Dark Theme */
+[data-theme='dark'] {
+  --z-primary: oklch(0.65 0.18 260);
+  --z-primary-content: oklch(0.13 0.02 260);
+  --z-secondary: oklch(0.65 0.15 300);
+  --z-secondary-content: oklch(0.13 0.02 260);
+  --z-accent: oklch(0.75 0.14 200);
+  --z-accent-content: oklch(0.13 0.02 260);
+}
+
+/* DaisyUI Component Classes */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  transition-property: all;
+  transition-duration: 200ms;
+  border-radius: 0.5rem;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background-color: var(--z-primary);
+  color: var(--z-primary-content);
+}
+
+.btn-primary:hover {
+  background-color: var(--z-primary);
+}
+
+.btn-secondary {
+  background-color: var(--z-secondary);
+  color: var(--z-secondary-content);
+}
+
+.btn-secondary:hover {
+  background-color: var(--z-secondary);
+}
+
+.btn-outline {
+  border: 1px solid var(--z-gray-300);
+  color: var(--z-gray-900);
+}
+
+.btn-outline:hover {
+  background-color: var(--z-gray-200);
+}
+
+.btn-ghost {
+  color: var(--z-gray-900);
+}
+
+.btn-ghost:hover {
+  background-color: var(--z-gray-200);
+}
+
+.btn-xs {
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  gap: 0.25rem;
+}
+
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  gap: 0.375rem;
+}
+
+.btn-md {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  gap: 0.5rem;
+}
+
+.btn-lg {
+  padding: 0.75rem 1.5rem;
+  font-size: 1.125rem;
+  gap: 0.625rem;
+}
+
+.card {
+  background-color: var(--z-gray-200);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.card:hover {
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
+  transition-property: all;
+  transition-duration: 200ms;
+}
+
+.card-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--z-gray-900);
+}
+
+.input {
+  background-color: var(--z-gray-100);
+  border: 1px solid var(--z-gray-300);
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  outline: 2px solid transparent;
+}
+
+.input:focus {
+  outline-color: var(--z-primary);
+  outline-width: 2px;
+  outline-offset: 2px;
+}
+
+.alert {
+  border-radius: 0.75rem;
+  padding: 1rem;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.alert-success {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.alert-info {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.alert-warning {
+  background-color: rgba(234, 179, 8, 0.1);
+  border-color: #eab308;
+  color: #eab308;
+}
+
+.alert-error {
+  background-color: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  padding: 1rem;
+}
+
+.modal-box {
+  background-color: var(--z-gray-100);
+  border-radius: 1rem;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  max-width: 42rem;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.progress {
+  background-color: var(--z-gray-300);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  background-color: var(--z-primary);
+  transition-property: width;
+  transition-duration: 500ms;
+  transition-timing-function: ease-out;
+}
+
+/* Wizard Classes */
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wizard-step.completed .step-icon {
+  background-color: #10b981;
+  color: white;
+}
+
+.wizard-step.active .step-icon {
+  background-color: var(--z-primary);
+  color: white;
+}
+
+.wizard-step.pending .step-icon {
+  background-color: var(--z-gray-300);
+  color: rgba(55, 65, 81, 0.5);
 }

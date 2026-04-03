@@ -11,12 +11,15 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "hono": ["../packages/engine/node_modules/hono/dist/types/index.d.ts"],
       "hono/*": ["../packages/engine/node_modules/hono/dist/types/*"],
       "zod": ["../packages/engine/node_modules/zod/index.d.ts"],
       "zod/*": ["../packages/engine/node_modules/zod/*"],
-      "@hono/zod-validator": ["../packages/engine/node_modules/@hono/zod-validator/dist/index.d.ts"],
+      "@hono/zod-validator": [
+        "../packages/engine/node_modules/@hono/zod-validator/dist/index.d.ts"
+      ],
       "kysely": ["../packages/engine/node_modules/kysely/dist/cjs/index.d.ts"],
       "kysely/*": ["../packages/engine/node_modules/kysely/dist/cjs/*"]
     },
@@ -25,6 +28,6 @@
       "../packages/studio/node_modules/@types"
     ]
   },
-  "include": ["**/*.ts", "**/*.svelte"],
+  "include": ["**/*.ts", "**/*.d.ts", "**/*.svelte"],
   "exclude": ["**/node_modules", "**/dist"]
 }

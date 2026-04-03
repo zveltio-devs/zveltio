@@ -21,13 +21,16 @@ import { tenantMiddleware } from './middleware/tenant.js';
 import { initTelemetry, getZoneMetricsLines } from './lib/telemetry.js';
 import { engineEvents } from './lib/event-bus.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
+import { getMemoryReport } from './lib/memory-monitor.js';
 
 const app = new Hono();
 
 // ─── Static file paths ────────────────────────────────────────
 // Runtime paths — relative to CWD (Docker: /data, Native: install dir)
-const STUDIO_DIST = process.env.STUDIO_DIST_PATH || join(process.cwd(), 'studio-dist');
-const CLIENT_DIST = process.env.CLIENT_DIST_PATH || join(process.cwd(), 'client-dist');
+const STUDIO_DIST =
+  process.env.STUDIO_DIST_PATH || join(process.cwd(), 'studio-dist');
+const CLIENT_DIST =
+  process.env.CLIENT_DIST_PATH || join(process.cwd(), 'client-dist');
 
 // ─── Static file content type helper ─────────────────────────
 function getContentType(path: string): string {
@@ -54,14 +57,14 @@ function getContentType(path: string): string {
 }
 
 // ─── Static file serving ──────────────────────────────────────
-async function serveStaticFile(distRoot: string, urlPath: string): Promise<Response | null> {
+async function serveStaticFile(
+  distRoot: string,
+  urlPath: string,
+): Promise<Response | null> {
   // Prevent directory traversal
   const safe = urlPath.replace(/\.\./g, '').replace(/\/+/g, '/') || '/';
 
-  const candidates = [
-    join(distRoot, safe),
-    join(distRoot, safe, 'index.html'),
-  ];
+  const candidates = [join(distRoot, safe), join(distRoot, safe, 'index.html')];
 
   for (const candidate of candidates) {
     const file = Bun.file(candidate);
@@ -74,8 +77,8 @@ async function serveStaticFile(distRoot: string, urlPath: string): Promise<Respo
           'Cache-Control': immutable
             ? 'public, max-age=31536000, immutable'
             : ct.startsWith('text/html')
-            ? 'no-store'
-            : 'public, max-age=3600',
+              ? 'no-store'
+              : 'public, max-age=3600',
         },
       });
     }
@@ -85,7 +88,10 @@ async function serveStaticFile(distRoot: string, urlPath: string): Promise<Respo
   const fallback = Bun.file(join(distRoot, 'index.html'));
   if (await fallback.exists()) {
     return new Response(fallback, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
     });
   }
 
@@ -157,7 +163,11 @@ if (_cmd === 'create-god') {
   const _db = await _initDb2();
   // Use argon2id via Bun.password — matches auth.ts password.hash config.
   // argon2id(memoryCost=4096) uses only ~4 MB RAM, works on small VMs.
-  const _hash = await Bun.password.hash(_password, { algorithm: 'argon2id', memoryCost: 4096, timeCost: 3 });
+  const _hash = await Bun.password.hash(_password, {
+    algorithm: 'argon2id',
+    memoryCost: 4096,
+    timeCost: 3,
+  });
   const _now = new Date();
   const _id = crypto.randomUUID();
   await _db
@@ -263,7 +273,8 @@ async function bootstrap() {
     // PgDog/PgBouncer, because LISTEN requires a persistent dedicated connection.
     // NATIVE_DATABASE_URL bypasses the pooler; falls back to DATABASE_URL if unset.
     (() => {
-      const realtimeUrl = process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
+      const realtimeUrl =
+        process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
       return realtimeUrl
         ? realtimeManager.start(realtimeUrl)
         : Promise.resolve();
@@ -356,6 +367,7 @@ async function bootstrap() {
     }
 
     const uptime = (Date.now() - startTime) / 1000;
+    const memoryReport = getMemoryReport();
     const lines = [
       '# HELP zveltio_uptime_seconds Server uptime in seconds',
       '# TYPE zveltio_uptime_seconds gauge',
@@ -366,6 +378,24 @@ async function bootstrap() {
       '# HELP zveltio_extensions_active Number of active extensions',
       '# TYPE zveltio_extensions_active gauge',
       `zveltio_extensions_active ${extensionLoader.getActive().length}`,
+      '# HELP zveltio_memory_heap_used_bytes Current heap used in bytes',
+      '# TYPE zveltio_memory_heap_used_bytes gauge',
+      `zveltio_memory_heap_used_bytes ${memoryReport.current.heapUsed}`,
+      '# HELP zveltio_memory_heap_total_bytes Current heap total in bytes',
+      '# TYPE zveltio_memory_heap_total_bytes gauge',
+      `zveltio_memory_heap_total_bytes ${memoryReport.current.heapTotal}`,
+      '# HELP zveltio_memory_rss_bytes Resident set size in bytes',
+      '# TYPE zveltio_memory_rss_bytes gauge',
+      `zveltio_memory_rss_bytes ${memoryReport.current.rss}`,
+      '# HELP zveltio_memory_heap_usage_percent Heap usage percentage',
+      '# TYPE zveltio_memory_heap_usage_percent gauge',
+      `zveltio_memory_heap_usage_percent ${memoryReport.efficiency.heapUsagePercent}`,
+      '# HELP zveltio_memory_peak_heap_used_bytes Peak heap used in bytes',
+      '# TYPE zveltio_memory_peak_heap_used_bytes gauge',
+      `zveltio_memory_peak_heap_used_bytes ${memoryReport.peak.peakHeapUsed}`,
+      '# HELP zveltio_memory_peak_rss_bytes Peak RSS in bytes',
+      '# TYPE zveltio_memory_peak_rss_bytes gauge',
+      `zveltio_memory_peak_rss_bytes ${memoryReport.peak.peakRSS}`,
       ...getZoneMetricsLines(),
     ];
     return c.text(lines.join('\n') + '\n', 200, {
