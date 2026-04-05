@@ -65,8 +65,9 @@ export async function createCacheSecondaryStorage() {
       await cache.setex(key, ttl, JSON.stringify(value));
     },
     setnx: async (key: string, value: any, ttl: number = 300) => {
-      // Set if not exists - useful for rate limiting, locks
-      await cache.set(key, JSON.stringify(value), 'EX', ttl);
+      // Set if not exists - useful for rate limiting, locks.
+      // NX flag ensures the key is only written if it does not already exist.
+      await cache.set(key, JSON.stringify(value), 'EX', ttl, 'NX');
     },
     delete: async (key: string) => {
       await cache.del(key);
@@ -80,7 +81,9 @@ export async function createCacheSecondaryStorage() {
         ttl?: number;
       }>,
     ) => {
-      const pipe = cache.multi();
+      // pipeline() sends all commands in one roundtrip without transactional overhead.
+      // Use cache.multi() only when you need atomic MULTI/EXEC semantics.
+      const pipe = cache.pipeline();
       for (const op of operations) {
         if (op.type === 'get') {
           pipe.get(op.key);

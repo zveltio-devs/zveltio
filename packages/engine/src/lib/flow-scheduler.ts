@@ -21,6 +21,7 @@ let _db: Database | null = null;
 let _running = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _stopGC: (() => void) | null = null;
+let _stopTrashPurge: (() => void) | null = null;
 
 export const flowScheduler = {
   /**
@@ -42,8 +43,10 @@ export const flowScheduler = {
     // Garbage collector — runs daily at 03:00
     if (_db) {
       _stopGC = scheduleGarbageCollector(_db);
-      // Trash purge — runs daily at 03:30
-      scheduleTrashPurge(_db);
+      // Trash purge — runs daily at 03:30. Store the stopper so that stop()
+      // can cancel the pending setTimeout and prevent multiple timers from
+      // accumulating across restarts.
+      _stopTrashPurge = scheduleTrashPurge(_db);
     }
   },
 
@@ -56,6 +59,10 @@ export const flowScheduler = {
     if (_stopGC) {
       _stopGC();
       _stopGC = null;
+    }
+    if (_stopTrashPurge) {
+      _stopTrashPurge();
+      _stopTrashPurge = null;
     }
   },
 
@@ -150,14 +157,19 @@ export const flowScheduler = {
  * The actual purge is performed by whichever extension registers a handler
  * via extensionRegistry.registerTrashPurgeHandler().
  */
-function scheduleTrashPurge(db: Database): void {
+function scheduleTrashPurge(db: Database): () => void {
+  let _timeout: ReturnType<typeof setTimeout> | null = null;
+  let _stopped = false;
+
   function scheduleNext(): void {
+    if (_stopped) return;
     const now = new Date();
     const next = new Date(now);
     next.setHours(3, 30, 0, 0);
     if (next <= now) next.setDate(next.getDate() + 1);
 
-    setTimeout(async () => {
+    _timeout = setTimeout(async () => {
+      if (_stopped) return;
       const handler = extensionRegistry.getTrashPurgeHandler();
       if (handler) {
         try {
@@ -171,4 +183,13 @@ function scheduleTrashPurge(db: Database): void {
   }
 
   scheduleNext();
+
+  // Returns a stopper so flowScheduler.stop() can cancel the pending timeout.
+  return () => {
+    _stopped = true;
+    if (_timeout) {
+      clearTimeout(_timeout);
+      _timeout = null;
+    }
+  };
 }

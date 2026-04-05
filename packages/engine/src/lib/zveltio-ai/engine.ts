@@ -22,18 +22,7 @@ import type {
 import { checkPermission } from '../permissions.js';
 import { sendNotification } from '../notifications.js';
 
-// Bun native crypto.randomUUID() - 128-bit UUID (version 4)
-function generateId(size: number = 21): string {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let id = '';
-  const randomValues = new Uint8Array(size);
-  crypto.getRandomValues(randomValues);
-  for (let i = 0; i < size; i++) {
-    id += chars[randomValues[i] % chars.length];
-  }
-  return id;
-}
+import { generateId } from '../utils.js';
 
 export class ZveltioAIEngine {
   constructor(private db: any) {}

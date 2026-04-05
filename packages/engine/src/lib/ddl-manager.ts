@@ -120,6 +120,13 @@ interface CacheEntry {
 const collectionCache = new Map<string, CacheEntry>();
 let _collectionsListCache: { data: any[]; ts: number } | null = null;
 
+// Generation counter — incremented on every invalidateCache() call.
+// Async reads capture this value before their DB SELECT and skip the cache
+// write if it changed while awaiting, preventing stale-fill after invalidation:
+//   Request A starts SELECT (gen=5) → invalidateCache() bumps to gen=6
+//   → A finishes, checks gen still 5? No → discards result, next request re-fetches.
+let _cacheGen = 0;
+
 export class DDLManager {
   static getTableName(collectionName: string): string {
     return `zvd_${collectionName}`;
@@ -127,6 +134,7 @@ export class DDLManager {
 
   /** Invalidates the in-memory cache for a specific collection (call after DDL mutations). */
   static invalidateCache(name?: string): void {
+    _cacheGen++; // bump generation before clearing so in-flight reads see the change
     if (name) {
       collectionCache.delete(name);
     } else {
@@ -378,6 +386,11 @@ export class DDLManager {
       return _collectionsListCache.data;
     }
 
+    // Capture generation before the async DB round-trip.
+    // If invalidateCache() is called while we await, the generation bumps and
+    // we skip the cache write — preventing stale data from filling the cache.
+    const genBefore = _cacheGen;
+
     const rows = await db
       .selectFrom('zvd_collections')
       .selectAll()
@@ -390,7 +403,10 @@ export class DDLManager {
       ...row,
       fields: typeof row.fields === 'string' ? JSON.parse(row.fields) : (row.fields ?? []),
     }));
-    _collectionsListCache = { data: normalized, ts: now };
+
+    if (_cacheGen === genBefore) {
+      _collectionsListCache = { data: normalized, ts: now };
+    }
     return normalized;
   }
 
@@ -400,6 +416,8 @@ export class DDLManager {
     if (cached && now - cached.ts < METADATA_CACHE_TTL_MS) {
       return cached.data;
     }
+
+    const genBefore = _cacheGen;
 
     const row = await db
       .selectFrom('zvd_collections')
@@ -416,7 +434,10 @@ export class DDLManager {
             : ((row as any).fields ?? []),
         }
       : null;
-    collectionCache.set(name, { data: result, ts: now });
+
+    if (_cacheGen === genBefore) {
+      collectionCache.set(name, { data: result, ts: now });
+    }
     return result;
   }
 

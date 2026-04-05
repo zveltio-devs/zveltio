@@ -61,8 +61,10 @@ const QuerySchema = z.object({
 
 async function computeEtag(data: any[]): Promise<string> {
   const str = JSON.stringify(data);
-  const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  // SHA-256: stronger than SHA-1 and not truncated — avoids collision risk
+  // (truncated SHA-1 to 64 bits had birthday-attack probability of ~2^-32).
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // Authenticate request — session or API key
@@ -111,7 +113,7 @@ async function validateApiKey(db: Database, rawKey: string): Promise<import('../
     .set({ last_used_at: new Date() })
     .where('id', '=', apiKey.id)
     .execute()
-    .catch(() => { /* non-fatal */ });
+    .catch((err) => console.error('[validateApiKey] last_used_at update failed:', err));
 
   return apiKey;
 }
@@ -256,7 +258,7 @@ async function afterWrite(
       user_id: userId,
     })
     .execute()
-    .catch(() => {});
+    .catch((err) => console.error('[afterWrite] revision log failed:', err));
 
   const eventName =
     action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
@@ -270,14 +272,18 @@ async function afterWrite(
     record_id: recordId,
     data,
     timestamp: new Date().toISOString(),
-  })})`.execute(db).catch(() => {});
+  })})`.execute(db).catch((err) => console.error('[afterWrite] pg_notify failed:', err));
 
   if (action !== 'delete') {
-    triggerEmbedding(db, collection, recordId, data).catch(() => {});
+    triggerEmbedding(db, collection, recordId, data).catch((err) =>
+      console.error('[afterWrite] embedding trigger failed:', err),
+    );
   }
 
   // Trigger data_event flows (fire-and-forget — must not block the request)
-  triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch(() => {});
+  triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch((err) =>
+    console.error('[afterWrite] flow trigger failed:', err),
+  );
 
   const engineEvent = action === 'create' ? 'record.created' : action === 'update' ? 'record.updated' : 'record.deleted';
   engineEvents.emit(engineEvent, {

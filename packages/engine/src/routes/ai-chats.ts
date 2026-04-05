@@ -16,8 +16,19 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return isAdmin ? user : null;
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Renders {{key}} placeholders with HTML-escaped values so that user-supplied
+// variables cannot inject markup/script into AI prompt templates.
 function renderTemplate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] ?? '');
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => escapeHtml(variables[key] ?? ''));
 }
 
 export function aiChatsRoutes(db: any, auth: any): Hono {
