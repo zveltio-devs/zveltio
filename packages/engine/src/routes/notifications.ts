@@ -34,11 +34,21 @@ export async function sendNotification(
     metadata: JSON.stringify(opts.metadata ?? {}),
   }));
 
-  await (db as any)
-    .insertInto('zv_notifications')
-    .values(values)
-    .execute()
-    .catch(() => { /* non-fatal */ });
+  // Insert each notification individually so a single invalid user_id (FK miss,
+  // deleted account) does not cause the entire batch to fail silently.
+  // Promise.allSettled ensures all valid entries are delivered even if some fail.
+  const results = await Promise.allSettled(
+    values.map((v) =>
+      (db as any).insertInto('zv_notifications').values(v).execute(),
+    ),
+  );
+  const failed = results.filter((r) => r.status === 'rejected');
+  if (failed.length > 0) {
+    console.error(
+      `[sendNotification] ${failed.length}/${values.length} notifications failed:`,
+      (failed[0] as PromiseRejectedResult).reason,
+    );
+  }
 }
 
 export function notificationsRoutes(db: Database, auth: any): Hono {

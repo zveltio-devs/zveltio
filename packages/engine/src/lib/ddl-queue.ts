@@ -58,27 +58,34 @@ export async function getDDLJob(
 async function processNextJob(): Promise<void> {
   if (!_db) return;
 
-  // Claim one pending job
-  const job = await _db
-    .selectFrom('zv_ddl_jobs' as any)
-    .selectAll()
-    .where('status' as any, '=', 'pending')
-    .orderBy('created_at' as any)
-    .limit(1)
-    .executeTakeFirst();
+  // Atomically claim one pending job using FOR UPDATE SKIP LOCKED.
+  // In a multi-instance deployment every replica runs this poller; the SELECT
+  // and row-lock happen in a single round-trip so there is no window between
+  // "see the row" and "lock the row" that would allow two workers to claim the
+  // same job.  SKIP LOCKED makes concurrent pollers skip rows already held by
+  // another transaction instead of blocking, keeping throughput high.
+  let job: any;
+  try {
+    const result = await sql<any>`
+      UPDATE zv_ddl_jobs
+      SET    status     = 'running',
+             started_at = NOW()
+      WHERE  id = (
+        SELECT id
+        FROM   zv_ddl_jobs
+        WHERE  status = 'pending'
+        ORDER  BY created_at
+        LIMIT  1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *
+    `.execute(_db);
+    job = result.rows[0];
+  } catch {
+    return; // DB unavailable — skip this poll cycle
+  }
 
-  if (!job) return;
-
-  // Mark as running (with a guard to avoid two pollers claiming the same job)
-  const claimed = await _db
-    .updateTable('zv_ddl_jobs' as any)
-    .set({ status: 'running', started_at: new Date() } as any)
-    .where('id' as any, '=', (job as any).id)
-    .where('status' as any, '=', 'pending')
-    .returning('id' as any)
-    .executeTakeFirst();
-
-  if (!claimed) return; // another poller claimed it first
+  if (!job) return; // no pending jobs
 
   try {
     const payload =

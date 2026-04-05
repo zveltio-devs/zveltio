@@ -4,18 +4,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 
-// Bun native crypto.randomUUID() - 128-bit UUID (version 4)
-function generateId(size: number = 16): string {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let id = '';
-  const randomValues = new Uint8Array(size);
-  crypto.getRandomValues(randomValues);
-  for (let i = 0; i < size; i++) {
-    id += chars[randomValues[i] % chars.length];
-  }
-  return id;
-}
+import { generateId } from '../lib/utils.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { aiProviderManager } from '../lib/ai-provider.js';

@@ -2,13 +2,30 @@ import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
-import { S3Client } from '@aws-sdk/client-s3';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { AwsClient } from 'aws4fetch';
 
-let s3: S3Client | null = null;
+// Lazy aws4fetch client — replaces @aws-sdk/client-s3 + @aws-sdk/s3-request-presigner.
+// aws4fetch is a ~3KB fetch-based signer vs ~50MB for AWS SDK v3.
+let _aws: AwsClient | null = null;
+
+function getAws(): AwsClient | null {
+  if (!process.env.S3_ENDPOINT) return null;
+  if (!_aws) {
+    _aws = new AwsClient({
+      accessKeyId: process.env.S3_ACCESS_KEY || '',
+      secretAccessKey: process.env.S3_SECRET_KEY || '',
+      region: process.env.S3_REGION || 'us-east-1',
+      service: 's3',
+    });
+  }
+  return _aws;
+}
+
+function s3Url(key: string): string {
+  const endpoint = process.env.S3_ENDPOINT!.replace(/\/$/, '');
+  const bucket = process.env.S3_BUCKET || 'zveltio';
+  return `${endpoint}/${bucket}/${key}`;
+}
 
 // H6 FIX: Extract image width/height from raw bytes — no external dependency needed.
 // Supports PNG (IHDR chunk), JPEG (SOF markers), GIF89a/GIF87a, and WebP (VP8/VP8L/VP8X).
@@ -88,21 +105,6 @@ function extractImageDimensions(
   return {};
 }
 
-function getS3(): S3Client | null {
-  if (!process.env.S3_ENDPOINT) return null;
-  if (!s3) {
-    s3 = new S3Client({
-      endpoint: process.env.S3_ENDPOINT,
-      region: process.env.S3_REGION || 'us-east-1',
-      credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY || '',
-        secretAccessKey: process.env.S3_SECRET_KEY || '',
-      },
-      forcePathStyle: true, // Required for SeaweedFS / MinIO
-    });
-  }
-  return s3;
-}
 
 export function storageRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -139,8 +141,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // disk/storage quota exhaustion from rapid automated uploads.
   app.post('/upload', writeRateLimit, async (c) => {
     const user = c.get('user') as any;
-    const client = getS3();
-    const bucket = process.env.S3_BUCKET || 'zveltio';
+    const client = getAws();
 
     const formData = await c.req.formData();
     const file = formData.get('file') as File | null;
@@ -216,16 +217,18 @@ export function storageRoutes(db: Database, auth: any): Hono {
     let url: string | undefined;
 
     if (client) {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: storagePath,
-          Body: buffer,
-          ContentType: file.type,
-          ContentLength: buffer.length,
-        }),
-      );
-      url = `${process.env.S3_PUBLIC_URL || process.env.S3_ENDPOINT}/${bucket}/${storagePath}`;
+      const res = await client.fetch(s3Url(storagePath), {
+        method: 'PUT',
+        body: buffer,
+        headers: {
+          'Content-Type': file.type,
+          'Content-Length': String(buffer.length),
+        },
+      });
+      if (!res.ok) {
+        return c.json({ error: `Storage upload failed: ${res.status}` }, 502);
+      }
+      url = `${process.env.S3_PUBLIC_URL || process.env.S3_ENDPOINT}/${process.env.S3_BUCKET || 'zveltio'}/${storagePath}`;
     }
 
     // H6 FIX: Extract actual pixel dimensions for image formats.
@@ -309,7 +312,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // GET /:id/signed-url — Get a temporary signed URL
   app.get('/:id/signed-url', async (c) => {
-    const client = getS3();
+    const client = getAws();
     if (!client) return c.json({ error: 'Storage not configured' }, 503);
     const signedDb = (c.get('tenantTrx') as Database | null) ?? db;
 
@@ -321,23 +324,22 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     if (!file) return c.json({ error: 'File not found' }, 404);
 
-    const url = await getSignedUrl(
-      client,
-      new GetObjectCommand({
-        Bucket: process.env.S3_BUCKET || 'zveltio',
-        Key: (file as any).storage_path,
-      }),
-      { expiresIn: 3600 },
-    );
+    // Build presigned URL: aws4fetch puts the signature in query params via signQuery: true.
+    const target = new URL(s3Url((file as any).storage_path));
+    target.searchParams.set('X-Amz-Expires', '3600');
+    const signed = await client.sign(target, {
+      method: 'GET',
+      aws: { signQuery: true },
+    });
 
-    return c.json({ url, expires_in: 3600 });
+    return c.json({ url: signed.url, expires_in: 3600 });
   });
 
   // DELETE /:id — Delete file (owner or admin only)
   app.delete('/:id', async (c) => {
     const user = c.get('user') as any;
     const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const client = getS3();
+    const client = getAws();
     const file = await (deleteDb as any)
       .selectFrom('zv_media_files')
       .selectAll()
@@ -354,12 +356,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     if (client) {
       await client
-        .send(
-          new DeleteObjectCommand({
-            Bucket: process.env.S3_BUCKET || 'zveltio',
-            Key: (file as any).storage_path,
-          }),
-        )
+        .fetch(s3Url((file as any).storage_path), { method: 'DELETE' })
         .catch(() => {
           /* non-fatal if file missing from storage */
         });

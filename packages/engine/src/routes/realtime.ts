@@ -95,29 +95,28 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
       // Keep alive ping every 30s
       const pingInterval = setInterval(() => {
-        stream.writeSSE({ data: 'ping', event: 'ping' }).catch(() => {
-          clearInterval(pingInterval);
-        });
+        // Errors here are handled by onAbort — do not clear interval inside catch
+        // because onAbort is the authoritative cleanup path.
+        stream.writeSSE({ data: 'ping', event: 'ping' }).catch(() => {});
       }, 30_000);
 
-      // Cleanup on disconnect
-      stream.onAbort(async () => {
-        clearInterval(pingInterval);
-        userConnections.delete(stream);
-        if (userConnections.size === 0) connections.delete(userId);
-        if (subscriber) {
-          try {
-            await subscriber.unsubscribe();
-            subscriber.disconnect();
-          } catch {
-            /* ignore */
-          }
-        }
-      });
-
-      // Keep stream open until the client disconnects
+      // Cleanup on disconnect — single onAbort handler; also resolves the promise
+      // that keeps this streamSSE callback alive.
       await new Promise<void>((resolve) => {
-        stream.onAbort(resolve);
+        stream.onAbort(async () => {
+          clearInterval(pingInterval);
+          userConnections.delete(stream);
+          if (userConnections.size === 0) connections.delete(userId);
+          if (subscriber) {
+            try {
+              await subscriber.unsubscribe();
+              await subscriber.disconnect();
+            } catch {
+              /* ignore */
+            }
+          }
+          resolve();
+        });
       });
     });
   });
