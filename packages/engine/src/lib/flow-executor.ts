@@ -158,10 +158,14 @@ async function executeStep(
         if (typeof value === 'string') sanitizedHeaders[key] = value;
       }
 
+      // Timeout prevents a slow/hung server from blocking the flow scheduler.
+      // cfg.timeout_ms is user-configurable; default 10s is safe for most webhooks.
+      const timeoutMs = Math.min(Number(cfg.timeout_ms) || 10_000, 60_000);
       const response = await fetch(cfg.url as string, {
         method: (cfg.method as string) ?? 'POST',
         headers: sanitizedHeaders,
         body: JSON.stringify(cfg.body ?? prevOutput),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       return { output: { status: response.status, ok: response.ok } };
     }
@@ -198,12 +202,23 @@ async function executeStep(
       try {
         // @ts-ignore — export-manager is an optional extension
         const { ExportManager } = await import('./export-manager.js');
-        const tableName = cfg.collection.startsWith('zvd_')
-          ? cfg.collection
-          : `zvd_${cfg.collection}`;
 
+        // Validate collection name before constructing the table identifier.
+        // cfg.collection comes from user-controlled flow config — must match
+        // ^[a-z][a-z0-9_]*$ to prevent SQL injection via sql.id().
+        const SAFE_COLLECTION = /^[a-z][a-z0-9_]*$/;
+        const rawCollection = cfg.collection.startsWith('zvd_')
+          ? cfg.collection.slice(4)
+          : cfg.collection;
+        if (!SAFE_COLLECTION.test(rawCollection)) {
+          return { output: { error: `Invalid collection name: "${cfg.collection}"` } };
+        }
+        const tableName = `zvd_${rawCollection}`;
+
+        // sql.id() quotes the identifier — safe against injection even if validation
+        // were somehow bypassed; sql.raw() was previously used here (vulnerability).
         const rows = await sql<any>`
-          SELECT * FROM ${sql.raw(tableName)}
+          SELECT * FROM ${sql.id(tableName)}
           LIMIT ${cfg.limit ?? 1000}
         `.execute(db);
 

@@ -149,7 +149,8 @@ export async function getEnforcer(): Promise<Enforcer> {
  * to prevent privilege escalation via direct Redis key manipulation.
  */
 function _permHmac(key: string, value: '1' | '0'): string {
-  const secret = process.env.BETTER_AUTH_SECRET ?? '';
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign permission cache entry');
   return createHmac('sha256', secret)
     .update(`perm:${key}:${value}`)
     .digest('hex');
@@ -190,7 +191,8 @@ function _decodePermCache(key: string, raw: string): boolean | null {
  * If HMAC verification fails, we return `null` → DB fallback (fail-closed).
  */
 function _godHmac(userId: string, value: '1' | '0'): string {
-  const secret = process.env.BETTER_AUTH_SECRET ?? '';
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign god-role cache entry');
   return createHmac('sha256', secret)
     .update(`god:${userId}:${value}`)
     .digest('hex');
@@ -341,7 +343,8 @@ export async function checkPermission(
  * (`:` + 64 hex) are unambiguous regardless of the JSON content.
  */
 function _rolesHmac(userId: string, rolesJson: string): string {
-  const secret = process.env.BETTER_AUTH_SECRET ?? '';
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign roles cache entry');
   return createHmac('sha256', secret)
     .update(`roles:${userId}:${rolesJson}`)
     .digest('hex');
@@ -441,8 +444,11 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
     //        M is the number of distinct permission checks cached for this user.
     const permKeys = await cache.smembers(`user:perm-keys:${userId}`);
 
-    // O(M) — DEL on M permission keys + roles key + the tracking Set itself.
-    const allKeys = [...permKeys, `roles:${userId}`, `user:perm-keys:${userId}`];
+    // Also delete god:{userId} — without this, a role change from 'god' → other
+    // would leave god cache live for up to GOD_CACHE_TTL (300s) even though
+    // permissions were invalidated. The god cache TTL mismatches PERMISSION_CACHE_TTL
+    // (60s), so both must be cleared together on any permission change.
+    const allKeys = [...permKeys, `roles:${userId}`, `god:${userId}`, `user:perm-keys:${userId}`];
     if (allKeys.length > 0) await cache.del(...allKeys);
   } catch {
     /* cache unavailable */

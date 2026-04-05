@@ -1,36 +1,35 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { S3Client } from '@aws-sdk/client-s3';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { AwsClient } from 'aws4fetch';
 import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/query-utils.js';
-
-// Bun native crypto.randomUUID() - 128-bit UUID (version 4)
-function generateId(size: number = 21): string {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let id = '';
-  const randomValues = new Uint8Array(size);
-  crypto.getRandomValues(randomValues);
-  for (let i = 0; i < size; i++) {
-    id += chars[randomValues[i] % chars.length];
-  }
-  return id;
-}
+import { generateId } from '../lib/utils.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
 
-const s3 = new S3Client({
-  region: process.env.S3_REGION || 'us-east-1',
-  endpoint: process.env.S3_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY || '',
-    secretAccessKey: process.env.S3_SECRET_KEY || '',
-  },
-  forcePathStyle: true,
-});
+// Lazy aws4fetch client — initialized on first use so startup is not blocked
+// when S3_ENDPOINT is not configured.
+let _aws: AwsClient | null = null;
+function getAws(): AwsClient | null {
+  if (!process.env.S3_ENDPOINT) return null;
+  if (!_aws) {
+    _aws = new AwsClient({
+      accessKeyId: process.env.S3_ACCESS_KEY || '',
+      secretAccessKey: process.env.S3_SECRET_KEY || '',
+      region: process.env.S3_REGION || 'us-east-1',
+      service: 's3',
+    });
+  }
+  return _aws;
+}
+
+function s3Url(key: string): string {
+  const endpoint = (process.env.S3_ENDPOINT || '').replace(/\/$/, '');
+  const bucket = process.env.S3_BUCKET || 'zveltio';
+  return `${endpoint}/${bucket}/${key}`;
+}
 
 export function mediaRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
@@ -195,8 +194,9 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     if (mime_type) query = query.where('mime_type', 'ilike', `${mime_type}%`);
 
     if (search) {
-      // P1: escape LIKE metacharacters to prevent wildcard DoS
-      const safeSearch = `%${escapeLike(search)}%`;
+      // Cap at 100 chars — longer patterns give no additional selectivity but
+      // multiply matching cost across 4 ilike columns (each O(N) without trigram index).
+      const safeSearch = `%${escapeLike(search.substring(0, 100))}%`;
       query = query.where(({ or, cmpr }: any) =>
         or([
           cmpr('filename', 'ilike', safeSearch),
@@ -263,7 +263,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     if (mime_type)
       countQuery = countQuery.where('mime_type', 'ilike', `${mime_type}%`);
     if (search) {
-      const safeSearchCount = `%${escapeLike(search)}%`;
+      const safeSearchCount = `%${escapeLike(search.substring(0, 100))}%`;
       countQuery = countQuery.where(({ or, cmpr }: any) =>
         or([
           cmpr('filename', 'ilike', safeSearchCount),
@@ -499,14 +499,17 @@ export function mediaRoutes(db: Database, auth: any): Hono {
             .toBuffer();
 
           const thumbnailKey = `thumbnails/${fileId}.webp`;
-          await s3.send(
-            new PutObjectCommand({
-              Bucket: process.env.S3_BUCKET || 'zveltio',
-              Key: thumbnailKey,
-              Body: thumbnailBuffer,
-              ContentType: 'image/webp',
-            }),
-          );
+          const awsClient = getAws();
+          if (awsClient) {
+            await awsClient.fetch(s3Url(thumbnailKey), {
+              method: 'PUT',
+              body: thumbnailBuffer,
+              headers: {
+                'Content-Type': 'image/webp',
+                'Content-Length': String(thumbnailBuffer.length),
+              },
+            });
+          }
           thumbnailUrl = `${process.env.S3_PUBLIC_URL}/${thumbnailKey}`;
         }
       } catch (error) {
@@ -515,14 +518,20 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     }
 
     const key = `media/${filename}`;
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.S3_BUCKET || 'zveltio',
-        Key: key,
-        Body: buffer,
-        ContentType: file.type,
-      }),
-    );
+    const awsClient = getAws();
+    if (awsClient) {
+      const uploadRes = await awsClient.fetch(s3Url(key), {
+        method: 'PUT',
+        body: buffer,
+        headers: {
+          'Content-Type': file.type,
+          'Content-Length': String(buffer.length),
+        },
+      });
+      if (!uploadRes.ok) {
+        return c.json({ error: `Storage upload failed: ${uploadRes.status}` }, 502);
+      }
+    }
 
     const url = `${process.env.S3_PUBLIC_URL}/${key}`;
 
@@ -611,15 +620,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const user = c.get('user' as never) as any;
       const { ids } = c.req.valid('json');
 
-      let moved = 0;
-      for (const id of ids) {
-        try {
-          await moveToTrash(db, id, user.id);
-          moved++;
-        } catch {
-          // Skip files that don't exist or are already in trash
-        }
-      }
+      const results = await Promise.allSettled(
+        ids.map((id) => moveToTrash(db, id, user.id)),
+      );
+      const moved = results.filter((r) => r.status === 'fulfilled').length;
 
       return c.json({ success: true, deleted: moved });
     },

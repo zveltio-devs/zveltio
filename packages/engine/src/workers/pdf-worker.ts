@@ -9,7 +9,7 @@
  * PDF-LIB is a modern, pure-JS PDF library with excellent TypeScript support.
  */
 
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, PDFFont, StandardFonts, rgb } from 'pdf-lib';
 
 self.onmessage = async (event: MessageEvent) => {
   const msg = event.data as {
@@ -84,27 +84,37 @@ async function generatePDF(
     [width, height] = [height, width];
   }
 
-  // Add page
-  const page = doc.addPage([width, height]);
-  const fontSize = 11;
-
-  // Embed fonts (pdf-lib API uses embedFont, not getFont)
+  // Embed fonts before adding pages so they are available throughout
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  // Draw text with formatting
+  // `currentPage` is updated whenever overflow forces a new page.
+  // Bug fix: previously `doc.addPage()` return value was discarded on overflow,
+  // causing all post-overflow text to be drawn off-screen on the old page.
+  let currentPage = doc.addPage([width, height]);
+  const fontSize = 11;
+
   const lines = text.split('\n');
   let y = height - margins;
   let currentFontSize = fontSize;
 
+  const checkPageOverflow = () => {
+    if (y < margins + 20) {
+      currentPage = doc.addPage([width, height]);
+      y = height - margins;
+    }
+  };
+
   for (const line of lines) {
+    checkPageOverflow();
+
     const h1 = line.match(/^__H1__(.*)__END__$/);
     const h2 = line.match(/^__H2__(.*)__END__$/);
     const h3 = line.match(/^__H[3-6]__(.*)__END__$/);
 
     if (h1) {
       const txt = h1[1].trim();
-      page.drawText(txt, {
+      currentPage.drawText(txt, {
         x: margins,
         y,
         size: 20,
@@ -115,7 +125,7 @@ async function generatePDF(
       currentFontSize = fontSize;
     } else if (h2) {
       const txt = h2[1].trim();
-      page.drawText(txt, {
+      currentPage.drawText(txt, {
         x: margins,
         y,
         size: 16,
@@ -126,7 +136,7 @@ async function generatePDF(
       currentFontSize = fontSize;
     } else if (h3) {
       const txt = h3[1].trim();
-      page.drawText(txt, {
+      currentPage.drawText(txt, {
         x: margins,
         y,
         size: 13,
@@ -138,9 +148,10 @@ async function generatePDF(
     } else if (line.trim() === '') {
       y -= 10;
     } else {
-      const wrappedLines = wrapText(line, width - margins * 2, currentFontSize);
+      const wrappedLines = wrapText(line, width - margins * 2, currentFontSize, font);
       for (const wrappedLine of wrappedLines) {
-        page.drawText(wrappedLine, {
+        checkPageOverflow();
+        currentPage.drawText(wrappedLine, {
           x: margins,
           y,
           size: currentFontSize,
@@ -149,11 +160,6 @@ async function generatePDF(
         });
         y -= 15;
       }
-    }
-
-    if (y < margins + 20) {
-      doc.addPage([width, height]);
-      y = height - margins;
     }
   }
 
@@ -165,14 +171,24 @@ async function generatePDF(
   return Buffer.from(pdfBytes);
 }
 
-function wrapText(text: string, maxWidth: number, fontSize: number): string[] {
+/**
+ * Wraps `text` into lines that fit within `maxWidth` points.
+ * Uses pdf-lib's font.widthOfTextAtSize() for accurate per-character measurement
+ * instead of the previous character-count approximation.
+ */
+function wrapText(
+  text: string,
+  maxWidth: number,
+  fontSize: number,
+  font: PDFFont,
+): string[] {
   const words = text.split(' ');
   const lines: string[] = [];
   let currentLine = '';
 
   for (const word of words) {
     const testLine = currentLine ? `${currentLine} ${word}` : word;
-    if (testLine.length * fontSize * 0.5 < maxWidth) {
+    if (font.widthOfTextAtSize(testLine, fontSize) < maxWidth) {
       currentLine = testLine;
     } else {
       if (currentLine) lines.push(currentLine);
