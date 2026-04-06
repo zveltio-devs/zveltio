@@ -6,6 +6,7 @@
     ChevronDown, Settings, FileText, Users, Check, AlertCircle
   } from '@lucide/svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import { toast } from '$lib/stores/toast.svelte.js';
 
   // ── Types ─────────────────────────────────────────────────────────────────
   type Tab = 'mail' | 'drafts' | 'contacts' | 'signatures' | 'filters';
@@ -22,7 +23,6 @@
   let searchQuery = $state('');
   let loading = $state(false);
   let syncing = $state(false);
-  let error = $state('');
   let stats = $state<any>({});
 
   // Compose
@@ -103,7 +103,7 @@
 
   // ── Load ──────────────────────────────────────────────────────────────────
   async function loadAll() {
-    loading = true; error = '';
+    loading = true;
     try {
       const r = await apiFetch('/api/mail/accounts');
       accounts = r.accounts ?? [];
@@ -111,7 +111,7 @@
         await selectAccount(accounts.find((a: any) => a.is_default) ?? accounts[0]);
       }
       await loadStats();
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { loading = false; }
   }
 
@@ -128,7 +128,7 @@
       folders = r.folders ?? [];
       const inbox = folders.find((f: any) => f.type === 'inbox') ?? folders[0];
       if (inbox) await selectFolder(inbox);
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { loading = false; }
   }
 
@@ -139,7 +139,7 @@
     try {
       const r = await apiFetch(`/api/mail/folders/${folder.id}/messages?limit=50`);
       messages = r.messages ?? [];
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { loading = false; }
   }
 
@@ -149,18 +149,18 @@
       const r = await apiFetch(`/api/mail/messages/${msg.id}`);
       selectedMessage = r.message;
       messages = messages.map((m: any) => m.id === msg.id ? { ...m, is_read: true } : m);
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { loading = false; }
   }
 
   async function syncAccount() {
     if (!selectedAccount) return;
-    syncing = true; error = '';
+    syncing = true;
     try {
       await apiFetch(`/api/mail/accounts/${selectedAccount.id}/sync`, { method: 'POST' });
       if (selectedFolder) await selectFolder(selectedFolder);
       await loadStats();
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { syncing = false; }
   }
 
@@ -245,7 +245,7 @@
       replyToMessageId = selectedMessage.id;
       draftId = null;
       showCompose = true;
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
   }
 
   async function autoSaveDraft() {
@@ -274,7 +274,7 @@
 
   async function sendEmail() {
     if (!selectedAccount || !composeTo.trim() || !composeSubject.trim()) return;
-    sendingMail = true; error = '';
+    sendingMail = true;
     try {
       if (draftId) {
         // Update draft then send it
@@ -298,7 +298,7 @@
       showCompose = false;
       if (selectedFolder?.type === 'sent') await selectFolder(selectedFolder);
       await loadStats();
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { sendingMail = false; }
   }
 
@@ -326,7 +326,7 @@
     try {
       const r = await apiFetch(`/api/mail/messages/${selectedMessage.id}/summarize`, { method: 'POST' });
       summary = r.summary ?? '';
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { summarizing = false; }
   }
 
@@ -336,7 +336,7 @@
     try {
       const r = await apiFetch(`/api/mail/messages/${selectedMessage.id}/reply-draft`, { method: 'POST' });
       if (r.draft) openReplyContext('reply').then(() => { composeBody = r.draft; });
-    } catch (e: any) { error = e.message; }
+    } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
     finally { aiDraftLoading = false; }
   }
 
@@ -869,15 +869,6 @@
   </div>
 </div>
 
-{#if error}
-  <div class="toast toast-end toast-bottom z-50">
-    <div class="alert alert-error shadow-lg max-w-sm">
-      <X class="w-4 h-4 shrink-0" onclick={() => error = ''}/>
-      <span class="text-sm">{error}</span>
-    </div>
-  </div>
-{/if}
-
 <!-- ═══ COMPOSE MODAL ═══ -->
 {#if showCompose}
   <dialog class="modal modal-open">
@@ -1027,13 +1018,13 @@
         <button class="btn btn-ghost" onclick={() => showAddAccount = false}>Cancel</button>
         <button class="btn btn-primary gap-2"
           onclick={async () => {
-            addingAccount = true; error = '';
+            addingAccount = true;
             try {
               await apiFetch('/api/mail/accounts', { method: 'POST', body: JSON.stringify(newAccount) });
               showAddAccount = false;
               newAccount = { name: '', email_address: '', display_name: '', imap_host: '', imap_port: 993, imap_secure: true, imap_user: '', imap_password: '', smtp_host: '', smtp_port: 587, smtp_secure: true, smtp_user: '', smtp_password: '', is_default: false };
               await loadAll();
-            } catch (e: any) { error = e.message; }
+            } catch (e: any) { toast.error(e.message ?? 'Operation failed'); }
             finally { addingAccount = false; }
           }}
           disabled={addingAccount || !newAccount.email_address || !newAccount.imap_host}>

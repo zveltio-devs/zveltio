@@ -6,6 +6,8 @@
   import { base } from '$app/paths';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import { toast } from '$lib/stores/toast.svelte.js';
 
   const collectionName = $derived(page.params.name ?? '');
   let relations = $state<any[]>([]);
@@ -41,20 +43,25 @@
 
   async function load() {
     loading = true;
-    const [rRes, cRes] = await Promise.all([
-      api.get<{ relations: any[] }>(`/api/relations?collection=${collectionName}`),
-      collectionsApi.list(),
-    ]);
-    relations = rRes.relations || [];
-    allCollections = cRes.collections || [];
+    try {
+      const [rRes, cRes] = await Promise.all([
+        api.get<{ relations: any[] }>(`/api/relations?collection=${collectionName}`),
+        collectionsApi.list(),
+      ]);
+      relations = rRes.relations || [];
+      allCollections = cRes.collections || [];
 
-    // Load source collection fields
-    const srcCol = allCollections.find((c) => c.name === collectionName);
-    if (srcCol) {
-      const f = typeof srcCol.fields === 'string' ? JSON.parse(srcCol.fields) : srcCol.fields;
-      sourceFields = f || [];
+      // Load source collection fields
+      const srcCol = allCollections.find((c) => c.name === collectionName);
+      if (srcCol) {
+        const f = typeof srcCol.fields === 'string' ? JSON.parse(srcCol.fields) : srcCol.fields;
+        sourceFields = f || [];
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load relations');
+    } finally {
+      loading = false;
     }
-    loading = false;
   }
 
   // When target collection changes, load its fields
@@ -82,7 +89,7 @@
       showForm = false;
       form = { name: '', type: 'o2m', source_collection: collectionName, source_field: '', target_collection: '', target_field: '', on_delete: 'SET NULL' };
     } catch (err: any) {
-      error = err.message || 'Failed to create relation';
+      toast.error(err.message || 'Failed to create relation');
     } finally {
       saving = false;
     }
@@ -124,22 +131,11 @@
     { label: collectionName, href: `${base}/collections/${collectionName}` },
     { label: 'Relations' },
   ]} />
-  <!-- Header -->
-  <div class="flex items-center gap-3">
-    <div>
-      <h1 class="text-2xl font-bold">
-        {collectionName}
-        <span class="text-base-content/40 font-normal">/ Relations</span>
-      </h1>
-      <p class="text-base-content/60 text-sm">Define how this collection links to others</p>
-    </div>
-    <div class="ml-auto">
-      <button class="btn btn-primary btn-sm" onclick={openForm}>
-        <Plus size={16} />
-        Add Relation
-      </button>
-    </div>
-  </div>
+  <PageHeader title="{collectionName} / Relations" subtitle="Define how this collection links to others">
+    <button class="btn btn-primary btn-sm" onclick={openForm}>
+      <Plus size={16} /> Add Relation
+    </button>
+  </PageHeader>
 
   <!-- Add relation form -->
   {#if showForm}

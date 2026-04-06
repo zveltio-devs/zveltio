@@ -141,8 +141,7 @@
 
     <!-- ─── Mobile overlay ──────────────────────────────────── -->
     {#if mobileOpen}
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div class="fixed inset-0 z-40 bg-black/50 lg:hidden" onclick={() => (mobileOpen = false)}></div>
+      <button class="fixed inset-0 z-40 bg-black/50 lg:hidden cursor-default" aria-label="Close menu" onclick={() => (mobileOpen = false)}></button>
       <aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-base-200 border-r border-base-300">
         <div class="flex items-center h-14 px-4 border-b border-base-300">
           <span class="font-semibold text-sm">{siteName}</span>

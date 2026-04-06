@@ -4,6 +4,7 @@
  import { DatabaseBackup, Plus, Download, Trash2, RefreshCw, LoaderCircle, Clock, CheckCircle, XCircle } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  interface Backup {
  id: string;
@@ -20,7 +21,6 @@
 
  let backups = $state<Backup[]>([]);
  let loading = $state(true);
- let error = $state('');
  let creating = $state(false);
  let notes = $state('');
  let showModal = $state(false);
@@ -31,18 +31,16 @@
 
  async function loadBackups() {
  loading = true;
- error = '';
  try {
  const data = await api.get<{ backups: Backup[] }>('/api/backup');
  backups = data.backups || [];
- // Resume polling for any in_progress backups
  for (const b of backups) {
  if (b.status === 'in_progress' && !pollingIds.has(b.id)) {
  pollBackup(b.id);
  }
  }
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Failed to load backups');
  } finally {
  loading = false;
  }
@@ -50,7 +48,6 @@
 
  async function createBackup() {
  creating = true;
- error = '';
  try {
  const data = await api.post<{ backup_id: string; filename: string }>('/api/backup', { notes: notes.trim() || undefined });
  showModal = false;
@@ -58,7 +55,7 @@
  await loadBackups();
  pollBackup(data.backup_id);
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Failed to create backup');
  } finally {
  creating = false;
  }
@@ -95,7 +92,7 @@
  await api.delete(`/api/backup/${id}`);
  backups = backups.filter(b => b.id !== id);
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Failed to delete backup');
  }
  },
  };
@@ -124,10 +121,6 @@
   </button>
   </div>
  </PageHeader>
-
- {#if error}
- <div class="alert alert-error text-sm">{error}</div>
- {/if}
 
  {#if loading}
  <div class="flex justify-center py-16">

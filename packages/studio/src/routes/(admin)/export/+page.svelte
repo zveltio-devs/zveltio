@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api, collectionsApi } from '$lib/api.js';
  import { Download, LoaderCircle, Database } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
 
  let collections = $state<any[]>([]);
  let selectedCollection = $state('');
@@ -50,10 +51,7 @@
 </script>
 
 <div class="space-y-6">
- <div>
- <h1 class="text-2xl font-bold">Export Data</h1>
- <p class="text-base-content/60 text-sm mt-1">Download collection data in various formats</p>
- </div>
+ <PageHeader title="Export Data" subtitle="Download collection data in various formats" />
 
  <div class="max-w-lg">
  <div class="card bg-base-200">

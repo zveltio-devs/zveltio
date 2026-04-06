@@ -1,0 +1,8 @@
+install/*.sh text eol=lf
+install/*.sh diff=bash
+
+# Mark shell scripts as executable in git
+install/proxmox-lxc.sh executable
+install/install.sh executable
+install/update.sh executable
+install/uninstall.sh executable

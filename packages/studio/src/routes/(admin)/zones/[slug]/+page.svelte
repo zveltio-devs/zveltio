@@ -10,6 +10,7 @@
   } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   const zoneSlug = $derived((page.params as Record<string, string>).slug ?? '');
@@ -155,16 +156,7 @@
     { label: 'Zones', href: `${base}/zones` },
     { label: zone?.name || zoneSlug },
   ]} />
-  <!-- Header -->
-  <div class="flex items-center gap-3">
-    <div class="flex-1">
-      {#if zone}
-        <h1 class="text-2xl font-bold">{zone.name}</h1>
-        <p class="text-base-content/60 text-sm font-mono">{zone.base_path}</p>
-      {:else if loading}
-        <div class="skeleton h-7 w-48 rounded"></div>
-      {/if}
-    </div>
+  <PageHeader title={zone?.name ?? zoneSlug} subtitle={zone?.base_path}>
     {#if zone}
       <button class="btn btn-ghost btn-sm" onclick={() => (zone.is_active = !zone.is_active)}>
         {#if zone.is_active}
@@ -174,7 +166,7 @@
         {/if}
       </button>
     {/if}
-  </div>
+  </PageHeader>
 
   {#if loading}
     <div class="flex justify-center py-16">
