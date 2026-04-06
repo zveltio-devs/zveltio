@@ -1,13 +1,16 @@
 <script lang="ts">
   import { api } from '$lib/api.js';
-  import { Wand2, Eye, Check, ArrowLeft, LoaderCircle, ChevronDown, ChevronRight } from '@lucide/svelte';
+  import { Eye, Check, ArrowLeft, LoaderCircle, ChevronDown, ChevronRight } from '@lucide/svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { base } from '$app/paths';
 
   type Step = 'input' | 'preview' | 'done';
 
   let step = $state<Step>('input');
   let description = $state('');
   let loading = $state(false);
-  let error = $state('');
 
   // Preview data
   let preview = $state<{ collections: any[]; seed_data?: any } | null>(null);
@@ -23,7 +26,6 @@
   async function generatePreview() {
     if (!description.trim()) return;
     loading = true;
-    error = '';
     try {
       const res = await api.post<{
         preview: any;
@@ -35,13 +37,12 @@
       confirmToken = res.confirm_token;
       collectionsCount = res.collections_count;
       estimatedFields = res.estimated_fields;
-      // Expand first collection by default
       if (res.preview.collections.length > 0) {
         expandedCollections = new Set([res.preview.collections[0].name]);
       }
       step = 'preview';
     } catch (e: any) {
-      error = e.message ?? 'Preview generation failed';
+      toast.error(e.message ?? 'Preview generation failed');
     } finally {
       loading = false;
     }
@@ -49,7 +50,6 @@
 
   async function confirmCreate() {
     loading = true;
-    error = '';
     try {
       const res = await api.post<{
         collections: string[];
@@ -61,7 +61,7 @@
       skippedCollections = res.skipped;
       step = 'done';
     } catch (e: any) {
-      error = e.message ?? 'Schema creation failed';
+      toast.error(e.message ?? 'Schema creation failed');
     } finally {
       loading = false;
     }
@@ -79,21 +79,17 @@
     description = '';
     preview = null;
     confirmToken = '';
-    error = '';
     createdCollections = [];
     skippedCollections = [];
   }
 </script>
 
 <div class="mx-auto max-w-3xl space-y-6 p-6">
-  <!-- Header -->
-  <div class="flex items-center gap-3">
-    <Wand2 class="h-6 w-6 text-purple-500" />
-    <div>
-      <h1 class="text-xl font-semibold">AI Schema Generator</h1>
-      <p class="text-sm text-gray-500">Describe your app — AI will design the database schema</p>
-    </div>
-  </div>
+  <Breadcrumb crumbs={[
+    { label: 'AI Hub', href: `${base}/ai` },
+    { label: 'Schema Generator' },
+  ]} />
+  <PageHeader title="AI Schema Generator" subtitle="Describe your app — AI will design the database schema" />
 
   <!-- Step indicator -->
   <div class="flex items-center gap-2 text-sm">
@@ -103,12 +99,6 @@
     <span class="text-gray-300">→</span>
     <span class={step === 'done' ? 'font-semibold text-green-600' : 'text-gray-400'}>3. Done</span>
   </div>
-
-  {#if error}
-    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-      {error}
-    </div>
-  {/if}
 
   <!-- Step 1: Input -->
   {#if step === 'input'}
@@ -215,7 +205,7 @@
       <!-- Actions -->
       <div class="flex gap-3">
         <button
-          onclick={() => { step = 'input'; error = ''; }}
+          onclick={() => { step = 'input'; }}
           class="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
         >
           <ArrowLeft class="h-4 w-4" />

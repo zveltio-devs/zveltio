@@ -7,6 +7,7 @@
  import ViewWrapper from '$lib/components/views/ViewWrapper.svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
@@ -183,13 +184,7 @@
    { label: 'Collections', href: `${base}/collections` },
    { label: collection?.display_name || collectionName },
  ]} />
- <!-- Header -->
- <div class="flex items-center gap-3">
- <div>
- <h1 class="text-2xl font-bold">{collection?.display_name || collectionName}</h1>
- <p class="text-base-content/60 text-sm">{collectionName}</p>
- </div>
- </div>
+ <PageHeader title={collection?.display_name || collectionName} subtitle={collectionName} />
 
  <!-- Tabs -->
  <div class="border-b border-base-200 mb-4">

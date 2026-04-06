@@ -1,6 +1,9 @@
 <script lang="ts">
   import { ENGINE_URL } from '$lib/config.js';
   import { Settings, Save, RefreshCw, Shield, Mail } from '@lucide/svelte';
+  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+  import { base } from '$app/paths';
 
   let loading = $state(true);
   let saving = $state(false);
@@ -77,16 +80,16 @@
 </script>
 
 <div class="p-6 max-w-3xl mx-auto space-y-6">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-bold flex items-center gap-2"><Mail class="w-6 h-6 text-primary"/> Mail Settings</h1>
-      <p class="text-base-content/60 mt-1">Global configuration for the Zveltio Mail Client (admin only).</p>
-    </div>
+  <Breadcrumb crumbs={[
+    { label: 'Mail', href: `${base}/mail` },
+    { label: 'Settings' },
+  ]} />
+  <PageHeader title="Mail Settings" subtitle="Global configuration for the Zveltio Mail Client (admin only).">
     <button class="btn btn-primary gap-2" onclick={saveConfig} disabled={saving || loading}>
       {#if saving}<span class="loading loading-spinner loading-sm"></span>{:else}<Save class="w-4 h-4"/>{/if}
       Save Settings
     </button>
-  </div>
+  </PageHeader>
 
   {#if error}<div class="alert alert-error text-sm">{error}</div>{/if}
   {#if success}<div class="alert alert-success text-sm">Settings saved successfully.</div>{/if}

@@ -69,7 +69,7 @@
     return all.filter(item =>
       item.label.toLowerCase().includes(q) ||
       item.group.toLowerCase().includes(q) ||
-      (item.sub && item.sub.toLowerCase().includes(q))
+      ('sub' in item && item.sub && item.sub.toLowerCase().includes(q))
     ).slice(0, 12);
   });
 
@@ -117,11 +117,10 @@
 
 {#if open}
   <!-- Backdrop -->
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm" onclick={onclose}></div>
+  <div class="fixed inset-0 z-100 bg-black/50 backdrop-blur-sm" role="button" tabindex="0" onclick={onclose} onkeydown={(e) => e.key === 'Enter' || e.key === ' ' ? (onclose(), false) : null}></div>
 
   <!-- Palette -->
-  <div class="fixed left-1/2 top-[20%] z-[101] w-full max-w-xl -translate-x-1/2 rounded-2xl border border-base-300 bg-base-100 shadow-2xl overflow-hidden">
+  <div class="fixed left-1/2 top-[20%] z-101 w-full max-w-xl -translate-x-1/2 rounded-2xl border border-base-300 bg-base-100 shadow-2xl overflow-hidden">
     <!-- Search input -->
     <div class="flex items-center gap-3 border-b border-base-200 px-4 py-3">
       <Search size={18} class="shrink-0 text-base-content/40" />
@@ -150,11 +149,17 @@
           <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-base-content/30">{groupName}</p>
           {#each groupItems as item}
             {@const idx = items.indexOf(item)}
-            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <div
+              role="button"
+              tabindex="0"
               class="flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors {idx === selectedIdx ? 'bg-primary/10 text-primary' : 'hover:bg-base-200'}"
               onclick={() => navigate(item.href)}
-              onmouseenter={() => (selectedIdx = idx)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  navigate(item.href);
+                }
+              }}
             >
               <item.icon size={16} class="shrink-0 opacity-60" />
               <div class="flex-1 min-w-0">

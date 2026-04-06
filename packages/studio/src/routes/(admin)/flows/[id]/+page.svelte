@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
+  import { base } from '$app/paths';
   import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
   import {
     ArrowLeft, Save, Plus, Trash2, GripVertical, ChevronDown,
     LoaderCircle, Globe, Mail, Database, Brain, Webhook, GitBranch, Play,
@@ -38,11 +40,10 @@
     steps: Step[];
   }
 
-  let flowId = $derived(($page.params as Record<string, string>).id ?? '');
+  let flowId = $derived(page.params.id ?? '');
   let flow = $state<Flow | null>(null);
   let loading = $state(true);
   let saving = $state(false);
-  let error = $state('');
   let saveError = $state('');
 
   let selectedStep = $state<Step | null>(null);
@@ -54,13 +55,12 @@
 
   async function loadFlow() {
     loading = true;
-    error = '';
     try {
       const data = await api.get<{ flow: Flow }>(`/api/flows/${flowId}`);
       flow = data.flow;
       if (flow && !flow.steps) flow.steps = [];
     } catch (e: any) {
-      error = e.message;
+      toast.error(e.message ?? 'Failed to load flow');
     } finally {
       loading = false;
     }
@@ -144,7 +144,7 @@
 <div class="flex flex-col h-full min-h-screen">
   <!-- Toolbar -->
   <div class="flex items-center gap-3 px-4 py-3 bg-base-200 border-b border-base-300 shrink-0">
-    <button class="btn btn-ghost btn-sm gap-1" onclick={() => goto('/flows')}>
+    <button class="btn btn-ghost btn-sm gap-1" onclick={() => goto(`${base}/flows`)}>
       <ArrowLeft size={16} /> Flows
     </button>
     <div class="divider divider-horizontal m-0 h-6"></div>
@@ -170,10 +170,6 @@
   {#if loading}
     <div class="flex justify-center items-center flex-1 py-24">
       <LoaderCircle size={36} class="animate-spin text-primary" />
-    </div>
-  {:else if error}
-    <div class="p-6">
-      <div class="alert alert-error">{error}</div>
     </div>
   {:else if flow}
     <div class="flex flex-1 overflow-hidden">

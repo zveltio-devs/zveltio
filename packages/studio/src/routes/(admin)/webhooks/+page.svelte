@@ -5,6 +5,7 @@
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import Pagination from '$lib/components/common/Pagination.svelte';
  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let webhooks = $state<any[]>([]);
@@ -110,15 +111,11 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Webhooks</h1>
- <p class="text-base-content/60 text-sm mt-1">HTTP callbacks triggered by data events</p>
- </div>
- <button class="btn btn-primary btn-sm" onclick={openCreate}>
- <Plus size={16} /> New Webhook
- </button>
- </div>
+ <PageHeader title="Webhooks" subtitle="HTTP callbacks triggered by data events" count={total || undefined}>
+   <button class="btn btn-primary btn-sm" onclick={openCreate}>
+     <Plus size={16} /> New Webhook
+   </button>
+ </PageHeader>
 
  {#if loading}
  <LoadingSkeleton type="list" rows={5} />
