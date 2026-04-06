@@ -26,7 +26,6 @@
         <button class="btn {confirmClass} btn-sm" onclick={onconfirm}>{confirmLabel}</button>
       </div>
     </div>
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="modal-backdrop bg-black/40" onclick={oncancel}></div>
+    <div class="modal-backdrop bg-black/40" role="button" tabindex="0" onclick={oncancel} onkeydown={(e) => e.key === 'Enter' || e.key === ' ' ? (oncancel(), false) : null}></div>
   </div>
 {/if}

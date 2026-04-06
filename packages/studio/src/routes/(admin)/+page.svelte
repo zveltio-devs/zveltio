@@ -205,7 +205,7 @@
     <LoadingSkeleton type="card" rows={5} />
   {:else}
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <div class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer" role="button" tabindex="0" onclick={() => goto(`${base}/collections`)} onkeypress={() => {}}>
+      <div class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer" role="button" tabindex="0" onclick={() => goto(`${base}/collections`)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(`${base}/collections`); } }}>
         <div class="card-body p-4">
           <div class="flex items-center gap-3">
             <div class="p-2 bg-primary/10 rounded-lg shrink-0">
@@ -247,7 +247,7 @@
         </div>
       </div>
 
-      <div class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer" role="button" tabindex="0" onclick={() => goto(`${base}/webhooks`)} onkeypress={() => {}}>
+      <div class="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer" role="button" tabindex="0" onclick={() => goto(`${base}/webhooks`)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(`${base}/webhooks`); } }}>
         <div class="card-body p-4">
           <div class="flex items-center gap-3">
             <div class="p-2 bg-info/10 rounded-lg shrink-0">
@@ -268,11 +268,11 @@
     <div class="lg:col-span-7 space-y-4">
       <!-- Recent Activity -->
       <SectionCard title="Recent Activity">
-        <svelte:fragment slot="action">
+        {#snippet action()}
           <a href="{base}/audit" class="btn btn-ghost btn-xs gap-1">
             View all <ExternalLink size={10} />
           </a>
-        </svelte:fragment>
+        {/snippet}
         {#if activityLoading}
           <LoadingSkeleton type="list" rows={5} />
         {:else if activity.length === 0}
@@ -318,11 +318,11 @@
 
       <!-- Collections Overview -->
       <SectionCard title="Collections Overview">
-        <svelte:fragment slot="action">
+        {#snippet action()}
           <a href="{base}/collections" class="btn btn-ghost btn-xs gap-1">
             Manage <ExternalLink size={10} />
           </a>
-        </svelte:fragment>
+        {/snippet}
         {#if collectionsLoading}
           <LoadingSkeleton type="table" rows={4} cols={3} />
         {:else if collections.length === 0}

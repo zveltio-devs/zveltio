@@ -3,6 +3,7 @@
  import { api } from '$lib/api.js';
  import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  interface VirtualCollection {
  name: string;
@@ -124,7 +125,7 @@
  };
  await load();
  } catch (e: any) {
- error = e.message;
+ toast.error(e.message ?? 'Failed to create virtual collection');
  }
  }
 

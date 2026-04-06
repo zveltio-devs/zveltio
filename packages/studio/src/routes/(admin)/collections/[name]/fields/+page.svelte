@@ -6,6 +6,7 @@
  import { base } from '$app/paths';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  const collectionName = $derived(page.params.name ?? '');
@@ -36,15 +37,20 @@
  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
  onMount(async () => {
- const [colRes, typesRes, colsRes] = await Promise.all([
- collectionsApi.get(collectionName),
- collectionsApi.fieldTypes(),
- collectionsApi.list(),
- ]);
- collection = colRes.collection;
- fieldTypes = typesRes.field_types;
- allCollections = (colsRes.collections ?? []).filter((c: any) => c.name !== collectionName);
- loading = false;
+ try {
+   const [colRes, typesRes, colsRes] = await Promise.all([
+     collectionsApi.get(collectionName),
+     collectionsApi.fieldTypes(),
+     collectionsApi.list(),
+   ]);
+   collection = colRes.collection;
+   fieldTypes = typesRes.field_types;
+   allCollections = (colsRes.collections ?? []).filter((c: any) => c.name !== collectionName);
+ } catch (e: any) {
+   toast.error(e.message || 'Failed to load fields');
+ } finally {
+   loading = false;
+ }
  });
 
  function getFields(): any[] {
@@ -134,22 +140,11 @@
    { label: collection?.display_name || collectionName, href: `${base}/collections/${collectionName}` },
    { label: 'Fields' },
  ]} />
- <!-- Header -->
- <div class="flex items-center gap-3">
- <div>
- <h1 class="text-2xl font-bold">
- {collection?.display_name || collectionName}
- <span class="text-base-content/40 font-normal">/ Fields</span>
- </h1>
- <p class="text-base-content/60 text-sm">Manage the schema for this collection</p>
- </div>
- <div class="ml-auto">
- <button class="btn btn-primary btn-sm" onclick={() => (showAddForm = !showAddForm)}>
- <Plus size={16} />
- Add Field
- </button>
- </div>
- </div>
+ <PageHeader title="{collection?.display_name || collectionName} / Fields" subtitle="Manage the schema for this collection">
+   <button class="btn btn-primary btn-sm" onclick={() => (showAddForm = !showAddForm)}>
+     <Plus size={16} /> Add Field
+   </button>
+ </PageHeader>
 
  <!-- Add field form -->
  {#if showAddForm}

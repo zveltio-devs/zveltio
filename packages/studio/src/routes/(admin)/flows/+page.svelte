@@ -5,6 +5,7 @@
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import Pagination from '$lib/components/common/Pagination.svelte';
  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  interface Flow {
@@ -160,20 +161,14 @@
 </script>
 
 <div class="space-y-6">
- <div class="flex items-center justify-between">
- <div>
- <h1 class="text-2xl font-bold">Flows</h1>
- <p class="text-base-content/60 text-sm mt-1">Automate actions with trigger → step pipelines</p>
- </div>
- <div class="flex gap-2">
- <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading}>
- <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
- </button>
- <button class="btn btn-primary btn-sm" onclick={openModal}>
- <Plus size={16} /> New Flow
- </button>
- </div>
- </div>
+ <PageHeader title="Flows" subtitle="Automate actions with trigger → step pipelines" count={total || undefined}>
+   <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading}>
+     <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
+   </button>
+   <button class="btn btn-primary btn-sm" onclick={openModal}>
+     <Plus size={16} /> New Flow
+   </button>
+ </PageHeader>
 
  {#if loading}
  <LoadingSkeleton type="card" rows={6} />

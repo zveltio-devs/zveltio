@@ -1,10 +1,13 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+
   interface Props {
     title: string;
     subtitle?: string;
     count?: number | null;
+    children?: Snippet;
   }
-  let { title, subtitle, count } = $props<Props>();
+  let { title, subtitle, count, children }: Props = $props();
 </script>
 
 <div class="flex items-start justify-between gap-4 mb-6">
@@ -19,5 +22,5 @@
       <p class="text-sm text-base-content/50 mt-0.5">{subtitle}</p>
     {/if}
   </div>
-  <slot />
+  {#if children}{@render children()}{/if}
 </div>

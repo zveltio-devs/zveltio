@@ -2,6 +2,7 @@
  import { api } from '$lib/api.js';
  import { ScanSearch, RefreshCw, Download, CheckCircle, AlertCircle, Eye } from '@lucide/svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import { toast } from '$lib/stores/toast.svelte.js';
 
  type TablePreview = {
  tableName: string;
@@ -14,7 +15,6 @@
  let excludeInput = $state('');
  let previewing = $state(false);
  let importing = $state(false);
- let error = $state('');
  let previewTables = $state<TablePreview[]>([]);
  let importResult = $state<{ imported: number; updated: number; tables: TablePreview[] } | null>(null);
  let previewed = $state(false);
@@ -25,7 +25,6 @@
 
  async function preview() {
  previewing = true;
- error = '';
  importResult = null;
  try {
  const params = new URLSearchParams({ schema });
@@ -35,7 +34,7 @@
  previewTables = res.tables ?? [];
  previewed = true;
  } catch (e: any) {
- error = e.message || 'Preview failed';
+ toast.error(e.message || 'Preview failed');
  } finally {
  previewing = false;
  }
@@ -43,7 +42,6 @@
 
  async function importTables() {
  importing = true;
- error = '';
  try {
  const res = await api.post<{ imported: number; updated: number; tables: TablePreview[] }>('/api/introspect', {
  schema,
@@ -53,7 +51,7 @@
  previewTables = [];
  previewed = false;
  } catch (e: any) {
- error = e.message || 'Import failed';
+ toast.error(e.message || 'Import failed');
  } finally {
  importing = false;
  }
@@ -62,13 +60,6 @@
 
 <div class="space-y-6">
  <PageHeader title="BYOD Import" subtitle="Import tables from an external database" />
-
- {#if error}
- <div class="alert alert-error mb-4">
- <AlertCircle size={16} />
- <span>{error}</span>
- </div>
- {/if}
 
  <!-- Config -->
  <div class="card bg-base-200 mb-6">

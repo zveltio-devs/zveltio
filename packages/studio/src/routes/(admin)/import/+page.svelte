@@ -2,6 +2,7 @@
  import { onMount } from 'svelte';
  import { api, collectionsApi } from '$lib/api.js';
  import { Upload, CheckCircle, AlertCircle, RefreshCw, LoaderCircle } from '@lucide/svelte';
+ import PageHeader from '$lib/components/common/PageHeader.svelte';
 
  let collections = $state<any[]>([]);
  let selectedCollection = $state('');
@@ -70,10 +71,7 @@
 </script>
 
 <div class="space-y-6">
- <div>
- <h1 class="text-2xl font-bold">Import Data</h1>
- <p class="text-base-content/60 text-sm mt-1">Import CSV, Excel, or JSON into any collection</p>
- </div>
+ <PageHeader title="Import Data" subtitle="Import CSV, Excel, or JSON into any collection" />
 
  <div class="grid gap-6 lg:grid-cols-2">
  <!-- Import form -->
