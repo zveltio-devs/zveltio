@@ -143,23 +143,51 @@ wait_for_service() {
 # ── Detectare mediu ───────────────────────────────────────────
 section "🔍 Detecting Environment"
 
-if ! command_exists docker; then
-  error "Docker is required.\nInstall from: https://docs.docker.com/get-docker/"
-fi
-ok "Docker $(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)"
+HAS_DOCKER=false
+HAS_DOCKER_COMPOSE=false
+HAS_BUN=false
 
-if ! docker compose version &>/dev/null; then
-  error "Docker Compose v2 required.\nUpdate Docker Desktop or install the plugin."
+if command_exists docker; then
+  HAS_DOCKER=true
+  ok "Docker $(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)"
+  if docker compose version &>/dev/null 2>&1; then
+    HAS_DOCKER_COMPOSE=true
+    ok "Docker Compose $(docker compose version --short 2>/dev/null || echo 'v2')"
+  else
+    info "Docker Compose v2 not found (not required for native mode)"
+  fi
+else
+  info "Docker not found (not required for native mode)"
 fi
-ok "Docker Compose $(docker compose version --short)"
 
 if command_exists bun; then
+  HAS_BUN=true
   ok "Bun $(bun --version)"
 fi
 
+# Auto-detect: prefer native (lower RAM, better systemd integration)
+# Docker mode only if explicitly requested or Docker is present but Bun is not
 if [[ "$MODE" == "auto" ]]; then
-  MODE="docker"
-  info "→ Docker mode selected (full stack in containers)"
+  if [[ "$HAS_BUN" == "true" ]]; then
+    MODE="native"
+    info "→ Native mode selected (Bun detected)"
+  elif [[ "$HAS_DOCKER" == "true" && "$HAS_DOCKER_COMPOSE" == "true" ]]; then
+    MODE="docker"
+    info "→ Docker mode selected (Docker detected, no Bun)"
+  else
+    MODE="native"
+    info "→ Native mode selected (will install Bun)"
+  fi
+fi
+
+# Validate mode requirements
+if [[ "$MODE" == "docker" ]]; then
+  if [[ "$HAS_DOCKER" == "false" ]]; then
+    error "Docker mode requires Docker.\nInstall from: https://docs.docker.com/get-docker/\nOr use native mode: --mode native"
+  fi
+  if [[ "$HAS_DOCKER_COMPOSE" == "false" ]]; then
+    error "Docker mode requires Docker Compose v2.\nUpdate Docker Desktop or install the plugin.\nOr use native mode: --mode native"
+  fi
 fi
 
 echo ""
@@ -358,6 +386,21 @@ if [[ "$MODE" == "native" ]]; then
   else
     warn "Add to PATH: export PATH=\"$(pwd):\$PATH\""
   fi
+fi
+
+# ── Native mode without Docker → delegate to full native installer ────────────
+# install/install.sh handles PostgreSQL 18, Valkey, SeaweedFS, Bun, systemd
+# all without Docker. No point duplicating that logic here.
+if [[ "$MODE" == "native" && "$HAS_DOCKER" == "false" ]]; then
+  section "🚀 Installing Zveltio (native — no Docker)"
+  info "Downloading native installer..."
+  NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/install.sh"
+  curl -fsSL "$NATIVE_INSTALLER_URL" -o /tmp/zveltio-native-install.sh
+  chmod +x /tmp/zveltio-native-install.sh
+  INSTALL_MODE=native ZVELTIO_PORT="${PORT:-3000}" ZVELTIO_VERSION="$VERSION" \
+    bash /tmp/zveltio-native-install.sh
+  rm -f /tmp/zveltio-native-install.sh
+  exit 0
 fi
 
 # ── Infrastructură + Engine ───────────────────────────────────
