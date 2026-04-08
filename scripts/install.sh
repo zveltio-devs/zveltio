@@ -355,21 +355,16 @@ if [[ "$MODE" == "native" ]]; then
   PLATFORM=$(get_platform)
   BINARY_NAME="zveltio-${PLATFORM}"
 
-  echo -n "  Downloading binary for ${PLATFORM}..."
+  # Check AVX2 support via cpuinfo — more reliable than testing the binary
+  if [[ "$PLATFORM" == "linux-x64" ]] && ! grep -q 'avx2' /proc/cpuinfo 2>/dev/null; then
+    warn "CPU does not support AVX2 — using baseline binary"
+    BINARY_NAME="zveltio-linux-x64-baseline"
+  fi
+
+  echo -n "  Downloading binary (${BINARY_NAME})..."
   curl -fsSL "${RELEASE_URL}/${BINARY_NAME}" -o zveltio-engine 2>/dev/null
   chmod +x zveltio-engine
   echo -e " ${GREEN}✓${NC}"
-
-  # For Linux x64: test if CPU supports modern binary, fall back to baseline if not
-  if [[ "$PLATFORM" == "linux-x64" ]]; then
-    if ! ./zveltio-engine --version &>/dev/null 2>&1; then
-      warn "CPU requires baseline binary (no AVX2), downloading..."
-      curl -fsSL "${RELEASE_URL}/zveltio-linux-x64-baseline" -o zveltio-engine 2>/dev/null
-      chmod +x zveltio-engine
-      BINARY_NAME="zveltio-linux-x64-baseline"
-      ok "Baseline binary ready"
-    fi
-  fi
 
   CHECKSUMS_URL="${RELEASE_URL}/checksums.sha256"
   if curl -fsSL "$CHECKSUMS_URL" -o checksums.sha256 2>/dev/null; then
