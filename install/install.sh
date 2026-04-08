@@ -484,30 +484,24 @@ UNIT
   local ARCH_SLUG
   ARCH_SLUG=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')
 
+  # Check AVX2 support via cpuinfo — more reliable than testing the binary,
+  # which can fail for unrelated reasons (permissions, missing libs, etc.)
+  local USE_BASELINE=false
+  if [[ "$ARCH_SLUG" == "x64" ]] && ! grep -q 'avx2' /proc/cpuinfo 2>/dev/null; then
+    USE_BASELINE=true
+    warn "CPU does not support AVX2 — will use baseline binary"
+  fi
+
   if [[ -n "$RESOLVED_VERSION" && "$RESOLVED_VERSION" != "main" ]]; then
-    local BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/zveltio-linux-${ARCH_SLUG}"
+    local BINARY_NAME="zveltio-linux-${ARCH_SLUG}"
+    [[ "$USE_BASELINE" == "true" ]] && BINARY_NAME="zveltio-linux-${ARCH_SLUG}-baseline"
+
+    local BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/${BINARY_NAME}"
     if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
       wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio"
       chmod +x "${ZVELTIO_DIR}/zveltio"
-
-      # Test if binary runs — CPUs without AVX2 will fail on the modern build
-      if ! "${ZVELTIO_DIR}/zveltio" --version &>/dev/null 2>&1; then
-        warn "CPU lacks AVX2 — downloading baseline binary"
-        local BASELINE_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/zveltio-linux-${ARCH_SLUG}-baseline"
-        if curl -fsSL --head "$BASELINE_URL" &>/dev/null; then
-          wget -q "$BASELINE_URL" -O "${ZVELTIO_DIR}/zveltio"
-          chmod +x "${ZVELTIO_DIR}/zveltio"
-          success "Baseline binary ready"
-        else
-          warn "No baseline binary found — will build from source"
-        fi
-      fi
-
-      # Verify after potential baseline swap
-      if "${ZVELTIO_DIR}/zveltio" --version &>/dev/null 2>&1; then
-        BINARY_INSTALLED=true
-        info "Binary ready (${RESOLVED_VERSION})"
-      fi
+      BINARY_INSTALLED=true
+      info "Downloaded binary ${RESOLVED_VERSION} (${BINARY_NAME})"
     fi
   fi
 
