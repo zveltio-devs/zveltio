@@ -25,7 +25,7 @@ cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg18
     container_name: zveltio-postgres
     restart: unless-stopped
     environment:
@@ -136,7 +136,7 @@ services:
       - "\${PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@pgdog:6432/\${POSTGRES_DB:-zveltio}
-      REDIS_URL: redis://valkey:6379
+      VALKEY_URL: redis://valkey:6379
       S3_ENDPOINT: http://seaweedfs-filer:8333
       S3_ACCESS_KEY: \${S3_ACCESS_KEY:-zveltio}
       S3_SECRET_KEY: \${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
@@ -193,7 +193,7 @@ cat > "${OUTPUT_DIR}/docker-compose.infra.yml" << EOF
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg18
     container_name: zveltio-postgres
     restart: unless-stopped
     environment:
@@ -266,7 +266,7 @@ cat > "${OUTPUT_DIR}/docker-compose.engine.yml" << EOF
 # Use this when you have your own PostgreSQL, Redis, and S3
 # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 #
-# Prerequisites: set DATABASE_URL, REDIS_URL, S3_ENDPOINT in .env
+# Prerequisites: set DATABASE_URL, VALKEY_URL, S3_ENDPOINT in .env
 
 
 services:
@@ -278,7 +278,7 @@ services:
       - "\${PORT:-3000}:3000"
     environment:
       DATABASE_URL: \${DATABASE_URL:?Set DATABASE_URL in .env}
-      REDIS_URL: \${REDIS_URL:?Set REDIS_URL in .env}
+      VALKEY_URL: \${VALKEY_URL:?Set VALKEY_URL in .env}
       S3_ENDPOINT: \${S3_ENDPOINT:?Set S3_ENDPOINT in .env}
       S3_ACCESS_KEY: \${S3_ACCESS_KEY}
       S3_SECRET_KEY: \${S3_SECRET_KEY}

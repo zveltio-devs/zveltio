@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Zveltio — One-command VPS / Bare-metal Installer
+# Zveltio — One-command Installer
 # =============================================================================
-# Installs Zveltio directly on a Linux server (Ubuntu 22+, Debian 11/12).
-# Installs: Bun, PostgreSQL 16, Valkey, SeaweedFS, Zveltio engine.
-# All services managed via systemd with auto-start on boot.
+# Auto-detects the best installation mode:
+#   1. Docker   — preferred when Docker is available (WSL, VPS, any Linux)
+#   2. Native   — direct install via Bun + systemd (bare-metal VPS/LXC)
 #
 # Usage:
 #   curl -fsSL https://get.zveltio.com | bash
 #
-# Or with options:
+# Force a specific mode:
+#   INSTALL_MODE=docker  bash install/install.sh
+#   INSTALL_MODE=native  bash install/install.sh
+#
+# Override defaults:
 #   ZVELTIO_PORT=4000 ZVELTIO_VERSION=v2.0.0 bash install/install.sh
 #
 # Supported OS: Ubuntu 22.04+, Debian 11/12
-# Minimum specs: 1 vCPU, 1GB RAM, 10GB disk
 # =============================================================================
 
 set -euo pipefail
@@ -29,13 +32,14 @@ error()   { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
 header()  { echo -e "\n${BOLD}${BLUE}==> $*${RESET}"; }
 
 # ── Config (override via env) ─────────────────────────────────────────────────
-ZVELTIO_PORT="${ZVELTIO_PORT:-4000}"
+ZVELTIO_PORT="${ZVELTIO_PORT:-3000}"
 ZVELTIO_VERSION="${ZVELTIO_VERSION:-latest}"
 ZVELTIO_DIR="${ZVELTIO_DIR:-/opt/zveltio}"
 ZVELTIO_USER="${ZVELTIO_USER:-zveltio}"
+INSTALL_MODE="${INSTALL_MODE:-auto}"   # auto | docker | native
 
 # ── Guards ────────────────────────────────────────────────────────────────────
-header "Zveltio — Server Installer"
+header "Zveltio — Installer"
 
 if [[ $EUID -ne 0 ]]; then
   error "Run as root: sudo bash install/install.sh"
@@ -45,7 +49,7 @@ fi
 # Detect OS
 if [[ -f /etc/os-release ]]; then
   . /etc/os-release
-  OS_ID="$ID"
+  OS_ID="${ID:-}"
   OS_VERSION="${VERSION_ID:-}"
 else
   error "Cannot detect OS. Supported: Ubuntu 22+, Debian 11/12."
@@ -62,11 +66,24 @@ esac
 
 info "Detected OS: ${OS_ID} ${OS_VERSION}"
 
-# Check if already installed
-if systemctl is-active --quiet zveltio 2>/dev/null; then
-  warn "Zveltio is already running. Use 'bash ${ZVELTIO_DIR}/update.sh' to update."
-  exit 0
+# ── Auto-detect mode ──────────────────────────────────────────────────────────
+if [[ "$INSTALL_MODE" == "auto" ]]; then
+  if command -v bun &>/dev/null; then
+    # Bun already present — use native (lower overhead, better for production)
+    INSTALL_MODE="native"
+    info "Bun detected — using native mode"
+  elif command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
+    # Docker present but no Bun — respect the user's existing setup
+    INSTALL_MODE="docker"
+    info "Docker detected (no Bun) — using Docker mode"
+  else
+    # Fresh server: install Bun and go native (less RAM, better systemd integration)
+    INSTALL_MODE="native"
+    info "No runtime detected — will install Bun (native mode)"
+  fi
 fi
+
+info "Install mode: ${BOLD}${INSTALL_MODE}${RESET}"
 
 # ── Generate secrets ──────────────────────────────────────────────────────────
 gen_secret() { openssl rand -hex 32; }
@@ -79,54 +96,224 @@ AI_KEY_ENCRYPTION_KEY=$(gen_secret)
 S3_ACCESS_KEY=$(gen_secret | cut -c1-20)
 S3_SECRET_KEY=$(gen_secret)
 
-# ── System dependencies ───────────────────────────────────────────────────────
+# ── System dependencies (common) ──────────────────────────────────────────────
 header "Installing system dependencies"
-
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq \
-  curl wget gnupg2 lsb-release ca-certificates \
-  apt-transport-https software-properties-common \
-  unzip git openssl build-essential
+apt-get install -y -qq curl wget gnupg2 lsb-release ca-certificates \
+  apt-transport-https software-properties-common unzip git openssl
+success "System dependencies ready"
 
-success "System dependencies installed"
-
-# ── PostgreSQL 16 + pgvector ──────────────────────────────────────────────────
-header "Installing PostgreSQL 16 + pgvector"
-
-if ! command -v psql &>/dev/null; then
-  install -d /usr/share/postgresql-common/pgdg
-  curl -fsSL 'https://www.postgresql.org/media/keys/ACCC4CF8.asc' \
-    | gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
-  echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] \
-    https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-    > /etc/apt/sources.list.d/pgdg.list
-  apt-get update -qq
-  apt-get install -y -qq postgresql-16 postgresql-16-pgvector
-  systemctl enable postgresql
-  systemctl start postgresql
-  success "PostgreSQL installed"
-else
-  info "PostgreSQL already installed"
-fi
-
-# Create database and user
-su -c "psql -c \"CREATE USER ${ZVELTIO_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';\"" postgres 2>/dev/null || \
-  su -c "psql -c \"ALTER USER ${ZVELTIO_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';\"" postgres
-su -c "psql -c \"CREATE DATABASE ${ZVELTIO_USER} OWNER ${ZVELTIO_USER};\"" postgres 2>/dev/null || true
-su -c "psql -d ${ZVELTIO_USER} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" postgres
-su -c "psql -d ${ZVELTIO_USER} -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" postgres
-
-# Performance tuning
+# ── RAM detection (used by both modes for tuning) ─────────────────────────────
 TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-SHARED_BUFFERS=$(( TOTAL_RAM_MB / 4 ))MB
-EFFECTIVE_CACHE=$(( TOTAL_RAM_MB * 3 / 4 ))MB
+# PostgreSQL: 12.5% RAM for shared_buffers, 37.5% for effective_cache
+PG_SHARED_BUFFERS=$(( TOTAL_RAM_MB / 8 ))
+PG_EFFECTIVE_CACHE=$(( TOTAL_RAM_MB * 3 / 8 ))
+# Cap at sane maximums
+(( PG_SHARED_BUFFERS > 2048 )) && PG_SHARED_BUFFERS=2048
+(( PG_EFFECTIVE_CACHE > 6144 )) && PG_EFFECTIVE_CACHE=6144
 
-cat > /etc/postgresql/16/main/conf.d/zveltio.conf << EOF
-shared_buffers = ${SHARED_BUFFERS}
-effective_cache_size = ${EFFECTIVE_CACHE}
+info "RAM: ${TOTAL_RAM_MB}MB → PostgreSQL shared_buffers=${PG_SHARED_BUFFERS}MB, effective_cache=${PG_EFFECTIVE_CACHE}MB"
+
+# =============================================================================
+# DOCKER MODE
+# =============================================================================
+install_docker_mode() {
+  # ── Install Docker if missing ─────────────────────────────────────────────
+  if ! command -v docker &>/dev/null; then
+    header "Installing Docker"
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker
+    systemctl start docker
+    success "Docker installed: $(docker --version)"
+  else
+    info "Docker already installed: $(docker --version)"
+  fi
+
+  # Verify docker compose plugin
+  if ! docker compose version &>/dev/null 2>&1; then
+    error "Docker Compose plugin not found. Install it: https://docs.docker.com/compose/install/"
+    exit 1
+  fi
+
+  # ── Prepare install directory ─────────────────────────────────────────────
+  header "Preparing ${ZVELTIO_DIR}"
+  mkdir -p "${ZVELTIO_DIR}"
+
+  # ── Download docker-compose.yml ───────────────────────────────────────────
+  local COMPOSE_URL
+  if [[ "$ZVELTIO_VERSION" == "latest" || "$ZVELTIO_VERSION" == "main" ]]; then
+    COMPOSE_URL="https://raw.githubusercontent.com/zveltio/zveltio/main/docker-compose.yml"
+  else
+    COMPOSE_URL="https://raw.githubusercontent.com/zveltio/zveltio/${ZVELTIO_VERSION}/docker-compose.yml"
+  fi
+
+  info "Downloading docker-compose.yml from ${COMPOSE_URL}"
+  if ! curl -fsSL "$COMPOSE_URL" -o "${ZVELTIO_DIR}/docker-compose.yml"; then
+    error "Failed to download docker-compose.yml. Check your internet connection."
+    exit 1
+  fi
+  success "docker-compose.yml downloaded"
+
+  # ── Write .env ────────────────────────────────────────────────────────────
+  header "Writing configuration"
+
+  cat > "${ZVELTIO_DIR}/.env" << EOF
+PORT=${ZVELTIO_PORT}
+NODE_ENV=production
+
+# PostgreSQL
+POSTGRES_USER=${ZVELTIO_USER}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=${ZVELTIO_USER}
+
+# PostgreSQL tuning (auto-calculated from available RAM: ${TOTAL_RAM_MB}MB)
+POSTGRES_SHARED_BUFFERS=${PG_SHARED_BUFFERS}MB
+POSTGRES_EFFECTIVE_CACHE=${PG_EFFECTIVE_CACHE}MB
+
+# Auth
+BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+BETTER_AUTH_URL=http://localhost:${ZVELTIO_PORT}
+
+# Cache
+VALKEY_PASSWORD=${VALKEY_PASSWORD}
+
+# Storage (SeaweedFS)
+S3_ACCESS_KEY=${S3_ACCESS_KEY}
+S3_SECRET_KEY=${S3_SECRET_KEY}
+S3_PUBLIC_URL=http://localhost:8333
+
+# Encryption keys
+MAIL_ENCRYPTION_KEY=${MAIL_ENCRYPTION_KEY}
+AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
+
+# Grafana
+GRAFANA_ADMIN_PASSWORD=$(gen_secret | cut -c1-24)
+
+# Extensions (comma-separated)
+ZVELTIO_EXTENSIONS=
+EOF
+
+  chmod 600 "${ZVELTIO_DIR}/.env"
+  success "Configuration written to ${ZVELTIO_DIR}/.env"
+
+  # ── Copy helper scripts ───────────────────────────────────────────────────
+  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio/zveltio/main/install"
+  for script in update.sh uninstall.sh; do
+    curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
+      cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
+    chmod +x "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
+  done
+
+  # ── Start services ────────────────────────────────────────────────────────
+  header "Starting Zveltio (Docker)"
+  cd "${ZVELTIO_DIR}"
+  docker compose up -d
+  success "Containers started"
+
+  # ── Wait for engine to be healthy ─────────────────────────────────────────
+  header "Waiting for engine to be ready"
+  local ATTEMPTS=0
+  local MAX_ATTEMPTS=60
+  until curl -sf "http://localhost:${ZVELTIO_PORT}/health" >/dev/null 2>&1; do
+    ATTEMPTS=$(( ATTEMPTS + 1 ))
+    if (( ATTEMPTS >= MAX_ATTEMPTS )); then
+      error "Engine did not start within ${MAX_ATTEMPTS}s."
+      error "Check logs: docker compose -f ${ZVELTIO_DIR}/docker-compose.yml logs engine"
+      exit 1
+    fi
+    printf '.'
+    sleep 2
+  done
+  echo ""
+  success "Engine is healthy"
+
+  # ── Run migrations ────────────────────────────────────────────────────────
+  header "Running database migrations"
+  docker compose exec -T engine zveltio migrate
+  success "Migrations complete"
+
+  # ── Create God user ───────────────────────────────────────────────────────
+  header "Creating admin account"
+  docker compose exec -it engine zveltio create-god
+
+  # ── Firewall ──────────────────────────────────────────────────────────────
+  if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+    ufw allow "${ZVELTIO_PORT}/tcp" comment "Zveltio" &>/dev/null || true
+    success "Firewall rule added for port ${ZVELTIO_PORT}"
+  fi
+
+  # ── Summary ───────────────────────────────────────────────────────────────
+  local SERVER_IP
+  SERVER_IP=$(hostname -I | awk '{print $1}')
+
+  header "Installation complete! (Docker mode)"
+  echo ""
+  echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
+  echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
+  echo ""
+  echo -e "${BOLD}${YELLOW}Save these credentials — they will not be shown again:${RESET}"
+  echo ""
+  echo -e "  PostgreSQL password:    ${POSTGRES_PASSWORD}"
+  echo -e "  Valkey password:        ${VALKEY_PASSWORD}"
+  echo -e "  Better Auth secret:     ${BETTER_AUTH_SECRET}"
+  echo -e "  S3 access key:          ${S3_ACCESS_KEY}"
+  echo -e "  S3 secret key:          ${S3_SECRET_KEY}"
+  echo -e "  Mail encryption key:    ${MAIL_ENCRYPTION_KEY}"
+  echo -e "  AI key encryption key:  ${AI_KEY_ENCRYPTION_KEY}"
+  echo ""
+  echo -e "  Config file:            ${ZVELTIO_DIR}/.env"
+  echo ""
+  echo -e "${BOLD}Useful commands:${RESET}"
+  echo -e "  View logs:    docker compose -f ${ZVELTIO_DIR}/docker-compose.yml logs -f engine"
+  echo -e "  Restart:      docker compose -f ${ZVELTIO_DIR}/docker-compose.yml restart engine"
+  echo -e "  Update:       bash ${ZVELTIO_DIR}/update.sh"
+  echo -e "  Status:       docker compose -f ${ZVELTIO_DIR}/docker-compose.yml ps"
+  echo ""
+}
+
+# =============================================================================
+# NATIVE MODE (Bun + systemd)
+# =============================================================================
+install_native_mode() {
+  # Check if already installed
+  if systemctl is-active --quiet zveltio 2>/dev/null; then
+    warn "Zveltio is already running. Use 'bash ${ZVELTIO_DIR}/update.sh' to update."
+    exit 0
+  fi
+
+  apt-get install -y -qq build-essential
+
+  # ── PostgreSQL 16 + pgvector ────────────────────────────────────────────────
+  header "Installing PostgreSQL 16 + pgvector"
+
+  if ! command -v psql &>/dev/null; then
+    install -d /usr/share/postgresql-common/pgdg
+    curl -fsSL 'https://www.postgresql.org/media/keys/ACCC4CF8.asc' \
+      | gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] \
+      https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list
+    apt-get update -qq
+    apt-get install -y -qq postgresql-18 postgresql-18-pgvector
+    systemctl enable postgresql
+    systemctl start postgresql
+    success "PostgreSQL 18 installed"
+  else
+    info "PostgreSQL already installed: $(psql --version)"
+  fi
+
+  su -c "psql -c \"CREATE USER ${ZVELTIO_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';\"" postgres 2>/dev/null || \
+    su -c "psql -c \"ALTER USER ${ZVELTIO_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';\"" postgres
+  su -c "psql -c \"CREATE DATABASE ${ZVELTIO_USER} OWNER ${ZVELTIO_USER};\"" postgres 2>/dev/null || true
+  su -c "psql -d ${ZVELTIO_USER} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" postgres
+  su -c "psql -d ${ZVELTIO_USER} -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" postgres
+
+  cat > /etc/postgresql/18/main/conf.d/zveltio.conf << EOF
+shared_buffers = ${PG_SHARED_BUFFERS}MB
+effective_cache_size = ${PG_EFFECTIVE_CACHE}MB
 maintenance_work_mem = 64MB
-work_mem = 8MB
+work_mem = 4MB
 max_connections = 200
 wal_level = logical
 max_replication_slots = 4
@@ -135,52 +322,51 @@ checkpoint_completion_target = 0.9
 random_page_cost = 1.1
 EOF
 
-systemctl restart postgresql
-success "PostgreSQL configured"
+  systemctl restart postgresql
+  success "PostgreSQL configured (shared_buffers=${PG_SHARED_BUFFERS}MB)"
 
-# ── Valkey ────────────────────────────────────────────────────────────────────
-header "Installing Valkey"
+  # ── Valkey ──────────────────────────────────────────────────────────────────
+  header "Installing Valkey"
 
-if ! command -v valkey-server &>/dev/null; then
-  VALKEY_VER="8.0.1"
-  ARCH=$(dpkg --print-architecture)
-  case "$ARCH" in
-    amd64)  VALKEY_ARCH="linux_amd64" ;;
-    arm64)  VALKEY_ARCH="linux_arm64" ;;
-    *)
-      warn "Valkey binary not available for ${ARCH}, building from source..."
-      apt-get install -y -qq build-essential
-      wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/${VALKEY_VER}.tar.gz" -O /tmp/valkey-src.tar.gz
-      tar -xzf /tmp/valkey-src.tar.gz -C /tmp
-      make -C "/tmp/valkey-${VALKEY_VER}" -j"$(nproc)" install
-      rm -rf /tmp/valkey-src.tar.gz "/tmp/valkey-${VALKEY_VER}"
-      VALKEY_ARCH=""
-      ;;
-  esac
+  if ! command -v valkey-server &>/dev/null; then
+    local VALKEY_VER="8.0.1"
+    local ARCH
+    ARCH=$(dpkg --print-architecture)
+    local VALKEY_ARCH=""
+    case "$ARCH" in
+      amd64)  VALKEY_ARCH="linux_amd64" ;;
+      arm64)  VALKEY_ARCH="linux_arm64" ;;
+      *)
+        warn "Valkey binary not available for ${ARCH}, building from source..."
+        apt-get install -y -qq build-essential
+        wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/${VALKEY_VER}.tar.gz" -O /tmp/valkey-src.tar.gz
+        tar -xzf /tmp/valkey-src.tar.gz -C /tmp
+        make -C "/tmp/valkey-${VALKEY_VER}" -j"$(nproc)" install
+        rm -rf /tmp/valkey-src.tar.gz "/tmp/valkey-${VALKEY_VER}"
+        ;;
+    esac
 
-  if [[ -n "$VALKEY_ARCH" ]]; then
-    wget -q "https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm.tar.gz" \
-      -O /tmp/valkey.tar.gz
-    tar -xzf /tmp/valkey.tar.gz -C /tmp
-    mv "/tmp/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm/bin/valkey-server" /usr/local/bin/
-    mv "/tmp/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm/bin/valkey-cli" /usr/local/bin/
-    rm -rf /tmp/valkey*
+    if [[ -n "$VALKEY_ARCH" ]]; then
+      wget -q "https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm.tar.gz" \
+        -O /tmp/valkey.tar.gz
+      tar -xzf /tmp/valkey.tar.gz -C /tmp
+      mv "/tmp/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm/bin/valkey-server" /usr/local/bin/
+      mv "/tmp/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm/bin/valkey-cli" /usr/local/bin/
+      rm -rf /tmp/valkey*
+    fi
+    success "Valkey installed"
+  else
+    info "Valkey already installed"
   fi
 
-  success "Valkey installed"
-else
-  info "Valkey already installed"
-fi
+  local VALKEY_MAX_MEM=$(( TOTAL_RAM_MB / 4 ))
+  (( VALKEY_MAX_MEM > 1024 )) && VALKEY_MAX_MEM=1024
 
-id -u valkey &>/dev/null || useradd -r -s /bin/false valkey
-mkdir -p /var/lib/valkey /var/log/valkey /etc/valkey
-chown valkey:valkey /var/lib/valkey /var/log/valkey
+  id -u valkey &>/dev/null || useradd -r -s /bin/false valkey
+  mkdir -p /var/lib/valkey /var/log/valkey /etc/valkey
+  chown valkey:valkey /var/lib/valkey /var/log/valkey
 
-# Calculate Valkey max memory (25% of RAM, max 1GB)
-VALKEY_MAX_MEM=$(( TOTAL_RAM_MB / 4 ))
-if (( VALKEY_MAX_MEM > 1024 )); then VALKEY_MAX_MEM=1024; fi
-
-cat > /etc/valkey/valkey.conf << EOF
+  cat > /etc/valkey/valkey.conf << EOF
 bind 127.0.0.1
 port 6379
 requirepass ${VALKEY_PASSWORD}
@@ -192,7 +378,7 @@ maxmemory ${VALKEY_MAX_MEM}mb
 maxmemory-policy allkeys-lru
 EOF
 
-cat > /etc/systemd/system/valkey.service << 'UNIT'
+  cat > /etc/systemd/system/valkey.service << 'UNIT'
 [Unit]
 Description=Valkey In-Memory Data Store
 After=network.target
@@ -209,41 +395,43 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 UNIT
 
-systemctl daemon-reload
-systemctl enable valkey
-systemctl start valkey
-success "Valkey running"
+  systemctl daemon-reload
+  systemctl enable valkey
+  systemctl start valkey
+  success "Valkey running (maxmemory=${VALKEY_MAX_MEM}MB)"
 
-# ── SeaweedFS ─────────────────────────────────────────────────────────────────
-header "Installing SeaweedFS"
+  # ── SeaweedFS ────────────────────────────────────────────────────────────────
+  header "Installing SeaweedFS"
 
-if ! command -v weed &>/dev/null; then
-  SWFS_VER="3.68"
-  SWFS_ARCH=$(uname -m)
-  case "$SWFS_ARCH" in
-    x86_64)  SWFS_FILE="linux_amd64.tar.gz" ;;
-    aarch64) SWFS_FILE="linux_arm64.tar.gz" ;;
-    *)
-      error "Unsupported architecture for SeaweedFS: ${SWFS_ARCH}"
-      exit 1
-      ;;
-  esac
+  if ! command -v weed &>/dev/null; then
+    local SWFS_VER="3.68"
+    local SWFS_ARCH
+    SWFS_ARCH=$(uname -m)
+    local SWFS_FILE
+    case "$SWFS_ARCH" in
+      x86_64)  SWFS_FILE="linux_amd64.tar.gz" ;;
+      aarch64) SWFS_FILE="linux_arm64.tar.gz" ;;
+      *)
+        error "Unsupported architecture for SeaweedFS: ${SWFS_ARCH}"
+        exit 1
+        ;;
+    esac
 
-  wget -q "https://github.com/seaweedfs/seaweedfs/releases/download/${SWFS_VER}/${SWFS_FILE}" \
-    -O /tmp/seaweedfs.tar.gz
-  tar -xzf /tmp/seaweedfs.tar.gz -C /usr/local/bin weed
-  chmod +x /usr/local/bin/weed
-  rm /tmp/seaweedfs.tar.gz
-  success "SeaweedFS installed"
-else
-  info "SeaweedFS already installed"
-fi
+    wget -q "https://github.com/seaweedfs/seaweedfs/releases/download/${SWFS_VER}/${SWFS_FILE}" \
+      -O /tmp/seaweedfs.tar.gz
+    tar -xzf /tmp/seaweedfs.tar.gz -C /usr/local/bin weed
+    chmod +x /usr/local/bin/weed
+    rm /tmp/seaweedfs.tar.gz
+    success "SeaweedFS installed"
+  else
+    info "SeaweedFS already installed"
+  fi
 
-id -u seaweedfs &>/dev/null || useradd -r -s /bin/false seaweedfs
-mkdir -p /var/lib/seaweedfs/{master,volume,filer}
-chown -R seaweedfs:seaweedfs /var/lib/seaweedfs
+  id -u seaweedfs &>/dev/null || useradd -r -s /bin/false seaweedfs
+  mkdir -p /var/lib/seaweedfs/{master,volume,filer}
+  chown -R seaweedfs:seaweedfs /var/lib/seaweedfs
 
-cat > /etc/systemd/system/seaweedfs.service << 'UNIT'
+  cat > /etc/systemd/system/seaweedfs.service << 'UNIT'
 [Unit]
 Description=SeaweedFS Object Storage
 After=network.target
@@ -264,69 +452,66 @@ RestartSec=5
 WantedBy=multi-user.target
 UNIT
 
-systemctl daemon-reload
-systemctl enable seaweedfs
-systemctl start seaweedfs
-success "SeaweedFS running"
+  systemctl daemon-reload
+  systemctl enable seaweedfs
+  systemctl start seaweedfs
+  success "SeaweedFS running"
 
-# ── Bun ───────────────────────────────────────────────────────────────────────
-header "Installing Bun"
+  # ── Bun ──────────────────────────────────────────────────────────────────────
+  header "Installing Bun"
 
-if ! command -v bun &>/dev/null; then
-  curl -fsSL https://bun.sh/install | bash
-  export PATH="$HOME/.bun/bin:$PATH"
-  ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
-  success "Bun installed: $(bun --version)"
-else
-  info "Bun already installed: $(bun --version)"
-fi
-
-# ── Zveltio ───────────────────────────────────────────────────────────────────
-header "Installing Zveltio ${ZVELTIO_VERSION}"
-
-mkdir -p "${ZVELTIO_DIR}/engine"
-
-if [[ "$ZVELTIO_VERSION" == "latest" ]]; then
-  ZVELTIO_VERSION=$(curl -fsSL https://api.github.com/repos/zveltio/zveltio/releases/latest \
-    | grep '"tag_name"' | cut -d'"' -f4 || echo "main")
-fi
-
-if [[ "$ZVELTIO_VERSION" == "main" ]] || [[ -z "$ZVELTIO_VERSION" ]]; then
-  warn "No release found — installing from source (main branch)"
-  git clone --depth=1 https://github.com/zveltio/zveltio.git /tmp/zveltio-src
-  cd /tmp/zveltio-src
-  BUN_MEMORY_LIMIT=2048 bun install --frozen-lockfile
-  cd packages/engine && BUN_MEMORY_LIMIT=2048 bun run build:prod
-  cp -r dist/. "${ZVELTIO_DIR}/engine/"
-  cp -r ../../extensions "${ZVELTIO_DIR}/" 2>/dev/null || true
-  rm -rf /tmp/zveltio-src
-  cd "${ZVELTIO_DIR}"
-else
-  # Try pre-built binary first
-  BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${ZVELTIO_VERSION}/zveltio-linux-$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
-  if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
-    wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio"
-    chmod +x "${ZVELTIO_DIR}/zveltio"
-    info "Downloaded pre-built binary"
+  if ! command -v bun &>/dev/null; then
+    curl -fsSL https://bun.sh/install | bash
+    export PATH="$HOME/.bun/bin:$PATH"
+    ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
+    success "Bun installed: $(bun --version)"
   else
-    # Fall back to source install
-    warn "No binary for this architecture — building from source"
-    git clone --depth=1 --branch "$ZVELTIO_VERSION" \
+    info "Bun already installed: $(bun --version)"
+  fi
+
+  # ── Zveltio binary ───────────────────────────────────────────────────────────
+  header "Installing Zveltio ${ZVELTIO_VERSION}"
+
+  mkdir -p "${ZVELTIO_DIR}"
+
+  local RESOLVED_VERSION="$ZVELTIO_VERSION"
+  if [[ "$RESOLVED_VERSION" == "latest" ]]; then
+    RESOLVED_VERSION=$(curl -fsSL https://api.github.com/repos/zveltio/zveltio/releases/latest \
+      | grep '"tag_name"' | cut -d'"' -f4 || echo "")
+  fi
+
+  local BINARY_INSTALLED=false
+
+  if [[ -n "$RESOLVED_VERSION" && "$RESOLVED_VERSION" != "main" ]]; then
+    local BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/zveltio-linux-$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
+    if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
+      wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio"
+      chmod +x "${ZVELTIO_DIR}/zveltio"
+      BINARY_INSTALLED=true
+      info "Downloaded pre-built binary ${RESOLVED_VERSION}"
+    fi
+  fi
+
+  if [[ "$BINARY_INSTALLED" == "false" ]]; then
+    warn "No pre-built binary available — building from source (this takes a few minutes)"
+    local CLONE_BRANCH="${RESOLVED_VERSION:-main}"
+    [[ -z "$CLONE_BRANCH" ]] && CLONE_BRANCH="main"
+    git clone --depth=1 --branch "$CLONE_BRANCH" \
       https://github.com/zveltio/zveltio.git /tmp/zveltio-src
     cd /tmp/zveltio-src
     BUN_MEMORY_LIMIT=2048 bun install --frozen-lockfile
-    cd packages/engine && BUN_MEMORY_LIMIT=2048 bun run build:prod
-    cp -r dist/. "${ZVELTIO_DIR}/engine/"
+    cd packages/engine
+    BUN_MEMORY_LIMIT=2048 bun run build:prod
+    cp -r dist/. "${ZVELTIO_DIR}/"
     cp -r ../../extensions "${ZVELTIO_DIR}/" 2>/dev/null || true
     rm -rf /tmp/zveltio-src
     cd "${ZVELTIO_DIR}"
   fi
-fi
 
-# ── .env ─────────────────────────────────────────────────────────────────────
-header "Writing configuration"
+  # ── .env ─────────────────────────────────────────────────────────────────────
+  header "Writing configuration"
 
-cat > "${ZVELTIO_DIR}/.env" << EOF
+  cat > "${ZVELTIO_DIR}/.env" << EOF
 PORT=${ZVELTIO_PORT}
 HOST=0.0.0.0
 NODE_ENV=production
@@ -352,22 +537,29 @@ AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
 ZVELTIO_EXTENSIONS=
 EOF
 
-chmod 600 "${ZVELTIO_DIR}/.env"
+  chmod 600 "${ZVELTIO_DIR}/.env"
 
-# Download update/uninstall scripts into install dir
-SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio/zveltio/main/install"
-for script in update.sh uninstall.sh; do
-  curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
-    cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
-  chmod +x "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
-done
+  # ── Copy helper scripts ───────────────────────────────────────────────────────
+  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio/zveltio/main/install"
+  for script in update.sh uninstall.sh; do
+    curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
+      cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
+    chmod +x "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
+  done
 
-# ── systemd user + service ────────────────────────────────────────────────────
-id -u "${ZVELTIO_USER}" &>/dev/null || \
-  useradd -r -s /bin/false -d "${ZVELTIO_DIR}" "${ZVELTIO_USER}"
-chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}"
+  # ── systemd service ───────────────────────────────────────────────────────────
+  id -u "${ZVELTIO_USER}" &>/dev/null || \
+    useradd -r -s /bin/false -d "${ZVELTIO_DIR}" "${ZVELTIO_USER}"
+  chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}"
 
-cat > /etc/systemd/system/zveltio.service << EOF
+  local EXEC_START
+  if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
+    EXEC_START="${ZVELTIO_DIR}/zveltio start"
+  else
+    EXEC_START="/usr/local/bin/bun ${ZVELTIO_DIR}/index.js"
+  fi
+
+  cat > /etc/systemd/system/zveltio.service << EOF
 [Unit]
 Description=Zveltio BaaS Engine
 After=network.target postgresql.service valkey.service seaweedfs.service
@@ -377,7 +569,7 @@ Wants=postgresql.service valkey.service seaweedfs.service
 User=${ZVELTIO_USER}
 WorkingDirectory=${ZVELTIO_DIR}
 EnvironmentFile=${ZVELTIO_DIR}/.env
-ExecStart=/usr/local/bin/bun ${ZVELTIO_DIR}/engine/index.js
+ExecStart=${EXEC_START}
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -394,40 +586,70 @@ PrivateTmp=yes
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable zveltio
-systemctl start zveltio
+  systemctl daemon-reload
+  systemctl enable zveltio
 
-# ── Firewall (ufw if present) ─────────────────────────────────────────────────
-if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
-  ufw allow "${ZVELTIO_PORT}/tcp" comment "Zveltio" &>/dev/null || true
-  success "Firewall rule added for port ${ZVELTIO_PORT}"
-fi
+  # ── Run migrations + create god user ─────────────────────────────────────────
+  header "Running database migrations"
+  if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) ./zveltio migrate"
+  else
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun index.js migrate"
+  fi
+  success "Migrations complete"
 
-# ── Summary ───────────────────────────────────────────────────────────────────
-SERVER_IP=$(hostname -I | awk '{print $1}')
+  header "Creating admin account"
+  if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) ./zveltio create-god"
+  else
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun index.js create-god"
+  fi
 
-header "Installation complete!"
+  systemctl start zveltio
 
-echo ""
-echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
-echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
-echo ""
-echo -e "${BOLD}${YELLOW}Save these credentials — they will not be shown again:${RESET}"
-echo ""
-echo -e "  PostgreSQL password:    ${POSTGRES_PASSWORD}"
-echo -e "  Valkey password:        ${VALKEY_PASSWORD}"
-echo -e "  Better Auth secret:     ${BETTER_AUTH_SECRET}"
-echo -e "  S3 access key:          ${S3_ACCESS_KEY}"
-echo -e "  S3 secret key:          ${S3_SECRET_KEY}"
-echo -e "  Mail encryption key:    ${MAIL_ENCRYPTION_KEY}"
-echo -e "  AI key encryption key:  ${AI_KEY_ENCRYPTION_KEY}"
-echo ""
-echo -e "  Config file:            ${ZVELTIO_DIR}/.env"
-echo ""
-echo -e "${BOLD}Useful commands:${RESET}"
-echo -e "  View logs:    journalctl -u zveltio -f"
-echo -e "  Restart:      systemctl restart zveltio"
-echo -e "  Update:       bash ${ZVELTIO_DIR}/update.sh"
-echo -e "  Status:       systemctl status zveltio"
-echo ""
+  # ── Firewall ──────────────────────────────────────────────────────────────────
+  if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+    ufw allow "${ZVELTIO_PORT}/tcp" comment "Zveltio" &>/dev/null || true
+    success "Firewall rule added for port ${ZVELTIO_PORT}"
+  fi
+
+  # ── Summary ───────────────────────────────────────────────────────────────────
+  local SERVER_IP
+  SERVER_IP=$(hostname -I | awk '{print $1}')
+
+  header "Installation complete! (native mode)"
+  echo ""
+  echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
+  echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
+  echo ""
+  echo -e "${BOLD}${YELLOW}Save these credentials — they will not be shown again:${RESET}"
+  echo ""
+  echo -e "  PostgreSQL password:    ${POSTGRES_PASSWORD}"
+  echo -e "  Valkey password:        ${VALKEY_PASSWORD}"
+  echo -e "  Better Auth secret:     ${BETTER_AUTH_SECRET}"
+  echo -e "  S3 access key:          ${S3_ACCESS_KEY}"
+  echo -e "  S3 secret key:          ${S3_SECRET_KEY}"
+  echo -e "  Mail encryption key:    ${MAIL_ENCRYPTION_KEY}"
+  echo -e "  AI key encryption key:  ${AI_KEY_ENCRYPTION_KEY}"
+  echo ""
+  echo -e "  Config file:            ${ZVELTIO_DIR}/.env"
+  echo ""
+  echo -e "${BOLD}Useful commands:${RESET}"
+  echo -e "  View logs:    journalctl -u zveltio -f"
+  echo -e "  Restart:      systemctl restart zveltio"
+  echo -e "  Update:       bash ${ZVELTIO_DIR}/update.sh"
+  echo -e "  Status:       systemctl status zveltio"
+  echo ""
+}
+
+# =============================================================================
+# DISPATCH
+# =============================================================================
+case "$INSTALL_MODE" in
+  docker) install_docker_mode ;;
+  native) install_native_mode ;;
+  *)
+    error "Unknown INSTALL_MODE: ${INSTALL_MODE}. Use 'docker' or 'native'."
+    exit 1
+    ;;
+esac

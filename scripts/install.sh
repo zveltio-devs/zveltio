@@ -240,7 +240,7 @@ DATABASE_URL=postgres://zveltio:${POSTGRES_PASS}@localhost:5432/zveltio?sslmode=
 
 # ── Cache ──────────────────────────────────────────────────────
 VALKEY_PORT=6379
-REDIS_URL=redis://localhost:6379
+VALKEY_URL=redis://localhost:6379
 
 # ── Storage ────────────────────────────────────────────────────
 S3_PORT=8333
@@ -489,7 +489,7 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
       fi
       nohup env \
         DATABASE_URL="${DATABASE_URL}" \
-        REDIS_URL="redis://localhost:${VALKEY_PORT:-6379}" \
+        VALKEY_URL="redis://localhost:${VALKEY_PORT:-6379}" \
         S3_ENDPOINT="http://localhost:${S3_PORT:-8333}" \
         S3_ACCESS_KEY="${S3_ACCESS_KEY:-zveltio}" \
         S3_SECRET_KEY="${S3_SECRET_KEY}" \
