@@ -31,11 +31,12 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     await next();
   });
 
-  // DDL rate limit: schema changes are rare operations — max 10/minute
-  app.use('/', ddlRateLimit);
-  app.use('/:name', ddlRateLimit);
-  app.use('/:name/fields', ddlRateLimit);
-  app.use('/:name/fields/:fieldName', ddlRateLimit);
+  // DDL rate limit: applies only to write methods (schema changes) — max 10/minute
+  // GET requests (listing/reading schema) are exempt so studio navigation isn't blocked
+  app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/', ddlRateLimit);
+  app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/:name', ddlRateLimit);
+  app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/:name/fields', ddlRateLimit);
+  app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/:name/fields/:fieldName', ddlRateLimit);
 
   // GET / — List all collections (user-defined + system)
   app.get('/', async (c) => {
