@@ -32,13 +32,33 @@ class ApiClient {
 
 export const api = new ApiClient(ENGINE_URL);
 
+// Short-lived in-memory cache to prevent duplicate requests when switching tabs.
+// collections/list and field-types rarely change — 30s TTL is safe.
+interface CacheEntry<T> { data: T; expiresAt: number }
+const _cache = new Map<string, CacheEntry<any>>();
+const TTL = 30_000;
+
+function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const hit = _cache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return Promise.resolve(hit.data);
+  return fn().then((data) => {
+    _cache.set(key, { data, expiresAt: Date.now() + TTL });
+    return data;
+  });
+}
+
+export function invalidateCollectionsCache() {
+  _cache.delete('collections:list');
+  _cache.delete('collections:field-types');
+}
+
 // Typed helpers
 export const collectionsApi = {
-  list: () => api.get<{ collections: any[] }>('/api/collections'),
+  list: () => cached('collections:list', () => api.get<{ collections: any[] }>('/api/collections')),
   get: (name: string) => api.get<{ collection: any }>(`/api/collections/${name}`),
-  create: (data: any) => api.post<{ collection: any; job_id: string }>('/api/collections', data),
-  delete: (name: string) => api.delete(`/api/collections/${name}`),
-  fieldTypes: () => api.get<{ field_types: any[] }>('/api/collections/field-types'),
+  create: (data: any) => api.post<{ collection: any; job_id: string }>('/api/collections', data).then((r) => { invalidateCollectionsCache(); return r; }),
+  delete: (name: string) => api.delete(`/api/collections/${name}`).then((r) => { invalidateCollectionsCache(); return r; }),
+  fieldTypes: () => cached('collections:field-types', () => api.get<{ field_types: any[] }>('/api/collections/field-types')),
   jobStatus: (jobId: string) => api.get<{ job: any }>(`/api/collections/jobs/${jobId}`),
 };
 

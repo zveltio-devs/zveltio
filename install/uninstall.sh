@@ -111,7 +111,8 @@ if [[ "$PURGE_DATA" == "yes" ]]; then
 
   # Remove firewall rule
   if command -v ufw &>/dev/null; then
-    ufw delete allow 4000/tcp 2>/dev/null || true
+    ZVELTIO_PORT=$(grep -oP '(?<=^PORT=)\d+' "${ZVELTIO_DIR}/.env" 2>/dev/null || echo "3000")
+    ufw delete allow "${ZVELTIO_PORT}/tcp" 2>/dev/null || true
   fi
 
 else

@@ -3,7 +3,7 @@ name: zveltio
 services:
   # ── PostgreSQL (PGVector) ───────────────────────────────────────────────────────
   db:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg18
     container_name: zveltio-db
     restart: unless-stopped
     environment:
@@ -13,20 +13,20 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     command: |
-      postgres 
+      postgres
         -c password_encryption=scram-sha-256
-        -c max_connections=500
-        -c shared_buffers=512MB
-        -c effective_cache_size=1536MB
-        -c maintenance_work_mem=128MB
+        -c max_connections=200
+        -c shared_buffers=${POSTGRES_SHARED_BUFFERS:-128MB}
+        -c effective_cache_size=${POSTGRES_EFFECTIVE_CACHE:-384MB}
+        -c maintenance_work_mem=64MB
         -c checkpoint_completion_target=0.9
-        -c wal_buffers=16MB
+        -c wal_buffers=8MB
         -c default_statistics_target=100
         -c random_page_cost=1.1
         -c effective_io_concurrency=200
-        -c work_mem=16MB
-        -c min_wal_size=1GB
-        -c max_wal_size=4GB
+        -c work_mem=4MB
+        -c min_wal_size=256MB
+        -c max_wal_size=1GB
         -c wal_level=logical
         -c max_replication_slots=4
         -c max_wal_senders=4
