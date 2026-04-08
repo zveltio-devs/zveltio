@@ -388,10 +388,11 @@ if [[ "$MODE" == "native" ]]; then
   fi
 fi
 
-# ── Native mode without Docker → delegate to full native installer ────────────
+# ── Native mode without Docker Compose → delegate to full native installer ────
 # install/install.sh handles PostgreSQL 18, Valkey, SeaweedFS, Bun, systemd
-# all without Docker. No point duplicating that logic here.
-if [[ "$MODE" == "native" && "$HAS_DOCKER" == "false" ]]; then
+# all without Docker. Triggered when Docker Compose v2 is unavailable,
+# meaning we can't use docker-compose.infra.yml for infrastructure.
+if [[ "$MODE" == "native" && "$HAS_DOCKER_COMPOSE" == "false" ]]; then
   section "🚀 Installing Zveltio (native — no Docker)"
   info "Downloading native installer..."
   NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/install.sh"
