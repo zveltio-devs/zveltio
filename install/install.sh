@@ -481,14 +481,33 @@ UNIT
   fi
 
   local BINARY_INSTALLED=false
+  local ARCH_SLUG
+  ARCH_SLUG=$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')
 
   if [[ -n "$RESOLVED_VERSION" && "$RESOLVED_VERSION" != "main" ]]; then
-    local BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/zveltio-linux-$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
+    local BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/zveltio-linux-${ARCH_SLUG}"
     if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
       wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio"
       chmod +x "${ZVELTIO_DIR}/zveltio"
-      BINARY_INSTALLED=true
-      info "Downloaded pre-built binary ${RESOLVED_VERSION}"
+
+      # Test if binary runs — CPUs without AVX2 will fail on the modern build
+      if ! "${ZVELTIO_DIR}/zveltio" --version &>/dev/null 2>&1; then
+        warn "CPU lacks AVX2 — downloading baseline binary"
+        local BASELINE_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/zveltio-linux-${ARCH_SLUG}-baseline"
+        if curl -fsSL --head "$BASELINE_URL" &>/dev/null; then
+          wget -q "$BASELINE_URL" -O "${ZVELTIO_DIR}/zveltio"
+          chmod +x "${ZVELTIO_DIR}/zveltio"
+          success "Baseline binary ready"
+        else
+          warn "No baseline binary found — will build from source"
+        fi
+      fi
+
+      # Verify after potential baseline swap
+      if "${ZVELTIO_DIR}/zveltio" --version &>/dev/null 2>&1; then
+        BINARY_INSTALLED=true
+        info "Binary ready (${RESOLVED_VERSION})"
+      fi
     fi
   fi
 
