@@ -203,6 +203,21 @@ fi
 
 RELEASE_URL="${RELEASES_BASE}/v${VERSION}"
 
+# ── Native mode without Docker Compose → delegate immediately ─
+# install/install.sh handles PostgreSQL 18, Valkey, SeaweedFS, Bun, systemd
+# without any Docker dependency. Delegate before downloading anything.
+if [[ "$MODE" == "native" && "$HAS_DOCKER_COMPOSE" == "false" ]]; then
+  section "🚀 Installing Zveltio (native — no Docker)"
+  info "Downloading native installer..."
+  NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/install.sh"
+  curl -fsSL "$NATIVE_INSTALLER_URL" -o /tmp/zveltio-native-install.sh
+  chmod +x /tmp/zveltio-native-install.sh
+  INSTALL_MODE=native ZVELTIO_PORT="${DEFAULT_PORT}" ZVELTIO_VERSION="$VERSION" \
+    sudo bash /tmp/zveltio-native-install.sh
+  rm -f /tmp/zveltio-native-install.sh
+  exit 0
+fi
+
 # ── Setup director ────────────────────────────────────────────
 section "📁 Setting Up Directory"
 
@@ -381,22 +396,6 @@ if [[ "$MODE" == "native" ]]; then
   else
     warn "Add to PATH: export PATH=\"$(pwd):\$PATH\""
   fi
-fi
-
-# ── Native mode without Docker Compose → delegate to full native installer ────
-# install/install.sh handles PostgreSQL 18, Valkey, SeaweedFS, Bun, systemd
-# all without Docker. Triggered when Docker Compose v2 is unavailable,
-# meaning we can't use docker-compose.infra.yml for infrastructure.
-if [[ "$MODE" == "native" && "$HAS_DOCKER_COMPOSE" == "false" ]]; then
-  section "🚀 Installing Zveltio (native — no Docker)"
-  info "Downloading native installer..."
-  NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/install.sh"
-  curl -fsSL "$NATIVE_INSTALLER_URL" -o /tmp/zveltio-native-install.sh
-  chmod +x /tmp/zveltio-native-install.sh
-  INSTALL_MODE=native ZVELTIO_PORT="${PORT:-3000}" ZVELTIO_VERSION="$VERSION" \
-    bash /tmp/zveltio-native-install.sh
-  rm -f /tmp/zveltio-native-install.sh
-  exit 0
 fi
 
 # ── Infrastructură + Engine ───────────────────────────────────
