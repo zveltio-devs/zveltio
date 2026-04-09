@@ -368,7 +368,7 @@ if [[ "$MODE" == "native" ]]; then
 
   CHECKSUMS_URL="${RELEASE_URL}/checksums.sha256"
   if curl -fsSL "$CHECKSUMS_URL" -o checksums.sha256 2>/dev/null; then
-    EXPECTED=$(grep "$BINARY_NAME" checksums.sha256 | cut -d' ' -f1)
+    EXPECTED=$(grep -F "  ${BINARY_NAME}" checksums.sha256 | head -1 | cut -d' ' -f1)
     if [[ -n "$EXPECTED" ]]; then
       verify_checksum "zveltio-engine" "$EXPECTED"
       ok "Checksum verified"
