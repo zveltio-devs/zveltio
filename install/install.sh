@@ -528,9 +528,19 @@ UNIT
 
   local RESOLVED_VERSION="$ZVELTIO_VERSION"
   if [[ "$RESOLVED_VERSION" == "latest" ]]; then
-    RESOLVED_VERSION=$(curl -fsSL https://api.github.com/repos/zveltio/zveltio/releases/latest \
-      | grep '"tag_name"' | cut -d'"' -f4 || echo "")
+    # /releases/latest only returns stable releases — use /releases to catch
+    # pre-release versions (alpha/beta/rc) when no stable exists yet.
+    RESOLVED_VERSION=$(curl -fsSL \
+      "https://api.github.com/repos/zveltio-devs/zveltio/releases" \
+      | grep '"tag_name"' | head -1 | cut -d'"' -f4 || echo "")
   fi
+
+  if [[ -z "$RESOLVED_VERSION" ]]; then
+    error "Could not determine Zveltio version. Check your internet connection."
+    exit 1
+  fi
+
+  info "Installing version: ${RESOLVED_VERSION}"
 
   local BINARY_INSTALLED=false
   local ARCH_SLUG
@@ -544,33 +554,23 @@ UNIT
     warn "CPU does not support AVX2 — will use baseline binary"
   fi
 
-  if [[ -n "$RESOLVED_VERSION" && "$RESOLVED_VERSION" != "main" ]]; then
-    local BINARY_NAME="zveltio-linux-${ARCH_SLUG}"
-    [[ "$USE_BASELINE" == "true" ]] && BINARY_NAME="zveltio-linux-${ARCH_SLUG}-baseline"
+  local BINARY_NAME="zveltio-linux-${ARCH_SLUG}"
+  [[ "$USE_BASELINE" == "true" ]] && BINARY_NAME="zveltio-linux-${ARCH_SLUG}-baseline"
 
-    local BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${RESOLVED_VERSION}/${BINARY_NAME}"
-    if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
-      wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio"
-      chmod +x "${ZVELTIO_DIR}/zveltio"
-      BINARY_INSTALLED=true
-      info "Downloaded binary ${RESOLVED_VERSION} (${BINARY_NAME})"
-    fi
+  local BINARY_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/${BINARY_NAME}"
+  info "Downloading binary from ${BINARY_URL}"
+  if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
+    wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio"
+    chmod +x "${ZVELTIO_DIR}/zveltio"
+    BINARY_INSTALLED=true
+    success "Downloaded binary ${RESOLVED_VERSION} (${BINARY_NAME})"
   fi
 
   if [[ "$BINARY_INSTALLED" == "false" ]]; then
-    warn "No pre-built binary available — building from source (this takes a few minutes)"
-    local CLONE_BRANCH="${RESOLVED_VERSION:-main}"
-    [[ -z "$CLONE_BRANCH" ]] && CLONE_BRANCH="main"
-    git clone --depth=1 --branch "$CLONE_BRANCH" \
-      https://github.com/zveltio/zveltio.git /tmp/zveltio-src
-    cd /tmp/zveltio-src
-    BUN_MEMORY_LIMIT=2048 bun install --frozen-lockfile
-    cd packages/engine
-    BUN_MEMORY_LIMIT=2048 bun run build:prod
-    cp -r dist/. "${ZVELTIO_DIR}/"
-    cp -r ../../extensions "${ZVELTIO_DIR}/" 2>/dev/null || true
-    rm -rf /tmp/zveltio-src
-    cd "${ZVELTIO_DIR}"
+    error "No pre-built binary found for ${RESOLVED_VERSION} (${BINARY_NAME})."
+    error "This is an alpha release — compiled binaries may not yet be available."
+    error "Check releases at: https://github.com/zveltio-devs/zveltio/releases"
+    exit 1
   fi
 
   # ── .env ─────────────────────────────────────────────────────────────────────
