@@ -683,6 +683,9 @@ echo "  ║   ✅  Zveltio v${VERSION} installed!           ║"
 fi
 echo "  ╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
+if [[ -n "${ADMIN_EMAIL:-}" ]]; then
+echo -e "  ${BOLD}Admin:${NC}    ${ADMIN_EMAIL}"
+fi
 if [[ -n "$DOMAIN" ]]; then
 echo -e "  ${BOLD}App:${NC}      http://${DOMAIN}"
 echo -e "  ${BOLD}Studio:${NC}   http://${DOMAIN}/admin/"
