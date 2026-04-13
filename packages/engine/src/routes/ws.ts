@@ -17,6 +17,26 @@ interface WSConnection {
 // Connection registry: connectionId -> WSConnection
 const connections = new Map<string, WSConnection>();
 
+// Subscription index: channel -> Set<connectionId> for O(1) broadcast lookup
+const subscriptionIndex = new Map<string, Set<string>>();
+
+function indexSubscription(channel: string, connId: string): void {
+  let set = subscriptionIndex.get(channel);
+  if (!set) { set = new Set(); subscriptionIndex.set(channel, set); }
+  set.add(connId);
+}
+
+function unindexSubscription(channel: string, connId: string): void {
+  const set = subscriptionIndex.get(channel);
+  if (!set) return;
+  set.delete(connId);
+  if (set.size === 0) subscriptionIndex.delete(channel);
+}
+
+function unindexAllSubscriptions(connId: string, subscriptions: Set<string>): void {
+  for (const ch of subscriptions) unindexSubscription(ch, connId);
+}
+
 let wsCounter = 0;
 
 // ── Route factory ────────────────────────────────────────────────────────────
@@ -112,6 +132,8 @@ export const websocketHandler = {
             const allowed: string[] = [];
             const denied: string[] = [];
             for (const col of msg.collections) {
+              // Block wildcard subscriptions — they bypass per-collection permission checks
+              if (col === '*') { denied.push(col); continue; }
               // Extract base collection name from channel format (e.g. "orders:insert" → "orders")
               const collectionName = typeof col === 'string' ? col.split(':')[0] : null;
               if (!collectionName) { denied.push(col); continue; }
@@ -125,6 +147,7 @@ export const websocketHandler = {
 
               if (canRead) {
                 conn.subscriptions.add(col);
+                indexSubscription(col, ws.data.id);
                 allowed.push(col);
               } else {
                 denied.push(col);
@@ -132,6 +155,10 @@ export const websocketHandler = {
             }
             ws.send(JSON.stringify({ type: 'subscribed', collections: allowed, denied }));
           } else if (typeof msg.channel === 'string') {
+            if (msg.channel === '*') {
+              ws.send(JSON.stringify({ type: 'error', message: 'Wildcard subscriptions are not allowed' }));
+              break;
+            }
             const collectionName = msg.channel.split(':')[0];
             let canRead = permCache.get(collectionName);
             if (canRead === undefined) {
@@ -140,6 +167,7 @@ export const websocketHandler = {
             }
             if (canRead) {
               conn.subscriptions.add(msg.channel);
+              indexSubscription(msg.channel, ws.data.id);
               ws.send(JSON.stringify({ type: 'subscribed', channel: msg.channel }));
             } else {
               ws.send(JSON.stringify({ type: 'error', message: `No read permission for "${collectionName}"` }));
@@ -150,10 +178,14 @@ export const websocketHandler = {
 
         case 'unsubscribe': {
           if (Array.isArray(msg.collections)) {
-            for (const col of msg.collections) conn.subscriptions.delete(col);
+            for (const col of msg.collections) {
+              conn.subscriptions.delete(col);
+              unindexSubscription(col, ws.data.id);
+            }
             ws.send(JSON.stringify({ type: 'unsubscribed', collections: msg.collections }));
           } else if (typeof msg.channel === 'string') {
             conn.subscriptions.delete(msg.channel);
+            unindexSubscription(msg.channel, ws.data.id);
             ws.send(JSON.stringify({ type: 'unsubscribed', channel: msg.channel }));
           }
           break;
@@ -173,6 +205,8 @@ export const websocketHandler = {
 
   close(ws: any) {
     if (ws.data?.id) {
+      const conn = connections.get(ws.data.id);
+      if (conn) unindexAllSubscriptions(ws.data.id, conn.subscriptions);
       connections.delete(ws.data.id);
     }
     wsPermCache.delete(ws);
@@ -195,13 +229,16 @@ export function broadcastEvent(
   const specificChannel = `${collection}:${event}`;
   const wildcardChannel = `${collection}:*`;
 
-  for (const [, conn] of connections) {
-    if (
-      conn.subscriptions.has('*') ||
-      conn.subscriptions.has(collection) ||
-      conn.subscriptions.has(wildcardChannel) ||
-      conn.subscriptions.has(specificChannel)
-    ) {
+  // Use subscription index for O(subscribers) instead of O(all connections)
+  const sent = new Set<string>();
+  for (const channel of [collection, wildcardChannel, specificChannel]) {
+    const connIds = subscriptionIndex.get(channel);
+    if (!connIds) continue;
+    for (const connId of connIds) {
+      if (sent.has(connId)) continue;
+      sent.add(connId);
+      const conn = connections.get(connId);
+      if (!conn) continue;
       try {
         conn.ws.send(payload);
       } catch {

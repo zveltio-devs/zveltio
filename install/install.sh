@@ -252,17 +252,8 @@ EOF
   echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
   echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
   echo ""
-  echo -e "${BOLD}${YELLOW}Save these credentials — they will not be shown again:${RESET}"
-  echo ""
-  echo -e "  PostgreSQL password:    ${POSTGRES_PASSWORD}"
-  echo -e "  Valkey password:        ${VALKEY_PASSWORD}"
-  echo -e "  Better Auth secret:     ${BETTER_AUTH_SECRET}"
-  echo -e "  S3 access key:          ${S3_ACCESS_KEY}"
-  echo -e "  S3 secret key:          ${S3_SECRET_KEY}"
-  echo -e "  Mail encryption key:    ${MAIL_ENCRYPTION_KEY}"
-  echo -e "  AI key encryption key:  ${AI_KEY_ENCRYPTION_KEY}"
-  echo ""
-  echo -e "  Config file:            ${ZVELTIO_DIR}/.env"
+  echo -e "  All credentials are stored in: ${BOLD}${ZVELTIO_DIR}/.env${RESET}"
+  echo -e "  ${YELLOW}Review with: cat ${ZVELTIO_DIR}/.env${RESET}"
   echo ""
   echo -e "${BOLD}Useful commands:${RESET}"
   echo -e "  View logs:    docker compose -f ${ZVELTIO_DIR}/docker-compose.yml logs -f engine"
@@ -301,6 +292,17 @@ install_native_mode() {
     success "PostgreSQL 18 installed"
   else
     info "PostgreSQL already installed: $(psql --version)"
+  fi
+
+  # Validate credentials contain only safe characters (hex from gen_secret, or
+  # alphanumeric if user-supplied) to prevent SQL injection via env overrides.
+  if [[ ! "$POSTGRES_PASSWORD" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+    error "POSTGRES_PASSWORD contains unsafe characters. Use only alphanumeric, dot, dash, underscore."
+    exit 1
+  fi
+  if [[ ! "$ZVELTIO_USER" =~ ^[a-z][a-z0-9_]*$ ]]; then
+    error "ZVELTIO_USER must start with a letter and contain only lowercase letters, digits, underscores."
+    exit 1
   fi
 
   su -c "psql -c \"CREATE USER ${ZVELTIO_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';\"" postgres 2>/dev/null || \
@@ -626,10 +628,15 @@ EOF
     fi
     warn "Passwords do not match. Please try again."
   done
+  # Pass credentials via environment variables to avoid shell injection
   if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
-    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) ./zveltio create-god --email '${GOD_EMAIL}' --password '${GOD_PASSWORD}'"
+    sudo -u "${ZVELTIO_USER}" \
+      GOD_EMAIL="$GOD_EMAIL" GOD_PASSWORD="$GOD_PASSWORD" \
+      bash -c 'cd '"${ZVELTIO_DIR}"' && env $(cat .env | xargs) ./zveltio create-god --email "$GOD_EMAIL" --password "$GOD_PASSWORD"'
   else
-    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun index.js create-god --email '${GOD_EMAIL}' --password '${GOD_PASSWORD}'"
+    sudo -u "${ZVELTIO_USER}" \
+      GOD_EMAIL="$GOD_EMAIL" GOD_PASSWORD="$GOD_PASSWORD" \
+      bash -c 'cd '"${ZVELTIO_DIR}"' && env $(cat .env | xargs) bun index.js create-god --email "$GOD_EMAIL" --password "$GOD_PASSWORD"'
   fi
 
   systemctl start zveltio
@@ -649,17 +656,8 @@ EOF
   echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
   echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
   echo ""
-  echo -e "${BOLD}${YELLOW}Save these credentials — they will not be shown again:${RESET}"
-  echo ""
-  echo -e "  PostgreSQL password:    ${POSTGRES_PASSWORD}"
-  echo -e "  Valkey password:        ${VALKEY_PASSWORD}"
-  echo -e "  Better Auth secret:     ${BETTER_AUTH_SECRET}"
-  echo -e "  S3 access key:          ${S3_ACCESS_KEY}"
-  echo -e "  S3 secret key:          ${S3_SECRET_KEY}"
-  echo -e "  Mail encryption key:    ${MAIL_ENCRYPTION_KEY}"
-  echo -e "  AI key encryption key:  ${AI_KEY_ENCRYPTION_KEY}"
-  echo ""
-  echo -e "  Config file:            ${ZVELTIO_DIR}/.env"
+  echo -e "  All credentials are stored in: ${BOLD}${ZVELTIO_DIR}/.env${RESET}"
+  echo -e "  ${YELLOW}Review with: cat ${ZVELTIO_DIR}/.env${RESET}"
   echo ""
   echo -e "${BOLD}Useful commands:${RESET}"
   echo -e "  View logs:    journalctl -u zveltio -f"

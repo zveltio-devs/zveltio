@@ -58,7 +58,7 @@
 {:else if type === 'json'}
  <code class="text-xs bg-base-200 px-1 rounded opacity-70">{truncate(JSON.stringify(value))}</code>
 {:else if type === 'richtext'}
- <span class="text-xs opacity-70">{@html truncate(value.replace(/<[^>]*>/g, ''))}</span>
+ <span class="text-xs opacity-70">{truncate(String(value).replace(/<[^>]*>/g, ''))}</span>
 {:else if type === 'url'}
  <a href={value} target="_blank" rel="noopener noreferrer" class="link link-primary text-sm truncate max-w-32 block">
  {truncate(value)}

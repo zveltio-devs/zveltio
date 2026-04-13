@@ -103,7 +103,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
       return await auth.handler(c.req.raw);
     } catch (err) {
       console.error('[Auth Handler] Unhandled error:', err);
-      return c.json({ error: 'Auth handler failed', detail: String(err) }, 500);
+      return c.json({ error: 'Auth handler failed' }, 500);
     }
   });
 

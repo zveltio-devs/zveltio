@@ -341,9 +341,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       // SECURITY: verify that the user has read permission on this collection
       const collectionShortName = collection.replace(/^zvd_/, '');
       const user = c.get('user') as any;
-      const canRead =
-        user.role === 'admin' ||
-        (await checkPermission(user.id, `data:${collectionShortName}`, 'read'));
+      const canRead = await checkPermission(user.id, `data:${collectionShortName}`, 'read');
       if (!canRead) continue; // silently skip collections the user has no access to
 
       try {

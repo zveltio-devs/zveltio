@@ -75,20 +75,26 @@ export const flowScheduler = {
 
     try {
       const now = new Date();
-      const flows: any[] = await (_db as any)
-        .selectFrom('zv_flows')
-        .selectAll()
-        .where('is_active', '=', true)
-        .where((eb: any) => eb('trigger_type', 'in', ['cron', 'ai_task']))
-        .execute()
-        .catch(() => []);
+      // Use a transaction with FOR UPDATE SKIP LOCKED to prevent multiple scheduler
+      // instances from executing the same flow simultaneously.
+      await (_db as any).transaction().execute(async (trx: any) => {
+        const flows: any[] = await trx
+          .selectFrom('zv_flows')
+          .selectAll()
+          .where('is_active', '=', true)
+          .where((eb: any) => eb('trigger_type', 'in', ['cron', 'ai_task']))
+          .where((eb: any) => eb.or([
+            eb('next_run_at', 'is', null),
+            eb('next_run_at', '<=', now),
+          ]))
+          .forUpdate()
+          .skipLocked()
+          .execute();
 
-      for (const flow of flows) {
-        const nextRun = flow.next_run_at ? new Date(flow.next_run_at) : null;
-        if (!nextRun || nextRun <= now) {
+        for (const flow of flows) {
           this._executeScheduledFlow(flow).catch(() => {});
         }
-      }
+      });
     } catch { /* non-fatal */ }
   },
 
