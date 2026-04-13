@@ -284,8 +284,8 @@ install_native_mode() {
 
   apt-get install -y -qq build-essential
 
-  # ── PostgreSQL 16 + pgvector ────────────────────────────────────────────────
-  header "Installing PostgreSQL 16 + pgvector"
+  # ── PostgreSQL 18 + pgvector ────────────────────────────────────────────────
+  header "Installing PostgreSQL 18 + pgvector"
 
   if ! command -v psql &>/dev/null; then
     install -d /usr/share/postgresql-common/pgdg
@@ -612,10 +612,24 @@ EOF
   success "Migrations complete"
 
   header "Creating admin account"
+  echo -n "  Email: "
+  read -r GOD_EMAIL </dev/tty
+  while true; do
+    echo -n "  Password: "
+    read -rs GOD_PASSWORD </dev/tty
+    echo ""
+    echo -n "  Confirm password: "
+    read -rs GOD_PASSWORD_CONFIRM </dev/tty
+    echo ""
+    if [[ "$GOD_PASSWORD" == "$GOD_PASSWORD_CONFIRM" ]]; then
+      break
+    fi
+    warn "Passwords do not match. Please try again."
+  done
   if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
-    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) ./zveltio create-god"
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) ./zveltio create-god --email '${GOD_EMAIL}' --password '${GOD_PASSWORD}'"
   else
-    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun index.js create-god"
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun index.js create-god --email '${GOD_EMAIL}' --password '${GOD_PASSWORD}'"
   fi
 
   systemctl start zveltio
