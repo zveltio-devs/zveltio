@@ -316,7 +316,8 @@ jobs:
     needs: publish-release
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, '-rc.')"
+    # Run for ALL channels — latest.json and versions.json must always reflect reality.
+    # sync-extensions is still stable-only (extensions are production infrastructure).
     steps:
       - uses: actions/checkout@v4
 
