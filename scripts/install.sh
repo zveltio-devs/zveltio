@@ -437,9 +437,18 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
       if [[ "$UNATTENDED" == "false" ]]; then
         echo -n "  Email: "
         read -r ADMIN_EMAIL </dev/tty
-        echo -n "  Password: "
-        read -rs ADMIN_PASSWORD </dev/tty
-        echo ""
+        while true; do
+          echo -n "  Password: "
+          read -rs ADMIN_PASSWORD </dev/tty
+          echo ""
+          echo -n "  Confirm password: "
+          read -rs ADMIN_PASSWORD_CONFIRM </dev/tty
+          echo ""
+          if [[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]]; then
+            break
+          fi
+          warn "Passwords do not match. Please try again."
+        done
       else
         ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"
         ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(generate_secret 16)}"
@@ -505,9 +514,18 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         if [[ "$UNATTENDED" == "false" ]]; then
           echo -n "  Email: "
           read -r ADMIN_EMAIL </dev/tty
-          echo -n "  Password: "
-          read -rs ADMIN_PASSWORD </dev/tty
-          echo ""
+          while true; do
+            echo -n "  Password: "
+            read -rs ADMIN_PASSWORD </dev/tty
+            echo ""
+            echo -n "  Confirm password: "
+            read -rs ADMIN_PASSWORD_CONFIRM </dev/tty
+            echo ""
+            if [[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]]; then
+              break
+            fi
+            warn "Passwords do not match. Please try again."
+          done
         else
           ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"
           ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(generate_secret 16)}"
