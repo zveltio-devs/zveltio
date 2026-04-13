@@ -15,7 +15,12 @@ RELEASES=$(curl -fsSL \
 echo "$RELEASES" | jq --arg repo "$REPO" '
   [.[] | select(.draft == false) | {
     version: (.tag_name | ltrimstr("v")),
-    channel: (if .prerelease then "beta" else "stable" end),
+    channel: (if .prerelease then (
+        if (.tag_name | test("-alpha\\.")) then "alpha"
+        elif (.tag_name | test("-rc\\.")) then "rc"
+        else "beta"
+        end
+      ) else "stable" end),
     published_at: .published_at,
     breaking_changes: (.body | test("BREAKING") // false),
     release_notes: .html_url,
@@ -27,7 +32,9 @@ echo "$RELEASES" | jq --arg repo "$REPO" '
   }]
   | {
     latest: (map(select(.channel == "stable")) | first | .version),
+    latest_alpha: (map(select(.channel == "alpha")) | first | .version // null),
     latest_beta: (map(select(.channel == "beta")) | first | .version // null),
+    latest_rc: (map(select(.channel == "rc")) | first | .version // null),
     updated_at: (now | todate),
     versions: .
   }

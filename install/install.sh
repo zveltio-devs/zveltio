@@ -348,32 +348,62 @@ EOF
   header "Installing Valkey"
 
   if ! command -v valkey-server &>/dev/null; then
-    local VALKEY_VER="8.0.1"
+    local VALKEY_VER="8.0.2"
     local ARCH
     ARCH=$(dpkg --print-architecture)
-    local VALKEY_ARCH=""
-    case "$ARCH" in
-      amd64)  VALKEY_ARCH="linux_amd64" ;;
-      arm64)  VALKEY_ARCH="linux_arm64" ;;
-      *)
-        warn "Valkey binary not available for ${ARCH}, building from source..."
-        apt-get install -y -qq build-essential
-        wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/${VALKEY_VER}.tar.gz" -O /tmp/valkey-src.tar.gz
-        tar -xzf /tmp/valkey-src.tar.gz -C /tmp
-        make -C "/tmp/valkey-${VALKEY_VER}" -j"$(nproc)" install
-        rm -rf /tmp/valkey-src.tar.gz "/tmp/valkey-${VALKEY_VER}"
-        ;;
-    esac
+    local VALKEY_INSTALLED=false
 
-    if [[ -n "$VALKEY_ARCH" ]]; then
-      wget -q "https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm.tar.gz" \
-        -O /tmp/valkey.tar.gz
-      tar -xzf /tmp/valkey.tar.gz -C /tmp
-      mv "/tmp/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm/bin/valkey-server" /usr/local/bin/
-      mv "/tmp/valkey-${VALKEY_VER}-${VALKEY_ARCH}-debian-bookworm/bin/valkey-cli" /usr/local/bin/
-      rm -rf /tmp/valkey*
+    # Try pre-built binary first (fastest)
+    if [[ "$ARCH" == "amd64" || "$ARCH" == "arm64" ]]; then
+      # Valkey release naming: valkey-<ver>-<distro>-<arch>.tar.gz
+      local DISTRO_CODENAME
+      DISTRO_CODENAME=$(lsb_release -cs 2>/dev/null || echo "")
+      local VALKEY_ARCH="$ARCH"
+
+      # Try distro-specific binary first, then generic Ubuntu/Debian variants
+      local URLS=()
+      if [[ -n "$DISTRO_CODENAME" ]]; then
+        URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-${DISTRO_CODENAME}-${VALKEY_ARCH}.tar.gz")
+      fi
+      URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-noble-${VALKEY_ARCH}.tar.gz")
+      URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-bookworm-${VALKEY_ARCH}.tar.gz")
+      URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-jammy-${VALKEY_ARCH}.tar.gz")
+
+      for url in "${URLS[@]}"; do
+        info "Trying ${url##*/}..."
+        if wget -q "$url" -O /tmp/valkey.tar.gz 2>/dev/null; then
+          # Find the extracted directory name dynamically
+          local VALKEY_DIR
+          VALKEY_DIR=$(tar -tzf /tmp/valkey.tar.gz 2>/dev/null | head -1 | cut -d/ -f1)
+          tar -xzf /tmp/valkey.tar.gz -C /tmp
+          if [[ -f "/tmp/${VALKEY_DIR}/bin/valkey-server" ]]; then
+            mv "/tmp/${VALKEY_DIR}/bin/valkey-server" /usr/local/bin/
+            mv "/tmp/${VALKEY_DIR}/bin/valkey-cli" /usr/local/bin/
+            VALKEY_INSTALLED=true
+          elif [[ -f "/tmp/${VALKEY_DIR}/valkey-server" ]]; then
+            mv "/tmp/${VALKEY_DIR}/valkey-server" /usr/local/bin/
+            mv "/tmp/${VALKEY_DIR}/valkey-cli" /usr/local/bin/
+            VALKEY_INSTALLED=true
+          fi
+          rm -rf /tmp/valkey* "/tmp/${VALKEY_DIR}"
+          if [[ "$VALKEY_INSTALLED" == "true" ]]; then
+            success "Valkey ${VALKEY_VER} binary installed"
+            break
+          fi
+        fi
+      done
     fi
-    success "Valkey installed"
+
+    # Fallback: build from source
+    if [[ "$VALKEY_INSTALLED" == "false" ]]; then
+      warn "Pre-built binary not available — building Valkey from source (this takes a few minutes)..."
+      apt-get install -y -qq build-essential
+      wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/${VALKEY_VER}.tar.gz" -O /tmp/valkey-src.tar.gz
+      tar -xzf /tmp/valkey-src.tar.gz -C /tmp
+      make -C "/tmp/valkey-${VALKEY_VER}" -j"$(nproc)" install
+      rm -rf /tmp/valkey-src.tar.gz "/tmp/valkey-${VALKEY_VER}"
+      success "Valkey ${VALKEY_VER} built and installed from source"
+    fi
   else
     info "Valkey already installed"
   fi
@@ -436,8 +466,11 @@ UNIT
         ;;
     esac
 
-    wget -q "https://github.com/seaweedfs/seaweedfs/releases/download/${SWFS_VER}/${SWFS_FILE}" \
-      -O /tmp/seaweedfs.tar.gz
+    if ! wget -q "https://github.com/seaweedfs/seaweedfs/releases/download/${SWFS_VER}/${SWFS_FILE}" \
+      -O /tmp/seaweedfs.tar.gz; then
+      error "Failed to download SeaweedFS ${SWFS_VER}. Check your internet connection or try a different version."
+      exit 1
+    fi
     tar -xzf /tmp/seaweedfs.tar.gz -C /usr/local/bin weed
     chmod +x /usr/local/bin/weed
     rm /tmp/seaweedfs.tar.gz
