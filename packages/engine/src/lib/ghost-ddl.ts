@@ -17,6 +17,15 @@ import { sql } from 'kysely';
 
 const BATCH_SIZE = 10_000;
 
+// Track pending cleanup timers so they can be cancelled at shutdown
+const _pendingCleanups = new Set<ReturnType<typeof setTimeout>>();
+
+/** Cancel all pending Ghost DDL cleanup timers (call on graceful shutdown). */
+export function cancelPendingCleanups(): void {
+  for (const timer of _pendingCleanups) clearTimeout(timer);
+  _pendingCleanups.clear();
+}
+
 export interface GhostMigration {
   originalTable: string;
   ghostTable: string;
@@ -222,14 +231,14 @@ export class GhostDDL {
 
         // Use INSERT ... ON CONFLICT DO UPDATE with individual values
         // to avoid SQL concatenation (security + correctness)
-        const colsSql = sql.raw(columns.map((c) => `"${c}"`).join(', '));
+        const colsSql = sql.join(columns.map((c) => sql.id(c)));
         const valsSql = sql.join(columns.map((c) => sql`${data[c]}`));
         const updateSql =
           updateCols.length > 0
-            ? sql.raw(
-                updateCols.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', '),
+            ? sql.join(
+                updateCols.map((c) => sql`${sql.id(c)} = EXCLUDED.${sql.id(c)}`),
               )
-            : sql.raw('"id" = EXCLUDED."id"'); // no-op update to avoid syntax errors
+            : sql`${sql.id('id')} = EXCLUDED.${sql.id('id')}`; // no-op update to avoid syntax errors
 
         await sql`
           INSERT INTO ${sql.id(migration.ghostTable)} (${colsSql})
@@ -300,7 +309,8 @@ export class GhostDDL {
     });
 
     // Cleanup async after 60s (safety net — doesn't block response)
-    setTimeout(async () => {
+    const timer = setTimeout(async () => {
+      _pendingCleanups.delete(timer);
       try {
         await sql`DROP TABLE IF EXISTS ${sql.id(oldTable)}`.execute(db);
         await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)}`.execute(
@@ -310,6 +320,7 @@ export class GhostDDL {
         /* best-effort cleanup — don't throw errors in background */
       }
     }, 60_000);
+    _pendingCleanups.add(timer);
   }
 
   /**

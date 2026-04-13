@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { logger } from 'hono/logger';
 import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions } from './lib/permissions.js';
@@ -15,6 +15,7 @@ import { realtimeManager } from './lib/realtime.js';
 import { initAIProviders } from './lib/ai-provider.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
+import { cancelPendingCleanups } from './lib/ghost-ddl.js';
 import { flowScheduler } from './lib/flow-scheduler.js';
 import { initTenantManager } from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
@@ -61,10 +62,16 @@ async function serveStaticFile(
   distRoot: string,
   urlPath: string,
 ): Promise<Response | null> {
-  // Prevent directory traversal
-  const safe = urlPath.replace(/\.\./g, '').replace(/\/+/g, '/') || '/';
+  // Prevent directory traversal — resolve the full path and verify it stays within distRoot.
+  // URL-decode first to catch %2e%2e encoded traversals.
+  const decoded = decodeURIComponent(urlPath);
+  const resolved = resolve(distRoot, decoded.replace(/^\/+/, ''));
+  if (!resolved.startsWith(resolve(distRoot))) {
+    return null; // traversal attempt — return 404 implicitly
+  }
+  const safe = resolved;
 
-  const candidates = [join(distRoot, safe), join(distRoot, safe, 'index.html')];
+  const candidates = [safe, join(safe, 'index.html')];
 
   for (const candidate of candidates) {
     const file = Bun.file(candidate);
@@ -441,6 +448,7 @@ function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
   webhookWorker.stop();
   flowScheduler.stop();
+  cancelPendingCleanups();
   realtimeManager.stop().catch(() => {
     /* ignore */
   });

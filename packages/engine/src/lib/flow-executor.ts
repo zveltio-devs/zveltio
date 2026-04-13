@@ -20,6 +20,7 @@ import { runScript } from './script-runner.js';
 import { sendNotification } from '../routes/notifications.js';
 import { aiProviderManager } from './ai-provider.js';
 import { traced } from './telemetry.js';
+import { safeFetch, validatePublicUrl } from './edge-functions/safe-fetch.js';
 
 export interface FlowRunResult {
   runId: string;
@@ -101,10 +102,11 @@ async function executeStep(
         }
       }
 
-      // Execute with statement_timeout to prevent long-running queries
-      const result = await sql.raw(
-        `SET LOCAL statement_timeout = '10s'; ${cfg.query}`,
-      ).execute(db);
+      // Execute with statement_timeout to prevent long-running queries.
+      // SET LOCAL and the user query MUST be separate statements to prevent
+      // bypass via e.g. `'; DROP TABLE ...` appended to the timeout value.
+      await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(db);
+      const result = await sql.raw(cfg.query as string).execute(db);
       return { output: result.rows };
     }
 
@@ -125,16 +127,26 @@ async function executeStep(
     // ── send_email ──
     case 'send_email': {
       if (!cfg.to) return { output: prevOutput };
+
+      // Validate email address to prevent header injection (newlines, commas)
+      const EMAIL_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/;
+      const recipient = String(cfg.to).trim();
+      if (!EMAIL_RE.test(recipient)) {
+        return { output: { sent: false, error: 'Invalid recipient email address' } };
+      }
+      // Sanitize subject — strip newlines to prevent header injection
+      const subject = String(cfg.subject ?? 'Flow notification').replace(/[\r\n]/g, ' ');
+
       try {
         // @ts-ignore — email module is an optional extension
         const { sendEmailDirectly } = await import('./email.js');
         await sendEmailDirectly({
-          recipient: cfg.to,
-          subject: cfg.subject ?? 'Flow notification',
+          recipient,
+          subject,
           bodyHtml: cfg.body_html ?? cfg.body ?? '',
           bodyText: cfg.body ?? '',
         });
-        return { output: { sent: true, to: cfg.to } };
+        return { output: { sent: true, to: recipient } };
       } catch {
         return { output: { sent: false, error: 'Email service not configured' } };
       }
@@ -161,7 +173,9 @@ async function executeStep(
       // Timeout prevents a slow/hung server from blocking the flow scheduler.
       // cfg.timeout_ms is user-configurable; default 10s is safe for most webhooks.
       const timeoutMs = Math.min(Number(cfg.timeout_ms) || 10_000, 60_000);
-      const response = await fetch(cfg.url as string, {
+      // SSRF protection: validate URL targets a public address before fetching
+      validatePublicUrl(cfg.url as string);
+      const response = await safeFetch(cfg.url as string, {
         method: (cfg.method as string) ?? 'POST',
         headers: sanitizedHeaders,
         body: JSON.stringify(cfg.body ?? prevOutput),

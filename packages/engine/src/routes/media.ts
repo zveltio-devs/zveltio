@@ -5,6 +5,7 @@ import { AwsClient } from 'aws4fetch';
 import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/query-utils.js';
 import { generateId } from '../lib/utils.js';
+import { checkPermission } from '../lib/permissions.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
@@ -104,8 +105,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const user = c.get('user' as never) as any;
       if (
         folder.created_by !== user.id &&
-        user.role !== 'admin' &&
-        user.role !== 'god'
+        !(await checkPermission(user.id, 'admin', '*'))
       ) {
         return c.json({ error: 'Forbidden' }, 403);
       }
@@ -585,8 +585,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const user = c.get('user' as never) as any;
       if (
         file.uploaded_by !== user.id &&
-        user.role !== 'admin' &&
-        user.role !== 'god'
+        !(await checkPermission(user.id, 'admin', '*'))
       ) {
         return c.json({ error: 'Forbidden' }, 403);
       }
