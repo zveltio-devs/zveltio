@@ -255,15 +255,31 @@ async function runUpdateScript(
     // get.zveltio.com/install.sh is the bootstrapper — it reads latest.json and
     // then downloads the versioned installer from the GitHub release assets.
     const installUrl = process.env.ZVELTIO_INSTALL_URL || 'https://get.zveltio.com/install.sh';
-    const dlCmd = `curl -fsSL "${installUrl}" -o /tmp/zveltio-update.sh && bash /tmp/zveltio-update.sh --version ${targetVersion} --unattended --dir ${installDir}`;
 
-    const dlProc = Bun.spawn(['bash', '-c', dlCmd], {
-      stdout: 'inherit', stderr: 'inherit', stdin: 'inherit',
+    // Validate version format to prevent injection via --version flag
+    if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(targetVersion)) {
+      console.error(c.red(`\n  Invalid version format: ${targetVersion}`));
+      process.exit(1);
+    }
+
+    // Download installer — use array-based spawn to avoid shell injection
+    const dlProc = Bun.spawn(['curl', '-fsSL', installUrl, '-o', '/tmp/zveltio-update.sh'], {
+      stdout: 'inherit', stderr: 'inherit',
     });
-    const code = await dlProc.exited;
-    if (code !== 0) {
-      console.error('\n  Update download/install failed.');
+    if (await dlProc.exited !== 0) {
+      console.error('\n  Failed to download installer.');
       console.error(`  Installer URL: ${installUrl}`);
+      process.exit(1);
+    }
+
+    // Run installer with arguments as array — no shell interpolation
+    const installProc = Bun.spawn(
+      ['bash', '/tmp/zveltio-update.sh', '--version', targetVersion, '--unattended', '--dir', installDir],
+      { stdout: 'inherit', stderr: 'inherit', stdin: 'inherit' },
+    );
+    const code = await installProc.exited;
+    if (code !== 0) {
+      console.error('\n  Update install failed.');
       process.exit(1);
     }
   }

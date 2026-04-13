@@ -106,7 +106,7 @@ export function importRoutes(db: Database, auth: any) {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const isAdmin = user.role === 'god' || user.role === 'admin';
+    const isAdmin = await checkPermission(user.id, 'admin', '*');
 
     let query = db
       .selectFrom('zv_import_logs')
@@ -135,10 +135,7 @@ export function importRoutes(db: Database, auth: any) {
     }
 
     // Permission check
-    const allowed =
-      user.role === 'god' ||
-      user.role === 'admin' ||
-      (await checkPermission(user.id, collection, 'create').catch(() => false));
+    const allowed = await checkPermission(user.id, collection, 'create').catch(() => false);
     if (!allowed) return c.json({ error: 'Forbidden' }, 403);
 
     // Parse multipart

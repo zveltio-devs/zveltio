@@ -4,19 +4,28 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { executeFlow } from '../lib/flow-executor.js';
 import { validateStepConfig } from '../lib/flow-step-schemas.js';
+import { checkPermission } from '../lib/permissions.js';
 
-async function getUser(c: any, auth: any) {
+async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  return session?.user ?? null;
+  if (!session) return null;
+  if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
+  return session.user;
 }
 
 export function flowsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
+  // Admin auth middleware — flows are admin-only resources
+  app.use('*', async (c, next) => {
+    const user = await requireAdmin(c, auth);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    c.set('user', user);
+    await next();
+  });
+
   // GET / — list flows
   app.get('/', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const flows = await (db as any)
       .selectFrom('zv_flows')
@@ -29,9 +38,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — get flow
   app.get('/:id', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     const flow = await (db as any)
       .selectFrom('zv_flows')
       .selectAll()
@@ -61,10 +67,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await getUser(c, auth);
-      if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
-      const body = c.req.valid('json');
+        const body = c.req.valid('json');
       const flow = await (db as any)
         .insertInto('zv_flows')
         .values({
@@ -95,9 +98,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await getUser(c, auth);
-      if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
       const body = c.req.valid('json');
       const updates: any = { updated_at: new Date() };
       if (body.name !== undefined) updates.name = body.name;
@@ -120,18 +120,12 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id
   app.delete('/:id', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     await (db as any).deleteFrom('zv_flows').where('id', '=', c.req.param('id')).execute();
     return c.json({ success: true });
   });
 
   // POST /:id/run — manual trigger
   app.post('/:id/run', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     const flow = await (db as any)
       .selectFrom('zv_flows')
       .selectAll()
@@ -148,9 +142,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id/runs — run history
   app.get('/:id/runs', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     const runs = await (db as any)
       .selectFrom('zv_flow_runs')
       .select(['id', 'status', 'error', 'started_at', 'completed_at', 'created_at'])
@@ -164,9 +155,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // GET /runs/:runId — run detail
   app.get('/runs/:runId', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     const run = await (db as any)
       .selectFrom('zv_flow_runs')
       .selectAll()
@@ -179,9 +167,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // GET /dlq — dead letter queue
   app.get('/dlq', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     const flowId = c.req.query('flow_id');
     let query = (db as any)
       .selectFrom('zv_flow_dlq')
@@ -197,9 +182,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // POST /dlq/:id/retry — requeue a DLQ entry
   app.post('/dlq/:id/retry', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     const entry = await (db as any)
       .selectFrom('zv_flow_dlq')
       .selectAll()
@@ -242,9 +224,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await getUser(c, auth);
-      if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
       const body = c.req.valid('json');
 
       // Validate step config before persisting
@@ -298,9 +277,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
-      const user = await getUser(c, auth);
-      if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
       const body = c.req.valid('json');
 
       const flow = await (db as any)
@@ -348,9 +324,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id/steps/:stepId — remove a step
   app.delete('/:id/steps/:stepId', async (c) => {
-    const user = await getUser(c, auth);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-
     const flow = await (db as any)
       .selectFrom('zv_flows')
       .select(['id', 'steps'])

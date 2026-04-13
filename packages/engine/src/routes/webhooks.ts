@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
+import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -66,6 +67,13 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const data = c.req.valid('json');
 
+    // SSRF protection: reject URLs targeting internal/private networks
+    try {
+      validatePublicUrl(data.url);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Invalid webhook URL' }, 400);
+    }
+
     const webhook = await (db as any)
       .insertInto('zvd_webhooks')
       .values({ ...data, created_by: user.id })
@@ -77,9 +85,18 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // PATCH /:id — Update webhook
   app.patch('/:id', zValidator('json', WebhookSchema.partial()), async (c) => {
+    const data = c.req.valid('json');
+    // SSRF protection on URL update
+    if (data.url) {
+      try {
+        validatePublicUrl(data.url);
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : 'Invalid webhook URL' }, 400);
+      }
+    }
     const webhook = await (db as any)
       .updateTable('zvd_webhooks')
-      .set({ ...c.req.valid('json'), updated_at: new Date() })
+      .set({ ...data, updated_at: new Date() })
       .where('id', '=', c.req.param('id'))
       .returningAll()
       .executeTakeFirst();
@@ -134,7 +151,8 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
         }
       }
 
-      const response = await fetch(webhook.url as string, {
+      validatePublicUrl(webhook.url as string);
+      const response = await safeFetch(webhook.url as string, {
         method: (webhook.method as string) || 'POST',
         headers: sanitizedHeaders,
         body: JSON.stringify({
