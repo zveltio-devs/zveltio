@@ -14,7 +14,9 @@ on:
         type: choice
         options:
           - latest
+          - alpha
           - beta
+          - rc
           - next
 
 jobs:

@@ -14,7 +14,7 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 import { EMBEDDED_MIGRATIONS } from './db/migrations/embedded.js';
 
-export const ENGINE_VERSION = '2.0.0';
+export const ENGINE_VERSION = '1.0.0-alpha.1';
 
 // Oldest migration version compatible with this engine.
 // Change ONLY on MAJOR version bumps with breaking schema changes.
