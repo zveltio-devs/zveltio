@@ -4,7 +4,9 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
 
 env:
   REGISTRY: ghcr.io
@@ -105,7 +107,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref, 'beta') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, '-rc.') }}
       - name: Build and push
         shell: bash
         run: |
@@ -138,9 +140,15 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          IS_BETA="false"
-          if [[ "${{ github.ref_name }}" == *"beta"* ]]; then IS_BETA="true"; fi
-          echo "is_beta=${IS_BETA}" >> $GITHUB_OUTPUT
+          IS_PRERELEASE="false"
+          if [[ "${{ github.ref_name }}" =~ -(alpha|beta|rc)\. ]]; then IS_PRERELEASE="true"; fi
+          echo "is_prerelease=${IS_PRERELEASE}" >> $GITHUB_OUTPUT
+          # Channel: alpha | beta | rc | stable
+          CHANNEL="stable"
+          if [[ "${{ github.ref_name }}" == *"alpha"* ]]; then CHANNEL="alpha"; fi
+          if [[ "${{ github.ref_name }}" == *"beta"* ]]; then CHANNEL="beta"; fi
+          if [[ "${{ github.ref_name }}" == *"-rc."* ]]; then CHANNEL="rc"; fi
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
       - name: Download all binaries
         uses: actions/download-artifact@v4
@@ -189,8 +197,7 @@ jobs:
       - name: Generate latest.json
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          IS_BETA="${{ steps.version.outputs.is_beta }}"
-          CHANNEL=$([ "$IS_BETA" = "true" ] && echo "beta" || echo "stable")
+          CHANNEL="${{ steps.version.outputs.channel }}"
           BASE="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
 
           cat > release-assets/latest.json << EOF
@@ -252,15 +259,16 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          IS_BETA="false"
-          if [[ "${{ github.ref_name }}" == *"beta"* ]]; then IS_BETA="true"; fi
+          IS_PRERELEASE="false"
+          if [[ "${{ github.ref_name }}" =~ -(alpha|beta|rc)\. ]]; then IS_PRERELEASE="true"; fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "prerelease=${IS_BETA}" >> $GITHUB_OUTPUT
+          echo "prerelease=${IS_PRERELEASE}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ steps.info.outputs.prerelease == 'true' }}
+
           generate_release_notes: true
           files: |
             all-assets/zveltio-linux-x64
@@ -308,7 +316,7 @@ jobs:
     needs: publish-release
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: "!contains(github.ref, 'beta')"
+    if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, '-rc.')"
     steps:
       - uses: actions/checkout@v4
 
@@ -350,7 +358,7 @@ jobs:
     needs: publish-release
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: "!contains(github.ref, 'beta')"
+    if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, '-rc.')"
     steps:
       - name: Extract version
         id: version
