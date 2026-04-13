@@ -573,6 +573,19 @@ UNIT
     exit 1
   fi
 
+  # ── Studio UI ────────────────────────────────────────────────────────────────
+  local STUDIO_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/studio.tar.gz"
+  mkdir -p "${ZVELTIO_DIR}/studio-dist"
+  if curl -fsSL --head "$STUDIO_URL" &>/dev/null; then
+    info "Downloading Studio UI..."
+    wget -q "$STUDIO_URL" -O /tmp/zveltio-studio.tar.gz
+    tar -xzf /tmp/zveltio-studio.tar.gz -C "${ZVELTIO_DIR}/studio-dist"
+    rm /tmp/zveltio-studio.tar.gz
+    success "Studio UI extracted to ${ZVELTIO_DIR}/studio-dist"
+  else
+    warn "Studio UI not available for ${RESOLVED_VERSION} — /admin will show setup instructions."
+  fi
+
   # ── .env ─────────────────────────────────────────────────────────────────────
   header "Writing configuration"
 
