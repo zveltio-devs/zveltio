@@ -339,6 +339,48 @@ async function bootstrap() {
     const path = c.req.path.replace(/^\/admin/, '') || '/';
     const res = await serveStaticFile(STUDIO_DIST, path);
     if (res) return res;
+
+    // Studio index.html missing — show a helpful setup page instead of a blank 404.
+    const studioIndex = Bun.file(join(STUDIO_DIST, 'index.html'));
+    if (!(await studioIndex.exists())) {
+      return c.html(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zveltio Studio — Setup Required</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
+    .card{background:#13131f;border:1px solid #2e2e3a;border-radius:12px;padding:2.5rem;max-width:520px;width:100%}
+    h1{font-size:1.4rem;font-weight:700;color:#818cf8;margin-bottom:0.5rem}
+    p{color:#94a3b8;margin:0.75rem 0;line-height:1.6}
+    pre{background:#0d0d12;border:1px solid #2e2e3a;border-radius:6px;padding:0.75rem 1rem;font-size:0.82rem;color:#a5f3fc;overflow-x:auto;margin:0.5rem 0}
+    .ok{color:#34d399}
+    .warn{color:#fbbf24}
+    a{color:#818cf8}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>⚙️ Zveltio Studio not found</h1>
+    <p>The engine is running <span class="ok">✓</span> but the Studio UI files are missing from <code>studio-dist/</code>.</p>
+    <p class="warn">This is expected on alpha releases — Studio assets must be downloaded separately.</p>
+    <p>Run this on the server to download Studio:</p>
+    <pre>curl -fsSL https://github.com/zveltio-devs/zveltio/releases/download/v${ENGINE_VERSION}/studio.tar.gz -o studio.tar.gz
+tar -xzf studio.tar.gz -C studio-dist/
+rm studio.tar.gz</pre>
+    <p>Or reinstall using the latest installer:</p>
+    <pre>curl -fsSL https://get.zveltio.com/install.sh | bash</pre>
+    <p style="margin-top:1.5rem;font-size:0.8rem">
+      API is available at <a href="/api/health">/api/health</a> &nbsp;·&nbsp;
+      Engine v${ENGINE_VERSION}
+    </p>
+  </div>
+</body>
+</html>`);
+    }
+
     return next();
   });
 
