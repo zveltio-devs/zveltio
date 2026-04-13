@@ -32,9 +32,6 @@
   },
   "dependencies": {
     "@auth/kysely-adapter": "^1.11.1",
-    "kysely": "^0.27.6"
-  },
-  "overrides": {
     "kysely": "0.27.6"
   }
 }
