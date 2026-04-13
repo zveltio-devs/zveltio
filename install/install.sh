@@ -235,7 +235,23 @@ EOF
 
   # ── Create God user ───────────────────────────────────────────────────────
   header "Creating admin account"
-  docker compose exec -it engine zveltio create-god
+  echo -n "  Email: "
+  read -r GOD_EMAIL </dev/tty
+  while true; do
+    echo -n "  Password: "
+    read -rs GOD_PASSWORD </dev/tty
+    echo ""
+    echo -n "  Confirm password: "
+    read -rs GOD_PASSWORD_CONFIRM </dev/tty
+    echo ""
+    if [[ "$GOD_PASSWORD" == "$GOD_PASSWORD_CONFIRM" ]]; then
+      break
+    fi
+    warn "Passwords do not match. Please try again."
+  done
+  docker compose exec -T engine zveltio create-god \
+    --email "$GOD_EMAIL" --password "$GOD_PASSWORD"
+  success "Admin account created"
 
   # ── Firewall ──────────────────────────────────────────────────────────────
   if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
@@ -249,6 +265,7 @@ EOF
 
   header "Installation complete! (Docker mode)"
   echo ""
+  echo -e "${BOLD}Admin email:${RESET}     ${GOD_EMAIL}"
   echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
   echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
   echo ""
@@ -653,6 +670,7 @@ EOF
 
   header "Installation complete! (native mode)"
   echo ""
+  echo -e "${BOLD}Admin email:${RESET}     ${GOD_EMAIL}"
   echo -e "${BOLD}Zveltio Studio:${RESET}  http://${SERVER_IP}:${ZVELTIO_PORT}/admin"
   echo -e "${BOLD}API:${RESET}             http://${SERVER_IP}:${ZVELTIO_PORT}/api"
   echo ""
