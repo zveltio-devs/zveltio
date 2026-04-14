@@ -139,6 +139,24 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     },
   );
 
+  // POST /:name/sync-schema — Reconcile zvd_collections.fields with the
+  // physical table by introspecting information_schema.columns.
+  // Useful after a seed migration creates a table outside the DDL queue,
+  // which leaves fields=[] and breaks the Studio schema view.
+  app.post('/:name/sync-schema', async (c) => {
+    const name = c.req.param('name');
+    const exists = await DDLManager.tableExists(db, name);
+    if (!exists) return c.json({ error: 'Table does not exist' }, 404);
+    const count = await DDLManager.syncFieldsFromDB(db, name);
+    return c.json({
+      success: true,
+      message: count > 0
+        ? `Populated ${count} field(s) for '${name}' from physical schema`
+        : `No sync needed — '${name}' already has fields metadata`,
+      synced: count,
+    });
+  });
+
   // GET /jobs/:jobId — Check DDL job status
   app.get('/jobs/:jobId', async (c) => {
     const job = await getDDLJob(db, c.req.param('jobId'));
@@ -179,8 +197,11 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const name = c.req.param('name');
     // M4 FIX: Use tenant-scoped DB so cross-tenant collection deletion is impossible.
     const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
+    const guardError = await assertMutable(name, 'drop');
+    if (guardError) return c.json({ error: guardError }, 403);
+    const force = c.req.query('force') === 'true';
     try {
-      await DDLManager.dropCollection(effectiveDb, name);
+      await DDLManager.dropCollection(effectiveDb, name, { force });
       const user = c.get('user') as any;
       await auditLog(db, {
         type: 'collection.deleted',
@@ -200,6 +221,29 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector',
   ]);
 
+  // BYOD guard: schema mutations are not allowed on unmanaged collections.
+  // ddl-queue.ts enforces the same rule for async DDL jobs; this keeps the sync HTTP
+  // paths (add_field / remove_field / drop) from silently diverging.
+  // `drop`-type ops additionally respect schema_locked for the core/system tables.
+  async function assertMutable(
+    collectionName: string,
+    op: 'add' | 'remove' | 'drop',
+  ): Promise<string | null> {
+    const meta = await (db as any)
+      .selectFrom('zvd_collections')
+      .select(['is_managed', 'schema_locked'])
+      .where('name', '=', collectionName)
+      .executeTakeFirst();
+    if (!meta) return null; // collection-not-found is handled by caller
+    if (meta.is_managed === false) {
+      return `Collection '${collectionName}' is unmanaged (BYOD). Schema changes are not allowed.`;
+    }
+    if (meta.schema_locked === true && op !== 'add') {
+      return `Collection '${collectionName}' is schema-locked. ${op === 'drop' ? 'Dropping' : 'Removing fields from'} it is not allowed.`;
+    }
+    return null;
+  }
+
   // POST /:name/fields — Add a field to existing collection
   app.post(
     '/:name/fields',
@@ -218,6 +262,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
       const collection = await DDLManager.getCollection(db, name);
       if (!collection) return c.json({ error: 'Collection not found' }, 404);
+
+      const guardError = await assertMutable(name, 'add');
+      if (guardError) return c.json({ error: guardError }, 403);
 
       let existingFields: any[];
       try {
@@ -262,6 +309,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     const collection = await DDLManager.getCollection(db, name);
     if (!collection) return c.json({ error: 'Collection not found' }, 404);
+
+    const guardError = await assertMutable(name, 'remove');
+    if (guardError) return c.json({ error: guardError }, 403);
 
     let existingFields: any[];
     try {
