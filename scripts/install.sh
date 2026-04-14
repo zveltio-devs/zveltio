@@ -5,7 +5,7 @@
 #
 # Usage:
 #   curl -fsSL https://get.zveltio.com/install.sh | bash
-#   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --version 2.0.1
+#   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --version 1.0.0-alpha.2
 #   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode docker
 #   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode native
 #   curl -fsSL https://get.zveltio.com/install.sh | bash -s -- --mode infra-only
@@ -90,12 +90,21 @@ get_platform() {
 }
 
 get_latest_version() {
-  curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+  # /releases/latest only returns stable releases. Use /releases to also
+  # pick up pre-release versions (alpha/beta/rc) when no stable exists yet.
+  local ver
+  ver=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
     2>/dev/null \
     | grep '"tag_name"' \
+    | head -1 \
     | cut -d'"' -f4 \
-    | tr -d 'v' \
-  || echo "2.0.0"
+    | tr -d 'v')
+  if [[ -z "$ver" ]]; then
+    error "Could not determine the latest Zveltio version. Check your internet connection."
+    error "Visit https://github.com/${REPO}/releases to find available versions."
+    exit 1
+  fi
+  echo "$ver"
 }
 
 verify_checksum() {
