@@ -1,6 +1,6 @@
 {
   "name": "zveltio",
-  "version": "1.0.0-alpha.3",
+  "version": "1.0.0-alpha.4",
   "private": true,
   "packageManager": "bun@1.2.0",
   "description": "The BaaS that just works — single binary, extensions, no complexity",

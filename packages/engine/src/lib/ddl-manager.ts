@@ -770,7 +770,10 @@ export class DDLManager {
         icon: definition.icon || 'Table',
         route_group: definition.routeGroup || 'private',
         is_permissioned: definition.isPermissioned ?? true,
-        is_managed: definition.isManaged ?? false,
+        // Default to managed: collections created via DDLManager are owned
+        // by Zveltio and receive ALTER TABLE. Explicit isManaged=false marks
+        // a BYOD/external table that must not be mutated.
+        is_managed: definition.isManaged ?? true,
         ai_search_enabled: definition.aiSearchEnabled ?? false,
         is_system: definition.isSystem ?? false,
         schema_locked: definition.schemaLocked ?? false,
