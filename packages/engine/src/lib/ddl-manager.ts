@@ -325,12 +325,14 @@ export class DDLManager {
       });
     }
 
-    // Auto-update updated_at — CREATE TRIGGER → withLockTimeout
+    // Auto-update updated_at — PER-TABLE function (no global race condition).
+    // A global CREATE OR REPLACE FUNCTION would be clobbered when two collections
+    // are created concurrently and one day diverges its logic.
     await withLockTimeout(db, async (trx) => {
       await sql
         .raw(
           `
-        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        CREATE OR REPLACE FUNCTION ${tableName}_touch_updated_at()
         RETURNS TRIGGER AS $$
         BEGIN
           NEW.updated_at = NOW();
@@ -347,7 +349,7 @@ export class DDLManager {
         CREATE TRIGGER update_${tableName}_updated_at
           BEFORE UPDATE ON ${tableName}
           FOR EACH ROW
-          EXECUTE FUNCTION update_updated_at_column()
+          EXECUTE FUNCTION ${tableName}_touch_updated_at()
       `,
         )
         .execute(trx);
@@ -357,11 +359,63 @@ export class DDLManager {
     await this.registerMetadata(db, validated);
   }
 
-  static async dropCollection(db: Database, name: string): Promise<void> {
+  /**
+   * Returns foreign-key dependencies pointing *into* this table — i.e. tables
+   * that would lose their FK constraint (and potentially orphan rows) when
+   * this table is dropped with CASCADE.
+   */
+  static async getTableDependents(
+    db: Database,
+    collectionName: string,
+  ): Promise<Array<{ table: string; constraint: string; column: string }>> {
+    const tableName = this.getTableName(collectionName);
+    const result = await sql<{
+      table: string;
+      constraint: string;
+      column: string;
+    }>`
+      SELECT
+        tc.table_name    AS "table",
+        tc.constraint_name AS "constraint",
+        kcu.column_name  AS "column"
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = tc.constraint_name
+        AND ccu.table_schema = tc.table_schema
+      WHERE tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+        AND ccu.table_name = ${tableName}
+        AND tc.table_name != ${tableName}
+    `.execute(db);
+    return result.rows;
+  }
+
+  static async dropCollection(
+    db: Database,
+    name: string,
+    opts: { force?: boolean } = {},
+  ): Promise<void> {
     const tableName = this.getTableName(name);
 
     if (!(await this.tableExists(db, name))) {
       throw new Error(`Collection '${name}' not found`);
+    }
+
+    // Warn-on-dependencies: CASCADE silently removes FK constraints from other
+    // tables, which can leave orphan rows. Caller must pass `force: true` to
+    // acknowledge the consequence, preserving integrity-by-default.
+    const deps = await this.getTableDependents(db, name);
+    if (deps.length > 0 && !opts.force) {
+      const list = deps
+        .map((d) => `${d.table}.${d.column} (constraint ${d.constraint})`)
+        .join(', ');
+      throw new Error(
+        `Cannot drop collection '${name}': ${deps.length} foreign key(s) reference it: ${list}. ` +
+          `Retry with force=true to DROP ... CASCADE (FK constraints will be removed; rows are preserved).`,
+      );
     }
 
     // DROP TABLE CASCADE → withLockTimeout (AccessExclusiveLock on table + all dependencies)
@@ -545,36 +599,163 @@ export class DDLManager {
     this.invalidateCache(collectionName);
   }
 
-  /** Returns the SQL that would be executed for a new collection — without running it */
+  /**
+   * Returns the SQL that would be executed for a new collection — without running it.
+   * Mirrors createCollection() exactly (system columns, FTS, triggers) so previews
+   * don't mislead callers about what they'll get.
+   */
   static async previewCollection(schema: z.infer<typeof CollectionSchema>): Promise<{ sql: string[] }> {
+    // Defence-in-depth even though Zod regex-validates the name:
+    const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
+    if (!SAFE_NAME.test(schema.name)) {
+      throw new Error(`Invalid collection name: "${schema.name}"`);
+    }
     const tableName = `zvd_${schema.name}`;
     const statements: string[] = [];
 
-    statements.push(
-      `CREATE TABLE IF NOT EXISTS ${tableName} (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()${schema.fields.length > 0 ? ',' : ''}
-${schema.fields.map((f) => {
-  const def = fieldTypeRegistry.get(f.type);
-  const colType = def?.db.columnType ?? 'TEXT';
-  const nullable = f.required ? 'NOT NULL' : 'NULL';
-  const defaultVal = def?.db.defaultValue ? ` DEFAULT ${def.db.defaultValue}` : '';
-  return `  ${f.name} ${colType} ${nullable}${defaultVal}`;
-}).join(',\n')}
-);`
-    );
+    const systemCols = [
+      'id UUID PRIMARY KEY DEFAULT gen_random_uuid()',
+      'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+      'updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+      "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
+      'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
+      'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
+    ];
+
+    const userCols = schema.fields
+      .map((f) => {
+        const def = fieldTypeRegistry.get(f.type);
+        if (def?.db.virtual) return null;
+        const colType = def?.db.columnType ?? 'TEXT';
+        const nullable = f.required ? 'NOT NULL' : 'NULL';
+        const defaultVal =
+          def?.db.defaultValue !== undefined && def?.db.defaultValue !== null
+            ? ` DEFAULT ${def.db.defaultValue}`
+            : '';
+        return `  "${f.name}" ${colType} ${nullable}${defaultVal}`;
+      })
+      .filter((s): s is string => s !== null);
+
+    const allCols = [...systemCols.map((c) => `  ${c}`), ...userCols];
+
+    statements.push(`CREATE TABLE IF NOT EXISTS ${tableName} (\n${allCols.join(',\n')}\n);`);
+
+    statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC);`);
+    statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status);`);
 
     for (const field of schema.fields) {
       if (field.indexed) {
-        statements.push(`CREATE INDEX IF NOT EXISTS idx_${schema.name}_${field.name} ON ${tableName}(${field.name});`);
+        statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`);
       }
       if (field.unique) {
-        statements.push(`ALTER TABLE ${tableName} ADD CONSTRAINT uq_${schema.name}_${field.name} UNIQUE (${field.name});`);
+        statements.push(`ALTER TABLE ${tableName} ADD CONSTRAINT uq_${tableName}_${field.name} UNIQUE ("${field.name}");`);
       }
     }
 
+    statements.push(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector;`);
+    statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector);`);
+
+    statements.push(`-- Per-table updated_at trigger`);
+    statements.push(`CREATE OR REPLACE FUNCTION ${tableName}_touch_updated_at() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;`);
+    statements.push(`CREATE TRIGGER update_${tableName}_updated_at BEFORE UPDATE ON ${tableName} FOR EACH ROW EXECUTE FUNCTION ${tableName}_touch_updated_at();`);
+
     return { sql: statements };
+  }
+
+  // ── Introspection ────────────────────────────────────────────────────────
+  // Used to reconcile zvd_collections.fields with the physical schema when a
+  // table was created outside DDLManager (e.g. a seed migration). Mapping from
+  // PostgreSQL data_type/udt_name → field-type-registry key. Best-effort:
+  // unknown types fall back to 'text' so the collection remains usable.
+
+  private static pgTypeToFieldType(udtName: string, dataType: string): string {
+    const udt = (udtName || '').toLowerCase();
+    const dt = (dataType || '').toLowerCase();
+    if (udt === 'uuid') return 'uuid';
+    if (udt === 'bool') return 'boolean';
+    if (udt === 'int2' || udt === 'int4' || udt === 'int8') return 'integer';
+    if (udt === 'numeric' || udt === 'float4' || udt === 'float8') return 'number';
+    if (udt === 'date') return 'date';
+    if (udt === 'timestamp' || udt === 'timestamptz') return 'datetime';
+    if (udt === 'jsonb' || udt === 'json') return 'json';
+    // PostgreSQL array types: udt_name starts with '_' (e.g. _text), data_type is 'ARRAY'.
+    if (dt === 'array' || udt.startsWith('_')) return 'tags';
+    if (udt === 'tsvector') return 'text'; // callers skip search_vector
+    return 'text';
+  }
+
+  /**
+   * Reads information_schema.columns for a physical table and returns a
+   * FieldConfig[] suitable for zvd_collections.fields.
+   *
+   * Filters out system columns (id, created_at, updated_at, status,
+   * created_by, updated_by, search_vector) so the list reflects user fields.
+   */
+  static async introspectTable(
+    db: Database,
+    collectionName: string,
+  ): Promise<FieldConfig[]> {
+    const tableName = this.getTableName(collectionName);
+    const SYSTEM_COLS = new Set([
+      'id',
+      'created_at',
+      'updated_at',
+      'status',
+      'created_by',
+      'updated_by',
+      'search_vector',
+    ]);
+
+    const rows = await sql<{
+      column_name: string;
+      data_type: string;
+      udt_name: string;
+      is_nullable: string;
+    }>`
+      SELECT column_name, data_type, udt_name, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${tableName}
+      ORDER BY ordinal_position
+    `.execute(db);
+
+    return rows.rows
+      .filter((r) => !SYSTEM_COLS.has(r.column_name))
+      .map((r) => ({
+        name: r.column_name,
+        type: this.pgTypeToFieldType(r.udt_name, r.data_type),
+        required: r.is_nullable === 'NO',
+      }));
+  }
+
+  /**
+   * If zvd_collections.fields is empty/missing for a collection but the
+   * physical table exists, populate fields via introspection. Returns the
+   * number of fields written. Safe to call repeatedly — noop if fields
+   * are already present.
+   */
+  static async syncFieldsFromDB(
+    db: Database,
+    collectionName: string,
+  ): Promise<number> {
+    const meta = await this.getCollection(db, collectionName);
+    if (!meta) return 0;
+    const existing =
+      typeof meta.fields === 'string' ? JSON.parse(meta.fields) : meta.fields;
+    if (Array.isArray(existing) && existing.length > 0) return 0;
+
+    if (!(await this.tableExists(db, collectionName))) return 0;
+
+    const fields = await this.introspectTable(db, collectionName);
+    if (fields.length === 0) return 0;
+
+    await db
+      .updateTable('zvd_collections')
+      .set({ fields: JSON.stringify(fields), updated_at: new Date() } as any)
+      .where('name' as any, '=', collectionName)
+      .execute();
+
+    this.invalidateCache(collectionName);
+    return fields.length;
   }
 
   static async registerMetadata(
