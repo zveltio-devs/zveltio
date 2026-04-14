@@ -14,8 +14,59 @@ export async function initDDLQueue(db: Database): Promise<void> {
     .where('status' as any, '=', 'running')
     .execute();
 
+  // Reindex any CREATE INDEX CONCURRENTLY that left an INVALID index behind.
+  // CONCURRENTLY masks failures (the index stays in the catalogue but never
+  // serves queries), which silently blocks subsequent DDL on the same table.
+  await reindexInvalid(db).catch(() => {});
+
+  // Requeue 'failed' jobs that still have retries remaining (bounded by max_retries).
+  // Without this, a transient failure (e.g. a 2s lock_timeout during a load spike)
+  // leaves the job stuck until an admin resurrects it by hand.
+  await sql`
+    UPDATE zv_ddl_jobs
+    SET    status = 'pending', started_at = NULL, completed_at = NULL, error = NULL
+    WHERE  status = 'failed'
+      AND  retry_count < COALESCE(max_retries, 3)
+  `.execute(db);
+
   // Poll for pending jobs every 2 seconds
   setInterval(() => processNextJob(), 2000);
+
+  // Retry pass every 30s: re-queues failed jobs that are under the retry cap.
+  // Using a longer interval than the poll loop avoids hot-looping on a job
+  // that keeps failing within the same second.
+  setInterval(() => requeueRetriableFailed().catch(() => {}), 30_000);
+}
+
+async function reindexInvalid(db: Database): Promise<void> {
+  // pg_index.indisvalid = false identifies an index built via CONCURRENTLY
+  // that failed partway through. REINDEX (also CONCURRENTLY) makes it valid
+  // without blocking writes. Restricted to our own tables for safety.
+  const rows = await sql<{ schemaname: string; indexname: string }>`
+    SELECT s.schemaname, s.indexrelname AS indexname
+    FROM pg_stat_user_indexes s
+    JOIN pg_index i ON i.indexrelid = s.indexrelid
+    WHERE i.indisvalid = false
+      AND s.schemaname = 'public'
+      AND (s.relname LIKE 'zvd_%' OR s.relname LIKE 'zv_%')
+  `.execute(db);
+  for (const row of rows.rows) {
+    try {
+      await sql.raw(`REINDEX INDEX CONCURRENTLY "${row.schemaname}"."${row.indexname}"`).execute(db);
+    } catch (err) {
+      console.warn(`Failed to REINDEX invalid index ${row.indexname}:`, err);
+    }
+  }
+}
+
+async function requeueRetriableFailed(): Promise<void> {
+  if (!_db) return;
+  await sql`
+    UPDATE zv_ddl_jobs
+    SET    status = 'pending', started_at = NULL, completed_at = NULL
+    WHERE  status = 'failed'
+      AND  retry_count < COALESCE(max_retries, 3)
+  `.execute(_db);
 }
 
 export async function enqueueDDLJob(
@@ -139,7 +190,13 @@ async function processNextJob(): Promise<void> {
 
         switch ((job as any).type) {
           case 'drop_collection':
-            await DDLManager.dropCollection(trx, payload.name);
+            // The payload can opt-in to force=true so DDLManager won't reject
+            // the drop because of foreign-key dependents. An admin enqueued
+            // this deliberately, so we respect the flag; callers that need a
+            // safe drop should use the sync HTTP DELETE path.
+            await DDLManager.dropCollection(trx, payload.name, {
+              force: payload.force === true,
+            });
             break;
           case 'add_field':
             // payload: { collection: string, field: FieldSchema }
@@ -218,8 +275,11 @@ async function processNextJob(): Promise<void> {
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     const retryCount = ((job as any).retry_count ?? 0) + 1;
+    const maxRetries = (job as any).max_retries ?? 3;
 
-    // Persist failure and increment retry counter (outside the rolled-back transaction)
+    // Persist failure and increment retry counter (outside the rolled-back transaction).
+    // `requeueRetriableFailed()` will bring the job back to 'pending' as long as
+    // retry_count < max_retries — permanent failures simply stay in 'failed'.
     await _db
       .updateTable('zv_ddl_jobs' as any)
       .set({
@@ -231,8 +291,9 @@ async function processNextJob(): Promise<void> {
       .where('id' as any, '=', (job as any).id)
       .execute();
 
+    const exhausted = retryCount >= maxRetries;
     console.error(
-      `DDL job ${(job as any).id} failed (attempt ${retryCount}):`,
+      `DDL job ${(job as any).id} failed (attempt ${retryCount}/${maxRetries}${exhausted ? ' — no more retries' : ''}):`,
       error,
     );
   }

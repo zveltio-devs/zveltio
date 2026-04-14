@@ -113,6 +113,7 @@ export interface ZvDdlJobsTable {
   started_at: Date | null;
   completed_at: Date | null;
   retry_count: number;
+  max_retries: number;
 }
 
 export interface ZvApiKeysTable {
