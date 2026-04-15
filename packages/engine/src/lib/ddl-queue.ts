@@ -2,47 +2,6 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 
-/**
- * Self-heal: any managed collection whose zvd_collections.fields is empty but
- * whose physical table exists gets its fields[] populated via introspection.
- *
- * Why this exists: the old 039_core_schemas.sql seeded contacts/organizations/
- * transactions into zvd_collections with fields='[]'. Studio then could not
- * discover the schema and spammed the API trying. The fixed migration
- * populates fields[] directly, but ON CONFLICT DO NOTHING means existing rows
- * from an upgraded install remain empty. Running this at boot heals them,
- * plus any future collection that slips through the same gap.
- */
-async function healEmptyManagedCollections(db: Database): Promise<void> {
-  try {
-    const rows = await db
-      .selectFrom('zvd_collections')
-      .select(['name', 'fields', 'is_managed'])
-      .execute();
-
-    let healed = 0;
-    for (const row of rows) {
-      const r: any = row;
-      if (r.is_managed === false) continue;
-      const fields =
-        typeof r.fields === 'string' ? JSON.parse(r.fields) : r.fields;
-      if (Array.isArray(fields) && fields.length > 0) continue;
-
-      const count = await DDLManager.syncFieldsFromDB(db, r.name);
-      if (count > 0) {
-        healed++;
-        console.log(
-          `   🔧 Healed zvd_collections.fields for '${r.name}' (${count} field(s) from introspection)`,
-        );
-      }
-    }
-    if (healed === 0) return;
-    console.log(`   ✅ Collection schema self-heal: ${healed} collection(s) restored`);
-  } catch (err) {
-    console.warn('Collection self-heal skipped:', err);
-  }
-}
-
 let _db: Database;
 
 export async function initDDLQueue(db: Database): Promise<void> {
@@ -54,10 +13,6 @@ export async function initDDLQueue(db: Database): Promise<void> {
     .set({ status: 'pending' } as any)
     .where('status' as any, '=', 'running')
     .execute();
-
-  // Heal collections whose fields[] is empty but whose table exists.
-  // Runs before the rest so Studio's first request sees the correct schema.
-  await healEmptyManagedCollections(db);
 
   // Reindex any CREATE INDEX CONCURRENTLY that left an INVALID index behind.
   // CONCURRENTLY masks failures (the index stays in the catalogue but never
