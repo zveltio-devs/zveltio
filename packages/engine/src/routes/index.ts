@@ -35,6 +35,7 @@ import { importRoutes } from './import.js';
 import { mediaRoutes } from './media.js';
 import { syncRoutes } from './sync.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
+import { ensureCoreCollections } from '../core-collections/index.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit } from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
 import { slowQueryMiddleware } from '../middleware/slow-query.js';
@@ -73,6 +74,11 @@ interface RoutesContext {
 
 export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise<void> {
   const { db, auth } = ctx;
+
+  // Bootstrap core collections (contacts, organizations, transactions) through
+  // DDLManager before the DDL queue starts. Runs BEFORE initDDLQueue so the
+  // queue's self-heal sees complete schemas, not empty fields[].
+  await ensureCoreCollections(db);
 
   // Initialize DDL job queue (async — resets stale 'running' jobs before polling starts)
   await initDDLQueue(db);
