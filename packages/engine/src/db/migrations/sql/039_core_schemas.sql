@@ -225,7 +225,16 @@ VALUES
     {"name":"reference",       "type":"text",    "required":false, "label":"Reference"},
     {"name":"metadata",        "type":"json",    "required":false, "label":"Metadata"}
   ]'::jsonb)
-ON CONFLICT (name) DO NOTHING;
+-- If the row already exists (earlier alpha populated fields='[]'), overwrite
+-- fields with the correct schema. Only fields/is_managed/display_name/icon
+-- are touched — user-customized flags like is_system/schema_locked stay.
+ON CONFLICT (name) DO UPDATE SET
+  display_name = EXCLUDED.display_name,
+  icon         = EXCLUDED.icon,
+  is_managed   = EXCLUDED.is_managed,
+  fields       = EXCLUDED.fields,
+  updated_at   = NOW()
+WHERE zvd_collections.fields = '[]'::jsonb OR zvd_collections.fields IS NULL;
 
 -- ═══ Register the m2m junction so Studio can navigate the relation ═══
 INSERT INTO zvd_relations (name, type, source_collection, source_field, target_collection, target_field, junction_table, on_delete, on_update)
