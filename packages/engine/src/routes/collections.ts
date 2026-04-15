@@ -6,7 +6,7 @@ import { checkPermission } from '../lib/permissions.js';
 import { enqueueDDLJob, getDDLJob } from '../lib/ddl-queue.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { dynamicAddColumn, dynamicDropColumn } from '../db/dynamic.js';
-import { SYSTEM_COLLECTIONS } from '../lib/system-collections.js';
+import { SYSTEM_COLLECTIONS, getSystemCollection } from '../lib/system-collections.js';
 import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
@@ -164,11 +164,28 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     return c.json({ job });
   });
 
-  // GET /:name — Get collection details
+  // GET /:name — Get collection details.
+  // Falls back to SYSTEM_COLLECTIONS for Better-Auth tables (user, session, …)
+  // so Studio's detail view is consistent with the list endpoint.
   app.get('/:name', async (c) => {
-    const collection = await DDLManager.getCollection(db, c.req.param('name'));
-    if (!collection) return c.json({ error: 'Collection not found' }, 404);
-    return c.json({ collection });
+    const name = c.req.param('name');
+    const collection = await DDLManager.getCollection(db, name);
+    if (collection) return c.json({ collection });
+
+    const system = getSystemCollection(name);
+    if (system) {
+      return c.json({
+        collection: {
+          name: system.name,
+          display_name: system.displayName,
+          icon: system.icon,
+          is_system: true,
+          readonly: system.readonly,
+          fields: system.fields,
+        },
+      });
+    }
+    return c.json({ error: 'Collection not found' }, 404);
   });
 
   // PATCH /:name — Update collection metadata

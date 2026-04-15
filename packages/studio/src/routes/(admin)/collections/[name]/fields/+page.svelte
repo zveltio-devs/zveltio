@@ -11,6 +11,8 @@
 
  const collectionName = $derived(page.params.name ?? '');
  let collection = $state<any>(null);
+ const isSystem = $derived(Boolean(collection?.is_system));
+ const isReadonly = $derived(Boolean(collection?.readonly));
  let fieldTypes = $state<any[]>([]);
  let allCollections = $state<any[]>([]);
  let loading = $state(true);
@@ -140,10 +142,12 @@
    { label: collection?.display_name || collectionName, href: `${base}/collections/${collectionName}` },
    { label: 'Fields' },
  ]} />
- <PageHeader title="{collection?.display_name || collectionName} / Fields" subtitle="Manage the schema for this collection">
-   <button class="btn btn-primary btn-sm" onclick={() => (showAddForm = !showAddForm)}>
-     <Plus size={16} /> Add Field
-   </button>
+ <PageHeader title="{collection?.display_name || collectionName} / Fields" subtitle={isSystem ? 'Read-only schema managed by the engine' : 'Manage the schema for this collection'}>
+   {#if !isSystem && !isReadonly}
+     <button class="btn btn-primary btn-sm" onclick={() => (showAddForm = !showAddForm)}>
+       <Plus size={16} /> Add Field
+     </button>
+   {/if}
  </PageHeader>
 
  <!-- Add field form -->
@@ -317,6 +321,7 @@
  </div>
 
  <!-- System fields (read-only) -->
+ {#if !isSystem}
  <div class="space-y-2">
  <h2 class="text-sm font-semibold text-base-content/60 uppercase tracking-wider">
  System Fields (auto-managed)
@@ -335,7 +340,7 @@
  { name: 'id', type: 'UUID', notes: 'Primary key, auto-generated' },
  { name: 'created_at', type: 'TIMESTAMPTZ', notes: 'Set on insert' },
  { name: 'updated_at', type: 'TIMESTAMPTZ', notes: 'Updated on every save' },
- { name: 'status', type: 'TEXT', notes: "Default: 'published'" },
+ { name: 'status', type: 'TEXT', notes: "Default: 'active' (active | draft | archived)" },
  { name: 'created_by', type: 'TEXT', notes: 'User ID who created' },
  { name: 'updated_by', type: 'TEXT', notes: 'User ID who last updated' },
  ] as sys}
@@ -349,6 +354,7 @@
  </table>
  </div>
  </div>
+ {/if}
   </div>
 
   <!-- Right: Schema Preview (1/3) -->
