@@ -44,21 +44,20 @@ import m035 from './sql/035_pitr.sql' with { type: 'text' };
 import m036 from './sql/036_ai_task_trigger.sql' with { type: 'text' };
 import m037 from './sql/037_cloud_storage.sql' with { type: 'text' };
 import m038 from './sql/038_protected_api.sql' with { type: 'text' };
-import m039 from './sql/039_core_schemas.sql' with { type: 'text' };
-import m040 from './sql/040_ai_query.sql' with { type: 'text' };
-import m041 from './sql/041_mail_client.sql' with { type: 'text' };
-import m042 from './sql/042_mail_complete.sql' with { type: 'text' };
-import m043 from './sql/043_edge_functions.sql' with { type: 'text' };
-import m044 from './sql/044_revisions_index.sql' with { type: 'text' };
-import m045 from './sql/045_audit_log.sql' with { type: 'text' };
-import m046 from './sql/046_ai_embed_excluded_fields.sql' with { type: 'text' };
-import m047 from './sql/047_user_auth_v15.sql' with { type: 'text' };
-import m048 from './sql/048_ai_memory.sql' with { type: 'text' };
-import m049 from './sql/049_slow_queries.sql' with { type: 'text' };
-import m050 from './sql/050_encrypted_fields.sql' with { type: 'text' };
-import m051 from './sql/051_roles.sql' with { type: 'text' };
-import m052 from './sql/052_client_portal.sql' with { type: 'text' };
-import m053 from './sql/053_zones_pages_views.sql' with { type: 'text' };
+import m039 from './sql/039_ai_query.sql' with { type: 'text' };
+import m040 from './sql/040_mail_client.sql' with { type: 'text' };
+import m041 from './sql/041_mail_complete.sql' with { type: 'text' };
+import m042 from './sql/042_edge_functions.sql' with { type: 'text' };
+import m043 from './sql/043_revisions_index.sql' with { type: 'text' };
+import m044 from './sql/044_audit_log.sql' with { type: 'text' };
+import m045 from './sql/045_ai_embed_excluded_fields.sql' with { type: 'text' };
+import m046 from './sql/046_user_auth_v15.sql' with { type: 'text' };
+import m047 from './sql/047_ai_memory.sql' with { type: 'text' };
+import m048 from './sql/048_slow_queries.sql' with { type: 'text' };
+import m049 from './sql/049_encrypted_fields.sql' with { type: 'text' };
+import m050 from './sql/050_roles.sql' with { type: 'text' };
+import m051 from './sql/051_client_portal.sql' with { type: 'text' };
+import m052 from './sql/052_zones_pages_views.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -101,19 +100,18 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '036_ai_task_trigger.sql': m036,
   '037_cloud_storage.sql': m037,
   '038_protected_api.sql': m038,
-  '039_core_schemas.sql': m039,
-  '040_ai_query.sql': m040,
-  '041_mail_client.sql': m041,
-  '042_mail_complete.sql': m042,
-  '043_edge_functions.sql': m043,
-  '044_revisions_index.sql': m044,
-  '045_audit_log.sql': m045,
-  '046_ai_embed_excluded_fields.sql': m046,
-  '047_user_auth_v15.sql': m047,
-  '048_ai_memory.sql': m048,
-  '049_slow_queries.sql': m049,
-  '050_encrypted_fields.sql': m050,
-  '051_roles.sql': m051,
-  '052_client_portal.sql': m052,
-  '053_zones_pages_views.sql': m053,
+  '039_ai_query.sql': m039,
+  '040_mail_client.sql': m040,
+  '041_mail_complete.sql': m041,
+  '042_edge_functions.sql': m042,
+  '043_revisions_index.sql': m043,
+  '044_audit_log.sql': m044,
+  '045_ai_embed_excluded_fields.sql': m045,
+  '046_user_auth_v15.sql': m046,
+  '047_ai_memory.sql': m047,
+  '048_slow_queries.sql': m048,
+  '049_encrypted_fields.sql': m049,
+  '050_roles.sql': m050,
+  '051_client_portal.sql': m051,
+  '052_zones_pages_views.sql': m052,
 };
