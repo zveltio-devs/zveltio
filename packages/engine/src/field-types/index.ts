@@ -104,7 +104,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     type: 'uuid',
     label: 'UUID',
     category: 'special',
-    db: { columnType: 'uuid', defaultValue: 'gen_random_uuid()' },
+    // No default: primary `id` is added as a hardcoded column in DDLManager.
+    // Setting gen_random_uuid() here would leak into FK columns (organization_id, contact_id, …)
+    // and replace a legitimate NULL FK with a random UUID on INSERT, breaking referential integrity.
+    db: { columnType: 'uuid' },
     api: {
       filterOperators: ['eq', 'neq', 'in', 'not_in', 'is_null', 'is_not_null'],
     },
@@ -359,7 +362,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     label: 'Tags',
     description: 'Array of text tags',
     category: 'special',
-    db: { columnType: 'text[]', defaultValue: "'{}'" },
+    // getColumnDDL wraps string defaults in quotes, so {} (not '{}') yields DEFAULT '{}'.
+    // The previous "'{}'" produced DEFAULT ''{}'' — a syntax error that silently aborted
+    // every CREATE TABLE whose schema used `tags`, including contacts and organizations.
+    db: { columnType: 'text[]', defaultValue: '{}' },
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
       serialize: (v) => (Array.isArray(v) ? v : typeof v === 'string' ? JSON.parse(v) : []),
