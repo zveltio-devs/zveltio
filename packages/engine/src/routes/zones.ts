@@ -124,7 +124,15 @@ export function zonesRoutes(db: Database, auth: any): Hono {
   app.use('*', async (c, next) => {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
-      if (session?.user) c.set('user', session.user);
+      if (session?.user) {
+        // Better-Auth session user doesn't include `role` by default — hydrate from DB
+        const row = await (db as any)
+          .selectFrom('user')
+          .select(['role'])
+          .where('id', '=', session.user.id)
+          .executeTakeFirst();
+        c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
+      }
     } catch {
       // Public endpoints (render) work without auth
     }
@@ -497,7 +505,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const user = c.get('user');
     if (zone.access_roles.length > 0) {
       if (!user) return c.json({ error: 'Authentication required' }, 401);
-      if (!zone.access_roles.includes(user.role)) {
+      if (user.role !== 'god' && !zone.access_roles.includes(user.role)) {
         zoneAccessDenied.inc({ zone_slug: zone.slug, role: user.role ?? 'unknown' });
         return c.json({ error: 'Insufficient role' }, 403);
       }
@@ -538,7 +546,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const user = c.get('user');
     if (zone.access_roles.length > 0) {
       if (!user) return c.json({ error: 'Authentication required' }, 401);
-      if (!zone.access_roles.includes(user.role)) {
+      if (user.role !== 'god' && !zone.access_roles.includes(user.role)) {
         zoneAccessDenied.inc({ zone_slug: zone.slug, role: user.role ?? 'unknown' });
         return c.json({ error: 'Insufficient role' }, 403);
       }
@@ -558,7 +566,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     if (page.auth_required) {
       if (!user) return c.json({ error: 'Authentication required' }, 401);
       const roles = page.allowed_roles as string[];
-      if (roles.length > 0 && !roles.includes(user.role)) {
+      if (roles.length > 0 && user.role !== 'god' && !roles.includes(user.role)) {
         zoneAccessDenied.inc({ zone_slug: zone.slug, role: user.role ?? 'unknown' });
         return c.json({ error: 'Insufficient role' }, 403);
       }
@@ -607,7 +615,14 @@ export function viewsRoutes(db: Database, auth: any): Hono {
   app.use('*', async (c, next) => {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
-      if (session?.user) c.set('user', session.user);
+      if (session?.user) {
+        const row = await (db as any)
+          .selectFrom('user')
+          .select(['role'])
+          .where('id', '=', session.user.id)
+          .executeTakeFirst();
+        c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
+      }
     } catch {
       // no-op
     }

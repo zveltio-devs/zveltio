@@ -21,19 +21,17 @@ describe('Health — Integration', () => {
     expect(body.status).toBe('ok');
   });
 
-  it('GET /api/health — returns version string', async () => {
+  it('GET /api/health — does NOT leak version/runtime info', async () => {
+    // Public /health must stay minimal — engine/schema/runtime details live
+    // behind /version (auth-gated) per the security-sprint remediation.
     const res = await fetch(`${BASE_URL}/api/health`);
     const body = await res.json() as any;
-    // engine version is in body.engine (e.g. "2.0.0")
-    expect(typeof body.engine).toBe('string');
-    expect(body.engine.length).toBeGreaterThan(0);
-  });
-
-  it('GET /api/health — returns db status', async () => {
-    const res = await fetch(`${BASE_URL}/api/health`);
-    const body = await res.json() as any;
-    // database check is in body.checks.database (boolean)
-    expect(body.checks?.database).toBe(true);
+    expect(body.engine).toBeUndefined();
+    expect(body.schema).toBeUndefined();
+    expect(body.runtime).toBeUndefined();
+    expect(body.platform).toBeUndefined();
+    expect(body.checks).toBeUndefined();
+    expect(typeof body.timestamp).toBe('string');
   });
 
   it('GET /metrics — exposes Prometheus metrics', async () => {
@@ -43,14 +41,11 @@ describe('Health — Integration', () => {
     expect(text).toContain('zveltio_requests_total');
   });
 
-  it('GET /api/health/version — returns detailed version info', async () => {
+  it('GET /api/health/version — requires auth (was public, now gated)', async () => {
+    // Unauthenticated — expect 401. Authenticated smoke is covered in the
+    // admin-flows test where we already have a session cookie.
     const res = await fetch(`${BASE_URL}/api/health/version`);
-    expect(res.status).toBeOneOf([200, 404]); // 404 if endpoint doesn't exist yet
-    if (res.status === 200) {
-      const body = await res.json() as any;
-      // version info uses body.engine (string) and body.schema (object)
-      expect(body).toHaveProperty('engine');
-    }
+    expect(res.status).toBe(401);
   });
 
   it('GET /api/sitemap.xml — returns XML', async () => {

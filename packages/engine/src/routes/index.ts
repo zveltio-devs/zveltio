@@ -148,7 +148,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Import CSV/JSON — moved to extensions/data/import
 
   // Health + version + migration status + update check (public)
-  app.route('/api/health', healthRoutes(db));
+  app.route('/api/health', healthRoutes(db, auth));
 
   // Admin utilities: API keys, notifications, audit, types, onboarding
   app.route('/api/admin', adminRoutes(db, auth));

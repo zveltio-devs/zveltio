@@ -7,6 +7,7 @@
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import CollectionTabs from '$lib/components/common/CollectionTabs.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   const collectionName = $derived(page.params.name ?? '');
@@ -136,6 +137,8 @@
       <Plus size={16} /> Add Relation
     </button>
   </PageHeader>
+
+  <CollectionTabs {collectionName} active="relations" />
 
   <!-- Add relation form -->
   {#if showForm}

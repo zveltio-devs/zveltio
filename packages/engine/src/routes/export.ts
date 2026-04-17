@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
+import { DDLManager } from '../lib/ddl-manager.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -100,10 +101,13 @@ export function exportRoutes(db: Database, auth: any) {
 
     if (selectCols.length === 0) return c.json({ error: 'No valid fields selected' }, 400);
 
-    // Execute query — use raw SQL column list (validated above)
+    // Execute query — use raw SQL column list (validated above).
+    // Resolve to the physical table (zvd_ prefix) so export hits the right
+    // table regardless of the logical collection name passed in the URL.
+    const tableName = DDLManager.getTableName(collection);
     const colList = selectCols.map(c => sql.id(c));
     const records = await db
-      .selectFrom(collection as any)
+      .selectFrom(tableName as any)
       .select(colList as any)
       .orderBy('created_at asc')
       .limit(limit)

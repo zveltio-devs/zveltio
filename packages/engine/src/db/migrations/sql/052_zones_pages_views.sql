@@ -95,7 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_zvd_page_views_view ON zvd_page_views(view_id);
 
 -- Seed default client zone
 INSERT INTO zvd_zones (name, slug, description, is_active, base_path, site_name, primary_color, nav_position)
-VALUES ('Client Portal', 'client', 'Portal for external clients', false, '/portal/client', 'Client Portal', '#069494', 'sidebar')
+VALUES ('Client Portal', 'client', 'Portal for external clients', false, '/portal-client', 'Client Portal', '#069494', 'sidebar')
 ON CONFLICT DO NOTHING;
 
 -- Create default "intranet" zone
