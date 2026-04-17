@@ -86,13 +86,13 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
 
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBe(10);
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.length).toBe(10);
     expect(typeof body.next_cursor).toBe('string');
     expect(body.next_cursor).not.toBeNull();
 
     cursor1 = body.next_cursor;
-    page1Ids = body.data.map((r: any) => r.id);
+    page1Ids = body.records.map((r: any) => r.id);
   });
 
   it('GET ?cursor=<cursor1>&limit=10 — returns next 10 records with no overlap', async () => {
@@ -102,11 +102,11 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
 
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBe(10);
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.length).toBe(10);
 
     // No overlap with first page
-    const page2Ids = body.data.map((r: any) => r.id);
+    const page2Ids = body.records.map((r: any) => r.id);
     const overlap = page2Ids.filter((id: string) => page1Ids.includes(id));
     expect(overlap.length).toBe(0);
 
@@ -121,8 +121,8 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
 
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBe(5);
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.length).toBe(5);
     // When fewer records than limit, next_cursor should be null
     expect(body.next_cursor).toBeNull();
   });
@@ -134,12 +134,12 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
 
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBe(10);
-    expect(body.page).toBe(2);
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.length).toBe(10);
+    expect(body.pagination.page).toBe(2);
 
     // Page 2 should not overlap with page 1
-    const page2Ids = body.data.map((r: any) => r.id);
+    const page2Ids = body.records.map((r: any) => r.id);
     const overlap = page2Ids.filter((id: string) => page1Ids.includes(id));
     expect(overlap.length).toBe(0);
   });
@@ -151,8 +151,8 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
 
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBe(25);
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.length).toBe(25);
     expect(body.next_cursor).toBeNull();
   });
 });
