@@ -116,10 +116,10 @@ describe.skipIf(skipAll)('CRUD — Integration', () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toHaveProperty('data');
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBeGreaterThanOrEqual(3);
-    expect(body).toHaveProperty('total');
+    expect(body).toHaveProperty('records');
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.length).toBeGreaterThanOrEqual(3);
+    expect(body).toHaveProperty('pagination');
   });
 
   it('GET /api/data/:collection?filter — filters by price > 10', async () => {
@@ -129,7 +129,7 @@ describe.skipIf(skipAll)('CRUD — Integration', () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.every((r: any) => r.price > 10)).toBe(true);
+    expect(body.records.every((r: any) => r.price > 10)).toBe(true);
   });
 
   it('GET /api/data/:collection?search — full-text search', async () => {
@@ -138,7 +138,7 @@ describe.skipIf(skipAll)('CRUD — Integration', () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.some((r: any) => r.title?.includes('Item B'))).toBe(true);
+    expect(body.records.some((r: any) => r.title?.includes('Item B'))).toBe(true);
   });
 
   it('GET /api/data/:collection/:id — retrieves a single record', async () => {
