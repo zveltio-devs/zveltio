@@ -524,12 +524,19 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
+    // Response shape matches the rest of the list endpoints (time-travel, virtual)
+    // and the contract consumed by Studio + SDK: { records, pagination, next_cursor? }.
+    // A prior refactor renamed these to { data, total, page, limit, pages } which
+    // silently broke every client — the studio data tab was stuck on its spinner
+    // because `dataRes.records` was undefined and rendering threw on records.length.
     return c.json({
-      data: serialized,
-      total: result.total >= 0 ? result.total : undefined,
-      page: query.page,
-      limit: query.limit,
-      pages: result.total >= 0 ? Math.ceil(result.total / query.limit) : undefined,
+      records: serialized,
+      pagination: {
+        total: result.total >= 0 ? result.total : undefined,
+        page: query.page,
+        limit: query.limit,
+        pages: result.total >= 0 ? Math.ceil(result.total / query.limit) : undefined,
+      },
       next_cursor,
     });
   });
