@@ -2,6 +2,68 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 
+const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
+const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+const ON_DELETE_RE = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
+
+/** Wires FK + zvd_relations entries for relation fields of a freshly-created collection. */
+async function applyRelationFieldsPostCreate(db: Database, payload: any): Promise<void> {
+  const collectionName: string | undefined = payload?.name;
+  const fields: any[] = Array.isArray(payload?.fields) ? payload.fields : [];
+  if (!collectionName || !SAFE_NAME_RE.test(collectionName)) return;
+
+  const tableName = `zvd_${collectionName}`;
+
+  for (const field of fields) {
+    if (!field || !RELATION_FK_TYPES.has(field.type)) continue;
+    const target: string | undefined = field.options?.related_collection;
+    if (!target || !SAFE_NAME_RE.test(target) || !SAFE_NAME_RE.test(field.name)) continue;
+
+    const targetExists = await DDLManager.tableExists(db, target).catch(() => false);
+    if (!targetExists) {
+      console.warn(`[relations] skipping FK for ${collectionName}.${field.name}: target '${target}' not found`);
+      continue;
+    }
+
+    const onDelete = String(field.options?.on_delete ?? 'SET NULL').toUpperCase();
+    const onUpdate = String(field.options?.on_update ?? 'CASCADE').toUpperCase();
+    if (!ON_DELETE_RE.test(onDelete) || !ON_DELETE_RE.test(onUpdate)) continue;
+
+    const targetTable = `zvd_${target}`;
+    const constraintName = `fk_${tableName}_${field.name}`;
+
+    await sql
+      .raw(
+        `ALTER TABLE "${tableName}" ADD CONSTRAINT "${constraintName}" ` +
+          `FOREIGN KEY ("${field.name}") REFERENCES "${targetTable}"(id) ` +
+          `ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
+      )
+      .execute(db)
+      .catch((err: any) => {
+        console.warn(`[relations] ADD CONSTRAINT failed for ${constraintName}:`, err?.message ?? err);
+      });
+
+    await (db as any)
+      .insertInto('zvd_relations')
+      .values({
+        name: `${collectionName}_${field.name}`,
+        type: 'm2o',
+        source_collection: collectionName,
+        source_field: field.name,
+        target_collection: target,
+        target_field: 'id',
+        on_delete: onDelete,
+        on_update: onUpdate,
+        foreign_key_constraint: constraintName,
+      })
+      .execute()
+      .catch((err: any) => {
+        // UNIQUE(source_collection, source_field) — skip on duplicate, don't fail.
+        console.warn(`[relations] zvd_relations insert skipped:`, err?.message ?? err);
+      });
+  }
+}
+
 let _db: Database;
 
 export async function initDDLQueue(db: Database): Promise<void> {
@@ -148,6 +210,18 @@ async function processNextJob(): Promise<void> {
       // CREATE INDEX CONCURRENTLY cannot run inside a transaction block in PostgreSQL.
       // Run collection creation directly against _db (outside any transaction).
       await DDLManager.createCollection(_db, payload);
+
+      // Post-process: relation fields (m2o/reference) get plain UUID columns from
+      // DDLManager.createCollection. Here we add the FK constraint and register the
+      // relation in zvd_relations so joins/expands work. Skipped silently for fields
+      // without options.related_collection or when the target doesn't exist — the
+      // column still works as a plain UUID (user can fix the relation later).
+      try {
+        await applyRelationFieldsPostCreate(_db, payload);
+      } catch (err) {
+        console.warn(`[create_collection] relation post-process warning:`, err);
+      }
+
       await _db
         .updateTable('zv_ddl_jobs' as any)
         .set({ status: 'completed', completed_at: new Date() } as any)
@@ -296,5 +370,25 @@ async function processNextJob(): Promise<void> {
       `DDL job ${(job as any).id} failed (attempt ${retryCount}/${maxRetries}${exhausted ? ' — no more retries' : ''}):`,
       error,
     );
+
+    // On permanent create_collection failure, drop the orphan zvd_collections
+    // metadata row so the collection name is reusable and Studio doesn't show
+    // a ghost entry with no physical table behind it.
+    if (exhausted && (job as any).type === 'create_collection') {
+      try {
+        const payload =
+          typeof (job as any).payload === 'string'
+            ? JSON.parse((job as any).payload)
+            : (job as any).payload;
+        if (payload?.name) {
+          await _db
+            .deleteFrom('zvd_collections' as any)
+            .where('name' as any, '=', payload.name)
+            .execute();
+        }
+      } catch (cleanupErr) {
+        console.error(`Failed to clean up ghost metadata for job ${(job as any).id}:`, cleanupErr);
+      }
+    }
   }
 }

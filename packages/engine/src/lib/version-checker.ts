@@ -1,6 +1,5 @@
 import type { Database } from '../db/index.js';
-
-const ENGINE_VERSION = '2.0.0';
+import { ENGINE_VERSION } from '../version.js';
 
 /**
  * Checks compatibility of an extension with the current engine version.

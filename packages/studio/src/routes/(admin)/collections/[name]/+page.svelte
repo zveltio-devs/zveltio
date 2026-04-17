@@ -1,7 +1,8 @@
 <script lang="ts">
  import { page } from '$app/state';
+ import { goto } from '$app/navigation';
  import { collectionsApi, dataApi, api, viewsApi } from '$lib/api.js';
- import { Plus, Trash2, RefreshCw, Columns, GitFork, Sparkles, Save, Code, LayoutGrid, X } from '@lucide/svelte';
+ import { Plus, Trash2, RefreshCw, Save, X, Sparkles } from '@lucide/svelte';
  import { base } from '$app/paths';
  import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
  import ViewWrapper from '$lib/components/views/ViewWrapper.svelte';
@@ -9,6 +10,7 @@
  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+ import CollectionTabs from '$lib/components/common/CollectionTabs.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  const collectionName = $derived(page.params.name ?? '');
@@ -16,7 +18,22 @@
  let records = $state<any[]>([]);
  let pagination = $state<any>({ total: 0, page: 1, limit: 20 });
  let loading = $state(true);
- let activeTab = $state<'data' | 'schema' | 'ai' | 'code' | 'views'>('data');
+ type MainTab = 'data' | 'schema' | 'ai' | 'code' | 'views';
+ const VALID_TABS: MainTab[] = ['data', 'schema', 'ai', 'code', 'views'];
+ const activeTab = $derived<MainTab>(
+   (VALID_TABS.includes(page.url.searchParams.get('tab') as MainTab)
+     ? (page.url.searchParams.get('tab') as MainTab)
+     : 'data')
+ );
+ function setTab(t: MainTab) {
+   const href = t === 'data'
+     ? `${base}/collections/${collectionName}`
+     : `${base}/collections/${collectionName}?tab=${t}`;
+   goto(href, { noScroll: true, keepFocus: true });
+ }
+ $effect(() => {
+   if (activeTab === 'views') loadViews();
+ });
 
  // Views tab state
  let savedViews = $state<any[]>([]);
@@ -186,44 +203,7 @@
  ]} />
  <PageHeader title={collection?.display_name || collectionName} subtitle={collectionName} />
 
- <!-- Tabs -->
- <div class="border-b border-base-200 mb-4">
-   <div class="flex gap-0">
-     <button
-       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors gap-1 flex items-center
-              {activeTab === 'data' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
-       onclick={() => (activeTab = 'data')}
-     >Data</button>
-     <button
-       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors gap-1 flex items-center
-              {activeTab === 'schema' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
-       onclick={() => (activeTab = 'schema')}
-     >Schema</button>
-     <a href="{base}/collections/{collectionName}/fields"
-        class="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-base-content/50 hover:text-base-content flex items-center gap-1">
-       <Columns size={13} />Fields
-     </a>
-     <a href="{base}/collections/{collectionName}/relations"
-        class="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-base-content/50 hover:text-base-content flex items-center gap-1">
-       <GitFork size={13} />Relations
-     </a>
-     <button
-       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1
-              {activeTab === 'ai' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
-       onclick={() => (activeTab = 'ai')}
-     ><Sparkles size={13} />AI Search</button>
-     <button
-       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1
-              {activeTab === 'code' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
-       onclick={() => (activeTab = 'code')}
-     ><Code size={13} />Code</button>
-     <button
-       class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1
-              {activeTab === 'views' ? 'border-primary text-primary' : 'border-transparent text-base-content/50 hover:text-base-content'}"
-       onclick={() => { activeTab = 'views'; loadViews(); }}
-     ><LayoutGrid size={13} />Views</button>
-   </div>
- </div>
+ <CollectionTabs {collectionName} active={activeTab} />
 
  {#if activeTab === 'data'}
  <div class="flex justify-between items-center">

@@ -28,7 +28,11 @@
     }
 
     try {
-      const res = await fetch(`${ENGINE_URL}/api/health/update-check`);
+      // credentials: 'include' — /api/health/update-check is auth-gated since
+      // the version-info endpoints were moved off public exposure.
+      const res = await fetch(`${ENGINE_URL}/api/health/update-check`, {
+        credentials: 'include',
+      });
       if (res.ok) {
         const data = await res.json();
         updateInfo = data as any;

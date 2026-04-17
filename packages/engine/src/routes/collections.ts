@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { DDLManager, CollectionSchema, FieldSchema } from '../lib/ddl-manager.js';
 import { checkPermission } from '../lib/permissions.js';
@@ -10,6 +11,17 @@ import { SYSTEM_COLLECTIONS, getSystemCollection } from '../lib/system-collectio
 import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
+
+const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
+const ON_DELETE_RE = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
+const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+
+// Reserved system column names — cannot be used as user field names because the
+// physical table already owns them (see DDLManager.createCollection). Declared at
+// module scope so both CREATE-collection and ADD-field paths use the same list.
+const SYSTEM_FIELDS = new Set([
+  'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector',
+]);
 
 // Auth helper — checks session from request headers
 async function requireAdmin(c: any, auth: any): Promise<any> {
@@ -96,6 +108,15 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         if (!fieldTypeRegistry.has(field.type)) {
           return c.json(
             { error: `Unknown field type: "${field.type}". Use GET /api/collections/field-types for available types.` },
+            400,
+          );
+        }
+        // Block reserved system column names before enqueueing DDL — otherwise the
+        // async job fails with "column X specified more than once" and leaves orphan
+        // metadata in zvd_collections (ghost collection).
+        if (SYSTEM_FIELDS.has(field.name)) {
+          return c.json(
+            { error: `Field name '${field.name}' is reserved (conflicts with system column).` },
             400,
           );
         }
@@ -233,11 +254,6 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     }
   });
 
-  // Reserved system column names that cannot be used as field names
-  const SYSTEM_FIELDS = new Set([
-    'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector',
-  ]);
-
   // BYOD guard: schema mutations are not allowed on unmanaged collections.
   // ddl-queue.ts enforces the same rule for async DDL jobs; this keeps the sync HTTP
   // paths (add_field / remove_field / drop) from silently diverging.
@@ -298,11 +314,59 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
       try {
         const tableName = DDLManager.getTableName(name);
-        const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
 
-        if (colDDL) {
-          // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
-          await dynamicAddColumn(db, tableName, colDDL);
+        // Relation fields with a declared target: create the column WITH the FK
+        // in a single ALTER TABLE and register the relation so joins/expands work.
+        // Without this, Studio would save `options.related_collection` metadata
+        // but no actual constraint would ever be created.
+        const opts = (field as any).options ?? {};
+        const relatedCollection = opts.related_collection;
+        if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
+          const target = String(relatedCollection);
+          if (!SAFE_NAME_RE.test(target)) {
+            return c.json({ error: `Invalid target collection: '${target}'` }, 400);
+          }
+          const targetExists = await DDLManager.tableExists(db, target);
+          if (!targetExists) {
+            return c.json({ error: `Target collection '${target}' not found` }, 404);
+          }
+
+          const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
+          const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
+          if (!ON_DELETE_RE.test(onDelete) || !ON_DELETE_RE.test(onUpdate)) {
+            return c.json({ error: 'Invalid on_delete/on_update value' }, 400);
+          }
+
+          const targetTable = DDLManager.getTableName(target);
+          await sql.raw(
+            `ALTER TABLE "${tableName}" ADD COLUMN "${field.name}" UUID ` +
+              `REFERENCES "${targetTable}"(id) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
+          ).execute(db);
+
+          await (db as any)
+            .insertInto('zvd_relations')
+            .values({
+              name: `${name}_${field.name}`,
+              type: 'm2o',
+              source_collection: name,
+              source_field: field.name,
+              target_collection: target,
+              target_field: 'id',
+              on_delete: onDelete,
+              on_update: onUpdate,
+            })
+            .execute()
+            .catch((err: any) => {
+              // UNIQUE(source_collection, source_field) protects against duplicates.
+              // The column was created OK — log and continue, don't fail the whole add.
+              console.warn(`[add-field] zvd_relations insert skipped:`, err?.message ?? err);
+            });
+        } else {
+          const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
+          if (colDDL) {
+            // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
+            await dynamicAddColumn(db, tableName, colDDL);
+          }
         }
 
         const updatedFields = [...existingFields, field];
@@ -346,6 +410,17 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     try {
       const tableName = DDLManager.getTableName(name);
       await dynamicDropColumn(db, tableName, fieldName);
+
+      // Drop the relation row if this was an FK-backed field. The FK itself is
+      // dropped by Postgres when the column goes away, but the metadata row
+      // would dangle otherwise and re-adding the same field would hit the
+      // UNIQUE(source_collection, source_field) constraint.
+      await (db as any)
+        .deleteFrom('zvd_relations')
+        .where('source_collection', '=', name)
+        .where('source_field', '=', fieldName)
+        .execute()
+        .catch((err: any) => console.warn(`[remove-field] zvd_relations cleanup:`, err?.message ?? err));
 
       const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
       await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });

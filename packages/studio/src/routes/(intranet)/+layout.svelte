@@ -51,11 +51,12 @@
     }
 
     try {
-      const res = await api.get<{ zone: any; pages: any[] }>(`/api/zones/${ZONE_SLUG}/render`);
+      const res = await api.get<{ zone: any; nav: any[] }>(`/api/zones/${ZONE_SLUG}/render`);
       zone = res.zone;
-      navPages = (res.pages ?? []).filter((p: any) => p.is_active);
+      navPages = res.nav ?? [];
     } catch {
-      // Zone not configured yet — fall back to static nav
+      // Zone not configured / forbidden — fall back to static nav
+      navPages = [];
     }
   });
 

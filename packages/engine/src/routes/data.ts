@@ -189,6 +189,7 @@ async function serializeRecord(record: any, collectionDef: any): Promise<any> {
 async function processInput(
   data: Record<string, any>,
   collectionDef: any,
+  partial = false,
 ): Promise<{ errors: string[]; processed: Record<string, any> }> {
   const errors: string[] = [];
   const processed: Record<string, any> = {};
@@ -201,14 +202,15 @@ async function processInput(
 
     const value = data[field.name];
 
-    // Validate
+    // In partial mode (PATCH), only touch fields the caller actually sent.
+    // Skipping validate here preserves required-field enforcement on create/replace.
+    if (partial && value === undefined) continue;
+
     const error = fieldTypeRegistry.validate(field.type, value, field);
     if (error) errors.push(error);
 
-    // Deserialize
     if (value !== undefined) {
       const deserialized = fieldTypeRegistry.deserialize(field.type, value);
-      // Encrypt fields marked as encrypted
       processed[field.name] = field.encrypted
         ? await maybeEncrypt(deserialized, true)
         : deserialized;
@@ -230,6 +232,13 @@ async function getVirtualConfig(db: Database, collection: string): Promise<Virtu
 /** Returns the tenant-isolated transaction DB when in multi-tenant mode, else the pool. */
 function getDb(c: any, fallback: Database): Database {
   return (c.get('tenantTrx') as Database | null) ?? fallback;
+}
+
+// RFC 4122 UUID (any version). Short-circuiting here turns an otherwise
+// user-visible Postgres "invalid input syntax for uuid" 500 into a clean 404.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(v: string): boolean {
+  return UUID_RE.test(v);
 }
 
 
@@ -395,11 +404,26 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const tableName = DDLManager.getTableName(collection);
 
+    // Build the set of columns clients are allowed to sort/filter by. Hitting
+    // Postgres with an unknown column surfaces as a 500 ("column X does not
+    // exist") — we want a clean 400 at the edge instead.
+    const rawFields: any[] = typeof (collectionDef as any).fields === 'string'
+      ? JSON.parse((collectionDef as any).fields)
+      : ((collectionDef as any).fields ?? []);
+    const SYSTEM_COLS = new Set([
+      'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by',
+    ]);
+    const allowedCols = new Set<string>([
+      ...SYSTEM_COLS,
+      ...rawFields.map((f: any) => f.name).filter(Boolean),
+    ]);
+
     // Parse filters from JSON query param into safe FilterCondition map
     const filters: Record<string, FilterCondition> = {};
     if (query.filter) {
-      try {
-        const raw = JSON.parse(query.filter);
+      let raw: Record<string, any> | null = null;
+      try { raw = JSON.parse(query.filter); } catch { /* malformed JSON — ignore filter */ }
+      if (raw && typeof raw === 'object') {
         const opAlias: Record<string, FilterCondition['op']> = {
           eq: 'eq', neq: 'neq', lt: 'lt', lte: 'lte', gt: 'gt', gte: 'gte',
           like: 'ilike', contains: 'ilike', ilike: 'ilike',
@@ -408,6 +432,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
           not_null: 'not_null', is_not_null: 'not_null',
         };
         for (const [key, value] of Object.entries(raw)) {
+          if (!allowedCols.has(key)) {
+            return c.json({ error: `Unknown filter field: '${key}'` }, 400);
+          }
           if (typeof value === 'object' && value !== null) {
             const [op, val] = Object.entries(value)[0] as [string, any];
             const mappedOp = opAlias[op];
@@ -416,7 +443,11 @@ export function dataRoutes(db: Database, auth: any): Hono {
             filters[key] = { op: 'eq', value };
           }
         }
-      } catch { /* invalid JSON — skip */ }
+      }
+    }
+
+    if (query.sort && !allowedCols.has(query.sort)) {
+      return c.json({ error: `Unknown sort field: '${query.sort}'` }, 400);
     }
 
     const effectiveDb = getDb(c, db);
@@ -548,6 +579,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const user = c.get('user');
     const asOfRaw = c.req.query('as_of');
 
+    if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
+
     if (!(await checkAccess(db, user, collection, 'read'))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
@@ -664,6 +697,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const id = c.req.param('id');
     const user = c.get('user');
 
+    if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
+
     if (!(await checkAccess(db, user, collection, 'update'))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
@@ -705,6 +740,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const id = c.req.param('id');
     const user = c.get('user');
 
+    if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
+
     if (!(await checkAccess(db, user, collection, 'update'))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
@@ -727,7 +764,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const body = await c.req.json();
 
-    const { errors, processed } = await processInput(body, collectionDef);
+    const { errors, processed } = await processInput(body, collectionDef, true);
     if (errors.length > 0) return c.json({ errors }, 422);
 
     const effectiveDb = getDb(c, db);
@@ -745,6 +782,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const collection = c.req.param('collection');
     const id = c.req.param('id');
     const user = c.get('user');
+
+    if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);
 
     if (!(await checkAccess(db, user, collection, 'delete'))) {
       return c.json({ error: 'Forbidden' }, 403);
