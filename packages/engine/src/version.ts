@@ -13,8 +13,11 @@
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import { EMBEDDED_MIGRATIONS } from './db/migrations/embedded.js';
+import pkg from '../package.json' with { type: 'json' };
 
-export const ENGINE_VERSION = '1.0.0-alpha.2';
+// Read from package.json so a version bump is the single source of truth.
+// `bun build` inlines this JSON into the compiled binary.
+export const ENGINE_VERSION = pkg.version;
 
 // Oldest migration version compatible with this engine.
 // Change ONLY on MAJOR version bumps with breaking schema changes.

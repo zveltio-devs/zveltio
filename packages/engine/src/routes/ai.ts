@@ -39,7 +39,7 @@ export function aiRoutes(db: any, auth: any): Hono {
       .select([
         'id',
         'name',
-        'display_name',
+        'label',
         'default_model',
         'base_url',
         'is_default',
@@ -65,7 +65,7 @@ export function aiRoutes(db: any, auth: any): Hono {
     zValidator(
       'json',
       z.object({
-        display_name: z.string().optional(),
+        label: z.string().optional(),
         api_key: z.string().optional(),
         base_url: z
           .string()
@@ -112,7 +112,7 @@ export function aiRoutes(db: any, auth: any): Hono {
           .where('name', '=', name)
           .execute();
       } else {
-        const displayNames: Record<string, string> = {
+        const labels: Record<string, string> = {
           openai: 'OpenAI',
           anthropic: 'Anthropic (Claude)',
           gemini: 'Google Gemini',
@@ -122,7 +122,7 @@ export function aiRoutes(db: any, auth: any): Hono {
           .insertInto('zv_ai_providers')
           .values({
             name,
-            display_name: body.display_name || displayNames[name] || name,
+            label: body.label || labels[name] || name,
             api_key: body.api_key
               ? await encryptApiKey(body.api_key)
               : undefined,

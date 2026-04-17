@@ -199,7 +199,7 @@
         </div>
         <div class="form-control">
           <label class="label" for="zbp"><span class="label-text">Base path *</span></label>
-          <input id="zbp" type="text" class="input font-mono" placeholder="/portal/client"
+          <input id="zbp" type="text" class="input font-mono" placeholder="/portal-client"
             bind:value={form.base_path}/>
         </div>
       </div>

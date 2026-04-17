@@ -16,8 +16,38 @@
   let nameError = $state('');
   let showCreateModal = $state(false);
 
-  let newFields = $state([{ name: '', type: 'text', required: false }]);
+  type NewField = {
+    name: string;
+    type: string;
+    required: boolean;
+    related_collection?: string;
+    enum_values_raw?: string;
+  };
+  let newFields = $state<NewField[]>([{ name: '', type: 'text', required: false }]);
+  let fieldTypes = $state<any[]>([]);
+  let allCollections = $state<any[]>([]);
   let search = $state('');
+
+  const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
+
+  const categories = [
+    { id: 'text', label: 'Text' },
+    { id: 'number', label: 'Number' },
+    { id: 'date', label: 'Date & Time' },
+    { id: 'media', label: 'Media' },
+    { id: 'relation', label: 'Relations' },
+    { id: 'location', label: 'Location' },
+    { id: 'special', label: 'Special' },
+  ];
+
+  function getCategoryTypes(category: string) {
+    return fieldTypes.filter((t) => t.category === category);
+  }
+
+  function parseEnumValues(raw: string | undefined): string[] {
+    if (!raw) return [];
+    return raw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+  }
   let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
   const filtered = $derived(
@@ -31,6 +61,10 @@
   );
 
   onMount(async () => {
+    try {
+      const typesRes = await collectionsApi.fieldTypes();
+      fieldTypes = typesRes.field_types ?? [];
+    } catch { /* non-fatal */ }
     await loadCollections();
   });
 
@@ -39,6 +73,7 @@
     try {
       const res = await collectionsApi.list();
       collections = res.collections;
+      allCollections = res.collections ?? [];
     } finally {
       loading = false;
     }
@@ -66,9 +101,32 @@
       nameError = 'All fields must have a name';
       return;
     }
+    for (const f of newFields) {
+      if (RELATION_NEEDS_TARGET.has(f.type) && !f.related_collection) {
+        nameError = `Field "${f.name}": select a target collection`;
+        return;
+      }
+      if (f.type === 'enum' && parseEnumValues(f.enum_values_raw).length === 0) {
+        nameError = `Field "${f.name}": add at least one enum value`;
+        return;
+      }
+    }
     creating = true;
     try {
-      await collectionsApi.create({ name: newCollectionName.trim(), fields: newFields });
+      const payloadFields = newFields.map((f) => {
+        const options: Record<string, any> = {};
+        if (RELATION_NEEDS_TARGET.has(f.type) && f.related_collection) {
+          options.related_collection = f.related_collection;
+        }
+        if (f.type === 'enum') {
+          const values = parseEnumValues(f.enum_values_raw);
+          if (values.length > 0) options.values = values;
+        }
+        const body: Record<string, any> = { name: f.name.trim(), type: f.type, required: f.required };
+        if (Object.keys(options).length > 0) body.options = options;
+        return body;
+      });
+      await collectionsApi.create({ name: newCollectionName.trim(), fields: payloadFields });
       showCreateModal = false;
       newCollectionName = '';
       newFields = [{ name: '', type: 'text', required: false }];
@@ -337,43 +395,59 @@
               {/if}
             </div>
             <div class="space-y-1.5">
-              <div>
-                <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">Text</p>
-                <div class="flex flex-wrap gap-1">
-                  {#each ['text', 'textarea', 'richtext', 'email', 'url', 'slug'] as t}
-                    <button type="button"
-                      class="badge cursor-pointer transition-all {field.type === t ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
-                      onclick={() => { field.type = t; }}>
-                      {t}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-              <div>
-                <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">Number & Date</p>
-                <div class="flex flex-wrap gap-1">
-                  {#each ['number', 'decimal', 'date', 'datetime', 'time'] as t}
-                    <button type="button"
-                      class="badge cursor-pointer transition-all {field.type === t ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
-                      onclick={() => { field.type = t; }}>
-                      {t}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-              <div>
-                <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">Other</p>
-                <div class="flex flex-wrap gap-1">
-                  {#each ['boolean', 'enum', 'json', 'file', 'relation', 'computed'] as t}
-                    <button type="button"
-                      class="badge cursor-pointer transition-all {field.type === t ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
-                      onclick={() => { field.type = t; }}>
-                      {t}
-                    </button>
-                  {/each}
-                </div>
-              </div>
+              {#each categories as cat}
+                {@const types = getCategoryTypes(cat.id)}
+                {#if types.length > 0}
+                  <div>
+                    <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">{cat.label}</p>
+                    <div class="flex flex-wrap gap-1">
+                      {#each types as t}
+                        <button type="button"
+                          class="badge cursor-pointer transition-all {field.type === t.id ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
+                          title={t.description ?? t.id}
+                          onclick={() => { field.type = t.id; }}>
+                          {t.id}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              {/each}
             </div>
+
+            {#if RELATION_NEEDS_TARGET.has(field.type)}
+              <div class="form-control">
+                <label class="label py-1" for="rel-target-{i}">
+                  <span class="label-text text-xs">Target collection <span class="text-error">*</span></span>
+                </label>
+                <select
+                  id="rel-target-{i}"
+                  class="select select-sm select-bordered"
+                  bind:value={field.related_collection}
+                >
+                  <option value="">Select a collection…</option>
+                  {#each allCollections as c}
+                    <option value={c.name}>{c.display_name || c.name}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
+
+            {#if field.type === 'enum'}
+              <div class="form-control">
+                <label class="label py-1" for="enum-vals-{i}">
+                  <span class="label-text text-xs">Allowed values <span class="text-error">*</span></span>
+                  <span class="label-text-alt text-base-content/50 text-[10px]">comma or newline separated</span>
+                </label>
+                <textarea
+                  id="enum-vals-{i}"
+                  class="textarea textarea-sm textarea-bordered font-mono"
+                  rows="2"
+                  placeholder="active, pending, archived"
+                  bind:value={field.enum_values_raw}
+                ></textarea>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>

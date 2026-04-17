@@ -7,6 +7,7 @@
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import CollectionTabs from '$lib/components/common/CollectionTabs.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  const collectionName = $derived(page.params.name ?? '');
@@ -29,11 +30,19 @@
  indexed: false,
  description: '',
  related_collection: '',
+ enum_values_raw: '',
  });
 
  // Relation types that need a target collection (m2a = polymorphic, doesn't need one)
  const RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m', 'm2a']);
  const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
+
+ function parseEnumValues(raw: string): string[] {
+ return raw
+ .split(/[\n,]/)
+ .map((s) => s.trim())
+ .filter(Boolean);
+ }
 
  let addError = $state('');
  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
@@ -91,20 +100,31 @@
  return;
  }
 
+ let enumValues: string[] = [];
+ if (newField.type === 'enum') {
+ enumValues = parseEnumValues(newField.enum_values_raw);
+ if (enumValues.length === 0) {
+ addError = 'Enum fields need at least one value (comma or newline separated)';
+ return;
+ }
+ }
+
  saving = true;
  try {
+ const { enum_values_raw: _omit, related_collection: _omit2, ...rest } = newField;
  const body: Record<string, any> = {
- ...newField,
+ ...rest,
  label: newField.label || newField.name,
  };
- if (newField.related_collection) {
- body.options = { related_collection: newField.related_collection };
- }
+ const options: Record<string, any> = {};
+ if (newField.related_collection) options.related_collection = newField.related_collection;
+ if (enumValues.length > 0) options.values = enumValues;
+ if (Object.keys(options).length > 0) body.options = options;
  await api.post(`/api/collections/${collectionName}/fields`, body);
  const res = await collectionsApi.get(collectionName);
  collection = res.collection;
  showAddForm = false;
- newField = { name: '', type: 'text', label: '', required: false, unique: false, indexed: false, description: '', related_collection: '' };
+ newField = { name: '', type: 'text', label: '', required: false, unique: false, indexed: false, description: '', related_collection: '', enum_values_raw: '' };
  } catch (err: any) {
  addError = err.message || 'Failed to add field';
  } finally {
@@ -149,6 +169,8 @@
      </button>
    {/if}
  </PageHeader>
+
+ <CollectionTabs {collectionName} active="fields" />
 
  <!-- Add field form -->
  {#if showAddForm}
@@ -227,6 +249,22 @@
  <option value={col.name}>{col.display_name || col.name}</option>
  {/each}
  </select>
+ </div>
+ {/if}
+
+ {#if newField.type === 'enum'}
+ <div class="form-control">
+ <label class="label" for="enum_values">
+ <span class="label-text">Allowed values <span class="text-error">*</span></span>
+ <span class="label-text-alt text-base-content/50">comma or newline separated</span>
+ </label>
+ <textarea
+ id="enum_values"
+ class="textarea textarea-sm font-mono"
+ rows="3"
+ placeholder="active, pending, archived"
+ bind:value={newField.enum_values_raw}
+ ></textarea>
  </div>
  {/if}
 
