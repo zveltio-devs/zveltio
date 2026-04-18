@@ -38,6 +38,7 @@
     { id: 'relation', label: 'Relations' },
     { id: 'location', label: 'Location' },
     { id: 'special', label: 'Special' },
+    { id: 'advanced', label: 'Advanced' },
   ];
 
   function getCategoryTypes(category: string) {
@@ -375,75 +376,51 @@
         </div>
 
         {#each newFields as field, i}
-          <div class="border border-base-300 rounded-lg p-3 space-y-2">
-            <div class="flex gap-2 items-center">
-              <input
-                type="text"
-                bind:value={field.name}
-                placeholder="field_name"
-                class="input input-sm flex-1 font-mono"
-                pattern="[a-z][a-z0-9_]*"
-              />
-              <label class="flex items-center gap-1 text-xs whitespace-nowrap">
-                <input type="checkbox" bind:checked={field.required} class="checkbox checkbox-xs" />
-                Required
-              </label>
-              {#if newFields.length > 1}
-                <button onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error">
-                  <Trash2 size={13} />
-                </button>
-              {/if}
-            </div>
-            <div class="space-y-1.5">
+          <div class="flex flex-wrap gap-2 items-start border border-base-300 rounded-lg p-3">
+            <input
+              type="text"
+              bind:value={field.name}
+              placeholder="field_name"
+              class="input input-sm font-mono flex-1 min-w-36"
+              pattern="[a-z][a-z0-9_]*"
+            />
+            <select class="select select-sm min-w-40" bind:value={field.type}>
               {#each categories as cat}
                 {@const types = getCategoryTypes(cat.id)}
                 {#if types.length > 0}
-                  <div>
-                    <p class="text-[10px] uppercase tracking-wide text-base-content/40 mb-1">{cat.label}</p>
-                    <div class="flex flex-wrap gap-1">
-                      {#each types as t}
-                        <button type="button"
-                          class="badge cursor-pointer transition-all {field.type === t.id ? 'badge-primary' : 'badge-ghost hover:badge-outline'}"
-                          title={t.description ?? t.id}
-                          onclick={() => { field.type = t.id; }}>
-                          {t.id}
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
+                  <optgroup label={cat.label}>
+                    {#each types as t}
+                      <option value={t.type}>{t.label}</option>
+                    {/each}
+                  </optgroup>
                 {/if}
               {/each}
-            </div>
-
+            </select>
+            <label class="flex items-center gap-1.5 text-xs whitespace-nowrap self-center">
+              <input type="checkbox" bind:checked={field.required} class="checkbox checkbox-xs" />
+              Required
+            </label>
+            {#if newFields.length > 1}
+              <button onclick={() => removeField(i)} class="btn btn-ghost btn-xs text-error self-center">
+                <Trash2 size={13} />
+              </button>
+            {/if}
             {#if RELATION_NEEDS_TARGET.has(field.type)}
-              <div class="form-control">
-                <label class="label py-1" for="rel-target-{i}">
-                  <span class="label-text text-xs">Target collection <span class="text-error">*</span></span>
-                </label>
-                <select
-                  id="rel-target-{i}"
-                  class="select select-sm select-bordered"
-                  bind:value={field.related_collection}
-                >
-                  <option value="">Select a collection…</option>
+              <div class="w-full">
+                <select class="select select-sm w-full" bind:value={field.related_collection}>
+                  <option value="">Target collection… *</option>
                   {#each allCollections as c}
                     <option value={c.name}>{c.display_name || c.name}</option>
                   {/each}
                 </select>
               </div>
             {/if}
-
             {#if field.type === 'enum'}
-              <div class="form-control">
-                <label class="label py-1" for="enum-vals-{i}">
-                  <span class="label-text text-xs">Allowed values <span class="text-error">*</span></span>
-                  <span class="label-text-alt text-base-content/50 text-[10px]">comma or newline separated</span>
-                </label>
+              <div class="w-full">
                 <textarea
-                  id="enum-vals-{i}"
-                  class="textarea textarea-sm textarea-bordered font-mono"
+                  class="textarea textarea-sm w-full font-mono"
                   rows="2"
-                  placeholder="active, pending, archived"
+                  placeholder="active, pending, archived (comma or newline separated)"
                   bind:value={field.enum_values_raw}
                 ></textarea>
               </div>
