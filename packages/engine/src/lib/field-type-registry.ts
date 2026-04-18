@@ -15,7 +15,7 @@ export interface FieldTypeDefinition {
   label: string;
   description?: string;
   icon?: string;
-  category?: 'text' | 'number' | 'date' | 'media' | 'relation' | 'location' | 'special';
+  category?: 'text' | 'number' | 'date' | 'media' | 'relation' | 'location' | 'special' | 'advanced';
 
   // ── DB Layer ──────────────────────────────────────────────
   db: {

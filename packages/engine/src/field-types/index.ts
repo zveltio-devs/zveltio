@@ -463,4 +463,293 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     },
     typescript: { inputType: 'number[]', outputType: 'number[]' },
   });
+
+  // ── Additional Number types ───────────────────────────────────
+
+  registry.register({
+    type: 'smallint',
+    label: 'Small Integer',
+    description: '2-byte integer (-32768 to 32767). Useful for small counters, status codes.',
+    category: 'number',
+    db: { columnType: 'smallint' },
+    api: {
+      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'is_null', 'is_not_null'],
+      deserialize: (v) => (v === '' || v === null || v === undefined ? null : Math.trunc(Number(v))),
+    },
+    typescript: { inputType: 'number', outputType: 'number' },
+  });
+
+  registry.register({
+    type: 'real',
+    label: 'Real (float4)',
+    description: 'Single-precision floating-point number (4 bytes). Less precise than double.',
+    category: 'number',
+    db: { columnType: 'real' },
+    api: {
+      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
+      deserialize: (v) => (v === '' || v === null || v === undefined ? null : parseFloat(v)),
+    },
+    typescript: { inputType: 'number', outputType: 'number' },
+  });
+
+  registry.register({
+    type: 'decimal',
+    label: 'Decimal',
+    description: 'Exact numeric with configurable precision and scale. Use for financial data.',
+    category: 'number',
+    db: { columnType: 'numeric' },
+    api: {
+      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
+      deserialize: (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
+    },
+    typescript: { inputType: 'number', outputType: 'number' },
+  });
+
+  registry.register({
+    type: 'money',
+    label: 'Money',
+    description: 'Monetary amount in locale currency. Note: locale-dependent; prefer decimal for portability.',
+    category: 'number',
+    db: { columnType: 'money' },
+    api: {
+      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'number', outputType: 'number' },
+  });
+
+  // ── Additional Text types ─────────────────────────────────────
+
+  registry.register({
+    type: 'varchar',
+    label: 'Varchar',
+    description: 'Variable-length string with an optional max length constraint.',
+    category: 'text',
+    db: { columnType: 'character varying' },
+    api: {
+      filterOperators: ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'char',
+    label: 'Char (fixed)',
+    description: 'Fixed-length character string, blank-padded to the declared length.',
+    category: 'text',
+    db: { columnType: 'character' },
+    api: {
+      filterOperators: ['eq', 'neq', 'contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  // ── Additional Date & Time types ──────────────────────────────
+
+  registry.register({
+    type: 'time',
+    label: 'Time',
+    description: 'Time of day without date or timezone.',
+    category: 'date',
+    db: { columnType: 'time' },
+    api: {
+      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'timetz',
+    label: 'Time with Timezone',
+    description: 'Time of day including timezone offset.',
+    category: 'date',
+    db: { columnType: 'timetz' },
+    api: {
+      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'interval',
+    label: 'Interval',
+    description: "Time interval / duration (e.g. '1 year 2 months', '3 hours'). Useful for subscriptions, scheduling.",
+    category: 'date',
+    db: { columnType: 'interval' },
+    api: {
+      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  // ── Advanced / PostgreSQL Native ──────────────────────────────
+
+  registry.register({
+    type: 'bytea',
+    label: 'Binary (bytea)',
+    description: 'Binary data stored directly in the database. Useful for thumbnails, PDFs.',
+    category: 'advanced',
+    db: { columnType: 'bytea' },
+    api: {
+      filterOperators: ['is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'tsvector',
+    label: 'Full-Text Vector',
+    description: 'PostgreSQL tsvector for native full-text search indexing (GIN index auto-created).',
+    category: 'advanced',
+    db: { columnType: 'tsvector', indexType: 'gin' },
+    api: {
+      filterOperators: ['is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'inet',
+    label: 'IP Address',
+    description: 'IPv4 or IPv6 host address with optional subnet.',
+    category: 'advanced',
+    db: { columnType: 'inet' },
+    api: {
+      filterOperators: ['eq', 'neq', 'contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'cidr',
+    label: 'Network Address',
+    description: 'IPv4 or IPv6 network in CIDR notation (e.g. 192.168.100.0/24).',
+    category: 'advanced',
+    db: { columnType: 'cidr' },
+    api: {
+      filterOperators: ['eq', 'neq', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'macaddr',
+    label: 'MAC Address',
+    description: 'Hardware MAC address (e.g. 08:00:2b:01:02:03). Useful for IoT and network inventory.',
+    category: 'advanced',
+    db: { columnType: 'macaddr' },
+    api: {
+      filterOperators: ['eq', 'neq', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'xml',
+    label: 'XML',
+    description: 'XML document or fragment with syntax validation.',
+    category: 'advanced',
+    db: { columnType: 'xml' },
+    api: {
+      filterOperators: ['is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'bit',
+    label: 'Bit String',
+    description: 'Fixed-length sequence of bits (e.g. bit(8) for flags byte).',
+    category: 'advanced',
+    db: { columnType: 'bit' },
+    api: {
+      filterOperators: ['eq', 'neq', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  registry.register({
+    type: 'varbit',
+    label: 'Bit Varying',
+    description: 'Variable-length bit string. Like varchar but for bits.',
+    category: 'advanced',
+    db: { columnType: 'varbit' },
+    api: {
+      filterOperators: ['eq', 'neq', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: 'string', outputType: 'string' },
+  });
+
+  // ── Range types ───────────────────────────────────────────────
+
+  registry.register({
+    type: 'int4range',
+    label: 'Integer Range',
+    description: 'Range of 4-byte integers. Useful for versioning, pagination ranges.',
+    category: 'advanced',
+    db: { columnType: 'int4range' },
+    api: {
+      filterOperators: ['contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: '{ lower: number; upper: number }', outputType: '{ lower: number; upper: number }' },
+  });
+
+  registry.register({
+    type: 'int8range',
+    label: 'Big Integer Range',
+    description: 'Range of 8-byte integers.',
+    category: 'advanced',
+    db: { columnType: 'int8range' },
+    api: {
+      filterOperators: ['contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: '{ lower: number; upper: number }', outputType: '{ lower: number; upper: number }' },
+  });
+
+  registry.register({
+    type: 'numrange',
+    label: 'Numeric Range',
+    description: 'Range of arbitrary-precision numbers. Useful for price brackets.',
+    category: 'advanced',
+    db: { columnType: 'numrange' },
+    api: {
+      filterOperators: ['contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: '{ lower: number; upper: number }', outputType: '{ lower: number; upper: number }' },
+  });
+
+  registry.register({
+    type: 'daterange',
+    label: 'Date Range',
+    description: 'Range of calendar dates. Useful for booking, event periods.',
+    category: 'advanced',
+    db: { columnType: 'daterange' },
+    api: {
+      filterOperators: ['contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: '{ lower: string; upper: string }', outputType: '{ lower: string; upper: string }' },
+  });
+
+  registry.register({
+    type: 'tsrange',
+    label: 'Timestamp Range',
+    description: 'Range of timestamps without timezone. Useful for scheduling, availability.',
+    category: 'advanced',
+    db: { columnType: 'tsrange' },
+    api: {
+      filterOperators: ['contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: '{ lower: string; upper: string }', outputType: '{ lower: string; upper: string }' },
+  });
+
+  registry.register({
+    type: 'tstzrange',
+    label: 'Timestamp+TZ Range',
+    description: 'Range of timestamps with timezone. Preferred for scheduling across timezones.',
+    category: 'advanced',
+    db: { columnType: 'tstzrange' },
+    api: {
+      filterOperators: ['contains', 'is_null', 'is_not_null'],
+    },
+    typescript: { inputType: '{ lower: string; upper: string }', outputType: '{ lower: string; upper: string }' },
+  });
 }
