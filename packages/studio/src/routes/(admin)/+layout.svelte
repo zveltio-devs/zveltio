@@ -144,6 +144,7 @@
         { href: `${base}/audit`,        icon: ClipboardList, label: 'Audit Log' },
         { href: `${base}/translations`, icon: Languages,    label: 'Translations' },
         { href: `${base}/marketplace`,  icon: Package,      label: 'Marketplace' },
+        { href: `${base}/settings`,     icon: Settings,     label: 'Settings'    },
       ]
     },
   ];
@@ -286,22 +287,6 @@
           {/each}
         {/if}
 
-        <!-- Settings (pinned at bottom of nav) -->
-        <div class="px-2 py-0.5 mt-1">
-          <a
-            href="{base}/settings"
-            title={collapsed ? 'Settings' : undefined}
-            class="
-              flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-              transition-colors duration-100
-              {isActive(`${base}/settings`) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-              {collapsed ? 'justify-center' : ''}
-            "
-          >
-            <Settings size={16} class="shrink-0" />
-            {#if !collapsed}<span class="truncate leading-none">Settings</span>{/if}
-          </a>
-        </div>
       </nav>
 
       <!-- Footer -->
@@ -416,20 +401,6 @@
               </div>
             {/each}
           {/each}
-          <div class="px-2 py-0.5 mt-1">
-            <a
-              href="{base}/settings"
-              onclick={() => (mobileOpen = false)}
-              class="
-                flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-                transition-colors duration-100
-                {isActive(`${base}/settings`) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-              "
-            >
-              <Settings size={16} class="shrink-0" />
-              <span class="truncate leading-none">Settings</span>
-            </a>
-          </div>
         </nav>
       </aside>
     {/if}
