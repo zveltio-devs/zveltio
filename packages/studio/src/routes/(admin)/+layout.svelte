@@ -11,7 +11,7 @@
     Puzzle, LogOut, HardDrive, Key, ClipboardList, Languages,
     Upload, Bot, Bell, Download, Workflow, Package, GitBranch, Plug,
     Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare,
-    ScanSearch, Mail, FlaskConical, Search, Code, Bookmark, BarChart2,
+    ScanSearch, Search, Code, Bookmark, BarChart2,
     LayoutGrid, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Menu, X,
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
@@ -143,7 +143,6 @@
         { href: `${base}/export`,       icon: Download,     label: 'Export'     },
         { href: `${base}/audit`,        icon: ClipboardList, label: 'Audit Log' },
         { href: `${base}/translations`, icon: Languages,    label: 'Translations' },
-        { href: `${base}/mail`,         icon: Mail,         label: 'Mail'       },
         { href: `${base}/marketplace`,  icon: Package,      label: 'Marketplace' },
       ]
     },
