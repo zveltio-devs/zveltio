@@ -2,11 +2,16 @@
 /**
  * sync-engine-version.ts
  *
- * Reads the version from packages/engine/package.json and updates
- * the ENGINE_VERSION constant in packages/engine/src/version.ts.
+ * Copies the root package.json version into packages/engine/package.json.
  *
- * Called automatically by `bun run version-packages` after Changesets
- * bumps the package.json files — so ENGINE_VERSION is always in sync.
+ * Called automatically by `bun run version-packages` after Changesets bumps
+ * the root and SDK packages. Since @zveltio/engine is in the changeset ignore
+ * list (it ships as a binary, not an npm package), Changesets never bumps it —
+ * this script keeps it in sync with the monorepo version.
+ *
+ * version.ts reads ENGINE_VERSION directly from packages/engine/package.json
+ * via `import pkg from '../package.json'`, so keeping that file up to date is
+ * the single source of truth for what the compiled binary reports.
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -16,21 +21,18 @@ import { fileURLToPath } from 'url';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const root = join(__dir, '..');
 
-const pkgPath = join(root, 'packages/engine/package.json');
-const versionTsPath = join(root, 'packages/engine/src/version.ts');
+const rootPkgPath = join(root, 'package.json');
+const enginePkgPath = join(root, 'packages/engine/package.json');
 
-const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string };
-const newVersion = pkg.version;
+const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8')) as { version: string };
+const enginePkg = JSON.parse(readFileSync(enginePkgPath, 'utf-8')) as { version: string; [k: string]: unknown };
 
-let content = readFileSync(versionTsPath, 'utf-8');
-const updated = content.replace(
-  /export const ENGINE_VERSION = '[^']+'/,
-  `export const ENGINE_VERSION = '${newVersion}'`,
-);
+const newVersion = rootPkg.version;
 
-if (updated === content) {
-  console.log(`ℹ️  ENGINE_VERSION already at ${newVersion} — no change needed.`);
+if (enginePkg.version === newVersion) {
+  console.log(`ℹ️  packages/engine/package.json already at ${newVersion} — no change needed.`);
 } else {
-  writeFileSync(versionTsPath, updated, 'utf-8');
-  console.log(`✅ ENGINE_VERSION updated to ${newVersion}`);
+  enginePkg.version = newVersion;
+  writeFileSync(enginePkgPath, JSON.stringify(enginePkg, null, 2) + '\n', 'utf-8');
+  console.log(`✅ packages/engine/package.json bumped to ${newVersion}`);
 }

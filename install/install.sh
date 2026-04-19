@@ -349,60 +349,86 @@ EOF
 
   if ! command -v valkey-server &>/dev/null; then
     local VALKEY_VER="8.0.2"
-    local ARCH
-    ARCH=$(dpkg --print-architecture)
     local VALKEY_INSTALLED=false
 
-    # Try pre-built binary first (fastest)
-    if [[ "$ARCH" == "amd64" || "$ARCH" == "arm64" ]]; then
-      # Valkey release naming: valkey-<ver>-<distro>-<arch>.tar.gz
-      local DISTRO_CODENAME
-      DISTRO_CODENAME=$(lsb_release -cs 2>/dev/null || echo "")
-      local VALKEY_ARCH="$ARCH"
+    # 1. Package manager — fastest path, works on most distros (valkey.io/topics/installation/)
+    case "${OS_ID:-}" in
+      ubuntu|debian|raspbian|devuan|linuxmint)
+        if apt-get install -y -qq valkey 2>/dev/null; then
+          VALKEY_INSTALLED=true; success "Valkey installed via apt"
+        fi ;;
+      fedora)
+        if dnf install -y -q valkey 2>/dev/null; then
+          VALKEY_INSTALLED=true; success "Valkey installed via dnf"
+        fi ;;
+      centos|rhel|rocky|almalinux)
+        dnf install -y -q epel-release 2>/dev/null || yum install -y -q epel-release 2>/dev/null || true
+        if dnf install -y -q valkey 2>/dev/null || yum install -y -q valkey 2>/dev/null; then
+          VALKEY_INSTALLED=true; success "Valkey installed via yum/dnf"
+        fi ;;
+      arch|manjaro)
+        if pacman -Sy --noconfirm valkey 2>/dev/null; then
+          VALKEY_INSTALLED=true; success "Valkey installed via pacman"
+        fi ;;
+      alpine)
+        if apk add -q valkey 2>/dev/null; then
+          VALKEY_INSTALLED=true; success "Valkey installed via apk"
+        fi ;;
+    esac
 
-      # Try distro-specific binary first, then generic Ubuntu/Debian variants
-      local URLS=()
-      if [[ -n "$DISTRO_CODENAME" ]]; then
-        URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-${DISTRO_CODENAME}-${VALKEY_ARCH}.tar.gz")
+    # 2. Pre-built binary — fallback for older distros where package not yet available
+    if [[ "$VALKEY_INSTALLED" == "false" ]]; then
+      warn "Valkey not in package repos — trying pre-built binary..."
+      local ARCH
+      ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+
+      if [[ "$ARCH" == "amd64" || "$ARCH" == "arm64" ]]; then
+        local DISTRO_CODENAME
+        DISTRO_CODENAME=$(lsb_release -cs 2>/dev/null || echo "")
+        local URLS=()
+        [[ -n "$DISTRO_CODENAME" ]] && \
+          URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-${DISTRO_CODENAME}-${ARCH}.tar.gz")
+        URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-noble-${ARCH}.tar.gz")
+        URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-bookworm-${ARCH}.tar.gz")
+        URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-jammy-${ARCH}.tar.gz")
+
+        for url in "${URLS[@]}"; do
+          info "Trying ${url##*/}..."
+          if wget -q "$url" -O /tmp/valkey.tar.gz 2>/dev/null; then
+            local VALKEY_DIR
+            VALKEY_DIR=$(tar -tzf /tmp/valkey.tar.gz 2>/dev/null | head -1 | cut -d/ -f1)
+            tar -xzf /tmp/valkey.tar.gz -C /tmp
+            if [[ -f "/tmp/${VALKEY_DIR}/bin/valkey-server" ]]; then
+              mv "/tmp/${VALKEY_DIR}/bin/valkey-server" /usr/local/bin/
+              mv "/tmp/${VALKEY_DIR}/bin/valkey-cli" /usr/local/bin/
+              VALKEY_INSTALLED=true
+            elif [[ -f "/tmp/${VALKEY_DIR}/valkey-server" ]]; then
+              mv "/tmp/${VALKEY_DIR}/valkey-server" /usr/local/bin/
+              mv "/tmp/${VALKEY_DIR}/valkey-cli" /usr/local/bin/
+              VALKEY_INSTALLED=true
+            fi
+            rm -rf /tmp/valkey* "/tmp/${VALKEY_DIR}" 2>/dev/null || true
+            if [[ "$VALKEY_INSTALLED" == "true" ]]; then
+              success "Valkey ${VALKEY_VER} binary installed"; break
+            fi
+          fi
+        done
       fi
-      URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-noble-${VALKEY_ARCH}.tar.gz")
-      URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-bookworm-${VALKEY_ARCH}.tar.gz")
-      URLS+=("https://github.com/valkey-io/valkey/releases/download/${VALKEY_VER}/valkey-${VALKEY_VER}-jammy-${VALKEY_ARCH}.tar.gz")
-
-      for url in "${URLS[@]}"; do
-        info "Trying ${url##*/}..."
-        if wget -q "$url" -O /tmp/valkey.tar.gz 2>/dev/null; then
-          # Find the extracted directory name dynamically
-          local VALKEY_DIR
-          VALKEY_DIR=$(tar -tzf /tmp/valkey.tar.gz 2>/dev/null | head -1 | cut -d/ -f1)
-          tar -xzf /tmp/valkey.tar.gz -C /tmp
-          if [[ -f "/tmp/${VALKEY_DIR}/bin/valkey-server" ]]; then
-            mv "/tmp/${VALKEY_DIR}/bin/valkey-server" /usr/local/bin/
-            mv "/tmp/${VALKEY_DIR}/bin/valkey-cli" /usr/local/bin/
-            VALKEY_INSTALLED=true
-          elif [[ -f "/tmp/${VALKEY_DIR}/valkey-server" ]]; then
-            mv "/tmp/${VALKEY_DIR}/valkey-server" /usr/local/bin/
-            mv "/tmp/${VALKEY_DIR}/valkey-cli" /usr/local/bin/
-            VALKEY_INSTALLED=true
-          fi
-          rm -rf /tmp/valkey* "/tmp/${VALKEY_DIR}"
-          if [[ "$VALKEY_INSTALLED" == "true" ]]; then
-            success "Valkey ${VALKEY_VER} binary installed"
-            break
-          fi
-        fi
-      done
     fi
 
-    # Fallback: build from source
+    # 3. Build from source — last resort
     if [[ "$VALKEY_INSTALLED" == "false" ]]; then
-      warn "Pre-built binary not available — building Valkey from source (this takes a few minutes)..."
-      apt-get install -y -qq build-essential
-      wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/${VALKEY_VER}.tar.gz" -O /tmp/valkey-src.tar.gz
+      warn "Building Valkey from source (this takes a few minutes)..."
+      apt-get install -y -qq build-essential 2>/dev/null || \
+        dnf install -y -q gcc make 2>/dev/null || \
+        yum install -y -q gcc make 2>/dev/null || \
+        pacman -Sy --noconfirm base-devel 2>/dev/null || true
+      wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/${VALKEY_VER}.tar.gz" \
+        -O /tmp/valkey-src.tar.gz
       tar -xzf /tmp/valkey-src.tar.gz -C /tmp
       make -C "/tmp/valkey-${VALKEY_VER}" -j"$(nproc)" install
       rm -rf /tmp/valkey-src.tar.gz "/tmp/valkey-${VALKEY_VER}"
-      success "Valkey ${VALKEY_VER} built and installed from source"
+      success "Valkey ${VALKEY_VER} built from source"
     fi
   else
     info "Valkey already installed"

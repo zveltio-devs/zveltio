@@ -181,28 +181,53 @@ systemctl restart postgresql
 echo "PostgreSQL 18 configured (shared_buffers=${PG_SHARED_BUFFERS}MB)"
 
 echo '==> Valkey'
-VALKEY_VER='8.0.1'
-CT_ARCH=\$(dpkg --print-architecture)
-case "\$CT_ARCH" in
-  amd64) VALKEY_ARCH="linux_amd64" ;;
-  arm64) VALKEY_ARCH="linux_arm64" ;;
-  *)
-    echo "Unsupported arch \$CT_ARCH — building Valkey from source"
-    wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/\${VALKEY_VER}.tar.gz" -O /tmp/valkey-src.tar.gz
-    tar -xzf /tmp/valkey-src.tar.gz -C /tmp
-    make -C "/tmp/valkey-\${VALKEY_VER}" -j\$(nproc) install
-    rm -rf /tmp/valkey-src.tar.gz "/tmp/valkey-\${VALKEY_VER}"
-    VALKEY_ARCH=""
-    ;;
-esac
+VALKEY_VER='8.0.2'
+VALKEY_INSTALLED=false
 
-if [[ -n "\${VALKEY_ARCH:-}" ]]; then
-  wget -q "https://github.com/valkey-io/valkey/releases/download/\${VALKEY_VER}/valkey-\${VALKEY_VER}-\${VALKEY_ARCH}-debian-bookworm.tar.gz" \
-    -O /tmp/valkey.tar.gz
-  tar -xzf /tmp/valkey.tar.gz -C /tmp
-  mv "/tmp/valkey-\${VALKEY_VER}-\${VALKEY_ARCH}-debian-bookworm/bin/valkey-server" /usr/local/bin/
-  mv "/tmp/valkey-\${VALKEY_VER}-\${VALKEY_ARCH}-debian-bookworm/bin/valkey-cli" /usr/local/bin/
-  rm -rf /tmp/valkey*
+# 1. Package manager — apt works on Debian 13+/Ubuntu 24.04+ natively
+if apt-get install -y -qq valkey 2>/dev/null; then
+  VALKEY_INSTALLED=true
+  echo "Valkey installed via apt"
+fi
+
+# 2. Pre-built binary — fallback for Debian 12 and older distros
+if [[ "\$VALKEY_INSTALLED" == "false" ]]; then
+  CT_ARCH=\$(dpkg --print-architecture)
+  if [[ "\$CT_ARCH" == "amd64" || "\$CT_ARCH" == "arm64" ]]; then
+    for distro in bookworm noble jammy; do
+      TARBALL="valkey-\${VALKEY_VER}-\${distro}-\${CT_ARCH}.tar.gz"
+      URL="https://github.com/valkey-io/valkey/releases/download/\${VALKEY_VER}/\${TARBALL}"
+      echo "Trying \${TARBALL}..."
+      if wget -q "\$URL" -O /tmp/valkey.tar.gz 2>/dev/null; then
+        VALKEY_DIR=\$(tar -tzf /tmp/valkey.tar.gz 2>/dev/null | head -1 | cut -d/ -f1)
+        tar -xzf /tmp/valkey.tar.gz -C /tmp
+        if [[ -f "/tmp/\${VALKEY_DIR}/bin/valkey-server" ]]; then
+          mv "/tmp/\${VALKEY_DIR}/bin/valkey-server" /usr/local/bin/
+          mv "/tmp/\${VALKEY_DIR}/bin/valkey-cli" /usr/local/bin/
+          VALKEY_INSTALLED=true
+        elif [[ -f "/tmp/\${VALKEY_DIR}/valkey-server" ]]; then
+          mv "/tmp/\${VALKEY_DIR}/valkey-server" /usr/local/bin/
+          mv "/tmp/\${VALKEY_DIR}/valkey-cli" /usr/local/bin/
+          VALKEY_INSTALLED=true
+        fi
+        rm -rf /tmp/valkey* "/tmp/\${VALKEY_DIR}" 2>/dev/null || true
+        if [[ "\$VALKEY_INSTALLED" == "true" ]]; then
+          echo "Valkey \${VALKEY_VER} binary installed (\${TARBALL})"
+          break
+        fi
+      fi
+    done
+  fi
+fi
+
+# 3. Build from source — last resort
+if [[ "\$VALKEY_INSTALLED" == "false" ]]; then
+  echo "Building Valkey from source..."
+  wget -q "https://github.com/valkey-io/valkey/archive/refs/tags/\${VALKEY_VER}.tar.gz" -O /tmp/valkey-src.tar.gz
+  tar -xzf /tmp/valkey-src.tar.gz -C /tmp
+  make -C "/tmp/valkey-\${VALKEY_VER}" -j\$(nproc) install
+  rm -rf /tmp/valkey-src.tar.gz "/tmp/valkey-\${VALKEY_VER}"
+  echo "Valkey \${VALKEY_VER} built from source"
 fi
 
 useradd -r -s /bin/false valkey 2>/dev/null || true
