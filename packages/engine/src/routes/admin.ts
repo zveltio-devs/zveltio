@@ -483,6 +483,31 @@ export function adminRoutes(db: Database, auth: any): Hono {
     return c.json({ collections });
   });
 
+  // GET /resources — All permission-addressable resources: collections + zones.
+  // Collections use actions: view, create, update, delete.
+  // Zones use actions: read, write (portal/intranet access model).
+  app.get('/resources', async (c) => {
+    const [collections, zones] = await Promise.all([
+      DDLManager.getCollections(db),
+      db.selectFrom('zvd_zones').select(['slug', 'name']).orderBy('name', 'asc').execute(),
+    ]);
+    const resources = [
+      ...collections.map((col) => ({
+        name: col.name,
+        display_name: col.display_name || col.name,
+        type: 'collection' as const,
+        actions: ['view', 'create', 'update', 'delete'],
+      })),
+      ...zones.map((z) => ({
+        name: z.slug,
+        display_name: z.name,
+        type: 'zone' as const,
+        actions: ['read', 'write'],
+      })),
+    ];
+    return c.json({ resources });
+  });
+
   // GET /roles — List custom roles
   app.get('/roles', async (c) => {
     const roles = await db
