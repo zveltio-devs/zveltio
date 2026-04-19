@@ -69,8 +69,10 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   app.get('/update-check', async (c) => {
     if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
     try {
+      // Use /releases (not /releases/latest) so pre-release channels (alpha/beta)
+      // are included in the update check.
       const res = await fetch(
-        'https://api.github.com/repos/zveltio-devs/zveltio/releases/latest',
+        'https://api.github.com/repos/zveltio-devs/zveltio/releases?per_page=1',
         {
           headers: { 'User-Agent': 'zveltio-engine' },
           signal: AbortSignal.timeout(5000),
@@ -79,8 +81,9 @@ export function healthRoutes(db: Database, auth?: any): Hono {
 
       if (!res.ok) throw new Error('GitHub API unavailable');
 
-      const release = (await res.json()) as any;
-      const latestVersion = release.tag_name?.replace('v', '') ?? ENGINE_VERSION;
+      const releases = (await res.json()) as any[];
+      const release = releases[0];
+      const latestVersion = release?.tag_name?.replace('v', '') ?? ENGINE_VERSION;
       const hasUpdate = compareVersions(latestVersion, ENGINE_VERSION) > 0;
 
       return c.json({
