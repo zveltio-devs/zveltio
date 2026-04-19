@@ -4,9 +4,9 @@
   import { api } from '$lib/api.js';
   import { base } from '$app/paths';
   import {
-    ArrowLeft, Plus, Trash2, Save, Settings, Users, Palette,
+    Plus, Trash2, Save, Users, Palette,
     Home, Eye, EyeOff, ToggleLeft, ToggleRight, Layout, LoaderCircle,
-    GripVertical, ChevronRight,
+    GripVertical,
   } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
@@ -17,7 +17,6 @@
 
   let zone = $state<any>(null);
   let pages = $state<any[]>([]);
-  let views = $state<any[]>([]);
   let loading = $state(true);
   let saving = $state(false);
   let tab = $state<'pages' | 'access' | 'branding'>('pages');
@@ -43,14 +42,12 @@
   async function load() {
     loading = true;
     try {
-      const [zoneRes, pagesRes, viewsRes] = await Promise.all([
+      const [zoneRes, pagesRes] = await Promise.all([
         api.get<{ zone: any }>(`/api/zones/${zoneSlug}`),
         api.get<{ pages: any[] }>(`/api/zones/${zoneSlug}/pages`),
-        api.get<{ views: any[]; total: number }>('/api/views?limit=200'),
       ]);
       zone = zoneRes.zone;
       pages = pagesRes.pages ?? [];
-      views = viewsRes.views ?? [];
     } catch (e) {
       toast.error(extractError(e));
     } finally {
@@ -63,13 +60,13 @@
     try {
       const res = await api.put(`/api/zones/${zoneSlug}`, {
         name: zone.name,
-        description: zone.description,
+        description: zone.description || null,
         is_active: zone.is_active,
         access_roles: zone.access_roles,
-        site_name: zone.site_name,
-        site_logo_url: zone.site_logo_url,
-        primary_color: zone.primary_color,
-        custom_css: zone.custom_css,
+        site_name: zone.site_name || null,
+        site_logo_url: zone.site_logo_url || null,
+        primary_color: zone.primary_color || null,
+        custom_css: zone.custom_css || null,
         nav_position: zone.nav_position,
         show_breadcrumbs: zone.show_breadcrumbs,
       });
