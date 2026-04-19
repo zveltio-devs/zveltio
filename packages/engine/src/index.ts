@@ -282,6 +282,7 @@ async function bootstrap() {
           const { migrateChecklists, registerChecklists } = await import('./extensions/checklists.js');
           await migrateChecklists(db).catch((e: Error) => console.warn('checklists migration:', e.message));
           registerChecklists(app, db);
+          extensionLoader.markActive('workflow/checklists');
           console.log('🔌 Bundled extension loaded: workflow/checklists');
         }
 
@@ -289,6 +290,7 @@ async function bootstrap() {
           const { migratePageBuilder, registerPageBuilder } = await import('./extensions/page-builder.js');
           await migratePageBuilder(db).catch((e: Error) => console.warn('page-builder migration:', e.message));
           registerPageBuilder(app, db);
+          extensionLoader.markActive('content/page-builder');
           console.log('🔌 Bundled extension loaded: content/page-builder');
         }
 

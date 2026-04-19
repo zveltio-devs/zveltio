@@ -639,6 +639,13 @@ class ExtensionLoader {
   isActive(name: string): boolean {
     return this.loaded.has(name);
   }
+
+  /** Mark a bundled extension as active without going through the full dynamic load path. */
+  markActive(name: string): void {
+    if (!this.loaded.has(name)) {
+      this.loaded.set(name, { name, registeredRoutes: true });
+    }
+  }
 }
 
 export const extensionLoader = new ExtensionLoader();
