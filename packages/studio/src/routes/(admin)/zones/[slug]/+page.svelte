@@ -148,6 +148,47 @@
     const val = (e.target as HTMLInputElement).value;
     zone.access_roles = val.split(',').map((r: string) => r.trim()).filter(Boolean);
   }
+
+  async function toggleActive() {
+    zone.is_active = !zone.is_active;
+    await saveZone();
+  }
+
+  const ZONE_TEMPLATES: Record<string, { title: string; slug: string; auth_required: boolean }[]> = {
+    intranet: [
+      { title: 'Dashboard',      slug: 'dashboard',      auth_required: true },
+      { title: 'Announcements',  slug: 'announcements',  auth_required: true },
+      { title: 'Team Directory', slug: 'team-directory', auth_required: true },
+      { title: 'My Tasks',       slug: 'my-tasks',       auth_required: true },
+    ],
+    'client-portal': [
+      { title: 'Home',      slug: 'home',      auth_required: true },
+      { title: 'Documents', slug: 'documents', auth_required: true },
+      { title: 'Support',   slug: 'support',   auth_required: true },
+    ],
+    generic: [
+      { title: 'Home',  slug: 'home',  auth_required: false },
+      { title: 'About', slug: 'about', auth_required: false },
+    ],
+  };
+
+  let applyingTemplate = $state(false);
+
+  async function applyTemplate(templateKey: string) {
+    const tplPages = ZONE_TEMPLATES[templateKey] ?? ZONE_TEMPLATES.generic;
+    applyingTemplate = true;
+    try {
+      for (const p of tplPages) {
+        const res = await api.post<{ page: any }>(`/api/zones/${zoneSlug}/pages`, p);
+        pages = [...pages, (res as any).page];
+      }
+      toast.success('Template applied.');
+    } catch (e) {
+      toast.error(extractError(e));
+    } finally {
+      applyingTemplate = false;
+    }
+  }
 </script>
 
 <div class="space-y-6">
@@ -158,7 +199,7 @@
   ]} />
   <PageHeader title={zone?.name ?? zoneSlug} subtitle={zone?.base_path}>
     {#if zone}
-      <button class="btn btn-ghost btn-sm" onclick={() => (zone.is_active = !zone.is_active)}>
+      <button class="btn btn-ghost btn-sm" onclick={toggleActive} disabled={saving}>
         {#if zone.is_active}
           <ToggleRight size={24} class="text-success"/>
         {:else}
@@ -236,10 +277,26 @@
 
       {#if pages.length === 0}
         <div class="card bg-base-200">
-          <div class="card-body items-center text-center py-12 gap-2">
+          <div class="card-body items-center text-center py-12 gap-4">
             <Layout size={32} class="text-base-content/20"/>
-            <p class="text-base-content/50 font-medium text-sm">No pages yet</p>
-            <p class="text-xs text-base-content/40">Add a page to start building this zone.</p>
+            <div>
+              <p class="text-base-content/50 font-medium text-sm">No pages yet</p>
+              <p class="text-xs text-base-content/40 mt-1">Start from a template or add pages manually above.</p>
+            </div>
+            <div class="flex flex-wrap gap-2 justify-center">
+              {#each [['intranet', 'Intranet'], ['client-portal', 'Client Portal'], ['generic', 'Generic']] as [key, label]}
+                <button class="btn btn-outline btn-sm gap-1.5"
+                  onclick={() => applyTemplate(key)}
+                  disabled={applyingTemplate}>
+                  {#if applyingTemplate}
+                    <LoaderCircle size={13} class="animate-spin"/>
+                  {:else}
+                    <Layout size={13}/>
+                  {/if}
+                  {label}
+                </button>
+              {/each}
+            </div>
           </div>
         </div>
       {:else}
@@ -293,7 +350,7 @@
                 <p class="font-semibold text-sm">Zone active</p>
                 <p class="text-xs text-base-content/50">Enable to make this zone accessible</p>
               </div>
-              <button onclick={() => (zone.is_active = !zone.is_active)}>
+              <button onclick={toggleActive} disabled={saving}>
                 {#if zone.is_active}
                   <ToggleRight size={30} class="text-primary"/>
                 {:else}
