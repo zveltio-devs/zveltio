@@ -5,10 +5,7 @@
   import { page } from '$app/state';
   import { auth } from '$lib/auth.svelte.js';
   import { api } from '$lib/api.js';
-  import {
-    LayoutDashboard, Database, SquareCheck, Bell,
-    LogOut, Sun, Moon, Menu, X, ShieldCheck, User,
-  } from '@lucide/svelte';
+  import { LogOut, Sun, Moon, Menu, X, ShieldCheck } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
   let { children } = $props();
@@ -19,14 +16,6 @@
   let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
   let navPages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
 
-  // Fallback static nav (used when zone has no pages configured)
-  const staticNav = [
-    { href: `${base}/intranet`,               icon: LayoutDashboard, label: 'My Dashboard'  },
-    { href: `${base}/intranet/collections`,   icon: Database,        label: 'Data'          },
-    { href: `${base}/intranet/tasks`,         icon: SquareCheck,     label: 'My Tasks'      },
-    { href: `${base}/intranet/notifications`, icon: Bell,            label: 'Notifications' },
-    { href: `${base}/intranet/profile`,       icon: User,            label: 'My Profile'    },
-  ];
 
   $effect(() => {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -120,22 +109,10 @@
             </div>
           {/each}
         {:else}
-          {#each staticNav as item}
-            {@const active = isActive(item.href)}
-            <div class="px-2 py-0.5">
-              <a
-                href={item.href}
-                class="
-                  flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-                  transition-colors duration-100
-                  {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-                "
-              >
-                <item.icon size={16} class="shrink-0" />
-                <span class="truncate leading-none">{item.label}</span>
-              </a>
-            </div>
-          {/each}
+          <div class="px-4 py-6 text-center">
+            <p class="text-xs text-base-content/40">No pages configured yet.</p>
+            <a href="{base}/zones/intranet" class="text-xs text-primary hover:underline mt-1 inline-block">Configure in Admin →</a>
+          </div>
         {/if}
 
         <!-- Admin link (for users who also have admin access) -->
@@ -202,16 +179,10 @@
               </div>
             {/each}
           {:else}
-            {#each staticNav as item}
-              <div class="px-2 py-0.5">
-                <a href={item.href} onclick={() => (mobileOpen = false)}
-                  class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors
-                    {isActive(item.href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}">
-                  <item.icon size={16} class="shrink-0" />
-                  <span class="truncate">{item.label}</span>
-                </a>
-              </div>
-            {/each}
+            <div class="px-4 py-6 text-center">
+              <p class="text-xs text-base-content/40">No pages configured yet.</p>
+              <a href="{base}/zones/intranet" class="text-xs text-primary hover:underline mt-1 inline-block">Configure in Admin →</a>
+            </div>
           {/if}
         </nav>
       </aside>
