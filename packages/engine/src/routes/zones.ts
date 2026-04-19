@@ -52,9 +52,9 @@ const ZoneCreateSchema = z.object({
   access_roles:     z.array(z.string()).optional(),
   base_path:        z.string().min(1).max(200),
   site_name:        z.string().max(100).nullable().optional(),
-  site_logo_url:    z.string().url().nullable().optional(),
-  primary_color:    z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
-  secondary_color:  z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+  site_logo_url:    z.preprocess(v => v === '' ? null : v, z.string().url().nullable().optional()),
+  primary_color:    z.preprocess(v => v === '' ? null : v, z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional()),
+  secondary_color:  z.preprocess(v => v === '' ? null : v, z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional()),
   custom_css:       z.string().max(50_000).nullable().optional(),
   nav_position:     z.enum(['sidebar', 'topbar', 'both']).optional(),
   show_breadcrumbs: z.boolean().optional(),
@@ -594,12 +594,57 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       viewQueryDuration.observe({ view_id: vr.view_id, collection: vr.collection }, viewQueryMs / viewRows.length);
     }
 
-    // Return view definitions + data resolution hint
-    // (actual data fetched client-side via /api/data/:collection for flexibility)
+    // Resolve view definitions + fetch data for each view from its collection
+    const views = await Promise.all(
+      viewRows.map(async (vr) => {
+        const parsedFields: any[] = typeof vr.fields === 'string' ? JSON.parse(vr.fields) : (vr.fields ?? []);
+        const parsedFilters: any[] = typeof vr.filters === 'string' ? JSON.parse(vr.filters) : (vr.filters ?? []);
+        const pageSize = vr.page_size ?? 20;
+        const tableName = `zvd_${vr.collection}`;
+
+        let records: any[] = [];
+        try {
+          let q = (db as any).selectFrom(tableName).selectAll().limit(pageSize);
+
+          if (vr.sort_field) q = q.orderBy(vr.sort_field, vr.sort_dir ?? 'desc');
+          else q = q.orderBy('created_at', 'desc');
+
+          for (const f of parsedFilters) {
+            if (!f.field || !f.op) continue;
+            if (f.op === 'eq') q = q.where(f.field, '=', f.value);
+            else if (f.op === 'neq') q = q.where(f.field, '!=', f.value);
+            else if (f.op === 'gt')  q = q.where(f.field, '>', f.value);
+            else if (f.op === 'lt')  q = q.where(f.field, '<', f.value);
+            else if (f.op === 'gte') q = q.where(f.field, '>=', f.value);
+            else if (f.op === 'lte') q = q.where(f.field, '<=', f.value);
+          }
+
+          records = await q.execute();
+        } catch { /* table may not exist yet */ }
+
+        return {
+          id:             vr.id,
+          title_override: vr.title_override,
+          col_span:       vr.col_span,
+          definition: {
+            name:       vr.name,
+            view_type:  vr.view_type,
+            collection: vr.collection,
+            fields:     parsedFields,
+            filters:    parsedFilters,
+            sort_field: vr.sort_field,
+            sort_dir:   vr.sort_dir,
+            config:     typeof vr.config === 'string' ? JSON.parse(vr.config) : (vr.config ?? {}),
+          },
+          data: { records },
+        };
+      }),
+    );
+
     return c.json({
       zone: { id: zone.id, name: zone.name, slug: zone.slug, primary_color: zone.primary_color, nav_position: zone.nav_position },
       page,
-      views: viewRows,
+      views,
     });
   });
 
