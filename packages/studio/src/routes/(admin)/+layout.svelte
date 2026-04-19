@@ -67,6 +67,18 @@
   type NavItem = { href: string; icon: any; label: string };
   type NavGroup = { label?: string; items: NavItem[] };
 
+  // Bundled extension nav items — shown only when the extension is enabled in the DB
+  const bundledExtNav = $derived<NavItem[]>(
+    extensions.initialized ? [
+      ...(extensions.isActive('workflow/checklists')
+        ? [{ href: `${base}/extensions/checklists`, icon: CheckSquare, label: 'Checklists' }]
+        : []),
+      ...(extensions.isActive('content/page-builder')
+        ? [{ href: `${base}/extensions/page-builder`, icon: Layout,      label: 'Pages'      }]
+        : []),
+    ] : [],
+  );
+
   const nav: NavGroup[] = [
     {
       items: [
@@ -226,8 +238,8 @@
           {/each}
         {/each}
 
-        <!-- Extension routes -->
-        {#if extensions.initialized && extensionRegistry.routes.length > 0}
+        <!-- Extension routes (bundled + IIFE) -->
+        {#if bundledExtNav.length > 0 || (extensions.initialized && extensionRegistry.routes.length > 0)}
           {#if !collapsed}
             <div class="px-4 pt-5 pb-1">
               <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 flex items-center gap-1 select-none">
@@ -237,6 +249,23 @@
           {:else}
             <div class="mx-3 my-2.5 h-px bg-base-content/8"></div>
           {/if}
+          {#each bundledExtNav as item}
+            <div class="px-2 py-0.5">
+              <a
+                href={item.href}
+                title={collapsed ? item.label : undefined}
+                class="
+                  flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
+                  transition-colors duration-100
+                  {isActive(item.href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
+                  {collapsed ? 'justify-center' : ''}
+                "
+              >
+                <item.icon size={16} class="shrink-0" />
+                {#if !collapsed}<span class="truncate leading-none">{item.label}</span>{/if}
+              </a>
+            </div>
+          {/each}
           {#each extensionRegistry.routes as route}
             <div class="px-2 py-0.5">
               <a

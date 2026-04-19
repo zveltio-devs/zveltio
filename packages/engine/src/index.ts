@@ -263,11 +263,35 @@ async function bootstrap() {
         console.warn('⚠️ AI providers failed (non-fatal):', err.message);
       }),
 
-    // Extensions — env-var configured + DB marketplace
+    // Extensions — env-var configured + DB marketplace + bundled
     extensionLoader
       .loadAll(app, { db, auth, fieldTypeRegistry, events: engineEvents })
       .then(() => extensionLoader.loadFromDB(db, app))
-      .then(() => {
+      .then(async () => {
+        // Bundled extensions: statically imported, registered based on DB state.
+        // These are always available in the compiled binary (no file-system lookup needed).
+        const dbEnabled = await (db as any)
+          .selectFrom('zv_extension_registry')
+          .select('name')
+          .where('is_enabled' as any, '=', true)
+          .execute()
+          .catch(() => [] as any[]);
+        const enabledSet = new Set(dbEnabled.map((r: any) => r.name as string));
+
+        if (enabledSet.has('workflow/checklists')) {
+          const { migrateChecklists, registerChecklists } = await import('./extensions/checklists.js');
+          await migrateChecklists(db).catch((e: Error) => console.warn('checklists migration:', e.message));
+          registerChecklists(app, db);
+          console.log('🔌 Bundled extension loaded: workflow/checklists');
+        }
+
+        if (enabledSet.has('content/page-builder')) {
+          const { migratePageBuilder, registerPageBuilder } = await import('./extensions/page-builder.js');
+          await migratePageBuilder(db).catch((e: Error) => console.warn('page-builder migration:', e.message));
+          registerPageBuilder(app, db);
+          console.log('🔌 Bundled extension loaded: content/page-builder');
+        }
+
         console.log(
           `✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`,
         );
@@ -385,9 +409,20 @@ rm studio.tar.gz</pre>
   });
 
   // 9. API: active extensions list (Studio consumes this)
-  // Returns only bundle URLs (needed for UI loading), not the full list
+  // Returns enabled extension names (from DB) + bundle URLs for IIFE UI loading
   app.get('/api/extensions', async (c) => {
+    const dbEnabled = await (db as any)
+      .selectFrom('zv_extension_registry')
+      .select('name')
+      .where('is_enabled' as any, '=', true)
+      .execute()
+      .catch(() => [] as any[]);
+    const allActive = [...new Set([
+      ...extensionLoader.getActive(),
+      ...dbEnabled.map((r: any) => r.name as string),
+    ])];
     return c.json({
+      extensions: allActive,
       bundles: extensionLoader.getBundles(),
     });
   });
