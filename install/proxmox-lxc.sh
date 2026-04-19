@@ -183,10 +183,12 @@ echo "PostgreSQL 18 configured (shared_buffers=${PG_SHARED_BUFFERS}MB)"
 echo '==> Valkey'
 VALKEY_VER='8.0.2'
 VALKEY_INSTALLED=false
+VALKEY_PKG_MANAGED=false
 
 # 1. Package manager — apt works on Debian 13+/Ubuntu 24.04+ natively
 if apt-get install -y -qq valkey 2>/dev/null; then
   VALKEY_INSTALLED=true
+  VALKEY_PKG_MANAGED=true
   echo "Valkey installed via apt"
 fi
 
@@ -246,7 +248,14 @@ maxmemory ${VALKEY_MAX_MEM}mb
 maxmemory-policy allkeys-lru
 EOF
 
-cat > /etc/systemd/system/valkey.service << 'EOF'
+if [[ "\$VALKEY_PKG_MANAGED" == "true" ]]; then
+  VALKEY_SVC="valkey-server"
+  systemctl is-enabled valkey-server &>/dev/null || VALKEY_SVC="valkey"
+  systemctl daemon-reload
+  systemctl enable "\$VALKEY_SVC"
+  systemctl restart "\$VALKEY_SVC"
+else
+  cat > /etc/systemd/system/valkey.service << 'SVCEOF'
 [Unit]
 Description=Valkey In-Memory Data Store
 After=network.target
@@ -261,11 +270,12 @@ LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SVCEOF
 
-systemctl daemon-reload
-systemctl enable valkey
-systemctl start valkey
+  systemctl daemon-reload
+  systemctl enable valkey
+  systemctl start valkey
+fi
 echo "Valkey running (maxmemory=${VALKEY_MAX_MEM}MB)"
 
 echo '==> SeaweedFS'

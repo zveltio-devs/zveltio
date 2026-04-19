@@ -351,28 +351,30 @@ EOF
     local VALKEY_VER="8.0.2"
     local VALKEY_INSTALLED=false
 
+    local VALKEY_PKG_MANAGED=false
+
     # 1. Package manager — fastest path, works on most distros (valkey.io/topics/installation/)
     case "${OS_ID:-}" in
       ubuntu|debian|raspbian|devuan|linuxmint)
         if apt-get install -y -qq valkey 2>/dev/null; then
-          VALKEY_INSTALLED=true; success "Valkey installed via apt"
+          VALKEY_INSTALLED=true; VALKEY_PKG_MANAGED=true; success "Valkey installed via apt"
         fi ;;
       fedora)
         if dnf install -y -q valkey 2>/dev/null; then
-          VALKEY_INSTALLED=true; success "Valkey installed via dnf"
+          VALKEY_INSTALLED=true; VALKEY_PKG_MANAGED=true; success "Valkey installed via dnf"
         fi ;;
       centos|rhel|rocky|almalinux)
         dnf install -y -q epel-release 2>/dev/null || yum install -y -q epel-release 2>/dev/null || true
         if dnf install -y -q valkey 2>/dev/null || yum install -y -q valkey 2>/dev/null; then
-          VALKEY_INSTALLED=true; success "Valkey installed via yum/dnf"
+          VALKEY_INSTALLED=true; VALKEY_PKG_MANAGED=true; success "Valkey installed via yum/dnf"
         fi ;;
       arch|manjaro)
         if pacman -Sy --noconfirm valkey 2>/dev/null; then
-          VALKEY_INSTALLED=true; success "Valkey installed via pacman"
+          VALKEY_INSTALLED=true; VALKEY_PKG_MANAGED=true; success "Valkey installed via pacman"
         fi ;;
       alpine)
         if apk add -q valkey 2>/dev/null; then
-          VALKEY_INSTALLED=true; success "Valkey installed via apk"
+          VALKEY_INSTALLED=true; VALKEY_PKG_MANAGED=true; success "Valkey installed via apk"
         fi ;;
     esac
 
@@ -453,7 +455,16 @@ maxmemory ${VALKEY_MAX_MEM}mb
 maxmemory-policy allkeys-lru
 EOF
 
-  cat > /etc/systemd/system/valkey.service << 'UNIT'
+  if [[ "$VALKEY_PKG_MANAGED" == "true" ]]; then
+    # Package manager already installed the service unit. valkey.service is an
+    # alias to valkey-server.service on Debian/Ubuntu — enable the real unit.
+    local VALKEY_SVC="valkey-server"
+    systemctl is-enabled valkey-server &>/dev/null || VALKEY_SVC="valkey"
+    systemctl daemon-reload
+    systemctl enable "$VALKEY_SVC"
+    systemctl restart "$VALKEY_SVC"
+  else
+    cat > /etc/systemd/system/valkey.service << 'UNIT'
 [Unit]
 Description=Valkey In-Memory Data Store
 After=network.target
@@ -470,9 +481,10 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 UNIT
 
-  systemctl daemon-reload
-  systemctl enable valkey
-  systemctl start valkey
+    systemctl daemon-reload
+    systemctl enable valkey
+    systemctl start valkey
+  fi
   success "Valkey running (maxmemory=${VALKEY_MAX_MEM}MB)"
 
   # ── SeaweedFS ────────────────────────────────────────────────────────────────
