@@ -26,6 +26,7 @@ import { aiAlchemistRoutes } from './ai-alchemist.js';
 import { aiQueryRoutes } from './ai-query.js';
 import { aiSchemaGenRoutes } from './ai-schema-gen.js';
 import { zonesRoutes, viewsRoutes } from './zones.js';
+import { translationsRoutes } from './translations.js';
 import { approvalsRoutes } from './approvals.js';
 import { exportRoutes } from './export.js';
 import { importRoutes } from './import.js';
@@ -159,7 +160,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Revisions + record comments (authenticated)
   app.route('/api/revisions', revisionsRoutes(db, auth));
 
-  // i18n translations — moved to extensions/i18n/translations
+  // i18n translations (core — always available)
+  app.route('/api/translations', translationsRoutes(db, auth));
 
   // In-app notifications + web push (authenticated)
   app.route('/api/notifications', notificationsRoutes(db, auth));
