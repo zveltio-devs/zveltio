@@ -70,7 +70,7 @@ export function approvalsRoutes(db: Database, auth: any) {
 
   async function isAdmin(user: any): Promise<boolean> {
     if (!user) return false;
-    if (user.role === 'god' || user.role === 'admin') return true;
+    if (user.role === 'god') return true;
     return checkPermission(user.id, 'approvals', 'manage').catch(() => false);
   }
   const app = new Hono();

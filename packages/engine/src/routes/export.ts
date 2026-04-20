@@ -58,7 +58,6 @@ export function exportRoutes(db: Database, auth: any) {
     // Check read permission
     const allowed =
       user.role === 'god' ||
-      user.role === 'admin' ||
       (await checkPermission(user.id, collection, 'read').catch(() => false));
 
     if (!allowed) return c.json({ error: 'Forbidden' }, 403);
