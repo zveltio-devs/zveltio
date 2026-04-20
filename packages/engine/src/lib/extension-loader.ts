@@ -9,7 +9,45 @@ import { isCompatible, checkExtensionDependencies, getEngineVersion } from './ve
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
 import { checkPermission } from './permissions.js';
-import { EXTENSION_CATALOG } from './extension-catalog.js';
+import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
+
+// ── Registry catalog cache ────────────────────────────────────────────────────
+const REGISTRY_URL = process.env.REGISTRY_URL || 'https://apps.zveltio.com';
+const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+let catalogCache: ExtensionCatalogEntry[] | null = null;
+let catalogCacheExpiry = 0;
+
+async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
+  if (catalogCache && Date.now() < catalogCacheExpiry) return catalogCache;
+  try {
+    const res = await fetch(`${REGISTRY_URL}/api/extensions/list`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`Registry returned ${res.status}`);
+    const data = await res.json() as { extensions: any[] };
+    const entries: ExtensionCatalogEntry[] = (data.extensions ?? []).map((e: any) => ({
+      name:        e.name,
+      displayName: e.display_name ?? e.name,
+      description: e.description ?? '',
+      category:    e.category ?? 'other',
+      version:     e.version ?? '1.0.0',
+      author:      e.developer_username ?? e.author ?? 'Zveltio',
+      tags:        e.tags ?? [],
+      bundled:     false,
+      permissions: e.permissions ?? [],
+    }));
+    if (entries.length > 0) {
+      catalogCache = entries;
+      catalogCacheExpiry = Date.now() + CATALOG_CACHE_TTL;
+      return entries;
+    }
+  } catch (err) {
+    console.warn('[marketplace] Registry fetch failed, using local catalog:', (err as Error).message);
+  }
+  // fallback
+  return EXTENSION_CATALOG;
+}
 import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
 
@@ -378,19 +416,18 @@ class ExtensionLoader {
       return isAdmin;
     }
 
-    // GET /api/marketplace — catalog merged with DB state + runtime state
+    // GET /api/marketplace — catalog fetched from registry (fallback: local) merged with DB state
     app.get('/api/marketplace', async (c) => {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-      const rows = await (db as any)
-        .selectFrom('zv_extension_registry')
-        .selectAll()
-        .execute()
-        .catch(() => []);
+      const [catalog, rows] = await Promise.all([
+        fetchRegistryCatalog(),
+        (db as any).selectFrom('zv_extension_registry').selectAll().execute().catch(() => []),
+      ]);
 
       const dbMap = new Map(rows.map((r: any) => [r.name, r]));
 
-      const extensions = EXTENSION_CATALOG.map((entry) => {
+      const extensions = catalog.map((entry) => {
         const dbEntry = dbMap.get(entry.name) as any;
         const runtimeActive = self.isActive(entry.name);
 
@@ -415,9 +452,9 @@ class ExtensionLoader {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
       const name = c.req.param('name');
-      const entry = EXTENSION_CATALOG.find((e) => e.name === name);
+      const catalog = await fetchRegistryCatalog();
+      const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
-      if (!entry.bundled) return c.json({ error: 'External install not yet supported' }, 501);
 
       await (db as any)
         .insertInto('zv_extension_registry')
