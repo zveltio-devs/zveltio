@@ -65,7 +65,7 @@
 
  let cat = $state('all');
 
- const CATEGORIES = ['data', 'ai', 'automation', 'communications', 'developer', 'compliance'];
+ const CATEGORIES = ['analytics', 'auth', 'business', 'communications', 'compliance', 'content', 'data', 'developer', 'ecommerce', 'finance', 'geospatial', 'hr', 'i18n', 'integrations', 'operations', 'projects', 'storage', 'workflow'];
 
  const filtered = $derived(
  extensions.filter(e => {
