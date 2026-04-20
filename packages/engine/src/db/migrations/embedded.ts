@@ -45,17 +45,18 @@ import m036 from './sql/036_ai_task_trigger.sql' with { type: 'text' };
 import m037 from './sql/037_cloud_storage.sql' with { type: 'text' };
 import m038 from './sql/038_protected_api.sql' with { type: 'text' };
 import m039 from './sql/039_ai_query.sql' with { type: 'text' };
-import m042 from './sql/042_edge_functions.sql' with { type: 'text' };
-import m043 from './sql/043_revisions_index.sql' with { type: 'text' };
-import m044 from './sql/044_audit_log.sql' with { type: 'text' };
-import m045 from './sql/045_ai_embed_excluded_fields.sql' with { type: 'text' };
-import m046 from './sql/046_user_auth_v15.sql' with { type: 'text' };
-import m047 from './sql/047_ai_memory.sql' with { type: 'text' };
-import m048 from './sql/048_slow_queries.sql' with { type: 'text' };
-import m049 from './sql/049_encrypted_fields.sql' with { type: 'text' };
-import m050 from './sql/050_roles.sql' with { type: 'text' };
-import m051 from './sql/051_client_portal.sql' with { type: 'text' };
-import m052 from './sql/052_zones_pages_views.sql' with { type: 'text' };
+import m040 from './sql/040_edge_functions.sql' with { type: 'text' };
+import m041 from './sql/041_revisions_index.sql' with { type: 'text' };
+import m042 from './sql/042_audit_log.sql' with { type: 'text' };
+import m043 from './sql/043_ai_embed_excluded_fields.sql' with { type: 'text' };
+import m044 from './sql/044_user_auth_v15.sql' with { type: 'text' };
+import m045 from './sql/045_ai_memory.sql' with { type: 'text' };
+import m046 from './sql/046_slow_queries.sql' with { type: 'text' };
+import m047 from './sql/047_encrypted_fields.sql' with { type: 'text' };
+import m048 from './sql/048_roles.sql' with { type: 'text' };
+import m049 from './sql/049_client_portal.sql' with { type: 'text' };
+import m050 from './sql/050_zones_pages_views.sql' with { type: 'text' };
+import m051 from './sql/051_fix_client_zone_base_path.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -99,15 +100,16 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '037_cloud_storage.sql': m037,
   '038_protected_api.sql': m038,
   '039_ai_query.sql': m039,
-  '042_edge_functions.sql': m042,
-  '043_revisions_index.sql': m043,
-  '044_audit_log.sql': m044,
-  '045_ai_embed_excluded_fields.sql': m045,
-  '046_user_auth_v15.sql': m046,
-  '047_ai_memory.sql': m047,
-  '048_slow_queries.sql': m048,
-  '049_encrypted_fields.sql': m049,
-  '050_roles.sql': m050,
-  '051_client_portal.sql': m051,
-  '052_zones_pages_views.sql': m052,
+  '040_edge_functions.sql': m040,
+  '041_revisions_index.sql': m041,
+  '042_audit_log.sql': m042,
+  '043_ai_embed_excluded_fields.sql': m043,
+  '044_user_auth_v15.sql': m044,
+  '045_ai_memory.sql': m045,
+  '046_slow_queries.sql': m046,
+  '047_encrypted_fields.sql': m047,
+  '048_roles.sql': m048,
+  '049_client_portal.sql': m049,
+  '050_zones_pages_views.sql': m050,
+  '051_fix_client_zone_base_path.sql': m051,
 };
