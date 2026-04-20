@@ -45,8 +45,6 @@ import m036 from './sql/036_ai_task_trigger.sql' with { type: 'text' };
 import m037 from './sql/037_cloud_storage.sql' with { type: 'text' };
 import m038 from './sql/038_protected_api.sql' with { type: 'text' };
 import m039 from './sql/039_ai_query.sql' with { type: 'text' };
-import m040 from './sql/040_mail_client.sql' with { type: 'text' };
-import m041 from './sql/041_mail_complete.sql' with { type: 'text' };
 import m042 from './sql/042_edge_functions.sql' with { type: 'text' };
 import m043 from './sql/043_revisions_index.sql' with { type: 'text' };
 import m044 from './sql/044_audit_log.sql' with { type: 'text' };
@@ -101,8 +99,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '037_cloud_storage.sql': m037,
   '038_protected_api.sql': m038,
   '039_ai_query.sql': m039,
-  '040_mail_client.sql': m040,
-  '041_mail_complete.sql': m041,
   '042_edge_functions.sql': m042,
   '043_revisions_index.sql': m043,
   '044_audit_log.sql': m044,
