@@ -25,7 +25,8 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    c.set('user', { ...session.user, role: (session.user as any).role ?? 'admin' });
+    const row = await db.selectFrom('user' as any).select(['role'] as any).where('id' as any, '=', session.user.id).executeTakeFirst() as any;
+    c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
     return next();
   });
 
