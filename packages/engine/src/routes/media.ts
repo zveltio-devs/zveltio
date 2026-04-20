@@ -131,7 +131,6 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     if (
       folder.created_by !== user.id &&
-      user.role !== 'admin' &&
       user.role !== 'god'
     ) {
       return c.json({ error: 'Forbidden' }, 403);
