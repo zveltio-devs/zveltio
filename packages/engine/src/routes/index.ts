@@ -35,6 +35,7 @@ import { importRoutes } from './import.js';
 // documents → extensions/content/documents
 import { mediaRoutes } from './media.js';
 import { syncRoutes } from './sync.js';
+import { openApiRoutes } from './openapi.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { ensureCoreCollections } from '../core-collections/index.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit } from '../middleware/rate-limit.js';
@@ -150,6 +151,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Health + version + migration status + update check (public)
   app.route('/api/health', healthRoutes(db, auth));
+
+  // OpenAPI spec — always public, useful for SDK generation and docs
+  app.route('/api/openapi.json', openApiRoutes());
 
   // Admin utilities: API keys, notifications, audit, types, onboarding
   app.route('/api/admin', adminRoutes(db, auth));

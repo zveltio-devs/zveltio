@@ -151,7 +151,7 @@ async function checkAccess(
     }
     return true;
   }
-  return checkPermission(user.id, `data:${collection}`, action);
+  return checkPermission(user.id, collection, action);
 }
 
 // Broadcast webhook event
@@ -418,26 +418,51 @@ export function dataRoutes(db: Database, auth: any): Hono {
       ...rawFields.map((f: any) => f.name).filter(Boolean),
     ]);
 
-    // Parse filters from JSON query param into safe FilterCondition map
+    // Parse filters — two supported formats (both can be used together):
+    //
+    // 1. JSON:    ?filter={"price":{"gt":50},"title":{"like":"pro"}}
+    // 2. Bracket: ?price[gt]=50&title[like]=pro  (simpler for curl/browser)
+    //
+    // When both are provided for the same field, JSON takes precedence.
+    const OP_ALIAS: Record<string, FilterCondition['op']> = {
+      eq: 'eq', neq: 'neq', lt: 'lt', lte: 'lte', gt: 'gt', gte: 'gte',
+      like: 'ilike', contains: 'ilike', ilike: 'ilike',
+      in: 'in', not_in: 'not_in',
+      null: 'null', is_null: 'null',
+      not_null: 'not_null', is_not_null: 'not_null',
+    };
+
     const filters: Record<string, FilterCondition> = {};
+
+    // Format 2: bracket syntax — parse before JSON so JSON can override
+    const BRACKET_RE = /^([a-zA-Z_][a-zA-Z0-9_]*)\[([a-zA-Z_]+)\]$/;
+    for (const [paramKey, paramVal] of Object.entries(c.req.query())) {
+      const m = BRACKET_RE.exec(paramKey);
+      if (!m) continue;
+      const [, field, op] = m;
+      if (!allowedCols.has(field)) continue; // silently skip unknown fields
+      const mappedOp = OP_ALIAS[op];
+      if (!mappedOp) continue;
+      // Coerce numeric-looking values to numbers for comparison operators
+      const numericOps = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
+      const value = numericOps.has(mappedOp) && paramVal !== '' && !isNaN(Number(paramVal))
+        ? Number(paramVal)
+        : paramVal;
+      filters[field] = { op: mappedOp, value };
+    }
+
+    // Format 1: JSON (overrides bracket for same field)
     if (query.filter) {
       let raw: Record<string, any> | null = null;
-      try { raw = JSON.parse(query.filter); } catch { /* malformed JSON — ignore filter */ }
+      try { raw = JSON.parse(query.filter); } catch { /* malformed JSON — ignore */ }
       if (raw && typeof raw === 'object') {
-        const opAlias: Record<string, FilterCondition['op']> = {
-          eq: 'eq', neq: 'neq', lt: 'lt', lte: 'lte', gt: 'gt', gte: 'gte',
-          like: 'ilike', contains: 'ilike', ilike: 'ilike',
-          in: 'in', not_in: 'not_in',
-          null: 'null', is_null: 'null',
-          not_null: 'not_null', is_not_null: 'not_null',
-        };
         for (const [key, value] of Object.entries(raw)) {
           if (!allowedCols.has(key)) {
             return c.json({ error: `Unknown filter field: '${key}'` }, 400);
           }
           if (typeof value === 'object' && value !== null) {
             const [op, val] = Object.entries(value)[0] as [string, any];
-            const mappedOp = opAlias[op];
+            const mappedOp = OP_ALIAS[op];
             if (mappedOp) filters[key] = { op: mappedOp, value: val };
           } else {
             filters[key] = { op: 'eq', value };

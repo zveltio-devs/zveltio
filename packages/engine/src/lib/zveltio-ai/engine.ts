@@ -577,7 +577,7 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
       // Correct signature: checkPermission(userId, resource, action)
       const hasPermission = await checkPermission(
         request.userId,
-        `data:${collection}`,
+        collection,
         action,
       );
       if (!hasPermission) {
@@ -586,7 +586,7 @@ The platform has ${context.collectionCount ?? 'several'} collections (database t
             `User does not have permission to ${action} data in collection '${collection}'. ` +
             `Please ask an administrator to grant you the necessary access.`,
           permission_denied: true,
-          required_permission: { action, resource: `data:${collection}` },
+          required_permission: { action, resource: collection },
         };
       }
     }
