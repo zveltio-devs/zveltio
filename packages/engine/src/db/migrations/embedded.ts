@@ -3,6 +3,9 @@
  * When the engine runs as a standalone binary, `import.meta.dir/sql` does not
  * exist on the host filesystem. These imports are resolved at build time and
  * embedded verbatim into the binary via Bun's `with { type: 'text' }` syntax.
+ *
+ * AUTO-GENERATED — do not edit by hand.
+ * Regenerate with: bun scripts/gen-embedded-migrations.ts
  */
 
 import m000 from './sql/000_schema_versions.sql' with { type: 'text' };
@@ -58,6 +61,7 @@ import m049 from './sql/049_client_portal.sql' with { type: 'text' };
 import m050 from './sql/050_zones_pages_views.sql' with { type: 'text' };
 import m051 from './sql/051_fix_client_zone_base_path.sql' with { type: 'text' };
 import m052 from './sql/052_role_cleanup.sql' with { type: 'text' };
+import m053 from './sql/053_strip_data_prefix.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -114,4 +118,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '050_zones_pages_views.sql': m050,
   '051_fix_client_zone_base_path.sql': m051,
   '052_role_cleanup.sql': m052,
+  '053_strip_data_prefix.sql': m053,
 };

@@ -7,6 +7,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from './index.js';
+import type { DynamicRecord } from './dynamic-types.js';
 
 // ─── Safe DDL helpers ─────────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ export interface QueryOptions {
 }
 
 export interface QueryResult {
-  records: Record<string, any>[];
+  records: DynamicRecord[];
   total: number;
   limit: number;
   offset: number;
@@ -163,7 +164,7 @@ export async function dynamicSelect(
   ]);
 
   return {
-    records: rows.rows as Record<string, any>[],
+    records: rows.rows as DynamicRecord[],
     total: (countRow.rows[0] as any)?.total ?? 0,
     limit,
     offset,

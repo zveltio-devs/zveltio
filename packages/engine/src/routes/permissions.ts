@@ -27,6 +27,37 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
 export function permissionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
+  // POST /bootstrap — Emergency endpoint: promote a user to god role.
+  // Requires RECOVERY_TOKEN env var (min 32 chars). Disabled when not set.
+  // Usage: curl -X POST /api/permissions/bootstrap \
+  //   -H "Authorization: Bearer <RECOVERY_TOKEN>" \
+  //   -d '{"email":"admin@example.com"}'
+  app.post('/bootstrap', async (c) => {
+    const recoveryToken = process.env.RECOVERY_TOKEN;
+    if (!recoveryToken || recoveryToken.length < 32) {
+      return c.json({ error: 'Recovery mode is not enabled. Set RECOVERY_TOKEN (min 32 chars) to use this endpoint.' }, 403);
+    }
+    const provided = c.req.header('Authorization')?.replace('Bearer ', '');
+    if (!provided || provided !== recoveryToken) {
+      return c.json({ error: 'Invalid recovery token' }, 401);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const email = body?.email;
+    if (!email || typeof email !== 'string') {
+      return c.json({ error: 'email is required' }, 400);
+    }
+    const result = await db
+      .updateTable('user' as any)
+      .set({ role: 'god' } as any)
+      .where('email' as any, '=', email)
+      .returning(['id', 'email', 'role'] as any)
+      .executeTakeFirst() as any;
+    if (!result) return c.json({ error: `No user found with email: ${email}` }, 404);
+    const { invalidateGodCache } = await import('../lib/permissions.js');
+    await invalidateGodCache(result.id).catch(() => {});
+    return c.json({ success: true, user: { id: result.id, email: result.email, role: result.role } });
+  });
+
   // Store admin user in context so handlers can access it for audit logging.
   app.use('*', async (c, next) => {
     const user = await requireAdmin(c, auth);

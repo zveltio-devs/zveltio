@@ -141,7 +141,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const { collection, recordId } = c.req.param();
 
-    if (!(await checkPermission(user.id, `data:${collection}`, 'read')) &&
+    if (!(await checkPermission(user.id, collection, 'read')) &&
         !(await checkPermission(user.id, 'admin', '*'))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
