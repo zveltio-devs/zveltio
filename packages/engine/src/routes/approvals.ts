@@ -23,7 +23,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission, getUserRoles } from '../lib/permissions.js';
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -245,11 +245,12 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     // Non-admins see only their own requests + requests where they are the approver
     if (!admin) {
+      const userRoles = await getUserRoles(user.id);
       query = query.where(eb =>
         eb.or([
           eb('r.requested_by', '=', user.id),
           eb('cs.approver_user_id', '=', user.id),
-          eb('cs.approver_role', '=', user.role ?? ''),
+          ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles as any)] : []),
         ])
       );
     }
@@ -262,12 +263,13 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     // My pending = requests where I need to decide
     if (myPending) {
+      const userRoles = await getUserRoles(user.id);
       query = query
         .where('r.status', '=', 'pending')
         .where(eb =>
           eb.or([
             eb('cs.approver_user_id', '=', user.id),
-            eb('cs.approver_role', '=', user.role ?? ''),
+            ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles as any)] : []),
           ])
         );
     }
@@ -427,9 +429,10 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Check if user is allowed to decide this step
     if (!admin && currentStep) {
       const step = currentStep as any;
+      const userRoles = await getUserRoles(user.id);
       const isAssigned =
         step.approver_user_id === user.id ||
-        (step.approver_role && step.approver_role === user.role);
+        (step.approver_role && userRoles.includes(step.approver_role));
       if (!isAssigned) return c.json({ error: 'You are not assigned to this step' }, 403);
     }
 
