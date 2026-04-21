@@ -6,6 +6,7 @@ import { dataRoutes } from './data.js';
 import { authRoutes } from './auth.js';
 import { usersRoutes } from './users.js';
 import { permissionsRoutes } from './permissions.js';
+import { rlsRoutes } from './rls.js';
 import { storageRoutes } from './storage.js';
 import { webhooksRoutes } from './webhooks.js';
 import { settingsRoutes } from './settings.js';
@@ -135,6 +136,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Permissions / Casbin (admin)
   app.route('/api/permissions', permissionsRoutes(db, auth));
+
+  // Row-Level Security policies (admin)
+  app.route('/api/admin/rls', rlsRoutes(db, auth));
 
   // File storage (authenticated)
   app.route('/api/storage', storageRoutes(db, auth));

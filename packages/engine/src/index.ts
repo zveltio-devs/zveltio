@@ -6,6 +6,7 @@ import { join, resolve } from 'path';
 import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions } from './lib/permissions.js';
+import { initRls } from './lib/rls.js';
 import { fieldTypeRegistry } from './lib/field-type-registry.js';
 import { extensionLoader } from './lib/extension-loader.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
@@ -228,9 +229,10 @@ async function bootstrap() {
   initTenantManager(db);
   console.log('✅ Tenant manager initialized');
 
-  // 3. Permissions
+  // 3. Permissions + RLS
   await initPermissions(db);
-  console.log('✅ Permissions initialized');
+  initRls(db);
+  console.log('✅ Permissions + RLS initialized');
 
   // 4. Field Type Registry — core types
   registerCoreFieldTypes(fieldTypeRegistry);
