@@ -57,6 +57,7 @@ import m048 from './sql/048_roles.sql' with { type: 'text' };
 import m049 from './sql/049_client_portal.sql' with { type: 'text' };
 import m050 from './sql/050_zones_pages_views.sql' with { type: 'text' };
 import m051 from './sql/051_fix_client_zone_base_path.sql' with { type: 'text' };
+import m052 from './sql/052_role_cleanup.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -112,4 +113,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '049_client_portal.sql': m049,
   '050_zones_pages_views.sql': m050,
   '051_fix_client_zone_base_path.sql': m051,
+  '052_role_cleanup.sql': m052,
 };
