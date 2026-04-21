@@ -77,7 +77,7 @@ beforeAll(async () => {
 
   // Set roles
   await sql`UPDATE "user" SET role = 'god' WHERE id = ${godUserId}`.execute(db);
-  await sql`UPDATE "user" SET role = 'admin' WHERE id = ${adminUserId}`.execute(db);
+  await sql`UPDATE "user" SET role = 'member' WHERE id = ${adminUserId}`.execute(db);
   await sql`UPDATE "user" SET role = 'member' WHERE id = ${employeeUserId}`.execute(db);
 
   // Sign in all
