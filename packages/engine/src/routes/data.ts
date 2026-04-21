@@ -21,6 +21,7 @@ import {
 import { escapeLike } from '../lib/query-utils.js';
 import { hashApiKey } from '../lib/api-key-hash.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
+import { getRlsFilters } from '../lib/rls.js';
 
 /** Minimal user shape attached to every authenticated request context */
 export interface RequestUser {
@@ -475,6 +476,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
       return c.json({ error: `Unknown sort field: '${query.sort}'` }, 400);
     }
 
+    // ── RLS injection ──────────────────────────────────────────────
+    // Merge row-level security filters into existing query filters.
+    // RLS conditions are ANDed with any user-supplied filters.
+    const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
+    for (const { field, condition } of rlsFilters) {
+      filters[field] = condition; // RLS wins over same-field user filter
+    }
+
     const effectiveDb = getDb(c, db);
     const sortField = query.sort ?? 'created_at';
 
@@ -652,12 +661,21 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
 
+    // Build query with RLS conditions so a user cannot fetch a record
+    // they're not allowed to see by guessing its ID.
+    const rlsSingle = await getRlsFilters(collection, user, c.get('authType'));
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-    const record = await (effectiveDb as any)
+    let recordQuery = (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
+      .where('id', '=', id);
+
+    for (const { field, condition } of rlsSingle) {
+      if (condition.op === 'eq') recordQuery = recordQuery.where(field, '=', condition.value);
+      else if (condition.op === 'neq') recordQuery = recordQuery.where(field, '!=', condition.value);
+    }
+
+    const record = await recordQuery.executeTakeFirst();
 
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
