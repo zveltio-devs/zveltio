@@ -7,6 +7,7 @@ import { authRoutes } from './auth.js';
 import { usersRoutes } from './users.js';
 import { permissionsRoutes } from './permissions.js';
 import { rlsRoutes } from './rls.js';
+import { rpcRoutes } from './rpc.js';
 import { storageRoutes } from './storage.js';
 import { webhooksRoutes } from './webhooks.js';
 import { settingsRoutes } from './settings.js';
@@ -139,6 +140,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Row-Level Security policies (admin)
   app.route('/api/admin/rls', rlsRoutes(db, auth));
+
+  // RPC — whitelisted PostgreSQL function calls
+  app.route('/api/rpc', rpcRoutes(db, auth));
 
   // File storage (authenticated)
   app.route('/api/storage', storageRoutes(db, auth));

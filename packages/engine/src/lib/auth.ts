@@ -1,4 +1,6 @@
 import { betterAuth } from 'better-auth';
+import { twoFactor } from 'better-auth/plugins';
+import { magicLink } from 'better-auth/plugins';
 import type { Database } from '../db/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
@@ -142,7 +144,38 @@ export async function initAuth(db: Database) {
         : {}),
     },
 
-    plugins: [],
+    plugins: [
+      // TOTP 2FA — always enabled; users can opt in from their profile
+      twoFactor({
+        issuer: process.env.APP_NAME || 'Zveltio',
+        totpOptions: { digits: 6, period: 30 },
+      }),
+
+      // Magic link auth — enabled only when SMTP is configured
+      ...(process.env.SMTP_HOST ? [
+        magicLink({
+          sendMagicLink: async ({ email, url }) => {
+            // Lazy-load nodemailer to avoid startup cost when SMTP is not configured
+            const nodemailer = await import('nodemailer');
+            const transporter = nodemailer.default.createTransport({
+              host: process.env.SMTP_HOST,
+              port: Number(process.env.SMTP_PORT || 587),
+              secure: process.env.SMTP_SECURE === 'true',
+              auth: process.env.SMTP_USER
+                ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' }
+                : undefined,
+            });
+            await transporter.sendMail({
+              from: process.env.SMTP_FROM || `noreply@${process.env.APP_DOMAIN || 'zveltio.local'}`,
+              to: email,
+              subject: 'Your magic link',
+              html: `<p>Click <a href="${url}">here</a> to sign in. This link expires in 10 minutes.</p>`,
+              text: `Sign in: ${url}`,
+            });
+          },
+        }),
+      ] : []),
+    ],
   });
 
   // Patch getSession to return null instead of throwing — better-auth v1.5+
