@@ -8,6 +8,7 @@ import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { checkPermission } from '../lib/permissions.js';
 import { WebhookManager } from '../lib/webhooks.js';
 import { broadcastEvent } from './ws.js';
+import { broadcastDataEvent } from './realtime.js';
 import { triggerEmbedding } from '../lib/ai-embed-hook.js';
 import { engineEvents } from '../lib/event-bus.js';
 import { triggerDataFlows } from './flows.js';
@@ -275,6 +276,7 @@ async function afterWrite(
 
   await broadcastWebhook(db, eventName, collection, data as { id: string; [key: string]: any });
   broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data);
+  broadcastDataEvent(collection, eventName, data);
 
   sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
     event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
@@ -604,6 +606,138 @@ export function dataRoutes(db: Database, auth: any): Hono {
       },
       next_cursor,
     });
+  });
+
+  // ── POST /:collection/bulk — Bulk insert ─────────────────────────
+  app.post('/:collection/bulk', async (c) => {
+    const collection = c.req.param('collection');
+    const user = c.get('user');
+
+    if (!(await checkAccess(db, user, collection, 'create'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const collectionDef = await DDLManager.getCollection(db, collection);
+    if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
+
+    const body = await c.req.json().catch(() => null);
+    if (!Array.isArray(body?.records) || body.records.length === 0) {
+      return c.json({ error: 'Body must be { records: [...] } with at least one item' }, 400);
+    }
+    if (body.records.length > 500) {
+      return c.json({ error: 'Bulk insert limited to 500 records per request' }, 400);
+    }
+
+    const tableName = DDLManager.getTableName(collection);
+    const effectiveDb = getDb(c, db);
+    const created: any[] = [];
+    const errors: Array<{ index: number; errors: string[] }> = [];
+
+    await (effectiveDb as any).transaction().execute(async (trx: Database) => {
+      for (let i = 0; i < body.records.length; i++) {
+        const { errors: valErrors, processed } = await processInput(body.records[i], collectionDef);
+        if (valErrors.length > 0) { errors.push({ index: i, errors: valErrors }); continue; }
+        const record = await dynamicInsert(trx, tableName, { ...processed, created_by: user.id, updated_by: user.id });
+        created.push(record);
+      }
+    });
+
+    for (const record of created) {
+      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id }).catch(() => {});
+    }
+
+    return c.json({ created: created.length, records: created, errors }, errors.length > 0 ? 207 : 201);
+  });
+
+  // ── PATCH /:collection/bulk — Bulk partial update ─────────────────
+  app.patch('/:collection/bulk', async (c) => {
+    const collection = c.req.param('collection');
+    const user = c.get('user');
+
+    if (!(await checkAccess(db, user, collection, 'update'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const collectionDef = await DDLManager.getCollection(db, collection);
+    if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
+
+    const body = await c.req.json().catch(() => null);
+    if (!Array.isArray(body?.records) || body.records.length === 0) {
+      return c.json({ error: 'Body must be { records: [{id, ...fields}] }' }, 400);
+    }
+    if (body.records.length > 500) {
+      return c.json({ error: 'Bulk update limited to 500 records per request' }, 400);
+    }
+    if (body.records.some((r: any) => !isUuid(r?.id))) {
+      return c.json({ error: 'Every record must have a valid UUID id' }, 400);
+    }
+
+    const tableName = DDLManager.getTableName(collection);
+    const effectiveDb = getDb(c, db);
+    const updated: any[] = [];
+    const errors: Array<{ index: number; id: string; errors: string[] }> = [];
+
+    await (effectiveDb as any).transaction().execute(async (trx: Database) => {
+      for (let i = 0; i < body.records.length; i++) {
+        const { id, ...fields } = body.records[i];
+        const { errors: valErrors, processed } = await processInput(fields, collectionDef, true);
+        if (valErrors.length > 0) { errors.push({ index: i, id, errors: valErrors }); continue; }
+        const record = await dynamicUpdate(trx, tableName, id, { ...processed, updated_by: user.id });
+        if (record) updated.push(record);
+        else errors.push({ index: i, id, errors: ['Record not found'] });
+      }
+    });
+
+    for (const record of updated) {
+      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'update', data: record, userId: user.id }).catch(() => {});
+    }
+
+    return c.json({ updated: updated.length, records: updated, errors }, errors.length > 0 ? 207 : 200);
+  });
+
+  // ── DELETE /:collection/bulk — Bulk delete ────────────────────────
+  app.delete('/:collection/bulk', async (c) => {
+    const collection = c.req.param('collection');
+    const user = c.get('user');
+
+    if (!(await checkAccess(db, user, collection, 'delete'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    if (!(await DDLManager.getCollection(db, collection))) {
+      return c.json({ error: 'Collection not found' }, 404);
+    }
+
+    const body = await c.req.json().catch(() => null);
+    if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+      return c.json({ error: 'Body must be { ids: [...] }' }, 400);
+    }
+    if (body.ids.length > 500) {
+      return c.json({ error: 'Bulk delete limited to 500 records per request' }, 400);
+    }
+    if (body.ids.some((id: any) => !isUuid(id))) {
+      return c.json({ error: 'All ids must be valid UUIDs' }, 400);
+    }
+
+    const tableName = DDLManager.getTableName(collection);
+    const effectiveDb = getDb(c, db);
+
+    const existing = await (effectiveDb as any)
+      .selectFrom(tableName)
+      .selectAll()
+      .where('id', 'in', body.ids)
+      .execute();
+
+    await (effectiveDb as any)
+      .deleteFrom(tableName)
+      .where('id', 'in', body.ids)
+      .execute();
+
+    for (const record of existing) {
+      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id }).catch(() => {});
+    }
+
+    return c.json({ deleted: existing.length, ids: existing.map((r: any) => r.id) });
   });
 
   // ── GET /:collection/:id — Get single record ─────────────────────
