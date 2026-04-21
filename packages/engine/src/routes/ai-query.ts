@@ -46,7 +46,7 @@ export function aiQueryRoutes(db: Database, auth: any): Hono {
       const accessibleCollections: any[] = [];
 
       for (const col of allCollections) {
-        const canRead = await checkPermission(user.id, `data:${col.name}`, 'read');
+        const canRead = await checkPermission(user.id, col.name, 'read');
         if (canRead) accessibleCollections.push(col);
       }
 

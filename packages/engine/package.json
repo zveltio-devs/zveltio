@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "BUN_MEMORY_LIMIT=4096 bun build src/index.ts --outdir dist --target bun --packages external",
-    "build:prod": "BUN_MEMORY_LIMIT=2048 bun build src/index.ts --outdir dist --target bun --packages external --minify",
+    "gen:migrations": "bun scripts/gen-embedded-migrations.ts",
+    "build": "bun scripts/gen-embedded-migrations.ts && BUN_MEMORY_LIMIT=4096 bun build src/index.ts --outdir dist --target bun --packages external",
+    "build:prod": "bun scripts/gen-embedded-migrations.ts && BUN_MEMORY_LIMIT=2048 bun build src/index.ts --outdir dist --target bun --packages external --minify",
     "dev": "BUN_MEMORY_LIMIT=2048 bun --watch src/index.ts",
     "monitor": "bun watch/index.js",
     "all": "bun dev & bun monitor",

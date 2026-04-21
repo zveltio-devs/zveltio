@@ -135,7 +135,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     if (source_collection && source_record_id) {
       // IDOR fix: verify the user has read access to the source collection
       // before fetching the record and embedding its data into the document.
-      const canRead = await checkPermission(user.id, `data:${source_collection}`, 'read');
+      const canRead = await checkPermission(user.id, source_collection, 'read');
       if (!canRead) {
         return c.json({ error: `Access denied to collection "${source_collection}"` }, 403);
       }

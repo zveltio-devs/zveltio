@@ -63,7 +63,7 @@ export function apiKeyGuard(db: Database) {
     if (apiKey.permissions_mode === 'god') {
       // Full access — for internal system keys only
     } else if (apiKey.permissions_mode === 'casbin' && apiKey.casbin_subject) {
-      const allowed = await checkPermission(apiKey.casbin_subject, `data:${collection}`, action);
+      const allowed = await checkPermission(apiKey.casbin_subject, collection, action);
       if (!allowed) {
         logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch(() => {});
         return c.json({ error: 'Insufficient permissions' }, 403);
