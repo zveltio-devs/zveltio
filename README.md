@@ -6,6 +6,10 @@
 [![Bun](https://img.shields.io/badge/Bun-1.2.0+-red)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue)](https://www.typescriptlang.org/)
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/zveltio-devs/zveltio)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/zveltio-devs/zveltio)
+[![Deploy on Fly.io](https://img.shields.io/badge/Deploy%20on-Fly.io-8b5cf6?logo=fly.io&logoColor=white)](https://fly.io/docs/launch/)
+
 ---
 
 ## ⚡ Quick Install
@@ -48,6 +52,7 @@ zveltio/                   # This repo — core engine
 │   ├── cli/               # CLI (zveltio start, migrate, update, create-god...)
 │   ├── sdk/               # Vanilla JS/TypeScript client
 │   ├── sdk-react/         # React 18+ hooks (@zveltio/react)
+│   ├── sdk-react-native/  # React Native hooks (@zveltio/react-native)
 │   ├── sdk-vue/           # Vue 3 composables (@zveltio/vue)
 │   └── studio/            # Admin UI (SvelteKit 5)
 ├── Dockerfile
