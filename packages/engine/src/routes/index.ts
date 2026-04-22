@@ -44,6 +44,8 @@ import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRa
 import { tenantQuota } from '../middleware/tenant-quota.js';
 import { slowQueryMiddleware } from '../middleware/slow-query.js';
 import { godAuditMiddleware } from '../middleware/god-audit.js';
+import { requestLogMiddleware } from '../middleware/request-log.js';
+import { previewEnvMiddleware } from '../middleware/preview-env.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
 // /api/flows         — automation flows (routes/flows.ts)
@@ -106,6 +108,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // ── God-role audit trail — logs all actions by users with role='god' ──────
   app.use('/api/*', godAuditMiddleware(db));
+
+  // ── Request log — persists every /api/* call to zv_request_logs ──────────
+  app.use('/api/*', requestLogMiddleware(db));
+
+  // ── Preview environments — X-Preview-Token switches PostgreSQL search_path ─
+  app.use('/api/data/*', previewEnvMiddleware(db));
 
   // Better-Auth handler — handles all /api/auth/** routes
   app.on(['GET', 'POST'], '/api/auth/*', async (c) => {

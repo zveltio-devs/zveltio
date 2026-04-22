@@ -459,6 +459,36 @@ export function adminRoutes(db: Database, auth: any): Hono {
     });
   });
 
+  // ── Request Logs ──────────────────────────────────────────────
+
+  // GET /logs — recent request log (filterable by path, status, method)
+  app.get('/logs', async (c) => {
+    const { limit = '100', page = '1', path, status, method, user_id } = c.req.query();
+    const parsedLimit = Math.min(parseInt(limit) || 100, 1000);
+    const offset = (parseInt(page) - 1) * parsedLimit;
+
+    let query = db
+      .selectFrom('zv_request_logs')
+      .selectAll()
+      .orderBy('created_at', 'desc')
+      .limit(parsedLimit)
+      .offset(offset);
+
+    if (path) query = query.where('path', 'like', `%${path}%`);
+    if (status) query = query.where('status', '=', parseInt(status));
+    if (method) query = query.where('method', '=', method.toUpperCase());
+    if (user_id) query = query.where('user_id', '=', user_id);
+
+    const [logs, total] = await Promise.all([
+      query.execute(),
+      db.selectFrom('zv_request_logs')
+        .select((eb) => eb.fn.count('id').as('count'))
+        .executeTakeFirst(),
+    ]);
+
+    return c.json({ logs, total: Number(total?.count ?? 0) });
+  });
+
   // ── Slow Queries ──────────────────────────────────────────────
 
   // GET /slow-queries — list recent slow queries
