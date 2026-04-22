@@ -393,17 +393,16 @@ export function storageRoutes(db: Database, auth: any): Hono {
     let outBytes: Uint8Array;
     let outMime: string;
     if (targetFmt === 'jpeg' || targetFmt === 'jpg') {
-      outBytes = await img.encodeJPEG(targetQuality);
+      // imagescript JPEGQuality is 1-100 integer cast
+      outBytes = await img.encodeJPEG(targetQuality as any);
       outMime = 'image/jpeg';
-    } else if (targetFmt === 'gif') {
-      outBytes = await img.encodeGIF();
-      outMime = 'image/gif';
     } else {
+      // PNG for all other formats (imagescript doesn't support GIF encode)
       outBytes = await img.encode();
       outMime = 'image/png';
     }
 
-    return new Response(outBytes, {
+    return new Response(outBytes as unknown as BodyInit, {
       headers: {
         'Content-Type': outMime,
         'Cache-Control': 'public, max-age=86400',
