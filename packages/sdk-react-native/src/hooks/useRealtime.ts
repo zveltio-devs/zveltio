@@ -1,5 +1,19 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { useZveltioClient } from '../context.js';
+
+// Declare globals present in React Native runtime but absent from TypeScript's ES2020 lib
+declare const WebSocket: {
+  new(url: string): {
+    onopen: (() => void) | null;
+    onmessage: ((e: { data: string }) => void) | null;
+    onclose: (() => void) | null;
+    onerror: (() => void) | null;
+    send(data: string): void;
+    close(): void;
+  };
+};
+declare function setTimeout(fn: () => void, ms: number): ReturnType<typeof globalThis.setTimeout>;
+declare function clearTimeout(id: ReturnType<typeof globalThis.setTimeout>): void;
 
 // React Native doesn't have EventSource — use WebSocket against /api/ws
 export function useRealtime(
@@ -8,7 +22,7 @@ export function useRealtime(
   callback: (data: any) => void,
 ): void {
   const client = useZveltioClient();
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<any>(null);
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
 
@@ -18,7 +32,7 @@ export function useRealtime(
     const baseUrl: string = (client as any).baseUrl ?? (client as any).url ?? '';
     const wsUrl = baseUrl.replace(/^http/, 'ws') + '/api/ws';
 
-    let ws: WebSocket;
+    let ws: ReturnType<typeof WebSocket>;
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let destroyed = false;
 
@@ -40,14 +54,10 @@ export function useRealtime(
       };
 
       ws.onclose = () => {
-        if (!destroyed) {
-          reconnectTimer = setTimeout(connect, 3000);
-        }
+        if (!destroyed) reconnectTimer = setTimeout(connect, 3000);
       };
 
-      ws.onerror = () => {
-        ws.close();
-      };
+      ws.onerror = () => { ws.close(); };
     }
 
     connect();

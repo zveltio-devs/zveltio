@@ -467,7 +467,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 100, 1000);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = db
+    let query = (db as any)
       .selectFrom('zv_request_logs')
       .selectAll()
       .orderBy('created_at', 'desc')
@@ -481,8 +481,8 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
     const [logs, total] = await Promise.all([
       query.execute(),
-      db.selectFrom('zv_request_logs')
-        .select((eb) => eb.fn.count('id').as('count'))
+      (db as any).selectFrom('zv_request_logs')
+        .select((eb: any) => eb.fn.count('id').as('count'))
         .executeTakeFirst(),
     ]);
 

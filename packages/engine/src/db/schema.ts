@@ -566,6 +566,18 @@ export interface ZvRevisionsTable {
   created_at: Generated<Date>;
 }
 
+export interface ZvRequestLogsTable {
+  id: Generated<number>;
+  method: string;
+  path: string;
+  status: number;
+  duration_ms: number;
+  user_id: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: Generated<Date>;
+}
+
 export interface ZvSlowQueriesTable {
   id: Generated<string>;
   method: string;
@@ -1495,6 +1507,7 @@ export interface DbSchema {
   zv_audit_log: ZvAuditLogTable;
   zv_revisions: ZvRevisionsTable;
   zv_slow_queries: ZvSlowQueriesTable;
+  zv_request_logs: ZvRequestLogsTable;
   zv_pitr_config: ZvPitrConfigTable;
   zv_pitr_restore_points: ZvPitrRestorePointsTable;
   zv_pages: ZvPagesTable;
