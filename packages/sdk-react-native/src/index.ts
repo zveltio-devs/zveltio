@@ -9,7 +9,7 @@ export { useStorage } from './hooks/useStorage.js';
 
 export type { HookResult, SyncStatus, CollectionOptions } from './types.js';
 export type { AuthState } from './hooks/useAuth.js';
-export type { StorageFile } from '@zveltio/sdk';
+export type { StorageFile } from './hooks/useStorage.js';
 
 // Re-export core client
 export { ZveltioClient, createZveltioClient } from '@zveltio/sdk';

@@ -3,10 +3,13 @@ import { fetchSession, loginUser, logoutUser, signupUser, type AuthState } from 
 import { useZveltioClient } from '../context.js';
 import type { HookResult } from '../types.js';
 
-// React Native: persist session token via AsyncStorage
-let AsyncStorage: any = null;
+// React Native: persist session token via AsyncStorage (optional peer dep)
+let AsyncStorage: { getItem(k: string): Promise<string | null>; setItem(k: string, v: string): Promise<void>; removeItem(k: string): Promise<void> } | null = null;
+// Dynamic require works in React Native bundlers (Metro/Expo); falls back gracefully if absent
 try {
-  AsyncStorage = require('@react-native-async-storage/async-storage').default;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = (globalThis as any).require?.('@react-native-async-storage/async-storage');
+  if (mod) AsyncStorage = mod.default ?? mod;
 } catch { /* optional peer dep */ }
 
 const SESSION_KEY = '@zveltio/session_token';
