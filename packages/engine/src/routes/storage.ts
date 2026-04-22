@@ -335,6 +335,83 @@ export function storageRoutes(db: Database, auth: any): Hono {
     return c.json({ url: signed.url, expires_in: 3600 });
   });
 
+  // GET /:id/transform — On-the-fly image resize/convert using imagescript (no native deps)
+  app.get('/:id/transform', async (c) => {
+    const transformDb = (c.get('tenantTrx') as Database | null) ?? db;
+    const file = await (transformDb as any)
+      .selectFrom('zv_media_files')
+      .selectAll()
+      .where('id', '=', c.req.param('id'))
+      .executeTakeFirst();
+
+    if (!file) return c.json({ error: 'File not found' }, 404);
+
+    const mime: string = (file as any).mimetype || '';
+    if (!mime.startsWith('image/')) return c.json({ error: 'Not an image' }, 400);
+
+    const { w, h, format, quality, fit } = c.req.query();
+    const targetW = w ? Math.min(parseInt(w), 4096) : undefined;
+    const targetH = h ? Math.min(parseInt(h), 4096) : undefined;
+    const targetFmt = (format || 'png').toLowerCase();
+    const targetQuality = quality ? Math.min(parseInt(quality), 100) : 80;
+
+    if (!targetW && !targetH && !format) {
+      return c.json({ error: 'Provide at least one of: w, h, format' }, 400);
+    }
+
+    // Fetch source bytes
+    let sourceBytes: Uint8Array;
+    const client = getAws();
+    if (client && (file as any).storage_path) {
+      const res = await client.fetch(s3Url((file as any).storage_path), { method: 'GET' });
+      if (!res.ok) return c.json({ error: 'Failed to fetch source file' }, 502);
+      sourceBytes = new Uint8Array(await res.arrayBuffer());
+    } else {
+      return c.json({ error: 'Storage not configured or file has no storage path' }, 503);
+    }
+
+    const { Image } = await import('imagescript');
+    const img = await Image.decode(sourceBytes);
+
+    if (targetW || targetH) {
+      const srcW = img.width;
+      const srcH = img.height;
+      let dstW = targetW || srcW;
+      let dstH = targetH || srcH;
+
+      if (fit !== 'stretch') {
+        // Maintain aspect ratio (cover/contain both keep ratio; default = contain)
+        const ratioW = dstW / srcW;
+        const ratioH = dstH / srcH;
+        const ratio = (fit === 'cover') ? Math.max(ratioW, ratioH) : Math.min(ratioW, ratioH);
+        dstW = Math.round(srcW * ratio);
+        dstH = Math.round(srcH * ratio);
+      }
+      img.resize(dstW, dstH);
+    }
+
+    let outBytes: Uint8Array;
+    let outMime: string;
+    if (targetFmt === 'jpeg' || targetFmt === 'jpg') {
+      outBytes = await img.encodeJPEG(targetQuality);
+      outMime = 'image/jpeg';
+    } else if (targetFmt === 'gif') {
+      outBytes = await img.encodeGIF();
+      outMime = 'image/gif';
+    } else {
+      outBytes = await img.encode();
+      outMime = 'image/png';
+    }
+
+    return new Response(outBytes, {
+      headers: {
+        'Content-Type': outMime,
+        'Cache-Control': 'public, max-age=86400',
+        'Content-Length': String(outBytes.byteLength),
+      },
+    });
+  });
+
   // DELETE /:id — Delete file (owner or admin only)
   app.delete('/:id', async (c) => {
     const user = c.get('user') as any;

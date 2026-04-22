@@ -11,7 +11,7 @@
     Puzzle, LogOut, HardDrive, Key, ClipboardList, Languages,
     Upload, Bot, Bell, Download, Workflow, Package, GitBranch, Plug,
     Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare,
-    ScanSearch, Search, Code, Bookmark, BarChart2,
+    ScanSearch, Search, Code, Bookmark, BarChart2, Terminal,
     LayoutGrid, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Menu, X,
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
@@ -132,6 +132,7 @@
         { href: `${base}/schema-branches`,     icon: GitBranch,  label: 'Schema Branches'   },
         { href: `${base}/virtual-collections`, icon: Plug,       label: 'Virtual Collections' },
         { href: `${base}/saved-queries`,       icon: Bookmark,   label: 'Saved Queries'     },
+        { href: `${base}/sql`,                 icon: Terminal,   label: 'SQL Editor'        },
         { href: `${base}/introspect`,          icon: ScanSearch, label: 'BYOD Import'       },
       ]
     },
