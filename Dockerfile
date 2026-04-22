@@ -9,6 +9,7 @@ COPY packages/client/package.json ./packages/client/
 COPY packages/engine/package.json ./packages/engine/
 COPY packages/sdk/package.json ./packages/sdk/
 COPY packages/sdk-react/package.json ./packages/sdk-react/
+COPY packages/sdk-react-native/package.json ./packages/sdk-react-native/
 COPY packages/sdk-vue/package.json ./packages/sdk-vue/
 COPY packages/studio/package.json ./packages/studio/
 
@@ -41,6 +42,7 @@ COPY packages/client/package.json ./packages/client/
 COPY packages/engine/package.json ./packages/engine/
 COPY packages/sdk/package.json ./packages/sdk/
 COPY packages/sdk-react/package.json ./packages/sdk-react/
+COPY packages/sdk-react-native/package.json ./packages/sdk-react-native/
 COPY packages/sdk-vue/package.json ./packages/sdk-vue/
 COPY packages/studio/package.json ./packages/studio/
 
