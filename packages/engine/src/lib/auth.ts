@@ -5,6 +5,23 @@ import type { Database } from '../db/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
 
+async function sendEmail(to: string, subject: string, html: string, text: string) {
+  const { createTransport } = await import('nodemailer');
+  const transport = createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' } : undefined,
+  });
+  await transport.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@zveltio.com',
+    to,
+    subject,
+    html,
+    text,
+  });
+}
+
 // Re-export auth instance for convenience in routes
 export const auth = {
   get api() {
@@ -90,6 +107,11 @@ export async function initAuth(db: Database) {
 
     emailAndPassword: {
       enabled: true,
+      ...(process.env.SMTP_HOST ? {
+        sendResetPassword: async ({ user, url }: { user: { email: string; name?: string }, url: string }) => {
+          await sendEmail(user.email, 'Reset your password', `<p>Hi ${user.name || user.email},</p><p>Click <a href="${url}">here</a> to reset your password. This link expires in 1 hour.</p>`, `Reset your password: ${url}`);
+        },
+      } : {}),
       // Use argon2id via Bun.password (4 MB RAM) instead of better-auth's
       // default scrypt (32 MB RAM) so create-god and login work on small VMs.
       // Legacy scrypt hashes (salt:hexkey format) are verified transparently
@@ -118,31 +140,30 @@ export async function initAuth(db: Database) {
 
     socialProviders: {
       ...(process.env.GOOGLE_CLIENT_ID
-        ? {
-            google: {
-              clientId: process.env.GOOGLE_CLIENT_ID,
-              clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-            },
-          }
+        ? { google: { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET || '' } }
         : {}),
       ...(process.env.GITHUB_CLIENT_ID
-        ? {
-            github: {
-              clientId: process.env.GITHUB_CLIENT_ID,
-              clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
-            },
-          }
+        ? { github: { clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET || '' } }
         : {}),
       ...(process.env.MICROSOFT_CLIENT_ID
-        ? {
-            microsoft: {
-              clientId: process.env.MICROSOFT_CLIENT_ID,
-              clientSecret: process.env.MICROSOFT_CLIENT_SECRET || '',
-              tenantId: process.env.MICROSOFT_TENANT_ID || 'common',
-            },
-          }
+        ? { microsoft: { clientId: process.env.MICROSOFT_CLIENT_ID, clientSecret: process.env.MICROSOFT_CLIENT_SECRET || '', tenantId: process.env.MICROSOFT_TENANT_ID || 'common' } }
+        : {}),
+      ...(process.env.DISCORD_CLIENT_ID
+        ? { discord: { clientId: process.env.DISCORD_CLIENT_ID, clientSecret: process.env.DISCORD_CLIENT_SECRET || '' } }
+        : {}),
+      ...(process.env.TWITTER_CLIENT_ID
+        ? { twitter: { clientId: process.env.TWITTER_CLIENT_ID, clientSecret: process.env.TWITTER_CLIENT_SECRET || '' } }
+        : {}),
+      ...(process.env.APPLE_CLIENT_ID
+        ? { apple: { clientId: process.env.APPLE_CLIENT_ID, clientSecret: process.env.APPLE_CLIENT_SECRET || '', teamId: process.env.APPLE_TEAM_ID || '', keyId: process.env.APPLE_KEY_ID || '' } }
         : {}),
     },
+
+    emailVerification: process.env.SMTP_HOST ? {
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendEmail(user.email, 'Verify your email', `<p>Hi ${user.name || user.email},</p><p>Click <a href="${url}">here</a> to verify your email address.</p><p>This link expires in 24 hours.</p>`, `Verify your email: ${url}`);
+      },
+    } : undefined,
 
     plugins: [
       // TOTP 2FA — always enabled; users can opt in from their profile
@@ -151,27 +172,11 @@ export async function initAuth(db: Database) {
         totpOptions: { digits: 6, period: 30 },
       }),
 
-      // Magic link auth — enabled only when SMTP is configured
+      // Magic link + password reset — enabled only when SMTP is configured
       ...(process.env.SMTP_HOST ? [
         magicLink({
           sendMagicLink: async ({ email, url }) => {
-            // Lazy-load nodemailer to avoid startup cost when SMTP is not configured
-            const nodemailer = await import('nodemailer');
-            const transporter = nodemailer.default.createTransport({
-              host: process.env.SMTP_HOST,
-              port: Number(process.env.SMTP_PORT || 587),
-              secure: process.env.SMTP_SECURE === 'true',
-              auth: process.env.SMTP_USER
-                ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' }
-                : undefined,
-            });
-            await transporter.sendMail({
-              from: process.env.SMTP_FROM || `noreply@${process.env.APP_DOMAIN || 'zveltio.local'}`,
-              to: email,
-              subject: 'Your magic link',
-              html: `<p>Click <a href="${url}">here</a> to sign in. This link expires in 10 minutes.</p>`,
-              text: `Sign in: ${url}`,
-            });
+            await sendEmail(email, 'Your sign-in link', `<p>Click <a href="${url}">here</a> to sign in. This link expires in 10 minutes.</p>`, `Sign in: ${url}`);
           },
         }),
       ] : []),
