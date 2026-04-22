@@ -1,6 +1,5 @@
 <script lang="ts">
   import { api } from '$lib/api.js';
-  import { toast } from '$lib/toast.svelte.js';
   import { Terminal } from '@lucide/svelte';
 
   let query = $state('SELECT * FROM "user" LIMIT 10;');
@@ -21,22 +20,13 @@
     elapsed = null;
     const start = Date.now();
     try {
-      const res = await api('/admin/sql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
-      });
+      const body = await api.post<{ rows: Record<string, any>[]; rowCount: number }>('/admin/sql', { query });
       elapsed = Date.now() - start;
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: 'Unknown error' }));
-        error = body.error ?? 'Query failed';
-        return;
-      }
-      const body = await res.json();
       rows = body.rows ?? [];
       rowCount = body.rowCount ?? rows.length;
       columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     } catch (e: any) {
+      elapsed = Date.now() - start;
       error = e.message ?? String(e);
     } finally {
       running = false;

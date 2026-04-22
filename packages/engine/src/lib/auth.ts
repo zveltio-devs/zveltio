@@ -154,6 +154,7 @@ export async function initAuth(db: Database) {
       ...(process.env.TWITTER_CLIENT_ID
         ? { twitter: { clientId: process.env.TWITTER_CLIENT_ID, clientSecret: process.env.TWITTER_CLIENT_SECRET || '' } }
         : {}),
+      // @ts-ignore — better-auth Apple options vary by version
       ...(process.env.APPLE_CLIENT_ID
         ? { apple: { clientId: process.env.APPLE_CLIENT_ID, clientSecret: process.env.APPLE_CLIENT_SECRET || '', teamId: process.env.APPLE_TEAM_ID || '', keyId: process.env.APPLE_KEY_ID || '' } }
         : {}),
