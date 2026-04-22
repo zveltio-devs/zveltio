@@ -2,7 +2,7 @@
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
  import {
- GitBranch, Plus, RefreshCw, Trash2, Eye, Merge, AlertCircle, CheckCircle, Clock, X,
+ GitBranch, Plus, RefreshCw, Trash2, Eye, Merge, AlertCircle, CheckCircle, Clock, X, Globe, GlobeLock,
  } from '@lucide/svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
 
@@ -19,6 +19,8 @@
  merged_at: string | null;
  created_at: string;
  updated_at: string;
+ preview_enabled?: boolean;
+ preview_token?: string | null;
  }
 
  interface Diff {
@@ -46,6 +48,29 @@
  let mergeResult = $state<{ applied: string[]; errors: string[] } | null>(null);
 
  let deleteTarget = $state<SchemaBranch | null>(null);
+
+ let previewBranch = $state<SchemaBranch | null>(null);
+ let previewToken = $state<string | null>(null);
+ let enablingPreview = $state(false);
+
+ async function enablePreview(branch: SchemaBranch) {
+   enablingPreview = true;
+   try {
+     const res = await api.post<{ preview_token: string }>(`/schema/branches/${branch.id}/preview`);
+     previewToken = res.preview_token;
+     previewBranch = branch;
+     await loadBranches();
+   } catch { /* ignore */ } finally {
+     enablingPreview = false;
+   }
+ }
+
+ async function disablePreview(branch: SchemaBranch) {
+   await api.delete(`/schema/branches/${branch.id}/preview`);
+   previewToken = null;
+   previewBranch = null;
+   await loadBranches();
+ }
 
  onMount(loadBranches);
 
@@ -203,6 +228,18 @@
  <Eye size={12} /> Diff
  </button>
  {#if branch.status === 'open'}
+ {#if branch.preview_enabled}
+ <button class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; previewBranch = branch; }} title="View preview token">
+ <Globe size={12} /> Preview
+ </button>
+ <button class="btn btn-ghost btn-xs text-warning" onclick={() => disablePreview(branch)} title="Disable preview">
+ <GlobeLock size={12} />
+ </button>
+ {:else}
+ <button class="btn btn-ghost btn-xs gap-1" onclick={() => enablePreview(branch)} disabled={enablingPreview} title="Enable preview environment">
+ <Globe size={12} /> Preview
+ </button>
+ {/if}
  <button class="btn btn-success btn-xs gap-1" onclick={() => openMergeModal(branch)}>
  <Merge size={12} /> Merge
  </button>
@@ -332,6 +369,23 @@
  {/if}
  </div>
  <button class="modal-backdrop" aria-label="Close" onclick={() => (showMergeModal = false)}></button>
+ </dialog>
+{/if}
+
+<!-- Preview Environment Token Modal -->
+{#if previewToken}
+ <dialog class="modal modal-open">
+ <div class="modal-box">
+ <h3 class="font-bold text-lg mb-1 flex items-center gap-2"><Globe size={18} /> Preview Environment Active</h3>
+ <p class="text-sm opacity-70 mb-4">Send this token with every request to use the isolated branch schema.</p>
+ <div class="bg-base-200 rounded-lg p-3 font-mono text-sm break-all select-all mb-3">{previewToken}</div>
+ <p class="text-xs opacity-50 mb-4">Add header: <span class="font-mono">X-Preview-Token: {previewToken}</span></p>
+ <div class="modal-action">
+ <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard?.writeText(previewToken ?? '')}>Copy Token</button>
+ <button class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>Close</button>
+ </div>
+ </div>
+ <button class="modal-backdrop" aria-label="Close" onclick={() => { previewToken = null; previewBranch = null; }}></button>
  </dialog>
 {/if}
 
