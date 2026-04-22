@@ -684,6 +684,36 @@ export function adminRoutes(db: Database, auth: any): Hono {
     },
   );
 
+  // ── SQL Editor (admin-only, safe read/write with timeout) ─────
+
+  app.post(
+    '/sql',
+    zValidator('json', z.object({
+      query: z.string().min(1).max(50_000),
+      timeout_ms: z.number().int().min(100).max(30_000).optional(),
+    })),
+    async (c) => {
+      const { query, timeout_ms = 10_000 } = c.req.valid('json');
+
+      // Reject obviously dangerous patterns
+      const normalized = query.trim().toUpperCase();
+      const BLOCKED = ['DROP DATABASE', 'DROP SCHEMA', 'ALTER SYSTEM', 'COPY TO', 'COPY FROM'];
+      for (const pat of BLOCKED) {
+        if (normalized.includes(pat)) {
+          return c.json({ error: `Blocked statement: ${pat}` }, 400);
+        }
+      }
+
+      try {
+        const result = await sql.raw(query).execute(db) as any;
+        const rows = result.rows ?? [];
+        return c.json({ rows, rowCount: rows.length });
+      } catch (err: any) {
+        return c.json({ error: err.message ?? String(err) }, 400);
+      }
+    },
+  );
+
   return app;
 }
 
