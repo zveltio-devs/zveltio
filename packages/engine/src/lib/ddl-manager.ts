@@ -298,6 +298,28 @@ export class DDLManager {
         })
         .join(' || ');
 
+      // search_text = all text fields concatenated — enables pg_trgm fuzzy ILIKE search
+      const searchTextExpr = textFields
+        .map((f) => `coalesce(NEW."${f}", '')`)
+        .join(`, ' ', `);
+      const searchTextConcat = textFields.length === 1
+        ? `coalesce(NEW."${textFields[0]}", '')`
+        : `concat_ws(' ', ${searchTextExpr})`;
+
+      // ALTER TABLE for search_text column
+      await withLockTimeout(db, async (trx) => {
+        await sql
+          .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_text text`)
+          .execute(trx);
+      });
+
+      // GIN trgm index — enables fast ILIKE '%term%' queries
+      await sql
+        .raw(
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_trgm ON ${tableName} USING GIN(search_text gin_trgm_ops)`,
+        )
+        .execute(db);
+
       // CREATE OR REPLACE FUNCTION + CREATE TRIGGER → withLockTimeout (ShareRowExclusiveLock)
       await withLockTimeout(db, async (trx) => {
         await sql
@@ -306,6 +328,7 @@ export class DDLManager {
           CREATE OR REPLACE FUNCTION ${tableName}_search_trigger() RETURNS trigger AS $$
           BEGIN
             NEW.search_vector := ${weightsClause};
+            NEW.search_text := ${searchTextConcat};
             RETURN NEW;
           END
           $$ LANGUAGE plpgsql
@@ -357,6 +380,15 @@ export class DDLManager {
 
     // Register collection metadata
     await this.registerMetadata(db, validated);
+
+    // Mark has_trgm if search_text was added (collection has text fields)
+    if (textFields.length > 0) {
+      await (db as any)
+        .updateTable('zvd_collections')
+        .set({ has_trgm: true })
+        .where('name', '=', validated.name)
+        .execute();
+    }
   }
 
   /**

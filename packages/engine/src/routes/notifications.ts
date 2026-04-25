@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
+import { sendPushToUsers } from '../lib/push-notifications.js';
 
 async function requireAuth(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -48,6 +49,11 @@ export async function sendNotification(
       `[sendNotification] ${failed.length}/${values.length} notifications failed:`,
       (failed[0] as PromiseRejectedResult).reason,
     );
+  }
+
+  // Fire-and-forget mobile push — only if FCM or APNS are configured
+  if (process.env.FCM_SERVER_KEY || process.env.APNS_KEY) {
+    sendPushToUsers(db, userIds, { title: opts.title, body: opts.message }).catch(() => { /* non-critical */ });
   }
 }
 
@@ -255,6 +261,54 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       return c.json({ success: true, sent_to: targetIds.length });
     },
   );
+
+  // ── Push Token Management ──────────────────────────────────────
+
+  // POST /push-tokens — register a device token
+  app.post(
+    '/push-tokens',
+    zValidator('json', z.object({
+      token: z.string().min(1).max(4096),
+      platform: z.enum(['fcm', 'apns', 'web']),
+      device_name: z.string().max(100).optional(),
+    })),
+    async (c) => {
+      const user = c.get('user') as any;
+      const { token, platform, device_name } = c.req.valid('json');
+
+      await (db as any)
+        .insertInto('zvd_push_tokens')
+        .values({ user_id: user.id, token, platform, device_name: device_name ?? null })
+        .onConflict((oc: any) =>
+          oc.columns(['user_id', 'token']).doUpdateSet({ platform, device_name: device_name ?? null, updated_at: new Date() }),
+        )
+        .execute();
+
+      return c.json({ success: true });
+    },
+  );
+
+  // GET /push-tokens — list own tokens
+  app.get('/push-tokens', async (c) => {
+    const user = c.get('user') as any;
+    const tokens = await (db as any)
+      .selectFrom('zvd_push_tokens')
+      .select(['id', 'platform', 'device_name', 'created_at'])
+      .where('user_id', '=', user.id)
+      .execute();
+    return c.json({ tokens });
+  });
+
+  // DELETE /push-tokens/:id — unregister a token
+  app.delete('/push-tokens/:id', async (c) => {
+    const user = c.get('user') as any;
+    await (db as any)
+      .deleteFrom('zvd_push_tokens')
+      .where('id', '=', c.req.param('id'))
+      .where('user_id', '=', user.id) // users can only delete their own tokens
+      .execute();
+    return c.json({ success: true });
+  });
 
   return app;
 }

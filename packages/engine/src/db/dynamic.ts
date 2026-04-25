@@ -77,6 +77,11 @@ export interface QueryOptions {
   offset?: number;
   /** Full-text search term — applied as search_vector @@ websearch_to_tsquery() */
   fts?: string;
+  /**
+   * When true, extends FTS with pg_trgm similarity on search_text column.
+   * Only set for collections created after migration 059 (has_trgm = true in zvd_collections).
+   */
+  hasTrgm?: boolean;
 }
 
 export interface QueryResult {
@@ -130,16 +135,26 @@ export async function dynamicSelect(
   options: QueryOptions = {},
 ): Promise<QueryResult> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const { limit = 100, offset = 0, filters = {}, sort, fts } = options;
+  const { limit = 100, offset = 0, filters = {}, sort, fts, hasTrgm } = options;
 
   const conditions = Object.entries(filters).map(([k, v]) =>
     buildCondition(k, v),
   );
   if (fts) {
-    // websearch_to_tsquery() tolerates arbitrary user input without syntax errors
-    conditions.push(
-      sql`search_vector @@ websearch_to_tsquery('english', ${fts})`,
-    );
+    if (hasTrgm) {
+      // Combined: FTS via tsvector OR trgm similarity on search_text (fuzzy/prefix matching).
+      // search_text is maintained by the DDL trigger for collections created after migration 059.
+      const likePattern = `%${fts.replace(/%/g, '').replace(/_/g, '')}%`;
+      conditions.push(sql`(
+        search_vector @@ websearch_to_tsquery('english', ${fts})
+        OR search_text ILIKE ${likePattern}
+      )`);
+    } else {
+      // websearch_to_tsquery() tolerates arbitrary user input without syntax errors
+      conditions.push(
+        sql`search_vector @@ websearch_to_tsquery('english', ${fts})`,
+      );
+    }
   }
   const whereClause =
     conditions.length > 0

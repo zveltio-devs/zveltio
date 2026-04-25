@@ -62,6 +62,14 @@ import m050 from './sql/050_zones_pages_views.sql' with { type: 'text' };
 import m051 from './sql/051_fix_client_zone_base_path.sql' with { type: 'text' };
 import m052 from './sql/052_role_cleanup.sql' with { type: 'text' };
 import m053 from './sql/053_strip_data_prefix.sql' with { type: 'text' };
+import m054 from './sql/054_rls_policies.sql' with { type: 'text' };
+import m055 from './sql/055_rpc_whitelist.sql' with { type: 'text' };
+import m056 from './sql/056_request_logs.sql' with { type: 'text' };
+import m057 from './sql/057_rate_limit_configs.sql' with { type: 'text' };
+import m058 from './sql/058_performance_indexes.sql' with { type: 'text' };
+import m059 from './sql/059_pg_trgm.sql' with { type: 'text' };
+import m060 from './sql/060_column_permissions.sql' with { type: 'text' };
+import m061 from './sql/061_push_tokens.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -119,4 +127,12 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '051_fix_client_zone_base_path.sql': m051,
   '052_role_cleanup.sql': m052,
   '053_strip_data_prefix.sql': m053,
+  '054_rls_policies.sql': m054,
+  '055_rpc_whitelist.sql': m055,
+  '056_request_logs.sql': m056,
+  '057_rate_limit_configs.sql': m057,
+  '058_performance_indexes.sql': m058,
+  '059_pg_trgm.sql': m059,
+  '060_column_permissions.sql': m060,
+  '061_push_tokens.sql': m061,
 };
