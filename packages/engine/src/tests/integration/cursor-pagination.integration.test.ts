@@ -54,6 +54,16 @@ beforeAll(async () => {
   });
   expect(createRes.status).toBeOneOf([200, 202]);
 
+  // Wait for async DDL to finish creating the table before inserting
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const probe = await fetch(`${BASE_URL}/api/data/${COL}`, {
+      headers: { Cookie: sessionCookie },
+    });
+    if (probe.status === 200) break;
+    await new Promise((r) => setTimeout(r, 200));
+    if (attempt === 29) throw new Error(`Collection ${COL} table not ready after 6s`);
+  }
+
   // Insert 25 records sequentially so created_at order is deterministic
   for (let i = 1; i <= 25; i++) {
     const res = await fetch(`${BASE_URL}/api/data/${COL}`, {
