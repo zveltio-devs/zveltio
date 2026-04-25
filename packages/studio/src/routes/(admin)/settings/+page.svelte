@@ -1,7 +1,7 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api, settingsApi } from '$lib/api.js';
- import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff, Gauge, Plus, Trash2 } from '@lucide/svelte';
+ import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff, Gauge } from '@lucide/svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
@@ -27,15 +27,10 @@
  api_rate_limit: 100,
  });
 
- // Rate limiting state
- let rl = $state({
- enabled: true,
- default_ip_limit: 60,
- default_key_limit: 1000,
- collection_overrides: [] as Array<{ collection: string; limit: number }>,
- });
- let rlSaving = $state(false);
- let rlSaved = $state(false);
+ // Rate limiting — per-tier configs from zv_rate_limit_configs
+ let rlTiers = $state<Array<{ key_prefix: string; window_ms: number; max_requests: number; is_active: boolean; description: string }>>([]);
+ let rlSaving = $state<string | null>(null);
+ let rlResetting = $state(false);
 
  onMount(async () => {
  try {
@@ -49,16 +44,10 @@
 
  async function loadRateLimiting() {
  try {
- const res = await api.get<{ key: string; value: any }>('/api/settings/rate_limiting');
- const data = res?.value;
- if (data && typeof data === 'object') {
- if ('enabled' in data) rl.enabled = data.enabled;
- if ('default_ip_limit' in data) rl.default_ip_limit = data.default_ip_limit;
- if ('default_key_limit' in data) rl.default_key_limit = data.default_key_limit;
- if (Array.isArray(data.collection_overrides)) rl.collection_overrides = data.collection_overrides;
- }
+ const res = await api.get<{ rate_limits: any[] }>('/api/admin/rate-limits');
+ if (Array.isArray(res?.rate_limits)) rlTiers = res.rate_limits;
  } catch {
- // Not yet configured — use defaults silently
+ // table may not exist yet if migration hasn't run
  }
  }
 
@@ -74,24 +63,29 @@
  } finally { saving = false; }
  }
 
- async function saveRateLimiting() {
- rlSaving = true; rlSaved = false;
+ async function saveTier(tier: typeof rlTiers[number]) {
+ rlSaving = tier.key_prefix;
  try {
- await api.put('/api/settings/rate_limiting', { value: { ...rl } });
- rlSaved = true;
- toast.success('Rate limiting settings saved');
- setTimeout(() => (rlSaved = false), 3000);
+ await api.patch(`/api/admin/rate-limits/${tier.key_prefix}`, {
+ window_ms: tier.window_ms,
+ max_requests: tier.max_requests,
+ is_active: tier.is_active,
+ });
+ toast.success(`${tier.key_prefix} limits saved`);
  } catch (err) {
  toast.error(err instanceof Error ? err.message : 'Save failed');
- } finally { rlSaving = false; }
+ } finally { rlSaving = null; }
  }
 
- function addCollectionOverride() {
- rl.collection_overrides = [...rl.collection_overrides, { collection: '', limit: 100 }];
- }
-
- function removeCollectionOverride(i: number) {
- rl.collection_overrides = rl.collection_overrides.filter((_, idx) => idx !== i);
+ async function resetDefaults() {
+ rlResetting = true;
+ try {
+ await api.post('/api/admin/rate-limits/reset', {});
+ toast.success('Rate limits reset to defaults');
+ await loadRateLimiting();
+ } catch (err) {
+ toast.error(err instanceof Error ? err.message : 'Reset failed');
+ } finally { rlResetting = false; }
  }
 
  const TABS = [
@@ -111,9 +105,9 @@
   {saved ? '✓ Saved' : 'Save Settings'}
   </button>
   {:else}
-  <button class="btn {rlSaved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveRateLimiting} disabled={rlSaving}>
-  {#if rlSaving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
-  {rlSaved ? '✓ Saved' : 'Save'}
+  <button class="btn btn-ghost btn-sm" onclick={resetDefaults} disabled={rlResetting}>
+  {#if rlResetting}<LoaderCircle size={16} class="animate-spin" />{/if}
+  Reset Defaults
   </button>
   {/if}
  </PageHeader>
@@ -223,103 +217,81 @@
  </div>
 
  {:else if tab === 'rate_limiting'}
- <!-- Global toggle -->
- <label class="label cursor-pointer justify-start gap-3">
- <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={rl.enabled} />
- <div>
- <p class="label-text font-medium">Enable Rate Limiting</p>
- <p class="text-xs text-base-content/50">Apply request limits globally across all API endpoints</p>
- </div>
- </label>
+ <p class="text-sm text-base-content/60 mb-4">
+ Configure request limits per tier. Changes apply within 60 seconds without restart.
+ </p>
 
- <div class="divider my-2"></div>
-
- <div class="grid grid-cols-2 gap-4">
- <div class="form-control">
- <label class="label" for="rl-ip-limit">
- <span class="label-text font-medium">Default IP limit</span>
- <span class="label-text-alt text-base-content/50">req / minute</span>
- </label>
+ {#if rlTiers.length === 0}
+ <p class="text-sm text-base-content/40 text-center py-8">No rate limit configs found — run migrations first.</p>
+ {:else}
+ <div class="overflow-x-auto">
+ <table class="table table-sm">
+ <thead>
+ <tr>
+ <th>Tier</th>
+ <th>Window</th>
+ <th>Max requests</th>
+ <th>Active</th>
+ <th></th>
+ </tr>
+ </thead>
+ <tbody>
+ {#each rlTiers as tier}
+ <tr>
+ <td>
+ <span class="font-mono font-semibold text-xs">{tier.key_prefix}</span>
+ {#if tier.description}
+ <p class="text-xs text-base-content/40 mt-0.5 max-w-45">{tier.description}</p>
+ {/if}
+ </td>
+ <td>
+ <div class="flex items-center gap-1">
  <input
- id="rl-ip-limit"
  type="number"
- class="input"
- bind:value={rl.default_ip_limit}
+ class="input input-sm input-bordered w-20 font-mono text-xs"
+ bind:value={tier.window_ms}
+ min="1000"
+ max="3600000"
+ step="1000"
+ />
+ <span class="text-xs text-base-content/50">ms</span>
+ </div>
+ </td>
+ <td>
+ <input
+ type="number"
+ class="input input-sm input-bordered w-24 font-mono text-xs"
+ bind:value={tier.max_requests}
  min="1"
  max="100000"
- disabled={!rl.enabled}
  />
- </div>
- <div class="form-control">
- <label class="label" for="rl-key-limit">
- <span class="label-text font-medium">Default API key limit</span>
- <span class="label-text-alt text-base-content/50">req / hour</span>
- </label>
+ </td>
+ <td>
  <input
- id="rl-key-limit"
- type="number"
- class="input"
- bind:value={rl.default_key_limit}
- min="1"
- max="1000000"
- disabled={!rl.enabled}
+ type="checkbox"
+ class="toggle toggle-xs toggle-success"
+ bind:checked={tier.is_active}
  />
- </div>
- </div>
-
- <div class="divider my-2"></div>
-
- <!-- Per-collection overrides -->
- <div>
- <div class="flex items-center justify-between mb-3">
- <div>
- <p class="font-medium text-sm">Per-collection overrides</p>
- <p class="text-xs text-base-content/50">Override the default rate limit for specific collections</p>
- </div>
+ </td>
+ <td>
  <button
- class="btn btn-xs btn-ghost gap-1"
- onclick={addCollectionOverride}
- disabled={!rl.enabled}
+ class="btn btn-xs btn-primary"
+ onclick={() => saveTier(tier)}
+ disabled={rlSaving === tier.key_prefix}
  >
- <Plus size={12} /> Add
- </button>
- </div>
-
- {#if rl.collection_overrides.length === 0}
- <p class="text-xs text-base-content/40 text-center py-4 border border-dashed border-base-300 rounded-lg">
- No overrides — all collections use the default limit
- </p>
+ {#if rlSaving === tier.key_prefix}
+ <LoaderCircle size={12} class="animate-spin" />
  {:else}
- <div class="space-y-2">
- {#each rl.collection_overrides as override, i}
- <div class="flex gap-2 items-center">
- <input
- class="input input-sm flex-1"
- type="text"
- placeholder="collection_name"
- bind:value={override.collection}
- disabled={!rl.enabled}
- />
- <input
- class="input input-sm w-28"
- type="number"
- placeholder="1000"
- bind:value={override.limit}
- min="1"
- disabled={!rl.enabled}
- />
- <span class="text-xs text-base-content/50 shrink-0">req/hr</span>
- <button
- class="btn btn-ghost btn-xs text-error shrink-0"
- onclick={() => removeCollectionOverride(i)}
- >
- <Trash2 size={13} />
+ <Save size={12} />
+ {/if}
  </button>
- </div>
+ </td>
+ </tr>
  {/each}
+ </tbody>
+ </table>
  </div>
  {/if}
- </div>
 
   {/if}
  </div>

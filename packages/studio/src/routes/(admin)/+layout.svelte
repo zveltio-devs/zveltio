@@ -12,7 +12,7 @@
     Upload, Bot, Bell, Download, Workflow, Package, GitBranch, Plug,
     Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare,
     ScanSearch, Search, Code, Bookmark, BarChart2, Terminal, Activity,
-    LayoutGrid, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Menu, X,
+    LayoutGrid, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Menu, X, Zap,
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
   import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
@@ -51,6 +51,18 @@
     await auth.init();
     if (!auth.isAuthenticated) { goto(`${base}/login`); return; }
     await initExtensions();
+
+    // First-login redirect: if no collections exist and user hasn't completed/skipped onboarding, send to wizard
+    const onboardingDone = localStorage.getItem('zveltio-onboarding-done');
+    const isOnboarding = page.url.pathname.includes('/onboarding');
+    if (!onboardingDone && !isOnboarding) {
+      try {
+        const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ || '';
+        const res = await fetch(`${engineUrl}/api/collections`, { credentials: 'include' });
+        const data = await res.json();
+        if (!data?.collections?.length) goto(`${base}/onboarding`);
+      } catch { /* silently skip — don't block admin on network error */ }
+    }
   });
 
   $effect(() => {
@@ -82,7 +94,8 @@
   const nav: NavGroup[] = [
     {
       items: [
-        { href: `${base}/`, icon: LayoutDashboard, label: 'Dashboard' },
+        { href: `${base}/`,           icon: LayoutDashboard, label: 'Dashboard'  },
+        { href: `${base}/onboarding`, icon: Zap,             label: 'Quick Setup' },
       ]
     },
     {

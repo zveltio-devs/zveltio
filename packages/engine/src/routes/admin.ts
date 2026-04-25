@@ -9,6 +9,7 @@ import { DDLManager } from '../lib/ddl-manager.js';
 import { getCache } from '../lib/cache.js';
 import { auditLog } from '../lib/audit.js';
 import type { RequestUser } from './data.js';
+import { invalidateRateLimitCache } from '../middleware/rate-limit.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -714,6 +715,131 @@ export function adminRoutes(db: Database, auth: any): Hono {
     },
   );
 
+  // ── Rate Limit Configs ────────────────────────────────────────────────────
+
+  // GET /rate-limits — list all configurable tiers
+  app.get('/rate-limits', async (c) => {
+    const rows = await (db as any)
+      .selectFrom('zv_rate_limit_configs')
+      .selectAll()
+      .orderBy('key_prefix')
+      .execute();
+    return c.json({ rate_limits: rows });
+  });
+
+  // PATCH /rate-limits/:keyPrefix — update a tier
+  app.patch(
+    '/rate-limits/:keyPrefix',
+    zValidator('json', z.object({
+      window_ms:    z.number().int().min(1000).max(3_600_000).optional(),
+      max_requests: z.number().int().min(1).max(100_000).optional(),
+      is_active:    z.boolean().optional(),
+      description:  z.string().optional(),
+    })),
+    async (c) => {
+      const user = c.get('user') as RequestUser;
+      const { keyPrefix } = c.req.param() as { keyPrefix: string };
+      const body = c.req.valid('json');
+
+      const updates: any = { updated_at: new Date(), updated_by: user.id };
+      if (body.window_ms    !== undefined) updates.window_ms    = body.window_ms;
+      if (body.max_requests !== undefined) updates.max_requests = body.max_requests;
+      if (body.is_active    !== undefined) updates.is_active    = body.is_active;
+      if (body.description  !== undefined) updates.description  = body.description;
+
+      const row = await (db as any)
+        .updateTable('zv_rate_limit_configs')
+        .set(updates)
+        .where('key_prefix', '=', keyPrefix)
+        .returningAll()
+        .executeTakeFirst();
+
+      if (!row) return c.json({ error: 'Rate limit config not found' }, 404);
+      invalidateRateLimitCache(keyPrefix);
+      return c.json({ rate_limit: row });
+    },
+  );
+
+  // POST /rate-limits/reset — restore all tiers to compiled defaults
+  app.post('/rate-limits/reset', async (c) => {
+    const defaults = [
+      { key_prefix: 'auth',        window_ms: 60000, max_requests: 10  },
+      { key_prefix: 'api',         window_ms: 60000, max_requests: 200 },
+      { key_prefix: 'ai',          window_ms: 60000, max_requests: 20  },
+      { key_prefix: 'write',       window_ms: 60000, max_requests: 60  },
+      { key_prefix: 'ddl',         window_ms: 60000, max_requests: 10  },
+      { key_prefix: 'destructive', window_ms: 60000, max_requests: 10  },
+    ];
+    for (const d of defaults) {
+      await (db as any)
+        .updateTable('zv_rate_limit_configs')
+        .set({ window_ms: d.window_ms, max_requests: d.max_requests, updated_at: new Date() })
+        .where('key_prefix', '=', d.key_prefix)
+        .execute();
+    }
+    invalidateRateLimitCache();
+    return c.json({ success: true });
+  });
+
+  // ── Column-level Permissions ──────────────────────────────────
+
+  const ColumnPermSchema = z.object({
+    collection_name: z.string().min(1),
+    column_name: z.string().min(1),
+    role: z.string().min(1),
+    can_read: z.boolean().default(true),
+    can_write: z.boolean().default(true),
+  });
+
+  // GET /column-permissions?collection=xxx
+  app.get('/column-permissions', async (c) => {
+    const { collection } = c.req.query();
+    let query = (db as any)
+      .selectFrom('zvd_column_permissions')
+      .selectAll()
+      .orderBy('collection_name').orderBy('column_name');
+    if (collection) query = query.where('collection_name', '=', collection);
+    const rows = await query.execute();
+    return c.json({ column_permissions: rows });
+  });
+
+  // POST /column-permissions
+  app.post('/column-permissions', zValidator('json', ColumnPermSchema), async (c) => {
+    const data = c.req.valid('json');
+    const row = await (db as any)
+      .insertInto('zvd_column_permissions')
+      .values(data)
+      .onConflict((oc: any) =>
+        oc.columns(['collection_name', 'column_name', 'role'])
+          .doUpdateSet({ can_read: data.can_read, can_write: data.can_write, updated_at: new Date() }),
+      )
+      .returningAll()
+      .executeTakeFirst();
+    return c.json({ column_permission: row }, 201);
+  });
+
+  // PUT /column-permissions/:id
+  app.put('/column-permissions/:id', zValidator('json', ColumnPermSchema.partial()), async (c) => {
+    const data = c.req.valid('json');
+    const row = await (db as any)
+      .updateTable('zvd_column_permissions')
+      .set({ ...data, updated_at: new Date() })
+      .where('id', '=', c.req.param('id'))
+      .returningAll()
+      .executeTakeFirst();
+    if (!row) return c.json({ error: 'Not found' }, 404);
+    return c.json({ column_permission: row });
+  });
+
+  // DELETE /column-permissions/:id
+  app.delete('/column-permissions/:id', async (c) => {
+    await (db as any)
+      .deleteFrom('zvd_column_permissions')
+      .where('id', '=', c.req.param('id'))
+      .execute();
+    return c.json({ success: true });
+  });
+
   // ── SQL Editor (admin-only, safe read/write with timeout) ─────
 
   app.post(
@@ -878,6 +1004,41 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       resourceId: keyId,
       resourceType: 'api_key',
     });
+    return c.json({ success: true });
+  });
+
+  // PUT /:id/rate-limit — Set per-key rate limit override
+  app.put(
+    '/:id/rate-limit',
+    zValidator('json', z.object({
+      window_ms:    z.number().int().min(1000).max(3_600_000),
+      max_requests: z.number().int().min(1).max(100_000),
+    })),
+    async (c) => {
+      const { id } = c.req.param();
+      const { window_ms, max_requests } = c.req.valid('json');
+
+      // Verify API key exists
+      const key = await db.selectFrom('zv_api_keys').select('id').where('id', '=', id).executeTakeFirst();
+      if (!key) return c.json({ error: 'API key not found' }, 404);
+
+      const keyPrefix = `apikey:${id}`;
+      await (db as any)
+        .insertInto('zv_rate_limit_configs')
+        .values({ key_prefix: keyPrefix, window_ms, max_requests, description: `Per-key override for ${id}` })
+        .onConflict((oc: any) => oc.column('key_prefix').doUpdateSet({ window_ms, max_requests, updated_at: new Date() }))
+        .execute();
+
+      invalidateRateLimitCache(keyPrefix);
+      return c.json({ success: true, key_prefix: keyPrefix, window_ms, max_requests });
+    },
+  );
+
+  // DELETE /:id/rate-limit — Remove per-key rate limit override (falls back to tier default)
+  app.delete('/:id/rate-limit', async (c) => {
+    const keyPrefix = `apikey:${c.req.param('id')}`;
+    await (db as any).deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', keyPrefix).execute();
+    invalidateRateLimitCache(keyPrefix);
     return c.json({ success: true });
   });
 
