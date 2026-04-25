@@ -498,7 +498,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const rows = await db
       .selectFrom('zv_slow_queries')
       .selectAll()
-      .where('duration_ms', '>=', parseInt(min_ms) || 200)
+      .where('duration_ms', '>=', isNaN(parseInt(min_ms, 10)) ? 200 : parseInt(min_ms, 10))
       .orderBy('created_at', 'desc')
       .limit(Math.min(parseInt(limit) || 50, 500))
       .execute();
