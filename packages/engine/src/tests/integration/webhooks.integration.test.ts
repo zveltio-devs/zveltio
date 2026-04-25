@@ -93,9 +93,9 @@ beforeAll(async () => {
       active: true,
     }),
   });
-  expect(whRes.status).toBe(200);
-  const whBody = await whRes.json();
-  webhookId = whBody.id;
+  expect(whRes.status).toBe(201);
+  const whBody = await whRes.json() as any;
+  webhookId = whBody.webhook?.id ?? whBody.id;
 
   // Create inactive webhook
   const inactiveRes = await fetch(`${BASE_URL}/api/webhooks`, {
@@ -109,8 +109,8 @@ beforeAll(async () => {
       active: false,
     }),
   });
-  const inactiveBody = await inactiveRes.json();
-  inactiveWebhookId = inactiveBody.id;
+  const inactiveBody = await inactiveRes.json() as any;
+  inactiveWebhookId = inactiveBody.webhook?.id ?? inactiveBody.id;
 }, 30_000);
 
 afterAll(async () => {
