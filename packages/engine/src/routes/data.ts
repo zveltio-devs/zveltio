@@ -338,7 +338,15 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const qcKey = buildQueryCacheKey(collection, user.id, c.req.url);
     if (!query.as_of && !query.cursor) {
       const cached = await getQueryCache(qcKey);
-      if (cached) return c.json(cached);
+      if (cached) {
+        // Still compute ETag from cached records so If-None-Match / 304 works on cache hits
+        const etag = `"${await computeEtag(cached.records ?? [])}"`;
+        c.header('ETag', etag);
+        c.header('Cache-Control', 'private, max-age=0, must-revalidate');
+        c.header('Vary', 'Cookie, X-API-Key, Authorization');
+        if (c.req.header('If-None-Match') === etag) return c.body(null, 304);
+        return c.json(cached);
+      }
     }
 
     // ── Time Travel: reconstruct state at a given point in time ────

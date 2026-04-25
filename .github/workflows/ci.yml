@@ -154,6 +154,7 @@ jobs:
           TEST_PORT: '3099'
           NODE_ENV: test
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+          SLOW_QUERY_THRESHOLD_MS: '0'
         run: cd packages/engine && bun run test:integration
       - name: Show engine logs (always)
         if: always()
