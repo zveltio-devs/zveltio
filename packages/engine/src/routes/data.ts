@@ -19,10 +19,12 @@ import {
   dynamicDelete,
   type FilterCondition,
 } from '../db/dynamic.js';
-import { escapeLike } from '../lib/query-utils.js';
 import { hashApiKey } from '../lib/api-key-hash.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
+import { tracedQuery } from '../lib/telemetry.js';
 import { getRlsFilters } from '../lib/rls.js';
+import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../lib/column-permissions.js';
+import { buildQueryCacheKey, getQueryCache, setQueryCache, invalidateQueryCache } from '../lib/query-cache.js';
 
 /** Minimal user shape attached to every authenticated request context */
 export interface RequestUser {
@@ -292,6 +294,9 @@ async function afterWrite(
     );
   }
 
+  // Invalidate query cache for this collection on every write
+  invalidateQueryCache(collection).catch(() => { /* non-critical */ });
+
   // Trigger data_event flows (fire-and-forget — must not block the request)
   triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch((err) =>
     console.error('[afterWrite] flow trigger failed:', err),
@@ -326,6 +331,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!(await checkAccess(db, user, collection, 'read'))) {
       return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    // ── Query result cache (Valkey) ────────────────────────────────
+    // Only cache standard offset queries (no time-travel, no cursor, no virtual sources)
+    const qcKey = buildQueryCacheKey(collection, user.id, c.req.url);
+    if (!query.as_of && !query.cursor) {
+      const cached = await getQueryCache(qcKey);
+      if (cached) return c.json(cached);
     }
 
     // ── Time Travel: reconstruct state at a given point in time ────
@@ -539,13 +552,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
       } else {
         // Malformed cursor — fall back to offset
         const offset = (query.page - 1) * query.limit;
-        result = await dynamicSelect(effectiveDb, tableName, {
+        result = await tracedQuery(`${tableName}.list`, () => dynamicSelect(effectiveDb, tableName, {
           filters,
           sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
           limit: query.limit,
           offset,
-          fts: query.search ? escapeLike(query.search.trim().substring(0, 500)) : undefined,
-        });
+          fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+          hasTrgm: !!(collectionDef as any).has_trgm,
+        }));
       }
     } else {
       // Standard OFFSET-based pagination (backwards-compatible)
@@ -557,11 +571,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
         sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
         limit: query.limit,
         offset,
-        fts: query.search ? escapeLike(query.search.trim().substring(0, 500)) : undefined,
+        fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+        hasTrgm: !!(collectionDef as any).has_trgm,
       });
     }
 
-    const serialized = await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)));
+    const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+    const serialized = (await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef))))
+      .map((r) => applyColumnAccess(r, colAccess));
 
     // ── ETag + Cache-Control ───────────────────────────────────────
     const etag = `"${await computeEtag(serialized)}"`;
@@ -596,7 +613,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // A prior refactor renamed these to { data, total, page, limit, pages } which
     // silently broke every client — the studio data tab was stuck on its spinner
     // because `dataRes.records` was undefined and rendering threw on records.length.
-    return c.json({
+    const listResponse = {
       records: serialized,
       pagination: {
         total: result.total >= 0 ? result.total : undefined,
@@ -605,7 +622,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
         pages: result.total >= 0 ? Math.ceil(result.total / query.limit) : undefined,
       },
       next_cursor,
-    });
+    };
+
+    // Cache the response (fire-and-forget, non-blocking)
+    if (!query.as_of && !query.cursor) {
+      setQueryCache(qcKey, listResponse).catch(() => { /* non-critical */ });
+    }
+
+    return c.json(listResponse);
   });
 
   // ── POST /:collection/bulk — Bulk insert ─────────────────────────
@@ -813,7 +837,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
-    const serializedRecord = await serializeRecord(record, collectionDef);
+    const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+    const serializedRecord = applyColumnAccess(await serializeRecord(record, collectionDef), colAccess);
 
     // ETag + Cache-Control for single record
     const singleEtag = `"${await computeEtag([serializedRecord])}"`;
@@ -859,9 +884,15 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const { errors, processed } = await processInput(body, collectionDef);
     if (errors.length > 0) return c.json({ errors }, 422);
 
+    const colAccessCreate = await getColumnAccess(db, collection, user.role ?? 'public');
+    const { data: allowedData, blocked: blockedCreate } = filterWritableFields(processed, colAccessCreate);
+    if (blockedCreate.length > 0) {
+      return c.json({ error: `Fields are read-only for your role: ${blockedCreate.join(', ')}` }, 403);
+    }
+
     const effectiveDb = getDb(c, db);
-    const toInsert = { ...processed, created_by: user.id, updated_by: user.id };
-    const record = await dynamicInsert(effectiveDb, tableName, toInsert);
+    const toInsert = { ...allowedData, created_by: user.id, updated_by: user.id };
+    const record = await tracedQuery(`${tableName}.create`, () => dynamicInsert(effectiveDb, tableName, toInsert));
 
     await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id });
 
@@ -903,7 +934,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const effectiveDb = getDb(c, db);
     const toUpdate = { ...processed, updated_by: user.id };
-    const record = await dynamicUpdate(effectiveDb, tableName, id, toUpdate);
+    const record = await tracedQuery(`${tableName}.update`, () => dynamicUpdate(effectiveDb, tableName, id, toUpdate));
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
     await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id });
@@ -944,8 +975,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const { errors, processed } = await processInput(body, collectionDef, true);
     if (errors.length > 0) return c.json({ errors }, 422);
 
+    const colAccessPatch = await getColumnAccess(db, collection, user.role ?? 'public');
+    const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(processed, colAccessPatch);
+    if (blockedPatch.length > 0) {
+      return c.json({ error: `Fields are read-only for your role: ${blockedPatch.join(', ')}` }, 403);
+    }
+
     const effectiveDb = getDb(c, db);
-    const toUpdate = { ...processed, updated_by: user.id };
+    const toUpdate = { ...allowedPatch, updated_by: user.id };
     const record = await dynamicUpdate(effectiveDb, tableName, id, toUpdate);
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
@@ -994,7 +1031,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!existing) return c.json({ error: 'Record not found' }, 404);
 
-    const deleted = await dynamicDelete(effectiveDb, tableName, id);
+    const deleted = await tracedQuery(`${tableName}.delete`, () => dynamicDelete(effectiveDb, tableName, id));
     if (!deleted) return c.json({ error: 'Record not found' }, 404);
 
     await afterWrite(effectiveDb, { collection, recordId: id, action: 'delete', data: existing, userId: user.id });

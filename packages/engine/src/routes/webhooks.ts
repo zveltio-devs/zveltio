@@ -25,6 +25,22 @@ const WebhookSchema = z.object({
   timeout: z.number().int().min(1000).max(30000).default(5000),
 });
 
+function generateWebhookSecret(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function signBody(body: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+  return `sha256=${Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
 export function webhooksRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -74,13 +90,17 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       return c.json({ error: err instanceof Error ? err.message : 'Invalid webhook URL' }, 400);
     }
 
+    // Auto-generate secret if not provided — always sign deliveries
+    const secret = data.secret || generateWebhookSecret();
+
     const webhook = await (db as any)
       .insertInto('zvd_webhooks')
-      .values({ ...data, created_by: user.id })
+      .values({ ...data, secret, created_by: user.id })
       .returningAll()
       .executeTakeFirst();
 
-    return c.json(webhook);
+    // Return plaintext secret only on creation — subsequent GETs return masked value
+    return c.json({ webhook, _secret_shown_once: true }, 201);
   });
 
   // PATCH /:id — Update webhook
@@ -128,6 +148,19 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     return c.json({ deliveries });
   });
 
+  // POST /:id/rotate-secret — Generate a new signing secret
+  app.post('/:id/rotate-secret', async (c) => {
+    const newSecret = generateWebhookSecret();
+    const webhook = await (db as any)
+      .updateTable('zvd_webhooks')
+      .set({ secret: newSecret, updated_at: new Date() })
+      .where('id', '=', c.req.param('id'))
+      .returningAll()
+      .executeTakeFirst();
+    if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
+    return c.json({ secret: newSecret, webhook: maskSecret(webhook) });
+  });
+
   // POST /:id/test — Test webhook
   app.post('/:id/test', async (c) => {
     const webhook = await (db as any)
@@ -151,16 +184,22 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
         }
       }
 
+      const testBody = JSON.stringify({
+        event: 'test',
+        collection: 'test',
+        data: { message: 'Test webhook from Zveltio' },
+        timestamp: new Date().toISOString(),
+      });
+
+      if (webhook.secret) {
+        sanitizedHeaders['X-Zveltio-Signature'] = await signBody(testBody, webhook.secret as string);
+      }
+
       validatePublicUrl(webhook.url as string);
       const response = await safeFetch(webhook.url as string, {
         method: (webhook.method as string) || 'POST',
         headers: sanitizedHeaders,
-        body: JSON.stringify({
-          event: 'test',
-          collection: 'test',
-          data: { message: 'Test webhook from Zveltio' },
-          timestamp: new Date().toISOString(),
-        }),
+        body: testBody,
         signal: AbortSignal.timeout(webhook.timeout || 5000),
       });
 

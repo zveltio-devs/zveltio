@@ -38,14 +38,16 @@ import { importRoutes } from './import.js';
 import { mediaRoutes } from './media.js';
 import { syncRoutes } from './sync.js';
 import { openApiRoutes } from './openapi.js';
+import { edgeFunctionsRoutes, edgeFunctionInvokeRoutes } from './edge-functions.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { ensureCoreCollections } from '../core-collections/index.js';
-import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit } from '../middleware/rate-limit.js';
+import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit, initRateLimitDb } from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
 import { slowQueryMiddleware } from '../middleware/slow-query.js';
 import { godAuditMiddleware } from '../middleware/god-audit.js';
 import { requestLogMiddleware } from '../middleware/request-log.js';
 import { previewEnvMiddleware } from '../middleware/preview-env.js';
+import { tracingMiddleware } from '../middleware/tracing.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
 // /api/flows         — automation flows (routes/flows.ts)
@@ -85,6 +87,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // DDLManager before the DDL queue starts. Runs BEFORE initDDLQueue so the
   // queue's self-heal sees complete schemas, not empty fields[].
   await ensureCoreCollections(db);
+
+  // Wire DB into rate limiter so configs from zv_rate_limit_configs override defaults
+  initRateLimitDb(db);
+
+  // ── Distributed tracing — W3C traceparent propagation on all /api/* requests ─
+  app.use('/api/*', tracingMiddleware());
 
   // Initialize DDL job queue (async — resets stale 'running' jobs before polling starts)
   await initDDLQueue(db);
@@ -253,7 +261,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // BYOD Introspection — moved to extensions/developer/byod
 
-  // Edge Functions — moved to extensions/developer/edge-functions (loaded when extension is active)
+  // Edge Functions — CRUD + sandboxed Bun Worker execution
+  app.route('/api/edge-functions', edgeFunctionsRoutes(db, auth));
+  app.route('/api/fn', edgeFunctionInvokeRoutes(db, auth));
 
   // P2: XML-escape helper to prevent injection via SITE_URL or page slugs
   function xmlEscape(s: string): string {

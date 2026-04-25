@@ -1,5 +1,40 @@
 import type { Context, Next } from 'hono';
 import { getCache } from '../lib/cache.js';
+import type { Database } from '../db/index.js';
+
+// In-process cache for DB-loaded rate limit configs (TTL: 60s)
+interface ConfigEntry { windowMs: number; max: number; ts: number }
+const configCache = new Map<string, ConfigEntry>();
+const CONFIG_TTL = 60_000;
+
+async function loadConfig(db: Database | undefined, keyPrefix: string): Promise<{ windowMs: number; max: number } | null> {
+  if (!db) return null;
+  const now = Date.now();
+  const cached = configCache.get(keyPrefix);
+  if (cached && now - cached.ts < CONFIG_TTL) return { windowMs: cached.windowMs, max: cached.max };
+  try {
+    const row = await (db as any)
+      .selectFrom('zv_rate_limit_configs')
+      .select(['window_ms', 'max_requests'])
+      .where('key_prefix', '=', keyPrefix)
+      .where('is_active', '=', true)
+      .executeTakeFirst();
+    if (row) {
+      configCache.set(keyPrefix, { windowMs: row.window_ms, max: row.max_requests, ts: now });
+      return { windowMs: row.window_ms, max: row.max_requests };
+    }
+  } catch { /* DB not ready yet — use defaults */ }
+  return null;
+}
+
+export function invalidateRateLimitCache(keyPrefix?: string) {
+  if (keyPrefix) configCache.delete(keyPrefix);
+  else configCache.clear();
+}
+
+// Module-level DB reference — set once at engine startup via initRateLimitDb()
+let _db: Database | undefined;
+export function initRateLimitDb(db: Database) { _db = db; }
 
 // Fallback in-memory rate limiter — active when Valkey is not available.
 // Optimized sliding window: Map<identifier, { count: number, windowStart: number }>
@@ -52,17 +87,32 @@ function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
 }
 
 interface RateLimitConfig {
-  windowMs: number; // sliding window size in ms
-  max: number; // max requests per window
-  keyPrefix: string; // e.g. 'api', 'auth', 'ai'
+  windowMs: number;
+  max: number;
+  keyPrefix: string;
   message?: string;
+  db?: Database;
 }
 
 export function rateLimit(config: RateLimitConfig) {
-  const { windowMs, max, keyPrefix, message = 'Too Many Requests' } = config;
-  const windowSec = Math.ceil(windowMs / 1000);
+  const { keyPrefix, message = 'Too Many Requests', db } = config;
 
   return async (c: Context, next: Next) => {
+    // Resolve live limits from DB (falls back to compiled defaults)
+    // Per-API-key override: if request uses API key auth, check apikey:<id> prefix first
+    const session = (c as any).get?.('user');
+    const apiKeyId = session?.id?.startsWith('apikey:') ? session.id.slice(7) : null;
+    const perKeyPrefix = apiKeyId ? `apikey:${apiKeyId}` : null;
+
+    const [live, perKeyLive] = await Promise.all([
+      loadConfig(db ?? _db, keyPrefix),
+      perKeyPrefix ? loadConfig(db ?? _db, perKeyPrefix) : Promise.resolve(null),
+    ]);
+
+    // Per-key config takes precedence over tier config
+    const windowMs = perKeyLive?.windowMs ?? live?.windowMs ?? config.windowMs;
+    const max = perKeyLive?.max ?? live?.max ?? config.max;
+    const windowSec = Math.ceil(windowMs / 1000);
     // Skip rate limiting in test environment to allow integration tests to run
     if (process.env.NODE_ENV === 'test') return next();
 
@@ -70,7 +120,6 @@ export function rateLimit(config: RateLimitConfig) {
 
     // Fallback in-memory when Redis is not available — fail CLOSED for safety
     if (!cache) {
-      const session = (c as any).get?.('user');
       const identifier = session?.id ?? 'unknown';
       const key = `rl:${keyPrefix}:${identifier}`;
       const allowed = memoryRateLimit(key, windowMs, max);
@@ -85,7 +134,6 @@ export function rateLimit(config: RateLimitConfig) {
       // Identifier: authenticated userId or client IP.
       // x-forwarded-for is only trusted when behind a known proxy (TRUSTED_PROXY=true env var).
       // Without this guard, any client can set the header to bypass per-IP rate limiting.
-      const session = (c as any).get?.('user');
       const userId: string | undefined = session?.id;
 
       const trustedProxy = process.env.TRUSTED_PROXY === 'true';

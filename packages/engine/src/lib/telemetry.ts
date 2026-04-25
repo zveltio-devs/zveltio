@@ -156,8 +156,24 @@ export async function initTelemetry(): Promise<void> {
   if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
 
   try {
-    const { NodeSDK } = await import('@opentelemetry/sdk-node');
+    const { NodeSDK }           = await import('@opentelemetry/sdk-node');
     const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore — @opentelemetry/core is a transitive dep of sdk-node; types not declared directly
+    const otelCore = await import('@opentelemetry/core');
+    const { propagation } = await import('@opentelemetry/api');
+
+    // Register W3C traceparent + baggage propagators.
+    // CompositePropagator lives in @opentelemetry/core ≥1.x; fall back to W3C-only if absent.
+    const W3CTraceCtx  = otelCore.W3CTraceContextPropagator;
+    const W3CBaggage   = otelCore.W3CBaggagePropagator;
+    const Composite    = (otelCore as any).CompositePropagator;
+
+    if (Composite && W3CBaggage) {
+      propagation.setGlobalPropagator(new Composite({ propagators: [new W3CTraceCtx(), new W3CBaggage()] }));
+    } else {
+      propagation.setGlobalPropagator(new W3CTraceCtx());
+    }
 
     const sdk = new NodeSDK({
       traceExporter: new OTLPTraceExporter({
@@ -171,4 +187,16 @@ export async function initTelemetry(): Promise<void> {
   } catch (err) {
     console.warn('⚠️ OpenTelemetry init failed (non-fatal):', err);
   }
+}
+
+/**
+ * Wraps a Kysely execute() call with a database span.
+ * Usage: await tracedQuery('users.list', () => db.selectFrom('users').selectAll().execute())
+ */
+export async function tracedQuery<T>(
+  operationName: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return fn();
+  return traced(`db.query ${operationName}`, { 'db.system': 'postgresql', 'db.operation': operationName }, fn);
 }

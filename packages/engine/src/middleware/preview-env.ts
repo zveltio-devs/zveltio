@@ -11,13 +11,21 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
     if (!token) return next();
 
     try {
-      const result = await sql<{ preview_schema: string }>`
-        SELECT preview_schema FROM zv_schema_branches
-        WHERE preview_token = ${token} AND preview_enabled = true
+      const result = await sql<{ preview_schema: string; preview_expires_at: Date | null }>`
+        SELECT preview_schema, preview_expires_at FROM zv_schema_branches
+        WHERE preview_token = ${token}
+          AND preview_enabled = true
+          AND (preview_expires_at IS NULL OR preview_expires_at > NOW())
         LIMIT 1
       `.execute(db);
 
-      const schema = result.rows[0]?.preview_schema;
+      const row = result.rows[0];
+      if (row?.preview_expires_at && new Date(row.preview_expires_at) < new Date()) {
+        // Expired — auto-disable (fire-and-forget)
+        sql`UPDATE zv_schema_branches SET preview_enabled = false, preview_token = NULL WHERE preview_token = ${token}`
+          .execute(db).catch(() => {});
+      }
+      const schema = row?.preview_schema;
       if (schema) {
         // Set search_path for this connection so queries hit the branch schema first
         await sql`SET LOCAL search_path TO ${sql.id(schema)}, public`.execute(db);

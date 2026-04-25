@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, Play, Trash2, Save, Code, CheckCircle } from '@lucide/svelte';
+  import { Plus, Play, Trash2, Save, Code, CircleCheck } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 
   const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ || '';
@@ -19,10 +19,15 @@
   let form = $state({ name: '', display_name: '', description: '', http_method: 'POST' });
   let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-  const DEFAULT_CODE = `// Edge function — runs inside the Zveltio engine
-export default async function handler(ctx) {
-  const body = await ctx.request.json().catch(() => ({}));
-  return Response.json({ message: "Hello from edge!", input: body });
+  const DEFAULT_CODE = `// Edge function — handler(request, env) is the entry point
+// request: { method, headers, query, body, path }
+// env:     key/value pairs from the function's env_vars config
+// return:  { status, body, headers? }  OR  any value (wrapped as 200)
+async function handler(request, env) {
+  return {
+    status: 200,
+    body: { message: "Hello from edge!", method: request.method, body: request.body },
+  };
 }
 `;
 
@@ -194,7 +199,7 @@ export default async function handler(ctx) {
             {#if saving}
               <span class="loading loading-spinner loading-xs"></span>
             {:else if saved}
-              <CheckCircle size={14} />
+              <CircleCheck size={14} />
             {:else}
               <Save size={14} />
             {/if}

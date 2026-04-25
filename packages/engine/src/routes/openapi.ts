@@ -276,12 +276,239 @@ function buildSpec() {
         get: { tags: ['Webhooks'], summary: 'List webhooks (admin)', responses: { '200': { description: 'Webhooks list' } } },
         post: {
           tags: ['Webhooks'],
-          summary: 'Create a webhook (admin)',
+          summary: 'Create a webhook — signing secret auto-generated if omitted',
           requestBody: {
             required: true,
-            content: { 'application/json': { schema: { type: 'object', required: ['name', 'url', 'events'], properties: { name: { type: 'string' }, url: { type: 'string', format: 'uri' }, events: { type: 'array', items: { type: 'string', enum: ['insert', 'update', 'delete'] } }, collections: { type: 'array', items: { type: 'string' } }, secret: { type: 'string' } } } } },
+            content: { 'application/json': { schema: { type: 'object', required: ['name', 'url', 'events'], properties: { name: { type: 'string' }, url: { type: 'string', format: 'uri' }, events: { type: 'array', items: { type: 'string', enum: ['insert', 'update', 'delete', '*'] } }, collections: { type: 'array', items: { type: 'string' } }, secret: { type: 'string', description: 'HMAC-SHA256 signing secret. Omit to auto-generate a 32-byte secret. Plaintext returned only once.' }, method: { type: 'string', enum: ['POST', 'GET', 'PUT', 'PATCH', 'DELETE'], default: 'POST' }, retry_attempts: { type: 'integer', minimum: 0, maximum: 10, default: 3 }, timeout: { type: 'integer', default: 5000, description: 'Request timeout in ms' }, headers: { type: 'object', additionalProperties: { type: 'string' } } } } } },
           },
-          responses: { '201': { description: 'Webhook created' } },
+          responses: { '201': { description: 'Webhook created — `secret` is the plaintext value, shown once only' } },
+        },
+      },
+      '/webhooks/{id}': {
+        get: {
+          tags: ['Webhooks'],
+          summary: 'Get a webhook (secret masked as ••••••••)',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'Webhook object' }, '404': { description: 'Not found' } },
+        },
+        patch: {
+          tags: ['Webhooks'],
+          summary: 'Update a webhook',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, url: { type: 'string', format: 'uri' }, events: { type: 'array', items: { type: 'string' } }, collections: { type: 'array', items: { type: 'string' } }, is_active: { type: 'boolean' }, retry_attempts: { type: 'integer' }, timeout: { type: 'integer' }, headers: { type: 'object' } } } } } },
+          responses: { '200': { description: 'Updated' }, '404': { description: 'Not found' } },
+        },
+        delete: {
+          tags: ['Webhooks'],
+          summary: 'Delete a webhook',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'Deleted' }, '404': { description: 'Not found' } },
+        },
+      },
+      '/webhooks/{id}/rotate-secret': {
+        post: {
+          tags: ['Webhooks'],
+          summary: 'Rotate signing secret — new plaintext returned once',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'New secret', content: { 'application/json': { schema: { type: 'object', properties: { secret: { type: 'string' }, webhook: { type: 'object' } } } } } } },
+        },
+      },
+      '/webhooks/{id}/test': {
+        post: {
+          tags: ['Webhooks'],
+          summary: 'Send a synthetic test event to verify the endpoint is reachable',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'Test payload sent' } },
+        },
+      },
+      '/webhooks/{id}/deliveries': {
+        get: {
+          tags: ['Webhooks'],
+          summary: 'List delivery history',
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+            { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: { '200': { description: 'Deliveries list' } },
+        },
+      },
+      '/webhooks/{id}/deliveries/{deliveryId}/retry': {
+        post: {
+          tags: ['Webhooks'],
+          summary: 'Force re-delivery of a specific attempt regardless of retry count',
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+            { name: 'deliveryId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          ],
+          responses: { '200': { description: 'Re-delivered' } },
+        },
+      },
+
+      // ── API Keys ───────────────────────────────────────────────────────────
+      '/api-keys': {
+        get: {
+          tags: ['API Keys'],
+          summary: 'List API keys for the current user (hashes only — plaintext not stored)',
+          responses: { '200': { description: 'API keys list' } },
+        },
+        post: {
+          tags: ['API Keys'],
+          summary: 'Create an API key — raw zvk_ key returned once',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, scopes: { type: 'array', items: { type: 'string' }, description: 'e.g. ["products:read", "orders:create"]' }, expires_at: { type: 'string', format: 'date-time', nullable: true } } } } },
+          },
+          responses: { '201': { description: 'API key created — `key` field contains the `zvk_...` plaintext, shown once only' } },
+        },
+      },
+      '/api-keys/{id}': {
+        delete: {
+          tags: ['API Keys'],
+          summary: 'Revoke an API key immediately',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'Key revoked' }, '404': { description: 'Not found' } },
+        },
+      },
+      '/api-keys/{id}/rate-limit': {
+        put: {
+          tags: ['API Keys'],
+          summary: 'Set a per-key rate limit override (takes precedence over tier defaults)',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['window_ms', 'max_requests'], properties: { window_ms: { type: 'integer', example: 60000, description: 'Window size in ms' }, max_requests: { type: 'integer', example: 1000, description: 'Max requests allowed in the window' } } } } } },
+          responses: { '200': { description: 'Rate limit applied' } },
+        },
+        delete: {
+          tags: ['API Keys'],
+          summary: 'Remove per-key rate limit override (reverts to tier default)',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'Override removed' } },
+        },
+      },
+
+      // ── Realtime ───────────────────────────────────────────────────────────
+      '/realtime/stream': {
+        get: {
+          tags: ['Realtime'],
+          summary: 'SSE stream — data changes, presence events, broadcast messages',
+          parameters: [
+            { name: 'collections', in: 'query', schema: { type: 'string' }, description: 'Comma-separated collection names to watch' },
+            { name: 'channel', in: 'query', schema: { type: 'string' }, description: 'Extra channels: broadcast:name, presence:name' },
+          ],
+          responses: { '200': { description: 'text/event-stream — event types: `data`, `presence`, `broadcast`', content: { 'text/event-stream': { schema: { type: 'string' } } } } },
+        },
+      },
+      '/realtime/presence/{channel}': {
+        post: {
+          tags: ['Realtime'],
+          summary: 'Join a presence channel (re-call every ≤30s to stay active)',
+          parameters: [{ name: 'channel', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { required: false, content: { 'application/json': { schema: { type: 'object', additionalProperties: true, description: 'Optional user metadata (display name, avatar, etc.)' } } } },
+          responses: { '200': { description: 'Joined — returns current member list' } },
+        },
+        get: {
+          tags: ['Realtime'],
+          summary: 'List presence channel members',
+          parameters: [{ name: 'channel', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Members list', content: { 'application/json': { schema: { type: 'object', properties: { channel: { type: 'string' }, members: { type: 'array', items: { type: 'object', properties: { userId: { type: 'string' }, lastSeen: { type: 'integer' } } } } } } } } } },
+        },
+        delete: {
+          tags: ['Realtime'],
+          summary: 'Leave a presence channel',
+          parameters: [{ name: 'channel', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Left' } },
+        },
+      },
+      '/realtime/broadcast/{channel}': {
+        post: {
+          tags: ['Realtime'],
+          summary: 'Broadcast a message to all SSE subscribers on a channel',
+          parameters: [{ name: 'channel', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
+          responses: { '200': { description: 'Message delivered to all active subscribers' } },
+        },
+      },
+
+      // ── Admin ──────────────────────────────────────────────────────────────
+      '/admin/rate-limits': {
+        get: {
+          tags: ['Admin'],
+          summary: 'List all rate limit tier configs',
+          responses: { '200': { description: 'Rate limit configs per tier (auth/api/ai/write/ddl/destructive)' } },
+        },
+      },
+      '/admin/rate-limits/{keyPrefix}': {
+        patch: {
+          tags: ['Admin'],
+          summary: 'Update a rate limit tier at runtime — no restart needed',
+          parameters: [{ name: 'keyPrefix', in: 'path', required: true, schema: { type: 'string', enum: ['auth', 'api', 'ai', 'write', 'ddl', 'destructive'] } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { window_ms: { type: 'integer' }, max_requests: { type: 'integer' } } } } } },
+          responses: { '200': { description: 'Updated — takes effect within 60 seconds (config cache TTL)' } },
+        },
+      },
+      '/admin/rate-limits/reset': {
+        post: {
+          tags: ['Admin'],
+          summary: 'Reset all rate limit tiers to built-in defaults',
+          responses: { '200': { description: 'Reset to defaults' } },
+        },
+      },
+      '/admin/column-permissions': {
+        get: {
+          tags: ['Admin'],
+          summary: 'List column-level permission rules',
+          parameters: [{ name: 'collection', in: 'query', schema: { type: 'string' }, description: 'Filter by collection name' }],
+          responses: { '200': { description: 'Column permission rules' } },
+        },
+        post: {
+          tags: ['Admin'],
+          summary: 'Create or upsert a column permission rule',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object', required: ['collection_name', 'column_name', 'role'], properties: { collection_name: { type: 'string' }, column_name: { type: 'string', description: 'Column name or `*` for all columns' }, role: { type: 'string', description: 'Role name or `*` to match all roles. Admins always bypass.' }, can_read: { type: 'boolean', default: true }, can_write: { type: 'boolean', default: true } } } } },
+          },
+          responses: { '201': { description: 'Rule created or updated' } },
+        },
+      },
+      '/admin/column-permissions/{id}': {
+        put: {
+          tags: ['Admin'],
+          summary: 'Update a column permission rule',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { can_read: { type: 'boolean' }, can_write: { type: 'boolean' } } } } } },
+          responses: { '200': { description: 'Updated' }, '404': { description: 'Not found' } },
+        },
+        delete: {
+          tags: ['Admin'],
+          summary: 'Delete a column permission rule',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'Deleted' }, '404': { description: 'Not found' } },
+        },
+      },
+
+      // ── Notifications ──────────────────────────────────────────────────────
+      '/notifications/push-tokens': {
+        post: {
+          tags: ['Notifications'],
+          summary: 'Register a device push token (FCM/APNS/Web)',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object', required: ['token', 'platform'], properties: { token: { type: 'string', description: 'FCM registration token or APNS device token' }, platform: { type: 'string', enum: ['fcm', 'apns', 'web'] } } } } },
+          },
+          responses: { '201': { description: 'Token registered' } },
+        },
+        get: {
+          tags: ['Notifications'],
+          summary: 'List push tokens for the current user',
+          responses: { '200': { description: 'Push tokens list' } },
+        },
+      },
+      '/notifications/push-tokens/{id}': {
+        delete: {
+          tags: ['Notifications'],
+          summary: 'Unregister a push token',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+          responses: { '200': { description: 'Token removed' }, '404': { description: 'Not found' } },
         },
       },
 
