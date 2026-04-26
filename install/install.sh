@@ -655,6 +655,8 @@ S3_PUBLIC_URL=http://localhost:8333
 MAIL_ENCRYPTION_KEY=${MAIL_ENCRYPTION_KEY}
 AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
 
+# Extensions directory — place extension packages here, then enable from Studio
+EXTENSIONS_DIR=${ZVELTIO_DIR}/extensions
 ZVELTIO_EXTENSIONS=
 EOF
 
@@ -691,6 +693,7 @@ User=${ZVELTIO_USER}
 WorkingDirectory=${ZVELTIO_DIR}
 EnvironmentFile=${ZVELTIO_DIR}/.env
 ExecStart=${EXEC_START}
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -718,6 +721,35 @@ EOF
     sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun index.js migrate"
   fi
   success "Migrations complete"
+
+  # ── Extensions directory ──────────────────────────────────────────────────────
+  # Create an empty extensions directory with a package.json so that when
+  # extensions are installed from the marketplace their npm deps resolve correctly.
+  header "Setting up extensions directory"
+  mkdir -p "${ZVELTIO_DIR}/extensions"
+  if [[ ! -f "${ZVELTIO_DIR}/extensions/package.json" ]]; then
+    cat > "${ZVELTIO_DIR}/extensions/package.json" << 'EOF'
+{
+  "name": "zveltio-extensions",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hono/zod-validator": "^0.4.0",
+    "hono": "^4.4.0",
+    "kysely": "^0.27.6",
+    "zod": "^3.22.0"
+  }
+}
+EOF
+  fi
+  if command -v bun &>/dev/null; then
+    info "Installing extension npm dependencies..."
+    sudo -u "${ZVELTIO_USER}" bash -c "cd '${ZVELTIO_DIR}/extensions' && bun install --frozen-lockfile 2>/dev/null || bun install" || true
+    success "Extension dependencies ready"
+  fi
+  chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/extensions"
+  # Allow zveltio service to write inside extensions dir (for marketplace installs)
+  chmod 755 "${ZVELTIO_DIR}/extensions"
 
   header "Creating admin account"
   echo -n "  Email: "
