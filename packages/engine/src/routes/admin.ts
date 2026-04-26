@@ -849,7 +849,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       timeout_ms: z.number().int().min(100).max(30_000).optional(),
     })),
     async (c) => {
-      const { query, timeout_ms = 10_000 } = c.req.valid('json');
+      const { query, timeout_ms: _timeout_ms = 10_000 } = c.req.valid('json');
 
       // Reject obviously dangerous patterns
       const normalized = query.trim().toUpperCase();

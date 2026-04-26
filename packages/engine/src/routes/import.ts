@@ -97,7 +97,7 @@ function coerce(val: string, fieldDef: any): unknown {
 
 // ── Route factory ──────────────────────────────────────────────────────────
 
-export function importRoutes(db: Database, auth: any) {
+export function importRoutes(db: Database, _auth: any) {
   const app = new Hono();
 
   // ── GET /api/import/jobs ─────────────────────────────────────────────────
