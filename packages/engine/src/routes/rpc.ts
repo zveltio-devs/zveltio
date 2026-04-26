@@ -86,7 +86,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
         result = await sql`SELECT * FROM ${sql.raw(`"${fnName}"`)}()`.execute(db);
       } else {
         // Build named params: fn(key1 := val1, key2 := val2)
-        const paramParts = keys.map((k, i) =>
+        const paramParts = keys.map((k, _i) =>
           sql`${sql.raw(`"${k.replace(/[^a-zA-Z0-9_]/g, '')}" :=`)} ${args[k]}`,
         );
         result = await sql`

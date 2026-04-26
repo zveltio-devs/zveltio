@@ -103,7 +103,7 @@ export const fieldTypeRegistry = _s.fieldTypeRegistry;
           if (m[k]) (globalThis as any).__zveltioEngineShims[k] = m[k];
         }
       }).catch(() => {});
-    } catch {}
+    } catch (_e) { /* module not available in this build — skip */ }
   };
   tryShim('GhostDDL',          './ghost-ddl.js',              ['GhostDDL']);
   tryShim('aiProviderManager', './ai-provider.js',            ['aiProviderManager']);

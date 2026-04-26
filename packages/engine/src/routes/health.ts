@@ -3,7 +3,6 @@ import type { Database } from '../db/index.js';
 import { ENGINE_VERSION, getVersionInfo } from '../version.js';
 import { getLastAppliedMigration, getAppliedMigrations } from '../db/migrations/index.js';
 
-const startTime = Date.now();
 
 function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map(Number);

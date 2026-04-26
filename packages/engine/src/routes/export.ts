@@ -8,7 +8,6 @@
  */
 
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
@@ -40,7 +39,7 @@ const SAFE_TABLE = /^[a-zA-Z0-9_]{1,100}$/;
 
 // ── Route factory ──────────────────────────────────────────────────────────
 
-export function exportRoutes(db: Database, auth: any) {
+export function exportRoutes(db: Database, _auth: any) {
   const app = new Hono();
 
   /** GET /api/export/:collection */
