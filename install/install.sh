@@ -568,9 +568,14 @@ UNIT
   if [[ "$RESOLVED_VERSION" == "latest" ]]; then
     # /releases/latest only returns stable releases — use /releases to catch
     # pre-release versions (alpha/beta/rc) when no stable exists yet.
+    # Filter to only v<semver> tags — changeset package tags (@scope/pkg@x.y.z)
+    # would otherwise appear first and produce broken download URLs.
     RESOLVED_VERSION=$(curl -fsSL \
       "https://api.github.com/repos/zveltio-devs/zveltio/releases" \
-      | grep '"tag_name"' | head -1 | cut -d'"' -f4 || echo "")
+      | grep '"tag_name"' \
+      | grep -o '"v[0-9][^"]*"' \
+      | head -1 \
+      | tr -d '"' || echo "")
   fi
 
   if [[ -z "$RESOLVED_VERSION" ]]; then
