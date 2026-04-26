@@ -92,13 +92,15 @@ get_platform() {
 get_latest_version() {
   # /releases/latest only returns stable releases. Use /releases to also
   # pick up pre-release versions (alpha/beta/rc) when no stable exists yet.
+  # Filter to only v<semver> tags — changeset package tags (@scope/pkg@x.y.z)
+  # would otherwise appear first and produce broken download URLs.
   local ver
   ver=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
     2>/dev/null \
     | grep '"tag_name"' \
+    | grep -o '"v[0-9][^"]*"' \
     | head -1 \
-    | cut -d'"' -f4 \
-    | tr -d 'v')
+    | tr -d '"v')
   if [[ -z "$ver" ]]; then
     error "Could not determine the latest Zveltio version. Check your internet connection."
     error "Visit https://github.com/${REPO}/releases to find available versions."
