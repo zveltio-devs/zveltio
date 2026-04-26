@@ -5,7 +5,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
-import { initPermissions } from './lib/permissions.js';
+import { initPermissions, checkPermission, getUserRoles } from './lib/permissions.js';
 import { initRls } from './lib/rls.js';
 import { fieldTypeRegistry } from './lib/field-type-registry.js';
 import { extensionLoader } from './lib/extension-loader.js';
@@ -17,6 +17,7 @@ import { initAIProviders } from './lib/ai-provider.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { cancelPendingCleanups } from './lib/ghost-ddl.js';
+import { DDLManager } from './lib/ddl-manager.js';
 import { flowScheduler } from './lib/flow-scheduler.js';
 import { initTenantManager } from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
@@ -267,7 +268,7 @@ async function bootstrap() {
 
     // Extensions — env-var configured + DB marketplace + bundled
     extensionLoader
-      .loadAll(app, { db, auth, fieldTypeRegistry, events: engineEvents })
+      .loadAll(app, { db, auth, fieldTypeRegistry, events: engineEvents, checkPermission, getUserRoles, DDLManager })
       .then(() => extensionLoader.loadFromDB(db, app))
       .then(async () => {
         // Bundled extensions: statically imported, registered based on DB state.

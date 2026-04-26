@@ -1,15 +1,19 @@
 import type { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
-import { checkPermission } from './permissions.js';
+import { checkPermission, getUserRoles } from './permissions.js';
+import { DDLManager } from './ddl-manager.js';
+import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.js';
 import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
+import { createRestrictedDb } from './extension-context.js';
+import { auditLog } from './audit.js';
 
 // ── Registry catalog cache ────────────────────────────────────────────────────
 const REGISTRY_URL = process.env.REGISTRY_URL || 'https://apps.zveltio.com';
@@ -48,8 +52,108 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   // fallback
   return EXTENSION_CATALOG;
 }
-import { createRestrictedDb } from './extension-context.js';
-import { auditLog } from './audit.js';
+
+// ── Extension engine-import shims ─────────────────────────────────────────────
+// Extensions loaded from EXTENSIONS_DIR are TypeScript files that import from
+// the engine source tree (e.g. ../../../../packages/engine/src/lib/permissions.js).
+// In production the engine runs as a compiled binary — those source paths do not
+// exist on disk.  We register a Bun plugin that intercepts these import paths and
+// returns virtual modules backed by the singletons already live in this process.
+let _shimsInstalled = false;
+
+function installExtensionShims(): void {
+  if (_shimsInstalled) return;
+  _shimsInstalled = true;
+
+  const shims: Record<string, string> = {
+    permissions: `
+const _s = globalThis.__zveltioEngineShims;
+export const checkPermission = _s.checkPermission;
+export const getUserRoles = _s.getUserRoles;
+`,
+    auth: `
+const _s = globalThis.__zveltioEngineShims;
+export const auth = _s.auth;
+`,
+    'ddl-manager': `
+const _s = globalThis.__zveltioEngineShims;
+export const DDLManager = _s.DDLManager;
+export const GhostDDL = _s.GhostDDL ?? _s.DDLManager;
+`,
+    'field-type-registry': `
+const _s = globalThis.__zveltioEngineShims;
+export const fieldTypeRegistry = _s.fieldTypeRegistry;
+`,
+  };
+
+  // Store live singletons for virtual modules to reference
+  (globalThis as any).__zveltioEngineShims = {
+    checkPermission,
+    getUserRoles,
+    auth,
+    DDLManager,
+    fieldTypeRegistry: _fieldTypeRegistry,
+  };
+
+  // Lazily populate one-off singletons (may not exist in all engine builds)
+  const tryShim = (key: string, mod: string, exported: string[]) => {
+    try {
+      import(mod).then((m) => {
+        for (const k of exported) {
+          if (m[k]) (globalThis as any).__zveltioEngineShims[k] = m[k];
+        }
+      }).catch(() => {});
+    } catch {}
+  };
+  tryShim('GhostDDL',          './ghost-ddl.js',              ['GhostDDL']);
+  tryShim('aiProviderManager', './ai-provider.js',            ['aiProviderManager']);
+  tryShim('dynamicInsert',     '../db/dynamic.js',            ['dynamicInsert']);
+  tryShim('introspectSchema',  './introspection.js',          ['introspectSchema']);
+
+  try {
+    // Bun.plugin is only available in Bun runtime (not Node/test environments)
+    if (typeof Bun === 'undefined' || typeof (Bun as any).plugin !== 'function') return;
+
+    (Bun as any).plugin({
+      name: 'zveltio-engine-shims',
+      setup(build: any) {
+        // ── Match any import that contains an engine source path pattern ─────────
+        // Covers: ../../../../packages/engine/src/lib/permissions.js
+        //         ../../../packages/engine/src/lib/auth.js
+        //         @zveltio/engine-permissions
+        //         @zveltio/engine/lib/ddl-manager.js
+        //         @zveltio/engine-db  (type-only, returns empty module)
+        build.onResolve({ filter: /packages\/engine\/src|@zveltio\/engine/ }, (args: any) => {
+          const p: string = args.path;
+
+          if (p.includes('/permissions') || p === '@zveltio/engine-permissions')
+            return { path: 'shim:permissions', namespace: 'zveltio-shims' };
+
+          if (p.includes('/auth') && !p.includes('/auth/'))
+            return { path: 'shim:auth', namespace: 'zveltio-shims' };
+
+          if (p.includes('/ddl-manager') || p.includes('/ghost-ddl') ||
+              p === '@zveltio/engine/lib/ddl-manager.js')
+            return { path: 'shim:ddl-manager', namespace: 'zveltio-shims' };
+
+          if (p.includes('/field-type-registry'))
+            return { path: 'shim:field-type-registry', namespace: 'zveltio-shims' };
+
+          // Catch-all for remaining engine paths (db/index, extension-loader types, etc.)
+          // These are type-only imports at runtime — return an empty module.
+          return { path: 'shim:empty', namespace: 'zveltio-shims' };
+        });
+
+        build.onLoad({ filter: /.*/, namespace: 'zveltio-shims' }, ({ path }: any) => {
+          const src = shims[path.replace('shim:', '')];
+          return { contents: src ?? 'export {};', loader: 'js' };
+        });
+      },
+    });
+  } catch (err) {
+    console.warn('[extension-shims] Bun.plugin registration failed:', (err as Error).message);
+  }
+}
 
 export type { EventBus };
 
@@ -82,6 +186,12 @@ export interface ExtensionContext {
   fieldTypeRegistry: FieldTypeRegistry;
   /** Typed event bus — extensions subscribe to record lifecycle events without touching core routes. */
   events: EventBus;
+  /** Check if a user has permission for a resource/action. Injected automatically — no engine import needed. */
+  checkPermission?: (userId: string, resource: string, action: string) => Promise<boolean>;
+  /** Get all roles for a user. Injected automatically — no engine import needed. */
+  getUserRoles?: (userId: string) => Promise<string[]>;
+  /** DDLManager class (static methods). Injected automatically — no engine import needed. */
+  DDLManager?: typeof DDLManager;
 }
 
 export interface ZveltioExtension {
@@ -113,6 +223,9 @@ class ExtensionLoader {
   private ctx?: ExtensionContext;
 
   async loadAll(app: Hono, ctx: ExtensionContext): Promise<void> {
+    // Install Bun plugin shims so extensions can import from engine source paths
+    installExtensionShims();
+
     this.ctx = ctx;
     const activeExtensions = this.getActiveExtensionNames();
 
@@ -230,7 +343,15 @@ class ExtensionLoader {
       }
 
       // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables
-      const restrictedCtx: ExtensionContext = { ...ctx, db: createRestrictedDb(ctx.db, extName) };
+      // Also inject checkPermission, getUserRoles, DDLManager so new-style extensions
+      // can use ctx.* instead of relative engine imports.
+      const restrictedCtx: ExtensionContext = {
+        ...ctx,
+        db: createRestrictedDb(ctx.db, extName),
+        checkPermission: ctx.checkPermission ?? checkPermission,
+        getUserRoles: ctx.getUserRoles ?? getUserRoles,
+        DDLManager: ctx.DDLManager ?? DDLManager,
+      };
 
       // Register routes
       await extension.register(app, restrictedCtx);
@@ -293,8 +414,11 @@ class ExtensionLoader {
     extName: string,
     peerDeps: Record<string, string>,
   ): Promise<void> {
-    // Find workspace root (directory that contains bun.lockb or package.json)
-    const workspaceRoot = join(import.meta.dir, '../../../../');
+    // Install into EXTENSIONS_DIR so the packages sit in a node_modules that
+    // extensions can reach via Bun's module resolution (walks up parent dirs).
+    // Falls back to the monorepo root for development.
+    const workspaceRoot = process.env.EXTENSIONS_DIR
+      || join(import.meta.dir, '../../../../');
 
     const toInstall: string[] = [];
     for (const [pkg, versionRange] of Object.entries(peerDeps)) {
@@ -312,6 +436,16 @@ class ExtensionLoader {
     }
 
     if (toInstall.length === 0) return;
+
+    // Ensure a package.json exists in the install dir so `bun add` works.
+    const pkgJsonPath = join(workspaceRoot, 'package.json');
+    if (!existsSync(pkgJsonPath)) {
+      writeFileSync(pkgJsonPath, JSON.stringify({
+        name: 'zveltio-extensions',
+        private: true,
+        type: 'module',
+      }, null, 2));
+    }
 
     // SECURITY: validate package names and version ranges before spawning bun add.
     // A malicious manifest.json could inject shell metacharacters or use non-registry
@@ -485,7 +619,9 @@ class ExtensionLoader {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
       const name = c.req.param('name');
-      const entry = EXTENSION_CATALOG.find((e) => e.name === name);
+      // Use live registry catalog (with local fallback) so extensions from apps.zveltio.com work
+      const catalog = await fetchRegistryCatalog();
+      const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
       await (db as any)
