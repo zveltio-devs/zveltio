@@ -27,6 +27,13 @@
   let colName  = $state('');
   let colLabel = $state('');
   let colCreated = $state(false);
+  let colNameManuallyEdited = $state(false);
+
+  $effect(() => {
+    if (!colNameManuallyEdited && colLabel) {
+      colName = colLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    }
+  });
 
   // Step 3 — API key
   let keyName    = $state('My App');
@@ -76,12 +83,11 @@
   async function createApiKey() {
     loading = true;
     try {
-      const res = await api.post<{ api_key: string; key: any }>('/api/admin/api-keys', {
+      const res = await api.post<{ key: string }>('/api/admin/api-keys', {
         name: keyName || 'My App',
         scopes: [{ collection: '*', actions: ['read', 'create', 'update', 'delete'] }],
-        permissions_mode: 'scopes',
       });
-      apiKey = res.api_key ?? res.key?.key ?? '';
+      apiKey = res.key ?? '';
       keyCreated = true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create API key');
@@ -213,6 +219,7 @@
                     class="input font-mono text-sm"
                     bind:value={colName}
                     placeholder="blog_posts"
+                    oninput={() => { colNameManuallyEdited = true; }}
                   />
                 </div>
               </div>
