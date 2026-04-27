@@ -133,6 +133,27 @@ export function rpcRoutes(db: Database, auth: any): Hono {
     return c.json({ function: rows.rows[0] }, 201);
   });
 
+  app.patch('/:id', async (c) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    if (!(await checkPermission(session.user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
+
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: 'Body required' }, 400);
+
+    const rows = await sql`
+      UPDATE zvd_rpc_functions
+      SET
+        description  = COALESCE(${body.description ?? null}, description),
+        required_role = COALESCE(${body.required_role ?? null}, required_role),
+        is_enabled   = COALESCE(${body.is_enabled ?? null}, is_enabled)
+      WHERE id = ${c.req.param('id')}
+      RETURNING *
+    `.execute(db);
+    if (!rows.rows[0]) return c.json({ error: 'Not found' }, 404);
+    return c.json({ function: rows.rows[0] });
+  });
+
   app.delete('/:id', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
