@@ -198,9 +198,15 @@
             bind:value={form.slug}/>
         </div>
         <div class="form-control">
-          <label class="label" for="zbp"><span class="label-text">Base path *</span></label>
-          <input id="zbp" type="text" class="input font-mono" placeholder="/portal-client"
+          <label class="label" for="zbp">
+            <span class="label-text">Base path</span>
+            <span class="label-text-alt text-base-content/40">Use <code class="font-mono">/</code> for root URLs</span>
+          </label>
+          <input id="zbp" type="text" class="input font-mono" placeholder="/client-portal"
             bind:value={form.base_path}/>
+          <p class="text-xs text-base-content/40 mt-1 font-mono">
+            {form.base_path === '/' ? 'ddd.com/pagina' : `ddd.com${form.base_path || ('/' + form.slug)}/pagina`}
+          </p>
         </div>
       </div>
 
@@ -224,7 +230,7 @@
         <button
           class="btn btn-primary gap-1"
           onclick={createZone}
-          disabled={!form.name.trim() || !form.slug.trim() || !form.base_path.trim() || creating}
+          disabled={!form.name.trim() || !form.slug.trim() || creating}
         >
           {#if creating}<LoaderCircle size={15} class="animate-spin"/>{/if}
           Create Zone

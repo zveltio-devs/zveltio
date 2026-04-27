@@ -50,7 +50,10 @@ const ZoneCreateSchema = z.object({
   description:      z.string().max(500).optional(),
   is_active:        z.boolean().optional(),
   access_roles:     z.array(z.string()).optional(),
-  base_path:        z.string().min(1).max(200),
+  // base_path = URL prefix for this zone's pages.
+  // Use "/" to serve pages at root (ddd.com/pagina instead of ddd.com/client-portal/pagina).
+  // Defaults to "/<slug>" if not provided.
+  base_path:        z.string().min(1).max(200).optional(),
   site_name:        z.string().max(100).nullable().optional(),
   site_logo_url:    z.preprocess(v => v === '' ? null : v, z.string().url().nullable().optional()),
   primary_color:    z.preprocess(v => v === '' ? null : v, z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional()),
@@ -170,7 +173,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
         description:      data.description ?? null,
         is_active:        data.is_active ?? false,
         access_roles:     data.access_roles ?? [],
-        base_path:        data.base_path,
+        base_path:        data.base_path ?? `/${data.slug}`,
         site_name:        data.site_name ?? null,
         site_logo_url:    data.site_logo_url ?? null,
         primary_color:    data.primary_color ?? '#069494',
@@ -642,7 +645,15 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     );
 
     return c.json({
-      zone: { id: zone.id, name: zone.name, slug: zone.slug, primary_color: zone.primary_color, nav_position: zone.nav_position },
+      zone: {
+        id:            zone.id,
+        name:          zone.name,
+        slug:          zone.slug,
+        base_path:     zone.base_path,
+        primary_color: zone.primary_color,
+        nav_position:  zone.nav_position,
+        show_breadcrumbs: zone.show_breadcrumbs,
+      },
       page,
       views,
     });

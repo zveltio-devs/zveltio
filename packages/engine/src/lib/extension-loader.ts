@@ -1,7 +1,7 @@
 import type { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
-import { existsSync, writeFileSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
 import { z } from 'zod';
@@ -31,15 +31,16 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
     if (!res.ok) throw new Error(`Registry returned ${res.status}`);
     const data = await res.json() as { extensions: any[] };
     const entries: ExtensionCatalogEntry[] = (data.extensions ?? []).map((e: any) => ({
-      name:        e.name,
-      displayName: e.display_name ?? e.name,
-      description: e.description ?? '',
-      category:    e.category ?? 'other',
-      version:     e.version ?? '1.0.0',
-      author:      e.developer_username ?? e.author ?? 'Zveltio',
-      tags:        e.tags ?? [],
-      bundled:     false,
-      permissions: e.permissions ?? [],
+      name:         e.name,
+      displayName:  e.display_name ?? e.name,
+      description:  e.description ?? '',
+      category:     e.category ?? 'other',
+      version:      e.version ?? '1.0.0',
+      author:       e.developer_username ?? e.author ?? 'Zveltio',
+      tags:         e.tags ?? [],
+      bundled:      false,
+      permissions:  e.permissions ?? [],
+      download_url: e.download_url ?? undefined,
     }));
     if (entries.length > 0) {
       catalogCache = entries;
@@ -51,6 +52,81 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   }
   // fallback
   return EXTENSION_CATALOG;
+}
+
+// ── Extension package download ────────────────────────────────────────────────
+
+/**
+ * Download and extract an extension package tarball into EXTENSIONS_DIR.
+ *
+ * URL resolution order:
+ *   1. `entry.download_url` from the registry catalog (explicit)
+ *   2. `${REGISTRY_URL}/api/extensions/${name}/package` (convention)
+ *
+ * The tarball must extract to a flat directory where the first level is the
+ * extension slug (e.g. `crm/engine/index.js`).  We strip the first path
+ * component (`tar --strip-components=1`) and extract into `EXTENSIONS_DIR/name/`.
+ */
+async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string): Promise<void> {
+  const downloadUrl = entry.download_url
+    ?? `${REGISTRY_URL}/api/extensions/${encodeURIComponent(entry.name)}/package`;
+
+  console.log(`📥 Downloading extension "${entry.name}" from ${downloadUrl} …`);
+
+  const res = await fetch(downloadUrl, {
+    headers: { 'User-Agent': 'zveltio-engine', 'Accept': 'application/octet-stream' },
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Registry returned ${res.status} for extension "${entry.name}" download`);
+  }
+
+  const destDir = join(destBase, entry.name);
+  mkdirSync(destDir, { recursive: true });
+
+  // Write tarball to a temp file then extract
+  const tarPath = join(destDir, '_pkg.tar.gz');
+  const buf = await res.arrayBuffer();
+  writeFileSync(tarPath, Buffer.from(buf));
+
+  // Extract: strip the top-level directory so `engine/`, `studio/`, `manifest.json`
+  // land directly inside destDir
+  const proc = Bun.spawn(
+    ['tar', '-xzf', tarPath, '--strip-components=1', '-C', destDir],
+    { stdout: 'pipe', stderr: 'pipe' },
+  );
+  const exitCode = await proc.exited;
+  // Remove temp tarball regardless of outcome
+  try { (await import('fs')).unlinkSync(tarPath); } catch { /* ignore */ }
+
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`tar extraction failed for "${entry.name}": ${stderr.trim()}`);
+  }
+
+  console.log(`✅ Extension "${entry.name}" downloaded to ${destDir}`);
+}
+
+// ── Hot-reload callback ───────────────────────────────────────────────────────
+// Set by index.ts after Bun.serve() starts. Called after enable/disable so the
+// server swaps to a freshly built Hono app without restarting the process.
+type ReloadCallback = () => Promise<void>;
+let _reloadCallback: ReloadCallback | null = null;
+
+export function setReloadCallback(fn: ReloadCallback): void {
+  _reloadCallback = fn;
+}
+
+async function triggerReload(reason: string): Promise<void> {
+  if (!_reloadCallback) return;
+  try {
+    console.log(`🔄 Hot-reloading server routes (${reason}) …`);
+    await _reloadCallback();
+    console.log('✅ Server routes reloaded (zero downtime)');
+  } catch (err) {
+    console.error('❌ Hot-reload failed:', (err as Error).message);
+  }
 }
 
 // ── Extension engine-import shims ─────────────────────────────────────────────
@@ -221,6 +297,8 @@ interface LoadedExtension {
 class ExtensionLoader {
   private loaded: Map<string, LoadedExtension> = new Map();
   private ctx?: ExtensionContext;
+  /** Module cache: name → imported ZveltioExtension, kept for re-registration on hot-reload. */
+  private modules: Map<string, ZveltioExtension> = new Map();
 
   async loadAll(app: Hono, ctx: ExtensionContext): Promise<void> {
     // Install Bun plugin shims so extensions can import from engine source paths
@@ -331,6 +409,9 @@ class ExtensionLoader {
         console.warn(`⚠️  Extension "${extName}": missing default export or register() function`);
         return;
       }
+
+      // Cache module for re-registration during hot-reload (avoids re-importing)
+      this.modules.set(extName, extension);
 
       // Run extension migrations
       if (extension.getMigrations) {
@@ -590,6 +671,26 @@ class ExtensionLoader {
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
+      // Determine where extension files should live
+      const extBase = process.env.EXTENSIONS_DIR
+        || join(import.meta.dir, '../../../extensions');
+      const extDir = join(extBase, name);
+      const engineTs = join(extDir, 'engine/index.ts');
+      const engineJs = join(extDir, 'engine/index.js');
+
+      // Download extension package if not already on disk
+      let downloaded = false;
+      if (!existsSync(engineTs) && !existsSync(engineJs)) {
+        try {
+          await downloadExtension(entry, extBase);
+          downloaded = true;
+        } catch (err) {
+          // Non-fatal: the extension may already be bundled in the deployment image.
+          // Log a warning so admins know a manual copy may be needed.
+          console.warn(`[marketplace] Could not download "${name}":`, (err as Error).message);
+        }
+      }
+
       await (db as any)
         .insertInto('zv_extension_registry')
         .values({
@@ -608,9 +709,14 @@ class ExtensionLoader {
         )
         .execute();
 
+      const filesOnDisk = existsSync(engineTs) || existsSync(engineJs);
       return c.json({
-        success: true,
-        message: `Extension ${name} installed. Enable it to activate.`,
+        success:        true,
+        downloaded,
+        files_on_disk:  filesOnDisk,
+        message:        filesOnDisk
+          ? `Extension ${name} installed. Enable it to activate.`
+          : `Extension ${name} registered but source files are missing from disk. Deploy the extension package to ${extDir} before enabling.`,
       });
     });
 
@@ -659,13 +765,19 @@ class ExtensionLoader {
         hotLoaded = true;
       }
 
+      // Rebuild and swap the Hono app so the new extension's routes are live
+      // without restarting the process. No-op if _reloadCallback isn't set yet.
+      if (hotLoaded) {
+        await triggerReload(`enable:${name}`);
+      }
+
       return c.json({
         success:       true,
         hot_loaded:    hotLoaded,
-        needs_restart: !hotLoaded,
+        needs_restart: false,
         message:       hotLoaded
           ? `Extension ${name} is now active.`
-          : `Extension ${name} will be active after restart.`,
+          : `Extension ${name} could not be loaded — check server logs.`,
       });
     });
 
@@ -691,14 +803,19 @@ class ExtensionLoader {
         )
         .execute();
 
-      const isRunning = self.isActive(name);
+      // Remove from in-memory registry so buildHonoApp() won't re-register routes
+      const wasRunning = self.isActive(name);
+      if (wasRunning) {
+        await self.unload(name);
+      }
+
+      // Rebuild Hono app without this extension's routes (zero-downtime)
+      await triggerReload(`disable:${name}`);
 
       return c.json({
         success:       true,
-        needs_restart: isRunning,
-        message:       isRunning
-          ? `Extension ${name} will be disabled after restart.`
-          : `Extension ${name} is disabled.`,
+        needs_restart: false,
+        message:       `Extension ${name} disabled.`,
       });
     });
 
@@ -799,6 +916,48 @@ class ExtensionLoader {
     };
   }
 
+  /**
+   * Re-register a loaded extension's routes onto a fresh Hono app.
+   * Used by buildHonoApp() during hot-reload — does NOT re-run migrations or npm installs.
+   * Safe to call multiple times: only registers routes, no side effects.
+   */
+  async reRegisterExtension(name: string, app: Hono): Promise<void> {
+    const extension = this.modules.get(name);
+    if (!extension || !this.ctx) return;
+
+    const restrictedCtx: ExtensionContext = {
+      ...this.ctx,
+      db: createRestrictedDb(this.ctx.db, name),
+      checkPermission: this.ctx.checkPermission ?? checkPermission,
+      getUserRoles:    this.ctx.getUserRoles ?? getUserRoles,
+      DDLManager:      this.ctx.DDLManager ?? DDLManager,
+    };
+
+    try {
+      await extension.register(app, restrictedCtx);
+
+      // Re-register Studio bundle route
+      const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
+      const studioBundlePath = join(extBase, name, 'studio/dist/bundle.js');
+      if (existsSync(studioBundlePath)) {
+        const bundleKey = name.replace(/\//g, '_');
+        app.get(`/ext/${bundleKey}/bundle.js`, async (c) => {
+          const content = await Bun.file(studioBundlePath).text();
+          c.header('Content-Type', 'application/javascript');
+          c.header('Cache-Control', 'public, max-age=3600');
+          return c.body(content);
+        });
+      }
+    } catch (err) {
+      console.error(`❌ Hot-reload: failed to re-register extension "${name}":`, err);
+    }
+  }
+
+  /** Register the hot-reload callback. Called from index.ts after Bun.serve() starts. */
+  setReloadCallback(fn: ReloadCallback): void {
+    _reloadCallback = fn;
+  }
+
   getActive(): string[] {
     return [...this.loaded.keys()];
   }
@@ -813,7 +972,7 @@ class ExtensionLoader {
     return this.loaded.has(name);
   }
 
-  /** Mark a bundled extension as active without going through the full dynamic load path. */
+  /** Mark an extension as active (used after manual enable without a full dynamic load). */
   markActive(name: string): void {
     if (!this.loaded.has(name)) {
       this.loaded.set(name, { name, registeredRoutes: true });
