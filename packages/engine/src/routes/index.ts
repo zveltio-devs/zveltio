@@ -80,22 +80,24 @@ interface RoutesContext {
   auth: any;
 }
 
+// Guard: one-time services — safe to call registerCoreRoutes() multiple times (hot-reload)
+let _coreServicesInitialized = false;
+
 export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise<void> {
   const { db, auth } = ctx;
 
-  // Bootstrap core collections (contacts, organizations, transactions) through
-  // DDLManager before the DDL queue starts. Runs BEFORE initDDLQueue so the
-  // queue's self-heal sees complete schemas, not empty fields[].
-  await ensureCoreCollections(db);
-
-  // Wire DB into rate limiter so configs from zv_rate_limit_configs override defaults
-  initRateLimitDb(db);
+  if (!_coreServicesInitialized) {
+    _coreServicesInitialized = true;
+    // Bootstrap core collections through DDLManager before the DDL queue starts.
+    await ensureCoreCollections(db);
+    // Wire DB into rate limiter so configs from zv_rate_limit_configs override defaults
+    initRateLimitDb(db);
+    // Initialize DDL job queue (starts background polling — must run exactly once)
+    await initDDLQueue(db);
+  }
 
   // ── Distributed tracing — W3C traceparent propagation on all /api/* requests ─
   app.use('/api/*', tracingMiddleware());
-
-  // Initialize DDL job queue (async — resets stale 'running' jobs before polling starts)
-  await initDDLQueue(db);
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   app.use('/api/auth/sign-in/*', authRateLimit);

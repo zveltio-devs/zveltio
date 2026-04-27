@@ -8,6 +8,8 @@ export interface ExtensionCatalogEntry {
   tags: string[];
   bundled: boolean;
   permissions: string[];
+  /** Direct download URL for the extension package (.tar.gz). Present when the registry serves packages. */
+  download_url?: string;
 }
 
 export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
