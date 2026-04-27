@@ -143,6 +143,7 @@
       label: 'Developer',
       items: [
         { href: `${base}/edge-functions`,      icon: Code,       label: 'Edge Functions'    },
+        { href: `${base}/rpc`,                 icon: Zap,        label: 'RPC Functions'     },
         { href: `${base}/schema-branches`,     icon: GitBranch,  label: 'Schema Branches'   },
         { href: `${base}/virtual-collections`, icon: Plug,       label: 'Virtual Collections' },
         { href: `${base}/saved-queries`,       icon: Bookmark,   label: 'Saved Queries'     },
