@@ -199,8 +199,11 @@ if (_cmd === 'create-god') {
  * Stateful singletons (db, auth, webhookWorker, flowScheduler, …) are NOT
  * re-created — they live in _bootstrapCtx and are reused across rebuilds.
  */
-// Auto-activate content/page-builder on first start (if not yet in registry).
-// Most deployments need page building — the user can disable it later from the marketplace.
+// Auto-activate content/page-builder on first start if:
+//   1. It is not yet in the registry (first boot)
+//   2. Its files are present on disk (EXTENSIONS_DIR or monorepo default)
+// If the files are missing and the registry is unreachable we skip silently —
+// the server starts normally and the user can activate from marketplace later.
 async function ensureDefaultExtensions(db: any): Promise<void> {
   const existing = await db
     .selectFrom('zv_extension_registry')
@@ -209,24 +212,35 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
     .executeTakeFirst()
     .catch(() => null);
 
-  if (!existing) {
-    await db
-      .insertInto('zv_extension_registry')
-      .values({
-        name: 'content/page-builder',
-        display_name: 'Page Builder',
-        description: 'Visual CMS page builder with blocks, SEO fields, and publish workflow',
-        category: 'content',
-        version: '1.0.0',
-        is_installed: true,
-        is_enabled: true,
-        installed_at: new Date(),
-        enabled_at: new Date(),
-      })
-      .execute()
-      .catch(() => {}); // ignore on race (unique constraint violation)
-    console.log('🔌 Default extension auto-activated: content/page-builder');
+  if (existing) return; // already registered (any previous boot)
+
+  // Verify extension files are on disk before marking as installed.
+  const extBase = process.env.EXTENSIONS_DIR
+    || join(import.meta.dir, '../../../extensions');
+  const engineEntry = join(extBase, 'content/page-builder/engine/index.ts');
+  const filesOnDisk = await Bun.file(engineEntry).exists().catch(() => false);
+
+  if (!filesOnDisk) {
+    console.log('ℹ️  content/page-builder not on disk — skipping auto-activate (install from marketplace when ready)');
+    return;
   }
+
+  await db
+    .insertInto('zv_extension_registry')
+    .values({
+      name: 'content/page-builder',
+      display_name: 'Page Builder',
+      description: 'Visual CMS page builder with blocks, SEO fields, and publish workflow',
+      category: 'content',
+      version: '1.0.0',
+      is_installed: true,
+      is_enabled: true,
+      installed_at: new Date(),
+      enabled_at: new Date(),
+    })
+    .execute()
+    .catch(() => {}); // ignore race (unique constraint)
+  console.log('🔌 Default extension auto-activated: content/page-builder');
 }
 
 async function buildHonoApp(): Promise<Hono> {
