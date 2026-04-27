@@ -716,9 +716,9 @@ EOF
   # ── Run migrations + create god user ─────────────────────────────────────────
   header "Running database migrations"
   if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
-    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) ./zveltio migrate"
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(grep -v '^\s*#' .env | grep -v '^\s*$' | xargs) ./zveltio migrate"
   else
-    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun index.js migrate"
+    sudo -u "${ZVELTIO_USER}" bash -c "cd ${ZVELTIO_DIR} && env \$(grep -v '^\s*#' .env | grep -v '^\s*$' | xargs) bun index.js migrate"
   fi
   success "Migrations complete"
 
@@ -770,11 +770,11 @@ EOF
   if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
     sudo -u "${ZVELTIO_USER}" \
       GOD_EMAIL="$GOD_EMAIL" GOD_PASSWORD="$GOD_PASSWORD" \
-      bash -c 'cd '"${ZVELTIO_DIR}"' && env $(cat .env | xargs) ./zveltio create-god --email "$GOD_EMAIL" --password "$GOD_PASSWORD"'
+      bash -c 'cd '"${ZVELTIO_DIR}"' && env $(grep -v '^\s*#' .env | grep -v '^\s*$' | xargs) ./zveltio create-god --email "$GOD_EMAIL" --password "$GOD_PASSWORD"'
   else
     sudo -u "${ZVELTIO_USER}" \
       GOD_EMAIL="$GOD_EMAIL" GOD_PASSWORD="$GOD_PASSWORD" \
-      bash -c 'cd '"${ZVELTIO_DIR}"' && env $(cat .env | xargs) bun index.js create-god --email "$GOD_EMAIL" --password "$GOD_PASSWORD"'
+      bash -c 'cd '"${ZVELTIO_DIR}"' && env $(grep -v '^\s*#' .env | grep -v '^\s*$' | xargs) bun index.js create-god --email "$GOD_EMAIL" --password "$GOD_PASSWORD"'
   fi
 
   systemctl start zveltio
