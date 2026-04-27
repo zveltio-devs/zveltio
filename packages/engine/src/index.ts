@@ -26,7 +26,18 @@ import { engineEvents } from './lib/event-bus.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/memory-monitor.js';
 
-const app = new Hono();
+// ─── Mutable app reference for hot-reload ────────────────────────────────────
+// The fetch handler passed to Bun.serve() is a stable closure that always
+// delegates to _currentApp. When an extension is installed/removed we rebuild
+// _currentApp (a fresh Hono instance) and swap the reference — Bun routes all
+// new requests to the updated handler while in-flight requests drain normally.
+let _currentApp = new Hono();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _bootstrapCtx: { db: any; auth: any } | null = null;
+let _server: ReturnType<typeof Bun.serve> | null = null;
+// Metrics counters persist across hot-reloads (module-level, not app-level)
+const _serverStartTime = Date.now();
+let _totalRequestCount = 0;
 
 // ─── Static file paths ────────────────────────────────────────
 // Runtime paths — relative to CWD (Docker: /data, Native: install dir)
@@ -107,34 +118,6 @@ async function serveStaticFile(
   return null;
 }
 
-// ─── Middleware ───────────────────────────────────────────────
-app.use('*', logger());
-
-// Global body size limit — prevents OOM from huge requests
-// Exception: /api/storage/upload and /api/import have their own limits
-app.use('/api/*', async (c, next) => {
-  const path = c.req.path;
-  if (path === '/api/storage/upload' || path.startsWith('/api/import')) {
-    return next();
-  }
-  return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next); // 10 MB
-});
-
-app.use(
-  '/api/*',
-  cors({
-    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
-    credentials: true,
-    allowHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Tenant-Slug',
-      'X-Environment',
-    ],
-  }),
-);
-app.use('/api/*', tenantMiddleware);
-
 // ─── CLI subcommands ─────────────────────────────────────────
 const _cmd = process.argv[2];
 
@@ -207,169 +190,102 @@ if (_cmd === 'create-god') {
   process.exit(0);
 }
 
-// ─── Bootstrap ───────────────────────────────────────────────
-async function bootstrap() {
-  // OTel — no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set
-  await initTelemetry();
+// ─── Hot-reload: rebuild Hono app ─────────────────────────────────────────────
+/**
+ * Build a fresh Hono instance with all middleware, core routes, extension routes,
+ * and static file handlers.  Called once at startup and again after each
+ * extension enable/disable to swap _currentApp (zero-downtime hot-reload).
+ *
+ * Stateful singletons (db, auth, webhookWorker, flowScheduler, …) are NOT
+ * re-created — they live in _bootstrapCtx and are reused across rebuilds.
+ */
+// Auto-activate content/page-builder on first start (if not yet in registry).
+// Most deployments need page building — the user can disable it later from the marketplace.
+async function ensureDefaultExtensions(db: any): Promise<void> {
+  const existing = await db
+    .selectFrom('zv_extension_registry')
+    .select('name')
+    .where('name', '=', 'content/page-builder')
+    .executeTakeFirst()
+    .catch(() => null);
 
-  console.log('🚀 Zveltio starting...');
+  if (!existing) {
+    await db
+      .insertInto('zv_extension_registry')
+      .values({
+        name: 'content/page-builder',
+        display_name: 'Page Builder',
+        description: 'Visual CMS page builder with blocks, SEO fields, and publish workflow',
+        category: 'content',
+        version: '1.0.0',
+        is_installed: true,
+        is_enabled: true,
+        installed_at: new Date(),
+        enabled_at: new Date(),
+      })
+      .execute()
+      .catch(() => {}); // ignore on race (unique constraint violation)
+    console.log('🔌 Default extension auto-activated: content/page-builder');
+  }
+}
 
-  // 1. Database
-  const db = await initDatabase();
-  console.log('✅ Database connected');
+async function buildHonoApp(): Promise<Hono> {
+  if (!_bootstrapCtx) throw new Error('buildHonoApp called before bootstrap()');
+  const { db, auth } = _bootstrapCtx;
 
-  // 1b. Schema compatibility check — exits if schema is incompatible
-  await checkSchemaCompatibility(db);
-  console.log(`✅ Zveltio Engine v${ENGINE_VERSION}`);
+  const app = new Hono();
 
-  // 2. Auth
-  const auth = await initAuth(db);
-  console.log('✅ Auth initialized');
+  // ── Middleware (identical to original bootstrap) ──────────────────────────
+  app.use('*', logger());
+  app.use('/api/*', async (c, next) => {
+    const path = c.req.path;
+    if (path === '/api/storage/upload' || path.startsWith('/api/import')) return next();
+    return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next);
+  });
+  app.use('/api/*', cors({
+    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true,
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
+  }));
+  app.use('/api/*', tenantMiddleware);
 
-  // 2b. Tenant manager — must be initialized before routes handle requests
-  initTenantManager(db);
-  console.log('✅ Tenant manager initialized');
-
-  // 3. Permissions + RLS
-  await initPermissions(db);
-  initRls(db);
-  console.log('✅ Permissions + RLS initialized');
-
-  // 4. Field Type Registry — core types
-  registerCoreFieldTypes(fieldTypeRegistry);
-  console.log(
-    `✅ Field types registered: ${fieldTypeRegistry.list().join(', ')}`,
-  );
-
-  // 5. Core routes
+  // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db, auth });
-  console.log('✅ Core routes registered');
 
-  // 5b. Marketplace routes — always-on, registered on the loader itself
+  // ── Marketplace routes ────────────────────────────────────────────────────
   extensionLoader.registerMarketplace(app, db);
 
-  // 6c. WebhookManager — init with db so trigger() can query webhooks
-  WebhookManager.init(db);
+  // ── Extension routes (all currently active extensions) ────────────────────
+  for (const extName of extensionLoader.getActive()) {
+    await extensionLoader.reRegisterExtension(extName, app);
+  }
 
-  // ═══ PARALLEL — independent services ═══
-  const parallelStart = Date.now();
-  await Promise.all([
-    // AI providers — init after extensions so extension providers can register too
-    initAIProviders(db)
-      .then(async () => {
-        const { aiProviderManager } = await import('./lib/ai-provider.js');
-        const aiCount = aiProviderManager.list().length;
-        if (aiCount > 0)
-          console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
-      })
-      .catch((err: Error) => {
-        console.warn('⚠️ AI providers failed (non-fatal):', err.message);
-      }),
-
-    // Extensions — env-var configured + DB marketplace + bundled
-    extensionLoader
-      .loadAll(app, { db, auth, fieldTypeRegistry, events: engineEvents, checkPermission, getUserRoles, DDLManager })
-      .then(() => extensionLoader.loadFromDB(db, app))
-      .then(async () => {
-        // Bundled extensions: statically imported, registered based on DB state.
-        // These are always available in the compiled binary (no file-system lookup needed).
-        const dbEnabled = await (db as any)
-          .selectFrom('zv_extension_registry')
-          .select('name')
-          .where('is_enabled' as any, '=', true)
-          .execute()
-          .catch(() => [] as any[]);
-        const enabledSet = new Set(dbEnabled.map((r: any) => r.name as string));
-
-        if (enabledSet.has('workflow/checklists')) {
-          const { migrateChecklists, registerChecklists } = await import('./extensions/checklists.js');
-          await migrateChecklists(db).catch((e: Error) => console.warn('checklists migration:', e.message));
-          registerChecklists(app, db);
-          extensionLoader.markActive('workflow/checklists');
-          console.log('🔌 Bundled extension loaded: workflow/checklists');
-        }
-
-        if (enabledSet.has('content/page-builder')) {
-          const { migratePageBuilder, registerPageBuilder } = await import('./extensions/page-builder.js');
-          await migratePageBuilder(db).catch((e: Error) => console.warn('page-builder migration:', e.message));
-          registerPageBuilder(app, db);
-          extensionLoader.markActive('content/page-builder');
-          console.log('🔌 Bundled extension loaded: content/page-builder');
-        }
-
-        console.log(
-          `✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`,
-        );
-      })
-      .catch((err: Error) => {
-        console.warn('⚠️ Extension loading failed (non-fatal):', err.message);
-      }),
-
-    // Realtime LISTEN/NOTIFY — must connect directly to PostgreSQL, not through
-    // PgDog/PgBouncer, because LISTEN requires a persistent dedicated connection.
-    // NATIVE_DATABASE_URL bypasses the pooler; falls back to DATABASE_URL if unset.
-    (() => {
-      const realtimeUrl =
-        process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
-      return realtimeUrl
-        ? realtimeManager.start(realtimeUrl)
-        : Promise.resolve();
-    })().catch((err: Error) => {
-      console.warn('⚠️ Realtime init failed (non-fatal):', err.message);
-    }),
-  ]);
-  console.log(
-    `✅ Parallel services started in ${Date.now() - parallelStart}ms`,
-  );
-
-  // ═══ Background workers (fire-and-forget) ═══
-  webhookWorker.start(1000);
-  console.log('✅ Webhook worker started');
-
-  await flowScheduler.start(db);
-  console.log('✅ Flow scheduler started');
-
-  // 7. Studio — security headers registered BEFORE static file serving.
-  // Note: the Studio is a pre-built SvelteKit static export, so runtime nonce
-  // injection into HTML is not possible. script-src uses 'unsafe-inline' as
-  // required by SvelteKit's compiled hydration scripts.
+  // ── Studio security headers ───────────────────────────────────────────────
   app.use('/admin/*', async (c, next) => {
-    // Set headers BEFORE await next() so they are always included in the response,
-    // regardless of whether the handler returns early (redirect, 404, etc.)
-    c.header(
-      'Content-Security-Policy',
-      [
-        "default-src 'self'",
-        // SvelteKit generates inline <script> tags for hydration — unsafe-inline is required.
-        // A hash-based CSP could replace this but requires recalculating hashes at build time.
-        "script-src 'self' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob: https:",
-        "font-src 'self' data:",
-        "connect-src 'self' ws: wss:",
-        "frame-ancestors 'none'",
-        "base-uri 'self'",
-        "form-action 'self'",
-      ].join('; '),
-    );
+    c.header('Content-Security-Policy', [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data:",
+      "connect-src 'self' ws: wss:",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; '));
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('X-Frame-Options', 'DENY');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    c.header(
-      'Strict-Transport-Security',
-      'max-age=31536000; includeSubDomains',
-    );
+    c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     await next();
   });
 
-  // 7b. Studio static files — served at /admin/ (SvelteKit base: '/admin')
+  // ── Studio static files ───────────────────────────────────────────────────
   app.get('/admin', (c) => c.redirect('/admin/'));
   app.use('/admin/*', async (c, next) => {
     const path = c.req.path.replace(/^\/admin/, '') || '/';
     const res = await serveStaticFile(STUDIO_DIST, path);
     if (res) return res;
-
-    // Studio index.html missing — show a helpful setup page instead of a blank 404.
     const studioIndex = Bun.file(join(STUDIO_DIST, 'index.html'));
     if (!(await studioIndex.exists())) {
       return c.html(`<!doctype html>
@@ -409,12 +325,10 @@ rm studio.tar.gz</pre>
 </body>
 </html>`);
     }
-
     return next();
   });
 
-  // 9. API: active extensions list (Studio consumes this)
-  // Returns enabled extension names (from DB) + bundle URLs for IIFE UI loading
+  // ── Extensions list (Studio consumes this to load UI bundles) ────────────
   app.get('/api/extensions', async (c) => {
     const dbEnabled = await (db as any)
       .selectFrom('zv_extension_registry')
@@ -426,36 +340,20 @@ rm studio.tar.gz</pre>
       ...extensionLoader.getActive(),
       ...dbEnabled.map((r: any) => r.name as string),
     ])];
-    return c.json({
-      extensions: allActive,
-      bundles: extensionLoader.getBundles(),
-    });
+    return c.json({ extensions: allActive, bundles: extensionLoader.getBundles() });
   });
 
-  // 10. Health check — liveness probe, always 200 if engine is running.
-  // DB connectivity is verified at startup (initDatabase retries until ready).
-  // Full readiness check is at /api/health.
+  // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─
   app.get('/health', (c) => c.json({ status: 'ok' }, 200));
 
-  // 11. Prometheus-compatible metrics
-  const startTime = Date.now();
-  let requestCount = 0;
-  app.use('*', async (c, next) => {
-    requestCount++;
-    await next();
-  });
+  app.use('*', async (c, next) => { _totalRequestCount++; await next(); });
   app.get('/metrics', (c) => {
     const metricsToken = process.env.METRICS_TOKEN;
     if (metricsToken) {
-      const provided =
-        c.req.header('Authorization')?.replace('Bearer ', '') ??
-        c.req.query('token');
-      if (provided !== metricsToken) {
-        return c.json({ error: 'Unauthorized' }, 401);
-      }
+      const provided = c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.query('token');
+      if (provided !== metricsToken) return c.json({ error: 'Unauthorized' }, 401);
     }
-
-    const uptime = (Date.now() - startTime) / 1000;
+    const uptime = (Date.now() - _serverStartTime) / 1000;
     const memoryReport = getMemoryReport();
     const lines = [
       '# HELP zveltio_uptime_seconds Server uptime in seconds',
@@ -463,7 +361,7 @@ rm studio.tar.gz</pre>
       `zveltio_uptime_seconds ${uptime.toFixed(3)}`,
       '# HELP zveltio_requests_total Total HTTP requests received',
       '# TYPE zveltio_requests_total counter',
-      `zveltio_requests_total ${requestCount}`,
+      `zveltio_requests_total ${_totalRequestCount}`,
       '# HELP zveltio_extensions_active Number of active extensions',
       '# TYPE zveltio_extensions_active gauge',
       `zveltio_extensions_active ${extensionLoader.getActive().length}`,
@@ -487,36 +385,131 @@ rm studio.tar.gz</pre>
       `zveltio_memory_peak_rss_bytes ${memoryReport.peak.peakRSS}`,
       ...getZoneMetricsLines(),
     ];
-    return c.text(lines.join('\n') + '\n', 200, {
-      'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
-    });
+    return c.text(lines.join('\n') + '\n', 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
   });
 
-  // 11b. API 404 — any unmatched /api/* returns JSON, not the SPA index.html.
-  // Without this, Hono falls through to the SPA catch-all below and serves
-  // index.html, which the client then tries to JSON.parse → "Unexpected token '<'".
+  // ── API 404 guard ─────────────────────────────────────────────────────────
   app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 
-  // 12. Client SPA — catch-all (must be registered AFTER all API/admin routes)
+  // ── Client SPA catch-all ──────────────────────────────────────────────────
   app.use('/*', async (c) => {
     const res = await serveStaticFile(CLIENT_DIST, c.req.path);
     if (res) return res;
     return c.notFound();
   });
 
-  // Start server
+  return app;
+}
+
+// ─── Bootstrap ───────────────────────────────────────────────
+async function bootstrap() {
+  // OTel — no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set
+  await initTelemetry();
+
+  console.log('🚀 Zveltio starting...');
+
+  // 1. Database
+  const db = await initDatabase();
+  console.log('✅ Database connected');
+
+  // 1b. Schema compatibility check — exits if schema is incompatible
+  await checkSchemaCompatibility(db);
+  console.log(`✅ Zveltio Engine v${ENGINE_VERSION}`);
+
+  // 2. Auth
+  const auth = await initAuth(db);
+  console.log('✅ Auth initialized');
+
+  // 2b. Tenant manager — must be initialized before routes handle requests
+  initTenantManager(db);
+  console.log('✅ Tenant manager initialized');
+
+  // 3. Permissions + RLS
+  await initPermissions(db);
+  initRls(db);
+  console.log('✅ Permissions + RLS initialized');
+
+  // 4. Field Type Registry — core types
+  registerCoreFieldTypes(fieldTypeRegistry);
+  console.log(`✅ Field types registered: ${fieldTypeRegistry.list().join(', ')}`);
+
+  // Store context so buildHonoApp() can access db/auth without being passed them
+  _bootstrapCtx = { db, auth };
+
+  // WebhookManager — init with db so trigger() can query webhooks
+  WebhookManager.init(db);
+
+  // ═══ PARALLEL — independent services ═══
+  const parallelStart = Date.now();
+  // _tempApp receives extension routes during loadAll/loadFromDB (routes discarded
+  // after this block — buildHonoApp() re-registers them via reRegisterExtension)
+  const _tempApp = new Hono();
+
+  await Promise.all([
+    // AI providers — init after extensions so extension providers can register too
+    initAIProviders(db)
+      .then(async () => {
+        const { aiProviderManager } = await import('./lib/ai-provider.js');
+        const aiCount = aiProviderManager.list().length;
+        if (aiCount > 0)
+          console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
+      })
+      .catch((err: Error) => {
+        console.warn('⚠️ AI providers failed (non-fatal):', err.message);
+      }),
+
+    // Extensions — env-var configured + DB marketplace
+    extensionLoader
+      .loadAll(_tempApp, { db, auth, fieldTypeRegistry, events: engineEvents, checkPermission, getUserRoles, DDLManager })
+      .then(() => ensureDefaultExtensions(db))
+      .then(() => extensionLoader.loadFromDB(db, _tempApp))
+      .then(() => {
+        console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
+      })
+      .catch((err: Error) => {
+        console.warn('⚠️ Extension loading failed (non-fatal):', err.message);
+      }),
+
+    // Realtime LISTEN/NOTIFY — must connect directly to PostgreSQL, not through
+    // PgDog/PgBouncer, because LISTEN requires a persistent dedicated connection.
+    (() => {
+      const realtimeUrl = process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
+      return realtimeUrl ? realtimeManager.start(realtimeUrl) : Promise.resolve();
+    })().catch((err: Error) => {
+      console.warn('⚠️ Realtime init failed (non-fatal):', err.message);
+    }),
+  ]);
+  console.log(`✅ Parallel services started in ${Date.now() - parallelStart}ms`);
+
+  // ═══ Background workers (fire-and-forget) ═══
+  webhookWorker.start(1000);
+  console.log('✅ Webhook worker started');
+
+  await flowScheduler.start(db);
+  console.log('✅ Flow scheduler started');
+
+  // Build initial Hono app — all middleware, core routes, extension routes
+  _currentApp = await buildHonoApp();
+  console.log('✅ Routes built');
+
+  // Start server with a stable proxy fetch so hot-reload can swap _currentApp
+  // without restarting the server process.
   const port = parseInt(process.env.PORT || '3000');
   const host = process.env.HOST || '0.0.0.0';
-
-  Bun.serve({
+  _server = Bun.serve({
     fetch(req, server) {
       // Pass `server` through env so Hono's /api/ws route can call server.upgrade().
-      // Auth is checked inside the /api/ws Hono handler before upgrading.
-      return app.fetch(req, { server });
+      return _currentApp.fetch(req, { server });
     },
     websocket: websocketHandler,
     port,
     hostname: host,
+  });
+
+  // Wire hot-reload: after every extension enable/disable the loader calls this
+  // to atomically swap _currentApp with a freshly built Hono instance.
+  extensionLoader.setReloadCallback(async () => {
+    _currentApp = await buildHonoApp();
   });
 
   console.log(`\n✨ Zveltio running at http://${host}:${port}`);
