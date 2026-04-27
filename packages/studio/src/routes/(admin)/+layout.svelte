@@ -116,8 +116,9 @@
       label: 'Users & Access',
       items: [
         { href: `${base}/users`,       icon: Users,    label: 'Users'       },
-        { href: `${base}/permissions`, icon: Shield,   label: 'Permissions' },
-        { href: `${base}/rls`,         icon: Shield,   label: 'Row Security' },
+        { href: `${base}/permissions`,         icon: Shield,   label: 'Permissions'        },
+        { href: `${base}/rls`,                icon: Shield,   label: 'Row Security'       },
+        { href: `${base}/column-permissions`, icon: Shield,   label: 'Column Security'    },
         { href: `${base}/api-keys`,    icon: Key,      label: 'API Keys'    },
         { href: `${base}/tenants`,     icon: Building2, label: 'Tenants'   },
       ]
