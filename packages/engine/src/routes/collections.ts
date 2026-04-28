@@ -455,12 +455,25 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     try {
       const tableName = DDLManager.getTableName(name);
-      await dynamicDropColumn(db, tableName, fieldName);
+      const fieldDef = existingFields.find((f: any) => f.name === fieldName);
 
-      // Drop the relation row if this was an FK-backed field. The FK itself is
-      // dropped by Postgres when the column goes away, but the metadata row
-      // would dangle otherwise and re-adding the same field would hit the
-      // UNIQUE(source_collection, source_field) constraint.
+      if (fieldDef?.type === 'o2m') {
+        // o2m: FK column lives in TARGET table — look up and drop it there
+        const relation = await (db as any)
+          .selectFrom('zvd_relations')
+          .select(['target_collection', 'target_field'])
+          .where('source_collection', '=', name)
+          .where('source_field', '=', fieldName)
+          .executeTakeFirst();
+        if (relation?.target_collection && relation?.target_field) {
+          const targetTable = DDLManager.getTableName(relation.target_collection);
+          await dynamicDropColumn(db, targetTable, relation.target_field);
+        }
+      } else {
+        await dynamicDropColumn(db, tableName, fieldName);
+      }
+
+      // Drop the relation row (dangling metadata causes re-add to hit UNIQUE constraint)
       await (db as any)
         .deleteFrom('zvd_relations')
         .where('source_collection', '=', name)
