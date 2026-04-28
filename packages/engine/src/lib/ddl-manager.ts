@@ -6,8 +6,6 @@ import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
 // ─── Relation type sets ───────────────────────────────────────────────────────
 /** FK column lives in the SOURCE table (the collection being modified). */
 const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
-/** FK column lives in the TARGET table (reverse side of o2m). */
-const REVERSE_FK_TYPES  = new Set(['o2m']);
 const ON_DELETE_SAFE    = new Set(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']);
 const SAFE_NAME_RE      = /^[a-z][a-z0-9_]*$/;
 
