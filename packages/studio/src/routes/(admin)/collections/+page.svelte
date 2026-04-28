@@ -29,6 +29,7 @@
   let search = $state('');
 
   const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
+  const SYSTEM_FIELDS = new Set(['id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector', 'search_text']);
 
   const categories = [
     { id: 'text', label: 'Text' },
@@ -103,6 +104,10 @@
       return;
     }
     for (const f of newFields) {
+      if (SYSTEM_FIELDS.has(f.name.trim())) {
+        nameError = `"${f.name}" is a system field (added automatically — remove it from your fields)`;
+        return;
+      }
       if (RELATION_NEEDS_TARGET.has(f.type) && !f.related_collection) {
         nameError = `Field "${f.name}": select a target collection`;
         return;
@@ -163,56 +168,61 @@
     return f?.length ?? 0;
   }
 
+  // Note: system fields (id, status, created_at, updated_at, created_by, updated_by)
+  // are added automatically to every collection — do NOT include them here.
   const TEMPLATES = [
     {
       id: 'blog',
       label: 'Blog Posts',
       fields: [
-        { name: 'title', type: 'text', required: true },
-        { name: 'content', type: 'richtext', required: false },
-        { name: 'slug', type: 'text', required: false },
-        { name: 'status', type: 'text', required: false },
+        { name: 'title',        type: 'text',     required: true  },
+        { name: 'content',      type: 'richtext', required: false },
+        { name: 'slug',         type: 'text',     required: false },
         { name: 'published_at', type: 'datetime', required: false },
+        { name: 'author',       type: 'text',     required: false },
       ],
     },
     {
       id: 'products',
       label: 'Products',
       fields: [
-        { name: 'name', type: 'text', required: true },
-        { name: 'price', type: 'number', required: false },
-        { name: 'description', type: 'text', required: false },
-        { name: 'status', type: 'text', required: false },
+        { name: 'name',        type: 'text',   required: true  },
+        { name: 'price',       type: 'number', required: false },
+        { name: 'description', type: 'text',   required: false },
+        { name: 'sku',         type: 'text',   required: false },
+        { name: 'stock',       type: 'number', required: false },
       ],
     },
     {
       id: 'team',
       label: 'Team Members',
       fields: [
-        { name: 'name', type: 'text', required: true },
-        { name: 'email', type: 'email', required: true },
-        { name: 'role', type: 'text', required: false },
-        { name: 'department', type: 'text', required: false },
+        { name: 'name',       type: 'text',  required: true  },
+        { name: 'email',      type: 'email', required: true  },
+        { name: 'role',       type: 'text',  required: false },
+        { name: 'department', type: 'text',  required: false },
       ],
     },
     {
       id: 'orders',
       label: 'Orders',
       fields: [
-        { name: 'order_number', type: 'text', required: true },
-        { name: 'customer_name', type: 'text', required: true },
-        { name: 'amount', type: 'number', required: true },
-        { name: 'status', type: 'text', required: false },
+        { name: 'order_number',   type: 'text',   required: true  },
+        { name: 'customer_name',  type: 'text',   required: true  },
+        { name: 'amount',         type: 'number', required: true  },
+        { name: 'payment_method', type: 'text',   required: false },
+        { name: 'notes',          type: 'text',   required: false },
       ],
     },
     {
       id: 'events',
       label: 'Events',
       fields: [
-        { name: 'title', type: 'text', required: true },
-        { name: 'description', type: 'text', required: false },
-        { name: 'start_date', type: 'datetime', required: true },
-        { name: 'location', type: 'text', required: false },
+        { name: 'title',       type: 'text',     required: true  },
+        { name: 'description', type: 'text',     required: false },
+        { name: 'start_date',  type: 'datetime', required: true  },
+        { name: 'end_date',    type: 'datetime', required: false },
+        { name: 'location',    type: 'text',     required: false },
       ],
     },
   ];
@@ -376,14 +386,20 @@
         </div>
 
         {#each newFields as field, i}
-          <div class="flex flex-wrap gap-2 items-start border border-base-300 rounded-lg p-3">
-            <input
-              type="text"
-              bind:value={field.name}
-              placeholder="field_name"
-              class="input input-sm font-mono flex-1 min-w-36"
-              pattern="[a-z][a-z0-9_]*"
-            />
+          {@const isReserved = SYSTEM_FIELDS.has(field.name.trim())}
+          <div class="flex flex-wrap gap-2 items-start border rounded-lg p-3 {isReserved ? 'border-error/60 bg-error/5' : 'border-base-300'}">
+            <div class="flex-1 min-w-36">
+              <input
+                type="text"
+                bind:value={field.name}
+                placeholder="field_name"
+                class="input input-sm font-mono w-full {isReserved ? 'input-error' : ''}"
+                pattern="[a-z][a-z0-9_]*"
+              />
+              {#if isReserved}
+                <p class="text-error text-[10px] mt-0.5">System field — added automatically, remove it</p>
+              {/if}
+            </div>
             <select class="select select-sm min-w-40" bind:value={field.type}>
               {#each categories as cat}
                 {@const types = getCategoryTypes(cat.id)}

@@ -175,6 +175,7 @@ export class DDLManager {
       target_field: string;
       on_delete?: string;
       on_update?: string;
+      junction_table?: string;
     },
   ): Promise<void> {
     await (db as any)
@@ -183,6 +184,49 @@ export class DDLManager {
       .onConflict((oc: any) => oc.doNothing())
       .execute()
       .catch((err: any) => console.warn('[registerRelation]', err?.message ?? err));
+  }
+
+  /** Drops a m2m junction table by its full name. Validates the name is a safe zvd_jnc_ table. */
+  static async dropJunctionTable(db: Database, junctionTable: string): Promise<void> {
+    if (!/^zvd_jnc_[a-z][a-z0-9_]*$/.test(junctionTable)) {
+      throw new Error(`Invalid junction table name: "${junctionTable}"`);
+    }
+    await withLockTimeout(db, async (trx) => {
+      await sql.raw(`DROP TABLE IF EXISTS "${junctionTable}" CASCADE`).execute(trx);
+    });
+  }
+
+  /**
+   * Creates a m2m junction table `zvd_jnc_{sourceName}_{targetName}` with FK columns
+   * for both sides, plus CONCURRENTLY indexes for join performance.
+   * Must be called OUTSIDE an open transaction (CONCURRENTLY requires that).
+   * Returns the junction table name.
+   */
+  static async createJunctionTable(
+    db: Database,
+    sourceName: string,
+    targetName: string,
+  ): Promise<string> {
+    const sourceTable = this.getTableName(sourceName);
+    const targetTable  = this.getTableName(targetName);
+    const junctionTable = `zvd_jnc_${sourceName}_${targetName}`;
+    await sql.raw(
+      `CREATE TABLE IF NOT EXISTS "${junctionTable}" (` +
+      `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
+      `"${sourceName}_id" UUID REFERENCES "${sourceTable}"(id) ON DELETE CASCADE, ` +
+      `"${targetName}_id" UUID REFERENCES "${targetTable}"(id) ON DELETE CASCADE, ` +
+      `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` +
+      `)`,
+    ).execute(db);
+    await sql.raw(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_src ` +
+      `ON "${junctionTable}"("${sourceName}_id")`,
+    ).execute(db);
+    await sql.raw(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_tgt ` +
+      `ON "${junctionTable}"("${targetName}_id")`,
+    ).execute(db);
+    return junctionTable;
   }
 
   // ── createCollection ─────────────────────────────────────────────────────────
@@ -343,7 +387,7 @@ export class DDLManager {
         .execute();
     }
 
-    // Bug #1: add FK columns and register relations after table + metadata exist
+    // Add FK columns and register m2o/reference relations after table + metadata exist
     for (const field of relationFields) {
       const target = String(field.options!.related_collection);
       if (!SAFE_NAME_RE.test(target)) {
@@ -368,6 +412,32 @@ export class DDLManager {
         target_field: 'id',
         on_delete: onDelete,
         on_update: onUpdate,
+      });
+    }
+
+    // Create junction tables for m2m fields
+    const m2mFields = validated.fields.filter(
+      (f) => f.type === 'm2m' && f.options?.related_collection,
+    );
+    for (const field of m2mFields) {
+      const target = String(field.options!.related_collection);
+      if (!SAFE_NAME_RE.test(target)) {
+        console.warn(`[createCollection] Invalid m2m target '${target}' — skipping`);
+        continue;
+      }
+      if (!(await this.tableExists(db, target))) {
+        console.warn(`[createCollection] m2m target '${target}' not found — skipping junction table`);
+        continue;
+      }
+      const junctionTable = await this.createJunctionTable(db, validated.name, target);
+      await this.registerRelation(db, {
+        name: `${validated.name}_${field.name}`,
+        type: 'm2m',
+        source_collection: validated.name,
+        source_field: field.name,
+        target_collection: target,
+        target_field: 'id',
+        junction_table: junctionTable,
       });
     }
   }
@@ -421,10 +491,10 @@ export class DDLManager {
       );
     }
 
-    // Bug #3: drop m2m junction tables before dropping the main table
+    // Drop m2m junction tables before dropping the main table
     const m2mRelations: any[] = await (db as any)
       .selectFrom('zvd_relations')
-      .selectAll()
+      .select(['source_collection', 'target_collection', 'junction_table'])
       .where((eb: any) => eb.or([
         eb('source_collection', '=', name),
         eb('target_collection', '=', name),
@@ -434,10 +504,14 @@ export class DDLManager {
       .catch(() => []);
 
     for (const rel of m2mRelations) {
-      const junctionName = `zvd_${rel.source_collection}_${rel.target_collection}`;
-      await withLockTimeout(db, async (trx) => {
-        await sql.raw(`DROP TABLE IF EXISTS "${junctionName}" CASCADE`).execute(trx);
-      }).catch(() => {});
+      // Use stored junction_table name if available; fall back to legacy naming
+      const junctionName: string = rel.junction_table
+        || `zvd_jnc_${rel.source_collection}_${rel.target_collection}`;
+      if (/^zvd_[a-z][a-z0-9_]*$/.test(junctionName)) {
+        await withLockTimeout(db, async (trx) => {
+          await sql.raw(`DROP TABLE IF EXISTS "${junctionName}" CASCADE`).execute(trx);
+        }).catch(() => {});
+      }
     }
 
     await withLockTimeout(db, async (trx) => {
