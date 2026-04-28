@@ -10,6 +10,7 @@
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
+ import { refreshExtensions } from '$lib/extensions.svelte.js';
 
  const CATEGORY_ICONS: Record<string, any> = {
  workflow: Workflow,
@@ -131,6 +132,10 @@
  const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/enable`, { method: 'POST' });
  if (res.needs_restart) restartNeeded = true;
  await load();
+ // Refresh extension bundles so the sidebar updates without a page reload
+ await refreshExtensions();
+ if (!res.needs_restart) toast.success(`${ext.displayName} is now active`);
+ else toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
  } catch (e: any) {
  toast.error(`Enable failed: ${e.message}`);
  } finally {
@@ -142,16 +147,16 @@
  confirmState = {
  open: true,
  title: 'Disable Extension',
- message: `Disable "${ext.displayName}"?${ext.is_running ? ' Takes effect after restart.' : ''}`,
+ message: `Disable "${ext.displayName}"?`,
  confirmLabel: 'Disable',
  confirmClass: 'btn-warning',
  onconfirm: async () => {
  confirmState.open = false;
  processingId = ext.name;
  try {
- const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
- if (res.needs_restart) restartNeeded = true;
+ await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
  await load();
+ await refreshExtensions();
  } catch (e: any) {
  toast.error(`Disable failed: ${e.message}`);
  } finally {

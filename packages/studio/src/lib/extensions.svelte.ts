@@ -60,6 +60,20 @@ function loadBundle(bundle: { name: string; url: string }): Promise<void> {
   });
 }
 
+export async function refreshExtensions(): Promise<void> {
+  try {
+    const res = await fetch(`${ENGINE_URL}/api/extensions`, { credentials: 'include' });
+    const data = await res.json();
+    const newBundles: Array<{ name: string; url: string }> = data.bundles || [];
+    // Load any bundles not yet injected (loadBundle is idempotent via scriptId check)
+    await loadExtensionBundles(newBundles);
+    activeExtensions = data.extensions || [];
+    extensionBundles = newBundles;
+  } catch (err) {
+    console.error('Failed to refresh extensions:', err);
+  }
+}
+
 export const extensions = {
   get active() { return activeExtensions; },
   get initialized() { return initialized; },
