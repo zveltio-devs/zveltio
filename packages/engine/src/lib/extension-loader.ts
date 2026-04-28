@@ -644,6 +644,9 @@ class ExtensionLoader {
     app.get('/api/marketplace', async (c) => {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
+      const extBase = process.env.EXTENSIONS_DIR
+        || join(import.meta.dir, '../../../extensions');
+
       const [catalog, rows] = await Promise.all([
         fetchRegistryCatalog(),
         (db as any).selectFrom('zv_extension_registry').selectAll().execute().catch(() => []),
@@ -654,14 +657,20 @@ class ExtensionLoader {
       const extensions = catalog.map((entry) => {
         const dbEntry = dbMap.get(entry.name) as any;
         const runtimeActive = self.isActive(entry.name);
+        const extDir = join(extBase, entry.name);
+        const filesOnDisk = existsSync(join(extDir, 'engine/index.ts'))
+                         || existsSync(join(extDir, 'engine/index.js'));
 
         return {
           ...entry,
           is_installed:  dbEntry?.is_installed ?? runtimeActive,
           is_enabled:    dbEntry?.is_enabled   ?? runtimeActive,
           is_running:    runtimeActive,
-          needs_restart: (dbEntry?.is_enabled && !runtimeActive) ||
-                         (!dbEntry?.is_enabled && runtimeActive && dbEntry !== undefined),
+          files_on_disk: filesOnDisk,
+          // needs_restart only when files exist but process hasn't loaded them yet
+          needs_restart: filesOnDisk &&
+                         ((dbEntry?.is_enabled && !runtimeActive) ||
+                          (!dbEntry?.is_enabled && runtimeActive && dbEntry !== undefined)),
           config:        dbEntry?.config       ?? {},
           installed_at:  dbEntry?.installed_at ?? null,
           enabled_at:    dbEntry?.enabled_at   ?? null,
@@ -771,6 +780,14 @@ class ExtensionLoader {
         } catch (e) {
           loadError = (e as Error).message;
           console.warn(`Hot-load failed for ${name}:`, loadError);
+          // Revert: roll back is_enabled so the DB stays consistent with reality.
+          // Without this, every server restart tries to load a broken extension.
+          await (db as any)
+            .updateTable('zv_extension_registry')
+            .set({ is_enabled: false })
+            .where('name' as any, '=', name)
+            .execute()
+            .catch(() => {});
         }
       } else {
         hotLoaded = true;
@@ -784,14 +801,14 @@ class ExtensionLoader {
 
       const nowActive = self.isActive(name);
       return c.json({
-        success:       true,
+        success:       nowActive,
         hot_loaded:    hotLoaded,
-        needs_restart: !nowActive,
+        needs_restart: false,
         message:       nowActive
           ? `Extension ${name} is now active.`
           : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
         ...(loadError ? { error_detail: loadError } : {}),
-      });
+      }, nowActive ? 200 : 422);
     });
 
     // POST /api/marketplace/:name/disable
