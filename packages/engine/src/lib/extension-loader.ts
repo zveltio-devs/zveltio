@@ -611,6 +611,15 @@ class ExtensionLoader {
   async loadDynamic(name: string, app: Hono): Promise<void> {
     if (!this.ctx) throw new Error('ExtensionLoader not initialized — call loadAll() first');
     await this.loadExtension(name, app, this.ctx);
+    // loadExtension returns void on silent failure (files not found, bad manifest, etc.)
+    // Verify the extension actually landed in this.loaded before declaring success.
+    if (!this.isActive(name)) {
+      const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
+      throw new Error(
+        `Extension "${name}" files not found at ${extBase}/${name}/engine/index.ts. ` +
+        `Ensure EXTENSIONS_DIR is set and the extension package is deployed.`
+      );
+    }
   }
 
   /**
@@ -754,12 +763,14 @@ class ExtensionLoader {
         .execute();
 
       let hotLoaded = false;
+      let loadError = '';
       if (!self.isActive(name)) {
         try {
           await self.loadDynamic(name, app);
           hotLoaded = true;
         } catch (e) {
-          console.warn(`Hot-load failed for ${name}:`, e);
+          loadError = (e as Error).message;
+          console.warn(`Hot-load failed for ${name}:`, loadError);
         }
       } else {
         hotLoaded = true;
@@ -771,13 +782,15 @@ class ExtensionLoader {
         await triggerReload(`enable:${name}`);
       }
 
+      const nowActive = self.isActive(name);
       return c.json({
         success:       true,
         hot_loaded:    hotLoaded,
-        needs_restart: false,
-        message:       hotLoaded
+        needs_restart: !nowActive,
+        message:       nowActive
           ? `Extension ${name} is now active.`
-          : `Extension ${name} could not be loaded — check server logs.`,
+          : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
+        ...(loadError ? { error_detail: loadError } : {}),
       });
     });
 
