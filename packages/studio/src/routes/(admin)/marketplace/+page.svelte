@@ -47,6 +47,7 @@
  is_enabled: boolean;
  is_running: boolean;
  needs_restart: boolean;
+ files_on_disk: boolean;
  config: Record<string, any>;
  }
 
@@ -281,6 +282,8 @@
  <div class="card bg-base-100 shadow-sm border transition-all
  {ext.is_running
  ? 'border-success/40'
+ : ext.is_enabled && ext.needs_restart && !ext.files_on_disk
+ ? 'border-error/40'
  : ext.is_enabled && ext.needs_restart
  ? 'border-warning/40'
  : ext.is_installed
@@ -302,6 +305,10 @@
  {#if ext.is_running}
  <span class="badge badge-success badge-sm shrink-0 gap-1">
  <CheckCircle size={10} /> Running
+ </span>
+ {:else if ext.is_enabled && !ext.files_on_disk}
+ <span class="badge badge-error badge-sm shrink-0 gap-1" title="Extension package not deployed on this server">
+ <AlertTriangle size={10} /> Files missing
  </span>
  {:else if ext.is_enabled && ext.needs_restart}
  <span class="badge badge-warning badge-sm shrink-0 gap-1">

@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { DDLManager, CollectionSchema, FieldSchema } from '../lib/ddl-manager.js';
 import { checkPermission } from '../lib/permissions.js';
@@ -12,7 +11,12 @@ import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
 
+/** FK column lives in the SOURCE table (the collection being modified). */
 const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
+/** FK column lives in the TARGET table (reverse side: one-to-many). */
+const RELATION_REVERSE_TYPES = new Set(['o2m']);
+/** All types that require options.related_collection. */
+const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m']);
 const ON_DELETE_RE = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
@@ -312,55 +316,67 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Field "${field.name}" already exists in collection "${name}"` }, 409);
       }
 
+      // Bug #4: validate related_collection required for all relation types
+      const opts = (field as any).options ?? {};
+      const relatedCollection = opts.related_collection ? String(opts.related_collection) : null;
+      if (ALL_RELATION_TYPES.has(field.type) && !relatedCollection) {
+        return c.json({ error: `Field type "${field.type}" requires options.related_collection` }, 400);
+      }
+
+      // Validate relation target upfront (fail-fast with proper HTTP codes before DDL)
+      if (relatedCollection) {
+        if (!SAFE_NAME_RE.test(relatedCollection)) {
+          return c.json({ error: `Invalid target collection: '${relatedCollection}'` }, 400);
+        }
+        const targetExists = await DDLManager.tableExists(db, relatedCollection);
+        if (!targetExists) {
+          return c.json({ error: `Target collection '${relatedCollection}' not found` }, 404);
+        }
+        const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
+        const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
+        if (!ON_DELETE_RE.test(onDelete) || !ON_DELETE_RE.test(onUpdate)) {
+          return c.json({ error: 'Invalid on_delete/on_update value' }, 400);
+        }
+      }
+
       try {
         const tableName = DDLManager.getTableName(name);
 
-        // Relation fields with a declared target: create the column WITH the FK
-        // in a single ALTER TABLE and register the relation so joins/expands work.
-        // Without this, Studio would save `options.related_collection` metadata
-        // but no actual constraint would ever be created.
-        const opts = (field as any).options ?? {};
-        const relatedCollection = opts.related_collection;
         if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
-          const target = String(relatedCollection);
-          if (!SAFE_NAME_RE.test(target)) {
-            return c.json({ error: `Invalid target collection: '${target}'` }, 400);
-          }
-          const targetExists = await DDLManager.tableExists(db, target);
-          if (!targetExists) {
-            return c.json({ error: `Target collection '${target}' not found` }, 404);
-          }
-
+          // Bug #5: m2o/reference — FK column in source table, use shared DDLManager helpers
+          const targetTable = DDLManager.getTableName(relatedCollection);
           const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
           const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
-          if (!ON_DELETE_RE.test(onDelete) || !ON_DELETE_RE.test(onUpdate)) {
-            return c.json({ error: 'Invalid on_delete/on_update value' }, 400);
-          }
+          await DDLManager.applyRelationFK(db, tableName, field.name, targetTable, onDelete, onUpdate);
+          await DDLManager.registerRelation(db, {
+            name: `${name}_${field.name}`,
+            type: 'm2o',
+            source_collection: name,
+            source_field: field.name,
+            target_collection: relatedCollection,
+            target_field: 'id',
+            on_delete: onDelete,
+            on_update: onUpdate,
+          });
 
-          const targetTable = DDLManager.getTableName(target);
-          await sql.raw(
-            `ALTER TABLE "${tableName}" ADD COLUMN "${field.name}" UUID ` +
-              `REFERENCES "${targetTable}"(id) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
-          ).execute(db);
+        } else if (RELATION_REVERSE_TYPES.has(field.type) && relatedCollection) {
+          // Bug #2: o2m — FK column lives in TARGET table (target has many of source)
+          const targetTable = DDLManager.getTableName(relatedCollection);
+          const fkColumnInTarget = `${name}_id`;
+          const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
+          const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
+          await DDLManager.applyRelationFK(db, targetTable, fkColumnInTarget, tableName, onDelete, onUpdate);
+          await DDLManager.registerRelation(db, {
+            name: `${name}_${field.name}`,
+            type: 'o2m',
+            source_collection: name,
+            source_field: field.name,
+            target_collection: relatedCollection,
+            target_field: fkColumnInTarget,
+            on_delete: onDelete,
+            on_update: onUpdate,
+          });
 
-          await (db as any)
-            .insertInto('zvd_relations')
-            .values({
-              name: `${name}_${field.name}`,
-              type: 'm2o',
-              source_collection: name,
-              source_field: field.name,
-              target_collection: target,
-              target_field: 'id',
-              on_delete: onDelete,
-              on_update: onUpdate,
-            })
-            .execute()
-            .catch((err: any) => {
-              // UNIQUE(source_collection, source_field) protects against duplicates.
-              // The column was created OK — log and continue, don't fail the whole add.
-              console.warn(`[add-field] zvd_relations insert skipped:`, err?.message ?? err);
-            });
         } else {
           const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
           if (colDDL) {
@@ -369,11 +385,41 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           }
         }
 
-        const updatedFields = [...existingFields, field];
-        await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+        // Bug #6 + #8: lock the collection row atomically to prevent concurrent
+        // field additions from producing duplicate field metadata.
+        await (db as any).transaction().execute(async (trx: any) => {
+          const locked = await (trx as any)
+            .selectFrom('zvd_collections')
+            .select(['fields'])
+            .where('name', '=', name)
+            .forUpdate()
+            .executeTakeFirst();
+          if (!locked) throw new Error('Collection not found');
+          let currentFields: any[];
+          try {
+            currentFields = typeof locked.fields === 'string'
+              ? JSON.parse(locked.fields)
+              : (locked.fields ?? []);
+          } catch {
+            currentFields = [];
+          }
+          if (currentFields.some((f: any) => f.name === field.name)) {
+            const err = new Error(`Field "${field.name}" already exists in collection "${name}"`) as any;
+            err.code = 'DUPLICATE';
+            throw err;
+          }
+          const updatedFields = [...currentFields, field];
+          await (trx as any)
+            .updateTable('zvd_collections')
+            .set({ fields: JSON.stringify(updatedFields), updated_at: new Date() })
+            .where('name', '=', name)
+            .execute();
+        });
+        DDLManager.invalidateCache(name);
 
         return c.json({ success: true, field });
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.code === 'DUPLICATE') return c.json({ error: error.message }, 409);
         return c.json({ error: error instanceof Error ? error.message : 'Failed to add field' }, 400);
       }
     },
