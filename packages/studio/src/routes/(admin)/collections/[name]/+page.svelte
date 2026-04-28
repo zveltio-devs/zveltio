@@ -55,6 +55,33 @@
  let showInsertModal = $state(false);
  let insertForm = $state<Record<string, any>>({});
  let inserting = $state(false);
+ let relationOptions = $state<Record<string, { id: string; label: string }[]>>({});
+
+ async function openInsertModal() {
+   insertForm = {};
+   showInsertModal = true;
+   // Load related-collection records for m2o / reference fields
+   const relFields = getFields().filter(
+     f => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection
+   );
+   const entries = await Promise.all(
+     relFields.map(async (f) => {
+       try {
+         const res = await dataApi.list(f.options.related_collection, { limit: '500' });
+         return [f.name, (res.records ?? []).map((r: any) => ({ id: r.id, label: getRelationLabel(r) }))] as const;
+       } catch { return [f.name, []] as const; }
+     })
+   );
+   relationOptions = Object.fromEntries(entries);
+ }
+
+ function getRelationLabel(record: any): string {
+   for (const key of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
+     if (record[key]) return String(record[key]);
+   }
+   const first = Object.entries(record).find(([k, v]) => k !== 'id' && !k.startsWith('created') && !k.startsWith('updated') && v != null);
+   return first ? `${first[1]}` : record.id;
+ }
 
  // Inline add row state
  let inlineNewRow = $state<Record<string, any>>({});
@@ -209,7 +236,7 @@
  <div class="flex justify-between items-center">
    <span class="text-sm text-base-content/60">{pagination.total} records</span>
    <div class="flex gap-2">
-     <button onclick={() => { insertForm = {}; showInsertModal = true; }} class="btn btn-primary btn-sm gap-1">
+     <button onclick={openInsertModal} class="btn btn-primary btn-sm gap-1">
        <Plus size={14} /> New Record
      </button>
      <button onclick={load} class="btn btn-ghost btn-sm">
@@ -225,7 +252,7 @@
  {:else if records.length === 0}
    <div class="flex flex-col items-center justify-center py-16 text-base-content/40 gap-3">
      <p class="text-sm">No records yet.</p>
-     <button onclick={() => { insertForm = {}; showInsertModal = true; }} class="btn btn-primary btn-sm gap-1">
+     <button onclick={openInsertModal} class="btn btn-primary btn-sm gap-1">
        <Plus size={14} /> Add first record
      </button>
    </div>
@@ -560,6 +587,17 @@
                  <option value={opt.value ?? opt}>{opt.label ?? opt}</option>
                {/each}
              </select>
+           {:else if (field.type === 'm2o' || field.type === 'reference') && field.options?.related_collection}
+             <select id="insert-{field.name}" class="select select-sm select-bordered"
+               bind:value={insertForm[field.name]}>
+               <option value="">— select {field.options.related_collection} —</option>
+               {#each (relationOptions[field.name] ?? []) as opt}
+                 <option value={opt.id}>{opt.label}</option>
+               {/each}
+             </select>
+             {#if !(relationOptions[field.name]?.length)}
+               <p class="text-[11px] text-base-content/40 mt-0.5">Loading records from <span class="font-mono">{field.options.related_collection}</span>…</p>
+             {/if}
            {:else}
              <input id="insert-{field.name}" type="text"
                class="input input-sm input-bordered"
