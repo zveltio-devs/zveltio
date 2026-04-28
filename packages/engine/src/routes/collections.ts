@@ -16,7 +16,7 @@ const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
 /** FK column lives in the TARGET table (reverse side: one-to-many). */
 const RELATION_REVERSE_TYPES = new Set(['o2m']);
 /** All types that require options.related_collection. */
-const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m']);
+const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const ON_DELETE_RE = /^(CASCADE|SET NULL|RESTRICT|NO ACTION)$/;
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
@@ -360,7 +360,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           });
 
         } else if (RELATION_REVERSE_TYPES.has(field.type) && relatedCollection) {
-          // Bug #2: o2m — FK column lives in TARGET table (target has many of source)
+          // o2m — FK column lives in TARGET table (target has many of source)
           const targetTable = DDLManager.getTableName(relatedCollection);
           const fkColumnInTarget = `${name}_id`;
           const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
@@ -375,6 +375,19 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             target_field: fkColumnInTarget,
             on_delete: onDelete,
             on_update: onUpdate,
+          });
+
+        } else if (field.type === 'm2m' && relatedCollection) {
+          // m2m — junction table with FK columns for both sides
+          const junctionTable = await DDLManager.createJunctionTable(db, name, relatedCollection);
+          await DDLManager.registerRelation(db, {
+            name: `${name}_${field.name}`,
+            type: 'm2m',
+            source_collection: name,
+            source_field: field.name,
+            target_collection: relatedCollection,
+            target_field: 'id',
+            junction_table: junctionTable,
           });
 
         } else {
@@ -468,6 +481,17 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         if (relation?.target_collection && relation?.target_field) {
           const targetTable = DDLManager.getTableName(relation.target_collection);
           await dynamicDropColumn(db, targetTable, relation.target_field);
+        }
+      } else if (fieldDef?.type === 'm2m') {
+        // m2m: drop the junction table (no column in source table)
+        const relation = await (db as any)
+          .selectFrom('zvd_relations')
+          .select(['junction_table'])
+          .where('source_collection', '=', name)
+          .where('source_field', '=', fieldName)
+          .executeTakeFirst();
+        if (relation?.junction_table) {
+          await DDLManager.dropJunctionTable(db, relation.junction_table);
         }
       } else {
         await dynamicDropColumn(db, tableName, fieldName);
