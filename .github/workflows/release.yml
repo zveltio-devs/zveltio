@@ -359,7 +359,6 @@ jobs:
     needs: publish-release
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, '-rc.')"
     steps:
       - name: Extract version
         id: version
