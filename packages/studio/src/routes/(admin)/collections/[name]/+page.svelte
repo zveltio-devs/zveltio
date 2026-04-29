@@ -923,7 +923,7 @@
                 <textarea
                   id="ins-{field.name}"
                   class="textarea textarea-bordered w-full min-h-20 font-mono text-xs resize-y"
-                  placeholder="{}"
+                  placeholder={"{}"}
                   bind:value={insertForm[field.name]}
                 ></textarea>
 
