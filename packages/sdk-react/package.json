@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/react",
-  "version": "1.0.0-alpha.45",
+  "version": "1.0.0-alpha.46",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
