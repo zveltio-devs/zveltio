@@ -15,6 +15,25 @@ import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catal
 import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
 
+// ── Extension base directory resolution ───────────────────────────────────────
+/**
+ * Resolve where extension files live.  Checked in priority order:
+ *  1. EXTENSIONS_DIR env var (explicit config — always wins)
+ *  2. ./extensions/ relative to the process CWD (Docker / production binary)
+ *  3. Sibling zveltio-extensions repo (monorepo dev: ../../../../../zveltio-extensions)
+ *  4. ./extensions/ as creation target even if it doesn't exist yet
+ */
+function resolveExtensionsBase(): string {
+  if (process.env.EXTENSIONS_DIR) return process.env.EXTENSIONS_DIR;
+  const cwdPath = join(process.cwd(), 'extensions');
+  if (existsSync(cwdPath)) return cwdPath;
+  // Dev: zveltio-extensions is a sibling of the main monorepo repo.
+  // packages/engine/src/lib → 4 levels up → monorepo root → 1 more up → ecosystem root.
+  const devPath = join(import.meta.dir, '../../../../../zveltio-extensions');
+  if (existsSync(devPath)) return devPath;
+  return cwdPath; // default target for first download
+}
+
 // ── Registry catalog cache ────────────────────────────────────────────────────
 const REGISTRY_URL = process.env.REGISTRY_URL || 'https://apps.zveltio.com';
 const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -348,9 +367,8 @@ class ExtensionLoader {
   ): Promise<void> {
     try {
       // Resolve extension directory.
-      // Priority: explicit basePath > EXTENSIONS_DIR env var > default relative path.
-      const defaultBase = process.env.EXTENSIONS_DIR
-        || join(import.meta.dir, '../../../extensions');
+      // Priority: explicit basePath > resolveExtensionsBase() (EXTENSIONS_DIR, CWD, dev sibling).
+      const defaultBase = resolveExtensionsBase();
       const extDir = basePath
         ? join(basePath, extName)
         : join(defaultBase, extName);
@@ -614,7 +632,7 @@ class ExtensionLoader {
     // loadExtension returns void on silent failure (files not found, bad manifest, etc.)
     // Verify the extension actually landed in this.loaded before declaring success.
     if (!this.isActive(name)) {
-      const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
+      const extBase = resolveExtensionsBase();
       throw new Error(
         `Extension "${name}" files not found at ${extBase}/${name}/engine/index.ts. ` +
         `Ensure EXTENSIONS_DIR is set and the extension package is deployed.`
@@ -644,8 +662,7 @@ class ExtensionLoader {
     app.get('/api/marketplace', async (c) => {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-      const extBase = process.env.EXTENSIONS_DIR
-        || join(import.meta.dir, '../../../extensions');
+      const extBase = resolveExtensionsBase();
 
       const [catalog, rows] = await Promise.all([
         fetchRegistryCatalog(),
@@ -690,23 +707,33 @@ class ExtensionLoader {
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
       // Determine where extension files should live
-      const extBase = process.env.EXTENSIONS_DIR
-        || join(import.meta.dir, '../../../extensions');
+      const extBase = resolveExtensionsBase();
       const extDir = join(extBase, name);
       const engineTs = join(extDir, 'engine/index.ts');
       const engineJs = join(extDir, 'engine/index.js');
 
       // Download extension package if not already on disk
       let downloaded = false;
+      let downloadError = '';
       if (!existsSync(engineTs) && !existsSync(engineJs)) {
         try {
           await downloadExtension(entry, extBase);
           downloaded = true;
         } catch (err) {
-          // Non-fatal: the extension may already be bundled in the deployment image.
-          // Log a warning so admins know a manual copy may be needed.
-          console.warn(`[marketplace] Could not download "${name}":`, (err as Error).message);
+          downloadError = (err as Error).message;
+          console.warn(`[marketplace] Could not download "${name}":`, downloadError);
         }
+      }
+
+      const filesOnDisk = existsSync(engineTs) || existsSync(engineJs);
+
+      // If files are still not on disk after the download attempt, fail loudly so the
+      // Studio shows a real error instead of "installed but won't enable".
+      if (!filesOnDisk) {
+        const msg = `Extension "${name}" could not be installed: ` +
+                    (downloadError || 'Registry unavailable.') +
+                    ` Set EXTENSIONS_DIR to the extensions directory and retry.`;
+        return c.json({ success: false, downloaded: false, files_on_disk: false, error: msg, message: msg }, 422);
       }
 
       await (db as any)
@@ -727,14 +754,11 @@ class ExtensionLoader {
         )
         .execute();
 
-      const filesOnDisk = existsSync(engineTs) || existsSync(engineJs);
       return c.json({
         success:        true,
         downloaded,
-        files_on_disk:  filesOnDisk,
-        message:        filesOnDisk
-          ? `Extension ${name} installed. Enable it to activate.`
-          : `Extension ${name} registered but source files are missing from disk. Deploy the extension package to ${extDir} before enabling.`,
+        files_on_disk:  true,
+        message:        `Extension "${name}" installed successfully. Enable it to activate.`,
       });
     });
 
@@ -747,6 +771,21 @@ class ExtensionLoader {
       const catalog = await fetchRegistryCatalog();
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+
+      // If extension files are not on disk yet, try to download them now before
+      // marking it enabled in the DB. This covers the case where Install succeeded
+      // via registry but files were not present, or the user clicked Enable directly.
+      const extBase = resolveExtensionsBase();
+      const extDir  = join(extBase, name);
+      if (!existsSync(join(extDir, 'engine/index.ts')) && !existsSync(join(extDir, 'engine/index.js'))) {
+        try {
+          await downloadExtension(entry, extBase);
+        } catch (downloadErr) {
+          const msg = `Extension "${name}" files not found and download failed: ${(downloadErr as Error).message}. ` +
+                      `Set EXTENSIONS_DIR to the extensions directory and retry.`;
+          return c.json({ success: false, hot_loaded: false, needs_restart: false, error: msg, message: msg }, 422);
+        }
+      }
 
       await (db as any)
         .insertInto('zv_extension_registry')
@@ -967,7 +1006,7 @@ class ExtensionLoader {
       await extension.register(app, restrictedCtx);
 
       // Re-register Studio bundle route
-      const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
+      const extBase = resolveExtensionsBase();
       const studioBundlePath = join(extBase, name, 'studio/dist/bundle.js');
       if (existsSync(studioBundlePath)) {
         const bundleKey = name.replace(/\//g, '_');
