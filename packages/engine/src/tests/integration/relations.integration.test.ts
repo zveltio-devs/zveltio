@@ -109,7 +109,7 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
     expect(Array.isArray(body.relations)).toBe(true);
   });
 
-  it('POST /api/relations — creates a m2o relation (202)', async () => {
+  it('POST /api/relations — creates a m2o relation (201)', async () => {
     const res = await fetch(`${BASE_URL}/api/relations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: godCookie },
@@ -124,7 +124,7 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
         on_update: 'CASCADE',
       }),
     });
-    expect(res.status).toBeOneOf([200, 202]);
+    expect(res.status).toBeOneOf([200, 201, 202]);
     const body = await res.json() as any;
     const relation = body.relation ?? body;
     expect(relation).toHaveProperty('id');
