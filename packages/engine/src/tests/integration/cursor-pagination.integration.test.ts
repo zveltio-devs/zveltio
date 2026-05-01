@@ -71,7 +71,7 @@ beforeAll(async () => {
       headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
       body: JSON.stringify({ title: `Record ${String(i).padStart(3, '0')}` }),
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
   }
 }, 60_000);
 
