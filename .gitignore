@@ -116,3 +116,4 @@ vite.config.*.timestamp-*
 *.so
 *.dylib
 zveltio-linux
+release/

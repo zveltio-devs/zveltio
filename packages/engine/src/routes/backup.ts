@@ -573,7 +573,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     if (!backup.rows[0]) return c.json({ error: 'Backup not found' }, 404);
 
-    const { filename, size_bytes } = backup.rows[0];
+    const { filename } = backup.rows[0];
 
     // Prevent path traversal
     if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
