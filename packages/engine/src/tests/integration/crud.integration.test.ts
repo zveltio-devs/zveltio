@@ -101,7 +101,8 @@ describe.skipIf(skipAll)('CRUD — Integration', () => {
         headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
         body: JSON.stringify(record),
       });
-      expect(res.status).toBe(200);
+      // POST /api/data/:collection returns 201 Created (RESTful convention).
+      expect(res.status).toBe(201);
       const body = await res.json();
       expect(body).toHaveProperty('id');
       createdIds.push(body.id);

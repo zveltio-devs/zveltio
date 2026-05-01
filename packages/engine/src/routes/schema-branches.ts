@@ -150,7 +150,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           return c.json({ branch: result.rows[0], schema: branchSchema }, 201);
         } catch (error) {
           console.error('Failed to create branch:', error);
-          try { await sql`DROP SCHEMA IF EXISTS ${sql.id(branchSchema)} CASCADE`.execute(db); } catch {}
+          try { await sql`DROP SCHEMA IF EXISTS ${sql.id(branchSchema)} CASCADE`.execute(db); } catch { /* best-effort cleanup */ }
           return c.json({ error: 'Failed to create branch' }, 500);
         }
       },
@@ -184,7 +184,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
             SELECT name FROM ${sql.id(branch.branch_schema)}.zvd_collections ORDER BY name
           `.execute(db);
           branchCols = r.rows;
-        } catch {}
+        } catch { /* schema may not exist yet */ }
 
         const baseNames = new Set(baseCols.rows.map((r) => r.name));
         const branchNames = new Set(branchCols.map((r) => r.name));
