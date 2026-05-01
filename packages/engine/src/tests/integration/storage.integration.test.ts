@@ -52,7 +52,7 @@ afterAll(async () => {
   if (createdFolderId) {
     await (db as any).deleteFrom('zv_media_folders').where('id', '=', createdFolderId).execute().catch(() => {});
   }
-  await db.destroy();
+  await db.destroy().catch(() => {});
 });
 
 describe.skipIf(skipAll)('Storage — Integration', () => {
