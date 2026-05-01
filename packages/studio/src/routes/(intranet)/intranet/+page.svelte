@@ -3,28 +3,40 @@
   import { base } from '$app/paths';
   import { auth } from '$lib/auth.svelte.js';
   import { api } from '$lib/api.js';
-  import { CheckSquare, Bell, Database, Clock, ArrowRight } from '@lucide/svelte';
+  import { SquareCheck, Bell, Clock, ArrowRight, User as UserIcon, FileText } from '@lucide/svelte';
 
-  let approvals = $state<any[]>([]);
   let notifications = $state<any[]>([]);
-  let recentActivity = $state<any[]>([]);
+  let pendingTasks = $state<number>(0);
+  let unreadCount = $state<number>(0);
+  let zonePages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
   let loading = $state(true);
 
   onMount(async () => {
-    try {
-      const [notifRes] = await Promise.allSettled([
-        api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
-      ]);
-      if (notifRes.status === 'fulfilled') notifications = notifRes.value.notifications?.slice(0, 5) ?? [];
-    } finally {
-      loading = false;
+    const [notifRes, tasksRes, zoneRes] = await Promise.allSettled([
+      api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
+      api.get<{ tasks: any[] }>('/api/approvals?status=pending&assigned_to=me'),
+      api.get<{ nav: any[] }>('/api/zones/intranet/render'),
+    ]);
+    if (notifRes.status === 'fulfilled') {
+      notifications = (notifRes.value.notifications ?? []).slice(0, 5);
+      unreadCount = notifRes.value.notifications?.length ?? 0;
     }
+    if (tasksRes.status === 'fulfilled') pendingTasks = tasksRes.value.tasks?.length ?? 0;
+    if (zoneRes.status === 'fulfilled') {
+      zonePages = (zoneRes.value.nav ?? [])
+        .filter((p: any) => !p.is_homepage)
+        .map((p: any) => ({ slug: p.slug, title: p.title, icon: p.icon }));
+    }
+    loading = false;
   });
 
+  // Quick-links point at REAL routes shipped by Studio (notifications, tasks,
+  // profile) — never at slugs that don't exist in the zones DB. Anything that
+  // depends on admin-configured zone pages is rendered separately below.
   const quickLinks = [
-    { href: `${base}/intranet/collections`, icon: Database,    label: 'Browse Data',     desc: 'Access company collections' },
-    { href: `${base}/intranet/tasks`,       icon: CheckSquare, label: 'My Tasks',         desc: 'Pending approvals & actions' },
-    { href: `${base}/intranet/notifications`,icon: Bell,       label: 'Notifications',   desc: 'Recent alerts & updates' },
+    { href: `${base}/intranet/tasks`,         icon: SquareCheck, label: 'My Tasks',       desc: 'Approvals & action items', badge: () => pendingTasks },
+    { href: `${base}/intranet/notifications`, icon: Bell,        label: 'Notifications',  desc: 'Recent alerts & updates',  badge: () => unreadCount },
+    { href: `${base}/intranet/profile`,       icon: UserIcon,    label: 'My Profile',     desc: 'View and edit your info',  badge: () => 0 },
   ];
 </script>
 
@@ -40,9 +52,10 @@
     </p>
   </div>
 
-  <!-- Quick access cards -->
+  <!-- Quick access cards (built-in routes — never broken) -->
   <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
     {#each quickLinks as link}
+      {@const count = link.badge()}
       <a
         href={link.href}
         class="group card bg-base-200 hover:bg-base-300 border border-base-300 hover:border-primary/30
@@ -53,7 +66,11 @@
             <div class="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
               <link.icon size={18} class="text-primary" />
             </div>
-            <ArrowRight size={14} class="text-base-content/30 group-hover:text-primary transition-colors" />
+            {#if count > 0}
+              <span class="badge badge-primary badge-sm font-medium">{count}</span>
+            {:else}
+              <ArrowRight size={14} class="text-base-content/30 group-hover:text-primary transition-colors" />
+            {/if}
           </div>
           <p class="font-semibold text-sm text-base-content">{link.label}</p>
           <p class="text-xs text-base-content/50 mt-0.5">{link.desc}</p>
@@ -61,6 +78,28 @@
       </a>
     {/each}
   </div>
+
+  <!-- Zone pages — admin-configured pages from /api/zones/intranet/render -->
+  {#if zonePages.length > 0}
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-5">
+        <h2 class="font-semibold text-sm mb-3 flex items-center gap-2">
+          <FileText size={15} class="text-primary" />
+          Pages
+        </h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {#each zonePages as p}
+            <a href="{base}/intranet/{p.slug}"
+              class="flex items-center gap-3 px-3 py-2 rounded-lg bg-base-100 hover:bg-base-300 transition-colors text-sm">
+              {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{:else}<FileText size={14} class="text-base-content/40 shrink-0" />{/if}
+              <span class="truncate">{p.title}</span>
+              <ArrowRight size={12} class="text-base-content/30 ml-auto" />
+            </a>
+          {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- Notifications -->
   <div class="card bg-base-200 border border-base-300">

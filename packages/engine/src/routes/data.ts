@@ -173,20 +173,215 @@ async function broadcastWebhook(
   await WebhookManager.trigger(event, collection, data);
 }
 
+/** Internal columns that are operational, not user data. They leak into API
+ * responses by default because Kysely returns the full row; strip them unless
+ * the caller explicitly opts in with ?include_internal=1. */
+const INTERNAL_COLUMNS = new Set(['search_vector', 'search_text']);
+
+/** Cast database-side numeric strings back to JS numbers when the schema says
+ * the field is numeric. Postgres `numeric/decimal` come back as strings via
+ * Bun.SQL — clients shouldn't have to remember which fields to coerce. */
+const NUMERIC_FIELD_TYPES = new Set([
+  'number', 'integer', 'int', 'bigint', 'smallint', 'float', 'double', 'decimal',
+]);
+
 // Serialize a record's field values using the registry
 async function serializeRecord(record: any, collectionDef: any): Promise<any> {
-  if (!collectionDef?.fields) return record;
+  if (!collectionDef?.fields) {
+    const out = { ...record };
+    for (const k of INTERNAL_COLUMNS) delete out[k];
+    return out;
+  }
   const result = { ...record };
   for (const field of collectionDef.fields) {
-    if (result[field.name] !== undefined) {
-      // Decrypt encrypted fields before serialization
+    if (result[field.name] !== undefined && result[field.name] !== null) {
       if (field.encrypted) {
         result[field.name] = await maybeDecrypt(result[field.name], true);
       }
       result[field.name] = fieldTypeRegistry.serialize(field.type, result[field.name]);
+      // Numeric coercion: Postgres returns numeric/decimal as string. Cast back
+      // to number so frontends can sort/format without type tricks.
+      if (NUMERIC_FIELD_TYPES.has(field.type) && typeof result[field.name] === 'string') {
+        const n = Number(result[field.name]);
+        if (Number.isFinite(n)) result[field.name] = n;
+      }
     }
   }
+  // Strip internal/operational columns from public payloads.
+  for (const k of INTERNAL_COLUMNS) delete result[k];
   return result;
+}
+
+/** Map Postgres SQLSTATE codes to HTTP responses with structured error bodies.
+ * Without this, every constraint violation hits Hono's default error handler
+ * and surfaces as 500 "Internal Server Error" plain text.
+ *
+ * Bun.SQL PostgresError exposes the Postgres notice fields but the property
+ * names vary slightly across versions (`code` / `errno` / `routine`) — we read
+ * the standard fields and fall back to message-pattern matching as a safety
+ * net for cases where the SQLSTATE is missing. */
+function mapPgError(err: unknown): { status: number; body: Record<string, unknown> } | null {
+  if (!err) return null;
+  const e = err as Record<string, unknown>;
+  const code = String((e.code as string | undefined) ?? (e.errno as string | undefined) ?? '');
+  const message = String((e.message as string | undefined) ?? '');
+  const detail  = String((e.detail  as string | undefined) ?? '');
+  const constraint  = String((e.constraint_name as string | undefined) ?? (e.constraint  as string | undefined) ?? '');
+  const column      = String((e.column_name     as string | undefined) ?? (e.column      as string | undefined) ?? '');
+
+  const matchKey = /Key \(([^)]+)\)=\(([^)]+)\)(?: is not present in table "([^"]+)")?/.exec(detail || message);
+
+  // 23503 — foreign_key_violation
+  if (code === '23503' || /foreign key constraint/i.test(message)) {
+    return {
+      status: 422,
+      body: {
+        error: 'foreign_key_violation',
+        message: matchKey
+          ? `Field "${matchKey[1]}" references "${(matchKey[3] ?? '').replace(/^zvd_/, '') || 'another collection'}" but no record with id "${matchKey[2]}" exists.`
+          : 'Referenced record does not exist.',
+        code: code || '23503',
+        field: matchKey?.[1] ?? column ?? null,
+      },
+    };
+  }
+  // 23505 — unique_violation
+  if (code === '23505' || /duplicate key value/i.test(message) || /unique constraint/i.test(message)) {
+    return {
+      status: 409,
+      body: {
+        error: 'unique_violation',
+        message: matchKey
+          ? `A record with the same ${matchKey[1]} already exists (value: ${matchKey[2]}).`
+          : 'A record with the same unique value already exists.',
+        code: code || '23505',
+        field: matchKey?.[1] ?? null,
+      },
+    };
+  }
+  // 23502 — not_null_violation
+  if (code === '23502' || /not-null constraint/i.test(message) || /violates not-null/i.test(message)) {
+    return {
+      status: 422,
+      body: {
+        error: 'not_null_violation',
+        message: column ? `Field "${column}" is required.` : 'A required field is missing.',
+        code: code || '23502',
+        field: column ?? null,
+      },
+    };
+  }
+  // 23514 — check_violation (status enum, etc.)
+  if (code === '23514' || /check constraint/i.test(message)) {
+    return {
+      status: 422,
+      body: {
+        error: 'check_violation',
+        message: 'One of the values does not satisfy the field constraints.',
+        code: code || '23514',
+        constraint: constraint || null,
+      },
+    };
+  }
+  // 22P02 — invalid_text_representation (e.g. bad UUID)
+  if (code === '22P02' || /invalid input syntax/i.test(message)) {
+    return {
+      status: 422,
+      body: {
+        error: 'invalid_value',
+        message: 'One of the values has the wrong format (likely an invalid UUID, number, or date).',
+        code: code || '22P02',
+      },
+    };
+  }
+  // 42703 — undefined_column (schema drift)
+  if (code === '42703' || /column .* does not exist/i.test(message)) {
+    return {
+      status: 422,
+      body: {
+        error: 'unknown_field',
+        message: 'A field in the request does not exist on this collection.',
+        code: code || '42703',
+      },
+    };
+  }
+  return null;
+}
+
+/** Run an async handler and translate known Postgres errors into 4xx responses
+ * before they escape as Hono's default 500. Anything we don't recognize is
+ * re-thrown so the global error handler can log it. */
+async function handlePgErrors<T>(c: any, fn: () => Promise<T>): Promise<T | Response> {
+  try {
+    return await fn();
+  } catch (err) {
+    const mapped = mapPgError(err);
+    if (mapped) return c.json(mapped.body, mapped.status as any);
+    // Surface the raw error shape so we can extend mapPgError() later.
+    const e = err as { name?: string; code?: string; errno?: string; message?: string };
+    console.warn('[handlePgErrors] unmapped error:', e?.name, 'code=', e?.code ?? e?.errno, 'msg=', e?.message);
+    throw err;
+  }
+}
+
+/** Resolve `?expand=field1,field2` for a collection: returns metadata about
+ * which m2o fields the caller wants hydrated and the target collection for each. */
+async function resolveExpand(
+  db: Database,
+  collectionDef: any,
+  expandParam: string | undefined,
+): Promise<Array<{ field: string; targetTable: string; targetCollection: string }>> {
+  if (!expandParam || !collectionDef?.fields) return [];
+  const want = new Set(expandParam.split(',').map((s) => s.trim()).filter(Boolean));
+  if (want.size === 0) return [];
+
+  const out: Array<{ field: string; targetTable: string; targetCollection: string }> = [];
+  for (const f of collectionDef.fields) {
+    if (!want.has(f.name)) continue;
+    if ((f.type !== 'm2o' && f.type !== 'reference') || !f.options?.related_collection) continue;
+    out.push({
+      field: f.name,
+      targetCollection: f.options.related_collection,
+      targetTable: DDLManager.getTableName(f.options.related_collection),
+    });
+  }
+  return out;
+}
+
+/** Fill an `_expanded` map on each record by fetching referenced rows in one
+ * query per relation. Adds {field}_expanded: {id, label, ...} on every record. */
+async function applyExpand(
+  db: Database,
+  records: any[],
+  expandPlan: Array<{ field: string; targetTable: string; targetCollection: string }>,
+): Promise<void> {
+  if (expandPlan.length === 0 || records.length === 0) return;
+
+  for (const exp of expandPlan) {
+    const ids = [...new Set(records.map((r) => r[exp.field]).filter((v) => typeof v === 'string'))];
+    if (ids.length === 0) continue;
+
+    const rows = await sql<any>`
+      SELECT * FROM ${sql.id(exp.targetTable)}
+      WHERE id = ANY(${ids})
+    `.execute(db);
+
+    const targetDef = await DDLManager.getCollection(db, exp.targetCollection);
+    const byId = new Map<string, any>();
+    for (const r of rows.rows as any[]) {
+      const serialized = await serializeRecord(r, targetDef);
+      // Add a default `_label` (best-effort: name → title → email → id slice)
+      const label = serialized.name ?? serialized.title ?? serialized.label ?? serialized.email
+        ?? serialized.full_name ?? serialized.display_name ?? serialized.id?.slice(0, 8) ?? '—';
+      byId.set(r.id as string, { ...serialized, _label: label });
+    }
+    for (const rec of records) {
+      const id = rec[exp.field];
+      if (id && byId.has(id)) {
+        rec[`${exp.field}_expanded`] = byId.get(id);
+      }
+    }
+  }
 }
 
 // Validate and deserialize incoming data using the registry
@@ -588,6 +783,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const serialized = (await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef))))
       .map((r) => applyColumnAccess(r, colAccess));
 
+    // ── Expand m2o relations on demand (?expand=customer_id,author_id) ──
+    const expandPlan = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
+    await applyExpand(effectiveDb, serialized, expandPlan);
+
     // ── ETag + Cache-Control ───────────────────────────────────────
     const etag = `"${await computeEtag(serialized)}"`;
     c.header('ETag', etag);
@@ -848,6 +1047,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
     const serializedRecord = applyColumnAccess(await serializeRecord(record, collectionDef), colAccess);
 
+    // Expand m2o relations on demand
+    const singleExpand = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
+    if (singleExpand.length > 0) {
+      await applyExpand(effectiveDb, [serializedRecord], singleExpand);
+    }
+
     // ETag + Cache-Control for single record
     const singleEtag = `"${await computeEtag([serializedRecord])}"`;
     c.header('ETag', singleEtag);
@@ -900,11 +1105,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const effectiveDb = getDb(c, db);
     const toInsert = { ...allowedData, created_by: user.id, updated_by: user.id };
-    const record = await tracedQuery(`${tableName}.create`, () => dynamicInsert(effectiveDb, tableName, toInsert));
-
-    await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id });
-
-    return c.json(await serializeRecord(record, collectionDef));
+    const result = await handlePgErrors(c, async () => {
+      const record = await tracedQuery(`${tableName}.create`, () => dynamicInsert(effectiveDb, tableName, toInsert));
+      await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id });
+      return c.json(await serializeRecord(record, collectionDef), 201);
+    });
+    return result as Response;
   });
 
   // ── PUT /:collection/:id — Replace record ────────────────────────
@@ -942,12 +1148,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const effectiveDb = getDb(c, db);
     const toUpdate = { ...processed, updated_by: user.id };
-    const record = await tracedQuery(`${tableName}.update`, () => dynamicUpdate(effectiveDb, tableName, id, toUpdate));
-    if (!record) return c.json({ error: 'Record not found' }, 404);
-
-    await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id });
-
-    return c.json(await serializeRecord(record, collectionDef));
+    const result = await handlePgErrors(c, async () => {
+      const record = await tracedQuery(`${tableName}.update`, () => dynamicUpdate(effectiveDb, tableName, id, toUpdate));
+      if (!record) return c.json({ error: 'Record not found' }, 404);
+      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id });
+      return c.json(await serializeRecord(record, collectionDef));
+    });
+    return result as Response;
   });
 
   // ── PATCH /:collection/:id — Partial update ───────────────────────
@@ -991,12 +1198,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const effectiveDb = getDb(c, db);
     const toUpdate = { ...allowedPatch, updated_by: user.id };
-    const record = await dynamicUpdate(effectiveDb, tableName, id, toUpdate);
-    if (!record) return c.json({ error: 'Record not found' }, 404);
-
-    await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id });
-
-    return c.json(await serializeRecord(record, collectionDef));
+    const result = await handlePgErrors(c, async () => {
+      const record = await dynamicUpdate(effectiveDb, tableName, id, toUpdate);
+      if (!record) return c.json({ error: 'Record not found' }, 404);
+      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id });
+      return c.json(await serializeRecord(record, collectionDef));
+    });
+    return result as Response;
   });
 
   // ── DELETE /:collection/:id — Delete record ───────────────────────

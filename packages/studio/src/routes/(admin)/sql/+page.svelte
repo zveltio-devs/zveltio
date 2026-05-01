@@ -20,7 +20,7 @@
     elapsed = null;
     const start = Date.now();
     try {
-      const body = await api.post<{ rows: Record<string, any>[]; rowCount: number }>('/admin/sql', { query });
+      const body = await api.post<{ rows: Record<string, any>[]; rowCount: number }>('/api/admin/sql', { query });
       elapsed = Date.now() - start;
       rows = body.rows ?? [];
       rowCount = body.rowCount ?? rows.length;

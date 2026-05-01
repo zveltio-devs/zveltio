@@ -32,14 +32,14 @@
     await navigator.clipboard.writeText(text).catch(() => {});
   }
 
-  const defaultActions = $derived<Action[]>(() => {
+  const defaultActions = $derived.by<Action[]>(() => {
     if (actions.length) return actions;
     if (!value) return [];
     const str = String(value);
     if (str.startsWith('http')) return [{ type: 'url', label: 'Open' }];
     if (str.includes('@')) return [{ type: 'email' }];
     return [{ type: 'copy' }];
-  }());
+  });
 </script>
 
 <div class="flex items-center gap-1 flex-wrap">

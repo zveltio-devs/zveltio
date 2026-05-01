@@ -21,7 +21,7 @@
   let collection = $state<any>(null);
   let records    = $state<any[]>([]);
   let relations  = $state<any[]>([]);
-  let pagination = $state({ total: 0, page: 1, limit: 25 });
+  let pagination = $state<{ total: number; page: number; limit: number; pages?: number }>({ total: 0, page: 1, limit: 25 });
   let loading    = $state(true);
   let fieldTypes     = $state<any[]>([]);
   let allCollections = $state<any[]>([]);
@@ -118,17 +118,112 @@
     }
   }
 
-  async function reloadData() {
+  /** Build URL params for the data list — includes ?expand= for every m2o
+   *  field so the table can render link chips instead of raw UUIDs. */
+  function buildDataParams(p: { page?: number; limit?: number } = {}) {
+    const params: Record<string, string> = {
+      page:  String(p.page  ?? pagination.page  ?? 1),
+      limit: String(p.limit ?? pagination.limit ?? 25),
+    };
+    if (sortField) {
+      params.sort = sortField;
+      params.order = sortDir;
+    }
+    if (searchText.trim()) params.search = searchText.trim();
+    // Auto-expand every m2o relation field so cells can show readable labels.
+    const m2oFields = customFields
+      .filter((f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection)
+      .map((f: any) => f.name);
+    if (m2oFields.length > 0) params.expand = m2oFields.join(',');
+    return params;
+  }
+
+  async function reloadData(p: { page?: number; limit?: number } = {}) {
     try {
-      const res = await dataApi.list(collectionName, {
-        limit: String(pagination.limit ?? 25),
-        page:  String(pagination.page  ?? 1),
-      });
+      const res = await dataApi.list(collectionName, buildDataParams(p));
       records    = res.records;
       pagination = res.pagination;
+      // Drop selection on data refresh — surviving ids may have been deleted
+      selectedIds.clear();
+      selectedIds = new Set(selectedIds);
     } catch (e: any) {
       toast.error(e.message || 'Failed to reload');
     }
+  }
+
+  // ── List controls (search, sort, selection) ─────────────────────────
+  let searchText  = $state('');
+  let sortField   = $state('');
+  let sortDir     = $state<'asc' | 'desc'>('desc');
+  let selectedIds = $state(new Set<string>());
+
+  function toggleSort(name: string) {
+    if (sortField === name) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortField = name;
+      sortDir = 'asc';
+    }
+    reloadData({ page: 1 });
+  }
+
+  let searchTimer: any;
+  function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => reloadData({ page: 1 }), 250);
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === records.length) {
+      selectedIds = new Set();
+    } else {
+      selectedIds = new Set(records.map((r) => r.id));
+    }
+  }
+
+  function toggleSelect(id: string) {
+    if (selectedIds.has(id)) selectedIds.delete(id);
+    else selectedIds.add(id);
+    selectedIds = new Set(selectedIds);
+  }
+
+  async function bulkDeleteSelected() {
+    if (selectedIds.size === 0) return;
+    confirmState = {
+      open: true,
+      title: 'Delete selected records',
+      message: `Delete ${selectedIds.size} record(s)? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      onconfirm: async () => {
+        confirmState.open = false;
+        try {
+          await dataApi.bulkDelete(collectionName, [...selectedIds]);
+          selectedIds = new Set();
+          await reloadData();
+          toast.success('Records deleted');
+        } catch (e: any) {
+          toast.error(e.message || 'Bulk delete failed');
+        }
+      },
+    };
+  }
+
+  // ── Pagination helpers ─────────────────────────────────────────────
+  function goToPage(p: number) {
+    if (p < 1 || (pagination.pages && p > pagination.pages)) return;
+    reloadData({ page: p });
+  }
+
+  // ── Display helpers ─────────────────────────────────────────────────
+  /** Convert "snake_case" field name into "Snake Case" — used as a fallback
+   *  table header when a field has no explicit `label`. */
+  function humanize(s: string): string {
+    return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function fieldLabel(f: any): string {
+    if (f.label) return f.label;
+    return humanize(f.name);
   }
 
   async function reloadSchema() {
@@ -144,12 +239,15 @@
     }
   }
 
-  // ── Insert drawer (right slide-over) ─────────────────────────────────────
-  let drawerOpen       = $state(false);
-  let insertForm       = $state<Record<string, any>>({});
-  let inserting        = $state(false);
-  let relOptions       = $state<Record<string, { id: string; label: string }[]>>({});
-  let loadingRelOpts   = $state(false);
+  // ── Record drawer (right slide-over) — used for both Insert and Edit ────
+  let drawerOpen     = $state(false);
+  let drawerMode     = $state<'create' | 'edit'>('create');
+  let drawerRecordId = $state<string | null>(null);
+  let insertForm     = $state<Record<string, any>>({});
+  let inserting      = $state(false);
+  let relOptions     = $state<Record<string, { id: string; label: string }[]>>({});
+  let loadingRelOpts = $state(false);
+  let formErrors     = $state<Record<string, string>>({});
 
   function labelFromRecord(record: any): string {
     for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
@@ -161,9 +259,7 @@
     return kv ? String(kv[1]) : (record.id?.slice(0, 8) ?? '—');
   }
 
-  async function openDrawer() {
-    insertForm = {};
-    drawerOpen = true;
+  async function loadRelOptions() {
     loadingRelOpts = true;
     const relFields = insertableFields.filter(
       (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection
@@ -180,20 +276,95 @@
     loadingRelOpts = false;
   }
 
-  async function insertRecord() {
+  async function openCreateDrawer() {
+    drawerMode = 'create';
+    drawerRecordId = null;
+    insertForm = {};
+    formErrors = {};
+    drawerOpen = true;
+    loadRelOptions();
+  }
+
+  async function openEditDrawer(record: any) {
+    drawerMode = 'edit';
+    drawerRecordId = record.id;
+    insertForm = {};
+    formErrors = {};
+    // Seed the form with current values for editable fields only
+    for (const f of insertableFields) {
+      const v = record[f.name];
+      if (v !== undefined && v !== null) insertForm[f.name] = v;
+    }
+    drawerOpen = true;
+    loadRelOptions();
+  }
+
+  /** Light client-side validation — required fields, basic email/url patterns,
+   *  numeric range. Server-side validation still runs and is authoritative. */
+  function validateForm(): boolean {
+    formErrors = {};
+    let ok = true;
+    for (const f of insertableFields) {
+      const v = insertForm[f.name];
+      const present = v !== undefined && v !== null && v !== '';
+      if (f.required && !present) {
+        formErrors[f.name] = 'Required';
+        ok = false;
+        continue;
+      }
+      if (!present) continue;
+      if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v))) {
+        formErrors[f.name] = 'Invalid email';
+        ok = false;
+      }
+      if (f.type === 'url' && !/^https?:\/\//i.test(String(v))) {
+        formErrors[f.name] = 'Must start with http:// or https://';
+        ok = false;
+      }
+      if ((f.type === 'number' || f.type === 'integer' || f.type === 'decimal') && Number.isNaN(Number(v))) {
+        formErrors[f.name] = 'Must be a number';
+        ok = false;
+      }
+      if (f.type === 'integer' && !Number.isInteger(Number(v))) {
+        formErrors[f.name] = 'Must be a whole number';
+        ok = false;
+      }
+    }
+    formErrors = { ...formErrors };
+    return ok;
+  }
+
+  async function saveRecord() {
+    if (!validateForm()) return;
     inserting = true;
     try {
-      await dataApi.create(collectionName, insertForm);
+      // Strip empty strings so server uses defaults / NULL where applicable
+      const payload: Record<string, any> = {};
+      for (const [k, v] of Object.entries(insertForm)) {
+        if (v === '' || v === undefined) continue;
+        payload[k] = v;
+      }
+      if (drawerMode === 'create') {
+        await dataApi.create(collectionName, payload);
+        toast.success('Record created');
+      } else if (drawerRecordId) {
+        await dataApi.update(collectionName, drawerRecordId, payload);
+        toast.success('Record updated');
+      }
       drawerOpen = false;
       insertForm = {};
+      drawerRecordId = null;
       await reloadData();
-      toast.success('Record created');
     } catch (e: any) {
-      toast.error(e.message || 'Failed to create record');
+      toast.error(e.message || 'Failed to save record');
     } finally {
       inserting = false;
     }
   }
+
+  // Backwards-compat alias used by older onclick handlers in this file.
+  const openDrawer = openCreateDrawer;
+  const insertRecord = saveRecord;
 
   // ── Schema: fields ────────────────────────────────────────────────────────
   let addFieldOpen = $state(false);
@@ -230,18 +401,58 @@
   let relFormError  = $state('');
   let relForm = $state({
     name: '', type: 'o2m' as string,
-    source_field: '', target_collection: '', target_field: '', on_delete: 'SET NULL',
+    source_field: '',                  // m2o: FK col in this table; o2m/m2m: virtual alias
+    target_collection: '',
+    target_field: '',                  // o2m only: FK col in target table
+    on_delete: 'SET NULL',
   });
   let targetFields = $state<any[]>([]);
 
   const relTypesMeta = [
-    { value: 'o2m', symbol: '1→∞', label: 'One-to-Many',   desc: 'FK lives in the target collection' },
-    { value: 'm2o', symbol: '∞→1', label: 'Many-to-One',   desc: 'FK column added to this collection' },
-    { value: 'm2m', symbol: '∞↔∞', label: 'Many-to-Many',  desc: 'Junction table created automatically' },
+    {
+      value: 'm2o', symbol: '∞→1', label: 'Many-to-One',
+      desc: 'Each record points to ONE other record',
+      example: (src: string, tgt: string) => `each ${singular(src)} has ONE ${singular(tgt)}`,
+    },
+    {
+      value: 'o2m', symbol: '1→∞', label: 'One-to-Many',
+      desc: 'Each record can have MANY related records',
+      example: (src: string, tgt: string) => `each ${singular(src)} has MANY ${tgt}`,
+    },
+    {
+      value: 'm2m', symbol: '∞↔∞', label: 'Many-to-Many',
+      desc: 'Records can be linked to many on both sides',
+      example: (src: string, tgt: string) => `${src} and ${tgt} share many links`,
+    },
   ];
 
+  function singular(name: string): string {
+    return name.endsWith('ies') ? name.slice(0, -3) + 'y'
+         : name.endsWith('s')    ? name.slice(0, -1)
+         : name;
+  }
+
+  // Auto-suggest the relation name + fields based on the chosen type+target.
+  // Saves the user from inventing names — they can still edit before submit.
+  function suggestRelDefaults() {
+    if (!relForm.target_collection) return;
+    const tgt = relForm.target_collection;
+    if (!relForm.name) {
+      relForm.name = relForm.type === 'm2o' ? `${collectionName}_${singular(tgt)}`
+                   : relForm.type === 'o2m' ? `${collectionName}_${tgt}`
+                   : `${collectionName}_${tgt}`;
+    }
+    if (!relForm.source_field) {
+      relForm.source_field = relForm.type === 'm2o' ? `${singular(tgt)}_id`
+                          : relForm.type === 'o2m' ? tgt
+                          : tgt;
+    }
+    if (relForm.type === 'o2m' && !relForm.target_field) {
+      relForm.target_field = `${singular(collectionName)}_id`;
+    }
+  }
+
   async function onRelTargetChange() {
-    relForm.target_field = '';
     targetFields = [];
     if (!relForm.target_collection) return;
     const tgt = allCollections.find((c: any) => c.name === relForm.target_collection);
@@ -249,10 +460,20 @@
       const f = typeof tgt.fields === 'string' ? JSON.parse(tgt.fields) : tgt.fields;
       targetFields = f ?? [];
     }
+    suggestRelDefaults();
+  }
+
+  function onRelTypeChange(newType: string) {
+    relForm.type = newType;
+    // Reset auto-generated fields so the suggestions match the new type.
+    relForm.name = '';
+    relForm.source_field = '';
+    relForm.target_field = '';
+    if (relForm.target_collection) suggestRelDefaults();
   }
 
   function openRelForm() {
-    relForm = { name: '', type: 'o2m', source_field: '', target_collection: '', target_field: '', on_delete: 'SET NULL' };
+    relForm = { name: '', type: 'm2o', source_field: '', target_collection: '', target_field: '', on_delete: 'SET NULL' };
     targetFields  = [];
     relFormError  = '';
     showRelForm   = true;
@@ -260,17 +481,36 @@
 
   async function addRelation() {
     relFormError = '';
-    if (!relForm.name.trim()) { relFormError = 'Relation name is required'; return; }
-    if (!relForm.target_collection) { relFormError = 'Target collection is required'; return; }
-    if (relForm.type === 'm2o' && !relForm.source_field.trim()) {
-      relFormError = 'FK field name is required for Many-to-One'; return;
+    if (!relForm.target_collection) { relFormError = 'Choose a target collection'; return; }
+    if (!relForm.source_field.trim()) {
+      relFormError = relForm.type === 'm2o'
+        ? 'Choose a name for the foreign-key column in this collection'
+        : 'Choose a name for the relation alias';
+      return;
     }
-    if (relForm.type === 'o2m' && !relForm.source_field.trim()) {
-      relFormError = 'FK field name in the target collection is required for One-to-Many'; return;
+    if (relForm.type === 'o2m' && !relForm.target_field.trim()) {
+      relFormError = `Choose the FK column name to add in "${relForm.target_collection}"`;
+      return;
+    }
+    if (relForm.type === 'o2m' && relForm.source_field.trim() === relForm.target_field.trim()) {
+      relFormError = 'Relation alias and FK column name must be different';
+      return;
+    }
+    if (!relForm.name.trim()) {
+      relForm.name = `${collectionName}_${relForm.source_field}`;
     }
     savingRel = true;
     try {
-      await api.post('/api/relations', { ...relForm, source_collection: collectionName });
+      const payload: Record<string, unknown> = {
+        name: relForm.name,
+        type: relForm.type,
+        source_collection: collectionName,
+        source_field: relForm.source_field,
+        target_collection: relForm.target_collection,
+        on_delete: relForm.on_delete,
+      };
+      if (relForm.type === 'o2m') payload.target_field = relForm.target_field;
+      await api.post('/api/relations', payload);
       await reloadSchema();
       showRelForm = false;
       toast.success('Relation created');
@@ -447,12 +687,33 @@
   <!-- ── DATA TAB ─────────────────────────────────────────────────────────── -->
   {#if activeTab === 'data'}
 
-    <div class="flex items-center justify-between mb-3">
-      <span class="text-sm font-medium text-base-content/50">
-        {#if !loading}{pagination.total ?? 0} record{(pagination.total ?? 0) !== 1 ? 's' : ''}{/if}
+    <!-- Toolbar: search + count + selection actions -->
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+      <div class="flex-1 min-w-50 relative">
+        <input
+          type="text"
+          bind:value={searchText}
+          oninput={onSearchInput}
+          placeholder="Search records…"
+          class="input input-sm w-full pl-8" />
+        <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/30"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/>
+        </svg>
+      </div>
+      <span class="text-xs text-base-content/40 whitespace-nowrap">
+        {#if !loading}
+          {pagination.total ?? 0} total
+          {#if selectedIds.size > 0}· <span class="text-primary font-medium">{selectedIds.size} selected</span>{/if}
+        {/if}
       </span>
-      <button onclick={reloadData} class="btn btn-ghost btn-xs gap-1" title="Refresh">
-        <RefreshCw size={12} />
+      {#if selectedIds.size > 0}
+        <button onclick={bulkDeleteSelected} class="btn btn-error btn-sm gap-1">
+          <Trash2 size={14} /> Delete {selectedIds.size}
+        </button>
+      {/if}
+      <button onclick={() => reloadData()} class="btn btn-ghost btn-sm btn-square" title="Refresh" aria-label="Refresh">
+        <RefreshCw size={14} />
       </button>
     </div>
 
@@ -462,30 +723,65 @@
       <div class="flex flex-col items-center justify-center py-24 gap-4 text-base-content/30">
         <Database size={44} strokeWidth={1.2} />
         <div class="text-center">
-          <p class="text-base font-semibold text-base-content/50">No records yet</p>
-          <p class="text-sm mt-0.5">Create the first record in this collection</p>
+          <p class="text-base font-semibold text-base-content/50">
+            {searchText ? `No records match "${searchText}"` : 'No records yet'}
+          </p>
+          <p class="text-sm mt-0.5">
+            {searchText ? 'Try a different query or clear the search.' : 'Create the first record in this collection'}
+          </p>
         </div>
-        <button onclick={openDrawer} class="btn btn-primary btn-sm gap-1.5 mt-1">
-          <Plus size={14} /> Add first record
-        </button>
+        {#if !searchText}
+          <button onclick={openCreateDrawer} class="btn btn-primary btn-sm gap-1.5 mt-1">
+            <Plus size={14} /> Add first record
+          </button>
+        {/if}
       </div>
     {:else}
-      <div class="overflow-x-auto rounded-xl border border-base-200">
+      <!-- Desktop / wide table view -->
+      <div class="overflow-x-auto rounded-xl border border-base-200 hidden md:block">
         <table class="table table-sm">
           <thead>
             <tr class="bg-base-200/60">
+              <th class="w-10">
+                <input type="checkbox"
+                  class="checkbox checkbox-xs"
+                  checked={selectedIds.size === records.length && records.length > 0}
+                  onchange={toggleSelectAll}
+                  aria-label="Select all" />
+              </th>
               {#each tableColumns as col}
                 <th class="text-xs font-semibold text-base-content/50 uppercase tracking-wide whitespace-nowrap">
-                  {col.label || col.name}
+                  <button class="inline-flex items-center gap-1 hover:text-base-content"
+                    onclick={() => toggleSort(col.name)}>
+                    {fieldLabel(col)}
+                    {#if sortField === col.name}
+                      <span class="text-primary">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                    {/if}
+                  </button>
                 </th>
               {/each}
-              <th class="text-xs font-semibold text-base-content/50 uppercase tracking-wide w-28">Created</th>
-              <th class="w-10"></th>
+              <th class="text-xs font-semibold text-base-content/50 uppercase tracking-wide w-28">
+                <button class="inline-flex items-center gap-1 hover:text-base-content"
+                  onclick={() => toggleSort('created_at')}>
+                  Created
+                  {#if sortField === 'created_at'}
+                    <span class="text-primary">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                  {/if}
+                </button>
+              </th>
+              <th class="w-20"></th>
             </tr>
           </thead>
           <tbody>
             {#each records as record (record.id)}
-              <tr class="hover group">
+              <tr class="hover group {selectedIds.has(record.id) ? 'bg-primary/5' : ''}">
+                <td>
+                  <input type="checkbox"
+                    class="checkbox checkbox-xs"
+                    checked={selectedIds.has(record.id)}
+                    onchange={() => toggleSelect(record.id)}
+                    aria-label="Select row" />
+                </td>
                 {#each tableColumns as col}
                   <td class="max-w-55">
                     {#if record[col.name] === null || record[col.name] === undefined}
@@ -494,6 +790,13 @@
                       <span class="badge badge-xs {record[col.name] ? 'badge-success' : 'badge-ghost'}">
                         {record[col.name] ? 'Yes' : 'No'}
                       </span>
+                    {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
+                      <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary hover:badge-primary gap-1 font-normal">
+                        <ArrowRight size={10} />
+                        {record[`${col.name}_expanded`]._label}
+                      </a>
+                    {:else if col.type === 'm2o' || col.type === 'reference'}
+                      <span class="badge badge-xs badge-ghost font-mono opacity-60">{String(record[col.name]).slice(0,8)}…</span>
                     {:else}
                       <span class="truncate block text-sm">{fmtCell(record[col.name], col.type)}</span>
                     {/if}
@@ -503,19 +806,91 @@
                   {new Date(record.created_at).toLocaleDateString()}
                 </td>
                 <td>
-                  <button
-                    onclick={() => deleteRecord(record.id)}
-                    class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete record"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                  <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onclick={() => openEditDrawer(record)}
+                      class="btn btn-ghost btn-xs"
+                      title="Edit record"
+                      aria-label="Edit"
+                    >
+                      <Settings size={12} />
+                    </button>
+                    <button
+                      onclick={() => deleteRecord(record.id)}
+                      class="btn btn-ghost btn-xs text-error"
+                      title="Delete record"
+                      aria-label="Delete"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
+
+      <!-- Mobile / narrow card view -->
+      <div class="md:hidden space-y-2">
+        {#each records as record (record.id)}
+          <div class="rounded-xl border border-base-200 bg-base-100 p-3
+                      {selectedIds.has(record.id) ? 'ring-2 ring-primary' : ''}">
+            <div class="flex items-start justify-between gap-2 mb-2">
+              <input type="checkbox"
+                class="checkbox checkbox-sm mt-1"
+                checked={selectedIds.has(record.id)}
+                onchange={() => toggleSelect(record.id)}
+                aria-label="Select row" />
+              <div class="flex-1 min-w-0">
+                <p class="font-semibold truncate">{labelFromRecord(record)}</p>
+                <p class="text-xs text-base-content/40 font-mono mt-0.5">{record.id?.slice(0, 8)}…</p>
+              </div>
+              <div class="flex gap-1">
+                <button onclick={() => openEditDrawer(record)} class="btn btn-ghost btn-xs btn-square" aria-label="Edit">
+                  <Settings size={12} />
+                </button>
+                <button onclick={() => deleteRecord(record.id)} class="btn btn-ghost btn-xs btn-square text-error" aria-label="Delete">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+            <dl class="space-y-1 text-sm">
+              {#each tableColumns as col}
+                <div class="flex justify-between gap-3 leading-tight">
+                  <dt class="text-base-content/40 text-xs uppercase tracking-wide pt-0.5">{fieldLabel(col)}</dt>
+                  <dd class="text-right truncate max-w-[60%]">
+                    {#if record[col.name] === null || record[col.name] === undefined}
+                      <span class="text-base-content/20">—</span>
+                    {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
+                      <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary gap-1">
+                        {record[`${col.name}_expanded`]._label}
+                      </a>
+                    {:else}
+                      {fmtCell(record[col.name], col.type)}
+                    {/if}
+                  </dd>
+                </div>
+              {/each}
+            </dl>
+          </div>
+        {/each}
+      </div>
+
+      <!-- Pagination footer -->
+      {#if (pagination.pages ?? 0) > 1 || (pagination.total ?? 0) > (pagination.limit ?? 25)}
+        <div class="flex items-center justify-between mt-4 text-sm">
+          <span class="text-base-content/50">
+            Page {pagination.page ?? 1} of {pagination.pages ?? 1}
+          </span>
+          <div class="join">
+            <button class="join-item btn btn-sm" disabled={(pagination.page ?? 1) <= 1}
+              onclick={() => goToPage((pagination.page ?? 1) - 1)}>← Prev</button>
+            <button class="join-item btn btn-sm" disabled={(pagination.page ?? 1) >= (pagination.pages ?? 1)}
+              onclick={() => goToPage((pagination.page ?? 1) + 1)}>Next →</button>
+          </div>
+        </div>
+      {/if}
     {/if}
 
   <!-- ── SCHEMA TAB ──────────────────────────────────────────────────────── -->
@@ -526,82 +901,152 @@
       <div class="card bg-base-200/60 border border-primary/20 mb-6">
         <div class="card-body gap-4 p-5">
           <div class="flex items-center justify-between">
-            <h3 class="font-semibold">New Relation</h3>
-            <button class="btn btn-ghost btn-xs btn-square" onclick={() => (showRelForm = false)}>
+            <div>
+              <h3 class="font-semibold">New Relation</h3>
+              <p class="text-xs text-base-content/50 mt-0.5">
+                How is <code class="font-mono">{collectionName}</code> connected to another collection?
+              </p>
+            </div>
+            <button class="btn btn-ghost btn-xs btn-square" onclick={() => (showRelForm = false)} aria-label="Close">
               <X size={14} />
             </button>
           </div>
 
-          <!-- Type selector -->
-          <div class="grid grid-cols-3 gap-2">
-            {#each relTypesMeta as rt}
-              <button
-                class="p-3 rounded-xl border-2 text-left transition-all
-                       {relForm.type === rt.value
-                         ? 'border-primary bg-primary/5'
-                         : 'border-base-300 bg-base-100 hover:border-base-400'}"
-                onclick={() => (relForm.type = rt.value)}
-              >
-                <div class="font-mono text-xl font-bold text-primary/60 mb-1 leading-none">{rt.symbol}</div>
-                <div class="font-semibold text-xs">{rt.label}</div>
-                <div class="text-[10px] text-base-content/40 mt-0.5 leading-tight">{rt.desc}</div>
-              </button>
-            {/each}
+          <!-- Step 1: pick the target collection (drives the rest) -->
+          <div class="form-control">
+            <label class="label py-1" for="rel-target">
+              <span class="label-text text-xs font-medium">1. Connect with…</span>
+            </label>
+            <select id="rel-target" bind:value={relForm.target_collection} onchange={onRelTargetChange} class="select select-sm">
+              <option value="">Choose collection…</option>
+              {#each allCollections as col}
+                <option value={col.name}>{col.display_name || col.name}</option>
+              {/each}
+            </select>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="form-control">
-              <label class="label py-1"><span class="label-text text-xs font-medium">Relation name</span></label>
-              <input type="text" bind:value={relForm.name}
-                placeholder="e.g. post_comments" class="input input-sm" autocomplete="off" />
-            </div>
-            <div class="form-control">
-              <label class="label py-1"><span class="label-text text-xs font-medium">Target collection</span></label>
-              <select bind:value={relForm.target_collection} onchange={onRelTargetChange} class="select select-sm">
-                <option value="">Select collection…</option>
-                {#each allCollections as col}
-                  <option value={col.name}>{col.display_name || col.name}</option>
+          <!-- Step 2: relationship shape, only after a target is picked -->
+          {#if relForm.target_collection}
+            <div>
+              <p class="label-text text-xs font-medium mb-2">2. What's the shape?</p>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {#each relTypesMeta as rt}
+                  <button
+                    class="p-3 rounded-xl border-2 text-left transition-all
+                           {relForm.type === rt.value
+                             ? 'border-primary bg-primary/5'
+                             : 'border-base-300 bg-base-100 hover:border-base-400'}"
+                    onclick={() => onRelTypeChange(rt.value)}
+                  >
+                    <div class="font-mono text-xl font-bold text-primary/60 mb-1 leading-none">{rt.symbol}</div>
+                    <div class="font-semibold text-xs">{rt.label}</div>
+                    <div class="text-[10px] text-base-content/50 mt-0.5 leading-tight">
+                      {rt.example(collectionName, relForm.target_collection)}
+                    </div>
+                  </button>
                 {/each}
-              </select>
+              </div>
             </div>
 
-            {#if relForm.type === 'm2o'}
-              <div class="form-control">
-                <label class="label py-1">
-                  <span class="label-text text-xs font-medium">
-                    FK field in <code class="font-mono">{collectionName}</code>
-                  </span>
-                </label>
-                <input type="text" bind:value={relForm.source_field}
-                  placeholder="e.g. author_id" class="input input-sm font-mono" />
-              </div>
-              <div class="form-control">
-                <label class="label py-1"><span class="label-text text-xs font-medium">On delete</span></label>
-                <select bind:value={relForm.on_delete} class="select select-sm">
-                  {#each ['SET NULL', 'CASCADE', 'RESTRICT', 'NO ACTION'] as o}
-                    <option>{o}</option>
-                  {/each}
-                </select>
-              </div>
-            {:else if relForm.type === 'o2m'}
+            <!-- Step 3: column / alias names — auto-filled, editable -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {#if relForm.type === 'm2o'}
+                <div class="form-control sm:col-span-2">
+                  <label class="label py-1" for="rel-source-field">
+                    <span class="label-text text-xs font-medium">
+                      3. Foreign-key column to add in <code class="font-mono">{collectionName}</code>
+                    </span>
+                  </label>
+                  <input id="rel-source-field" type="text" bind:value={relForm.source_field}
+                    placeholder="e.g. {singular(relForm.target_collection)}_id"
+                    class="input input-sm font-mono" autocomplete="off" />
+                  <p class="text-[10px] text-base-content/40 mt-1">
+                    A new UUID column on <code class="font-mono">{collectionName}</code> that references the chosen {singular(relForm.target_collection)}.
+                  </p>
+                </div>
+                <div class="form-control">
+                  <label class="label py-1" for="rel-on-delete">
+                    <span class="label-text text-xs font-medium">When the {singular(relForm.target_collection)} is deleted…</span>
+                  </label>
+                  <select id="rel-on-delete" bind:value={relForm.on_delete} class="select select-sm">
+                    <option value="SET NULL">Keep this record but clear the link (SET NULL)</option>
+                    <option value="CASCADE">Delete this record too (CASCADE)</option>
+                    <option value="RESTRICT">Block the deletion (RESTRICT)</option>
+                    <option value="NO ACTION">Do nothing — let the DB decide (NO ACTION)</option>
+                  </select>
+                </div>
+              {:else if relForm.type === 'o2m'}
+                <div class="form-control">
+                  <label class="label py-1" for="rel-source-field-o2m">
+                    <span class="label-text text-xs font-medium">
+                      3. Alias on <code class="font-mono">{collectionName}</code>
+                    </span>
+                  </label>
+                  <input id="rel-source-field-o2m" type="text" bind:value={relForm.source_field}
+                    placeholder={relForm.target_collection || 'related'}
+                    class="input input-sm font-mono" autocomplete="off" />
+                  <p class="text-[10px] text-base-content/40 mt-1">
+                    Virtual name used to access the related list — no physical column is created here.
+                  </p>
+                </div>
+                <div class="form-control">
+                  <label class="label py-1" for="rel-target-field">
+                    <span class="label-text text-xs font-medium">
+                      4. FK column to add in <code class="font-mono">{relForm.target_collection}</code>
+                    </span>
+                  </label>
+                  <input id="rel-target-field" type="text" bind:value={relForm.target_field}
+                    placeholder="e.g. {singular(collectionName)}_id"
+                    class="input input-sm font-mono" autocomplete="off" />
+                  <p class="text-[10px] text-base-content/40 mt-1">
+                    The actual column added to <code class="font-mono">{relForm.target_collection}</code> pointing back to {singular(collectionName)}.
+                  </p>
+                </div>
+                <div class="form-control sm:col-span-2">
+                  <label class="label py-1" for="rel-on-delete-o2m">
+                    <span class="label-text text-xs font-medium">When a {singular(collectionName)} is deleted…</span>
+                  </label>
+                  <select id="rel-on-delete-o2m" bind:value={relForm.on_delete} class="select select-sm">
+                    <option value="SET NULL">Orphan the related records (SET NULL)</option>
+                    <option value="CASCADE">Delete the related records too (CASCADE)</option>
+                    <option value="RESTRICT">Block the deletion (RESTRICT)</option>
+                    <option value="NO ACTION">Do nothing — let the DB decide (NO ACTION)</option>
+                  </select>
+                </div>
+              {:else}
+                <!-- m2m -->
+                <div class="form-control sm:col-span-2">
+                  <label class="label py-1" for="rel-source-field-m2m">
+                    <span class="label-text text-xs font-medium">
+                      3. Alias on <code class="font-mono">{collectionName}</code>
+                    </span>
+                  </label>
+                  <input id="rel-source-field-m2m" type="text" bind:value={relForm.source_field}
+                    placeholder={relForm.target_collection}
+                    class="input input-sm font-mono" autocomplete="off" />
+                  <p class="text-[10px] text-base-content/40 mt-1">
+                    A junction table <code class="font-mono">zvd_jnc_{collectionName}_{relForm.target_collection}</code> will be created automatically.
+                  </p>
+                </div>
+              {/if}
+
               <div class="form-control sm:col-span-2">
-                <label class="label py-1">
-                  <span class="label-text text-xs font-medium">
-                    FK field in <code class="font-mono">{relForm.target_collection || 'target'}</code>
-                  </span>
+                <label class="label py-1" for="rel-name">
+                  <span class="label-text text-xs font-medium opacity-60">Internal name (for the relations registry)</span>
                 </label>
-                <input type="text" bind:value={relForm.source_field}
-                  placeholder="e.g. post_id" class="input input-sm font-mono" />
+                <input id="rel-name" type="text" bind:value={relForm.name}
+                  placeholder="auto-generated" class="input input-sm" autocomplete="off" />
               </div>
-            {/if}
-          </div>
+            </div>
+          {/if}
 
           {#if relFormError}
             <p class="text-error text-xs">{relFormError}</p>
           {/if}
 
           <div class="flex gap-2">
-            <button class="btn btn-primary btn-sm" onclick={addRelation} disabled={savingRel}>
+            <button class="btn btn-primary btn-sm" onclick={addRelation}
+              disabled={savingRel || !relForm.target_collection}>
               {#if savingRel}<span class="loading loading-spinner loading-xs"></span>{/if}
               Create Relation
             </button>
@@ -851,10 +1296,12 @@
       <!-- Panel header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-base-200 shrink-0">
         <div>
-          <h2 class="font-bold text-lg">New Record</h2>
-          <p class="text-xs text-base-content/40 font-mono mt-0.5">{collectionName}</p>
+          <h2 class="font-bold text-lg">{drawerMode === 'edit' ? 'Edit Record' : 'New Record'}</h2>
+          <p class="text-xs text-base-content/40 font-mono mt-0.5">
+            {collectionName}{#if drawerMode === 'edit' && drawerRecordId} · {drawerRecordId.slice(0, 8)}…{/if}
+          </p>
         </div>
-        <button class="btn btn-ghost btn-sm btn-square" onclick={() => (drawerOpen = false)}>
+        <button class="btn btn-ghost btn-sm btn-square" onclick={() => (drawerOpen = false)} aria-label="Close">
           <X size={16} />
         </button>
       </div>
@@ -883,7 +1330,7 @@
               <!-- Field label row -->
               <div class="flex items-center gap-2">
                 <label for="ins-{field.name}" class="text-sm font-semibold leading-none">
-                  {field.label || field.name}
+                  {fieldLabel(field)}
                 </label>
                 <span class="badge badge-xs badge-outline font-mono opacity-60 {fieldBadgeColor(field.type)}">
                   {field.type}
@@ -1005,10 +1452,14 @@
                 <input
                   id="ins-{field.name}"
                   type="text"
-                  class="input input-bordered w-full"
-                  placeholder="Enter {field.label || field.name}…"
+                  class="input input-bordered w-full {formErrors[field.name] ? 'input-error' : ''}"
+                  placeholder="Enter {fieldLabel(field)}…"
                   bind:value={insertForm[field.name]}
                 />
+              {/if}
+
+              {#if formErrors[field.name]}
+                <p class="text-error text-xs">{formErrors[field.name]}</p>
               {/if}
 
             </div>
@@ -1022,15 +1473,17 @@
         <button class="btn btn-ghost" onclick={() => (drawerOpen = false)}>Cancel</button>
         <button
           class="btn btn-primary gap-1.5"
-          onclick={insertRecord}
+          onclick={saveRecord}
           disabled={inserting}
         >
           {#if inserting}
             <span class="loading loading-spinner loading-xs"></span>
+          {:else if drawerMode === 'edit'}
+            <Save size={14} />
           {:else}
             <Plus size={14} />
           {/if}
-          Save Record
+          {drawerMode === 'edit' ? 'Update Record' : 'Save Record'}
         </button>
       </div>
 

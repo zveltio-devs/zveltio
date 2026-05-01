@@ -201,6 +201,67 @@ class BunSqlDriver implements Driver {
   }
 }
 
+// ─── Param inlining (simple-query fallback) ─────────────────────────────────
+/** Postgres-style literal escape used as a last-resort fallback when prepared
+ *  statements fail with SQLSTATE 0A000. Inputs are values Kysely produced from
+ *  TypeScript code — strings, numbers, booleans, dates, null. We never reach
+ *  here for arbitrary user SQL, so this is safe by construction. */
+function quoteLiteral(v: unknown): string {
+  if (v === null || v === undefined) return 'NULL';
+  if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  if (typeof v === 'bigint') return String(v);
+  if (v instanceof Date) return `'${v.toISOString()}'`;
+  if (Buffer.isBuffer(v)) return `'\\x${v.toString('hex')}'`;
+  // Object → JSON literal (jsonb columns)
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+function inlineParams(sql: string, params: unknown[]): string {
+  if (params.length === 0) return sql;
+  // Replace $1, $2, … with quoted literals. We walk the string once and skip
+  // over single-quoted strings and SQL comments to avoid corrupting them.
+  let out = '';
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    // pass-through string literal
+    if (ch === "'") {
+      const start = i++;
+      while (i < sql.length) {
+        if (sql[i] === "'" && sql[i + 1] === "'") { i += 2; continue; }
+        if (sql[i] === "'") { i++; break; }
+        i++;
+      }
+      out += sql.slice(start, i);
+      continue;
+    }
+    // pass-through line comment
+    if (ch === '-' && sql[i + 1] === '-') {
+      const nl = sql.indexOf('\n', i);
+      const end = nl === -1 ? sql.length : nl + 1;
+      out += sql.slice(i, end);
+      i = end;
+      continue;
+    }
+    // $n parameter
+    if (ch === '$' && sql[i + 1] >= '0' && sql[i + 1] <= '9') {
+      let j = i + 1;
+      while (j < sql.length && sql[j] >= '0' && sql[j] <= '9') j++;
+      const idx = parseInt(sql.slice(i + 1, j), 10) - 1;
+      if (idx >= 0 && idx < params.length) {
+        out += quoteLiteral(params[idx]);
+        i = j;
+        continue;
+      }
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 // ─── Connection ──────────────────────────────────────────────────────────────
 
 /**
@@ -236,19 +297,56 @@ class BunSqlSmartConnection implements DatabaseConnection {
       return `{${escaped.join(',')}}`;
     });
 
-    if (this.#reserved) {
-      // Transaction mode — use pinned reserved connection
+    const runPrepared = async (): Promise<QueryResult<R>> => {
+      if (this.#reserved) {
+        const rows = params.length > 0
+          ? await this.#reserved.unsafe<R>(compiledQuery.sql, params)
+          : await this.#reserved.unsafe<R>(compiledQuery.sql);
+        return { rows };
+      }
       const rows = params.length > 0
-        ? await this.#reserved.unsafe<R>(compiledQuery.sql, params)
-        : await this.#reserved.unsafe<R>(compiledQuery.sql);
+        ? await this.#pool.unsafe<R>(compiledQuery.sql, params)
+        : await this.#pool.unsafe<R>(compiledQuery.sql);
       return { rows };
-    }
+    };
 
-    // Normal mode — use pool directly, no reservation needed
-    const rows = params.length > 0
-      ? await this.#pool.unsafe<R>(compiledQuery.sql, params)
-      : await this.#pool.unsafe<R>(compiledQuery.sql);
-    return { rows };
+    /** Last-resort fallback after a prepared-statement failure: inline the
+     *  params into the SQL and run via simple-query protocol (no prepare,
+     *  no plan cache). Postgres' libpq-level escaping of literals is what
+     *  we duplicate here — values are URL-safe primitives Kysely produced. */
+    const runInline = async (): Promise<QueryResult<R>> => {
+      const inlined = inlineParams(compiledQuery.sql, params);
+      const rows = this.#reserved
+        ? await this.#reserved.unsafe<R>(inlined)
+        : await this.#pool.unsafe<R>(inlined);
+      return { rows };
+    };
+
+    try {
+      return await runPrepared();
+    } catch (err) {
+      // Postgres SQLSTATE 0A000 — "cached plan must not change result type"
+      // is raised when a prepared statement's result schema no longer matches
+      // the underlying table (DDL ran since the plan was prepared). The Bun
+      // pool keeps prepared statements alive per backend connection, so a
+      // single retry only succeeds if the next acquire happens to land on a
+      // different connection. We retry once with prepared, then fall back to
+      // simple-query (no prepare, no cache) which can never hit this issue.
+      const e = err as { code?: string; message?: string } | undefined;
+      const isCachedPlan =
+        e?.code === '0A000' || /cached plan must not change result type/i.test(e?.message ?? '');
+      if (!isCachedPlan) throw err;
+
+      try {
+        return await runPrepared();
+      } catch (err2) {
+        const e2 = err2 as { code?: string; message?: string } | undefined;
+        const stillCached =
+          e2?.code === '0A000' || /cached plan must not change result type/i.test(e2?.message ?? '');
+        if (!stillCached) throw err2;
+        return runInline();
+      }
+    }
   }
 
   // eslint-disable-next-line require-yield

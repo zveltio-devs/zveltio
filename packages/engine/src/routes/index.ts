@@ -39,6 +39,13 @@ import { mediaRoutes } from './media.js';
 import { syncRoutes } from './sync.js';
 import { openApiRoutes } from './openapi.js';
 import { edgeFunctionsRoutes, edgeFunctionInvokeRoutes } from './edge-functions.js';
+// Promoted-to-core (was extensions/) — these power admin UI pages that should
+// work out of the box on a fresh install instead of requiring marketplace install.
+import { backupRoutes } from './backup.js';
+import { savedQueriesRoutes } from './saved-queries.js';
+import { schemaBranchesRoutes } from './schema-branches.js';
+import { insightsRoutes } from './insights.js';
+import { sqlEditorRoutes } from './sql-editor.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { ensureCoreCollections } from '../core-collections/index.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit, initRateLimitDb } from '../middleware/rate-limit.js';
@@ -233,13 +240,24 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // GDPR Compliance — moved to extensions/compliance/gdpr
 
-  // Saved Queries — moved to extensions/developer/saved-queries
+  // Saved Queries — promoted to core (used to live in extensions/developer/saved-queries)
+  app.route('/api/saved-queries', savedQueriesRoutes(db, auth));
 
   // Data Validation Rules — moved to extensions/developer/validation
 
   // Data Quality Dashboard — moved to extensions/analytics/quality
 
-  // Analytics Insights — moved to extensions/analytics/insights
+  // Analytics Insights — promoted to core (used to live in extensions/analytics/insights)
+  app.route('/api/insights', insightsRoutes(db, auth));
+
+  // Database backups + PITR — promoted to core (was extensions/operations/backup)
+  app.route('/api/backup', backupRoutes(db, auth));
+
+  // Schema Branches — promoted to core (was extensions/developer/schema-branches)
+  app.route('/api/schema', schemaBranchesRoutes(db, auth));
+
+  // Ad-hoc SQL editor — admin-only, audited
+  app.route('/api/admin/sql', sqlEditorRoutes(db, auth));
 
   // Documents Management — moved to extensions/content/documents
 

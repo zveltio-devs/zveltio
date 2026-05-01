@@ -670,6 +670,34 @@ EOF
     chmod +x "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
   done
 
+  # ── Install the system-wide CLI wrapper at /usr/local/bin/zveltio ─────────────
+  # This lets the user run "zveltio migrate", "zveltio status", etc. from any
+  # directory — the wrapper sources $ZVELTIO_DIR/.env and execs the real binary.
+  info "Installing CLI wrapper at /usr/local/bin/zveltio"
+  curl -fsSL "${SCRIPTS_BASE}/zveltio-wrapper.sh" -o /usr/local/bin/zveltio 2>/dev/null || \
+    cp "$(dirname "$0")/zveltio-wrapper.sh" /usr/local/bin/zveltio 2>/dev/null || \
+    cat > /usr/local/bin/zveltio << 'WRAPPER_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+ZVELTIO_DIR="${ZVELTIO_DIR:-/opt/zveltio}"
+if [[ ! -x "$ZVELTIO_DIR/zveltio" ]]; then
+  echo "zveltio: binary not found at $ZVELTIO_DIR/zveltio" >&2
+  exit 127
+fi
+if [[ -f "$ZVELTIO_DIR/.env" ]]; then
+  set -a
+  while IFS='=' read -r key val; do
+    [[ -z "$key" || "$key" == \#* ]] && continue
+    val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
+    export "$key=$val"
+  done < <(grep -vE '^\s*(#|$)' "$ZVELTIO_DIR/.env")
+  set +a
+fi
+exec "$ZVELTIO_DIR/zveltio" "$@"
+WRAPPER_EOF
+  chmod 755 /usr/local/bin/zveltio
+  success "Wrapper installed — try 'zveltio help' from any directory."
+
   # ── systemd service ───────────────────────────────────────────────────────────
   id -u "${ZVELTIO_USER}" &>/dev/null || \
     useradd -r -s /bin/false -d "${ZVELTIO_DIR}" "${ZVELTIO_USER}"

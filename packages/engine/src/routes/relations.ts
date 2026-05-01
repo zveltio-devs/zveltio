@@ -13,13 +13,22 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return session.user;
 }
 
+const SAFE_IDENTIFIER = /^[a-z][a-z0-9_]*$/;
+
 const RelationSchema = z.object({
   name: z.string().min(1).max(64),
   type: z.enum(['m2o', 'o2m', 'm2m', 'm2a']),
   source_collection: z.string().min(1),
-  source_field: z.string().min(1),
+  /** For m2o: FK column name in the SOURCE table.
+   *  For o2m: virtual alias on the SOURCE collection (e.g. "orders"); the
+   *           physical FK column lives in the target table — see target_field.
+   *  For m2m: virtual alias on the SOURCE collection.                       */
+  source_field: z.string().regex(SAFE_IDENTIFIER, 'must be lowercase snake_case'),
   target_collection: z.string().min(1),
-  target_field: z.string().optional(),
+  /** For o2m: REQUIRED. FK column name in the TARGET table (e.g. "customer_id").
+   *  For m2o: ignored (always 'id').
+   *  For m2m: ignored.                                                      */
+  target_field: z.string().regex(SAFE_IDENTIFIER).optional(),
   junction_table: z.string().optional(),
   on_delete: z.enum(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']).default('SET NULL'),
   on_update: z.enum(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']).default('CASCADE'),
@@ -103,6 +112,20 @@ export function relationsRoutes(db: Database, auth: any): Hono {
     await next();
   });
 
+  /** Normalize a relation row before returning it to clients: metadata may
+   *  have been stored as a JSON-encoded string by older code paths, but the
+   *  API contract is "metadata is always an object". */
+  function normalize(rel: any): any {
+    if (!rel) return rel;
+    if (typeof rel.metadata === 'string') {
+      try { rel.metadata = JSON.parse(rel.metadata); }
+      catch { rel.metadata = {}; }
+    } else if (rel.metadata == null) {
+      rel.metadata = {};
+    }
+    return rel;
+  }
+
   // GET / — List all relations, optionally filtered by collection
   app.get('/', async (c) => {
     const { collection } = c.req.query();
@@ -122,7 +145,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
     }
 
     const relations = await query.execute();
-    return c.json({ relations });
+    return c.json({ relations: relations.map(normalize) });
   });
 
   // GET /:id — Get single relation
@@ -134,7 +157,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!relation) return c.json({ error: 'Relation not found' }, 404);
-    return c.json({ relation });
+    return c.json({ relation: normalize(relation) });
   });
 
   // POST / — Create relation (synchronous DDL + metadata update)
@@ -191,8 +214,20 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         });
       } else if (data.type === 'o2m') {
         // FK column lives in TARGET table referencing source(id).
-        // The form sends the FK column name via source_field (labeled "FK field in target").
-        const fkInTarget = data.source_field || `${data.source_collection}_id`;
+        // source_field = virtual alias on source ("orders").
+        // target_field = physical FK column in target ("customer_id").
+        // If target_field is omitted, default to "<source_collection>_id".
+        const fkInTarget = data.target_field || `${data.source_collection}_id`;
+        if (!SAFE_IDENTIFIER.test(fkInTarget)) {
+          throw new Error(`Invalid FK column name: "${fkInTarget}"`);
+        }
+        if (fkInTarget === data.source_field) {
+          throw new Error(
+            `target_field ("${fkInTarget}") cannot equal source_field ("${data.source_field}"). ` +
+            `source_field is the virtual alias on "${data.source_collection}"; ` +
+            `target_field is the physical FK column in "${data.target_collection}".`
+          );
+        }
         resolvedTargetField = fkInTarget;
         await DDLManager.applyRelationFK(
           db,
@@ -202,10 +237,19 @@ export function relationsRoutes(db: Database, auth: any): Hono {
           data.on_delete,
           data.on_update,
         );
+        // Virtual alias on the source collection (no physical column on source)
         await addFieldToCollection(db, data.source_collection, {
           name: data.source_field,
           type: 'o2m',
-          options: { related_collection: data.target_collection },
+          options: { related_collection: data.target_collection, related_field: fkInTarget },
+        });
+        // Physical FK column on the target collection — without this, processInput
+        // in data.ts silently drops the field on insert/update because it isn't
+        // in the target's `fields` array, leaving the column NULL.
+        await addFieldToCollection(db, data.target_collection, {
+          name: fkInTarget,
+          type: 'm2o',
+          options: { related_collection: data.source_collection },
         });
       } else if (data.type === 'm2m') {
         junctionTable = await DDLManager.createJunctionTable(
@@ -233,12 +277,12 @@ export function relationsRoutes(db: Database, auth: any): Hono {
           junction_table: junctionTable ?? data.junction_table ?? null,
           on_delete: data.on_delete,
           on_update: data.on_update,
-          metadata: JSON.stringify(data.metadata),
+          metadata: data.metadata,
         })
         .returningAll()
         .executeTakeFirst();
 
-      return c.json({ relation: relRow }, 201);
+      return c.json({ relation: normalize(relRow) }, 201);
     } catch (error: any) {
       return c.json(
         { error: error instanceof Error ? error.message : 'Failed to create relation' },
@@ -275,7 +319,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       if (updates.name !== undefined) toUpdate.name = updates.name;
       if (updates.on_delete !== undefined) toUpdate.on_delete = updates.on_delete;
       if (updates.on_update !== undefined) toUpdate.on_update = updates.on_update;
-      if (updates.metadata !== undefined) toUpdate.metadata = JSON.stringify(updates.metadata);
+      if (updates.metadata !== undefined) toUpdate.metadata = updates.metadata;
 
       const relation = await (db as any)
         .updateTable('zvd_relations')
@@ -284,7 +328,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         .returningAll()
         .executeTakeFirst();
 
-      return c.json({ relation });
+      return c.json({ relation: normalize(relation) });
     },
   );
 
@@ -309,6 +353,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         const fkInTarget = relation.target_field || `${relation.source_collection}_id`;
         await dynamicDropColumn(db, targetTable, fkInTarget);
         await removeFieldFromCollection(db, relation.source_collection, relation.source_field);
+        await removeFieldFromCollection(db, relation.target_collection, fkInTarget);
       } else if (relation.type === 'm2m' && relation.junction_table) {
         await DDLManager.dropJunctionTable(db, relation.junction_table);
         await removeFieldFromCollection(db, relation.source_collection, relation.source_field);
