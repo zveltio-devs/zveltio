@@ -35,7 +35,9 @@ function resolveExtensionsBase(): string {
 }
 
 // ── Registry catalog cache ────────────────────────────────────────────────────
-const REGISTRY_URL = process.env.REGISTRY_URL || 'https://apps.zveltio.com';
+// Default points at the Cloudflare Worker registry (registry.zveltio.com).
+// `apps.zveltio.com` is the marketplace UI (SvelteKit) — it does NOT expose /api/*.
+const REGISTRY_URL = process.env.REGISTRY_URL || 'https://registry.zveltio.com';
 const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let catalogCache: ExtensionCatalogEntry[] | null = null;
 let catalogCacheExpiry = 0;
@@ -51,15 +53,18 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
     const data = await res.json() as { extensions: any[] };
     const entries: ExtensionCatalogEntry[] = (data.extensions ?? []).map((e: any) => ({
       name:         e.name,
-      displayName:  e.display_name ?? e.name,
+      displayName:  e.display_name ?? e.displayName ?? e.name,
       description:  e.description ?? '',
       category:     e.category ?? 'other',
       version:      e.version ?? '1.0.0',
       author:       e.developer_username ?? e.author ?? 'Zveltio',
       tags:         e.tags ?? [],
-      bundled:      false,
+      bundled:      Boolean(e.is_official ?? e.bundled ?? false),
       permissions:  e.permissions ?? [],
-      download_url: e.download_url ?? undefined,
+      // Prefer the explicit download_url from the registry; fall back to the
+      // by-name endpoint (works for both registry.zveltio.com and self-hosted).
+      download_url: e.download_url
+        ?? `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(e.name)}/download`,
     }));
     if (entries.length > 0) {
       catalogCache = entries;
@@ -69,26 +74,29 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   } catch (err) {
     console.warn('[marketplace] Registry fetch failed, using local catalog:', (err as Error).message);
   }
-  // fallback
+  // fallback — the bundled catalog has no download_url, so download will fail
+  // with a clear message until the registry is reachable.
   return EXTENSION_CATALOG;
 }
 
 // ── Extension package download ────────────────────────────────────────────────
 
 /**
- * Download and extract an extension package tarball into EXTENSIONS_DIR.
+ * Download and extract an extension package into EXTENSIONS_DIR.
  *
  * URL resolution order:
- *   1. `entry.download_url` from the registry catalog (explicit)
- *   2. `${REGISTRY_URL}/api/extensions/${name}/package` (convention)
+ *   1. `entry.download_url` from the registry catalog (explicit, preferred)
+ *   2. `${REGISTRY_URL}/api/extensions/by-name/${name}/download` (convention)
  *
- * The tarball must extract to a flat directory where the first level is the
- * extension slug (e.g. `crm/engine/index.js`).  We strip the first path
- * component (`tar --strip-components=1`) and extract into `EXTENSIONS_DIR/name/`.
+ * Format detection: the response body is sniffed for a magic number to decide
+ * between ZIP (`PK\x03\x04`) and gzip (`\x1f\x8b`). ZIPs are extracted with
+ * `unzip`, tarballs with `tar`. If the archive contains a single top-level
+ * directory matching the extension slug (or anything else), we flatten it so
+ * `engine/`, `studio/`, `manifest.json` land directly inside `EXTENSIONS_DIR/<name>/`.
  */
 async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string): Promise<void> {
   const downloadUrl = entry.download_url
-    ?? `${REGISTRY_URL}/api/extensions/${encodeURIComponent(entry.name)}/package`;
+    ?? `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(entry.name)}/download`;
 
   console.log(`📥 Downloading extension "${entry.name}" from ${downloadUrl} …`);
 
@@ -98,33 +106,76 @@ async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string)
   });
 
   if (!res.ok) {
-    throw new Error(`Registry returned ${res.status} for extension "${entry.name}" download`);
+    const body = await res.text().catch(() => '');
+    throw new Error(`Registry returned ${res.status} for extension "${entry.name}" download${body ? `: ${body.slice(0, 200)}` : ''}`);
   }
 
   const destDir = join(destBase, entry.name);
   mkdirSync(destDir, { recursive: true });
 
-  // Write tarball to a temp file then extract
-  const tarPath = join(destDir, '_pkg.tar.gz');
-  const buf = await res.arrayBuffer();
-  writeFileSync(tarPath, Buffer.from(buf));
-
-  // Extract: strip the top-level directory so `engine/`, `studio/`, `manifest.json`
-  // land directly inside destDir
-  const proc = Bun.spawn(
-    ['tar', '-xzf', tarPath, '--strip-components=1', '-C', destDir],
-    { stdout: 'pipe', stderr: 'pipe' },
-  );
-  const exitCode = await proc.exited;
-  // Remove temp tarball regardless of outcome
-  try { (await import('fs')).unlinkSync(tarPath); } catch { /* ignore */ }
-
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`tar extraction failed for "${entry.name}": ${stderr.trim()}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 4) {
+    throw new Error(`Empty package received for "${entry.name}"`);
   }
 
-  console.log(`✅ Extension "${entry.name}" downloaded to ${destDir}`);
+  // Magic-number sniffing — content-type from R2/Cloudflare can be unreliable.
+  const isZip = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
+  const isGzip = buf[0] === 0x1f && buf[1] === 0x8b;
+
+  const fs = await import('fs');
+  const path = await import('path');
+
+  // Stage into a temp dir so we can detect & flatten a single top-level folder
+  // before moving files into the final destination.
+  const stageDir = join(destDir, '_stage');
+  // Clean any leftover stage from a previous failed run
+  try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  fs.mkdirSync(stageDir, { recursive: true });
+
+  const pkgPath = join(destDir, isZip ? '_pkg.zip' : '_pkg.tar.gz');
+  fs.writeFileSync(pkgPath, buf);
+
+  let proc: ReturnType<typeof Bun.spawn>;
+  if (isZip) {
+    proc = Bun.spawn(['unzip', '-qq', '-o', pkgPath, '-d', stageDir], { stdout: 'pipe', stderr: 'pipe' });
+  } else if (isGzip) {
+    proc = Bun.spawn(['tar', '-xzf', pkgPath, '-C', stageDir], { stdout: 'pipe', stderr: 'pipe' });
+  } else {
+    try { fs.unlinkSync(pkgPath); } catch { /* ignore */ }
+    try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    throw new Error(`Unknown archive format for "${entry.name}" (expected ZIP or gzip)`);
+  }
+
+  const exitCode = await proc.exited;
+  try { fs.unlinkSync(pkgPath); } catch { /* ignore */ }
+
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr as ReadableStream).text();
+    try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    throw new Error(`Extraction failed for "${entry.name}": ${stderr.trim() || `exit ${exitCode}`}`);
+  }
+
+  // If the archive wrapped everything in a single top-level dir, unwrap it.
+  // Allowed layouts:
+  //   stage/engine/index.ts + stage/manifest.json   ← already flat
+  //   stage/<anything>/engine/...                    ← flatten to destDir
+  let sourceDir = stageDir;
+  const stageEntries = fs.readdirSync(stageDir);
+  if (stageEntries.length === 1) {
+    const only = path.join(stageDir, stageEntries[0]);
+    if (fs.statSync(only).isDirectory()) sourceDir = only;
+  }
+
+  // Move every entry from sourceDir into destDir (replacing any prior files).
+  for (const e of fs.readdirSync(sourceDir)) {
+    const src = path.join(sourceDir, e);
+    const dst = path.join(destDir, e);
+    try { fs.rmSync(dst, { recursive: true, force: true }); } catch { /* ignore */ }
+    fs.renameSync(src, dst);
+  }
+  try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* ignore */ }
+
+  console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
 }
 
 // ── Hot-reload callback ───────────────────────────────────────────────────────

@@ -67,14 +67,17 @@ export const dataApi = {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return api.get<{ records: any[]; pagination: any }>(`/api/data/${collection}${qs}`);
   },
+  // Note: GET/POST/PATCH return the record directly (no { record: ... } wrapper)
   get: (collection: string, id: string) =>
-    api.get<{ record: any }>(`/api/data/${collection}/${id}`),
+    api.get<any>(`/api/data/${collection}/${id}`),
   create: (collection: string, data: any) =>
-    api.post<{ record: any }>(`/api/data/${collection}`, data),
+    api.post<any>(`/api/data/${collection}`, data),
   update: (collection: string, id: string, data: any) =>
-    api.patch<{ record: any }>(`/api/data/${collection}/${id}`, data),
+    api.patch<any>(`/api/data/${collection}/${id}`, data),
   delete: (collection: string, id: string) =>
     api.delete(`/api/data/${collection}/${id}`),
+  bulkDelete: (collection: string, ids: string[]) =>
+    api.delete<{ deleted: number }>(`/api/data/${collection}/bulk`, { ids }),
 };
 
 export const usersApi = {
