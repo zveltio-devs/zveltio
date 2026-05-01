@@ -65,28 +65,48 @@ export const FieldSchema = z.object({
   encrypted: z.boolean().default(false).optional(),
 });
 
-export const CollectionSchema = z.object({
-  name: z
-    .string()
-    .max(63, 'Collection name must be at most 63 characters (PostgreSQL identifier limit)')
-    .regex(
-      /^[a-z][a-z0-9_]*$/,
-      'Collection name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
-    ),
-  displayName: z.string().optional(),
-  icon: z.string().optional(),
-  routeGroup: z.enum(['public', 'partners', 'private', 'admin']).optional(),
-  isPermissioned: z.boolean().optional(),
-  sort: z.number().int().min(0).optional(),
-  fields: z.array(FieldSchema).min(1),
-  description: z.string().optional(),
-  singularName: z.string().optional(),
-  aiSearchEnabled: z.boolean().optional(),
-  aiSearchField: z.string().nullable().optional(),
-  isManaged: z.boolean().optional(),
-  isSystem: z.boolean().optional(),
-  schemaLocked: z.boolean().optional(),
-});
+// Accept both camelCase (TS-style) and snake_case (REST-style) for client
+// convenience. The transform below normalizes everything to camelCase before
+// the rest of the codebase sees it.
+export const CollectionSchema = z.preprocess(
+  (raw: any) => {
+    if (!raw || typeof raw !== 'object') return raw;
+    const o: any = { ...raw };
+    // snake → camel aliasing
+    if (o.display_name != null && o.displayName == null)         o.displayName = o.display_name;
+    if (o.route_group != null && o.routeGroup == null)            o.routeGroup = o.route_group;
+    if (o.is_permissioned != null && o.isPermissioned == null)    o.isPermissioned = o.is_permissioned;
+    if (o.singular_name != null && o.singularName == null)        o.singularName = o.singular_name;
+    if (o.ai_search_enabled != null && o.aiSearchEnabled == null) o.aiSearchEnabled = o.ai_search_enabled;
+    if (o.ai_search_field != null && o.aiSearchField == null)     o.aiSearchField = o.ai_search_field;
+    if (o.is_managed != null && o.isManaged == null)              o.isManaged = o.is_managed;
+    if (o.is_system != null && o.isSystem == null)                o.isSystem = o.is_system;
+    if (o.schema_locked != null && o.schemaLocked == null)        o.schemaLocked = o.schema_locked;
+    return o;
+  },
+  z.object({
+    name: z
+      .string()
+      .max(63, 'Collection name must be at most 63 characters (PostgreSQL identifier limit)')
+      .regex(
+        /^[a-z][a-z0-9_]*$/,
+        'Collection name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
+      ),
+    displayName: z.string().optional(),
+    icon: z.string().optional(),
+    routeGroup: z.enum(['public', 'partners', 'private', 'admin']).optional(),
+    isPermissioned: z.boolean().optional(),
+    sort: z.number().int().min(0).optional(),
+    fields: z.array(FieldSchema).min(1),
+    description: z.string().optional(),
+    singularName: z.string().optional(),
+    aiSearchEnabled: z.boolean().optional(),
+    aiSearchField: z.string().nullable().optional(),
+    isManaged: z.boolean().optional(),
+    isSystem: z.boolean().optional(),
+    schemaLocked: z.boolean().optional(),
+  }),
+);
 
 export type CollectionDefinition = z.infer<typeof CollectionSchema>;
 

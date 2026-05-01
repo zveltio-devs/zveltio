@@ -33,7 +33,7 @@
       if (filterPath) params.set('path', filterPath);
       if (filterStatus) params.set('status', filterStatus);
       if (filterMethod) params.set('method', filterMethod);
-      const res = await api.get<{ logs: LogEntry[]; total: number }>(`/admin/logs?${params}`);
+      const res = await api.get<{ logs: LogEntry[]; total: number }>(`/api/admin/logs?${params}`);
       logs = res.logs;
       total = res.total;
     } catch { /* ignore */ } finally {

@@ -121,6 +121,72 @@ async function serveStaticFile(
 // ─── CLI subcommands ─────────────────────────────────────────
 const _cmd = process.argv[2];
 
+// Read package version once at module load (compiled into binary).
+async function _zveltioVersion(): Promise<string> {
+  try {
+    const pkg = await import('../package.json', { with: { type: 'json' } }) as { default: { version: string } };
+    return pkg.default.version;
+  } catch {
+    return 'unknown';
+  }
+}
+
+if (_cmd === 'version' || _cmd === '--version' || _cmd === '-v') {
+  const v = await _zveltioVersion();
+  console.log(`zveltio ${v}`);
+  process.exit(0);
+}
+
+if (_cmd === 'help' || _cmd === '--help' || _cmd === '-h') {
+  const v = await _zveltioVersion();
+  console.log(`zveltio ${v}
+
+USAGE
+  zveltio <command> [options]
+
+COMMANDS
+  start                              Start the engine (default if no command).
+  migrate                            Run pending database migrations.
+  create-god --email E --password P  Create a god-role user.
+  status                             Show service status.
+  version                            Print version.
+  help                               Show this message.
+
+ENVIRONMENT
+  DATABASE_URL is required for migrate/create-god/start.
+  When called via the /usr/local/bin/zveltio wrapper, /opt/zveltio/.env is
+  loaded automatically, so plain "sudo zveltio migrate" works from anywhere.
+
+EXAMPLES
+  sudo zveltio migrate
+  sudo zveltio status
+  sudo zveltio create-god --email me@example.com --password secret123
+`);
+  process.exit(0);
+}
+
+if (_cmd === 'status') {
+  // Lightweight status check that doesn't require a working DB connection.
+  const port = process.env.PORT || '3000';
+  const host = process.env.HOST || '0.0.0.0';
+  const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/health`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    const body: any = await res.json().catch(() => ({}));
+    if (res.ok) {
+      console.log(`✅ zveltio is running on ${url}`);
+      if (body.status) console.log(`   status: ${body.status}`);
+      process.exit(0);
+    } else {
+      console.log(`⚠️  zveltio responded with HTTP ${res.status} at ${url}`);
+      process.exit(1);
+    }
+  } catch (err) {
+    console.log(`❌ zveltio is not reachable at ${url}: ${(err as Error).message}`);
+    process.exit(1);
+  }
+}
+
 if (_cmd === 'migrate') {
   // NATIVE_DATABASE_URL can be set to bypass PgDog (e.g. if pgdog-init failed).
   // Otherwise initDatabase() retries up to 20× until PgDog is ready.

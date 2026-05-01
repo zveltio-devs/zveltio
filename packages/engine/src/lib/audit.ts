@@ -17,7 +17,9 @@ export type AuditEventType =
   | 'god_mode.used'
   | 'extension.loaded'
   | 'extension.load_failed'
-  | 'extension.unloaded';
+  | 'extension.unloaded'
+  | 'sql.executed'
+  | 'sql.failed';
 
 export interface AuditEvent {
   type: AuditEventType;

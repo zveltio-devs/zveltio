@@ -14,17 +14,7 @@ export interface ExtensionCatalogEntry {
 
 export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   // ── Analytics ─────────────────────────────────────────────────
-  {
-    name: 'analytics/insights',
-    displayName: 'Analytics Insights',
-    description: 'Dashboards and panels with ad-hoc query support',
-    category: 'analytics',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['analytics', 'dashboards', 'reports'],
-    bundled: false,
-    permissions: ['database'],
-  },
+  // analytics/insights — promoted to engine core, no longer a separate extension
   {
     name: 'analytics/quality',
     displayName: 'Data Quality',
@@ -314,28 +304,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     bundled: false,
     permissions: ['database'],
   },
-  {
-    name: 'developer/saved-queries',
-    displayName: 'Saved Queries',
-    description: 'Query builder with filter groups, sorting, column selection and query persistence',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['queries', 'filters', 'builder'],
-    bundled: false,
-    permissions: ['database'],
-  },
-  {
-    name: 'developer/schema-branches',
-    displayName: 'Schema Branches',
-    description: 'Isolated schema branches for safe development',
-    category: 'developer',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['schema', 'branches', 'migrations'],
-    bundled: false,
-    permissions: ['database'],
-  },
+  // developer/saved-queries — promoted to engine core
+  // developer/schema-branches — promoted to engine core
   {
     name: 'developer/validation',
     displayName: 'Data Validation',
@@ -548,17 +518,7 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     bundled: false,
     permissions: ['database'],
   },
-  {
-    name: 'operations/backup',
-    displayName: 'Database Backup',
-    description: 'Database backup management with point-in-time recovery',
-    category: 'operations',
-    version: '1.0.0',
-    author: 'Zveltio',
-    tags: ['backup', 'recovery', 'database'],
-    bundled: false,
-    permissions: ['database'],
-  },
+  // operations/backup — promoted to engine core
   {
     name: 'operations/inventory',
     displayName: 'Inventory',

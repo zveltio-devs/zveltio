@@ -70,6 +70,14 @@ import m058 from './sql/058_performance_indexes.sql' with { type: 'text' };
 import m059 from './sql/059_pg_trgm.sql' with { type: 'text' };
 import m060 from './sql/060_column_permissions.sql' with { type: 'text' };
 import m061 from './sql/061_push_tokens.sql' with { type: 'text' };
+import m062 from './sql/062_backup_schedules.sql' with { type: 'text' };
+import m063 from './sql/063_schema_branches_reviews.sql' with { type: 'text' };
+import m064 from './sql/064_schema_branches_preview_envs.sql' with { type: 'text' };
+import m065 from './sql/065_schema_branches_preview_token_expiry.sql' with { type: 'text' };
+import m066 from './sql/066_schema_branches_approval_gates.sql' with { type: 'text' };
+import m067 from './sql/067_insights.sql' with { type: 'text' };
+import m068 from './sql/068_insights_enterprise.sql' with { type: 'text' };
+import m069 from './sql/069_insights_reconcile.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -135,4 +143,12 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '059_pg_trgm.sql': m059,
   '060_column_permissions.sql': m060,
   '061_push_tokens.sql': m061,
+  '062_backup_schedules.sql': m062,
+  '063_schema_branches_reviews.sql': m063,
+  '064_schema_branches_preview_envs.sql': m064,
+  '065_schema_branches_preview_token_expiry.sql': m065,
+  '066_schema_branches_approval_gates.sql': m066,
+  '067_insights.sql': m067,
+  '068_insights_enterprise.sql': m068,
+  '069_insights_reconcile.sql': m069,
 };

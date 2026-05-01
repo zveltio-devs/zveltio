@@ -83,6 +83,9 @@ success "Removed SeaweedFS"
 rm -f /usr/local/bin/valkey-server /usr/local/bin/valkey-cli
 success "Removed Valkey"
 
+rm -f /usr/local/bin/zveltio
+success "Removed zveltio CLI wrapper"
+
 # ── Remove Zveltio directory ──────────────────────────────────────────────────
 if [[ "$PURGE_DATA" == "yes" ]]; then
   header "Purging all data"

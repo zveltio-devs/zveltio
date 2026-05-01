@@ -76,7 +76,7 @@
     return () => window.removeEventListener('keydown', onKeydown);
   });
 
-  type NavItem = { href: string; icon: any; label: string };
+  type NavItem = { href: string; icon: any; label: string; ext?: string };
   type NavGroup = { label?: string; items: NavItem[] };
 
   // Bundled extension nav items — shown only when the extension is enabled in the DB
@@ -91,7 +91,11 @@
     ] : [],
   );
 
-  const nav: NavGroup[] = [
+  /** Item gating — pages whose backend lives in an extension. Setting `ext`
+   *  on a NavItem hides it from the sidebar until the extension is active.
+   *  Without this, clicking the link took the user to a page that crashed
+   *  with a 404 (the API route the page calls doesn't exist yet). */
+  const rawNav: NavGroup[] = [
     {
       items: [
         { href: `${base}/`,           icon: LayoutDashboard, label: 'Dashboard'  },
@@ -103,7 +107,7 @@
       items: [
         { href: `${base}/collections`, icon: Database,    label: 'Collections' },
         { href: `${base}/views`,       icon: Layout,      label: 'Views'       },
-        { href: `${base}/media`,       icon: Images,      label: 'Media'       },
+        { href: `${base}/media`,       icon: Images,      label: 'Media',      ext: 'content/media' },
       ]
     },
     {
@@ -148,7 +152,7 @@
         { href: `${base}/virtual-collections`, icon: Plug,       label: 'Virtual Collections' },
         { href: `${base}/saved-queries`,       icon: Bookmark,   label: 'Saved Queries'     },
         { href: `${base}/sql`,                 icon: Terminal,   label: 'SQL Editor'        },
-        { href: `${base}/introspect`,          icon: ScanSearch, label: 'BYOD Import'       },
+        { href: `${base}/introspect`,          icon: ScanSearch, label: 'BYOD Import',        ext: 'developer/byod' },
       ]
     },
     {
@@ -156,16 +160,27 @@
       items: [
         { href: `${base}/storage`,      icon: HardDrive,    label: 'Storage'    },
         { href: `${base}/backup`,       icon: DatabaseBackup, label: 'Backup'   },
-        { href: `${base}/import`,       icon: Upload,       label: 'Import'     },
-        { href: `${base}/export`,       icon: Download,     label: 'Export'     },
+        { href: `${base}/import`,       icon: Upload,       label: 'Import',    ext: 'data/import' },
+        { href: `${base}/export`,       icon: Download,     label: 'Export',    ext: 'data/export' },
         { href: `${base}/request-logs`,   icon: Activity,      label: 'Request Logs' },
         { href: `${base}/audit`,        icon: ClipboardList, label: 'Audit Log' },
-        { href: `${base}/translations`, icon: Languages,    label: 'Translations' },
+        { href: `${base}/translations`, icon: Languages,    label: 'Translations', ext: 'i18n/translations' },
         { href: `${base}/marketplace`,  icon: Package,      label: 'Marketplace' },
         { href: `${base}/settings`,     icon: Settings,     label: 'Settings'    },
       ]
     },
   ];
+
+  /** Filter rawNav by extension activation. Items without `ext` always show.
+   *  Items with `ext` are visible only when the extension is running. */
+  const nav = $derived<NavGroup[]>(
+    rawNav
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((it) => !it.ext || extensions.isActive(it.ext)),
+      }))
+      .filter((g) => g.items.length > 0),
+  );
 
   async function signOut() {
     await auth.signOut();
