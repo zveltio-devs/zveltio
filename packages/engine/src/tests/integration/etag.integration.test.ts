@@ -62,7 +62,7 @@ beforeAll(async () => {
     headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
     body: JSON.stringify({ title: 'Initial record' }),
   });
-  expect(insertRes.status).toBe(200);
+  expect(insertRes.status).toBe(201);
 }, 30_000);
 
 afterAll(async () => {
@@ -125,7 +125,7 @@ describe.skipIf(skipAll)('ETag Caching — Integration', () => {
       headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
       body: JSON.stringify({ title: 'New record to invalidate ETag' }),
     });
-    expect(insertRes.status).toBe(200);
+    expect(insertRes.status).toBe(201);
 
     // GET with old ETag — should NOT be 304, content has changed
     const res = await fetch(`${BASE_URL}/api/data/${COL}`, {
