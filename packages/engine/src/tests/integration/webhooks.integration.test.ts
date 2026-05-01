@@ -138,7 +138,8 @@ describe.skipIf(skipAll)('Webhooks — Integration', () => {
       headers: { 'Content-Type': 'application/json', Cookie: godCookie },
       body: JSON.stringify({ title: 'Webhook trigger test' }),
     });
-    expect(res.status).toBe(200);
+    // POST returns 201 Created
+    expect(res.status).toBe(201);
 
     const delivered = await waitForDelivery(webhookId, 5000);
     expect(delivered).toBe(true);
