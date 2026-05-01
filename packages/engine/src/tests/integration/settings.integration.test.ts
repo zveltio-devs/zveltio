@@ -56,7 +56,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (skipAll || !db) return;
-  await db.destroy();
+  await db.destroy().catch(() => {});
 });
 
 describe.skipIf(skipAll)('Settings — Integration', () => {
