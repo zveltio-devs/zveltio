@@ -47,7 +47,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (skipAll || !db) return;
   await sql`DROP TABLE IF EXISTS ${sql.id(COL)}`.execute(db).catch(() => {});
-  await db.destroy();
+  await db.destroy().catch(() => {});
 });
 
 describe.skipIf(skipAll)('Collections — Integration', () => {

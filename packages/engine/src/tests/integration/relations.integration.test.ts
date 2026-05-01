@@ -84,7 +84,7 @@ afterAll(async () => {
   // Drop test collections
   await sql`DROP TABLE IF EXISTS ${sql.id(COL_A)}`.execute(db).catch(() => {});
   await sql`DROP TABLE IF EXISTS ${sql.id(COL_B)}`.execute(db).catch(() => {});
-  await db.destroy();
+  await db.destroy().catch(() => {});
 });
 
 describe.skipIf(skipAll)('Relations — Integration', () => {
