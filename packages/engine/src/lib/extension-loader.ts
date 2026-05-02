@@ -1,10 +1,12 @@
-import type { Hono } from 'hono';
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import { sql as _sql, Kysely } from 'kysely';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
-import { z } from 'zod';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
@@ -42,6 +44,22 @@ const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let catalogCache: ExtensionCatalogEntry[] | null = null;
 let catalogCacheExpiry = 0;
 
+// ── Marketplace auth token helper ─────────────────────────────────────────────
+// Token is stored in zv_settings (key: marketplace_auth_token) and used to
+// authenticate download requests to the registry for paid extensions.
+async function getMarketplaceToken(db: any): Promise<string | undefined> {
+  try {
+    const row = await db
+      .selectFrom('zv_settings')
+      .select('value')
+      .where('key', '=', 'marketplace_auth_token')
+      .executeTakeFirst();
+    return row?.value ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   if (catalogCache && Date.now() < catalogCacheExpiry) return catalogCache;
   try {
@@ -59,7 +77,6 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
       version:      e.version ?? '1.0.0',
       author:       e.developer_username ?? e.author ?? 'Zveltio',
       tags:         e.tags ?? [],
-      bundled:      Boolean(e.is_official ?? e.bundled ?? false),
       permissions:  e.permissions ?? [],
       // Prefer the explicit download_url from the registry; fall back to the
       // by-name endpoint (works for both registry.zveltio.com and self-hosted).
@@ -74,7 +91,7 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   } catch (err) {
     console.warn('[marketplace] Registry fetch failed, using local catalog:', (err as Error).message);
   }
-  // fallback — the bundled catalog has no download_url, so download will fail
+  // fallback — local catalog has no download_url, so install will fail
   // with a clear message until the registry is reachable.
   return EXTENSION_CATALOG;
 }
@@ -94,14 +111,22 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
  * directory matching the extension slug (or anything else), we flatten it so
  * `engine/`, `studio/`, `manifest.json` land directly inside `EXTENSIONS_DIR/<name>/`.
  */
-async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string): Promise<void> {
+async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string, authToken?: string): Promise<void> {
   const downloadUrl = entry.download_url
     ?? `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(entry.name)}/download`;
 
   console.log(`📥 Downloading extension "${entry.name}" from ${downloadUrl} …`);
 
+  const headers: Record<string, string> = {
+    'User-Agent': 'zveltio-engine',
+    'Accept': 'application/octet-stream',
+  };
+  if (authToken) {
+    headers['Cookie'] = `better-auth.session_token=${authToken}`;
+  }
+
   const res = await fetch(downloadUrl, {
-    headers: { 'User-Agent': 'zveltio-engine', 'Accept': 'application/octet-stream' },
+    headers,
     signal: AbortSignal.timeout(60_000),
   });
 
@@ -230,6 +255,24 @@ export const GhostDDL = _s.GhostDDL ?? _s.DDLManager;
 const _s = globalThis.__zveltioEngineShims;
 export const fieldTypeRegistry = _s.fieldTypeRegistry;
 `,
+    hono: `
+const _s = globalThis.__zveltioEngineShims;
+export const Hono = _s.Hono;
+export default _s.Hono;
+`,
+    zod: `
+const _s = globalThis.__zveltioEngineShims;
+export const z = _s.z;
+`,
+    kysely: `
+const _s = globalThis.__zveltioEngineShims;
+export const sql = _s.sql;
+export const Kysely = _s.Kysely;
+`,
+    '@hono/zod-validator': `
+const _s = globalThis.__zveltioEngineShims;
+export const zValidator = _s.zValidator;
+`,
   };
 
   // Store live singletons for virtual modules to reference
@@ -239,6 +282,11 @@ export const fieldTypeRegistry = _s.fieldTypeRegistry;
     auth,
     DDLManager,
     fieldTypeRegistry: _fieldTypeRegistry,
+    Hono,
+    z,
+    sql: _sql,
+    Kysely,
+    zValidator,
   };
 
   // Lazily populate one-off singletons (may not exist in all engine builds)
@@ -287,6 +335,19 @@ export const fieldTypeRegistry = _s.fieldTypeRegistry;
 
           // Catch-all for remaining engine paths (db/index, extension-loader types, etc.)
           // These are type-only imports at runtime — return an empty module.
+          return { path: 'shim:empty', namespace: 'zveltio-shims' };
+        });
+
+        // ── Match npm packages that are bundled in the engine binary ────────────
+        // Extensions import hono/zod/kysely directly; in production these are not
+        // available as node_modules. Return shim virtual modules so extensions
+        // get the same in-process instances used by the engine itself.
+        build.onResolve({ filter: /^(hono|zod|kysely|@hono\/zod-validator)$/ }, (args: any) => {
+          const p: string = args.path;
+          if (p === 'hono') return { path: 'shim:hono', namespace: 'zveltio-shims' };
+          if (p === 'zod') return { path: 'shim:zod', namespace: 'zveltio-shims' };
+          if (p === 'kysely') return { path: 'shim:kysely', namespace: 'zveltio-shims' };
+          if (p === '@hono/zod-validator') return { path: 'shim:@hono/zod-validator', namespace: 'zveltio-shims' };
           return { path: 'shim:empty', namespace: 'zveltio-shims' };
         });
 
@@ -369,6 +430,8 @@ class ExtensionLoader {
   private ctx?: ExtensionContext;
   /** Module cache: name → imported ZveltioExtension, kept for re-registration on hot-reload. */
   private modules: Map<string, ZveltioExtension> = new Map();
+  /** Last load error per extension name — used by loadDynamic() to surface the real error. */
+  private lastLoadError: Map<string, string> = new Map();
 
   async loadAll(app: Hono, ctx: ExtensionContext): Promise<void> {
     // Install Bun plugin shims so extensions can import from engine source paths
@@ -541,7 +604,9 @@ class ExtensionLoader {
       }).catch(() => {});
 
     } catch (err) {
+      const errMsg = (err as Error).message ?? String(err);
       console.error(`❌ Failed to load extension "${extName}":`, err);
+      this.lastLoadError.set(extName, errMsg);
       // Audit trail — record load failure
       if (this.ctx) {
         auditLog(this.ctx.db, {
@@ -679,15 +744,15 @@ class ExtensionLoader {
 
   async loadDynamic(name: string, app: Hono): Promise<void> {
     if (!this.ctx) throw new Error('ExtensionLoader not initialized — call loadAll() first');
+    this.lastLoadError.delete(name);
     await this.loadExtension(name, app, this.ctx);
     // loadExtension returns void on silent failure (files not found, bad manifest, etc.)
     // Verify the extension actually landed in this.loaded before declaring success.
     if (!this.isActive(name)) {
+      const realError = this.lastLoadError.get(name);
       const extBase = resolveExtensionsBase();
-      throw new Error(
-        `Extension "${name}" files not found at ${extBase}/${name}/engine/index.ts. ` +
-        `Ensure EXTENSIONS_DIR is set and the extension package is deployed.`
-      );
+      const fallback = `engine/index.ts not found at ${extBase}/${name}/. Ensure EXTENSIONS_DIR is set and the extension package is deployed.`;
+      throw new Error(realError ?? fallback);
     }
   }
 
@@ -708,6 +773,139 @@ class ExtensionLoader {
       const isAdmin = await checkPermission(session.user.id, 'admin', '*');
       return isAdmin;
     }
+
+    // ── Marketplace auth (server-to-server proxy to registry.zveltio.com) ──────
+
+    // GET /api/marketplace/auth/session — check if stored token is still valid
+    app.get('/api/marketplace/auth/session', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+
+      const token = await getMarketplaceToken(db);
+      if (!token) return c.json({ authenticated: false });
+
+      const res = await fetch(`${REGISTRY_URL}/api/auth/get-session`, {
+        headers: { 'Cookie': `better-auth.session_token=${token}` },
+        signal: AbortSignal.timeout(5_000),
+      }).catch(() => null);
+
+      if (!res?.ok) {
+        await db.deleteFrom('zv_settings' as any).where('key' as any, '=', 'marketplace_auth_token').execute().catch(() => {});
+        return c.json({ authenticated: false });
+      }
+
+      const data = await res.json().catch(() => null) as any;
+      if (!data?.session || !data?.user) {
+        await db.deleteFrom('zv_settings' as any).where('key' as any, '=', 'marketplace_auth_token').execute().catch(() => {});
+        return c.json({ authenticated: false });
+      }
+
+      return c.json({
+        authenticated: true,
+        user: { email: data.user.email, name: data.user.name, image: data.user.image ?? null },
+      });
+    });
+
+    // POST /api/marketplace/auth/login
+    app.post('/api/marketplace/auth/login', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+
+      const body = await c.req.json().catch(() => ({})) as any;
+      const { email, password } = body;
+      if (!email || !password) return c.json({ error: 'Email and password are required' }, 400);
+
+      const res = await fetch(`${REGISTRY_URL}/api/auth/sign-in/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null);
+
+      if (!res?.ok) {
+        const err = await res?.json().catch(() => null) as any;
+        return c.json({ error: err?.message || 'Invalid email or password' }, 401);
+      }
+
+      const data = await res.json().catch(() => null) as any;
+      const token = data?.session?.token;
+      if (!token) return c.json({ error: 'No session token received from registry' }, 500);
+
+      await (db as any)
+        .insertInto('zv_settings')
+        .values({ key: 'marketplace_auth_token', value: token, is_public: false })
+        .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: token }))
+        .execute();
+
+      return c.json({
+        ok: true,
+        user: { email: data.user.email, name: data.user.name, image: data.user.image ?? null },
+      });
+    });
+
+    // POST /api/marketplace/auth/signup
+    app.post('/api/marketplace/auth/signup', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+
+      const body = await c.req.json().catch(() => ({})) as any;
+      const { email, password, name } = body;
+      if (!email || !password || !name) return c.json({ error: 'Name, email and password are required' }, 400);
+
+      const signUpRes = await fetch(`${REGISTRY_URL}/api/auth/sign-up/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null);
+
+      if (!signUpRes?.ok) {
+        const err = await signUpRes?.json().catch(() => null) as any;
+        return c.json({ error: err?.message || 'Signup failed' }, 400);
+      }
+
+      // Auto sign-in after signup to obtain session token
+      const signInRes = await fetch(`${REGISTRY_URL}/api/auth/sign-in/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null);
+
+      if (!signInRes?.ok) {
+        return c.json({ ok: true, needsLogin: true, message: 'Account created. Please log in.' });
+      }
+
+      const data = await signInRes.json().catch(() => null) as any;
+      const token = data?.session?.token;
+      if (token) {
+        await (db as any)
+          .insertInto('zv_settings')
+          .values({ key: 'marketplace_auth_token', value: token, is_public: false })
+          .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: token }))
+          .execute();
+      }
+
+      return c.json({
+        ok: true,
+        user: { email: data?.user?.email ?? email, name: data?.user?.name ?? name, image: data?.user?.image ?? null },
+      });
+    });
+
+    // POST /api/marketplace/auth/logout
+    app.post('/api/marketplace/auth/logout', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+
+      const token = await getMarketplaceToken(db);
+      if (token) {
+        // Best-effort sign-out on the registry side
+        fetch(`${REGISTRY_URL}/api/auth/sign-out`, {
+          method: 'POST',
+          headers: { 'Cookie': `better-auth.session_token=${token}` },
+          signal: AbortSignal.timeout(5_000),
+        }).catch(() => {});
+        await db.deleteFrom('zv_settings' as any).where('key' as any, '=', 'marketplace_auth_token').execute().catch(() => {});
+      }
+
+      return c.json({ ok: true });
+    });
 
     // GET /api/marketplace — catalog fetched from registry (fallback: local) merged with DB state
     app.get('/api/marketplace', async (c) => {
@@ -764,11 +962,12 @@ class ExtensionLoader {
       const engineJs = join(extDir, 'engine/index.js');
 
       // Download extension package if not already on disk
+      const authToken = await getMarketplaceToken(db);
       let downloaded = false;
       let downloadError = '';
       if (!existsSync(engineTs) && !existsSync(engineJs)) {
         try {
-          await downloadExtension(entry, extBase);
+          await downloadExtension(entry, extBase, authToken);
           downloaded = true;
         } catch (err) {
           downloadError = (err as Error).message;
@@ -776,7 +975,18 @@ class ExtensionLoader {
         }
       }
 
-      const filesOnDisk = existsSync(engineTs) || existsSync(engineJs);
+      // Also accept engine/routes.ts as a valid entry point (manifest.engine.routes)
+      let altEntry: string | undefined;
+      const manifestPathCheck = join(extDir, 'manifest.json');
+      if (existsSync(manifestPathCheck)) {
+        try {
+          const m = JSON.parse(await Bun.file(manifestPathCheck).text());
+          if (m.engine?.routes) {
+            altEntry = join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
+          }
+        } catch { /* ignore */ }
+      }
+      const filesOnDisk = existsSync(engineTs) || existsSync(engineJs) || (!!altEntry && existsSync(altEntry));
 
       // If files are still not on disk after the download attempt, fail loudly so the
       // Studio shows a real error instead of "installed but won't enable".
@@ -830,7 +1040,8 @@ class ExtensionLoader {
       const extDir  = join(extBase, name);
       if (!existsSync(join(extDir, 'engine/index.ts')) && !existsSync(join(extDir, 'engine/index.js'))) {
         try {
-          await downloadExtension(entry, extBase);
+          const authToken = await getMarketplaceToken(db);
+          await downloadExtension(entry, extBase, authToken);
         } catch (downloadErr) {
           const msg = `Extension "${name}" files not found and download failed: ${(downloadErr as Error).message}. ` +
                       `Set EXTENSIONS_DIR to the extensions directory and retry.`;

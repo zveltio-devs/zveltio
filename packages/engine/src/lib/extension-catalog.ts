@@ -6,7 +6,6 @@ export interface ExtensionCatalogEntry {
   version: string;
   author: string;
   tags: string[];
-  bundled: boolean;
   permissions: string[];
   /** Direct download URL for the extension package (.tar.gz). Present when the registry serves packages. */
   download_url?: string;
@@ -23,7 +22,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['analytics', 'quality', 'anomalies'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -36,7 +34,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['auth', 'ldap', 'active-directory', 'sso'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -47,7 +44,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['auth', 'saml', 'sso', 'okta', 'azure'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -60,7 +56,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['mail', 'email', 'imap', 'smtp'],
-    bundled: false,
     permissions: ['database', 'settings'],
   },
   {
@@ -71,7 +66,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['sms', 'notifications', 'twilio', 'vonage'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -84,7 +78,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['compliance', 'gdpr', 'privacy'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -95,7 +88,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['documents', 'contracts', 'romania'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -106,7 +98,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['invoicing', 'anaf', 'romania', 'ubl'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -117,7 +108,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['transport', 'anaf', 'romania', 'logistics'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -128,7 +118,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['procurement', 'suppliers', 'budget', 'romania'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -139,7 +128,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['saft', 'tax', 'anaf', 'romania'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -152,7 +140,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['documents', 'templates', 'pdf'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -163,7 +150,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['documents', 'pdf', 'templates'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -174,7 +160,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['cms', 'drafts', 'publishing'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -185,7 +170,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['media', 'files', 'images'],
-    bundled: false,
     permissions: ['database', 'storage'],
   },
   {
@@ -196,7 +180,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['cms', 'pages', 'content'],
-    bundled: false,
     permissions: ['database', 'storage'],
   },
   {
@@ -207,7 +190,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['forms', 'submissions', 'builder'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -220,7 +202,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['crm', 'contacts', 'sales'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -233,7 +214,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['export', 'csv', 'json', 'data'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -244,7 +224,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['import', 'csv', 'json', 'data'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -257,7 +236,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['api', 'swagger', 'openapi', 'docs'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -268,7 +246,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['byod', 'introspection', 'migration'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -279,7 +256,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['database', 'postgresql', 'triggers', 'rls'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -290,7 +266,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['functions', 'serverless', 'typescript'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -301,7 +276,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['graphql', 'api', 'playground'],
-    bundled: false,
     permissions: ['database'],
   },
   // developer/saved-queries — promoted to engine core
@@ -314,7 +288,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['validation', 'rules', 'ai'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -325,7 +298,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['views', 'calendar', 'kanban', 'list'],
-    bundled: false,
     permissions: [],
   },
   {
@@ -336,20 +308,30 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['search', 'fulltext', 'meilisearch', 'typesense'],
-    bundled: false,
+    permissions: ['database'],
+  },
+
+  // ── Billing ───────────────────────────────────────────────────
+  {
+    name: 'billing',
+    displayName: 'Billing & Usage',
+    description: 'Usage metering and Stripe billing integration',
+    category: 'billing',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['billing', 'stripe', 'usage', 'metering'],
     permissions: ['database'],
   },
 
   // ── eCommerce ─────────────────────────────────────────────────
   {
-    name: 'ecommerce',
+    name: 'ecommerce/store',
     displayName: 'eCommerce',
     description: 'Product catalog, orders, customer management, coupons and public storefront API',
     category: 'ecommerce',
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['ecommerce', 'store', 'orders', 'products'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -362,7 +344,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['accounting', 'bookkeeping', 'finance'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -373,7 +354,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['banking', 'reconciliation', 'cashflow'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -384,7 +364,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['expenses', 'receipts', 'approvals'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -395,7 +374,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['invoicing', 'payments', 'billing'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -406,7 +384,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['quotes', 'proposals', 'pdf', 'crm'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -417,7 +394,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['subscriptions', 'billing', 'stripe', 'mrr'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -430,7 +406,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['maps', 'location', 'geospatial', 'postgis'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -443,7 +418,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['hr', 'employees', 'departments'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -454,7 +428,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['hr', 'leave', 'vacation', 'approvals'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -465,7 +438,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['payroll', 'hr', 'romania', 'revisal'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -476,7 +448,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['timesheets', 'billing', 'projects', 'hr'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -489,7 +460,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['i18n', 'translations', 'locales'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -502,7 +472,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['integrations', 'api', 'http', 'webhooks'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -515,7 +484,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['assets', 'depreciation', 'maintenance'],
-    bundled: false,
     permissions: ['database'],
   },
   // operations/backup — promoted to engine core
@@ -527,7 +495,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['inventory', 'warehouse', 'stock', 'barcode'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -538,7 +505,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['pos', 'retail', 'receipts', 'inventory'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -551,7 +517,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['helpdesk', 'tickets', 'support', 'sla'],
-    bundled: false,
     permissions: ['database'],
   },
   {
@@ -562,7 +527,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['projects', 'tasks', 'kanban', 'milestones'],
-    bundled: false,
     permissions: ['database'],
   },
 
@@ -575,7 +539,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['storage', 'files', 'cloud', 'sharing'],
-    bundled: false,
     permissions: ['database', 'storage'],
   },
 
@@ -588,7 +551,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['workflow', 'approvals', 'notifications'],
-    bundled: false,
     permissions: ['database', 'email'],
   },
   {
@@ -599,7 +561,6 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['forms', 'checklists', 'scoring'],
-    bundled: false,
     permissions: ['database'],
   },
 ];

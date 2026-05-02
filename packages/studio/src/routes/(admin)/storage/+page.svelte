@@ -35,7 +35,7 @@
  async function loadFiles() {
  loading = true;
  try {
- const data = await api.get<{ files: MediaFile[] }>('/api/storage/files');
+ const data = await api.get<{ files: MediaFile[] }>('/api/storage/');
  files = data.files || [];
  } catch { files = []; }
  finally { loading = false; }
@@ -68,7 +68,7 @@
  onconfirm: async () => {
  confirmState.open = false;
  try {
- await api.delete(`/api/storage/files/${id}`);
+ await api.delete(`/api/storage/${id}`);
  files = files.filter(f => f.id !== id);
  } catch (err) {
  toast.error(err instanceof Error ? err.message : 'Delete failed');
@@ -81,7 +81,7 @@
  if (selectedFiles.size === 0) return;
  for (const id of selectedFiles) {
  try {
- await api.delete(`/api/storage/files/${id}`);
+ await api.delete(`/api/storage/${id}`);
  } catch (err) {
  toast.error(err instanceof Error ? err.message : 'Delete failed');
  }
