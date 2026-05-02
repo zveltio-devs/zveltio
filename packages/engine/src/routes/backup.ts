@@ -70,12 +70,31 @@ export function backupRoutes(db: Database, auth: any): Hono {
     `.execute(db);
     const backupId = backupResult.rows[0].id;
 
-    // Build DB connection params
-    const dbHost = process.env.DATABASE_HOST_DIRECT || process.env.DATABASE_HOST || 'localhost';
-    const dbPort = process.env.DATABASE_PORT_DIRECT || process.env.DATABASE_PORT || '5432';
-    const dbName = process.env.DATABASE_NAME || 'zveltio_dev';
-    const dbUser = process.env.DATABASE_USER || 'postgres';
-    const dbPassword = process.env.DATABASE_PASSWORD || '';
+    // Build DB connection params — prefer individual vars, fall back to parsing DATABASE_URL
+    let dbHost = process.env.DATABASE_HOST_DIRECT || process.env.DATABASE_HOST || '';
+    let dbPort = process.env.DATABASE_PORT_DIRECT || process.env.DATABASE_PORT || '';
+    let dbName = process.env.DATABASE_NAME || '';
+    let dbUser = process.env.DATABASE_USER || '';
+    let dbPassword = process.env.DATABASE_PASSWORD || '';
+
+    if (!dbHost || !dbName || !dbUser) {
+      const rawUrl = process.env.DATABASE_URL || process.env.NATIVE_DATABASE_URL || '';
+      if (rawUrl) {
+        try {
+          const u = new URL(rawUrl);
+          if (!dbHost)     dbHost     = u.hostname;
+          if (!dbPort)     dbPort     = u.port || '5432';
+          if (!dbName)     dbName     = u.pathname.replace(/^\//, '');
+          if (!dbUser)     dbUser     = u.username;
+          if (!dbPassword) dbPassword = decodeURIComponent(u.password);
+        } catch { /* malformed URL — keep empty strings */ }
+      }
+    }
+
+    dbHost     = dbHost     || 'localhost';
+    dbPort     = dbPort     || '5432';
+    dbName     = dbName     || 'zveltio_dev';
+    dbUser     = dbUser     || 'postgres';
 
     // Run backup in background — do NOT await
     const backupBg = async () => {

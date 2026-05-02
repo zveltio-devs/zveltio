@@ -34,6 +34,7 @@ const WRITABLE_SETTINGS_KEYS = new Set([
 const READONLY_SETTINGS_KEYS = new Set([
   'auth_secret', 'jwt_secret', 'encryption_key', 'database_url', 'redis_url',
   'internal_api_key', 'webhook_signing_secret', 'license_key', 'engine_version', 'schema_version',
+  'marketplace_auth_token',
 ]);
 
 export function settingsRoutes(db: Database, auth: any): Hono {
