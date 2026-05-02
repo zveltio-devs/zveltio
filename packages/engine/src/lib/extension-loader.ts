@@ -826,8 +826,17 @@ class ExtensionLoader {
       }
 
       const data = await res.json().catch(() => null) as any;
-      const token = data?.session?.token;
-      if (!token) return c.json({ error: 'No session token received from registry' }, 500);
+      // Better Auth v1.x may return token at top level OR nested in session.
+      // Fallback: extract from Set-Cookie header (cookie-based sessions).
+      const setCookie = res.headers.get('set-cookie') ?? '';
+      const cookieToken = setCookie.match(/better-auth\.session_token=([^;,\s]+)/)?.[1];
+      const token = data?.token || data?.session?.token || cookieToken;
+      if (!token) {
+        const hint = data?.code === 'SOCIAL_ACCOUNT_ONLY'
+          ? 'This account uses Google or GitHub login. Please sign in at apps.zveltio.com and add a password under Profile → Security.'
+          : 'No session token received from registry. Please try again.';
+        return c.json({ error: hint }, 500);
+      }
 
       await (db as any)
         .insertInto('zv_settings')
@@ -886,6 +895,37 @@ class ExtensionLoader {
       return c.json({
         ok: true,
         user: { email: data?.user?.email ?? email, name: data?.user?.name ?? name, image: data?.user?.image ?? null },
+      });
+    });
+
+    // POST /api/marketplace/auth/connect — receives token from OAuth popup (postMessage flow)
+    app.post('/api/marketplace/auth/connect', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+
+      const body = await c.req.json().catch(() => ({})) as any;
+      const token = body?.token as string | undefined;
+      if (!token) return c.json({ error: 'Token is required' }, 400);
+
+      // Validate the token with the registry before storing it
+      const res = await fetch(`${REGISTRY_URL}/api/auth/get-session`, {
+        headers: { 'Cookie': `better-auth.session_token=${token}` },
+        signal: AbortSignal.timeout(5_000),
+      }).catch(() => null);
+
+      if (!res?.ok) return c.json({ error: 'Token is invalid or expired' }, 401);
+
+      const data = await res.json().catch(() => null) as any;
+      if (!data?.session || !data?.user) return c.json({ error: 'Token is invalid or expired' }, 401);
+
+      await (db as any)
+        .insertInto('zv_settings')
+        .values({ key: 'marketplace_auth_token', value: token, is_public: false })
+        .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: token }))
+        .execute();
+
+      return c.json({
+        ok: true,
+        user: { email: data.user.email, name: data.user.name, image: data.user.image ?? null },
       });
     });
 
