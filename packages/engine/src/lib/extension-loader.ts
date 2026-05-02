@@ -44,15 +44,15 @@ const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let catalogCache: ExtensionCatalogEntry[] | null = null;
 let catalogCacheExpiry = 0;
 
-// ── Marketplace auth token helper ─────────────────────────────────────────────
-// Token is stored in zv_settings (key: marketplace_auth_token) and used to
-// authenticate download requests to the registry for paid extensions.
-async function getMarketplaceToken(db: any): Promise<string | undefined> {
+// ── License key helper ────────────────────────────────────────────────────────
+// Per-extension license keys are stored in zv_settings as ext_license:<name>.
+// Free extensions need no key. Paid extensions send it as Authorization: Bearer.
+async function getLicenseKey(db: any, extensionName: string): Promise<string | undefined> {
   try {
     const row = await db
       .selectFrom('zv_settings')
       .select('value')
-      .where('key', '=', 'marketplace_auth_token')
+      .where('key', '=', `ext_license:${extensionName}`)
       .executeTakeFirst();
     return row?.value ?? undefined;
   } catch {
@@ -111,7 +111,7 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
  * directory matching the extension slug (or anything else), we flatten it so
  * `engine/`, `studio/`, `manifest.json` land directly inside `EXTENSIONS_DIR/<name>/`.
  */
-async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string, authToken?: string): Promise<void> {
+async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string, licenseKey?: string): Promise<void> {
   const downloadUrl = entry.download_url
     ?? `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(entry.name)}/download`;
 
@@ -121,8 +121,8 @@ async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string,
     'User-Agent': 'zveltio-engine',
     'Accept': 'application/octet-stream',
   };
-  if (authToken) {
-    headers['Cookie'] = `better-auth.session_token=${authToken}`;
+  if (licenseKey) {
+    headers['Authorization'] = `Bearer ${licenseKey}`;
   }
 
   const res = await fetch(downloadUrl, {
@@ -774,175 +774,52 @@ class ExtensionLoader {
       return isAdmin;
     }
 
-    // ── Marketplace auth (server-to-server proxy to registry.zveltio.com) ──────
+    // ── License key management ────────────────────────────────────────────────
+    // Free extensions need no license key — they download without auth.
+    // Paid extensions require a license key purchased on apps.zveltio.com.
+    // Keys are stored per-extension in zv_settings as ext_license:<name>.
 
-    // GET /api/marketplace/auth/session — check if stored token is still valid
-    app.get('/api/marketplace/auth/session', async (c) => {
+    // POST /api/marketplace/license/:name — store (and optionally verify) a license key
+    app.post('/api/marketplace/license/:name{.+}', async (c) => {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
 
-      const token = await getMarketplaceToken(db);
-      if (!token) return c.json({ authenticated: false });
-
-      const res = await fetch(`${REGISTRY_URL}/api/auth/get-session`, {
-        headers: { 'Cookie': `better-auth.session_token=${token}` },
-        signal: AbortSignal.timeout(5_000),
-      }).catch(() => null);
-
-      if (!res?.ok) {
-        await db.deleteFrom('zv_settings' as any).where('key' as any, '=', 'marketplace_auth_token').execute().catch(() => {});
-        return c.json({ authenticated: false });
-      }
-
-      const data = await res.json().catch(() => null) as any;
-      if (!data?.session || !data?.user) {
-        await db.deleteFrom('zv_settings' as any).where('key' as any, '=', 'marketplace_auth_token').execute().catch(() => {});
-        return c.json({ authenticated: false });
-      }
-
-      return c.json({
-        authenticated: true,
-        user: { email: data.user.email, name: data.user.name, image: data.user.image ?? null },
-      });
-    });
-
-    // POST /api/marketplace/auth/login
-    app.post('/api/marketplace/auth/login', async (c) => {
-      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
-
+      const name = c.req.param('name');
       const body = await c.req.json().catch(() => ({})) as any;
-      const { email, password } = body;
-      if (!email || !password) return c.json({ error: 'Email and password are required' }, 400);
+      const key = body?.license_key as string | undefined;
+      if (!key?.trim()) return c.json({ error: 'license_key is required' }, 400);
 
-      const res = await fetch(`${REGISTRY_URL}/api/auth/sign-in/email`, {
+      // Verify with the registry before storing
+      const res = await fetch(`${REGISTRY_URL}/api/licenses/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        signal: AbortSignal.timeout(10_000),
+        body: JSON.stringify({ extension: name, license_key: key }),
+        signal: AbortSignal.timeout(8_000),
       }).catch(() => null);
 
-      if (!res?.ok) {
-        const err = await res?.json().catch(() => null) as any;
-        return c.json({ error: err?.message || 'Invalid email or password' }, 401);
-      }
-
-      const data = await res.json().catch(() => null) as any;
-      // Better Auth v1.x may return token at top level OR nested in session.
-      // Fallback: extract from Set-Cookie header (cookie-based sessions).
-      const setCookie = res.headers.get('set-cookie') ?? '';
-      const cookieToken = setCookie.match(/better-auth\.session_token=([^;,\s]+)/)?.[1];
-      const token = data?.token || data?.session?.token || cookieToken;
-      if (!token) {
-        const hint = data?.code === 'SOCIAL_ACCOUNT_ONLY'
-          ? 'This account uses Google or GitHub login. Please sign in at apps.zveltio.com and add a password under Profile → Security.'
-          : 'No session token received from registry. Please try again.';
-        return c.json({ error: hint }, 500);
+      if (res && !res.ok) {
+        const err = await res.json().catch(() => null) as any;
+        return c.json({ error: err?.message || 'Invalid license key' }, 400);
       }
 
       await (db as any)
         .insertInto('zv_settings')
-        .values({ key: 'marketplace_auth_token', value: token, is_public: false })
-        .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: token }))
+        .values({ key: `ext_license:${name}`, value: key.trim(), is_public: false })
+        .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: key.trim() }))
         .execute();
 
-      return c.json({
-        ok: true,
-        user: { email: data.user.email, name: data.user.name, image: data.user.image ?? null },
-      });
+      return c.json({ ok: true });
     });
 
-    // POST /api/marketplace/auth/signup
-    app.post('/api/marketplace/auth/signup', async (c) => {
+    // DELETE /api/marketplace/license/:name — remove a stored license key
+    app.delete('/api/marketplace/license/:name{.+}', async (c) => {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
 
-      const body = await c.req.json().catch(() => ({})) as any;
-      const { email, password, name } = body;
-      if (!email || !password || !name) return c.json({ error: 'Name, email and password are required' }, 400);
-
-      const signUpRes = await fetch(`${REGISTRY_URL}/api/auth/sign-up/email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
-        signal: AbortSignal.timeout(10_000),
-      }).catch(() => null);
-
-      if (!signUpRes?.ok) {
-        const err = await signUpRes?.json().catch(() => null) as any;
-        return c.json({ error: err?.message || 'Signup failed' }, 400);
-      }
-
-      // Auto sign-in after signup to obtain session token
-      const signInRes = await fetch(`${REGISTRY_URL}/api/auth/sign-in/email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        signal: AbortSignal.timeout(10_000),
-      }).catch(() => null);
-
-      if (!signInRes?.ok) {
-        return c.json({ ok: true, needsLogin: true, message: 'Account created. Please log in.' });
-      }
-
-      const data = await signInRes.json().catch(() => null) as any;
-      const token = data?.session?.token;
-      if (token) {
-        await (db as any)
-          .insertInto('zv_settings')
-          .values({ key: 'marketplace_auth_token', value: token, is_public: false })
-          .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: token }))
-          .execute();
-      }
-
-      return c.json({
-        ok: true,
-        user: { email: data?.user?.email ?? email, name: data?.user?.name ?? name, image: data?.user?.image ?? null },
-      });
-    });
-
-    // POST /api/marketplace/auth/connect — receives token from OAuth popup (postMessage flow)
-    app.post('/api/marketplace/auth/connect', async (c) => {
-      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
-
-      const body = await c.req.json().catch(() => ({})) as any;
-      const token = body?.token as string | undefined;
-      if (!token) return c.json({ error: 'Token is required' }, 400);
-
-      // Validate the token with the registry before storing it
-      const res = await fetch(`${REGISTRY_URL}/api/auth/get-session`, {
-        headers: { 'Cookie': `better-auth.session_token=${token}` },
-        signal: AbortSignal.timeout(5_000),
-      }).catch(() => null);
-
-      if (!res?.ok) return c.json({ error: 'Token is invalid or expired' }, 401);
-
-      const data = await res.json().catch(() => null) as any;
-      if (!data?.session || !data?.user) return c.json({ error: 'Token is invalid or expired' }, 401);
-
-      await (db as any)
-        .insertInto('zv_settings')
-        .values({ key: 'marketplace_auth_token', value: token, is_public: false })
-        .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: token }))
-        .execute();
-
-      return c.json({
-        ok: true,
-        user: { email: data.user.email, name: data.user.name, image: data.user.image ?? null },
-      });
-    });
-
-    // POST /api/marketplace/auth/logout
-    app.post('/api/marketplace/auth/logout', async (c) => {
-      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
-
-      const token = await getMarketplaceToken(db);
-      if (token) {
-        // Best-effort sign-out on the registry side
-        fetch(`${REGISTRY_URL}/api/auth/sign-out`, {
-          method: 'POST',
-          headers: { 'Cookie': `better-auth.session_token=${token}` },
-          signal: AbortSignal.timeout(5_000),
-        }).catch(() => {});
-        await db.deleteFrom('zv_settings' as any).where('key' as any, '=', 'marketplace_auth_token').execute().catch(() => {});
-      }
+      const name = c.req.param('name');
+      await db
+        .deleteFrom('zv_settings' as any)
+        .where('key' as any, '=', `ext_license:${name}`)
+        .execute()
+        .catch(() => {});
 
       return c.json({ ok: true });
     });
@@ -953,12 +830,14 @@ class ExtensionLoader {
 
       const extBase = resolveExtensionsBase();
 
-      const [catalog, rows] = await Promise.all([
+      const [catalog, rows, licenseRows] = await Promise.all([
         fetchRegistryCatalog(),
         (db as any).selectFrom('zv_extension_registry').selectAll().execute().catch(() => []),
+        (db as any).selectFrom('zv_settings').select(['key']).where('key' as any, 'like', 'ext_license:%').execute().catch(() => []),
       ]);
 
       const dbMap = new Map(rows.map((r: any) => [r.name, r]));
+      const licenseSet = new Set((licenseRows as any[]).map((r: any) => r.key.replace('ext_license:', '')));
 
       const extensions = catalog.map((entry) => {
         const dbEntry = dbMap.get(entry.name) as any;
@@ -973,6 +852,7 @@ class ExtensionLoader {
           is_enabled:    dbEntry?.is_enabled   ?? runtimeActive,
           is_running:    runtimeActive,
           files_on_disk: filesOnDisk,
+          has_license:   licenseSet.has(entry.name),
           // needs_restart only when files exist but process hasn't loaded them yet
           needs_restart: filesOnDisk &&
                          ((dbEntry?.is_enabled && !runtimeActive) ||
@@ -1002,7 +882,7 @@ class ExtensionLoader {
       const engineJs = join(extDir, 'engine/index.js');
 
       // Download extension package if not already on disk
-      const authToken = await getMarketplaceToken(db);
+      const authToken = await getLicenseKey(db, name);
       let downloaded = false;
       let downloadError = '';
       if (!existsSync(engineTs) && !existsSync(engineJs)) {
@@ -1080,7 +960,7 @@ class ExtensionLoader {
       const extDir  = join(extBase, name);
       if (!existsSync(join(extDir, 'engine/index.ts')) && !existsSync(join(extDir, 'engine/index.js'))) {
         try {
-          const authToken = await getMarketplaceToken(db);
+          const authToken = await getLicenseKey(db, name);
           await downloadExtension(entry, extBase, authToken);
         } catch (downloadErr) {
           const msg = `Extension "${name}" files not found and download failed: ${(downloadErr as Error).message}. ` +
