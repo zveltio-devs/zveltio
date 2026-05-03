@@ -365,6 +365,47 @@ export const zValidator = _s.zValidator;
 
 export type { EventBus };
 
+/**
+ * Ensure core npm packages (hono, zod, kysely, @hono/zod-validator) are available
+ * in the extensions base directory. In production (compiled binary) Bun.plugin shims
+ * may not intercept dynamic imports, so we rely on Bun's normal file-system resolution.
+ * Exits fast when node_modules/hono already exists.
+ */
+async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
+  const honoPath = join(extBase, 'node_modules', 'hono');
+  if (existsSync(honoPath)) return;
+
+  const pkgJsonPath = join(extBase, 'package.json');
+  if (!existsSync(pkgJsonPath)) {
+    writeFileSync(pkgJsonPath, JSON.stringify({
+      name: 'zveltio-extensions',
+      private: true,
+      type: 'module',
+      dependencies: {
+        'hono': '^4.4.0',
+        'zod': '^4.0.0',
+        'kysely': '^0.27.6',
+        '@hono/zod-validator': '^0.7.6',
+      },
+    }, null, 2));
+  }
+
+  console.log('[extensions] Installing core packages (first-time setup)…');
+  const proc = Bun.spawn(['bun', 'install'], {
+    cwd: extBase,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    console.warn('[extensions] Core package install failed:', stderr.trim().slice(0, 500));
+    console.warn('[extensions] Extensions may fail to load. Run `bun install` manually in', extBase);
+  } else {
+    console.log('[extensions] Core packages installed.');
+  }
+}
+
 const ManifestSchema = z.object({
   name: z.string().min(1),
   version: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
@@ -425,8 +466,10 @@ class ExtensionLoader {
   private lastLoadError: Map<string, string> = new Map();
 
   async loadAll(app: Hono, ctx: ExtensionContext): Promise<void> {
-    // Install Bun plugin shims so extensions can import from engine source paths
     installExtensionShims();
+
+    const extBase = resolveExtensionsBase();
+    await ensureExtensionCoreDeps(extBase);
 
     this.ctx = ctx;
     const activeExtensions = this.getActiveExtensionNames();
