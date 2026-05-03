@@ -5,6 +5,7 @@
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
+ import { extensionRegistry } from '$lib/extension-registry.svelte.js';
 
  interface MediaFile {
  id: string;
@@ -104,6 +105,12 @@
 
  function isImage(mime: string) { return mime.startsWith('image/'); }
  function isPdf(mime: string) { return mime.includes('pdf'); }
+
+ let previewFile = $state<MediaFile | null>(null);
+
+ function openPreview(file: MediaFile) {
+   if (isPdf(file.mime_type) || isImage(file.mime_type)) previewFile = file;
+ }
 </script>
 
 <div class="space-y-6">
@@ -168,15 +175,19 @@
  }} />
  </div>
  <!-- Thumbnail -->
- <div class="h-36 bg-base-300 flex items-center justify-center overflow-hidden">
- {#if isImage(file.mime_type)}
- <img src={file.url} alt={file.original_name} class="w-full h-full object-cover" loading="lazy" />
- {:else if isPdf(file.mime_type)}
- <FileText size={36} class="opacity-30" />
- {:else}
- <File size={36} class="opacity-30" />
- {/if}
- </div>
+ <button
+   class="h-36 w-full bg-base-300 flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+   onclick={() => openPreview(file)}
+   aria-label="Preview {file.original_name}"
+ >
+   {#if isImage(file.mime_type)}
+     <img src={file.url} alt={file.original_name} class="w-full h-full object-cover" loading="lazy" />
+   {:else if isPdf(file.mime_type)}
+     <FileText size={36} class="opacity-30" />
+   {:else}
+     <File size={36} class="opacity-30" />
+   {/if}
+ </button>
  <!-- Info -->
  <div class="p-3 space-y-2">
  <div>
@@ -210,3 +221,24 @@
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />
+
+{#if previewFile}
+  {@const previewer = extensionRegistry.getAssetPreviewer({ url: previewFile.url, name: previewFile.original_name, mimeType: previewFile.mime_type })}
+  <div class="modal modal-open">
+    <div class="modal-box max-w-4xl w-full">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold truncate">{previewFile.original_name}</h3>
+        <button class="btn btn-ghost btn-sm btn-square" onclick={() => previewFile = null}>✕</button>
+      </div>
+
+      {#if previewer}
+        <previewer.component asset={{ url: previewFile.url, name: previewFile.original_name, mimeType: previewFile.mime_type }} />
+      {:else if isImage(previewFile.mime_type)}
+        <img src={previewFile.url} alt={previewFile.original_name} class="w-full rounded" />
+      {:else if isPdf(previewFile.mime_type)}
+        <iframe src={previewFile.url} title={previewFile.original_name} class="w-full rounded border border-base-300" style="height:70vh"></iframe>
+      {/if}
+    </div>
+    <button class="modal-backdrop" aria-label="Close" onclick={() => previewFile = null}></button>
+  </div>
+{/if}
