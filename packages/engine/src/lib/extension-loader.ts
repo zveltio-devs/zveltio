@@ -466,12 +466,16 @@ class ExtensionLoader {
   private lastLoadError: Map<string, string> = new Map();
 
   async loadAll(app: Hono, ctx: ExtensionContext): Promise<void> {
+    // ctx must be set FIRST — ensureExtensionCoreDeps may throw and loadAll() is
+    // called inside Promise.all() with a .catch(); if ctx is set late it stays null.
+    this.ctx = ctx;
     installExtensionShims();
 
     const extBase = resolveExtensionsBase();
-    await ensureExtensionCoreDeps(extBase);
+    await ensureExtensionCoreDeps(extBase).catch((err: Error) => {
+      console.warn('[extensions] Core dep install failed (non-fatal):', err.message);
+    });
 
-    this.ctx = ctx;
     const activeExtensions = this.getActiveExtensionNames();
 
     for (const extName of activeExtensions) {
