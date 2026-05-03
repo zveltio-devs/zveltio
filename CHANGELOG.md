@@ -2,6 +2,13 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.57] - 2026-05-03
+
+### Fixes
+- Extensions: `ensureExtensionCoreDeps()` auto-installs hono/zod/kysely/@hono/zod-validator in extensions base dir on first startup — fixes "Cannot find package 'hono'" in production compiled binary where `Bun.plugin` shims don't intercept dynamic imports
+
+---
+
 ## [1.0.0-alpha.56] - 2026-05-03
 
 ### Fixes
