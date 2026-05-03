@@ -16,6 +16,7 @@ import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.j
 import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
 import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
+import type { ZveltioExtension } from '@zveltio/sdk/extension';
 
 // ── Extension base directory resolution ───────────────────────────────────────
 /**
@@ -387,33 +388,23 @@ const ManifestSchema = z.object({
   }).optional(),
 }).passthrough();
 
+// ZveltioExtension is imported from @zveltio/sdk/extension — single source of truth.
+// Re-export so other engine modules can import from here without depending on the SDK directly.
+export type { ZveltioExtension };
+
+/**
+ * Internal extension context — extends the public ExtensionContext from the SDK
+ * with concrete engine types (Database, FieldTypeRegistry, EventBus, DDLManager).
+ * Extensions receive this at runtime but only see the public interface.
+ */
 export interface ExtensionContext {
   db: Database;
   auth: any;
   fieldTypeRegistry: FieldTypeRegistry;
-  /** Typed event bus — extensions subscribe to record lifecycle events without touching core routes. */
   events: EventBus;
-  /** Check if a user has permission for a resource/action. Injected automatically — no engine import needed. */
   checkPermission?: (userId: string, resource: string, action: string) => Promise<boolean>;
-  /** Get all roles for a user. Injected automatically — no engine import needed. */
   getUserRoles?: (userId: string) => Promise<string[]>;
-  /** DDLManager class (static methods). Injected automatically — no engine import needed. */
   DDLManager?: typeof DDLManager;
-}
-
-export interface ZveltioExtension {
-  name: string;
-  category: string;
-  register: (app: Hono, ctx: ExtensionContext) => Promise<void>;
-  registerFieldTypes?: (registry: FieldTypeRegistry) => void;
-  getMigrations?: () => string[]; // paths to SQL files
-  /**
-   * Optional cleanup function — called when the extension is unloaded.
-   * Use to close connections, clear timers, etc.
-   * NOTE: Hono routes registered by the extension cannot be removed at runtime
-   * (Hono does not support de-registration). Those require a process restart.
-   */
-  cleanup?: () => Promise<void>;
 }
 
 interface LoadedExtension {
