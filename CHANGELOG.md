@@ -2,6 +2,13 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.56] - 2026-05-03
+
+### Fixes
+- CI: build SDK before engine typecheck so `@zveltio/sdk` dist types exist in fresh checkout
+
+---
+
 ## [1.0.0-alpha.55] - 2026-05-03
 
 ### Fixes
