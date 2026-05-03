@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/engine",
-  "version": "1.0.0-alpha.54",
+  "version": "1.0.0-alpha.55",
   "private": true,
   "type": "module",
   "scripts": {
@@ -43,6 +43,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@zveltio/sdk": "workspace:*",
     "@types/nodemailer": "^6.4.17",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",

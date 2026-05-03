@@ -21,7 +21,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "1.0.0-alpha.16",
+      "version": "1.0.0-alpha.54",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -60,7 +60,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "1.0.0-alpha.31",
+      "version": "1.0.0-alpha.54",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.5.3",
         "@hono/zod-validator": "^0.7.6",
@@ -85,6 +85,7 @@
         "@types/nodemailer": "^6.4.17",
         "@typescript-eslint/eslint-plugin": "^7.0.0",
         "@typescript-eslint/parser": "^7.0.0",
+        "@zveltio/sdk": "workspace:*",
         "bun-types": "latest",
         "eslint": "^8.57.0",
         "typescript": "^5.4.0",
@@ -92,7 +93,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "1.0.0-alpha.16",
+      "version": "1.0.0-alpha.54",
       "dependencies": {
         "idb": "^8.0.0",
       },
@@ -104,7 +105,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "1.0.0-alpha.16",
+      "version": "1.0.0-alpha.54",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -120,7 +121,7 @@
     },
     "packages/sdk-react-native": {
       "name": "@zveltio/react-native",
-      "version": "1.0.0-alpha.1",
+      "version": "1.0.0-alpha.54",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -138,7 +139,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "1.0.0-alpha.16",
+      "version": "1.0.0-alpha.54",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -152,7 +153,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "1.0.0-alpha.16",
+      "version": "1.0.0-alpha.54",
       "dependencies": {
         "@lucide/svelte": "^0.575.0",
         "@sveltejs/adapter-static": "^3.0.0",
