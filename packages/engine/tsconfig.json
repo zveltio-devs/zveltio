@@ -8,7 +8,12 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": ".",
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@zveltio/sdk": ["../sdk/dist/index.d.ts"],
+      "@zveltio/sdk/extension": ["../sdk/dist/extension/index.d.ts"],
+      "@zveltio/sdk/*": ["../sdk/dist/*"]
+    }
   },
   "include": ["src/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]

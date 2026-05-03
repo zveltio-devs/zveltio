@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/engine",
-  "version": "1.0.0-alpha.53",
+  "version": "1.0.0-alpha.54",
   "private": true,
   "type": "module",
   "scripts": {
