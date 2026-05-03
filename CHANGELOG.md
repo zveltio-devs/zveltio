@@ -2,6 +2,14 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.58] - 2026-05-03
+
+### Fixes
+- Extension loader: `this.ctx` is now set as the very first operation in `loadAll()` — prevents "ExtensionLoader not initialized" when `ensureExtensionCoreDeps()` throws and the error is swallowed by the outer `Promise.all().catch()`
+- `ensureExtensionCoreDeps()` errors are now caught non-fatally inside `loadAll()` so a failing `bun install` never blocks loader initialization
+
+---
+
 ## [1.0.0-alpha.57] - 2026-05-03
 
 ### Fixes
