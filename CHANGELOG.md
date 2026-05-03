@@ -2,6 +2,13 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.55] - 2026-05-03
+
+### Fixes
+- Engine `tsconfig.json`: removed deprecated `baseUrl` + `paths` — `@zveltio/sdk` is now a proper `workspace:*` devDependency, resolved via Bun workspace symlink and SDK `package.json` exports
+
+---
+
 ## [1.0.0-alpha.54] - 2026-05-03
 
 ### Architecture
