@@ -432,7 +432,6 @@
     </div>
 
   </div>
-</div>
 
 <!-- License key modal -->
 {#if licenseExt}
