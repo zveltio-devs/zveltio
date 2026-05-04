@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { sql as _sql, Kysely } from 'kysely';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
-import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
@@ -370,6 +370,11 @@ export type { EventBus };
  * in the extensions base directory. In production (compiled binary) Bun.plugin shims
  * may not intercept dynamic imports, so we rely on Bun's normal file-system resolution.
  * Exits fast when node_modules/hono already exists.
+ *
+ * Strategy:
+ *   1. Try `bun install` (works in dev when bun is on PATH).
+ *   2. Fall back to direct npm tarball fetch + tar extract — needed in production
+ *      compiled binaries where bun is not separately installed (e.g. systemd service).
  */
 async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
   const honoPath = join(extBase, 'node_modules', 'hono');
@@ -391,18 +396,91 @@ async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
   }
 
   console.log('[extensions] Installing core packages (first-time setup)…');
-  const proc = Bun.spawn(['bun', 'install'], {
-    cwd: extBase,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    console.warn('[extensions] Core package install failed:', stderr.trim().slice(0, 500));
-    console.warn('[extensions] Extensions may fail to load. Run `bun install` manually in', extBase);
-  } else {
-    console.log('[extensions] Core packages installed.');
+
+  if (await tryBunInstall(extBase)) {
+    console.log('[extensions] Core packages installed via bun.');
+    return;
+  }
+
+  console.log('[extensions] bun CLI unavailable; fetching tarballs from npm registry…');
+  try {
+    await installCorePackagesFromNpm(extBase);
+    console.log('[extensions] Core packages installed via npm tarball fetch.');
+  } catch (err) {
+    console.warn('[extensions] Core package install failed:', (err as Error).message);
+    console.warn('[extensions] Extensions with engine routes will not load. Install bun or run `npm install` in', extBase);
+  }
+}
+
+async function tryBunInstall(cwd: string): Promise<boolean> {
+  try {
+    const proc = Bun.spawn(['bun', 'install'], {
+      cwd,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const exitCode = await proc.exited;
+    return exitCode === 0;
+  } catch {
+    // ENOENT — bun not on PATH (typical for compiled-binary production installs)
+    return false;
+  }
+}
+
+const CORE_NPM_PACKAGES = ['hono', 'zod', 'kysely', '@hono/zod-validator'];
+
+/**
+ * Direct npm install fallback for production compiled binaries.
+ * For each core package:
+ *   1. GET https://registry.npmjs.org/<name>/latest → metadata with tarball URL
+ *   2. Download tarball
+ *   3. Extract via system `tar` into node_modules/<name>/, stripping the
+ *      'package/' top-level directory that npm tarballs always contain
+ *
+ * These 4 packages have zero runtime dependencies between them (zod-validator
+ * lists hono and zod as peer deps which we install separately), so we don't
+ * need a full dependency resolver.
+ */
+async function installCorePackagesFromNpm(extBase: string): Promise<void> {
+  const nodeModules = join(extBase, 'node_modules');
+  mkdirSync(nodeModules, { recursive: true });
+
+  for (const pkg of CORE_NPM_PACKAGES) {
+    const metaRes = await fetch(`https://registry.npmjs.org/${pkg}/latest`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!metaRes.ok) {
+      throw new Error(`npm metadata fetch failed for ${pkg}: ${metaRes.status}`);
+    }
+    const meta = await metaRes.json() as { version: string; dist: { tarball: string } };
+
+    const tarRes = await fetch(meta.dist.tarball, { signal: AbortSignal.timeout(60_000) });
+    if (!tarRes.ok) {
+      throw new Error(`tarball download failed for ${pkg}@${meta.version}: ${tarRes.status}`);
+    }
+    const buf = Buffer.from(await tarRes.arrayBuffer());
+
+    const targetDir = join(nodeModules, pkg);
+    mkdirSync(targetDir, { recursive: true });
+
+    // Stage the tarball next to the target so concurrent extractions don't collide.
+    const tmpFile = join(nodeModules, `.${pkg.replace('/', '__')}.tgz`);
+    writeFileSync(tmpFile, buf);
+
+    const proc = Bun.spawn(
+      ['tar', '-xzf', tmpFile, '-C', targetDir, '--strip-components=1'],
+      { stdout: 'pipe', stderr: 'pipe' },
+    );
+    const exitCode = await proc.exited;
+    try { unlinkSync(tmpFile); } catch { /* ignore cleanup error */ }
+
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(`tar extraction failed for ${pkg}: ${stderr.trim() || `exit ${exitCode}`}`);
+    }
+
+    console.log(`[extensions]   ✓ ${pkg}@${meta.version}`);
   }
 }
 

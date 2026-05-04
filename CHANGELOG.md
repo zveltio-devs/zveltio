@@ -2,6 +2,13 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.59] - 2026-05-04
+
+### Fixes
+- `ensureExtensionCoreDeps()` now falls back to direct npm tarball fetch + `tar` extraction when `bun` is not on PATH — fixes "Cannot find package 'hono'" on production compiled-binary installs (e.g. systemd service) where Zveltio is installed as a single binary and `bun` is not separately available. Affected every extension that imports `hono`/`zod`/`kysely`/`@hono/zod-validator` from `routes.ts` (i.e. all extensions with engine routes); only `content/pdf-viewer` worked previously because it has no runtime imports.
+
+---
+
 ## [1.0.0-alpha.58] - 2026-05-03
 
 ### Fixes
