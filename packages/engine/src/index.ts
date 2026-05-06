@@ -8,7 +8,7 @@ import { initAuth } from './lib/auth.js';
 import { initPermissions, checkPermission, getUserRoles } from './lib/permissions.js';
 import { initRls } from './lib/rls.js';
 import { fieldTypeRegistry } from './lib/field-type-registry.js';
-import { extensionLoader } from './lib/extension-loader.js';
+import { extensionLoader, buildExtensionInternals } from './lib/extension-loader.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
@@ -540,7 +540,16 @@ async function bootstrap() {
 
     // Extensions — env-var configured + DB marketplace
     extensionLoader
-      .loadAll(_tempApp, { db, auth, fieldTypeRegistry, events: engineEvents, checkPermission, getUserRoles, DDLManager })
+      .loadAll(_tempApp, {
+        db,
+        auth,
+        fieldTypeRegistry,
+        events: engineEvents,
+        checkPermission,
+        getUserRoles,
+        DDLManager,
+        internals: buildExtensionInternals(),
+      })
       .then(() => ensureDefaultExtensions(db))
       .then(() => extensionLoader.loadFromDB(db, _tempApp))
       .then(() => {
