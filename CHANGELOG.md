@@ -2,6 +2,13 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.61] - 2026-05-06
+
+### Fixes
+- `install.sh`: fixed `BUN_INSTALL` variable not being passed to the bun installer — `BUN_INSTALL=... curl | bash` sets it on `curl`, not on `bash`; changed to `curl | BUN_INSTALL=... bash` so the installer writes to `/usr/local/share/bun` as intended.
+
+---
+
 ## [1.0.0-alpha.60] - 2026-05-05
 
 ### Breaking / Architecture
