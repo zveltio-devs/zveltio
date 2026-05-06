@@ -2,6 +2,13 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.62] - 2026-05-06
+
+### Fixes
+- `install.sh`: `chown` extensions directory to `${ZVELTIO_USER}` **before** running `bun install` — the directory was created as root so `sudo -u zveltio bun install` failed with EACCES when trying to create `node_modules/`.
+
+---
+
 ## [1.0.0-alpha.61] - 2026-05-06
 
 ### Fixes
