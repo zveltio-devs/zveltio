@@ -558,7 +558,7 @@ UNIT
   # avoids this entirely.
   if ! command -v bun &>/dev/null || ! [[ "$(readlink -f "$(command -v bun)")" =~ ^/usr/local/ ]]; then
     info "Installing Bun to /usr/local/share/bun (system-wide)…"
-    BUN_INSTALL=/usr/local/share/bun curl -fsSL https://bun.sh/install | bash
+    curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local/share/bun bash
 
     if [[ ! -x /usr/local/share/bun/bin/bun ]]; then
       error "Bun install failed — /usr/local/share/bun/bin/bun missing."
