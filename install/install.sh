@@ -790,6 +790,10 @@ EOF
 }
 EOF
   fi
+  # chown before bun install so the zveltio user can create node_modules/
+  chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/extensions"
+  chmod 755 "${ZVELTIO_DIR}/extensions"
+
   if command -v bun &>/dev/null; then
     info "Installing extension npm dependencies..."
     if ! sudo -u "${ZVELTIO_USER}" bash -c "cd '${ZVELTIO_DIR}/extensions' && bun install"; then
@@ -801,9 +805,6 @@ EOF
     error "Bun was not installed correctly. Engine extensions will fail to load."
     exit 1
   fi
-  chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/extensions"
-  # Allow zveltio service to write inside extensions dir (for marketplace installs)
-  chmod 755 "${ZVELTIO_DIR}/extensions"
 
   header "Creating admin account"
   echo -n "  Email: "
