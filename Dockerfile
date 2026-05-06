@@ -79,6 +79,13 @@ WORKDIR /data
 COPY --from=frontend-builder /app/packages/studio/dist ./studio-dist
 COPY --from=frontend-builder /app/packages/client/dist ./client-dist
 
+# /data must be writable by the zveltio user — the engine downloads extension
+# packages into /data/extensions/ and ensureExtensionCoreDeps() writes
+# package.json + node_modules there at first start. Without this chown, the
+# unprivileged user cannot create files in /data (which is root-owned by the
+# WORKDIR directive when no USER has been set yet).
+RUN mkdir -p /data/extensions && chown -R zveltio:zveltio /data
+
 ENV PORT=3000
 ENV NODE_ENV=production
 

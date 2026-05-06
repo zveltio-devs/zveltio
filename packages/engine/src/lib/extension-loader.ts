@@ -16,6 +16,18 @@ import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.j
 import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
 import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
+import { aiProviderManager } from './ai-provider.js';
+import { dynamicInsert } from '../db/dynamic.js';
+import { introspectSchema } from './introspection.js';
+import { runQualityScan } from './data-quality.js';
+import { invalidateRulesCache } from './validation-engine.js';
+import { runFunction as runEdgeFunction } from './edge-functions/sandbox.js';
+import { extensionRegistry } from './extension-registry.js';
+import { generatePDFAsync } from './pdf-queue.js';
+import { renderTemplate, generatePDF } from './doc-generator.js';
+import { moveToTrash } from './cloud/trash.js';
+import { scheduleFileIndexing } from './cloud/document-indexer.js';
+import { DataLoaderRegistry, checkQueryDepth } from './graphql-dataloader.js';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 
 // ── Extension base directory resolution ───────────────────────────────────────
@@ -225,143 +237,17 @@ async function triggerReload(reason: string): Promise<void> {
   }
 }
 
-// ── Extension engine-import shims ─────────────────────────────────────────────
-// Extensions loaded from EXTENSIONS_DIR are TypeScript files that import from
-// the engine source tree (e.g. ../../../../packages/engine/src/lib/permissions.js).
-// In production the engine runs as a compiled binary — those source paths do not
-// exist on disk.  We register a Bun plugin that intercepts these import paths and
-// returns virtual modules backed by the singletons already live in this process.
-let _shimsInstalled = false;
-
-function installExtensionShims(): void {
-  if (_shimsInstalled) return;
-  _shimsInstalled = true;
-
-  const shims: Record<string, string> = {
-    permissions: `
-const _s = globalThis.__zveltioEngineShims;
-export const checkPermission = _s.checkPermission;
-export const getUserRoles = _s.getUserRoles;
-`,
-    auth: `
-const _s = globalThis.__zveltioEngineShims;
-export const auth = _s.auth;
-`,
-    'ddl-manager': `
-const _s = globalThis.__zveltioEngineShims;
-export const DDLManager = _s.DDLManager;
-export const GhostDDL = _s.GhostDDL ?? _s.DDLManager;
-`,
-    'field-type-registry': `
-const _s = globalThis.__zveltioEngineShims;
-export const fieldTypeRegistry = _s.fieldTypeRegistry;
-`,
-    hono: `
-const _s = globalThis.__zveltioEngineShims;
-export const Hono = _s.Hono;
-export default _s.Hono;
-`,
-    zod: `
-const _s = globalThis.__zveltioEngineShims;
-export const z = _s.z;
-`,
-    kysely: `
-const _s = globalThis.__zveltioEngineShims;
-export const sql = _s.sql;
-export const Kysely = _s.Kysely;
-`,
-    '@hono/zod-validator': `
-const _s = globalThis.__zveltioEngineShims;
-export const zValidator = _s.zValidator;
-`,
-  };
-
-  // Store live singletons for virtual modules to reference
-  (globalThis as any).__zveltioEngineShims = {
-    checkPermission,
-    getUserRoles,
-    auth,
-    DDLManager,
-    fieldTypeRegistry: _fieldTypeRegistry,
-    Hono,
-    z,
-    sql: _sql,
-    Kysely,
-    zValidator,
-  };
-
-  // Lazily populate one-off singletons (may not exist in all engine builds)
-  const tryShim = (key: string, mod: string, exported: string[]) => {
-    try {
-      import(mod).then((m) => {
-        for (const k of exported) {
-          if (m[k]) (globalThis as any).__zveltioEngineShims[k] = m[k];
-        }
-      }).catch(() => {});
-    } catch (_e) { /* module not available in this build — skip */ }
-  };
-  tryShim('GhostDDL',          './ghost-ddl.js',              ['GhostDDL']);
-  tryShim('aiProviderManager', './ai-provider.js',            ['aiProviderManager']);
-  tryShim('dynamicInsert',     '../db/dynamic.js',            ['dynamicInsert']);
-  tryShim('introspectSchema',  './introspection.js',          ['introspectSchema']);
-
-  try {
-    // Bun.plugin is only available in Bun runtime (not Node/test environments)
-    if (typeof Bun === 'undefined' || typeof (Bun as any).plugin !== 'function') return;
-
-    (Bun as any).plugin({
-      name: 'zveltio-engine-shims',
-      setup(build: any) {
-        // ── Match any import that contains an engine source path pattern ─────────
-        // Covers: ../../../../packages/engine/src/lib/permissions.js
-        //         ../../../packages/engine/src/lib/auth.js
-        //         @zveltio/engine-permissions
-        //         @zveltio/engine/lib/ddl-manager.js
-        //         @zveltio/engine-db  (type-only, returns empty module)
-        build.onResolve({ filter: /packages\/engine\/src|@zveltio\/engine/ }, (args: any) => {
-          const p: string = args.path;
-
-          if (p.includes('/permissions') || p === '@zveltio/engine-permissions')
-            return { path: 'shim:permissions', namespace: 'zveltio-shims' };
-
-          if (p.includes('/auth') && !p.includes('/auth/'))
-            return { path: 'shim:auth', namespace: 'zveltio-shims' };
-
-          if (p.includes('/ddl-manager') || p.includes('/ghost-ddl') ||
-              p === '@zveltio/engine/lib/ddl-manager.js')
-            return { path: 'shim:ddl-manager', namespace: 'zveltio-shims' };
-
-          if (p.includes('/field-type-registry'))
-            return { path: 'shim:field-type-registry', namespace: 'zveltio-shims' };
-
-          // Catch-all for remaining engine paths (db/index, extension-loader types, etc.)
-          // These are type-only imports at runtime — return an empty module.
-          return { path: 'shim:empty', namespace: 'zveltio-shims' };
-        });
-
-        // ── Match npm packages that are bundled in the engine binary ────────────
-        // Extensions import hono/zod/kysely directly; in production these are not
-        // available as node_modules. Return shim virtual modules so extensions
-        // get the same in-process instances used by the engine itself.
-        build.onResolve({ filter: /^(hono|zod|kysely|@hono\/zod-validator)$/ }, (args: any) => {
-          const p: string = args.path;
-          if (p === 'hono') return { path: 'shim:hono', namespace: 'zveltio-shims' };
-          if (p === 'zod') return { path: 'shim:zod', namespace: 'zveltio-shims' };
-          if (p === 'kysely') return { path: 'shim:kysely', namespace: 'zveltio-shims' };
-          if (p === '@hono/zod-validator') return { path: 'shim:@hono/zod-validator', namespace: 'zveltio-shims' };
-          return { path: 'shim:empty', namespace: 'zveltio-shims' };
-        });
-
-        build.onLoad({ filter: /.*/, namespace: 'zveltio-shims' }, ({ path }: any) => {
-          const src = shims[path.replace('shim:', '')];
-          return { contents: src ?? 'export {};', loader: 'js' };
-        });
-      },
-    });
-  } catch (err) {
-    console.warn('[extension-shims] Bun.plugin registration failed:', (err as Error).message);
-  }
-}
+// ── Engine-internal access for extensions ────────────────────────────────────
+// Extensions receive engine internals (`auth`, `checkPermission`, `DDLManager`,
+// `aiProviderManager`, etc.) via the `ctx.*` object passed into `register()`.
+// They never import these directly — the SDK type `ExtensionContext` is the
+// authoritative public surface. See `EXTENSION-AUTHORING.md`.
+//
+// Core npm packages (`hono`, `zod`, `kysely`, `@hono/zod-validator`) are
+// installed into `<EXTENSIONS_DIR>/node_modules/` by `ensureExtensionCoreDeps()`
+// at first startup. Bun's normal filesystem resolution then finds them — no
+// `Bun.plugin` shimming required, which doesn't work for dynamic imports in
+// compiled binaries anyway.
 
 export type { EventBus };
 
@@ -512,6 +398,33 @@ const ManifestSchema = z.object({
 export type { ZveltioExtension };
 
 /**
+ * Build the `ctx.internals` object passed to every extension.
+ * All helpers are statically imported above and already linked into the
+ * engine binary — building the object is just struct construction.
+ *
+ * Exported so the engine bootstrap (index.ts) can build the context once
+ * and pass it to `loadAll`.
+ */
+export function buildExtensionInternals(): ExtensionInternals {
+  return {
+    aiProviderManager,
+    dynamicInsert: dynamicInsert as ExtensionInternals['dynamicInsert'],
+    introspectSchema: introspectSchema as ExtensionInternals['introspectSchema'],
+    runQualityScan: runQualityScan as ExtensionInternals['runQualityScan'],
+    invalidateRulesCache,
+    runEdgeFunction: runEdgeFunction as ExtensionInternals['runEdgeFunction'],
+    extensionRegistry,
+    generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
+    renderTemplate,
+    generatePDF: generatePDF as ExtensionInternals['generatePDF'],
+    moveToTrash: moveToTrash as ExtensionInternals['moveToTrash'],
+    scheduleFileIndexing: scheduleFileIndexing as ExtensionInternals['scheduleFileIndexing'],
+    DataLoaderRegistry,
+    checkQueryDepth,
+  };
+}
+
+/**
  * Internal extension context — extends the public ExtensionContext from the SDK
  * with concrete engine types (Database, FieldTypeRegistry, EventBus, DDLManager).
  * Extensions receive this at runtime but only see the public interface.
@@ -521,9 +434,37 @@ export interface ExtensionContext {
   auth: any;
   fieldTypeRegistry: FieldTypeRegistry;
   events: EventBus;
-  checkPermission?: (userId: string, resource: string, action: string) => Promise<boolean>;
-  getUserRoles?: (userId: string) => Promise<string[]>;
-  DDLManager?: typeof DDLManager;
+  checkPermission: (userId: string, resource: string, action: string) => Promise<boolean>;
+  getUserRoles: (userId: string) => Promise<string[]>;
+  DDLManager: typeof DDLManager;
+  internals: ExtensionInternals;
+}
+
+/**
+ * Engine-internal helpers exposed to official extensions via ctx.internals.*.
+ * Lazy-loaded at first access to avoid forcing every extension into pulling
+ * heavy modules (PDF rendering, edge sandbox, etc.) when they don't need them.
+ */
+export interface ExtensionInternals {
+  aiProviderManager: any;
+  dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
+  introspectSchema: (
+    db: any,
+    schemaName?: string,
+    excludePatterns?: string[],
+    dryRun?: boolean,
+  ) => Promise<any[]>;
+  runQualityScan: (...args: any[]) => Promise<unknown>;
+  invalidateRulesCache: (collection: string) => void;
+  runEdgeFunction: (...args: any[]) => Promise<unknown>;
+  extensionRegistry: any;
+  generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
+  renderTemplate: (template: string, variables: Record<string, unknown>) => string;
+  generatePDF: (...args: any[]) => Promise<unknown>;
+  moveToTrash: (...args: any[]) => Promise<unknown>;
+  scheduleFileIndexing: (...args: any[]) => Promise<unknown>;
+  DataLoaderRegistry: any;
+  checkQueryDepth: (query: string, maxDepth?: number) => string | null;
 }
 
 interface LoadedExtension {
@@ -547,7 +488,6 @@ class ExtensionLoader {
     // ctx must be set FIRST — ensureExtensionCoreDeps may throw and loadAll() is
     // called inside Promise.all() with a .catch(); if ctx is set late it stays null.
     this.ctx = ctx;
-    installExtensionShims();
 
     const extBase = resolveExtensionsBase();
     await ensureExtensionCoreDeps(extBase).catch((err: Error) => {
@@ -671,15 +611,16 @@ class ExtensionLoader {
         extension.registerFieldTypes(ctx.fieldTypeRegistry);
       }
 
-      // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables
-      // Also inject checkPermission, getUserRoles, DDLManager so new-style extensions
-      // can use ctx.* instead of relative engine imports.
+      // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables.
+      // Also inject the full public API (checkPermission, auth, DDLManager…) and
+      // ctx.internals.* so extensions never have to relative-import engine modules.
       const restrictedCtx: ExtensionContext = {
         ...ctx,
         db: createRestrictedDb(ctx.db, extName),
         checkPermission: ctx.checkPermission ?? checkPermission,
         getUserRoles: ctx.getUserRoles ?? getUserRoles,
         DDLManager: ctx.DDLManager ?? DDLManager,
+        internals: ctx.internals,
       };
 
       // Register routes
@@ -1298,6 +1239,7 @@ class ExtensionLoader {
       checkPermission: this.ctx.checkPermission ?? checkPermission,
       getUserRoles:    this.ctx.getUserRoles ?? getUserRoles,
       DDLManager:      this.ctx.DDLManager ?? DDLManager,
+      internals:       this.ctx.internals,
     };
 
     try {

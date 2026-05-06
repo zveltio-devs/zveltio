@@ -2,6 +2,30 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.60] - 2026-05-05
+
+### Breaking / Architecture
+
+- **Extensions no longer use runtime engine imports** — all `@zveltio/engine-*` virtual packages and direct `../../../../packages/engine/src/...` imports removed from every extension. Engine internals are now injected via `ctx.internals.*` (see `docs/EXTENSION-AUTHORING.md`).
+- **`Bun.plugin` shims removed** — `installExtensionShims()` deleted from `extension-loader.ts`. Shims never worked in compiled binaries; all extensions now rely on real `node_modules/` provisioned by `ensureExtensionCoreDeps()`.
+- **SDK `ExtensionContext` extended** — `ctx.internals` namespace added: `aiProviderManager`, `dynamicInsert`, `introspectSchema`, `runQualityScan`, `invalidateRulesCache`, `runEdgeFunction`, `extensionRegistry`, `generatePDFAsync`, `renderTemplate`, `generatePDF`, `moveToTrash`, `scheduleFileIndexing`, `DataLoaderRegistry`, `checkQueryDepth`.
+- **`buildExtensionInternals()`** exported from `extension-loader.ts`; engine passes the full internals object when calling `loadAll()` and `reRegisterExtension()`.
+
+### Fixes
+
+- **`install.sh`**: Bun now installed system-wide at `BUN_INSTALL=/usr/local/share/bun` (symlinked to `/usr/local/bin/bun`) instead of `/root/.bun/`. Fixes the WSL/Linux systemd case where the `zveltio` service user cannot access `/root/` (mode 700).
+- **`install.sh`**: Added validation step — `sudo -u nobody /usr/local/bin/bun --version` — fails the install script if Bun is not readable by unprivileged users.
+- **`install.sh`**: `bun install` for extension peer deps now exits non-zero on failure (removed silent error swallow).
+- **Dockerfile**: Added `RUN mkdir -p /data/extensions && chown -R zveltio:zveltio /data` before `USER zveltio` — fixes "permission denied" when engine writes `node_modules/` into `/data/extensions/` as an unprivileged container user.
+- All 57 extension `routes.ts` files refactored to accept `ctx: ExtensionContext` as single argument; route factories never import engine internals directly.
+- All extension `engine/index.ts` files updated to call `myRoutes(ctx)` (was `myRoutes(ctx.db, ctx.auth)`).
+
+### Docs
+
+- Added `docs/EXTENSION-AUTHORING.md` — full contract for extension authors: folder layout, `manifest.json` fields, `engine/index.ts` shape, the `ctx` API, route patterns, migration guide, and what to avoid.
+
+---
+
 ## [1.0.0-alpha.59] - 2026-05-04
 
 ### Fixes

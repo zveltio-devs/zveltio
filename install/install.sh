@@ -550,13 +550,33 @@ UNIT
   # ── Bun ──────────────────────────────────────────────────────────────────────
   header "Installing Bun"
 
-  if ! command -v bun &>/dev/null; then
-    curl -fsSL https://bun.sh/install | bash
-    export PATH="$HOME/.bun/bin:$PATH"
-    ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/bun
+  # Install system-wide so the `zveltio` user (running the systemd service) can
+  # exec it. Previously we installed into root's $HOME/.bun and symlinked, but
+  # /root is mode 700 by default — the unprivileged service user cannot read
+  # through it, so `bun install` calls from the engine fail at runtime with
+  # "Executable not found in $PATH". Pinning `BUN_INSTALL` to a system path
+  # avoids this entirely.
+  if ! command -v bun &>/dev/null || ! [[ "$(readlink -f "$(command -v bun)")" =~ ^/usr/local/ ]]; then
+    info "Installing Bun to /usr/local/share/bun (system-wide)…"
+    BUN_INSTALL=/usr/local/share/bun curl -fsSL https://bun.sh/install | bash
+
+    if [[ ! -x /usr/local/share/bun/bin/bun ]]; then
+      error "Bun install failed — /usr/local/share/bun/bin/bun missing."
+      exit 1
+    fi
+
+    ln -sf /usr/local/share/bun/bin/bun /usr/local/bin/bun
+    chmod 755 /usr/local/share/bun /usr/local/share/bun/bin
+    chmod 755 /usr/local/share/bun/bin/bun
+
+    if ! sudo -u nobody /usr/local/bin/bun --version &>/dev/null; then
+      error "Bun is installed but unreadable by unprivileged users. Check permissions on /usr/local/share/bun."
+      exit 1
+    fi
+
     success "Bun installed: $(bun --version)"
   else
-    info "Bun already installed: $(bun --version)"
+    info "Bun already installed at system path: $(bun --version)"
   fi
 
   # ── Zveltio binary ───────────────────────────────────────────────────────────
@@ -772,8 +792,14 @@ EOF
   fi
   if command -v bun &>/dev/null; then
     info "Installing extension npm dependencies..."
-    sudo -u "${ZVELTIO_USER}" bash -c "cd '${ZVELTIO_DIR}/extensions' && bun install --frozen-lockfile 2>/dev/null || bun install" || true
+    if ! sudo -u "${ZVELTIO_USER}" bash -c "cd '${ZVELTIO_DIR}/extensions' && bun install"; then
+      error "bun install failed for ${ZVELTIO_DIR}/extensions/. The zveltio service user cannot reach Bun — check that /usr/local/bin/bun resolves to a path readable by unprivileged users."
+      exit 1
+    fi
     success "Extension dependencies ready"
+  else
+    error "Bun was not installed correctly. Engine extensions will fail to load."
+    exit 1
   fi
   chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/extensions"
   # Allow zveltio service to write inside extensions dir (for marketplace installs)
