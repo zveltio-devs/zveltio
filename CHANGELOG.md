@@ -2,6 +2,13 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.63] - 2026-05-07
+
+### Fixes
+- Extension hot-load: swallow Hono "matcher is already built" error when enabling an extension on a running server — extension is now marked loaded immediately and `triggerReload()` rebuilds routes on a fresh Hono app, so enabling from the Studio works without restarting the service.
+
+---
+
 ## [1.0.0-alpha.62] - 2026-05-06
 
 ### Fixes
