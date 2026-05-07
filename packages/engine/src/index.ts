@@ -420,7 +420,7 @@ rm studio.tar.gz</pre>
       ...extensionLoader.getActive(),
       ...dbEnabled.map((r: any) => r.name as string),
     ])];
-    return c.json({ extensions: allActive, bundles: extensionLoader.getBundles() });
+    return c.json({ extensions: allActive, bundles: extensionLoader.getBundles(), meta: extensionLoader.getExtensionMeta() });
   });
 
   // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─

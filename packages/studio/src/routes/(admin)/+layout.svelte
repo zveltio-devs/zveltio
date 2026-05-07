@@ -79,7 +79,36 @@
   type NavItem = { href: string; icon: any; label: string; ext?: string };
   type NavGroup = { label?: string; items: NavItem[] };
 
-  // Bundled extension nav items — shown only when the extension is enabled in the DB
+  // Extensions already surfaced in the static nav — don't duplicate in Extensions section
+  const STATIC_NAV_EXTS = new Set([
+    'content/media', 'developer/byod', 'data/import', 'data/export',
+    'i18n/translations', 'workflow/checklists', 'content/page-builder',
+  ]);
+
+  // Extension nav items built from manifest metadata (no IIFE bundle required).
+  // Extensions with contributes.studio=true or explicit studio.pages appear in the sidebar.
+  const extNavFromMeta = $derived<NavItem[]>(
+    extensions.initialized ? extensions.meta
+      .filter((m) => !STATIC_NAV_EXTS.has(m.name))
+      .filter((m) => m.contributes?.studio || (m.studio?.pages && m.studio.pages.length > 0))
+      .map((m) => {
+        const firstPage = m.studio?.pages?.[0];
+        let slug: string;
+        if (firstPage?.path) {
+          // "/admin/billing" → "billing",  "/admin/compliance/ro/efactura" → "compliance/ro/efactura"
+          slug = firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '');
+        } else {
+          slug = m.name;
+        }
+        return {
+          href: `${base}/extensions/${slug}`,
+          icon: Puzzle,
+          label: firstPage?.label || m.displayName || m.name,
+        };
+      }) : [],
+  );
+
+  // Hardcoded bundled extensions (have their own Studio pages built into the Studio SPA)
   const bundledExtNav = $derived<NavItem[]>(
     extensions.initialized ? [
       ...(extensions.isActive('workflow/checklists')
@@ -90,6 +119,12 @@
         : []),
     ] : [],
   );
+
+  // Merge: bundled items take precedence (dedup by href)
+  const allExtNav = $derived<NavItem[]>([
+    ...bundledExtNav,
+    ...extNavFromMeta.filter((i) => !bundledExtNav.some((b) => b.href === i.href)),
+  ]);
 
   /** Item gating — pages whose backend lives in an extension. Setting `ext`
    *  on a NavItem hides it from the sidebar until the extension is active.
@@ -271,8 +306,8 @@
           {/each}
         {/each}
 
-        <!-- Extension routes (bundled + IIFE) -->
-        {#if bundledExtNav.length > 0 || (extensions.initialized && extensionRegistry.routes.length > 0)}
+        <!-- Extension routes (manifest-driven + IIFE) -->
+        {#if allExtNav.length > 0 || (extensions.initialized && extensionRegistry.routes.length > 0)}
           {#if !collapsed}
             <div class="px-4 pt-5 pb-1">
               <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 flex items-center gap-1 select-none">
@@ -282,7 +317,7 @@
           {:else}
             <div class="mx-3 my-2.5 h-px bg-base-content/8"></div>
           {/if}
-          {#each bundledExtNav as item}
+          {#each allExtNav as item}
             <div class="px-2 py-0.5">
               <a
                 href={item.href}

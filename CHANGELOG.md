@@ -2,6 +2,17 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.64] - 2026-05-07
+
+### Features
+- Extension manifest metadata (`displayName`, `studio.pages`) is now returned by `/api/extensions` — Studio sidebar automatically shows active extensions as nav items under an "Extensions" group without requiring a compiled IIFE bundle.
+- Extension catch-all page (`/extensions/[...path]`) now shows a friendly info page (name, description, "active" badge) for API-only extensions that have no Studio UI bundle, with correct multi-segment path matching for extensions like `compliance/ro/efactura`.
+
+### Fixes
+- Removed `@zveltio/engine` from `peerDependencies` in `zveltio-extensions/package.json` — Bun was trying to resolve it from npm during CI `bun install` and failing with a 404.
+
+---
+
 ## [1.0.0-alpha.63] - 2026-05-07
 
 ### Fixes

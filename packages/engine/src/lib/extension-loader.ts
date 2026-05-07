@@ -476,8 +476,16 @@ interface LoadedExtension {
   registeredRoutes: boolean;
 }
 
+interface ManifestMeta {
+  displayName?: string;
+  description?: string;
+  contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
+  studio?: { pages?: Array<{ path: string; label: string; icon?: string }> };
+}
+
 class ExtensionLoader {
   private loaded: Map<string, LoadedExtension> = new Map();
+  private manifestMeta: Map<string, ManifestMeta> = new Map();
   private ctx?: ExtensionContext;
   /** Module cache: name → imported ZveltioExtension, kept for re-registration on hot-reload. */
   private modules: Map<string, ZveltioExtension> = new Map();
@@ -586,6 +594,14 @@ class ExtensionLoader {
         if (manifest.peerDependencies && Object.keys(manifest.peerDependencies).length > 0) {
           await this.installNpmDependencies(extName, manifest.peerDependencies);
         }
+
+        // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint
+        this.manifestMeta.set(extName, {
+          displayName: (manifest as any).displayName,
+          description: (manifest as any).description,
+          contributes: manifest.contributes as ManifestMeta['contributes'],
+          studio: (manifest as any).studio,
+        });
       }
 
       // Import and register extension
@@ -1287,6 +1303,13 @@ class ExtensionLoader {
     return [...this.loaded.values()]
       .filter((e) => e.bundleUrl)
       .map((e) => ({ name: e.name, url: e.bundleUrl! }));
+  }
+
+  getExtensionMeta(): Array<{ name: string } & ManifestMeta> {
+    return [...this.loaded.keys()].map((name) => ({
+      name,
+      ...(this.manifestMeta.get(name) ?? {}),
+    }));
   }
 
   isActive(name: string): boolean {
