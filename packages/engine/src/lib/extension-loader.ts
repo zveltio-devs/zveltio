@@ -623,17 +623,29 @@ class ExtensionLoader {
         internals: ctx.internals,
       };
 
-      // Register routes
-      await extension.register(app, restrictedCtx);
+      // Register routes — if the live app's Hono matcher is already built (happens
+      // after the first request during hot-load), swallow that specific error and
+      // still mark the extension as loaded. triggerReload() will rebuild a fresh
+      // Hono app where routes register correctly.
+      let routeRegistrationDeferred = false;
+      try {
+        await extension.register(app, restrictedCtx);
+      } catch (regErr: any) {
+        if ((regErr as Error)?.message?.includes('matcher is already built')) {
+          routeRegistrationDeferred = true;
+        } else {
+          throw regErr;
+        }
+      }
 
-      // Register Studio bundle if it exists
+      // Register Studio bundle if it exists (skip if route registration was deferred)
       const studioBundlePath = join(extDir, 'studio/dist/bundle.js');
       const bundleKey = extName.replace(/\//g, '_');
       const bundleUrl = existsSync(studioBundlePath)
         ? `/ext/${bundleKey}/bundle.js`
         : undefined;
 
-      if (bundleUrl) {
+      if (bundleUrl && !routeRegistrationDeferred) {
         app.get(bundleUrl, async (c) => {
           const content = await Bun.file(studioBundlePath).text();
           c.header('Content-Type', 'application/javascript');
