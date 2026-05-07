@@ -2,6 +2,15 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.65] - 2026-05-07
+
+### Fixes
+- Extension migrations: all `CREATE INDEX` changed to `CREATE INDEX IF NOT EXISTS` — prevents "relation already exists" 422 errors when activating extensions on databases where tables were previously created (e.g. carried over from core engine or reinstall scenarios).
+- `auth/saml` peerDependency: `node-saml` version changed from `^4.0.0` (non-existent on npm) to `^3.1.0` (latest stable).
+- Studio Checklists page: was calling `/api/ext/checklists` — corrected to `/api/checklists` to match the extension's actual mount path.
+
+---
+
 ## [1.0.0-alpha.64] - 2026-05-07
 
 ### Features
