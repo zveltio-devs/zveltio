@@ -1,7 +1,16 @@
 import { ENGINE_URL } from './config.js';
 
+export type ExtensionMeta = {
+  name: string;
+  displayName?: string;
+  description?: string;
+  contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
+  studio?: { pages?: Array<{ path: string; label: string; icon?: string }> };
+};
+
 let activeExtensions = $state<string[]>([]);
 let extensionBundles = $state<Array<{ name: string; url: string }>>([]);
+let extensionMetaList = $state<ExtensionMeta[]>([]);
 let initialized = $state(false);
 
 export async function initExtensions(): Promise<void> {
@@ -10,6 +19,7 @@ export async function initExtensions(): Promise<void> {
     const data = await res.json();
     activeExtensions = data.extensions || [];
     extensionBundles = data.bundles || [];
+    extensionMetaList = data.meta || [];
 
     await loadExtensionBundles(extensionBundles);
     initialized = true;
@@ -69,6 +79,7 @@ export async function refreshExtensions(): Promise<void> {
     await loadExtensionBundles(newBundles);
     activeExtensions = data.extensions || [];
     extensionBundles = newBundles;
+    extensionMetaList = data.meta || [];
   } catch (err) {
     console.error('Failed to refresh extensions:', err);
   }
@@ -77,6 +88,7 @@ export async function refreshExtensions(): Promise<void> {
 export const extensions = {
   get active() { return activeExtensions; },
   get initialized() { return initialized; },
+  get meta() { return extensionMetaList; },
   isActive: (name: string) => activeExtensions.includes(name),
   hasCategory: (category: string) => activeExtensions.some((e) => e.startsWith(category)),
 };
