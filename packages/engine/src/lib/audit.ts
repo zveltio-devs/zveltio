@@ -45,8 +45,8 @@ export async function auditLog(db: Database, event: AuditEvent): Promise<void> {
         NOW()
       )
     `.execute(db);
-  } catch {
+  } catch (err) {
     // Audit log failure must never break the main request flow
-    console.error('[Audit] Failed to write audit event:', event.type);
+    console.error('[Audit] Failed to write audit event:', event.type, (err as Error)?.message ?? err);
   }
 }

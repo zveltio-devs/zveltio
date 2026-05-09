@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { sql as _sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
-import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, unlinkSync, symlinkSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
@@ -217,6 +217,12 @@ async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string,
   }
   try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* ignore */ }
 
+  // Warn if no pre-built Studio bundle — extension will show generic page until a bundle is present.
+  const bundlePath = path.join(destDir, 'studio/dist/bundle.js');
+  if (fs.existsSync(path.join(destDir, 'studio/vite.config.ts')) && !fs.existsSync(bundlePath)) {
+    console.warn(`⚠️  Extension "${entry.name}" has a Studio UI but the package does not include a pre-built bundle (studio/dist/bundle.js). The extension will show a generic page in the Studio. Re-upload the package with the bundle included.`);
+  }
+
   console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
 }
 
@@ -249,26 +255,36 @@ async function triggerReload(reason: string): Promise<void> {
 //
 // Core npm packages (`hono`, `zod`, `kysely`, `@hono/zod-validator`) are
 // installed into `<EXTENSIONS_DIR>/node_modules/` by `ensureExtensionCoreDeps()`
-// at first startup. Bun's normal filesystem resolution then finds them — no
-// `Bun.plugin` shimming required, which doesn't work for dynamic imports in
-// compiled binaries anyway.
+// at first startup.  A CWD-level symlink (maybeSymlinkNodeModules) makes them
+// visible to the compiled binary's module resolver, which walks from CWD upward.
 
 export type { EventBus };
 
 /**
- * Ensure core npm packages (hono, zod, kysely, @hono/zod-validator) are available
- * in the extensions base directory. In production (compiled binary) Bun.plugin shims
- * may not intercept dynamic imports, so we rely on Bun's normal file-system resolution.
- * Exits fast when node_modules/hono already exists.
- *
- * Strategy:
- *   1. Try `bun install` (works in dev when bun is on PATH).
- *   2. Fall back to direct npm tarball fetch + tar extract — needed in production
- *      compiled binaries where bun is not separately installed (e.g. systemd service).
+ * When running as a compiled binary (e.g. /opt/zveltio/zveltio), Bun resolves
+ * dynamic-import module specifiers starting from the process's working directory,
+ * not from the imported file's filesystem location.  The extensions live under
+ * EXTENSIONS_DIR (e.g. /opt/zveltio/extensions/) but the binary's CWD is typically
+ * one level up (/opt/zveltio/).  A symlink from CWD/node_modules to
+ * extBase/node_modules makes all packages installed by ensureExtensionCoreDeps and
+ * installNpmDependencies visible to the binary's module resolver.
  */
+function maybeSymlinkNodeModules(extBase: string): void {
+  const extModules = join(extBase, 'node_modules');
+  const cwdModules = join(process.cwd(), 'node_modules');
+  if (extModules === cwdModules) return;       // already the same location
+  if (existsSync(cwdModules)) return;          // already exists (real dir or prior symlink)
+  try {
+    symlinkSync(extModules, cwdModules);
+  } catch { /* non-fatal — may fail on unusual setups or missing permissions */ }
+}
+
 async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
   const honoPath = join(extBase, 'node_modules', 'hono');
-  if (existsSync(honoPath)) return;
+  if (existsSync(honoPath)) {
+    maybeSymlinkNodeModules(extBase);
+    return;
+  }
 
   const pkgJsonPath = join(extBase, 'package.json');
   if (!existsSync(pkgJsonPath)) {
@@ -289,6 +305,7 @@ async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
 
   if (await tryBunInstall(extBase)) {
     console.log('[extensions] Core packages installed via bun.');
+    maybeSymlinkNodeModules(extBase);
     return;
   }
 
@@ -300,6 +317,7 @@ async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
     console.warn('[extensions] Core package install failed:', (err as Error).message);
     console.warn('[extensions] Extensions with engine routes will not load. Install bun or run `npm install` in', extBase);
   }
+  maybeSymlinkNodeModules(extBase);
 }
 
 async function tryBunInstall(cwd: string): Promise<boolean> {
@@ -846,16 +864,52 @@ class ExtensionLoader {
 
     console.log(`📦 Extension "${extName}": installing npm packages: ${toInstall.join(', ')}`);
 
-    const proc = Bun.spawn(['bun', 'add', ...toInstall], {
-      cwd: workspaceRoot,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    // Try bun add first; fall back to npm install if bun is not on PATH
+    let installed = false;
 
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      throw new Error(`npm install failed for extension "${extName}": ${stderr.trim()}`);
+    try {
+      const proc = Bun.spawn(['bun', 'add', ...toInstall], {
+        cwd: workspaceRoot,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const exitCode = await proc.exited;
+      if (exitCode === 0) {
+        installed = true;
+      } else {
+        const stderr = await new Response(proc.stderr).text();
+        console.warn(`[extensions] bun add failed for "${extName}": ${stderr.trim()}`);
+      }
+    } catch {
+      // ENOENT — bun not on PATH; try npm
+    }
+
+    if (!installed) {
+      try {
+        const npmProc = Bun.spawn(['npm', 'install', '--save', ...toInstall], {
+          cwd: workspaceRoot,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        });
+        const exitCode = await npmProc.exited;
+        if (exitCode === 0) {
+          installed = true;
+        } else {
+          const stderr = await new Response(npmProc.stderr).text();
+          console.warn(`[extensions] npm install failed for "${extName}": ${stderr.trim()}`);
+        }
+      } catch {
+        // npm not on PATH either
+      }
+    }
+
+    if (!installed) {
+      console.warn(
+        `⚠️  Extension "${extName}": could not install peer packages ${toInstall.join(', ')}. ` +
+        `Install them manually in ${workspaceRoot}: bun add ${toInstall.join(' ')}`,
+      );
+      // Non-fatal: continue loading — the extension may still work if packages are pre-installed.
+      return;
     }
 
     console.log(`✅ Extension "${extName}": packages installed successfully`);
@@ -1366,18 +1420,22 @@ class ExtensionLoader {
     try {
       await extension.register(app, restrictedCtx);
 
-      // Re-register Studio bundle route
+      // Re-register Studio bundle route and update cached bundleUrl
       const extBase = resolveExtensionsBase();
       const studioBundlePath = join(extBase, name, 'studio/dist/bundle.js');
-      if (existsSync(studioBundlePath)) {
-        const bundleKey = name.replace(/\//g, '_');
-        app.get(`/ext/${bundleKey}/bundle.js`, async (c) => {
+      const bundleKey = name.replace(/\//g, '_');
+      const bundleUrl = existsSync(studioBundlePath) ? `/ext/${bundleKey}/bundle.js` : undefined;
+      if (bundleUrl) {
+        app.get(bundleUrl, async (c) => {
           const content = await Bun.file(studioBundlePath).text();
           c.header('Content-Type', 'application/javascript');
           c.header('Cache-Control', 'public, max-age=3600');
           return c.body(content);
         });
       }
+      // Keep bundleUrl in sync so getBundles() reflects current state
+      const entry = this.loaded.get(name);
+      if (entry) this.loaded.set(name, { ...entry, bundleUrl });
     } catch (err) {
       console.error(`❌ Hot-reload: failed to re-register extension "${name}":`, err);
     }
