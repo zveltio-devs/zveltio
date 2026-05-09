@@ -108,7 +108,47 @@ ctx.events                                  // Typed event bus — subscribe to 
 ctx.checkPermission(userId, resource, action) // → Promise<boolean>
 ctx.getUserRoles(userId)                    // → Promise<string[]>
 ctx.DDLManager                              // DDL helpers (Ghost Tables, zero-downtime DDL)
+ctx.services                                // Inter-extension service registry (see below)
 ```
+
+### Inter-extension services — `ctx.services.*`
+
+Extensions communicate with each other through a Drupal-style services container.
+**Direct imports between extensions are forbidden.** Always go through `ctx.services`.
+
+```ts
+// Publishing a service (in YOUR extension's register()):
+ctx.services.register('crm.contacts.lookup', async (email: string) => {
+  return await ctx.db.selectFrom('zvd_contacts').where('email', '=', email).executeTakeFirst();
+});
+
+// Consuming a service (from another extension):
+const lookup = ctx.services.get<(email: string) => Promise<unknown>>('crm.contacts.lookup');
+if (!lookup) {
+  // CRM extension is not active — handle gracefully
+  return c.json({ error: 'CRM extension is required for this feature.' }, 503);
+}
+const contact = await lookup('alice@example.com');
+
+// Waiting for a service to appear (rarely needed if dependencies are declared):
+const ai = await ctx.services.waitFor<AiProviders>('ai.providers', 5000);
+```
+
+**Naming convention** (recommended): `<extension>.<feature>` or `<extension>.<resource>.<verb>`.
+Examples: `ai.providers`, `ai.embed`, `ai.chat`, `crm.contacts.lookup`, `pdf.generate`.
+
+**Declare dependencies** in `manifest.json` so the engine loads providers before consumers:
+
+```json
+{
+  "dependencies": [
+    { "name": "ai", "minVersion": "1.0.0" }
+  ]
+}
+```
+
+The engine topologically sorts extensions before loading, guaranteeing the AI extension is
+fully loaded (and `ai.providers` is registered) before any consumer's `register()` runs.
 
 ### Engine internals — `ctx.internals.*`
 

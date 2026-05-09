@@ -410,7 +410,7 @@ fi
 echo '==> systemd service'
 cat > /etc/systemd/system/zveltio.service << EOF
 [Unit]
-Description=Zveltio BaaS Engine
+Description=Zveltio Business OS Engine
 After=network.target postgresql.service valkey.service seaweedfs.service
 Wants=postgresql.service valkey.service seaweedfs.service
 

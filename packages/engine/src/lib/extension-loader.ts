@@ -16,7 +16,6 @@ import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.j
 import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
 import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
-import { aiProviderManager } from './ai-provider.js';
 import { dynamicInsert } from '../db/dynamic.js';
 import { introspectSchema } from './introspection.js';
 import { runQualityScan } from './data-quality.js';
@@ -26,9 +25,15 @@ import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from './pdf-queue.js';
 import { renderTemplate, generatePDF } from './doc-generator.js';
 import { moveToTrash } from './cloud/trash.js';
-import { scheduleFileIndexing } from './cloud/document-indexer.js';
+import { scheduleFileIndexing, extractTextFromFile } from './cloud/document-indexer.js';
 import { DataLoaderRegistry, checkQueryDepth } from './graphql-dataloader.js';
-import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import { enqueueDDLJob } from './ddl-queue.js';
+import { validatePublicUrl } from './edge-functions/safe-fetch.js';
+import { sendNotification } from './notifications.js';
+import { serviceRegistry } from './service-registry.js';
+import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
+
+export { serviceRegistry } from './service-registry.js';
 
 // ── Extension base directory resolution ───────────────────────────────────────
 /**
@@ -407,7 +412,6 @@ export type { ZveltioExtension };
  */
 export function buildExtensionInternals(): ExtensionInternals {
   return {
-    aiProviderManager,
     dynamicInsert: dynamicInsert as ExtensionInternals['dynamicInsert'],
     introspectSchema: introspectSchema as ExtensionInternals['introspectSchema'],
     runQualityScan: runQualityScan as ExtensionInternals['runQualityScan'],
@@ -421,6 +425,10 @@ export function buildExtensionInternals(): ExtensionInternals {
     scheduleFileIndexing: scheduleFileIndexing as ExtensionInternals['scheduleFileIndexing'],
     DataLoaderRegistry,
     checkQueryDepth,
+    enqueueDDLJob: enqueueDDLJob as ExtensionInternals['enqueueDDLJob'],
+    validatePublicUrl: validatePublicUrl as ExtensionInternals['validatePublicUrl'],
+    extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
+    sendNotification: sendNotification as ExtensionInternals['sendNotification'],
   };
 }
 
@@ -437,6 +445,8 @@ export interface ExtensionContext {
   checkPermission: (userId: string, resource: string, action: string) => Promise<boolean>;
   getUserRoles: (userId: string) => Promise<string[]>;
   DDLManager: typeof DDLManager;
+  /** Inter-extension service registry — see service-registry.ts */
+  services: ServiceRegistry;
   internals: ExtensionInternals;
 }
 
@@ -446,7 +456,6 @@ export interface ExtensionContext {
  * heavy modules (PDF rendering, edge sandbox, etc.) when they don't need them.
  */
 export interface ExtensionInternals {
-  aiProviderManager: any;
   dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
   introspectSchema: (
     db: any,
@@ -465,6 +474,10 @@ export interface ExtensionInternals {
   scheduleFileIndexing: (...args: any[]) => Promise<unknown>;
   DataLoaderRegistry: any;
   checkQueryDepth: (query: string, maxDepth?: number) => string | null;
+  enqueueDDLJob: (...args: any[]) => Promise<unknown>;
+  validatePublicUrl: (url: string) => Promise<URL>;
+  extractTextFromFile: (buffer: ArrayBuffer | Buffer | Uint8Array, mimeType: string) => Promise<string>;
+  sendNotification: (db: any, input: any) => Promise<void>;
 }
 
 interface LoadedExtension {
@@ -502,9 +515,9 @@ class ExtensionLoader {
       console.warn('[extensions] Core dep install failed (non-fatal):', err.message);
     });
 
-    const activeExtensions = this.getActiveExtensionNames();
-
-    for (const extName of activeExtensions) {
+    const envExtensions = this.getActiveExtensionNames();
+    const sortedEnv = await this.topoSortExtensions(envExtensions, extBase);
+    for (const extName of sortedEnv) {
       await this.loadExtension(extName, app, ctx);
     }
 
@@ -512,10 +525,65 @@ class ExtensionLoader {
     const externalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
     if (externalPath && existsSync(externalPath)) {
       const externalExts = await this.discoverExternal(externalPath);
-      for (const extName of externalExts) {
+      const sortedExt = await this.topoSortExtensions(externalExts, externalPath);
+      for (const extName of sortedExt) {
         await this.loadExtension(extName, app, ctx, externalPath);
       }
     }
+  }
+
+  /**
+   * Read manifest.dependencies for each extension and topologically sort.
+   *
+   * Behavior:
+   *   - Extensions with no manifest or no dependencies retain their relative order.
+   *   - If a declared dependency is not in the planned-for-load set, the dependent
+   *     extension is skipped with a warning (it can be loaded later via loadFromDB).
+   *   - Cycles throw with a clear path for debugging.
+   *
+   * @param names    Extension names planned for load.
+   * @param baseDir  Base directory where extensions live (manifests are read from here).
+   */
+  private async topoSortExtensions(names: string[], baseDir: string): Promise<string[]> {
+    if (names.length <= 1) return names;
+
+    const depsMap = new Map<string, string[]>();
+    for (const name of names) {
+      const manifestPath = join(baseDir, name, 'manifest.json');
+      let deps: string[] = [];
+      if (existsSync(manifestPath)) {
+        try {
+          const m = JSON.parse(await Bun.file(manifestPath).text()) as { dependencies?: Array<{ name: string }> };
+          deps = (m.dependencies ?? []).map((d) => d.name);
+        } catch { /* ignore — extension will fail later in loadExtension with proper error */ }
+      }
+      depsMap.set(name, deps);
+    }
+
+    const sorted: string[] = [];
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+
+    const visit = (name: string, path: string[]): void => {
+      if (visited.has(name)) return;
+      if (visiting.has(name)) {
+        throw new Error(`Circular extension dependency: ${[...path, name].join(' -> ')}`);
+      }
+      visiting.add(name);
+      for (const dep of depsMap.get(name) ?? []) {
+        if (!depsMap.has(dep)) {
+          console.warn(`[extensions] "${name}" depends on "${dep}" which is not in the load set — "${name}" will load anyway, but ctx.services.get('${dep}.*') may return null until "${dep}" is also activated.`);
+          continue;
+        }
+        visit(dep, [...path, name]);
+      }
+      visiting.delete(name);
+      visited.add(name);
+      sorted.push(name);
+    };
+
+    for (const name of names) visit(name, []);
+    return sorted;
   }
 
   private getActiveExtensionNames(): string[] {
@@ -636,6 +704,9 @@ class ExtensionLoader {
         checkPermission: ctx.checkPermission ?? checkPermission,
         getUserRoles: ctx.getUserRoles ?? getUserRoles,
         DDLManager: ctx.DDLManager ?? DDLManager,
+        // Hand each extension a scoped view of the registry so its register()
+        // calls are tagged for cleanup on unload. Idempotent on hot-reload.
+        services: serviceRegistry.scope(extName),
         internals: ctx.internals,
       };
 
@@ -714,20 +785,33 @@ class ExtensionLoader {
     extName: string,
     peerDeps: Record<string, string>,
   ): Promise<void> {
-    // Install into EXTENSIONS_DIR so the packages sit in a node_modules that
-    // extensions can reach via Bun's module resolution (walks up parent dirs).
-    // Falls back to the monorepo root for development.
+    // Install into EXTENSIONS_DIR itself — the same directory where ensureExtensionCoreDeps
+    // puts hono/zod/kysely (which work correctly for dynamic extension imports).
+    // Compiled binary resolves dynamically-imported module externals via standard
+    // Node.js filesystem walk from the imported file's location; placing all packages
+    // in /opt/zveltio/extensions/node_modules/ puts them on that walk path.
     const workspaceRoot = process.env.EXTENSIONS_DIR
-      || join(import.meta.dir, '../../../../');
+      ? process.env.EXTENSIONS_DIR
+      : join(import.meta.dir, '../../../../');
 
+    const extNodeModules = join(workspaceRoot, 'node_modules');
     const toInstall: string[] = [];
     for (const [pkg, versionRange] of Object.entries(peerDeps)) {
-      // Check if already resolvable via Bun's module resolution
+      // Check via Bun's module resolution first, then fall back to a direct filesystem check
+      // against the extensions node_modules (import.meta.resolve runs in engine binary context
+      // and cannot see packages installed in the extensions directory).
+      let alreadyInstalled = false;
       try {
         await import.meta.resolve(pkg);
-        // Already installed — skip
+        alreadyInstalled = true;
       } catch {
-        // Not found — queue for installation
+        // Check extensions node_modules directly (handles scoped pkgs like @scope/name too)
+        const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
+        if (existsSync(join(extNodeModules, pkgFolder))) {
+          alreadyInstalled = true;
+        }
+      }
+      if (!alreadyInstalled) {
         const spec = versionRange && versionRange !== '*'
           ? `${pkg}@${versionRange.replace(/^\^|^~/, '')}`
           : pkg;
@@ -817,10 +901,15 @@ class ExtensionLoader {
         .where('is_enabled' as any, '=', true)
         .execute();
 
-      for (const row of rows) {
-        if (!this.loaded.has(row.name) && this.ctx) {
-          await this.loadExtension(row.name, app, this.ctx);
-        }
+      const pending = rows
+        .map((r: any) => r.name as string)
+        .filter((name: string) => !this.loaded.has(name));
+      if (pending.length === 0 || !this.ctx) return;
+
+      const extBase = resolveExtensionsBase();
+      const sorted = await this.topoSortExtensions(pending, extBase);
+      for (const name of sorted) {
+        await this.loadExtension(name, app, this.ctx);
       }
     } catch {
       // Table may not exist on first run — silently skip
@@ -1228,6 +1317,10 @@ class ExtensionLoader {
       }
     }
 
+    // Remove all services this extension published. Without this, hot-reload
+    // would throw on duplicate name when the extension is re-enabled.
+    serviceRegistry.unregisterAll(name);
+
     this.loaded.delete(name);
     console.log(`🔌 Extension unloaded from memory: ${name}`);
 
@@ -1267,6 +1360,7 @@ class ExtensionLoader {
       checkPermission: this.ctx.checkPermission ?? checkPermission,
       getUserRoles:    this.ctx.getUserRoles ?? getUserRoles,
       DDLManager:      this.ctx.DDLManager ?? DDLManager,
+      services:        serviceRegistry.scope(name),
       internals:       this.ctx.internals,
     };
 

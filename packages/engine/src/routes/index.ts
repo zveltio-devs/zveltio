@@ -20,13 +20,8 @@ import { notificationsRoutes } from './notifications.js';
 import { healthRoutes } from './health.js';
 import { flowsRoutes } from './flows.js';
 import { tenantsRoutes } from './tenants.js';
-import { aiRoutes } from './ai.js';
-import { aiChatsRoutes } from './ai-chats.js';
-import { zveltioAIRoutes } from './zveltio-ai.js';
-import { aiAnalyticsRoutes } from './ai-analytics.js';
-import { aiAlchemistRoutes } from './ai-alchemist.js';
-import { aiQueryRoutes } from './ai-query.js';
-import { aiSchemaGenRoutes } from './ai-schema-gen.js';
+// AI routes moved to the `ai` extension (zveltio-extensions/ai). It registers
+// /api/ai*, /api/zveltio-ai, and /api/ai-analytics from there.
 import { zonesRoutes, viewsRoutes } from './zones.js';
 import { translationsRoutes } from './translations.js';
 import { approvalsRoutes } from './approvals.js';
@@ -267,14 +262,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Multi-tenancy management (core)
   app.route('/api/tenants', tenantsRoutes(db, auth));
 
-  // AI — deeply integrated into the platform (core)
-  app.route('/api/ai', aiRoutes(db, auth));
-  app.route('/api/ai', aiChatsRoutes(db, auth));
-  app.route('/api/ai', aiSchemaGenRoutes(db, auth));
-  app.route('/api/ai/alchemist', aiAlchemistRoutes(db, auth));
-  app.route('/api/ai/query', aiQueryRoutes(db, auth));
-  app.route('/api/zveltio-ai', zveltioAIRoutes(db, auth));
-  app.route('/api/ai-analytics', aiAnalyticsRoutes(db, auth));
+  // AI — moved to extensions/ai. Mounts /api/ai*, /api/zveltio-ai, /api/ai-analytics.
 
   // SDK Local-First Sync (push/pull batch operations)
   app.route('/api/sync', syncRoutes(db, auth));

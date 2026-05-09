@@ -1,6 +1,6 @@
 # 🚀 Zveltio
 
-**High-performance self-hosted BaaS (Backend as a Service)** built with Bun, Hono, Kysely, Better-Auth, and Casbin. Designed for enterprises and public institutions.
+**Self-hosted Business OS** for organizations that own their infrastructure and data. Built with Bun, Hono, Kysely, Better-Auth, and Casbin. Designed for enterprises and public institutions — intranet, ERP, ecommerce, CRM, document management, and more, all on the same platform.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Bun](https://img.shields.io/badge/Bun-1.2.0+-red)](https://bun.sh)
