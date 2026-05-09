@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { sql as _sql, Kysely } from 'kysely';
+import { sql as _sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
 import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
