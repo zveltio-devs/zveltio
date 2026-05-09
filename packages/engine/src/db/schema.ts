@@ -628,9 +628,6 @@ export interface ZvdCollectionsTable {
   source_type: string | null;
   virtual_config: unknown; // JSONB
   is_managed: boolean;
-  ai_search_enabled: boolean;
-  ai_search_field: string | null;
-  ai_embed_excluded_fields: unknown; // JSONB
   is_system: boolean;
   schema_locked: boolean;
 }
