@@ -47,7 +47,7 @@ export async function checkExtensionDependencies(
   for (const dep of dependencies) {
     const installed = await (db as any)
       .selectFrom('zv_extension_registry')
-      .select(['installed_version', 'is_enabled'])
+      .select(['version', 'is_enabled'])
       .where('name', '=', dep.name)
       .where('is_enabled', '=', true)
       .executeTakeFirst()
@@ -59,7 +59,7 @@ export async function checkExtensionDependencies(
     }
 
     if (dep.minVersion) {
-      const current = parseSemver((installed as any).installed_version || '0.0.0');
+      const current = parseSemver((installed as any).version || '0.0.0');
       const required = parseSemver(dep.minVersion);
       if (compareSemver(current, required) < 0) {
         missing.push(`${dep.name} >= ${dep.minVersion} (installed: ${(installed as any).installed_version})`);

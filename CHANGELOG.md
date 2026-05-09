@@ -2,6 +2,22 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.69] - 2026-05-09
+
+### Fixes
+
+- **Extension Studio UI now appears after marketplace install.** `reRegisterExtension()` (called during hot-reload when an extension is enabled/disabled) was registering the Hono bundle route but not updating the in-memory `bundleUrl` in `this.loaded`. This meant `GET /api/extensions` returned `"bundles": []` even after a hot-reload, so the Studio never injected the bundle `<script>` tag and showed the generic "Extension active" placeholder for every extension. `reRegisterExtension()` now keeps `bundleUrl` in sync with the current filesystem state.
+- **Clearer warning when extension ZIP lacks a pre-built Studio bundle.** `downloadExtension()` now emits a `⚠️` warning if an extension has `studio/vite.config.ts` but no `studio/dist/bundle.js` in the downloaded package — pointing developers to re-upload with the bundle included.
+- **Audit log now logs the actual error**, not just the event type, when an audit event fails to write to `zv_audit_log`.
+- **Extension package resolution fixed for compiled binaries.** When running as a compiled Bun binary (`/opt/zveltio/zveltio`), dynamic imports resolve modules starting from the process CWD, not from the imported file's directory. `ensureExtensionCoreDeps()` now calls `maybeSymlinkNodeModules()` which creates `<CWD>/node_modules → <EXTENSIONS_DIR>/node_modules` on first startup if they differ. This makes `hono`, `zod`, `kysely`, `@hono/zod-validator` and all peer-dependency packages visible to the binary's resolver. Fixes load failures for: `geospatial/postgis`, `storage/cloud`, `auth/ldap`, `auth/saml`, `communications/mail`, `content/media`, `developer/graphql`, `operations/traceability`, `compliance/ro/efactura`.
+- **CRM extension migrations hardened for pre-extension installs.** The old core schema had a `zvd_transactions` table without a `name` column. `001_init.sql` now adds `name` in its upgrade block; `003_missing_columns.sql` wraps `ALTER COLUMN name DROP NOT NULL` in a conditional `DO $$` block so it skips safely when the column was never present.
+- **Extension manifest peer dependencies declared.** `storage/cloud` (`@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`), `developer/graphql` (`graphql`), and `content/media` (`@aws-sdk/client-s3`) now declare their peer dependencies so the engine auto-installs them on first activation.
+- **`content/media` removed `nanoid` dependency.** Replaced with `crypto.randomUUID()` (Bun built-in) to eliminate an unshimmed npm import.
+- **`geospatial/postgis` removed direct engine imports.** Replaced `import { checkPermission } from '@zveltio/engine/lib/permissions.js'` and `import { DDLManager } from '@zveltio/engine/lib/ddl-manager.js'` with `ctx.checkPermission` and inline SQL — engine-internal modules cannot be resolved from extension files at runtime.
+- **Extension schema upgrade blocks for pre-extension installs.** `forms`, `content/page-builder`, `content/drafts`, and `content/document-templates` migrations now add missing columns via `ALTER TABLE … ADD COLUMN IF NOT EXISTS` when the table already exists from a pre-extension core schema.
+
+---
+
 ## [1.0.0-alpha.68] - 2026-05-09
 
 ### Fix
