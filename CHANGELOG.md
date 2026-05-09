@@ -2,6 +2,14 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.68] - 2026-05-09
+
+### Fix
+
+- **CI integration tests (12 failures) resolved.** `POST /api/collections` was returning 400 on fresh installs because `DDLManager.registerMetadata()` tried to INSERT `ai_search_enabled` and `ai_search_field` columns that no longer exist in the core schema after the AI extraction in alpha.67. These are AI-extension-owned columns managed by the extension's own migrations. Removed from core `DDLManager` INSERT, `updateCollectionMetadata()`, and `ZvdCollectionsTable` TS type. All cascading test failures (relations, API keys, webhooks, cursor pagination) are resolved.
+
+---
+
 ## [1.0.0-alpha.66] - 2026-05-07
 
 ### Internal
