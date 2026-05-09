@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { aiProviderManager } from '../ai-provider.js';
+import { serviceRegistry } from '../service-registry.js';
 
 const INDEXABLE_MIMES = [
   'text/plain', 'text/markdown', 'text/csv', 'text/html',
@@ -20,7 +20,8 @@ export async function indexFileContent(
 ): Promise<void> {
   if (!content.trim()) return;
 
-  const provider = aiProviderManager.getDefault();
+  const aiProviders = serviceRegistry.get<{ getDefault(): any }>('ai.providers');
+  const provider = aiProviders?.getDefault?.();
   if (!provider?.embed) return;
 
   try {

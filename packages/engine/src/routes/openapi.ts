@@ -18,7 +18,7 @@ function buildSpec() {
     info: {
       title: 'Zveltio Engine API',
       version: ENGINE_VERSION,
-      description: 'The BaaS that just works — single binary, extensions, no complexity.',
+      description: 'Self-hosted Business OS — own your hardware, own your data.',
       contact: { url: 'https://zveltio.com' },
     },
     servers: [{ url: '/api', description: 'Engine API' }],

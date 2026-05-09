@@ -18,7 +18,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { runScript } from './script-runner.js';
 import { sendNotification } from '../routes/notifications.js';
-import { aiProviderManager } from './ai-provider.js';
+import { serviceRegistry } from './service-registry.js';
 import { traced } from './telemetry.js';
 import { safeFetch, validatePublicUrl } from './edge-functions/safe-fetch.js';
 
@@ -280,7 +280,12 @@ async function executeStep(
         output: prevOutput,
       });
 
-      const provider = aiProviderManager.getDefault();
+      const aiProviders = serviceRegistry.get<{ getDefault(): { chat?: Function } | null }>('ai.providers');
+      if (!aiProviders) {
+        console.warn('[Flow] ai_decision: AI extension is not active, using fallback');
+        return { output: { decision: fallback, usedFallback: true, error: 'AI extension not active' } };
+      }
+      const provider = aiProviders.getDefault();
       if (!provider?.chat) {
         console.warn('[Flow] ai_decision: no AI provider configured, using fallback');
         return { output: { decision: fallback, usedFallback: true, error: 'No AI provider' } };

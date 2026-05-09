@@ -11,7 +11,7 @@ import type { Database } from '../db/index.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from './garbage-collector.js';
 import { extensionRegistry } from './extension-registry.js';
-import { ZveltioAIEngine } from './zveltio-ai/engine.js';
+import { serviceRegistry } from './service-registry.js';
 
 const SCHEDULER_POLL_MS = 60_000;        // How often the scheduler polls for due flows
 const DEFAULT_CRON_INTERVAL_MS = 60_000; // Default interval when trigger_config.interval_seconds is absent
@@ -103,22 +103,26 @@ export const flowScheduler = {
 
     // ── AI Task trigger ───────────────────────────────────────────
     if (flow.trigger_type === 'ai_task') {
-      try {
-        const engine = new ZveltioAIEngine(_db);
-        const cfg = flow.trigger_config ?? {};
-        await engine.processBackgroundTask(
-          cfg.user_id ?? flow.created_by,
-          cfg.instruction ?? flow.description ?? 'Generate a status report',
-          {
-            notifyOnResult: cfg.notify_on_result ?? true,
-            notifyOnlyIfData: cfg.notify_only_if_data ?? false,
-            notificationTitle: cfg.notification_title ?? flow.name,
-            maxIterations: cfg.max_iterations ?? 5,
-          },
-        );
-        console.log(`[FlowScheduler] ai_task completed`, { flow: flow.id, name: flow.name });
-      } catch (err: any) {
-        console.error(`[FlowScheduler] ai_task failed`, { flow: flow.id, name: flow.name, error: err.message });
+      const runTask = serviceRegistry.get<(userId: string, instruction: string, opts: any) => Promise<void>>('ai.runBackgroundTask');
+      if (!runTask) {
+        console.warn(`[FlowScheduler] ai_task skipped — AI extension is not active`, { flow: flow.id, name: flow.name });
+      } else {
+        try {
+          const cfg = flow.trigger_config ?? {};
+          await runTask(
+            cfg.user_id ?? flow.created_by,
+            cfg.instruction ?? flow.description ?? 'Generate a status report',
+            {
+              notifyOnResult: cfg.notify_on_result ?? true,
+              notifyOnlyIfData: cfg.notify_only_if_data ?? false,
+              notificationTitle: cfg.notification_title ?? flow.name,
+              maxIterations: cfg.max_iterations ?? 5,
+            },
+          );
+          console.log(`[FlowScheduler] ai_task completed`, { flow: flow.id, name: flow.name });
+        } catch (err: any) {
+          console.error(`[FlowScheduler] ai_task failed`, { flow: flow.id, name: flow.name, error: err.message });
+        }
       }
 
       // Advance next_run_at

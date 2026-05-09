@@ -13,6 +13,7 @@
     Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare,
     ScanSearch, Search, Code, Bookmark, BarChart2, Terminal, Activity,
     LayoutGrid, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Menu, X, Zap,
+    FileText, DollarSign, Clock, ShoppingBag, Lock, Truck, Globe,
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
   import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
@@ -79,10 +80,13 @@
   type NavItem = { href: string; icon: any; label: string; ext?: string };
   type NavGroup = { label?: string; items: NavItem[] };
 
-  // Extensions already surfaced in the static nav — don't duplicate in Extensions section
+  // Extensions with dedicated Studio pages — excluded from generic extNavFromMeta
   const STATIC_NAV_EXTS = new Set([
     'content/media', 'developer/byod', 'data/import', 'data/export',
     'i18n/translations', 'workflow/checklists', 'content/page-builder',
+    'crm', 'finance/quotes', 'finance/invoicing', 'hr/time-tracking',
+    'operations/assets', 'ecommerce/store', 'content/documents',
+    'auth/saml', 'auth/ldap',
   ]);
 
   // Extension nav items built from manifest metadata (no IIFE bundle required).
@@ -108,15 +112,31 @@
       }) : [],
   );
 
-  // Hardcoded bundled extensions (have their own Studio pages built into the Studio SPA)
+  // Extensions with dedicated Studio pages built into the Studio SPA
   const bundledExtNav = $derived<NavItem[]>(
     extensions.initialized ? [
       ...(extensions.isActive('workflow/checklists')
-        ? [{ href: `${base}/extensions/checklists`, icon: CheckSquare, label: 'Checklists' }]
-        : []),
+        ? [{ href: `${base}/extensions/checklists`,       icon: CheckSquare,  label: 'Checklists'      }] : []),
       ...(extensions.isActive('content/page-builder')
-        ? [{ href: `${base}/extensions/page-builder`, icon: Layout,      label: 'Pages'      }]
-        : []),
+        ? [{ href: `${base}/extensions/page-builder`,     icon: Layout,       label: 'Pages'           }] : []),
+      ...(extensions.isActive('crm')
+        ? [{ href: `${base}/extensions/crm`,              icon: Users,        label: 'CRM'             }] : []),
+      ...(extensions.isActive('finance/quotes')
+        ? [{ href: `${base}/extensions/finance/quotes`,   icon: FileText,     label: 'Quotes'          }] : []),
+      ...(extensions.isActive('finance/invoicing')
+        ? [{ href: `${base}/extensions/finance/invoicing`,icon: DollarSign,   label: 'Invoicing'       }] : []),
+      ...(extensions.isActive('hr/time-tracking')
+        ? [{ href: `${base}/extensions/hr/time-tracking`, icon: Clock,        label: 'Time Tracking'   }] : []),
+      ...(extensions.isActive('operations/assets')
+        ? [{ href: `${base}/extensions/operations/assets`,icon: Package,      label: 'Fixed Assets'    }] : []),
+      ...(extensions.isActive('ecommerce/store')
+        ? [{ href: `${base}/extensions/ecommerce/store`,  icon: ShoppingBag,  label: 'eCommerce'       }] : []),
+      ...(extensions.isActive('content/documents')
+        ? [{ href: `${base}/extensions/content/documents`,icon: FileText,     label: 'Documents'       }] : []),
+      ...(extensions.isActive('auth/saml')
+        ? [{ href: `${base}/extensions/auth/saml`,        icon: Lock,         label: 'SAML SSO'        }] : []),
+      ...(extensions.isActive('auth/ldap')
+        ? [{ href: `${base}/extensions/auth/ldap`,        icon: Globe,        label: 'LDAP / AD'       }] : []),
     ] : [],
   );
 
@@ -174,7 +194,7 @@
     {
       label: 'Intelligence',
       items: [
-        { href: `${base}/ai`,               icon: Bot,         label: 'AI Hub'       },
+        // AI Hub nav comes from the `ai` extension's manifest (studio.pages).
         { href: `${base}/insights`,         icon: BarChart2,   label: 'Insights'     },
       ]
     },

@@ -1,13 +1,20 @@
 /**
  * extension-context.ts
  *
- * Provides a RestrictedDb proxy that wraps the engine's Kysely Database and
- * blocks extensions from querying or mutating system tables (zv_* prefix).
- * Extensions may freely access user-created data tables (zvd_* prefix) and
- * any tables that don't start with the system prefix.
+ * Provides a RestrictedDb proxy that wraps the engine's Kysely Database.
  *
- * System tables contain secrets, permissions, audit logs, API keys, billing
- * data, and session tokens — extensions must never touch these directly.
+ * Access policy:
+ *   - Extensions may freely access non-prefixed tables (e.g. `user`, `account`).
+ *   - Extensions may freely access `zvd_*` user-data tables.
+ *   - Extensions may access `zv_<extname>_*` (and the dotted/slashed variant
+ *     where slashes are normalized to underscores) — their OWN reserved namespace.
+ *   - Extensions may NOT access any other `zv_*` system tables: secrets,
+ *     permissions, audit logs, API keys, billing data, session tokens, etc.
+ *
+ * Note: only Kysely query-builder methods are intercepted. Raw `sql\`...\`.execute(db)`
+ * passes through the proxy without inspection — extensions should still avoid
+ * those for system tables, but the security boundary is best-effort, not a hard
+ * sandbox.
  */
 
 import type { Database } from '../db/index.js';
@@ -36,6 +43,10 @@ type RestrictedDatabase = Database;
  * @param extName  Extension name — included in error messages for debugging.
  */
 export function createRestrictedDb(db: Database, extName: string): RestrictedDatabase {
+  // An extension named "ai" owns `zv_ai_*`. An extension named "compliance/ro/saft"
+  // owns `zv_compliance_ro_saft_*` (slashes normalized to underscores).
+  const ownedPrefix = `zv_${extName.replace(/[^a-z0-9]/gi, '_')}_`;
+
   return new Proxy(db, {
     get(target, prop: string | symbol) {
       const value = (target as any)[prop];
@@ -47,11 +58,11 @@ export function createRestrictedDb(db: Database, extName: string): RestrictedDat
           // Strip alias syntax e.g. "zv_users as u"
           const baseTable = table.split(/\s+/)[0].trim();
 
-          if (baseTable.startsWith('zv_')) {
+          if (baseTable.startsWith('zv_') && !baseTable.startsWith(ownedPrefix)) {
             throw new ExtensionSecurityError(
               `Extension "${extName}" attempted to access system table "${baseTable}" via ${prop}(). ` +
-              `Extensions may only access user data tables (zvd_*). ` +
-              `System tables are reserved for Zveltio engine internals.`,
+              `Extensions may only access user data tables (zvd_*) and their own namespace (${ownedPrefix}*). ` +
+              `Other zv_* system tables are reserved for Zveltio engine internals.`,
             );
           }
 

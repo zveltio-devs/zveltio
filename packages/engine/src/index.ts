@@ -8,12 +8,11 @@ import { initAuth } from './lib/auth.js';
 import { initPermissions, checkPermission, getUserRoles } from './lib/permissions.js';
 import { initRls } from './lib/rls.js';
 import { fieldTypeRegistry } from './lib/field-type-registry.js';
-import { extensionLoader, buildExtensionInternals } from './lib/extension-loader.js';
+import { extensionLoader, buildExtensionInternals, serviceRegistry } from './lib/extension-loader.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
 import { realtimeManager } from './lib/realtime.js';
-import { initAIProviders } from './lib/ai-provider.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { cancelPendingCleanups } from './lib/ghost-ddl.js';
@@ -271,42 +270,56 @@ if (_cmd === 'create-god') {
 // If the files are missing and the registry is unreachable we skip silently —
 // the server starts normally and the user can activate from marketplace later.
 async function ensureDefaultExtensions(db: any): Promise<void> {
-  const existing = await db
-    .selectFrom('zv_extension_registry')
-    .select('name')
-    .where('name', '=', 'content/page-builder')
-    .executeTakeFirst()
-    .catch(() => null);
-
-  if (existing) return; // already registered (any previous boot)
-
-  // Verify extension files are on disk before marking as installed.
-  const extBase = process.env.EXTENSIONS_DIR
-    || join(import.meta.dir, '../../../extensions');
-  const engineEntry = join(extBase, 'content/page-builder/engine/index.ts');
-  const filesOnDisk = await Bun.file(engineEntry).exists().catch(() => false);
-
-  if (!filesOnDisk) {
-    console.log('ℹ️  content/page-builder not on disk — skipping auto-activate (install from marketplace when ready)');
-    return;
-  }
-
-  await db
-    .insertInto('zv_extension_registry')
-    .values({
+  const defaults = [
+    {
       name: 'content/page-builder',
       display_name: 'Page Builder',
       description: 'Visual CMS page builder with blocks, SEO fields, and publish workflow',
       category: 'content',
-      version: '1.0.0',
-      is_installed: true,
-      is_enabled: true,
-      installed_at: new Date(),
-      enabled_at: new Date(),
-    })
-    .execute()
-    .catch(() => {}); // ignore race (unique constraint)
-  console.log('🔌 Default extension auto-activated: content/page-builder');
+    },
+    {
+      name: 'ai',
+      display_name: 'AI',
+      description: 'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
+      category: 'intelligence',
+    },
+  ];
+
+  const extBase = process.env.EXTENSIONS_DIR
+    || join(import.meta.dir, '../../../extensions');
+
+  for (const def of defaults) {
+    const existing = await db
+      .selectFrom('zv_extension_registry')
+      .select('name')
+      .where('name', '=', def.name)
+      .executeTakeFirst()
+      .catch(() => null);
+
+    if (existing) continue;
+
+    const engineEntry = join(extBase, def.name, 'engine/index.ts');
+    const filesOnDisk = await Bun.file(engineEntry).exists().catch(() => false);
+
+    if (!filesOnDisk) {
+      console.log(`ℹ️  ${def.name} not on disk — skipping auto-activate (install from marketplace when ready)`);
+      continue;
+    }
+
+    await db
+      .insertInto('zv_extension_registry')
+      .values({
+        ...def,
+        version: '1.0.0',
+        is_installed: true,
+        is_enabled: true,
+        installed_at: new Date(),
+        enabled_at: new Date(),
+      })
+      .execute()
+      .catch(() => {}); // ignore race (unique constraint)
+    console.log(`🔌 Default extension auto-activated: ${def.name}`);
+  }
 }
 
 async function buildHonoApp(): Promise<Hono> {
@@ -526,17 +539,7 @@ async function bootstrap() {
   const _tempApp = new Hono();
 
   await Promise.all([
-    // AI providers — init after extensions so extension providers can register too
-    initAIProviders(db)
-      .then(async () => {
-        const { aiProviderManager } = await import('./lib/ai-provider.js');
-        const aiCount = aiProviderManager.list().length;
-        if (aiCount > 0)
-          console.log(`✅ AI providers initialized: ${aiCount} provider(s)`);
-      })
-      .catch((err: Error) => {
-        console.warn('⚠️ AI providers failed (non-fatal):', err.message);
-      }),
+    // AI providers are now initialised by the `ai` extension itself when it loads.
 
     // Extensions — env-var configured + DB marketplace
     extensionLoader
@@ -548,6 +551,10 @@ async function bootstrap() {
         checkPermission,
         getUserRoles,
         DDLManager,
+        // Each extension gets a scoped view via serviceRegistry.scope(extName) inside
+        // the loader; this top-level value is just a type placeholder for the bootstrap
+        // ExtensionContext shape and is overridden per-extension.
+        services: serviceRegistry.scope('engine'),
         internals: buildExtensionInternals(),
       })
       .then(() => ensureDefaultExtensions(db))
