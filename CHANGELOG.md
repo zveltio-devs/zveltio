@@ -2,6 +2,15 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.70] - 2026-05-09
+
+### Fixes
+
+- **Extension Studio UI now works on fresh installs.** `studio/dist/bundle.js` files were excluded by `.gitignore` (`dist/`) and never shipped. Added `!**/studio/dist/bundle.js` exception — all 54 extension bundles are now committed and served by the engine at `/ext/<name>/bundle.js`.
+- **`zv_revisions` integration test race condition fixed.** Revision INSERT was fire-and-forget; test read the table before the row landed. Now awaited (errors still swallowed).
+
+---
+
 ## [1.0.0-alpha.69] - 2026-05-09
 
 ### Fixes
