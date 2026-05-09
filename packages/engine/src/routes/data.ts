@@ -456,8 +456,9 @@ async function afterWrite(
 ): Promise<void> {
   const { collection, recordId, action, data, delta, userId } = opts;
 
-  // Revision log — non-fatal
-  db.insertInto('zv_revisions')
+  // Revision log — awaited so callers see a consistent DB state after the write,
+  // but errors are swallowed (non-fatal).
+  await db.insertInto('zv_revisions')
     .values({
       collection,
       record_id: recordId,
