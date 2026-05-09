@@ -280,7 +280,8 @@ async function executeStep(
         output: prevOutput,
       });
 
-      const aiProviders = serviceRegistry.get<{ getDefault(): { chat?: Function } | null }>('ai.providers');
+      type ChatProvider = { chat?: (messages: unknown[], opts?: unknown) => Promise<{ content?: string; usage?: unknown }> };
+      const aiProviders = serviceRegistry.get<{ getDefault(): ChatProvider | null }>('ai.providers');
       if (!aiProviders) {
         console.warn('[Flow] ai_decision: AI extension is not active, using fallback');
         return { output: { decision: fallback, usedFallback: true, error: 'AI extension not active' } };
