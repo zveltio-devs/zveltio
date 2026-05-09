@@ -6,16 +6,20 @@ import * as svelte from 'svelte';
 import * as store from 'svelte/store';
 import * as transition from 'svelte/transition';
 import * as animate from 'svelte/animate';
-
-// svelte/internal is not a public export in Svelte 5 — use empty fallback
-let internal: Record<string, unknown> = {};
-try {
-  // @ts-ignore — may not exist in Svelte 5
-  internal = await import('svelte/internal');
-} catch { /* Svelte 5 removed svelte/internal — extensions should not rely on it */ }
+import * as reactivity from 'svelte/reactivity';
+import * as internal_client from 'svelte/internal/client';
 
 if (typeof window !== 'undefined') {
-  (window as any).__SvelteRuntime = { svelte, internal, store, transition, animate };
+  (window as any).__SvelteRuntime = {
+    svelte,
+    store,
+    transition,
+    animate,
+    reactivity,
+    internal_client,
+    // legacy alias — kept for any bundles that referenced it
+    internal: internal_client,
+  };
 }
 
 export {};

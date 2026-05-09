@@ -2,6 +2,16 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.71] - 2026-05-09
+
+### Fixes
+
+- **Extension Studio UIs no longer freeze.** All 54 extension bundles were built with Svelte 4 externals (`svelte/internal`) that don't exist in Svelte 5. Svelte 5 uses `svelte/internal/client` — since that module was never externalized, the full Svelte 5 runtime was bundled inside every extension IIFE, creating 54 competing Svelte instances on the same page and deadlocking reactive signals. All vite.config.ts files now use a function-based `external` that catches every `svelte/*` sub-path, with a globals map that includes `svelte/internal/client → window.__SvelteRuntime.internal_client` and `svelte/reactivity`.
+- **Studio correctly exposes `svelte/internal/client` and `svelte/reactivity` to extension bundles.** `hooks.client.ts` now imports and exports both via `window.__SvelteRuntime` so extension globals can resolve them.
+- **19 extension bundles now self-register on load.** `auth/ldap`, `auth/saml`, `billing`, `communications/mail`, `compliance/ro/*` (5), `content/page-builder`, `crm`, `developer/edge-functions`, `forms`, `geospatial/postgis`, `operations/traceability`, `search`, `sms`, `workflow/approvals`, `workflow/checklists` exported `register()` but never called it at IIFE load time. Added `register();` to each `src/index.ts`.
+
+---
+
 ## [1.0.0-alpha.70] - 2026-05-09
 
 ### Fixes
