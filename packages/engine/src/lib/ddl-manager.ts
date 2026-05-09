@@ -604,8 +604,6 @@ export class DDLManager {
         ...(updates.icon ? { icon: updates.icon } : {}),
         ...(updates.description !== undefined ? { description: updates.description } : {}),
         ...(updates.fields ? { fields: JSON.stringify(updates.fields) } : {}),
-        ...(updates.aiSearchEnabled !== undefined ? { ai_search_enabled: updates.aiSearchEnabled } : {}),
-        ...(updates.aiSearchField !== undefined ? { ai_search_field: updates.aiSearchField } : {}),
         updated_at: new Date(),
       } as any)
       .where('name' as any, '=', name)
@@ -868,7 +866,6 @@ export class DDLManager {
         route_group: definition.routeGroup || 'private',
         is_permissioned: definition.isPermissioned ?? true,
         is_managed: definition.isManaged ?? true,
-        ai_search_enabled: definition.aiSearchEnabled ?? false,
         is_system: definition.isSystem ?? false,
         schema_locked: definition.schemaLocked ?? false,
         sort: definition.sort ?? 99,
