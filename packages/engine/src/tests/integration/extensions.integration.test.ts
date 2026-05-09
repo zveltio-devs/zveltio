@@ -47,8 +47,7 @@ const EXTENSION_ROUTES = [
   // Content
   { path: '/api/drafts', method: 'GET', name: 'drafts' },
   { path: '/api/media', method: 'GET', name: 'media' },
-  // AI
-  { path: '/api/ai/chat', method: 'POST', name: 'ai-chat' },
+  // AI — moved to the `ai` extension; route registration is tested in extension repo
   // Developer
   { path: '/api/graphql', method: 'GET', name: 'graphql' },
   // Multitenancy
@@ -84,57 +83,9 @@ describe.skipIf(skipAll)('Extensions — Route Registration', () => {
   }
 });
 
-describe.skipIf(skipAll)('Extensions — AI Agent Tools', () => {
-  let userCookie: string;
-
-  beforeAll(async () => {
-    const ts = Date.now();
-    const email = `ai-test-${ts}@test.local`;
-
-    await fetch(`${BASE_URL}/api/auth/sign-up/email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: 'TestPass123!', name: 'AI Test User' }),
-    });
-
-    const signIn = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: 'TestPass123!' }),
-    });
-    userCookie = signIn.headers.get('set-cookie')?.split(';')[0] ?? '';
-  });
-
-  it('POST /api/ai/chat — responds (200 if configured, 503 if not, never 404)', async () => {
-    const res = await fetch(`${BASE_URL}/api/ai/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: userCookie },
-      body: JSON.stringify({ message: 'Hello, list my collections' }),
-    });
-
-    expect([200, 400, 401, 403, 503]).toContain(res.status);
-    if (res.status === 200) {
-      const body = await res.json();
-      expect(body).toHaveProperty('response');
-      expect(body).toHaveProperty('conversationId');
-    }
-  });
-
-  it('POST /api/ai/preview-schema — returns preview without executing DDL', async () => {
-    const res = await fetch(`${BASE_URL}/api/ai/preview-schema`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: userCookie },
-      body: JSON.stringify({ description: 'A simple blog with posts and comments' }),
-    });
-
-    expect([200, 400, 401, 403, 503]).toContain(res.status);
-    if (res.status === 200) {
-      const body = await res.json();
-      expect(body).toHaveProperty('preview');
-      expect(body).toHaveProperty('confirm_token');
-    }
-  });
-});
+// AI Agent Tools tests live in the `ai` extension repo as of alpha.67 — they
+// require the AI extension to be installed and loaded, which engine integration
+// tests do not provide.
 
 describe.skipIf(skipAll)('Extensions — GraphQL', () => {
   it('GET /api/graphql — playground responds', async () => {
