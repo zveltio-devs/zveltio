@@ -40,6 +40,13 @@ export interface ExtensionContext {
   /** DDLManager class — schema migration utilities (Ghost Tables, zero-downtime DDL). */
   DDLManager: any;
 
+  /**
+   * Inter-extension service registry. Extensions publish services here for other
+   * extensions to consume. Stable public API — use this for cross-extension
+   * communication instead of direct imports.
+   */
+  services: ServiceRegistry;
+
   // ─── Engine-internal helpers (for official extensions) ───────────────────────
   // These expose deep engine functionality to first-party extensions.
   // Third-party extensions should rely on the stable API above instead.
@@ -57,8 +64,6 @@ export interface ExtensionContext {
  * import these directly from `../../../packages/engine/src/...` paths.
  */
 export interface ExtensionInternals {
-  /** AI provider manager — embeddings, completions, tool use across providers. */
-  aiProviderManager: any;
   /** Type-safe insert into a dynamic (user-defined) collection table. */
   dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
   /** Introspect a Postgres schema — returns tables, columns, types, indexes, FKs. */
@@ -90,6 +95,54 @@ export interface ExtensionInternals {
   DataLoaderRegistry: any;
   /** Validate GraphQL query depth. Returns an error message if too deep, null otherwise. */
   checkQueryDepth: (query: string, maxDepth?: number) => string | null;
+  /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */
+  enqueueDDLJob: (...args: any[]) => Promise<unknown>;
+  /** Validate that a URL targets a public, non-internal address (SSRF safety). */
+  validatePublicUrl: (url: string) => Promise<URL>;
+  /** Extract plain text from an uploaded file (PDF/DOCX/etc.) for AI indexing. */
+  extractTextFromFile: (buffer: ArrayBuffer | Buffer | Uint8Array, mimeType: string) => Promise<string>;
+  /** Send an in-app notification to a user (writes to zv_notifications system table). */
+  sendNotification: (db: any, input: { user_id: string; type?: string; title: string; message?: string; data?: unknown }) => Promise<void>;
+}
+
+/**
+ * Inter-extension service registry.
+ *
+ * Extensions publish services here for other extensions to consume — a Drupal-style
+ * services container. Services are keyed by string names (e.g. `'ai.providers'`,
+ * `'crm.contacts.lookup'`). Consumers should treat `get()` returning `null` as a
+ * recoverable signal (the providing extension is not active) and either skip the
+ * feature or surface a clear error to the user.
+ *
+ * Extensions MUST NOT directly import from other extensions — communication goes
+ * exclusively through this registry.
+ *
+ * The instance passed to each extension via `ctx.services` is **scoped to that
+ * extension** — anything `register()`-ed through it is automatically attributed
+ * to the extension and gets cleaned up on unload (disable / hot-reload).
+ * `register()` is idempotent within a scope (replaces on duplicate), so an
+ * extension's `register()` can safely run multiple times during hot-reload.
+ */
+export interface ServiceRegistry {
+  /**
+   * Publish a service under a name.
+   * Idempotent: re-registering the same name from the same extension replaces.
+   * Throws if a different extension already owns that name.
+   */
+  register<T = unknown>(name: string, value: T): void;
+  /** Remove a service this extension previously registered. No-op if not owned. */
+  unregister(name: string): void;
+  /** Get a service. Returns `null` if not registered. */
+  get<T = unknown>(name: string): T | null;
+  /** Check if a service is registered. */
+  has(name: string): boolean;
+  /**
+   * Wait for a service to be registered. Resolves immediately if already there.
+   * Rejects after `timeoutMs` (default 30s) if never registered.
+   */
+  waitFor<T = unknown>(name: string, timeoutMs?: number): Promise<T>;
+  /** List all registered service names — useful for debugging. */
+  list(): string[];
 }
 
 /** The interface every Zveltio extension must implement. */

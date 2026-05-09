@@ -186,8 +186,9 @@ Output ONLY a JSON array, no markdown:
 Maximum 5 issues. Return [] if data looks clean.`;
 
   try {
-    const { aiProviderManager } = await import('./ai-provider.js');
-    const provider = aiProviderManager.getDefault();
+    const { serviceRegistry } = await import('./service-registry.js');
+    const aiProviders = serviceRegistry.get<{ getDefault(): any }>('ai.providers');
+    const provider = aiProviders?.getDefault?.();
     if (!provider) return [];
 
     const response = await provider.chat(

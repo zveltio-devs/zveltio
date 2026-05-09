@@ -9,7 +9,8 @@ import { checkPermission } from '../lib/permissions.js';
 import { WebhookManager } from '../lib/webhooks.js';
 import { broadcastEvent } from './ws.js';
 import { broadcastDataEvent } from './realtime.js';
-import { triggerEmbedding } from '../lib/ai-embed-hook.js';
+// AI auto-embedding is now handled by the `ai` extension via record.created /
+// record.updated events emitted by engineEvents below.
 import { engineEvents } from '../lib/event-bus.js';
 import { triggerDataFlows } from './flows.js';
 import {
@@ -483,11 +484,8 @@ async function afterWrite(
     timestamp: new Date().toISOString(),
   })})`.execute(db).catch((err) => console.error('[afterWrite] pg_notify failed:', err));
 
-  if (action !== 'delete') {
-    triggerEmbedding(db, collection, recordId, data).catch((err) =>
-      console.error('[afterWrite] embedding trigger failed:', err),
-    );
-  }
+  // Embedding triggered via engineEvents.emit('record.created' | 'record.updated')
+  // below — the `ai` extension subscribes to those events. No core call needed.
 
   // Invalidate query cache for this collection on every write
   invalidateQueryCache(collection).catch(() => { /* non-critical */ });

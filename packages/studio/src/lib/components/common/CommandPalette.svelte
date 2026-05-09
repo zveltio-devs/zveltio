@@ -21,7 +21,7 @@
     { label: 'Users', href: `${base}/users`, icon: Users, group: 'Navigation' },
     { label: 'Permissions', href: `${base}/permissions`, icon: Shield, group: 'Navigation' },
     { label: 'Webhooks', href: `${base}/webhooks`, icon: Webhook, group: 'Navigation' },
-    { label: 'AI Hub', href: `${base}/ai`, icon: Bot, group: 'Navigation' },
+    // AI Hub entry comes from the `ai` extension when active.
     { label: 'Extensions / Marketplace', href: `${base}/marketplace`, icon: Puzzle, group: 'Navigation' },
     { label: 'Edge Functions', href: `${base}/edge-functions`, icon: FileText, group: 'Navigation' },
     { label: 'Flows', href: `${base}/flows`, icon: Workflow, group: 'Navigation' },

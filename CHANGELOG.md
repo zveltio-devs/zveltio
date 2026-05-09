@@ -2,6 +2,49 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.66] - 2026-05-07
+
+### Internal
+- Version bump only (no functional changes shipped under this number; placeholder retained for changelog continuity).
+
+---
+
+## [1.0.0-alpha.67] - 2026-05-08
+
+### Breaking / Architecture
+
+- **AI is now an extension, not core.** All `/api/ai*`, `/api/zveltio-ai`, and `/api/ai-analytics` routes; the AI provider manager; embeddings; semantic search; text-to-SQL; schema generation; agentic ZveltioAI engine — all moved out of `packages/engine` and into `zveltio-extensions/ai/`. The extension is auto-activated on first boot when files are on disk, so out-of-the-box behaviour is unchanged for new installs.
+- **`ctx.services` inter-extension service registry.** Extensions can now publish services (`ctx.services.register('ai.providers', …)`) and consume services published by other extensions (`ctx.services.get('ai.providers')`). This is the supported way for extensions to communicate; direct imports between extensions remain forbidden. See [docs/EXTENSION-AUTHORING.md](docs/EXTENSION-AUTHORING.md#inter-extension-services--ctxservices).
+- **Topological extension loading.** Extensions declaring `dependencies` in `manifest.json` are now loaded after their providers. Cycles fail loudly. Missing dependencies emit a warning and the dependent extension still loads (services it expected may return null).
+- **`ctx.internals.aiProviderManager` removed.** Consumers must use `ctx.services.get('ai.providers')` and add `{ "name": "ai" }` to manifest dependencies.
+- **`ctx.internals` gained**: `enqueueDDLJob`, `validatePublicUrl`, `extractTextFromFile`, `sendNotification`. These are engine-internal helpers previously imported directly by AI code; they remain available for first-party extensions that need them.
+- **RestrictedDb extended**: extensions may now access `zv_<extname>_*` tables (their own reserved namespace). Other `zv_*` system tables remain blocked.
+
+### Migrations
+
+- 8 AI migrations (`011_ai.sql`, `032_ai_embeddings.sql`, `033_ai_search_config.sql`, `034_ai_decision_step.sql`, `036_ai_task_trigger.sql`, `039_ai_query.sql`, `043_ai_embed_excluded_fields.sql`, `045_ai_memory.sql`) moved to `zveltio-extensions/ai/engine/migrations/` and renumbered as `001_ai_init.sql` … `008_memory.sql`. They now run on AI extension activation rather than at engine bootstrap.
+
+### Messaging
+
+- README, package.json, OpenAPI spec, install scripts, and systemd unit description updated from "BaaS" to "Self-hosted Business OS".
+- `versions.json` corrected — no fictional 1.0.0 stable; `latest_alpha: 1.0.0-alpha.67`.
+- New [FUNDING.md](FUNDING.md) — explicit "self-hosted only, no cloud" stance + funding plan (donations + paid extensions + future support contracts).
+
+### Affected extensions (consumers updated to ctx.services)
+
+- `communications/mail` — AI compose/summarize endpoints now use `ctx.services.get('ai.providers')`. Manifest: declares dependency on `ai`.
+- `developer/validation` — AI rule-generation endpoint same. Manifest: declares dependency on `ai`.
+- `storage/cloud` — internal `document-indexer` now takes the providers as a parameter rather than importing.
+
+### Engine consumers updated
+
+- `lib/flow-executor.ts` — `ai_decision` flow step now resolves AI via service registry; if AI extension isn't active, step is skipped with `usedFallback: true` instead of failing the flow.
+- `lib/flow-scheduler.ts` — `ai_task` flow trigger calls `ai.runBackgroundTask` service, skips with warning if AI extension is inactive.
+- `lib/data-quality.ts`, `lib/cloud/document-indexer.ts` — same pattern, fail-soft when AI is unavailable.
+- `routes/data.ts` — auto-embedding hook removed; replaced by AI extension subscribing to `record.created` / `record.updated` events.
+
+---
+
 ## [1.0.0-alpha.65] - 2026-05-07
 
 ### Fixes
