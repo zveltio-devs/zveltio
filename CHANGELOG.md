@@ -2,6 +2,16 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.72] - 2026-05-10
+
+### Changes
+
+- **ESM + Import Maps for extension Studio bundles.** Extension bundles are now ES modules (`formats: ['es']`) instead of IIFE. Svelte runtime is shared via a browser-native import map in `app.html` — no more `window.__SvelteRuntime` globals, no version coupling in `vite.config.ts`. Extension developers write standard Svelte; the import map handles runtime resolution transparently.
+- `hooks.client.ts` simplified — Svelte runtime exposure now handled entirely by import map.
+- `generate-runtime.ts` prebuild script bundles Svelte sub-modules into `static/runtime/` at Studio build time.
+
+---
+
 ## [1.0.0-alpha.71] - 2026-05-09
 
 ### Fixes
