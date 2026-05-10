@@ -21,12 +21,13 @@ const OUT_DIR = join(STUDIO_ROOT, 'static', 'runtime');
 mkdirSync(OUT_DIR, { recursive: true });
 
 const ENTRIES: Record<string, string> = {
-  svelte:                  join(SHIMS_DIR, 'svelte.ts'),
-  'svelte-store':          join(SHIMS_DIR, 'svelte-store.ts'),
-  'svelte-internal-client':join(SHIMS_DIR, 'svelte-internal-client.ts'),
-  'svelte-transition':     join(SHIMS_DIR, 'svelte-transition.ts'),
-  'svelte-animate':        join(SHIMS_DIR, 'svelte-animate.ts'),
-  'svelte-reactivity':     join(SHIMS_DIR, 'svelte-reactivity.ts'),
+  svelte:                               join(SHIMS_DIR, 'svelte.ts'),
+  'svelte-store':                       join(SHIMS_DIR, 'svelte-store.ts'),
+  'svelte-internal-client':             join(SHIMS_DIR, 'svelte-internal-client.ts'),
+  'svelte-internal-disclose-version':   join(SHIMS_DIR, 'svelte-internal-disclose-version.ts'),
+  'svelte-transition':                  join(SHIMS_DIR, 'svelte-transition.ts'),
+  'svelte-animate':                     join(SHIMS_DIR, 'svelte-animate.ts'),
+  'svelte-reactivity':                  join(SHIMS_DIR, 'svelte-reactivity.ts'),
 };
 
 console.log('Generating Svelte runtime bundles for import map…\n');
