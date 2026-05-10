@@ -7,6 +7,18 @@
     <meta name="theme-color" content="#069494" />
     <meta name="description" content="Zveltio Admin Studio" />
     <link rel="manifest" href="%sveltekit.assets%/manifest.json" />
+    <script type="importmap">
+    {
+      "imports": {
+        "svelte":                 "/runtime/svelte.js",
+        "svelte/store":           "/runtime/svelte-store.js",
+        "svelte/internal/client": "/runtime/svelte-internal-client.js",
+        "svelte/transition":      "/runtime/svelte-transition.js",
+        "svelte/animate":         "/runtime/svelte-animate.js",
+        "svelte/reactivity":      "/runtime/svelte-reactivity.js"
+      }
+    }
+    </script>
     <script>
       (function () {
         try {
