@@ -156,7 +156,7 @@ export default async function handler(ctx) {
           <div class="p-3 border-b border-base-300 font-medium text-sm">Test Invoke</div>
           <div class="p-3 flex flex-col flex-1 gap-2">
             <label class="label py-0"><span class="label-text text-xs">Request body (JSON)</span></label>
-            <textarea class="textarea textarea-sm font-mono flex-1 resize-none text-xs" bind:value={invokeInput} placeholder="{}"></textarea>
+            <textarea class="textarea textarea-sm font-mono flex-1 resize-none text-xs" bind:value={invokeInput} placeholder={'{}'}></textarea>
             <button class="btn btn-primary btn-sm gap-1 w-full" onclick={invoke} disabled={invoking}>
               {#if invoking}<LoaderCircle size={13} class="animate-spin" />{:else}<Play size={13} />{/if} Run
             </button>
