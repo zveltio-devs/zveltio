@@ -4,7 +4,7 @@
     Package, CheckCircle, Power, PowerOff, Settings,
     Trash2, Download, RefreshCw, AlertTriangle, Puzzle,
     Workflow, Brain, FileText, Zap, Map, Shield, Code2, Key,
-    Circle,
+    Circle, Hammer,
   } from '@lucide/svelte';
   import { ENGINE_URL } from '$lib/config.js';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
@@ -75,6 +75,27 @@
   let configError = $state('');
 
   let cat = $state('all');
+
+  // ── Rebuild state ──────────────────────────────────────────────────────────
+  let rebuildingExt   = $state<string | null>(null);
+  let rebuildElapsed  = $state(0);
+  let rebuildTimer    = $state<ReturnType<typeof setInterval> | null>(null);
+
+  function startRebuildIndicator(extName: string) {
+    if (rebuildTimer) clearInterval(rebuildTimer);
+    rebuildingExt  = extName;
+    rebuildElapsed = 0;
+    rebuildTimer   = setInterval(() => { rebuildElapsed += 1; }, 1000);
+    // Auto-reload studio after 35s to surface new nav item
+    setTimeout(async () => {
+      clearInterval(rebuildTimer!);
+      rebuildTimer   = null;
+      rebuildingExt  = null;
+      rebuildElapsed = 0;
+      await loadCatalog();
+      await refreshExtensions();
+    }, 35_000);
+  }
 
   const CATEGORIES = [
     'analytics', 'auth', 'business', 'communications', 'compliance',
@@ -179,9 +200,14 @@
       const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/enable`, { method: 'POST' });
       if (res.needs_restart) restartNeeded = true;
       await loadCatalog();
-      await refreshExtensions();
-      if (!res.needs_restart) toast.success(`${ext.displayName} is now active`);
-      else toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
+      if (res.studio_rebuild === 'triggered') {
+        startRebuildIndicator(ext.displayName);
+        toast.success(`${ext.displayName} enabled — Studio is rebuilding…`);
+      } else {
+        await refreshExtensions();
+        if (!res.needs_restart) toast.success(`${ext.displayName} is now active`);
+        else toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
+      }
     } catch (e: any) {
       toast.error(`Enable failed: ${e.message}`);
     } finally {
@@ -200,9 +226,14 @@
         confirmState.open = false;
         processingId = ext.name;
         try {
-          await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
+          const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
           await loadCatalog();
-          await refreshExtensions();
+          if (res?.studio_rebuild === 'triggered') {
+            startRebuildIndicator(ext.displayName);
+            toast.success(`${ext.displayName} disabled — Studio is rebuilding…`);
+          } else {
+            await refreshExtensions();
+          }
         } catch (e: any) {
           toast.error(`Disable failed: ${e.message}`);
         } finally {
@@ -267,6 +298,17 @@
     </button>
   </PageHeader>
 
+    {#if rebuildingExt}
+      <div class="alert alert-info py-3 mb-4 gap-3">
+        <Hammer size={18} class="shrink-0 animate-bounce" />
+        <div class="flex-1">
+          <p class="font-medium text-sm">Studio is rebuilding after enabling <strong>{rebuildingExt}</strong></p>
+          <p class="text-xs opacity-70">This takes ~30 seconds. The sidebar will update automatically when done. ({rebuildElapsed}s elapsed)</p>
+        </div>
+        <span class="loading loading-spinner loading-sm shrink-0"></span>
+      </div>
+    {/if}
+
     {#if restartNeeded}
       <div class="alert alert-warning py-2 mb-4 text-sm">
         <span>Some extensions require a server restart to take effect.</span>
@@ -327,6 +369,7 @@
               {@const Icon = CATEGORY_ICONS[ext.category] ?? Puzzle}
               {@const iconColor = CATEGORY_COLORS[ext.category] ?? 'text-gray-400'}
               {@const isProcessing = processingId === ext.name}
+              {@const isRebuilding = rebuildingExt === ext.displayName}
 
               <div class="card bg-base-100 shadow-sm border transition-all
                 {ext.is_running
@@ -351,7 +394,11 @@
                     </div>
 
                     <!-- Status badge -->
-                    {#if ext.is_running}
+                    {#if isRebuilding}
+                      <span class="badge badge-info badge-sm shrink-0 gap-1">
+                        <span class="loading loading-spinner loading-xs"></span> Building
+                      </span>
+                    {:else if ext.is_running}
                       <span class="badge badge-success badge-sm shrink-0 gap-1">
                         <CheckCircle size={10} /> Running
                       </span>
