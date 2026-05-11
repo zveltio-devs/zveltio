@@ -121,7 +121,7 @@
           <div class="form-control">
             {#if sendTemplateId}
               <label class="label py-0"><span class="label-text text-xs">Variables (JSON)</span></label>
-              <input class="input input-sm font-mono" bind:value={sendVariables} placeholder='{"name": "John"}' />
+              <input class="input input-sm font-mono" bind:value={sendVariables} placeholder={'{"name": "John"}'} />
             {:else}
               <label class="label py-0"><span class="label-text text-xs">Message body</span></label>
               <textarea class="textarea textarea-sm" bind:value={sendBody} rows="2" maxlength="1600"></textarea>
@@ -182,7 +182,7 @@
               <select class="select select-sm" bind:value={newTplProvider}><option value="twilio">Twilio</option><option value="vonage">Vonage</option></select>
             </div>
           </div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Body (use {"{{variable}}"} for interpolation)</span></label><textarea class="textarea textarea-sm" bind:value={newTplBody} rows="2" placeholder="Hello {{name}}, your code is {{code}}"></textarea></div>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Body (use {"{{variable}}"} for interpolation)</span></label><textarea class="textarea textarea-sm" bind:value={newTplBody} rows="2" placeholder={"Hello {{name}}, your code is {{code}}"}></textarea></div>
           <div><button class="btn btn-primary btn-sm" onclick={createTemplate} disabled={savingTpl}>
             {#if savingTpl}<LoaderCircle size={13} class="animate-spin" />{/if} Save Template
           </button></div>
