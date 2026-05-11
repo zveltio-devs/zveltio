@@ -78,30 +78,6 @@
   type NavItem = { href: string; icon: any; label: string; ext?: string };
   type NavGroup = { label?: string; items: NavItem[] };
 
-  // Extension nav — active extensions with explicit studio.pages (compiled into SvelteKit routes).
-  // Extensions in rawNav (media, byod, import, export, translations) use contributes.studio
-  // but have no studio.pages — they're shown in the main nav, not here.
-  const allExtNav = $derived<NavItem[]>(
-    extensions.initialized ? extensions.meta
-      .filter((m) => extensions.isActive(m.name))
-      .filter((m) => m.studio?.pages && m.studio.pages.length > 0)
-      .map((m) => {
-        const firstPage = m.studio?.pages?.[0];
-        const slug = firstPage?.path
-          ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
-          : m.name;
-        return {
-          href: `${base}/extensions/${slug}`,
-          icon: Puzzle,
-          label: firstPage?.label || m.displayName || m.name,
-        };
-      }) : [],
-  );
-
-  /** Item gating — pages whose backend lives in an extension. Setting `ext`
-   *  on a NavItem hides it from the sidebar until the extension is active.
-   *  Without this, clicking the link took the user to a page that crashed
-   *  with a 404 (the API route the page calls doesn't exist yet). */
   const rawNav: NavGroup[] = [
     {
       items: [
@@ -177,6 +153,33 @@
       ]
     },
   ];
+
+  // Extensions already wired into rawNav (media, byod, import, export, translations).
+  // Derive the set from rawNav itself so this stays in sync automatically.
+  const rawNavExtNames = new Set(
+    rawNav.flatMap((g) => g.items).filter((i) => i.ext).map((i) => i.ext!),
+  );
+
+  // Sidebar entries for extension Studio pages.
+  // Priority: explicit studio.pages path (updated manifests) → extension name as slug (legacy manifests).
+  // Excludes extensions already shown in rawNav to avoid duplicates.
+  const allExtNav = $derived<NavItem[]>(
+    extensions.initialized ? extensions.meta
+      .filter((m) => extensions.isActive(m.name))
+      .filter((m) => !rawNavExtNames.has(m.name))
+      .filter((m) => (m.studio?.pages && m.studio.pages.length > 0) || m.contributes?.studio)
+      .map((m) => {
+        const firstPage = m.studio?.pages?.[0];
+        const slug = firstPage?.path
+          ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
+          : m.name;
+        return {
+          href: `${base}/extensions/${slug}`,
+          icon: Puzzle,
+          label: firstPage?.label || m.displayName || m.name,
+        };
+      }) : [],
+  );
 
   /** Filter rawNav by extension activation. Items without `ext` always show.
    *  Items with `ext` are visible only when the extension is running. */
