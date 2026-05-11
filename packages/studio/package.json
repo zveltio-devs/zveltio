@@ -1,11 +1,10 @@
 {
   "name": "@zveltio/studio",
-  "version": "1.0.0-alpha.73",
+  "version": "1.0.0-alpha.74",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 5173",
-    "prebuild": "bun scripts/generate-runtime.ts",
     "build": "vite build",
     "preview": "vite preview",
     "embed": "cp -r dist ../engine/src/studio-dist",

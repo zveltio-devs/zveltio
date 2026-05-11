@@ -29,6 +29,19 @@ jobs:
           name: studio-dist
           path: packages/studio/dist/
           retention-days: 1
+      # Studio source tarball — used by install.sh for rebuild-at-install
+      - name: Package Studio source
+        run: |
+          tar -czf /tmp/studio-source.tar.gz \
+            --exclude='packages/studio/node_modules' \
+            --exclude='packages/studio/dist' \
+            --exclude='packages/studio/static/runtime' \
+            packages/studio/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-source
+          path: /tmp/studio-source.tar.gz
+          retention-days: 1
       - run: cd packages/client && bun run build
       - uses: actions/upload-artifact@v4
         with:
@@ -163,15 +176,22 @@ jobs:
           name: studio-dist
           path: studio-dist-download/
 
+      - name: Download studio source
+        uses: actions/download-artifact@v4
+        with:
+          name: studio-source
+          path: studio-source-download/
+
       - name: Download client
         uses: actions/download-artifact@v4
         with:
           name: client-dist
           path: client-dist-download/
 
-      - name: Package studio + client
+      - name: Package studio + client + source
         run: |
           tar -czf dist/studio.tar.gz -C studio-dist-download .
+          cp studio-source-download/studio-source.tar.gz dist/studio-source.tar.gz
           tar -czf dist/client.tar.gz -C client-dist-download .
 
       - name: Generate compose files
@@ -229,6 +249,7 @@ jobs:
           mkdir -p flat-assets
           cp dist/zveltio-* flat-assets/
           cp dist/studio.tar.gz flat-assets/
+          cp dist/studio-source.tar.gz flat-assets/
           cp dist/client.tar.gz flat-assets/
           cp release-assets/* flat-assets/
 
@@ -277,6 +298,7 @@ jobs:
             all-assets/zveltio-macos-x64
             all-assets/zveltio-macos-arm64
             all-assets/studio.tar.gz
+            all-assets/studio-source.tar.gz
             all-assets/client.tar.gz
             all-assets/docker-compose.yml
             all-assets/docker-compose.infra.yml
