@@ -12,7 +12,7 @@
  * is served as a pre-built static artifact and no rebuild is possible.
  */
 
-import { existsSync, mkdirSync, cpSync, rmSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, cpSync, rmSync, renameSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 function studioSrcDir(): string | null {
@@ -61,7 +61,21 @@ export async function rebuildStudio(
 
   // Copy extension pages + components into Studio source tree
   for (const { name, pagesDir, srcDir: compDir } of toIntegrate) {
-    const slug = name.replace(/\//g, '/'); // preserve slashes → nested routes
+    // Derive route slug from manifest studio.pages[0].path so it matches
+    // what the sidebar nav generates (e.g. /admin/mail → "mail", not "communications/mail").
+    let slug = name;
+    const manifestPath = join(extensionsBase, name, 'manifest.json');
+    if (existsSync(manifestPath)) {
+      try {
+        const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+          studio?: { pages?: Array<{ path: string }> };
+        };
+        const firstPage = m.studio?.pages?.[0];
+        if (firstPage?.path) {
+          slug = firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '');
+        }
+      } catch { /* use name as slug */ }
+    }
     const routeDest = join(extRoutesBase, slug);
     const libDest   = join(extLibBase, name);
 

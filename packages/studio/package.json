@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 5173",
+    "sync-ext": "bun scripts/sync-extensions.ts",
+    "prebuild": "bun scripts/sync-extensions.ts",
     "build": "vite build",
     "preview": "vite preview",
     "embed": "cp -r dist ../engine/src/studio-dist",
