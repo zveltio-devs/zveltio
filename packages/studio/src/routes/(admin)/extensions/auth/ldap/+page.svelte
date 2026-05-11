@@ -104,7 +104,7 @@
 
         <div class="form-control">
           <label class="label py-0"><span class="label-text text-xs">Search Filter</span></label>
-          <input class="input input-sm font-mono text-xs" placeholder="(uid={{username}})" bind:value={config.searchFilter} />
+          <input class="input input-sm font-mono text-xs" placeholder={"(uid={{username}})"} bind:value={config.searchFilter} />
           <label class="label py-0"><span class="label-text-alt text-xs text-base-content/40">Use {`{{username}}`} as placeholder for the login value</span></label>
         </div>
 
