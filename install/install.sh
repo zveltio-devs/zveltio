@@ -655,7 +655,7 @@ UNIT
     info "Downloading Studio source for extension integration..."
     mkdir -p "${ZVELTIO_DIR}/studio-src"
     wget -q "$STUDIO_SRC_URL" -O /tmp/zveltio-studio-src.tar.gz
-    tar -xzf /tmp/zveltio-studio-src.tar.gz -C "${ZVELTIO_DIR}/studio-src" --strip-components=1
+    tar -xzf /tmp/zveltio-studio-src.tar.gz -C "${ZVELTIO_DIR}/studio-src" --strip-components=2
     rm /tmp/zveltio-studio-src.tar.gz
     # Install Studio dependencies so bun run build works
     (cd "${ZVELTIO_DIR}/studio-src" && /usr/local/bin/bun install --frozen-lockfile 2>/dev/null || bun install)
