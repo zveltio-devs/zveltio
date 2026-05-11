@@ -1247,11 +1247,18 @@ class ExtensionLoader {
         await triggerReload(`enable:${name}`);
       }
 
+      // Rebuild Studio SPA if source dir is configured (non-blocking fire-and-forget)
+      const { rebuildStudio } = await import('./studio-builder.js');
+      rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
+        console.warn('[studio-builder] Rebuild error:', err),
+      );
+
       const nowActive = self.isActive(name);
       return c.json({
         success:       nowActive,
         hot_loaded:    hotLoaded,
         needs_restart: false,
+        studio_rebuild: process.env.STUDIO_SRC_DIR ? 'triggered' : 'skipped',
         message:       nowActive
           ? `Extension ${name} is now active.`
           : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
@@ -1290,9 +1297,16 @@ class ExtensionLoader {
       // Rebuild Hono app without this extension's routes (zero-downtime)
       await triggerReload(`disable:${name}`);
 
+      // Rebuild Studio SPA without this extension's pages (fire-and-forget)
+      const { rebuildStudio } = await import('./studio-builder.js');
+      rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
+        console.warn('[studio-builder] Rebuild error:', err),
+      );
+
       return c.json({
         success:       true,
         needs_restart: false,
+        studio_rebuild: process.env.STUDIO_SRC_DIR ? 'triggered' : 'skipped',
         message:       `Extension ${name} disabled.`,
       });
     });

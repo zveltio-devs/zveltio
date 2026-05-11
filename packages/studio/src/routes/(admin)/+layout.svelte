@@ -5,15 +5,13 @@
   import { page } from '$app/state';
   import { auth } from '$lib/auth.svelte.js';
   import { initExtensions, extensions } from '$lib/extensions.svelte.js';
-  import { extensionRegistry } from '$lib/extension-registry.svelte.js';
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
     Puzzle, LogOut, HardDrive, Key, ClipboardList, Languages,
-    Upload, Bot, Bell, Download, Workflow, Package, GitBranch, Plug,
-    Wand2, Building2, Images, DatabaseBackup, Layout, CheckSquare,
+    Upload, Bell, Download, Workflow, Package, GitBranch, Plug,
+    Building2, Images, DatabaseBackup, Layout, CheckSquare,
     ScanSearch, Search, Code, Bookmark, BarChart2, Terminal, Activity,
     LayoutGrid, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Menu, X, Zap,
-    FileText, DollarSign, Clock, ShoppingBag, Lock, Truck, Globe,
   } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
   import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
@@ -80,30 +78,18 @@
   type NavItem = { href: string; icon: any; label: string; ext?: string };
   type NavGroup = { label?: string; items: NavItem[] };
 
-  // Extensions with dedicated Studio pages — excluded from generic extNavFromMeta
-  const STATIC_NAV_EXTS = new Set([
-    'content/media', 'developer/byod', 'data/import', 'data/export',
-    'i18n/translations', 'workflow/checklists', 'content/page-builder',
-    'crm', 'finance/quotes', 'finance/invoicing', 'hr/time-tracking',
-    'operations/assets', 'ecommerce/store', 'content/documents',
-    'auth/saml', 'auth/ldap',
-  ]);
-
-  // Extension nav items built from manifest metadata (no IIFE bundle required).
-  // Extensions with contributes.studio=true or explicit studio.pages appear in the sidebar.
-  const extNavFromMeta = $derived<NavItem[]>(
+  // Extension nav — active extensions with explicit studio.pages (compiled into SvelteKit routes).
+  // Extensions in rawNav (media, byod, import, export, translations) use contributes.studio
+  // but have no studio.pages — they're shown in the main nav, not here.
+  const allExtNav = $derived<NavItem[]>(
     extensions.initialized ? extensions.meta
-      .filter((m) => !STATIC_NAV_EXTS.has(m.name))
-      .filter((m) => m.contributes?.studio || (m.studio?.pages && m.studio.pages.length > 0))
+      .filter((m) => extensions.isActive(m.name))
+      .filter((m) => m.studio?.pages && m.studio.pages.length > 0)
       .map((m) => {
         const firstPage = m.studio?.pages?.[0];
-        let slug: string;
-        if (firstPage?.path) {
-          // "/admin/billing" → "billing",  "/admin/compliance/ro/efactura" → "compliance/ro/efactura"
-          slug = firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '');
-        } else {
-          slug = m.name;
-        }
+        const slug = firstPage?.path
+          ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
+          : m.name;
         return {
           href: `${base}/extensions/${slug}`,
           icon: Puzzle,
@@ -111,40 +97,6 @@
         };
       }) : [],
   );
-
-  // Extensions with dedicated Studio pages built into the Studio SPA
-  const bundledExtNav = $derived<NavItem[]>(
-    extensions.initialized ? [
-      ...(extensions.isActive('workflow/checklists')
-        ? [{ href: `${base}/extensions/checklists`,       icon: CheckSquare,  label: 'Checklists'      }] : []),
-      ...(extensions.isActive('content/page-builder')
-        ? [{ href: `${base}/extensions/page-builder`,     icon: Layout,       label: 'Pages'           }] : []),
-      ...(extensions.isActive('crm')
-        ? [{ href: `${base}/extensions/crm`,              icon: Users,        label: 'CRM'             }] : []),
-      ...(extensions.isActive('finance/quotes')
-        ? [{ href: `${base}/extensions/finance/quotes`,   icon: FileText,     label: 'Quotes'          }] : []),
-      ...(extensions.isActive('finance/invoicing')
-        ? [{ href: `${base}/extensions/finance/invoicing`,icon: DollarSign,   label: 'Invoicing'       }] : []),
-      ...(extensions.isActive('hr/time-tracking')
-        ? [{ href: `${base}/extensions/hr/time-tracking`, icon: Clock,        label: 'Time Tracking'   }] : []),
-      ...(extensions.isActive('operations/assets')
-        ? [{ href: `${base}/extensions/operations/assets`,icon: Package,      label: 'Fixed Assets'    }] : []),
-      ...(extensions.isActive('ecommerce/store')
-        ? [{ href: `${base}/extensions/ecommerce/store`,  icon: ShoppingBag,  label: 'eCommerce'       }] : []),
-      ...(extensions.isActive('content/documents')
-        ? [{ href: `${base}/extensions/content/documents`,icon: FileText,     label: 'Documents'       }] : []),
-      ...(extensions.isActive('auth/saml')
-        ? [{ href: `${base}/extensions/auth/saml`,        icon: Lock,         label: 'SAML SSO'        }] : []),
-      ...(extensions.isActive('auth/ldap')
-        ? [{ href: `${base}/extensions/auth/ldap`,        icon: Globe,        label: 'LDAP / AD'       }] : []),
-    ] : [],
-  );
-
-  // Merge: bundled items take precedence (dedup by href)
-  const allExtNav = $derived<NavItem[]>([
-    ...bundledExtNav,
-    ...extNavFromMeta.filter((i) => !bundledExtNav.some((b) => b.href === i.href)),
-  ]);
 
   /** Item gating — pages whose backend lives in an extension. Setting `ext`
    *  on a NavItem hides it from the sidebar until the extension is active.
@@ -326,8 +278,8 @@
           {/each}
         {/each}
 
-        <!-- Extension routes (manifest-driven + IIFE) -->
-        {#if allExtNav.length > 0 || (extensions.initialized && extensionRegistry.routes.length > 0)}
+        <!-- Extension routes (manifest-driven, compiled into SvelteKit routes) -->
+        {#if allExtNav.length > 0}
           {#if !collapsed}
             <div class="px-4 pt-5 pb-1">
               <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 flex items-center gap-1 select-none">
@@ -351,25 +303,6 @@
               >
                 <item.icon size={16} class="shrink-0" />
                 {#if !collapsed}<span class="truncate leading-none">{item.label}</span>{/if}
-              </a>
-            </div>
-          {/each}
-          {#each extensionRegistry.routes as route}
-            <div class="px-2 py-0.5">
-              <a
-                href="{base}/extensions/{route.path}"
-                title={collapsed ? route.label : undefined}
-                class="
-                  flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-                  transition-colors duration-100
-                  {isActive(`${base}/extensions/${route.path}`)
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-                  {collapsed ? 'justify-center' : ''}
-                "
-              >
-                <Puzzle size={16} class="shrink-0" />
-                {#if !collapsed}<span class="truncate leading-none">{route.label}</span>{/if}
               </a>
             </div>
           {/each}
