@@ -636,7 +636,7 @@ UNIT
     exit 1
   fi
 
-  # ── Studio UI ────────────────────────────────────────────────────────────────
+  # ── Studio UI (compiled) ─────────────────────────────────────────────────────
   local STUDIO_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/studio.tar.gz"
   mkdir -p "${ZVELTIO_DIR}/studio-dist"
   if curl -fsSL --head "$STUDIO_URL" &>/dev/null; then
@@ -647,6 +647,21 @@ UNIT
     success "Studio UI extracted to ${ZVELTIO_DIR}/studio-dist"
   else
     warn "Studio UI not available for ${RESOLVED_VERSION} — /admin will show setup instructions."
+  fi
+
+  # ── Studio source (for extension rebuild-at-install) ─────────────────────────
+  local STUDIO_SRC_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/studio-source.tar.gz"
+  if curl -fsSL --head "$STUDIO_SRC_URL" &>/dev/null; then
+    info "Downloading Studio source for extension integration..."
+    mkdir -p "${ZVELTIO_DIR}/studio-src"
+    wget -q "$STUDIO_SRC_URL" -O /tmp/zveltio-studio-src.tar.gz
+    tar -xzf /tmp/zveltio-studio-src.tar.gz -C "${ZVELTIO_DIR}/studio-src" --strip-components=1
+    rm /tmp/zveltio-studio-src.tar.gz
+    # Install Studio dependencies so bun run build works
+    (cd "${ZVELTIO_DIR}/studio-src" && /usr/local/bin/bun install --frozen-lockfile 2>/dev/null || bun install)
+    success "Studio source ready at ${ZVELTIO_DIR}/studio-src"
+  else
+    info "Studio source not in this release — extension Studio pages will use generic fallback."
   fi
 
   # ── .env ─────────────────────────────────────────────────────────────────────
@@ -678,6 +693,10 @@ AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
 # Extensions directory — place extension packages here, then enable from Studio
 EXTENSIONS_DIR=${ZVELTIO_DIR}/extensions
 ZVELTIO_EXTENSIONS=
+
+# Studio source dir — enables rebuild-at-install for extension Studio pages
+STUDIO_SRC_DIR=${ZVELTIO_DIR}/studio-src
+STUDIO_DIST_PATH=${ZVELTIO_DIR}/studio-dist
 EOF
 
   chmod 600 "${ZVELTIO_DIR}/.env"

@@ -5,7 +5,6 @@
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
- import { extensionRegistry } from '$lib/extension-registry.svelte.js';
 
  interface MediaFile {
  id: string;
@@ -223,7 +222,6 @@
 />
 
 {#if previewFile}
-  {@const previewer = extensionRegistry.getAssetPreviewer({ url: previewFile.url, name: previewFile.original_name, mimeType: previewFile.mime_type })}
   <div class="modal modal-open">
     <div class="modal-box max-w-4xl w-full">
       <div class="flex items-center justify-between mb-3">
@@ -231,9 +229,7 @@
         <button class="btn btn-ghost btn-sm btn-square" onclick={() => previewFile = null}>✕</button>
       </div>
 
-      {#if previewer}
-        <previewer.component asset={{ url: previewFile.url, name: previewFile.original_name, mimeType: previewFile.mime_type }} />
-      {:else if isImage(previewFile.mime_type)}
+      {#if isImage(previewFile.mime_type)}
         <img src={previewFile.url} alt={previewFile.original_name} class="w-full rounded" />
       {:else if isPdf(previewFile.mime_type)}
         <iframe src={previewFile.url} title={previewFile.original_name} class="w-full rounded border border-base-300" style="height:70vh"></iframe>
