@@ -23,6 +23,12 @@ const EXT_ROOTS = [
 
 const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)/extensions');
 
+// Docker builder sets SKIP_SYNC_EXT=1 because it runs sync inline before build
+if (process.env.SKIP_SYNC_EXT === '1') {
+  console.log('[sync-ext] SKIP_SYNC_EXT set — skipping (Docker builder mode).');
+  process.exit(0);
+}
+
 if (EXT_ROOTS.length === 0) {
   console.log('[sync-ext] No extension directory found — skipping.');
   process.exit(0);

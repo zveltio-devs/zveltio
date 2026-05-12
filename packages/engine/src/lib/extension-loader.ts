@@ -1001,6 +1001,12 @@ class ExtensionLoader {
       return isAdmin;
     }
 
+    // Resolve optional tenant scope from X-Tenant-Id header.
+    // null = global (no tenant filter); string = scoped to that tenant.
+    function getTenantId(c: any): string | null {
+      return (c.req.header('x-tenant-id') as string | undefined) ?? null;
+    }
+
     // ── License key management ────────────────────────────────────────────────
     // Free extensions need no license key — they download without auth.
     // Paid extensions require a license key purchased on apps.zveltio.com.
@@ -1055,7 +1061,8 @@ class ExtensionLoader {
     app.get('/api/marketplace', async (c) => {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-      const extBase = resolveExtensionsBase();
+      const tenantId = getTenantId(c);
+      const extBase  = resolveExtensionsBase();
 
       const [catalog, rows, licenseRows] = await Promise.all([
         fetchRegistryCatalog(),
@@ -1063,7 +1070,21 @@ class ExtensionLoader {
         (db as any).selectFrom('zv_settings').select(['key']).where('key' as any, 'like', 'ext_license:%').execute().catch(() => []),
       ]);
 
-      const dbMap = new Map(rows.map((r: any) => [r.name, r]));
+      // When a tenant is specified: prefer tenant-scoped row, fall back to global (tenant_id IS NULL).
+      // When no tenant: return the global row (admin view).
+      const rowsFiltered = tenantId
+        ? (() => {
+            const tenantRows = (rows as any[]).filter((r) => r.tenant_id === tenantId);
+            const globalRows = (rows as any[]).filter((r) => r.tenant_id === null || r.tenant_id === undefined);
+            // Merge: tenant row wins over global for the same extension name
+            const merged = new Map<string, any>();
+            for (const r of globalRows) merged.set(r.name, r);
+            for (const r of tenantRows)  merged.set(r.name, r); // override with tenant row
+            return [...merged.values()];
+          })()
+        : (rows as any[]).filter((r) => r.tenant_id === null || r.tenant_id === undefined);
+
+      const dbMap = new Map(rowsFiltered.map((r: any) => [r.name, r]));
       const licenseSet = new Set((licenseRows as any[]).map((r: any) => r.key.replace('ext_license:', '')));
 
       const extensions = catalog.map((entry) => {
@@ -1080,7 +1101,7 @@ class ExtensionLoader {
           is_running:    runtimeActive,
           files_on_disk: filesOnDisk,
           has_license:   licenseSet.has(entry.name),
-          // needs_restart only when files exist but process hasn't loaded them yet
+          tenant_id:     dbEntry?.tenant_id    ?? null,
           needs_restart: filesOnDisk &&
                          ((dbEntry?.is_enabled && !runtimeActive) ||
                           (!dbEntry?.is_enabled && runtimeActive && dbEntry !== undefined)),
@@ -1144,6 +1165,8 @@ class ExtensionLoader {
         return c.json({ success: false, downloaded: false, files_on_disk: false, error: msg, message: msg }, 422);
       }
 
+      const tenantId = getTenantId(c);
+
       await (db as any)
         .insertInto('zv_extension_registry')
         .values({
@@ -1156,9 +1179,10 @@ class ExtensionLoader {
           is_installed: true,
           is_enabled:   false,
           installed_at: new Date(),
+          tenant_id:    tenantId,
         })
         .onConflict((oc: any) =>
-          oc.column('name').doUpdateSet({ is_installed: true, installed_at: new Date() }),
+          oc.column('name').doUpdateSet({ is_installed: true, installed_at: new Date(), tenant_id: tenantId }),
         )
         .execute();
 
@@ -1196,6 +1220,8 @@ class ExtensionLoader {
         }
       }
 
+      const tenantId = getTenantId(c);
+
       await (db as any)
         .insertInto('zv_extension_registry')
         .values({
@@ -1209,12 +1235,14 @@ class ExtensionLoader {
           is_enabled:   true,
           installed_at: new Date(),
           enabled_at:   new Date(),
+          tenant_id:    tenantId,
         })
         .onConflict((oc: any) =>
           oc.column('name').doUpdateSet({
             is_installed: true,
             is_enabled:   true,
             enabled_at:   new Date(),
+            tenant_id:    tenantId,
           }),
         )
         .execute();
@@ -1258,7 +1286,7 @@ class ExtensionLoader {
         success:       nowActive,
         hot_loaded:    hotLoaded,
         needs_restart: false,
-        studio_rebuild: process.env.STUDIO_SRC_DIR ? 'triggered' : 'skipped',
+        studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
         message:       nowActive
           ? `Extension ${name} is now active.`
           : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
@@ -1306,7 +1334,7 @@ class ExtensionLoader {
       return c.json({
         success:       true,
         needs_restart: false,
-        studio_rebuild: process.env.STUDIO_SRC_DIR ? 'triggered' : 'skipped',
+        studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
         message:       `Extension ${name} disabled.`,
       });
     });

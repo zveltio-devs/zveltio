@@ -34,6 +34,28 @@ export async function rebuildStudio(
   activeExtNames: string[],
   extensionsBase: string,
 ): Promise<{ rebuilt: boolean; error?: string }> {
+  // Docker mode: delegate rebuild to the studio-builder sidecar container
+  const builderUrl = process.env.STUDIO_BUILDER_URL;
+  if (builderUrl) {
+    try {
+      const res = await fetch(`${builderUrl}/rebuild`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extensions: activeExtNames }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => '');
+        return { rebuilt: false, error: `Builder returned ${res.status}: ${err.slice(0, 200)}` };
+      }
+      console.log('[studio-builder] Rebuild delegated to builder container — success.');
+      return { rebuilt: true };
+    } catch (err) {
+      return { rebuilt: false, error: `Builder unreachable: ${(err as Error).message}` };
+    }
+  }
+
+  // Local mode: requires STUDIO_SRC_DIR
   const srcDir = studioSrcDir();
   if (!srcDir || !existsSync(srcDir)) {
     // STUDIO_SRC_DIR not configured or not found — skip silently
