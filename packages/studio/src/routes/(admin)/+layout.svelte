@@ -174,7 +174,7 @@
           ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
           : m.name;
         return {
-          href: `${base}/extensions/${slug}`,
+          href: `${base}/${slug}`,
           icon: Puzzle,
           label: firstPage?.label || m.displayName || m.name,
         };

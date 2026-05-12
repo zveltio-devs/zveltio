@@ -62,7 +62,7 @@ export async function rebuildStudio(
     return { rebuilt: false };
   }
 
-  const extRoutesBase = join(srcDir, 'src', 'routes', '(admin)', 'extensions');
+  const extRoutesBase = join(srcDir, 'src', 'routes', '(admin)');
   const extLibBase    = join(srcDir, 'src', 'lib', 'ext');
 
   // Collect extensions that have studio source to integrate

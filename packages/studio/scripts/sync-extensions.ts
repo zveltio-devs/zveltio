@@ -21,7 +21,7 @@ const EXT_ROOTS = [
   process.env.EXTENSIONS_DIR ?? '',
 ].filter(Boolean).filter((p) => existsSync(p as string)) as string[];
 
-const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)/extensions');
+const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)');
 
 // Docker builder sets SKIP_SYNC_EXT=1 because it runs sync inline before build
 if (process.env.SKIP_SYNC_EXT === '1') {
@@ -85,7 +85,7 @@ for (const extRoot of EXT_ROOTS) {
     const dest = join(ROUTES_EXT, slug);
     mkdirSync(dest, { recursive: true });
     cpSync(pagesDir, dest, { recursive: true });
-    console.log(`[sync-ext] ✓  ${extName} → extensions/${slug}/`);
+    console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);
     synced++;
   }
 }
