@@ -514,6 +514,8 @@ export interface ZvExtensionRegistryTable {
   enabled_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  /** null = global (all tenants); set = enabled only for this tenant */
+  tenant_id: string | null;
 }
 
 export interface ZvEdgeFunctionsTable {
