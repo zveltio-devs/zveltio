@@ -215,6 +215,8 @@ services:
         condition: service_started
       cache:
         condition: service_healthy
+      studio-builder:
+        condition: service_healthy
     ports:
       - '${PORT:-3000}:3000'
     environment:
@@ -252,9 +254,6 @@ services:
     volumes:
       - ./extensions:/app/extensions:ro
       - studio_dist:/app/studio-dist:ro    # serve pre-built Studio dist from shared volume
-    depends_on:
-      studio-builder:
-        condition: service_healthy
     networks:
       - zveltio_internal
 
