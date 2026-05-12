@@ -12,6 +12,18 @@ export interface ExtensionCatalogEntry {
 }
 
 export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
+  // ── AI ────────────────────────────────────────────────────────
+  {
+    name: 'ai',
+    displayName: 'AI',
+    description: 'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
+    category: 'intelligence',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['ai', 'llm', 'embeddings', 'semantic-search', 'chat'],
+    permissions: ['database', 'settings', 'network'],
+  },
+
   // ── Analytics ─────────────────────────────────────────────────
   // analytics/insights — promoted to engine core, no longer a separate extension
   {
@@ -181,6 +193,16 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     author: 'Zveltio',
     tags: ['cms', 'pages', 'content'],
     permissions: ['database', 'storage'],
+  },
+  {
+    name: 'content/pdf-viewer',
+    displayName: 'PDF Viewer',
+    description: 'Inline PDF viewer for Studio asset manager, client apps, and page builder blocks',
+    category: 'content',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['pdf', 'viewer', 'documents'],
+    permissions: [],
   },
   {
     name: 'forms',
@@ -505,6 +527,16 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     version: '1.0.0',
     author: 'Zveltio',
     tags: ['pos', 'retail', 'receipts', 'inventory'],
+    permissions: ['database'],
+  },
+  {
+    name: 'operations/traceability',
+    displayName: 'Food Traceability',
+    description: 'Food traceability conforming to Regulation (EC) 178/2002 Art. 18 — lot reception, QR scanning, bidirectional tree, recall simulator',
+    category: 'operations',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['traceability', 'food-safety', 'lots', 'recall', 'ansvsa'],
     permissions: ['database'],
   },
 

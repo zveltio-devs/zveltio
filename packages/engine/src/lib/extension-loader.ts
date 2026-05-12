@@ -404,6 +404,10 @@ const ManifestSchema = z.object({
   })).default([]),
   /** npm packages auto-installed when extension is activated (e.g. node-saml, ldapts) */
   peerDependencies: z.record(z.string(), z.string()).optional(),
+  /** PostgreSQL extensions required in the database (e.g. postgis, pg_trgm) */
+  requires: z.object({
+    postgres_extensions: z.array(z.string()).optional(),
+  }).optional(),
   permissions: z.array(z.string()).default([]),
   contributes: z.object({
     engine: z.boolean().default(true),
@@ -670,8 +674,31 @@ class ExtensionLoader {
         if (manifest.dependencies && manifest.dependencies.length > 0) {
           const deps = await checkExtensionDependencies(ctx.db, manifest.dependencies);
           if (!deps.satisfied) {
-            console.warn(`⚠️  Extension "${extName}" missing dependencies: ${deps.missing.join(', ')}`);
+            const msg = `Missing required extensions: ${deps.missing.join(', ')}. Enable them first.`;
+            console.warn(`⚠️  Extension "${extName}" ${msg}`);
+            this.lastLoadError.set(extName, msg);
             return;
+          }
+        }
+
+        // PostgreSQL extension requirements (e.g. postgis)
+        const requiredPgExts: string[] = (manifest as any).requires?.postgres_extensions ?? [];
+        if (requiredPgExts.length > 0) {
+          try {
+            const result = await _sql<{ extname: string }>`
+              SELECT extname FROM pg_extension WHERE extname = ANY(${requiredPgExts as any})
+            `.execute(ctx.db);
+            const installed = new Set(result.rows.map((r) => r.extname));
+            const missing = requiredPgExts.filter((e) => !installed.has(e));
+            if (missing.length > 0) {
+              const msg = `Extension "${extName}" requires PostgreSQL extension(s) not installed: ${missing.join(', ')}. ` +
+                          `Install them in psql: ${missing.map((e) => `CREATE EXTENSION "${e}";`).join(' ')} then retry.`;
+              console.warn(`⚠️  ${msg}`);
+              this.lastLoadError.set(extName, msg);
+              return;
+            }
+          } catch {
+            // pg_extension query is non-fatal — continue and let the migration surface the real error.
           }
         }
 
@@ -802,14 +829,12 @@ class ExtensionLoader {
     extName: string,
     peerDeps: Record<string, string>,
   ): Promise<void> {
-    // Install into EXTENSIONS_DIR itself — the same directory where ensureExtensionCoreDeps
-    // puts hono/zod/kysely (which work correctly for dynamic extension imports).
-    // Compiled binary resolves dynamically-imported module externals via standard
-    // Node.js filesystem walk from the imported file's location; placing all packages
-    // in /opt/zveltio/extensions/node_modules/ puts them on that walk path.
-    const workspaceRoot = process.env.EXTENSIONS_DIR
-      ? process.env.EXTENSIONS_DIR
-      : join(import.meta.dir, '../../../../');
+    // Install into the extensions base directory — the same place ensureExtensionCoreDeps
+    // puts hono/zod/kysely so that dynamically-imported extension modules can resolve all
+    // packages via the standard Node.js filesystem walk from their location.
+    // Using resolveExtensionsBase() keeps peerDeps co-located with core deps and works
+    // correctly whether running as a compiled binary, in dev, or inside Docker.
+    const workspaceRoot = resolveExtensionsBase();
 
     const extNodeModules = join(workspaceRoot, 'node_modules');
     const toInstall: string[] = [];
