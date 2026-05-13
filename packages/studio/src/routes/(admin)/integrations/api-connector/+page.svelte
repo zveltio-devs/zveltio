@@ -25,19 +25,19 @@
 
   async function loadConnections() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/connector/connections'); connections = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/api/api-connector/connections'); connections = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadWebhooks() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/connector/incoming-webhooks'); webhooks = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/api/api-connector/incoming-webhooks'); webhooks = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadLogs() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/connector/logs?limit=100'); logs = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/api/api-connector/logs?limit=100'); logs = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
@@ -47,7 +47,7 @@
     try {
       let extraHeaders: any = {};
       try { extraHeaders = JSON.parse(form.headers); } catch { throw new Error('Invalid JSON in headers'); }
-      await api.post('/api/connector/connections', { ...form, headers: extraHeaders });
+      await api.post('/api/api-connector/connections', { ...form, headers: extraHeaders });
       showForm = false;
       form = { name: '', base_url: '', auth_type: 'none', auth_token: '', auth_username: '', auth_password: '', headers: '{}' };
       await loadConnections();
@@ -58,7 +58,7 @@
 
   async function deleteConnection(id: string) {
     if (!confirm('Delete connection?')) return;
-    try { await api.delete(`/api/connector/connections/${id}`); await loadConnections(); }
+    try { await api.delete(`/api/api-connector/connections/${id}`); await loadConnections(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
