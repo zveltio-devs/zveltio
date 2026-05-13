@@ -79,6 +79,8 @@ async function getLicenseKey(db: any, extensionName: string): Promise<string | u
 
 async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   if (catalogCache && Date.now() < catalogCacheExpiry) return catalogCache;
+
+  let remoteEntries: ExtensionCatalogEntry[] = [];
   try {
     const res = await fetch(`${REGISTRY_URL}/api/extensions/list`, {
       headers: { 'Accept': 'application/json' },
@@ -86,7 +88,7 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
     });
     if (!res.ok) throw new Error(`Registry returned ${res.status}`);
     const data = await res.json() as { extensions: any[] };
-    const entries: ExtensionCatalogEntry[] = (data.extensions ?? []).map((e: any) => ({
+    remoteEntries = (data.extensions ?? []).map((e: any) => ({
       name:         e.name,
       displayName:  e.display_name ?? e.displayName ?? e.name,
       description:  e.description ?? '',
@@ -95,22 +97,29 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
       author:       e.developer_username ?? e.author ?? 'Zveltio',
       tags:         e.tags ?? [],
       permissions:  e.permissions ?? [],
-      // Prefer the explicit download_url from the registry; fall back to the
-      // by-name endpoint (works for both registry.zveltio.com and self-hosted).
       download_url: e.download_url
         ?? `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(e.name)}/download`,
     }));
-    if (entries.length > 0) {
-      catalogCache = entries;
-      catalogCacheExpiry = Date.now() + CATALOG_CACHE_TTL;
-      return entries;
-    }
   } catch (err) {
     console.warn('[marketplace] Registry fetch failed, using local catalog:', (err as Error).message);
   }
-  // fallback — local catalog has no download_url, so install will fail
-  // with a clear message until the registry is reachable.
-  return EXTENSION_CATALOG;
+
+  // Always merge: remote entries win over local for the same name,
+  // but local catalog fills in anything the registry doesn't list
+  // (local/dev extensions, self-hosted, extensions not yet published).
+  const remoteNames = new Set(remoteEntries.map((e) => e.name));
+  const merged = [
+    ...remoteEntries,
+    ...EXTENSION_CATALOG.filter((e) => !remoteNames.has(e.name)),
+  ];
+  const result = merged.length > 0 ? merged : EXTENSION_CATALOG;
+
+  if (remoteEntries.length > 0) {
+    catalogCache = result;
+    catalogCacheExpiry = Date.now() + CATALOG_CACHE_TTL;
+  }
+
+  return result;
 }
 
 // ── Extension package download ────────────────────────────────────────────────
@@ -842,17 +851,12 @@ class ExtensionLoader {
       // Check via Bun's module resolution first, then fall back to a direct filesystem check
       // against the extensions node_modules (import.meta.resolve runs in engine binary context
       // and cannot see packages installed in the extensions directory).
-      let alreadyInstalled = false;
-      try {
-        await import.meta.resolve(pkg);
-        alreadyInstalled = true;
-      } catch {
-        // Check extensions node_modules directly (handles scoped pkgs like @scope/name too)
-        const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
-        if (existsSync(join(extNodeModules, pkgFolder))) {
-          alreadyInstalled = true;
-        }
-      }
+      // Only check the extensions node_modules — import.meta.resolve runs in
+      // the engine's bundle context and would find engine-bundled packages
+      // (hono, zod, etc.) even though they're not available to dynamically
+      // imported extension files that look up from their own directory.
+      const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
+      const alreadyInstalled = existsSync(join(extNodeModules, pkgFolder));
       if (!alreadyInstalled) {
         const spec = versionRange && versionRange !== '*'
           ? `${pkg}@${versionRange.replace(/^\^|^~/, '')}`
