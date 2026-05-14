@@ -61,6 +61,29 @@ const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let catalogCache: ExtensionCatalogEntry[] | null = null;
 let catalogCacheExpiry = 0;
 
+// ── Extension table access helpers ───────────────────────────────────────────
+// Some extensions access specific core engine tables that fall outside their
+// auto-detected `zv_{extname}_*` namespace. Declare those grants here so the
+// RestrictedDb proxy allows them through.
+const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
+  'content/drafts': ['zv_revisions'],
+  'developer/validation': ['zv_validation_rules'],
+};
+
+async function buildAllowedTables(migrationPaths: string[]): Promise<Set<string>> {
+  const tables = new Set<string>();
+  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/gi;
+  for (const p of migrationPaths) {
+    try {
+      const content = await Bun.file(p).text();
+      let m: RegExpExecArray | null;
+      re.lastIndex = 0;
+      while ((m = re.exec(content)) !== null) tables.add(m[1]);
+    } catch { /* skip unreadable files */ }
+  }
+  return tables;
+}
+
 // ── License key helper ────────────────────────────────────────────────────────
 // Per-extension license keys are stored in zv_settings as ext_license:<name>.
 // Free extensions need no key. Paid extensions send it as Authorization: Bearer.
@@ -517,6 +540,8 @@ interface LoadedExtension {
   cleanup?: () => Promise<void>;
   /** True if the extension registered HTTP routes — unload requires restart. */
   registeredRoutes: boolean;
+  /** Tables allowed by migration scan + explicit grants. */
+  allowedTables?: Set<string>;
 }
 
 interface ManifestMeta {
@@ -739,7 +764,8 @@ class ExtensionLoader {
       this.modules.set(extName, extension);
 
       // Run extension migrations
-      if (extension.getMigrations) {
+      const migrationPaths = extension.getMigrations?.() ?? [];
+      if (migrationPaths.length > 0) {
         await this.runExtensionMigrations(extension, ctx.db);
       }
 
@@ -748,12 +774,16 @@ class ExtensionLoader {
         extension.registerFieldTypes(ctx.fieldTypeRegistry);
       }
 
+      // Build allowed-tables set from migration CREATE TABLE statements + explicit grants.
+      const allowedTables = await buildAllowedTables(migrationPaths);
+      for (const t of (EXTENSION_TABLE_GRANTS[extName] ?? [])) allowedTables.add(t);
+
       // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables.
       // Also inject the full public API (checkPermission, auth, DDLManager…) and
       // ctx.internals.* so extensions never have to relative-import engine modules.
       const restrictedCtx: ExtensionContext = {
         ...ctx,
-        db: createRestrictedDb(ctx.db, extName),
+        db: createRestrictedDb(ctx.db, extName, allowedTables),
         checkPermission: ctx.checkPermission ?? checkPermission,
         getUserRoles: ctx.getUserRoles ?? getUserRoles,
         DDLManager: ctx.DDLManager ?? DDLManager,
@@ -798,8 +828,8 @@ class ExtensionLoader {
         name: extName,
         bundleUrl,
         cleanup: typeof extension.cleanup === 'function' ? extension.cleanup.bind(extension) : undefined,
-        // Mark as route-registering so unload() can warn about restart requirement
         registeredRoutes: true,
+        allowedTables,
       });
       console.log(`🔌 Extension loaded: ${extName}${bundleUrl ? ' (with Studio UI)' : ''}`);
 
@@ -962,7 +992,11 @@ class ExtensionLoader {
 
       if (existing) continue;
 
-      const sqlContent = await Bun.file(migrationPath).text();
+      const rawSql = await Bun.file(migrationPath).text();
+      // Strip everything from "-- DOWN" onwards so migration files can include
+      // a rollback section without it being executed on apply.
+      const downIdx = rawSql.search(/^--\s*DOWN\b/im);
+      const sqlContent = downIdx >= 0 ? rawSql.slice(0, downIdx).trim() : rawSql;
       await db.transaction().execute(async (trx) => {
         await (trx as any).executeQuery({ sql: sqlContent, parameters: [] });
         await trx
@@ -1478,9 +1512,10 @@ class ExtensionLoader {
     const extension = this.modules.get(name);
     if (!extension || !this.ctx) return;
 
+    const allowedTables = this.loaded.get(name)?.allowedTables;
     const restrictedCtx: ExtensionContext = {
       ...this.ctx,
-      db: createRestrictedDb(this.ctx.db, name),
+      db: createRestrictedDb(this.ctx.db, name, allowedTables),
       checkPermission: this.ctx.checkPermission ?? checkPermission,
       getUserRoles:    this.ctx.getUserRoles ?? getUserRoles,
       DDLManager:      this.ctx.DDLManager ?? DDLManager,
