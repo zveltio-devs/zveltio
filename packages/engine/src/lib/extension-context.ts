@@ -42,7 +42,11 @@ type RestrictedDatabase = Database;
  * @param db   The real Database instance.
  * @param extName  Extension name — included in error messages for debugging.
  */
-export function createRestrictedDb(db: Database, extName: string): RestrictedDatabase {
+export function createRestrictedDb(
+  db: Database,
+  extName: string,
+  allowedTables?: Set<string>,
+): RestrictedDatabase {
   // An extension named "ai" owns `zv_ai_*`. An extension named "compliance/ro/saft"
   // owns `zv_compliance_ro_saft_*` (slashes normalized to underscores).
   const ownedPrefix = `zv_${extName.replace(/[^a-z0-9]/gi, '_')}_`;
@@ -58,7 +62,11 @@ export function createRestrictedDb(db: Database, extName: string): RestrictedDat
           // Strip alias syntax e.g. "zv_users as u"
           const baseTable = table.split(/\s+/)[0].trim();
 
-          if (baseTable.startsWith('zv_') && !baseTable.startsWith(ownedPrefix)) {
+          if (
+            baseTable.startsWith('zv_') &&
+            !baseTable.startsWith(ownedPrefix) &&
+            !allowedTables?.has(baseTable)
+          ) {
             throw new ExtensionSecurityError(
               `Extension "${extName}" attempted to access system table "${baseTable}" via ${prop}(). ` +
               `Extensions may only access user data tables (zvd_*) and their own namespace (${ownedPrefix}*). ` +

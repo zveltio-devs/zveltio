@@ -3,18 +3,16 @@
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import {
-    Plus, Trash2, Save, LoaderCircle, Eye, EyeOff, FileText, Database,
+    Plus, Trash2, Save, LoaderCircle, Eye, EyeOff, FileText,
   } from '@lucide/svelte';
 
   type Block = { type: string; content: Record<string, unknown> };
   type Page = {
     id: string; title: string; slug: string; blocks: Block[];
-    meta: Record<string, string> | null;
+    meta_title: string | null; meta_description: string | null;
     status: 'draft' | 'published'; created_at: string; updated_at: string;
     published_at: string | null;
   };
-  type CollectionMeta = { name: string; label?: string };
-  type Filter = { field: string; op: string; value: string };
 
   let pages = $state<Page[]>([]);
   let loading = $state(true);
@@ -23,10 +21,8 @@
   let saving = $state(false);
   let showNew = $state(false);
   let form = $state({ title: '', slug: '' });
-  let collections = $state<CollectionMeta[]>([]);
 
-  const BLOCK_TYPES = ['heading', 'text', 'image', 'button', 'divider', 'html', 'collection_list'];
-  const FILTER_OPS = ['eq','neq','like','gt','gte','lt','lte','is_null','is_not_null'];
+  const BLOCK_TYPES = ['heading', 'text', 'image', 'button', 'divider', 'html'];
 
   function slugify(s: string) {
     return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -43,37 +39,13 @@
   async function load() {
     loading = true;
     try {
-      const [pRes, cRes] = await Promise.all([
-        api.get<{ pages: Page[] }>('/api/ext/pages'),
-        api.get<{ collections: CollectionMeta[] }>('/api/collections').catch(() => ({ collections: [] })),
-      ]);
-      pages = pRes.pages ?? [];
-      collections = cRes.collections ?? [];
+      const res = await api.get<{ pages: Page[] }>('/api/ext/pages');
+      pages = res.pages ?? [];
     } catch (e) {
       toast.error(extractError(e));
     } finally {
       loading = false;
     }
-  }
-
-  function blockFilters(block: Block): Filter[] {
-    return ((block.content as any).filters ?? []) as Filter[];
-  }
-
-  function addFilter(block: Block) {
-    (block.content as any).filters = [...blockFilters(block), { field: '', op: 'eq', value: '' }];
-    selected = selected; // trigger reactivity
-  }
-
-  function removeFilter(block: Block, idx: number) {
-    (block.content as any).filters = blockFilters(block).filter((_, i) => i !== idx);
-    selected = selected;
-  }
-
-  function setFilter(block: Block, idx: number, key: keyof Filter, val: string) {
-    const filters = blockFilters(block).map((f, i) => i === idx ? { ...f, [key]: val } : f);
-    (block.content as any).filters = filters;
-    selected = selected;
   }
 
   async function createPage() {
@@ -110,7 +82,8 @@
         title: selected.title,
         slug: selected.slug,
         blocks: selected.blocks,
-        meta: selected.meta ?? {},
+        meta_title: selected.meta_title || null,
+        meta_description: selected.meta_description || null,
         status: selected.status,
       });
       selected = res.page;
@@ -146,14 +119,9 @@
       heading: { level: 2, text: 'New heading' },
       text:    { html: '<p>Your text here.</p>' },
       image:   { src: '', alt: '', width: '100%' },
-      button:          { label: 'Click me', href: '#', variant: 'primary' },
-      divider:         {},
-      html:            { code: '' },
-      collection_list: {
-        collection: '', title: '', limit: 10,
-        sort_field: 'created_at', sort_dir: 'desc',
-        filters: [], display_fields: '', layout: 'table',
-      },
+      button:  { label: 'Click me', href: '#', variant: 'primary' },
+      divider: {},
+      html:    { code: '' },
     };
     selected.blocks = [...selected.blocks, { type, content: defaults[type] ?? {} }];
   }
@@ -309,98 +277,6 @@
                 </div>
               {:else if block.type === 'html'}
                 <textarea class="textarea textarea-sm h-24 font-mono text-xs" bind:value={(block.content as any).code} placeholder="<div>Custom HTML…</div>"></textarea>
-              {:else if block.type === 'collection_list'}
-                <div class="space-y-3">
-                  <!-- Row 1: collection + title -->
-                  <div class="grid sm:grid-cols-2 gap-2">
-                    <div class="form-control gap-1">
-                      <label class="label py-0"><span class="label-text text-xs">Collection *</span></label>
-                      {#if collections.length > 0}
-                        <select class="select select-sm" bind:value={(block.content as any).collection}>
-                          <option value="">— pick collection —</option>
-                          {#each collections as col}
-                            <option value={col.name}>{col.label || col.name}</option>
-                          {/each}
-                        </select>
-                      {:else}
-                        <input type="text" class="input input-sm font-mono" bind:value={(block.content as any).collection} placeholder="collection_name"/>
-                      {/if}
-                    </div>
-                    <div class="form-control gap-1">
-                      <label class="label py-0"><span class="label-text text-xs">Section title</span></label>
-                      <input type="text" class="input input-sm" bind:value={(block.content as any).title} placeholder="e.g. Ultimele controale"/>
-                    </div>
-                  </div>
-                  <!-- Row 2: limit + sort -->
-                  <div class="grid grid-cols-3 gap-2">
-                    <div class="form-control gap-1">
-                      <label class="label py-0"><span class="label-text text-xs">Limit</span></label>
-                      <input type="number" class="input input-sm" min="1" max="100" bind:value={(block.content as any).limit}/>
-                    </div>
-                    <div class="form-control gap-1">
-                      <label class="label py-0"><span class="label-text text-xs">Sort field</span></label>
-                      <input type="text" class="input input-sm font-mono" bind:value={(block.content as any).sort_field} placeholder="created_at"/>
-                    </div>
-                    <div class="form-control gap-1">
-                      <label class="label py-0"><span class="label-text text-xs">Direction</span></label>
-                      <select class="select select-sm" bind:value={(block.content as any).sort_dir}>
-                        <option value="desc">desc</option>
-                        <option value="asc">asc</option>
-                      </select>
-                    </div>
-                  </div>
-                  <!-- Row 3: display fields + layout -->
-                  <div class="grid sm:grid-cols-2 gap-2">
-                    <div class="form-control gap-1">
-                      <label class="label py-0"><span class="label-text text-xs">Display fields <span class="text-base-content/40">(comma-sep, empty = all)</span></span></label>
-                      <input type="text" class="input input-sm font-mono" bind:value={(block.content as any).display_fields} placeholder="id, name, status, date"/>
-                    </div>
-                    <div class="form-control gap-1">
-                      <label class="label py-0"><span class="label-text text-xs">Layout</span></label>
-                      <select class="select select-sm" bind:value={(block.content as any).layout}>
-                        <option value="table">Table</option>
-                        <option value="cards">Cards</option>
-                        <option value="list">List</option>
-                      </select>
-                    </div>
-                  </div>
-                  <!-- Filters -->
-                  <div>
-                    <div class="flex items-center justify-between mb-1.5">
-                      <span class="text-xs font-medium text-base-content/60">Filters</span>
-                      <button class="btn btn-ghost btn-xs gap-1" onclick={() => addFilter(block)}>
-                        <Plus size={11}/> Add filter
-                      </button>
-                    </div>
-                    {#each blockFilters(block) as f, fi}
-                      <div class="flex gap-1.5 mb-1.5 items-center">
-                        <input type="text" class="input input-xs font-mono flex-1" placeholder="field"
-                          value={f.field} oninput={(e) => setFilter(block, fi, 'field', e.currentTarget.value)}/>
-                        <select class="select select-xs w-28"
-                          value={f.op} onchange={(e) => setFilter(block, fi, 'op', e.currentTarget.value)}>
-                          {#each FILTER_OPS as op}<option value={op}>{op}</option>{/each}
-                        </select>
-                        {#if f.op !== 'is_null' && f.op !== 'is_not_null'}
-                          <input type="text" class="input input-xs flex-1" placeholder="value"
-                            value={f.value} oninput={(e) => setFilter(block, fi, 'value', e.currentTarget.value)}/>
-                        {/if}
-                        <button class="btn btn-ghost btn-xs text-error" onclick={() => removeFilter(block, fi)}><Trash2 size={11}/></button>
-                      </div>
-                    {/each}
-                    {#if blockFilters(block).length === 0}
-                      <p class="text-xs text-base-content/30 italic">No filters — all records returned</p>
-                    {/if}
-                  </div>
-                  <!-- Preview badge -->
-                  <div class="flex items-center gap-1.5 pt-1">
-                    <Database size={12} class="text-primary"/>
-                    <span class="text-xs text-primary font-medium">
-                      {(block.content as any).collection
-                        ? `Live data from "${(block.content as any).collection}" — rendered by client`
-                        : 'Pick a collection above'}
-                    </span>
-                  </div>
-                </div>
               {:else}
                 <p class="text-xs text-base-content/40 italic">No editor for block type "{block.type}"</p>
               {/if}
@@ -439,15 +315,11 @@
             </div>
             <div class="form-control gap-1">
               <label class="label py-0"><span class="label-text text-xs">Meta title</span></label>
-              <input type="text" class="input input-sm"
-                value={selected.meta?.title ?? ''}
-                oninput={(e) => { selected!.meta = { ...selected!.meta, title: e.currentTarget.value }; }}/>
+              <input type="text" class="input input-sm" bind:value={selected.meta_title}/>
             </div>
             <div class="form-control gap-1">
               <label class="label py-0"><span class="label-text text-xs">Meta description</span></label>
-              <textarea class="textarea textarea-sm text-xs h-16"
-                value={selected.meta?.description ?? ''}
-                oninput={(e) => { selected!.meta = { ...selected!.meta, description: e.currentTarget.value }; }}></textarea>
+              <textarea class="textarea textarea-sm text-xs h-16" bind:value={selected.meta_description}></textarea>
             </div>
             <div class="flex items-center gap-2 pt-1">
               <span class="text-xs text-base-content/60">Status:</span>
