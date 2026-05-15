@@ -35,6 +35,12 @@ import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js
 import { cronRunner } from './cron-runner.js';
 import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
 import { isPackageAllowed } from './peer-deps-allowlist.js';
+import {
+  parseSignature,
+  verifySignature,
+  SignatureMissingError,
+  SignatureInvalidError,
+} from './signature-verify.js';
 
 export { serviceRegistry } from './service-registry.js';
 
@@ -264,6 +270,52 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
   throw lastError ?? new Error(`fetchWithRetry exhausted retries for ${url}`);
 }
 
+/**
+ * Fetch `<download_url>.sig` and verify the archive's Ed25519 signature.
+ *
+ * Behaviour controlled by env:
+ *   - `REQUIRE_EXTENSION_SIGNATURES=true`  → missing or invalid signature
+ *     throws (SignatureMissingError / SignatureInvalidError).
+ *   - default (unset or "false")           → missing signature logs a warning
+ *     and proceeds; an INVALID signature still throws (we never accept a
+ *     present-but-broken signature, regardless of the gate).
+ */
+async function verifyArchiveSignature(
+  extensionName: string,
+  downloadUrl: string,
+  headers: Record<string, string>,
+  archive: Uint8Array,
+): Promise<void> {
+  const required = process.env.REQUIRE_EXTENSION_SIGNATURES === 'true';
+  const sigUrl = `${downloadUrl}.sig`;
+
+  let sigBody: unknown = null;
+  try {
+    const sigRes = await fetchWithRetry(sigUrl, { headers });
+    if (sigRes.ok) {
+      sigBody = await sigRes.json();
+    } else if (sigRes.status === 404) {
+      sigBody = null;
+    } else {
+      // 5xx / non-404 — treat as missing for the purposes of the gate, but log
+      // so operators can investigate.
+      console.warn(`[signature] ${extensionName}: signature fetch returned ${sigRes.status}; treating as missing`);
+    }
+  } catch (err) {
+    console.warn(`[signature] ${extensionName}: signature fetch failed: ${(err as Error).message}; treating as missing`);
+  }
+
+  if (sigBody === null) {
+    if (required) throw new SignatureMissingError(extensionName);
+    console.warn(`[signature] ${extensionName}: no signature.sig found — install proceeded because REQUIRE_EXTENSION_SIGNATURES is not set`);
+    return;
+  }
+
+  const parsed = parseSignature(sigBody, extensionName);
+  await verifySignature(archive, parsed, extensionName);
+  console.log(`🔐 Extension "${extensionName}": signature verified (keyId=${parsed.keyId})`);
+}
+
 async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string, licenseKey?: string): Promise<void> {
   const downloadUrl = entry.download_url
     ?? `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(entry.name)}/download`;
@@ -295,6 +347,11 @@ async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string,
   if (buf.length < 4) {
     throw new Error(`Empty package received for "${entry.name}"`);
   }
+
+  // S1-01: signature verification. Try to fetch `<download_url>.sig` next to
+  // the archive. The registry publishes the sig file as a sibling of the
+  // tarball. Missing-signature behaviour is gated by REQUIRE_EXTENSION_SIGNATURES.
+  await verifyArchiveSignature(entry.name, downloadUrl, headers, new Uint8Array(buf));
 
   // Magic-number sniffing — content-type from R2/Cloudflare can be unreliable.
   const isZip = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;

@@ -64,7 +64,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 
 | ID | Title | Sprint | Effort | Status |
 |----|-------|--------|--------|--------|
-| S1-01 | Ed25519 signature verification on extension download | 1 | 1d | TODO |
+| S1-01 | Ed25519 signature verification on extension download | 1 | 1d | DONE-PARTIAL (engine-side complete; registry-side signing publication is the remaining task) |
 | S1-02 | peerDeps install fail-close + package allow-list | 1 | 0.5d | DONE (1522cea) |
 | S1-03 | `pg_advisory_lock` on install/enable/disable | 1 | 0.5d | DONE (1522cea) |
 | S1-04 | Transactional migration apply with auto-DOWN on failure | 1 | 1d | DONE (1522cea) |
@@ -1199,6 +1199,38 @@ Implementation diverged slightly from the design:
 
 **Acceptance criteria status**:
 - [x] Editing `engine/index.ts` and re-loading picks up changes in dev. Verified by inspection — Bun's import cache keys on the URL so the suffix forces a fresh module evaluation.
+
+### S1-01 — Ed25519 signature verification (DONE-PARTIAL 2026-05-15)
+
+Engine-side scaffolding complete; **registry-side signing publication remains** as a follow-up in `zveltio-registry/`.
+
+- New module [`registry-keys.ts`](../packages/engine/src/lib/registry-keys.ts):
+  - `RegistryKey { keyId, publicKey: Uint8Array }`.
+  - `BUILTIN_KEYS: RegistryKey[]` — hardcoded into the engine at build time. **Empty for now**; when the registry generates its keypair, the production pubkey lands here.
+  - `REGISTRY_PUBLIC_KEYS_JSON` env var support: a JSON array of `{ keyId, publicKeyHex }` entries. Self-hosted operators can trust additional keys without rebuilding.
+  - Exports `getTrustedKeys()` and `findKeyById(keyId)`.
+- New module [`signature-verify.ts`](../packages/engine/src/lib/signature-verify.ts):
+  - `ExtensionSignature { algorithm: 'ed25519', signature, bundleSha256, keyId, signedAt? }` — the shape of the `<archive>.sig` JSON file.
+  - `parseSignature(input, extName)` — runtime shape validation.
+  - `verifySignature(archive, signature, extName)` — three-step check: resolve key by `keyId`, recompute sha256 and compare to `bundleSha256`, verify Ed25519 via `crypto.subtle.verify`. Each failure mode throws `SignatureInvalidError` with the specific reason.
+  - `SignatureMissingError`, `SignatureInvalidError` exported.
+  - `sha256Hex(bytes)` convenience export.
+- `downloadExtension` in `extension-loader.ts` now calls `verifyArchiveSignature(extName, downloadUrl, headers, archive)` immediately after downloading the archive bytes. The helper fetches `<download_url>.sig`, parses it, and verifies.
+- ENV gate `REQUIRE_EXTENSION_SIGNATURES` (default: unset → false):
+  - **Missing signature**: throws `SignatureMissingError` if required; otherwise warns and proceeds.
+  - **Invalid signature**: ALWAYS throws — we never accept a present-but-broken signature.
+- Unit tests in [`signature-verify.test.ts`](../packages/engine/src/tests/unit/signature-verify.test.ts) — 17 tests across 3 describe blocks. Use real Ed25519 keypairs generated via `crypto.subtle.generateKey` (no mocks); cover valid signing, tamper detection, unknown keyId, cross-key forgery attempt, malformed base64, wrong-length signature, parseSignature edge cases, env-loader behaviour.
+
+**Remaining for full v1.0 signing**:
+- **Registry-side**: `zveltio-registry/` Cloudflare Worker must (a) generate and store an Ed25519 keypair, (b) on extension publish, compute `sha256(archive)`, sign it, write the `.sig` sibling alongside the archive in R2/whichever blob store. The public key value lands in `BUILTIN_KEYS`.
+- **Flip the default**: once the registry signs everything in production, flip `REQUIRE_EXTENSION_SIGNATURES` default to `true` and remove the warning-only path for missing signatures.
+- **Per-publisher pubkey** (third-party extension authors): manifest gains a `signature.publisher_pubkey_hex` field with trust-on-first-use stored in a new `zv_extension_trusted_keys` table. Out of scope for the v1.0 release.
+
+**Acceptance criteria status**:
+- [x] Tampered archive (1 byte modified) fails install with structured error.
+- [x] Missing `signature.json` fails install when required; warns when not required.
+- [x] Engine binary supports embedded pubkey list (scaffolded — list empty until registry produces one).
+- [ ] Registry CI signs all releases automatically — separate task in `zveltio-registry/`.
 
 ### S2-05 — Native cron (DONE-PARTIAL 2026-05-15)
 
