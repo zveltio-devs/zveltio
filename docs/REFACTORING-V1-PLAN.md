@@ -77,7 +77,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE-PARTIAL (8ac9791 — Kysely sites; `dynamicSelect` raw-SQL list path follow-up) |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (c463ee4) |
 | S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | DONE-PARTIAL (f2c5581 — `intervalMs` + `at` shipped; full cron expr + cross-instance lock are follow-ups) |
-| S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | TODO |
+| S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | FOUNDATION-DONE (engine wires mountStrategy; 2 of 47 extensions migrated as pilot — `forms`, `sms`. Remaining 45 = batched migration below) |
 | S3-02 | `registerFormAlter()` — Studio form modification API | 3 | 2d | TODO |
 | S3-03 | `registerSlot()` — Studio composition slots | 3 | 1d | TODO |
 | S3-04 | License rotation API | 3 | 0.5d | TODO |
@@ -1199,6 +1199,72 @@ Implementation diverged slightly from the design:
 
 **Acceptance criteria status**:
 - [x] Editing `engine/index.ts` and re-loading picks up changes in dev. Verified by inspection — Bun's import cache keys on the URL so the suffix forces a fresh module evaluation.
+
+### S3-01 — Per-extension Hono sub-app (FOUNDATION-DONE 2026-05-15)
+
+After auditing all 53 extensions + Studio call sites + Hono internals, the
+implementation took a **two-tier shape** that the original plan didn't spell out:
+
+1. **Engine foundation** — opt-in `mountStrategy: 'global' | 'subapp'` field on `ZveltioExtension` (default `'global'` for backward compatibility). When set to `'subapp'`, the engine creates `new Hono()`, calls `extension.register(subApp, ctx)`, then mounts via `app.route('/ext/<extension-name>', subApp)`. Slash-bearing names (e.g. `communications/mail`) become `/ext/communications/mail/...` — Hono handles them fine.
+2. **Per-extension migration** — each extension migrates one at a time by (a) adding `mountStrategy: 'subapp'`, (b) switching its mount path from `/api/<feature>` to `/`, (c) updating any consumer (Studio core + its own Studio bundle) that hard-codes the old `/api/...` URLs.
+
+Foundation changes:
+
+- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) exports `MountStrategy` and adds optional `mountStrategy` field on `ZveltioExtension`.
+- Engine [`extension-loader.ts`](../packages/engine/src/lib/extension-loader.ts) `loadExtension` + `reRegisterExtension` branch on `mountStrategy`. The `'global'` branch is unchanged today's behaviour; the `'subapp'` branch wraps in `new Hono()` and mounts at `/ext/<name>`.
+- Disable still uses today's `triggerReload()` (rebuilds the entire app). For sub-app extensions this drops the sub-app pointer cleanly — the route disappears. No new Hono-internal hacking needed.
+
+Pilot migrations (2 of 47 done):
+
+- **`forms`** (clean sub-router): switched to `mountStrategy: 'subapp'`; routes inside `routes.ts` now use `/`, `/:id`, `/:id/responses`, `/public/:slug` (down from `/forms`, `/forms/:id`, etc.). URLs are now `/ext/forms`, `/ext/forms/:id`, … Updated 2 Studio call sites (Studio core `routes/(admin)/forms/+page.svelte` and the extension's own Studio bundle).
+- **`sms`** (clean sub-router, no Studio bundle): switched to `mountStrategy: 'subapp'`; `routes.ts` was already using relative paths so no internal changes. URLs are now `/ext/sms/send`, `/ext/sms/messages`, …
+
+Unit tests in [`subapp-mount.test.ts`](../packages/engine/src/tests/unit/subapp-mount.test.ts) — 6 tests covering: basic mount, slash-bearing names, 404 for unmounted prefixes, sub-app middleware fires correctly, disable = rebuild-without-mount (404), multi-extension namespace isolation.
+
+#### Migration roadmap for remaining 45 extensions
+
+Done now: `forms`, `sms`. (Plus 2 UI-only with no engine routes: `content/pdf-viewer`, `developer/views` — they don't need migration.)
+
+Pending (45), grouped by complexity:
+
+| Batch | Count | Extensions | Estimated hours |
+|---|---|---|---|
+| 1 — clean sub-router, no Studio bundle | ~12 | `auth/ldap`, `auth/saml`, `analytics/quality`, `billing`, `compliance/gdpr`, `compliance/ro/*` (5), `data/export`, `data/import`, `search` | 2-3 |
+| 2 — clean sub-router, with Studio bundle | ~25 | `communications/mail`, `content/{document-templates,documents,drafts,media,page-builder}`, `crm` (after handling generic `/api` outlier — see below), `developer/{api-docs,byod,database,graphql,validation}`, `ecommerce/store`, `finance/*` (6), `geospatial/postgis`, `hr/*` (4), `i18n/translations`, `integrations/api-connector`, `operations/{assets,inventory,pos}`, `projects/{helpdesk,management}`, `workflow/{approvals,checklists}` | 4-6 |
+| 3 — outliers | 4 | `ai`, `crm`, `storage/cloud`, `content/page-builder`, `developer/edge-functions`, `operations/traceability` | 3-4 |
+
+#### Outlier strategies (decisions documented for future sessions)
+
+**`ai`** — currently `app.route('/', buildAIRoutes(ctx))` with `buildAIRoutes` mounting 7 sub-routers at `/api/ai`, `/api/ai/alchemist`, `/api/ai/query`, `/api/ai-analytics`, `/api/zveltio-ai`.
+
+→ **Plan**: switch to `mountStrategy: 'subapp'`. Rewrite `buildAIRoutes` so its internal mounts are relative: `/`, `/alchemist`, `/query`, `/analytics`, `/zveltio`. URLs become `/ext/ai/*`, `/ext/ai/alchemist/*`, `/ext/ai/analytics/*`, `/ext/ai/zveltio/*`. Drop `/api/` from all URLs. **~20 Studio call sites** in `ai/studio/src/pages/*.svelte` to update — biggest single-extension migration.
+
+**`crm`** — currently `app.route('/api', crmRoutes(ctx))` — claims the entire `/api` prefix.
+
+→ **Plan**: switch to `mountStrategy: 'subapp'`. CRM's internal routes get exposed under `/ext/crm/<everything>`. Audit consumers carefully — anything in Studio expecting `/api/<crm-feature>` (e.g. contacts/leads) must rewrite to `/ext/crm/...`.
+
+**`storage/cloud`** — currently TWO mounts: `app.route('/api/cloud', ...)` AND `app.route('/share', ...)` (public CDN-style download endpoint).
+
+→ **Plan**: Migrate the `/api/cloud` portion to `mountStrategy: 'subapp'` → `/ext/storage/cloud/...`. **Keep `/share/<token>` at the global mount** for backwards compatibility with shared links already in the wild — extension can still register that route on the global app via an escape hatch (today: `mountStrategy: 'global'` and a sub-router for the cloud bits; tomorrow: add `ctx.registerPublicRoute()` API in SDK for explicit opt-in to global mounts). Document the exception. Pragmatic short term: leave `storage/cloud` on `mountStrategy: 'global'`.
+
+**`content/page-builder`** — 3 mounts: `/api/ext/pages`, `/api/cms/pages`, `/api/admin/cms/pages`.
+
+→ **Plan**: switch to `mountStrategy: 'subapp'`; consolidate the 3 mounts under `/ext/page-builder/{ext,cms,admin}` or similar. May break renderable links — audit `page-builder/studio` bundle thoroughly.
+
+**`developer/edge-functions`** — static admin routes at `/api/edge-functions` PLUS dynamic `/api/fn/<name>` routes registered at runtime for each user-defined function.
+
+→ **Plan**: switch admin routes to `mountStrategy: 'subapp'` → `/ext/developer/edge-functions/...`. **Keep dynamic `/api/fn/<name>`** as a global route — user-facing URLs for deployed edge functions shouldn't be in the `/ext/` namespace. Same escape-hatch decision as `storage/cloud`.
+
+**`operations/traceability`** — currently `app.route('/api/trace', ...)`. Standard rename — `/ext/operations/traceability/...`.
+
+#### Acceptance criteria status
+
+- [x] Foundation: engine supports per-extension sub-app mount; backward compat preserved via opt-in flag.
+- [x] Disable an extension → routes return 404 on next reload (verified via unit test).
+- [x] Two extensions cannot collide on routes when both use the sub-app pattern (verified via unit test).
+- [x] Pilot migrations prove the pattern works (`forms`, `sms`).
+- [ ] Remaining 45 extensions — migration roadmap in this document, work for follow-up sessions.
+- [ ] `ctx.registerPublicRoute()` escape hatch for outliers (`storage/cloud /share`, `developer/edge-functions /api/fn/*`) — design TBD, deferred until needed.
 
 ### S1-01 — Ed25519 signature verification (DONE-PARTIAL 2026-05-15)
 

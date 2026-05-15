@@ -297,12 +297,35 @@ export interface ExtensionSchedule {
   singleton?: boolean;
 }
 
+/**
+ * Mount strategy for the extension's Hono routes (S3-01).
+ *
+ * - `'global'` (default, legacy): the `register(app, ctx)` callback receives
+ *   the engine's global Hono app. Extension owns full URL paths and typically
+ *   mounts under `/api/<feature>`. Routes cannot be cleanly de-registered at
+ *   runtime — disabling the extension requires an app rebuild.
+ *
+ * - `'subapp'`: the `register(subApp, ctx)` callback receives a per-extension
+ *   Hono instance. The engine mounts it at `/ext/<extension-name>` so the
+ *   extension's routes appear under that prefix. Disable/enable is cheap
+ *   (next rebuild drops the sub-app); no cross-extension URL collisions.
+ *   New extensions should use this. Migrating an existing extension is
+ *   lock-step with updating its Studio bundle URL calls.
+ */
+export type MountStrategy = 'global' | 'subapp';
+
 /** The interface every Zveltio extension must implement. */
 export interface ZveltioExtension {
   /** Unique name — must match manifest.json `name` exactly (e.g. `'hr/employees'`). */
   name: string;
   /** Category shown in the marketplace (e.g. `'hr'`, `'finance'`, `'content'`). */
   category: string;
+  /**
+   * How the engine mounts the extension's routes. Defaults to `'global'` for
+   * backward compatibility with existing extensions. New extensions should
+   * declare `'subapp'`. See `MountStrategy` for details.
+   */
+  mountStrategy?: MountStrategy;
   /**
    * Called once when the extension is activated.
    * Register Hono routes, subscribe to events, etc.
