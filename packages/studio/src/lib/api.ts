@@ -113,7 +113,7 @@ export const webhooksApi = {
 };
 
 export const importApi = {
-  jobs: () => api.get<{ jobs: any[] }>('/api/import/jobs'),
+  jobs: () => api.get<{ jobs: any[] }>('/ext/data/import/jobs'),
 };
 
 export const zonesApi = {

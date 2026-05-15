@@ -33,7 +33,7 @@
     loading = true;
     try {
       const qs = filter !== 'all' ? `?status=${filter}` : '';
-      const r = await api.get<{ declarations: any[] }>(`/api/etransport${qs}`);
+      const r = await api.get<{ declarations: any[] }>(`/ext/compliance/ro/etransport${qs}`);
       declarations = r.declarations ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -69,7 +69,7 @@
     recalcWeight();
     submitting = true;
     try {
-      await api.post('/api/etransport', form);
+      await api.post('/ext/compliance/ro/etransport', form);
       showModal = false;
       await loadDeclarations();
       toast.success('Declaratie creata.');
@@ -80,26 +80,26 @@
   async function declare(id: string) {
     if (!confirm('Trimite declaratia la ANAF e-Transport?')) return;
     try {
-      const data = await api.post<any>(`/api/etransport/${id}/declare`, {});
+      const data = await api.post<any>(`/ext/compliance/ro/etransport/${id}/declare`, {});
       toast.success(`Declarat! UIT: ${data.uit}`);
       await loadDeclarations();
     } catch (e: any) { toast.error(e?.message ?? 'Failed'); }
   }
 
   async function complete(id: string) {
-    try { await api.post(`/api/etransport/${id}/complete`, {}); await loadDeclarations(); }
+    try { await api.post(`/ext/compliance/ro/etransport/${id}/complete`, {}); await loadDeclarations(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
   async function cancel(id: string) {
     if (!confirm('Anuleaza declaratia?')) return;
-    try { await api.post(`/api/etransport/${id}/cancel`, {}); await loadDeclarations(); }
+    try { await api.post(`/ext/compliance/ro/etransport/${id}/cancel`, {}); await loadDeclarations(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
   async function deleteDecl(id: string) {
     if (!confirm('Sterge declaratia?')) return;
-    try { await api.delete(`/api/etransport/${id}`); await loadDeclarations(); }
+    try { await api.delete(`/ext/compliance/ro/etransport/${id}`); await loadDeclarations(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 

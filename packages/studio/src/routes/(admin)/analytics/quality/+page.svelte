@@ -15,7 +15,7 @@
     loading = true;
     try {
       const [s, c] = await Promise.all([
-        api.get<{ data: any[] }>('/api/quality/scans'),
+        api.get<{ data: any[] }>('/ext/analytics/quality/scans'),
         api.get<{ collections: any[] }>('/api/collections').catch(() => ({ collections: [] })),
       ]);
       scans = s.data ?? [];
@@ -28,7 +28,7 @@
     if (!selectedCollection) return;
     scanning = true;
     try {
-      const r = await api.post<{ issues: any[] }>('/api/quality/scans', { collection: selectedCollection });
+      const r = await api.post<{ issues: any[] }>('/ext/analytics/quality/scans', { collection: selectedCollection });
       issues = r.issues ?? [];
       await loadAll();
     } catch (e: any) { toast.error(e?.message ?? 'Scan failed'); }
@@ -37,7 +37,7 @@
 
   async function viewIssues(scanId: string) {
     try {
-      const r = await api.get<{ data: any[] }>(`/api/quality/scans/${scanId}/issues`);
+      const r = await api.get<{ data: any[] }>(`/ext/analytics/quality/scans/${scanId}/issues`);
       issues = r.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }

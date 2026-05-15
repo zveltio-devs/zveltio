@@ -14,18 +14,18 @@
   async function loadTab() {
     loading = true;
     try {
-      if (tab === 'requests') { const r = await api.get<{ data: any[] }>('/api/gdpr/access-requests'); requests = r.data ?? []; }
-      else if (tab === 'breaches') { const r = await api.get<{ data: any[] }>('/api/gdpr/breach-incidents'); breaches = r.data ?? []; }
-      else if (tab === 'consents') { const r = await api.get<{ data: any[] }>('/api/gdpr/consents'); consents = r.data ?? []; }
-      else { const r = await api.get<{ data: any[] }>('/api/gdpr/processing-records'); records = r.data ?? []; }
+      if (tab === 'requests') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests'); requests = r.data ?? []; }
+      else if (tab === 'breaches') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/breach-incidents'); breaches = r.data ?? []; }
+      else if (tab === 'consents') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/consents'); consents = r.data ?? []; }
+      else { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/processing-records'); records = r.data ?? []; }
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
 
   async function fulfill(id: string) {
     try {
-      await api.post(`/api/gdpr/access-requests/${id}/fulfill`, {});
-      const r = await api.get<{ data: any[] }>('/api/gdpr/access-requests');
+      await api.post(`/ext/compliance/gdpr/access-requests/${id}/fulfill`, {});
+      const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
       requests = r.data ?? [];
       toast.success('Request fulfilled.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -33,8 +33,8 @@
 
   async function reject(id: string) {
     try {
-      await api.post(`/api/gdpr/access-requests/${id}/reject`, {});
-      const r = await api.get<{ data: any[] }>('/api/gdpr/access-requests');
+      await api.post(`/ext/compliance/gdpr/access-requests/${id}/reject`, {});
+      const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
       requests = r.data ?? [];
       toast.success('Request rejected.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

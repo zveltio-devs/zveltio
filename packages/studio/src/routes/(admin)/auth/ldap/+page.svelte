@@ -21,7 +21,7 @@
 
   onMount(async () => {
     try {
-      const r = await api.get<{ config: LDAPConfig | null }>('/api/auth/ldap/config');
+      const r = await api.get<{ config: LDAPConfig | null }>('/ext/auth/ldap/config');
       if (r.config) config = { ...config, ...r.config };
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to load LDAP config');
@@ -33,7 +33,7 @@
   async function save() {
     saving = true;
     try {
-      await api.post('/api/auth/ldap/config', config);
+      await api.post('/ext/auth/ldap/config', config);
       toast.success('LDAP configuration saved.');
     } catch (e: any) {
       toast.error(e?.message ?? 'Error saving config');
@@ -45,7 +45,7 @@
   async function testConnection() {
     testing = true;
     try {
-      await api.post('/api/auth/ldap/test', config);
+      await api.post('/ext/auth/ldap/test', config);
       toast.success('Connection successful!');
     } catch (e: any) {
       toast.error(e?.message ?? 'Connection failed');

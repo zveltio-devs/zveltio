@@ -33,7 +33,7 @@
     loading = true;
     try {
       const qs = filter !== 'all' ? `?status=${filter}` : '';
-      const r = await api.get<{ invoices: any[] }>(`/api/efactura${qs}`);
+      const r = await api.get<{ invoices: any[] }>(`/ext/compliance/ro/efactura${qs}`);
       invoices = r.invoices ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -63,7 +63,7 @@
     if (!form.invoice_number || !form.seller_name || !form.buyer_name) return;
     creating = true;
     try {
-      await api.post('/api/efactura', { ...form, ...totals });
+      await api.post('/ext/compliance/ro/efactura', { ...form, ...totals });
       showCreateModal = false;
       await loadInvoices();
       toast.success('Factura creata.');
@@ -73,14 +73,14 @@
 
   async function generateXML(id: string) {
     try {
-      await api.post(`/api/efactura/${id}/generate-xml`, {});
+      await api.post(`/ext/compliance/ro/efactura/${id}/generate-xml`, {});
       toast.success('XML generat! Foloseste Download pentru fisier.');
       await loadInvoices();
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
   async function downloadXML(id: string, number: string) {
-    const res = await fetch(`${ENGINE_URL}/api/efactura/${id}/xml`, { credentials: 'include' });
+    const res = await fetch(`${ENGINE_URL}/ext/compliance/ro/efactura/${id}/xml`, { credentials: 'include' });
     if (!res.ok) { toast.error('Genereaza XML mai intai'); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -92,7 +92,7 @@
   async function submitToANAF(id: string) {
     if (!confirm('Trimite factura la ANAF e-Factura?')) return;
     try {
-      const data = await api.post<any>(`/api/efactura/${id}/submit`, {});
+      const data = await api.post<any>(`/ext/compliance/ro/efactura/${id}/submit`, {});
       toast.success(`Trimis! ANAF index: ${data.anaf_index}`);
       await loadInvoices();
     } catch (e: any) { toast.error(e?.message ?? 'Submission failed'); }
@@ -100,7 +100,7 @@
 
   async function deleteInvoice(id: string) {
     if (!confirm('Sterge factura?')) return;
-    try { await api.delete(`/api/efactura/${id}`); await loadInvoices(); }
+    try { await api.delete(`/ext/compliance/ro/efactura/${id}`); await loadInvoices(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
