@@ -28,7 +28,7 @@ export default async function handler(ctx) {
   async function loadFunctions() {
     loading = true;
     try {
-      const data = await api.get<{ functions: any[] }>('/api/edge-functions');
+      const data = await api.get<{ functions: any[] }>('/ext/developer/edge-functions');
       functions = data.functions ?? [];
       if (functions.length > 0 && !selected) await selectFunction(functions[0]);
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
@@ -37,7 +37,7 @@ export default async function handler(ctx) {
 
   async function selectFunction(fn: any) {
     try {
-      const data = await api.get<{ function: any }>(`/api/edge-functions/${fn.id}`);
+      const data = await api.get<{ function: any }>(`/ext/developer/edge-functions/${fn.id}`);
       selected = data.function;
       invokeResult = null;
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -47,7 +47,7 @@ export default async function handler(ctx) {
     if (!selected) return;
     saving = true;
     try {
-      await api.patch(`/api/edge-functions/${selected.id}`, { code: selected.code });
+      await api.patch(`/ext/developer/edge-functions/${selected.id}`, { code: selected.code });
       saved = true;
       setTimeout(() => (saved = false), 2000);
     } catch (e: any) { toast.error(e?.message ?? 'Error saving'); }
@@ -58,7 +58,7 @@ export default async function handler(ctx) {
     if (!selected) return;
     invoking = true; invokeResult = null;
     try {
-      const data = await api.post<{ result: any }>(`/api/edge-functions/${selected.id}/invoke`, JSON.parse(invokeInput));
+      const data = await api.post<{ result: any }>(`/ext/developer/edge-functions/${selected.id}/invoke`, JSON.parse(invokeInput));
       invokeResult = data.result;
     } catch (e: any) { toast.error(e?.message ?? 'Invoke failed'); }
     finally { invoking = false; }
@@ -68,7 +68,7 @@ export default async function handler(ctx) {
     if (!form.name || !form.display_name) return;
     creating = true;
     try {
-      const data = await api.post<{ function: any }>('/api/edge-functions', { ...form, code: DEFAULT_CODE });
+      const data = await api.post<{ function: any }>('/ext/developer/edge-functions', { ...form, code: DEFAULT_CODE });
       showCreateModal = false;
       form = { name: '', display_name: '', description: '', http_method: 'POST' };
       await loadFunctions();
@@ -81,7 +81,7 @@ export default async function handler(ctx) {
   async function deleteFunction(id: string) {
     if (!confirm('Delete this function?')) return;
     try {
-      await api.delete(`/api/edge-functions/${id}`);
+      await api.delete(`/ext/developer/edge-functions/${id}`);
       selected = null;
       await loadFunctions();
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -89,7 +89,7 @@ export default async function handler(ctx) {
 
   async function toggleActive(fn: any) {
     try {
-      await api.patch(`/api/edge-functions/${fn.id}`, { is_active: !fn.is_active });
+      await api.patch(`/ext/developer/edge-functions/${fn.id}`, { is_active: !fn.is_active });
       await loadFunctions();
       if (selected?.id === fn.id) selected = { ...selected, is_active: !fn.is_active };
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
