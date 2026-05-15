@@ -31,6 +31,7 @@ import { validatePublicUrl } from './edge-functions/safe-fetch.js';
 import { sendNotification } from './notifications.js';
 import { serviceRegistry } from './service-registry.js';
 import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
+import { isPackageAllowed } from './peer-deps-allowlist.js';
 
 export { serviceRegistry } from './service-registry.js';
 
@@ -69,6 +70,65 @@ const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   'content/drafts': ['zv_revisions'],
   'developer/validation': ['zv_validation_rules'],
 };
+
+// ── Extension lifecycle lock ─────────────────────────────────────────────────
+// Serialize concurrent install/enable/disable/uninstall requests for the same
+// extension name. Two protections layered:
+//
+//   1. In-memory Map<name, Promise> serializes same-process concurrent
+//      requests. The second request waits for the first to settle.
+//   2. Postgres pg_advisory_xact_lock inside the wrapped operation guards
+//      against concurrent requests from other engine replicas. The lock is
+//      transaction-scoped, so it auto-releases on commit/rollback.
+//
+// Trade-off: when a wrapped operation runs an external long task (download,
+// npm install) the advisory-lock transaction stays open for that duration,
+// holding one DB connection. Lifecycle ops are infrequent admin actions so
+// this is acceptable. The pool default of 10 connections has plenty of headroom.
+const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Pure same-process mutex keyed by string. Concurrent calls with the same key
+ * are serialized; different keys run in parallel. The map self-cleans when no
+ * call is in flight for a key.
+ *
+ * Exported for tests; production callers should prefer withExtensionLock which
+ * layers on the Postgres advisory lock for cross-replica safety.
+ */
+export async function inMemoryMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prior = extensionLifecycleLocks.get(key);
+  if (prior) {
+    await prior.catch(() => { /* swallow — not our concern */ });
+  }
+  const current = fn();
+  extensionLifecycleLocks.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (extensionLifecycleLocks.get(key) === current) {
+      extensionLifecycleLocks.delete(key);
+    }
+  }
+}
+
+export async function withExtensionLock<T>(
+  db: Database,
+  name: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const key = `ext:${name}`;
+  return inMemoryMutex(key, async () =>
+    // Cross-process: acquire a Postgres advisory lock for the duration.
+    // hashtext returns int4; pg_advisory_xact_lock accepts int8 — Postgres
+    // implicitly widens. Different extension names hash to different keys
+    // (collisions are theoretically possible but harmless — at worst two
+    // unrelated extensions would serialize each other).
+    db.transaction().execute(async (trx) => {
+      await _sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`.execute(trx);
+      return fn();
+    }),
+  );
+}
 
 async function buildAllowedTables(migrationPaths: string[]): Promise<Set<string>> {
   const tables = new Set<string>();
@@ -160,6 +220,47 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
  * directory matching the extension slug (or anything else), we flatten it so
  * `engine/`, `studio/`, `manifest.json` land directly inside `EXTENSIONS_DIR/<name>/`.
  */
+/**
+ * Fetch with exponential-backoff retry on transient failures.
+ *
+ * Retries on:
+ *   - Network errors (TypeError from fetch, AbortError from timeout)
+ *   - HTTP 5xx and 429 responses
+ *
+ * Does NOT retry on:
+ *   - 4xx other than 429 (auth, not-found — retrying won't help)
+ *   - Successful 2xx/3xx
+ *
+ * Delays: 500ms, 2s, 5s between the 3 attempts.
+ */
+export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  const delays = [500, 2000, 5000];
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      // 4xx (except 429) — client error, retry won't help.
+      if (!res.ok && res.status >= 400 && res.status < 500 && res.status !== 429) {
+        return res;
+      }
+      // 5xx or 429 — transient, retry unless this was the last attempt.
+      if (!res.ok && attempt < delays.length - 1) {
+        await Bun.sleep(delays[attempt]);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt < delays.length - 1) {
+        await Bun.sleep(delays[attempt]);
+        continue;
+      }
+    }
+  }
+  // Exhausted retries on network errors — surface the last one.
+  throw lastError ?? new Error(`fetchWithRetry exhausted retries for ${url}`);
+}
+
 async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string, licenseKey?: string): Promise<void> {
   const downloadUrl = entry.download_url
     ?? `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(entry.name)}/download`;
@@ -174,7 +275,7 @@ async function downloadExtension(entry: ExtensionCatalogEntry, destBase: string,
     headers['Authorization'] = `Bearer ${licenseKey}`;
   }
 
-  const res = await fetch(downloadUrl, {
+  const res = await fetchWithRetry(downloadUrl, {
     headers,
     signal: AbortSignal.timeout(60_000),
   });
@@ -449,7 +550,130 @@ const ManifestSchema = z.object({
     stepTypes: z.array(z.string()).default([]),
     collections: z.array(z.string()).default([]),
   }).optional(),
+  /**
+   * Resource quotas. Extensions exceeding any limit fail install with
+   * EXT_QUOTA_EXCEEDED. Defaults are generous enough for current extensions;
+   * publishers wanting a smaller footprint can tighten them per-extension.
+   */
+  quotas: z.object({
+    bundleSizeKbMax: z.number().int().positive().default(50_000),
+    nodeModulesSizeMbMax: z.number().int().positive().default(200),
+    migrationsMax: z.number().int().positive().default(100),
+  }).optional(),
 }).passthrough();
+
+// Default quotas exposed for callers that don't have a full manifest yet.
+export const DEFAULT_QUOTAS = {
+  bundleSizeKbMax: 50_000,
+  nodeModulesSizeMbMax: 200,
+  migrationsMax: 100,
+} as const;
+
+export class QuotaExceededError extends Error {
+  constructor(
+    public readonly quota: 'bundleSizeKb' | 'nodeModulesSizeMb' | 'migrations',
+    public readonly observed: number,
+    public readonly limit: number,
+    extName: string,
+  ) {
+    super(
+      `Extension "${extName}" exceeded ${quota} quota: observed ${observed}, limit ${limit}. ` +
+      `Raise the limit in manifest.json "quotas" or reduce the extension's footprint.`,
+    );
+    this.name = 'QuotaExceededError';
+  }
+}
+
+export class DownMissingError extends Error {
+  constructor(
+    public readonly extensionName: string,
+    public readonly missingMigrations: string[],
+  ) {
+    super(
+      `Extension "${extensionName}" cannot be purged: ${missingMigrations.length} migration(s) ` +
+      `have no DOWN section recorded: ${missingMigrations.join(', ')}. ` +
+      `Either edit the migrations to add a "-- DOWN" section before retrying, or roll them back manually.`,
+    );
+    this.name = 'DownMissingError';
+  }
+}
+
+/**
+ * Returns true if `target` resolves to a path strictly inside `base`.
+ * Used before destructive filesystem operations to prevent path-traversal
+ * attacks (e.g. an extension named "../../../etc" trying to escape
+ * EXTENSIONS_DIR).
+ *
+ * Both paths are resolved to absolute form before comparison; we also reject
+ * the case where they resolve to the exact same path (you should not delete
+ * the base directory itself).
+ */
+export async function isPathInsideBase(base: string, target: string): Promise<boolean> {
+  const { resolve, sep } = await import('path');
+  const safeBase = resolve(base);
+  const safeTarget = resolve(target);
+  if (safeTarget === safeBase) return false;
+  // Ensure base ends with a separator before the prefix check so
+  // resolve('/foo') vs resolve('/foobar') is not a false match.
+  const baseWithSep = safeBase.endsWith(sep) ? safeBase : safeBase + sep;
+  return safeTarget.startsWith(baseWithSep);
+}
+
+/**
+ * Parsed SQL migration with separated UP / DOWN sections.
+ *
+ * The DOWN section starts at the first line that matches `-- DOWN` (case
+ * insensitive). Everything before the marker is UP; everything after the
+ * marker line is DOWN. If the marker is absent, the whole file is UP and
+ * DOWN is null.
+ */
+export interface ParsedMigration {
+  up: string;
+  down: string | null;
+}
+
+export function parseMigrationSql(raw: string): ParsedMigration {
+  const downIdx = raw.search(/^--\s*DOWN\b/im);
+  if (downIdx < 0) {
+    return { up: raw.trim(), down: null };
+  }
+  const up = raw.slice(0, downIdx).trim();
+  // Skip the marker line itself, keep everything after the next newline.
+  const downSection = raw.slice(downIdx);
+  const firstNewline = downSection.indexOf('\n');
+  const downBody = firstNewline >= 0 ? downSection.slice(firstNewline + 1).trim() : '';
+  return { up, down: downBody.length > 0 ? downBody : null };
+}
+
+/**
+ * Compute the total size of a directory recursively, in bytes.
+ * Returns 0 if the directory does not exist or any traversal fails.
+ */
+export async function directorySizeBytes(dir: string): Promise<number> {
+  if (!existsSync(dir)) return 0;
+  let total = 0;
+  try {
+    const { readdir, stat } = await import('fs/promises');
+    const stack: string[] = [dir];
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      const entries = await readdir(current, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) {
+          stack.push(full);
+        } else if (entry.isFile()) {
+          const st = await stat(full);
+          total += st.size;
+        }
+      }
+    }
+  } catch {
+    // Permission or transient FS errors — be lenient. A check that can't read
+    // the directory shouldn't block install; better than false-positive quotas.
+  }
+  return total;
+}
 
 // ZveltioExtension is imported from @zveltio/sdk/extension — single source of truth.
 // Re-export so other engine modules can import from here without depending on the SDK directly.
@@ -685,6 +909,10 @@ class ExtensionLoader {
         }
       }
 
+      // Migrations quota is determined from manifest (or defaults if no manifest).
+      // Hoisted out of the if-block so the check after getMigrations() can see it.
+      let migrationsLimit = DEFAULT_QUOTAS.migrationsMax;
+
       // Validate manifest.json if present, then check compatibility + dependencies
       const manifestPath = join(extDir, 'manifest.json');
       if (existsSync(manifestPath)) {
@@ -701,6 +929,20 @@ class ExtensionLoader {
         const compat = isCompatible(getEngineVersion(), manifest.zveltioMinVersion, manifest.zveltioMaxVersion);
         if (!compat.compatible) {
           console.warn(`⚠️  Extension "${extName}" incompatible: ${compat.reason}`);
+          return;
+        }
+
+        // Resource quota: bundle size (extension folder excluding node_modules).
+        // node_modules sits in the shared workspace root, not inside extDir, so
+        // a recursive walk of extDir captures only this extension's own files.
+        const quotas = manifest.quotas ?? DEFAULT_QUOTAS;
+        migrationsLimit = quotas.migrationsMax;
+        const bundleBytes = await directorySizeBytes(extDir);
+        const bundleKb = Math.ceil(bundleBytes / 1024);
+        if (bundleKb > quotas.bundleSizeKbMax) {
+          const err = new QuotaExceededError('bundleSizeKb', bundleKb, quotas.bundleSizeKbMax, extName);
+          console.warn(`⚠️  ${err.message}`);
+          this.lastLoadError.set(extName, err.message);
           return;
         }
 
@@ -736,9 +978,32 @@ class ExtensionLoader {
           }
         }
 
-        // npm peerDependencies — auto-install before loading
+        // npm peerDependencies — auto-install before loading. Failure is fatal
+        // (an extension that needs `imapflow` but couldn't install it will crash
+        // when imported). Cache the error for the marketplace HTTP response.
         if (manifest.peerDependencies && Object.keys(manifest.peerDependencies).length > 0) {
-          await this.installNpmDependencies(extName, manifest.peerDependencies);
+          try {
+            await this.installNpmDependencies(extName, manifest.peerDependencies);
+          } catch (err) {
+            const msg = (err as Error).message;
+            console.warn(`⚠️  ${msg}`);
+            this.lastLoadError.set(extName, msg);
+            return;
+          }
+
+          // Resource quota: total node_modules size in the shared workspace.
+          // This is a coarse guard against accidentally pulling in multi-GB
+          // packages. Note: it counts ALL extensions' deps, not just this one's,
+          // so the limit needs headroom for the ecosystem total.
+          const nodeModulesDir = join(resolveExtensionsBase(), 'node_modules');
+          const nmBytes = await directorySizeBytes(nodeModulesDir);
+          const nmMb = Math.ceil(nmBytes / (1024 * 1024));
+          if (nmMb > quotas.nodeModulesSizeMbMax) {
+            const err = new QuotaExceededError('nodeModulesSizeMb', nmMb, quotas.nodeModulesSizeMbMax, extName);
+            console.warn(`⚠️  ${err.message}`);
+            this.lastLoadError.set(extName, err.message);
+            return;
+          }
         }
 
         // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint
@@ -750,9 +1015,12 @@ class ExtensionLoader {
         });
       }
 
-      // Import and register extension
+      // Import and register extension. In development, append a cache-buster
+      // query string so re-loading an edited extension picks up changes; in
+      // production the module is loaded once at startup and the cache is a feature.
       const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
-      const module = await import(resolvedPath);
+      const cacheBuster = process.env.NODE_ENV === 'production' ? '' : `?v=${Date.now()}`;
+      const module = await import(`${resolvedPath}${cacheBuster}`);
       const extension: ZveltioExtension = module.default;
 
       if (!extension || typeof extension.register !== 'function') {
@@ -765,6 +1033,12 @@ class ExtensionLoader {
 
       // Run extension migrations
       const migrationPaths = extension.getMigrations?.() ?? [];
+      if (migrationPaths.length > migrationsLimit) {
+        const err = new QuotaExceededError('migrations', migrationPaths.length, migrationsLimit, extName);
+        console.warn(`⚠️  ${err.message}`);
+        this.lastLoadError.set(extName, err.message);
+        return;
+      }
       if (migrationPaths.length > 0) {
         await this.runExtensionMigrations(extension, ctx.db);
       }
@@ -919,6 +1193,15 @@ class ExtensionLoader {
           `Only scoped/unscoped npm package names with semver ranges are allowed.`,
         );
       }
+      // SECURITY: enforce platform allow-list. Unknown packages cannot be auto-installed
+      // — a publisher must request inclusion in peer-deps-allowlist.ts via PR review.
+      if (!isPackageAllowed(pkg)) {
+        throw new Error(
+          `Extension "${extName}" declared disallowed peerDependency: "${pkg}". ` +
+          `Only packages on the platform allow-list may be auto-installed. ` +
+          `See packages/engine/src/lib/peer-deps-allowlist.ts to request inclusion.`,
+        );
+      }
     }
 
     console.log(`📦 Extension "${extName}": installing npm packages: ${toInstall.join(', ')}`);
@@ -963,12 +1246,14 @@ class ExtensionLoader {
     }
 
     if (!installed) {
-      console.warn(
-        `⚠️  Extension "${extName}": could not install peer packages ${toInstall.join(', ')}. ` +
+      // S1-02: fail-close. Previously this was a warning + return, but an
+      // extension whose peerDeps fail to install will crash at runtime when it
+      // tries to import the missing module. Surface the failure now so the
+      // install / enable HTTP response carries an actionable error to the user.
+      throw new Error(
+        `Extension "${extName}": could not install peer packages ${toInstall.join(', ')}. ` +
         `Install them manually in ${workspaceRoot}: bun add ${toInstall.join(' ')}`,
       );
-      // Non-fatal: continue loading — the extension may still work if packages are pre-installed.
-      return;
     }
 
     console.log(`✅ Extension "${extName}": packages installed successfully`);
@@ -979,34 +1264,90 @@ class ExtensionLoader {
     db: Database,
   ): Promise<void> {
     const migrations = extension.getMigrations?.() || [];
+    if (migrations.length === 0) return;
+
+    // Phase 1 — read all migrations + skip the ones already applied. Done
+    // outside the outer transaction so an early-skipped chain (everything
+    // already applied) doesn't open a useless transaction.
+    type Pending = { name: string; up: string; down: string | null };
+    const pending: Pending[] = [];
     for (const migrationPath of migrations) {
       const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
-
-      // Check if already run
       const existing = await db
         .selectFrom('zv_migrations' as any)
         .select('id')
         .where('name' as any, '=', name)
         .executeTakeFirst()
         .catch(() => null);
-
       if (existing) continue;
 
       const rawSql = await Bun.file(migrationPath).text();
-      // Strip everything from "-- DOWN" onwards so migration files can include
-      // a rollback section without it being executed on apply.
-      const downIdx = rawSql.search(/^--\s*DOWN\b/im);
-      const sqlContent = downIdx >= 0 ? rawSql.slice(0, downIdx).trim() : rawSql;
-      await db.transaction().execute(async (trx) => {
-        await (trx as any).executeQuery({ sql: sqlContent, parameters: [] });
+      const { up, down } = parseMigrationSql(rawSql);
+      pending.push({ name, up, down });
+    }
+
+    if (pending.length === 0) return;
+
+    // Phase 2 — run the entire chain in ONE outer transaction. If any UP
+    // fails, Postgres rolls back the whole chain (DDL is transactional for
+    // CREATE TABLE / ALTER / DROP / most CREATE INDEX variants). Migrations
+    // that need CONCURRENTLY or other non-transactional DDL cannot use this
+    // path — they must be expressed differently (e.g. split into a separate
+    // non-extension migration applied by an admin).
+    await db.transaction().execute(async (trx) => {
+      for (const m of pending) {
+        await (trx as any).executeQuery({ sql: m.up, parameters: [] });
+        // Persist DOWN alongside the migration row so a future uninstall with
+        // purgeData=true can replay rollbacks without the original files.
         await trx
           .insertInto('zv_migrations' as any)
-          .values({ name } as any)
+          .values({ name: m.name, down_sql: m.down } as any)
           .execute();
-      });
+        console.log(`  ✓ Extension migration: ${m.name}`);
+      }
+    });
+  }
 
-      console.log(`  ✓ Extension migration: ${name}`);
+  /**
+   * Reverse-apply every migration this extension has on record, in reverse
+   * order, then delete the zv_migrations rows. The whole operation runs in a
+   * single transaction — if any DOWN fails the chain is rolled back.
+   *
+   * Throws DownMissingError listing the migrations that have no DOWN section.
+   * In that case nothing is dropped — the operator can either run those DOWNs
+   * manually or accept that purge cannot proceed.
+   */
+  private async purgeExtensionData(extensionName: string, db: Database): Promise<void> {
+    const prefix = `ext:${extensionName}:`;
+    const rows = await db
+      .selectFrom('zv_migrations' as any)
+      .select(['id' as any, 'name' as any, 'down_sql' as any])
+      .where('name' as any, 'like', `${prefix}%`)
+      .orderBy('id' as any, 'desc')
+      .execute()
+      .catch(() => [] as any[]);
+
+    if (rows.length === 0) return;
+
+    const missing = rows.filter((r: any) => !r.down_sql || (r.down_sql as string).trim() === '');
+    if (missing.length > 0) {
+      throw new DownMissingError(
+        extensionName,
+        missing.map((r: any) => r.name as string),
+      );
     }
+
+    await db.transaction().execute(async (trx) => {
+      for (const r of rows as any[]) {
+        const downSql = r.down_sql as string;
+        await (trx as any).executeQuery({ sql: downSql, parameters: [] });
+        await trx
+          .deleteFrom('zv_migrations' as any)
+          .where('id' as any, '=', r.id)
+          .execute();
+        console.log(`  ✓ Extension purge: rolled back ${r.name}`);
+      }
+    });
   }
 
   async loadFromDB(db: Database, app: Hono): Promise<void> {
@@ -1182,78 +1523,80 @@ class ExtensionLoader {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
       const name = c.req.param('name');
-      const catalog = await fetchRegistryCatalog();
-      const entry = catalog.find((e) => e.name === name);
-      if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+      return withExtensionLock(db, name, async () => {
+        const catalog = await fetchRegistryCatalog();
+        const entry = catalog.find((e) => e.name === name);
+        if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
-      // Determine where extension files should live
-      const extBase = resolveExtensionsBase();
-      const extDir = join(extBase, name);
-      const engineTs = join(extDir, 'engine/index.ts');
-      const engineJs = join(extDir, 'engine/index.js');
+        // Determine where extension files should live
+        const extBase = resolveExtensionsBase();
+        const extDir = join(extBase, name);
+        const engineTs = join(extDir, 'engine/index.ts');
+        const engineJs = join(extDir, 'engine/index.js');
 
-      // Download extension package if not already on disk
-      const authToken = await getLicenseKey(db, name);
-      let downloaded = false;
-      let downloadError = '';
-      if (!existsSync(engineTs) && !existsSync(engineJs)) {
-        try {
-          await downloadExtension(entry, extBase, authToken);
-          downloaded = true;
-        } catch (err) {
-          downloadError = (err as Error).message;
-          console.warn(`[marketplace] Could not download "${name}":`, downloadError);
-        }
-      }
-
-      // Also accept engine/routes.ts as a valid entry point (manifest.engine.routes)
-      let altEntry: string | undefined;
-      const manifestPathCheck = join(extDir, 'manifest.json');
-      if (existsSync(manifestPathCheck)) {
-        try {
-          const m = JSON.parse(await Bun.file(manifestPathCheck).text());
-          if (m.engine?.routes) {
-            altEntry = join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
+        // Download extension package if not already on disk
+        const authToken = await getLicenseKey(db, name);
+        let downloaded = false;
+        let downloadError = '';
+        if (!existsSync(engineTs) && !existsSync(engineJs)) {
+          try {
+            await downloadExtension(entry, extBase, authToken);
+            downloaded = true;
+          } catch (err) {
+            downloadError = (err as Error).message;
+            console.warn(`[marketplace] Could not download "${name}":`, downloadError);
           }
-        } catch { /* ignore */ }
-      }
-      const filesOnDisk = existsSync(engineTs) || existsSync(engineJs) || (!!altEntry && existsSync(altEntry));
+        }
 
-      // If files are still not on disk after the download attempt, fail loudly so the
-      // Studio shows a real error instead of "installed but won't enable".
-      if (!filesOnDisk) {
-        const msg = `Extension "${name}" could not be installed: ` +
-                    (downloadError || 'Registry unavailable.') +
-                    ` Set EXTENSIONS_DIR to the extensions directory and retry.`;
-        return c.json({ success: false, downloaded: false, files_on_disk: false, error: msg, message: msg }, 422);
-      }
+        // Also accept engine/routes.ts as a valid entry point (manifest.engine.routes)
+        let altEntry: string | undefined;
+        const manifestPathCheck = join(extDir, 'manifest.json');
+        if (existsSync(manifestPathCheck)) {
+          try {
+            const m = JSON.parse(await Bun.file(manifestPathCheck).text());
+            if (m.engine?.routes) {
+              altEntry = join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
+            }
+          } catch { /* ignore */ }
+        }
+        const filesOnDisk = existsSync(engineTs) || existsSync(engineJs) || (!!altEntry && existsSync(altEntry));
 
-      const tenantId = getTenantId(c);
+        // If files are still not on disk after the download attempt, fail loudly so the
+        // Studio shows a real error instead of "installed but won't enable".
+        if (!filesOnDisk) {
+          const msg = `Extension "${name}" could not be installed: ` +
+                      (downloadError || 'Registry unavailable.') +
+                      ` Set EXTENSIONS_DIR to the extensions directory and retry.`;
+          return c.json({ success: false, downloaded: false, files_on_disk: false, error: msg, message: msg }, 422);
+        }
 
-      await (db as any)
-        .insertInto('zv_extension_registry')
-        .values({
-          name:         entry.name,
-          display_name: entry.displayName,
-          description:  entry.description,
-          category:     entry.category,
-          version:      entry.version,
-          author:       entry.author,
-          is_installed: true,
-          is_enabled:   false,
-          installed_at: new Date(),
-          tenant_id:    tenantId,
-        })
-        .onConflict((oc: any) =>
-          oc.column('name').doUpdateSet({ is_installed: true, installed_at: new Date(), tenant_id: tenantId }),
-        )
-        .execute();
+        const tenantId = getTenantId(c);
 
-      return c.json({
-        success:        true,
-        downloaded,
-        files_on_disk:  true,
-        message:        `Extension "${name}" installed successfully. Enable it to activate.`,
+        await (db as any)
+          .insertInto('zv_extension_registry')
+          .values({
+            name:         entry.name,
+            display_name: entry.displayName,
+            description:  entry.description,
+            category:     entry.category,
+            version:      entry.version,
+            author:       entry.author,
+            is_installed: true,
+            is_enabled:   false,
+            installed_at: new Date(),
+            tenant_id:    tenantId,
+          })
+          .onConflict((oc: any) =>
+            oc.column('name').doUpdateSet({ is_installed: true, installed_at: new Date(), tenant_id: tenantId }),
+          )
+          .execute();
+
+        return c.json({
+          success:        true,
+          downloaded,
+          files_on_disk:  true,
+          message:        `Extension "${name}" installed successfully. Enable it to activate.`,
+        });
       });
     });
 
@@ -1262,99 +1605,101 @@ class ExtensionLoader {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
       const name = c.req.param('name');
-      // Use live registry catalog (with local fallback) so extensions from apps.zveltio.com work
-      const catalog = await fetchRegistryCatalog();
-      const entry = catalog.find((e) => e.name === name);
-      if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+      return withExtensionLock(db, name, async () => {
+        // Use live registry catalog (with local fallback) so extensions from apps.zveltio.com work
+        const catalog = await fetchRegistryCatalog();
+        const entry = catalog.find((e) => e.name === name);
+        if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
-      // If extension files are not on disk yet, try to download them now before
-      // marking it enabled in the DB. This covers the case where Install succeeded
-      // via registry but files were not present, or the user clicked Enable directly.
-      const extBase = resolveExtensionsBase();
-      const extDir  = join(extBase, name);
-      if (!existsSync(join(extDir, 'engine/index.ts')) && !existsSync(join(extDir, 'engine/index.js'))) {
-        try {
-          const authToken = await getLicenseKey(db, name);
-          await downloadExtension(entry, extBase, authToken);
-        } catch (downloadErr) {
-          const msg = `Extension "${name}" files not found and download failed: ${(downloadErr as Error).message}. ` +
-                      `Set EXTENSIONS_DIR to the extensions directory and retry.`;
-          return c.json({ success: false, hot_loaded: false, needs_restart: false, error: msg, message: msg }, 422);
+        // If extension files are not on disk yet, try to download them now before
+        // marking it enabled in the DB. This covers the case where Install succeeded
+        // via registry but files were not present, or the user clicked Enable directly.
+        const extBase = resolveExtensionsBase();
+        const extDir  = join(extBase, name);
+        if (!existsSync(join(extDir, 'engine/index.ts')) && !existsSync(join(extDir, 'engine/index.js'))) {
+          try {
+            const authToken = await getLicenseKey(db, name);
+            await downloadExtension(entry, extBase, authToken);
+          } catch (downloadErr) {
+            const msg = `Extension "${name}" files not found and download failed: ${(downloadErr as Error).message}. ` +
+                        `Set EXTENSIONS_DIR to the extensions directory and retry.`;
+            return c.json({ success: false, hot_loaded: false, needs_restart: false, error: msg, message: msg }, 422);
+          }
         }
-      }
 
-      const tenantId = getTenantId(c);
+        const tenantId = getTenantId(c);
 
-      await (db as any)
-        .insertInto('zv_extension_registry')
-        .values({
-          name:         entry.name,
-          display_name: entry.displayName,
-          description:  entry.description,
-          category:     entry.category,
-          version:      entry.version,
-          author:       entry.author,
-          is_installed: true,
-          is_enabled:   true,
-          installed_at: new Date(),
-          enabled_at:   new Date(),
-          tenant_id:    tenantId,
-        })
-        .onConflict((oc: any) =>
-          oc.column('name').doUpdateSet({
+        await (db as any)
+          .insertInto('zv_extension_registry')
+          .values({
+            name:         entry.name,
+            display_name: entry.displayName,
+            description:  entry.description,
+            category:     entry.category,
+            version:      entry.version,
+            author:       entry.author,
             is_installed: true,
             is_enabled:   true,
+            installed_at: new Date(),
             enabled_at:   new Date(),
             tenant_id:    tenantId,
-          }),
-        )
-        .execute();
+          })
+          .onConflict((oc: any) =>
+            oc.column('name').doUpdateSet({
+              is_installed: true,
+              is_enabled:   true,
+              enabled_at:   new Date(),
+              tenant_id:    tenantId,
+            }),
+          )
+          .execute();
 
-      let hotLoaded = false;
-      let loadError = '';
-      if (!self.isActive(name)) {
-        try {
-          await self.loadDynamic(name, app);
+        let hotLoaded = false;
+        let loadError = '';
+        if (!self.isActive(name)) {
+          try {
+            await self.loadDynamic(name, app);
+            hotLoaded = true;
+          } catch (e) {
+            loadError = (e as Error).message;
+            console.warn(`Hot-load failed for ${name}:`, loadError);
+            // Revert: roll back is_enabled so the DB stays consistent with reality.
+            // Without this, every server restart tries to load a broken extension.
+            await (db as any)
+              .updateTable('zv_extension_registry')
+              .set({ is_enabled: false })
+              .where('name' as any, '=', name)
+              .execute()
+              .catch(() => {});
+          }
+        } else {
           hotLoaded = true;
-        } catch (e) {
-          loadError = (e as Error).message;
-          console.warn(`Hot-load failed for ${name}:`, loadError);
-          // Revert: roll back is_enabled so the DB stays consistent with reality.
-          // Without this, every server restart tries to load a broken extension.
-          await (db as any)
-            .updateTable('zv_extension_registry')
-            .set({ is_enabled: false })
-            .where('name' as any, '=', name)
-            .execute()
-            .catch(() => {});
         }
-      } else {
-        hotLoaded = true;
-      }
 
-      // Rebuild and swap the Hono app so the new extension's routes are live
-      // without restarting the process. No-op if _reloadCallback isn't set yet.
-      if (hotLoaded) {
-        await triggerReload(`enable:${name}`);
-      }
+        // Rebuild and swap the Hono app so the new extension's routes are live
+        // without restarting the process. No-op if _reloadCallback isn't set yet.
+        if (hotLoaded) {
+          await triggerReload(`enable:${name}`);
+        }
 
-      // Rebuild Studio SPA if source dir is configured (non-blocking fire-and-forget)
-      const { rebuildStudio } = await import('./studio-builder.js');
-      rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
-        console.warn('[studio-builder] Rebuild error:', err),
-      );
+        // Rebuild Studio SPA if source dir is configured (non-blocking fire-and-forget)
+        const { rebuildStudio } = await import('./studio-builder.js');
+        rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
+          console.warn('[studio-builder] Rebuild error:', err),
+        );
 
-      const nowActive = self.isActive(name);
-      return c.json({
-        success:       nowActive,
-        hot_loaded:    hotLoaded,
-        needs_restart: false,
-        studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
-        message:       nowActive
-          ? `Extension ${name} is now active.`
-          : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
-        ...(loadError ? { error_detail: loadError } : {}),
-      }, nowActive ? 200 : 422);
+        const nowActive = self.isActive(name);
+        return c.json({
+          success:       nowActive,
+          hot_loaded:    hotLoaded,
+          needs_restart: false,
+          studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
+          message:       nowActive
+            ? `Extension ${name} is now active.`
+            : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
+          ...(loadError ? { error_detail: loadError } : {}),
+        }, nowActive ? 200 : 422);
+      });
     });
 
     // POST /api/marketplace/:name/disable
@@ -1362,43 +1707,44 @@ class ExtensionLoader {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
       const name = c.req.param('name');
+      return withExtensionLock(db, name, async () => {
+        await (db as any)
+          .insertInto('zv_extension_registry')
+          .values({
+            name,
+            display_name: name,
+            category:     'custom',
+            version:      '1.0.0',
+            author:       '',
+            is_installed: true,
+            is_enabled:   false,
+          })
+          .onConflict((oc: any) =>
+            oc.column('name').doUpdateSet({ is_enabled: false }),
+          )
+          .execute();
 
-      await (db as any)
-        .insertInto('zv_extension_registry')
-        .values({
-          name,
-          display_name: name,
-          category:     'custom',
-          version:      '1.0.0',
-          author:       '',
-          is_installed: true,
-          is_enabled:   false,
-        })
-        .onConflict((oc: any) =>
-          oc.column('name').doUpdateSet({ is_enabled: false }),
-        )
-        .execute();
+        // Remove from in-memory registry so buildHonoApp() won't re-register routes
+        const wasRunning = self.isActive(name);
+        if (wasRunning) {
+          await self.unload(name);
+        }
 
-      // Remove from in-memory registry so buildHonoApp() won't re-register routes
-      const wasRunning = self.isActive(name);
-      if (wasRunning) {
-        await self.unload(name);
-      }
+        // Rebuild Hono app without this extension's routes (zero-downtime)
+        await triggerReload(`disable:${name}`);
 
-      // Rebuild Hono app without this extension's routes (zero-downtime)
-      await triggerReload(`disable:${name}`);
+        // Rebuild Studio SPA without this extension's pages (fire-and-forget)
+        const { rebuildStudio } = await import('./studio-builder.js');
+        rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
+          console.warn('[studio-builder] Rebuild error:', err),
+        );
 
-      // Rebuild Studio SPA without this extension's pages (fire-and-forget)
-      const { rebuildStudio } = await import('./studio-builder.js');
-      rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
-        console.warn('[studio-builder] Rebuild error:', err),
-      );
-
-      return c.json({
-        success:       true,
-        needs_restart: false,
-        studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
-        message:       `Extension ${name} disabled.`,
+        return c.json({
+          success:       true,
+          needs_restart: false,
+          studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
+          message:       `Extension ${name} disabled.`,
+        });
       });
     });
 
@@ -1429,21 +1775,92 @@ class ExtensionLoader {
       return c.json({ success: true });
     });
 
-    // POST /api/marketplace/:name/uninstall
+    // POST /api/marketplace/:name/uninstall[?purgeData=true]
+    //
+    // Default (purgeData=false or omitted): soft uninstall — mark
+    // is_installed=false in the registry, keep the extension's tables and
+    // migration history. A future reinstall picks up where we left off.
+    //
+    // Purge (purgeData=true): run DOWN migrations in reverse, delete migration
+    // rows, remove files from disk, delete the registry row. Fully destructive.
     app.post('/api/marketplace/:name{.+}/uninstall', async (c) => {
       if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
       const name = c.req.param('name');
+      const purgeData = c.req.query('purgeData') === 'true';
 
-      await (db as any)
-        .deleteFrom('zv_extension_registry')
-        .where('name' as any, '=', name)
-        .execute();
+      return withExtensionLock(db, name, async () => {
+        // Always unload from memory + trigger reload so live routes stop.
+        // The Hono matcher still holds the routes until restart (a known
+        // limitation tracked as S3-01); the reload at least re-runs setup
+        // without the extension in this.loaded.
+        const wasActive = self.isActive(name);
+        if (wasActive) {
+          await self.unload(name);
+        }
 
-      return c.json({
-        success:       true,
-        needs_restart: self.isActive(name),
-        message:       `Extension ${name} uninstalled.`,
+        if (!purgeData) {
+          // Soft path: keep tables + migrations + files, just deactivate.
+          await (db as any)
+            .updateTable('zv_extension_registry')
+            .set({ is_installed: false, is_enabled: false })
+            .where('name' as any, '=', name)
+            .execute();
+
+          if (wasActive) {
+            await triggerReload(`uninstall:${name}`);
+          }
+
+          return c.json({
+            success: true,
+            purged: false,
+            needs_restart: wasActive,
+            message: `Extension ${name} uninstalled. Tables and data preserved. Pass ?purgeData=true to drop them.`,
+          });
+        }
+
+        // Hard purge path: roll back DDL, remove files, drop registry row.
+        try {
+          await self.purgeExtensionData(name, db);
+        } catch (err) {
+          if (err instanceof DownMissingError) {
+            return c.json({
+              success: false,
+              purged: false,
+              error: 'EXT_DOWN_MISSING',
+              missing_migrations: err.missingMigrations,
+              message: err.message,
+            }, 422);
+          }
+          throw err;
+        }
+
+        // Remove extension files from disk, guarded against path-traversal.
+        const extBase = resolveExtensionsBase();
+        const extDir = join(extBase, name);
+        if (await isPathInsideBase(extBase, extDir)) {
+          const fs = await import('fs');
+          try { fs.rmSync(extDir, { recursive: true, force: true }); }
+          catch (err) { console.warn(`[marketplace] could not remove ${extDir}:`, err); }
+        } else {
+          console.warn(`[marketplace] refusing to remove "${extDir}" — not inside extensions base`);
+        }
+
+        await (db as any)
+          .deleteFrom('zv_extension_registry')
+          .where('name' as any, '=', name)
+          .execute();
+
+        if (wasActive) {
+          await triggerReload(`uninstall-purge:${name}`);
+        }
+
+        return c.json({
+          success: true,
+          purged: true,
+          needs_restart: wasActive,
+          message: `Extension ${name} uninstalled and purged.`,
+        });
       });
     });
   }

@@ -145,6 +145,45 @@ export interface ServiceRegistry {
   list(): string[];
 }
 
+/**
+ * Pre-write hook payloads.
+ *
+ * Subscribe via `ctx.events.onBefore('record.beforeInsert', handler)`. The
+ * handler is async and receives a mutable payload. Call:
+ *   - `payload.mutate({ ... })` to merge fields into the in-flight write —
+ *     subsequent handlers and the data layer see the patched values.
+ *   - `payload.abort('reason')` to reject the write — the HTTP response
+ *     becomes 422 with code `EXT_HOOK_ABORTED` and the reason in the body.
+ *
+ * Hooks run sequentially in registration order. Throwing a non-abort error
+ * surfaces as 500.
+ */
+export interface BeforeInsertPayload {
+  collection: string;
+  data: Record<string, unknown>;
+  userId: string;
+  abort(reason: string): never;
+  mutate(patch: Record<string, unknown>): void;
+}
+
+export interface BeforeUpdatePayload {
+  collection: string;
+  id: string;
+  before: Record<string, unknown>;
+  patch: Record<string, unknown>;
+  userId: string;
+  abort(reason: string): never;
+  mutate(patch: Record<string, unknown>): void;
+}
+
+export interface BeforeDeletePayload {
+  collection: string;
+  id: string;
+  record: Record<string, unknown>;
+  userId: string;
+  abort(reason: string): never;
+}
+
 /** The interface every Zveltio extension must implement. */
 export interface ZveltioExtension {
   /** Unique name — must match manifest.json `name` exactly (e.g. `'hr/employees'`). */
