@@ -47,6 +47,25 @@ export interface ExtensionContext {
    */
   services: ServiceRegistry;
 
+  /**
+   * Query-alter registry. Register a function per table that the data layer
+   * will call before executing SELECT queries on that table — typical uses
+   * are tenant isolation, soft-delete filtering, and column redaction.
+   *
+   * @example
+   *   ctx.queryAlter.register({
+   *     table: 'zvd_contacts',
+   *     alter(qb, user) {
+   *       if (user.isGod) return qb;
+   *       return qb.where('tenant_id', '=', user.tenantId);
+   *     },
+   *   });
+   *
+   * Alters are scoped to the registering extension — removed automatically on
+   * unload / hot-reload. Today's scope: SELECT queries only.
+   */
+  queryAlter: QueryAlterScope;
+
   // ─── Engine-internal helpers (for official extensions) ───────────────────────
   // These expose deep engine functionality to first-party extensions.
   // Third-party extensions should rely on the stable API above instead.
@@ -103,6 +122,28 @@ export interface ExtensionInternals {
   extractTextFromFile: (buffer: ArrayBuffer | Buffer | Uint8Array, mimeType: string) => Promise<string>;
   /** Send an in-app notification to a user (writes to zv_notifications system table). */
   sendNotification: (db: any, input: { user_id: string; type?: string; title: string; message?: string; data?: unknown }) => Promise<void>;
+}
+
+/**
+ * Query-alter scope handed to each extension via `ctx.queryAlter`.
+ *
+ * Each call to `register({ table, alter })` is automatically tagged with the
+ * registering extension's name so it can be cleaned up on unload — extensions
+ * don't manage that lifecycle themselves.
+ */
+export interface QueryAlterScope {
+  register(def: {
+    /** Table name to attach the alter to (typically `zvd_<collection>`). */
+    table: string;
+    /**
+     * Mutates the Kysely query builder before execution. Must return a chained
+     * builder. `qb` and `user` are typed `any` in the SDK so extensions don't
+     * need to depend on engine internals; cast as needed.
+     */
+    alter: (qb: any, user: any) => any;
+  }): void;
+  list(): Array<{ table: string }>;
+  unregisterAll(): void;
 }
 
 /**

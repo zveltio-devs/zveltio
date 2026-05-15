@@ -180,3 +180,62 @@ describe('AbortHookError', () => {
     expect(err instanceof AbortHookError).toBe(true);
   });
 });
+
+// Simulates the bulk-handler pattern: a loop over rows calls runBefore per row
+// and converts AbortHookError into a per-row errors[] entry without exiting
+// the loop. This is the contract data.ts bulk handlers rely on.
+describe('bulk pattern — per-row hooks with abort collection', () => {
+  it('aborts a single row mid-batch without affecting the rest', async () => {
+    engineEvents.onBefore('record.beforeInsert', (p) => {
+      if ((p.data as any).flag === 'reject') {
+        p.abort('forbidden value');
+      }
+      p.mutate({ stamped: true });
+    });
+
+    const rows = [
+      { id: 1, flag: 'ok' },
+      { id: 2, flag: 'reject' },
+      { id: 3, flag: 'ok' },
+    ];
+
+    const accepted: any[] = [];
+    const errors: Array<{ index: number; error: string }> = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const hooked = await engineEvents.runBefore('record.beforeInsert', {
+          collection: 'test',
+          data: rows[i],
+          userId: 'u',
+        });
+        accepted.push(hooked.data);
+      } catch (err) {
+        if (err instanceof AbortHookError) {
+          errors.push({ index: i, error: err.reason });
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    expect(accepted).toHaveLength(2);
+    expect(accepted[0]).toMatchObject({ id: 1, stamped: true });
+    expect(accepted[1]).toMatchObject({ id: 3, stamped: true });
+    expect(errors).toEqual([{ index: 1, error: 'forbidden value' }]);
+  });
+
+  it('non-abort errors break the loop (whole-batch fail)', async () => {
+    engineEvents.onBefore('record.beforeInsert', () => {
+      throw new Error('database explosion');
+    });
+
+    await expect(
+      engineEvents.runBefore('record.beforeInsert', {
+        collection: 'x',
+        data: {},
+        userId: 'u',
+      }),
+    ).rejects.toThrow('database explosion');
+  });
+});

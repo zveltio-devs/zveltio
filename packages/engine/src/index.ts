@@ -9,6 +9,7 @@ import { initPermissions, checkPermission, getUserRoles } from './lib/permission
 import { initRls } from './lib/rls.js';
 import { fieldTypeRegistry } from './lib/field-type-registry.js';
 import { extensionLoader, buildExtensionInternals, serviceRegistry } from './lib/extension-loader.js';
+import { queryAlterRegistry } from './lib/query-alter.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
@@ -555,6 +556,7 @@ async function bootstrap() {
         // the loader; this top-level value is just a type placeholder for the bootstrap
         // ExtensionContext shape and is overridden per-extension.
         services: serviceRegistry.scope('engine'),
+        queryAlter: queryAlterRegistry.scope('engine'),
         internals: buildExtensionInternals(),
       })
       .then(() => ensureDefaultExtensions(db))

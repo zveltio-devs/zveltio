@@ -73,8 +73,8 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S1-07 | Download retry with exponential backoff | 1 | 0.5d | DONE (1522cea) |
 | S1-08 | Module cache busting in dev mode | 1 | 0.5d | DONE (1522cea) |
 | S2-01 | Pre-write hooks (`record.beforeInsert/Update/Delete` with `abort` + `mutate`) | 2 | 2d | DONE (1522cea) |
-| S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | PARTIAL (single-record paths done; bulk + extension-internal writes pending) |
-| S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | TODO |
+| S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | DONE (bulk + single-record routes done; extension-internal writes via RestrictedDb still pending — separate follow-up) |
+| S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE (Kysely-builder sites; `dynamicSelect` raw-SQL path is a follow-up) |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | TODO |
 | S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | TODO |
 | S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | TODO |
@@ -1199,6 +1199,35 @@ Implementation diverged slightly from the design:
 
 **Acceptance criteria status**:
 - [x] Editing `engine/index.ts` and re-loading picks up changes in dev. Verified by inspection — Bun's import cache keys on the URL so the suffix forces a fresh module evaluation.
+
+### S2-03 — Query alter (DONE 2026-05-15)
+
+- New module [`packages/engine/src/lib/query-alter.ts`](../packages/engine/src/lib/query-alter.ts) — `QueryAlterRegistryImpl` with `registerAs(owner, table, alter)`, `applyAll(qb, table, user)`, `unregisterAll(owner)`, `clear()`, `scope(extName)`. Mirrors the ownership model from `service-registry.ts`: each extension gets a scoped view that tags registrations for cleanup-on-unload.
+- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) gains `QueryAlterScope` interface (`register`, `list`, `unregisterAll`) and a `queryAlter` field on `ExtensionContext` with worked example in the JSDoc.
+- Engine `ExtensionContext` (internal) and both ctx-construction sites in `extension-loader.ts` plus the bootstrap context in `src/index.ts` all wire `queryAlterRegistry.scope(name)` (or `'engine'`).
+- `unload(name)` (extension-loader) now calls `queryAlterRegistry.unregisterAll(name)` alongside the existing `serviceRegistry.unregisterAll(name)` so a disabled extension stops affecting queries.
+- `data.ts` applies alters in 4 Kysely-builder sites:
+  - `GET /:collection/:id` (single record fetch).
+  - PUT before-row read.
+  - PATCH before-row read.
+  - DELETE single before-row read.
+  - (Aborts a delete/update on rows hidden by an alter — gives 404 instead of leaking existence.)
+- Unit tests [`query-alter.test.ts`](../packages/engine/src/tests/unit/query-alter.test.ts) — 11 tests: no-handlers pass-through, single alter, cross-table isolation, chaining, unregister, scope tagging, scope.list, scope.unregisterAll, clear, null-user safety.
+
+**Acceptance criteria status**:
+- [x] Extension registers `queryAlter` for `zvd_contacts` filtering by `tenant_id`; single-record GET returns 404 for cross-tenant IDs (via the Kysely builder pipeline).
+- [x] Multiple extensions can register alters; all apply in registration order.
+- [ ] List endpoint `GET /:collection` filters — `dynamicSelect` (the high-throughput list path) uses raw SQL via `sql\`...\`` and does NOT yet pass through alters. Documented limitation; full migration is a separate follow-up that needs `dynamicSelect` either converted to Kysely builder or made to accept a WHERE-builder callback.
+
+### S2-02 — Bulk handler hook migration (DONE 2026-05-15)
+
+- `POST /:collection/bulk`: per-row `runBefore('record.beforeInsert')` inside the existing transaction. `AbortHookError` from a hook becomes a per-row entry in `errors[]` with message `EXT_HOOK_ABORTED: <reason>`; the rest of the batch continues. Non-abort exceptions still roll back the transaction (something is genuinely broken).
+- `PATCH /:collection/bulk`: per-row before-row read **inside** the transaction (snapshot consistency), then `runBefore('record.beforeUpdate')` with `{ before, patch }`. Aborts → per-row error; missing rows → per-row "Record not found".
+- `DELETE /:collection/bulk`: pre-fetch existing rows, run `runBefore('record.beforeDelete')` per row, partition into `allowed` (proceed) / `aborted` (per-row reason). Single `DELETE … WHERE id IN (allowed.ids)` executes for the allowed set. Response now returns 207 Multi-Status when any rows were aborted, with `aborted: [{ id, reason }]` alongside `deleted` and `ids`.
+- TODO comments removed where applicable; replaced with descriptive comments about per-row hook semantics.
+- Added "bulk pattern — per-row hooks with abort collection" test block to [`pre-write-hooks.test.ts`](../packages/engine/src/tests/unit/pre-write-hooks.test.ts) (2 tests covering the loop-collect-aborts pattern + non-abort propagation).
+
+**Outstanding from full S2-02 scope**: extension-internal writes through `RestrictedDb` proxy (`ctx.db.insertInto('zvd_x')`) still bypass hooks. The proxy would need to intercept `insertInto / updateTable / deleteFrom` and wrap them in the same `runBefore` flow. This is a non-trivial change and is parked as a separate follow-up.
 
 ### S2-01 — Pre-write hooks (DONE 2026-05-15)
 
