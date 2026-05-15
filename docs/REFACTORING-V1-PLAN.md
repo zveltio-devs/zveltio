@@ -77,7 +77,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE — Kysely sites in 8ac9791; `dynamicSelect` list path closed via Kysely rewrite + `applyAlters` callback (next commit). |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (c463ee4) |
 | S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | DONE-PARTIAL (f2c5581 — `intervalMs` + `at` shipped; full cron expr + cross-instance lock are follow-ups) |
-| S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | DONE-PARTIAL — 43/45 active extensions on sub-app. Commits: 1907f72 foundation; pilots 042eaf5; batch 1 7a46316 + dedf9e6; batch 2 3e4ae19 + 2251b6c; batch 3 outliers 13688ba + b91940f; `ctx.registerPublicRoute()` + storage/cloud closure c188cd8 + 7793541. Only `developer/edge-functions` remains on `'global'` (dynamic `/api/fn/*` user-deployed routes registered at runtime, not at extension load — different pattern). UI-only no-op (2): `content/pdf-viewer`, `developer/views`. |
+| S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | DONE — 44/45 active extensions on sub-app + 1 hybrid (`developer/edge-functions`: sub-app for admin, `ctx.registerPublicRoute()` per user-deployed function). UI-only no-op (2): `content/pdf-viewer`, `developer/views`. Full commit history: 1907f72 foundation; 042eaf5 pilots; 7a46316 + dedf9e6 batch 1; 3e4ae19 + 2251b6c batch 2; 13688ba + b91940f batch 3 outliers; c188cd8 + 7793541 storage/cloud closure; (pending) edge-functions closure. |
 | S3-02 | `registerFormAlter()` — Studio form modification API | 3 | 2d | TODO |
 | S3-03 | `registerSlot()` — Studio composition slots | 3 | 1d | TODO |
 | S3-04 | License rotation API | 3 | 0.5d | TODO |
@@ -1234,7 +1234,7 @@ Pending (45), grouped by complexity:
 | 2 — clean sub-router with Studio | 25 | `communications/mail`, `content/{document-templates,documents,drafts,media}`, `developer/{api-docs,byod,database,graphql,validation}`, `ecommerce/store`, `finance/*` (6), `geospatial/postgis`, `hr/*` (4), `i18n/translations`, `integrations/api-connector`, `operations/{assets,inventory,pos}`, `projects/{helpdesk,management}`, `workflow/{approvals,checklists}` | DONE (3e4ae19 + 2251b6c) |
 | 3a — outliers migrated | 4 | `operations/traceability`, `crm`, `content/page-builder`, `ai` | DONE (13688ba + b91940f) |
 | 3b — escape-hatch closure | 1 | `storage/cloud` (uses `ctx.registerPublicRoute('/share/:token')` for the public CDN-style download endpoint) | DONE (c188cd8 + 7793541) |
-| 3c — escape-hatch still pending | 1 | `developer/edge-functions` (dynamic `/api/fn/<name>` registered at user-deploy time, not at extension load) | TODO — needs different pattern (runtime route registration after `register()` returns) |
+| 3c — escape-hatch closure | 1 | `developer/edge-functions` — admin CRUD on sub-app at `/ext/developer/edge-functions`; each user-deployed function registered via `ctx.registerPublicRoute()` per HTTP method during `mountEdgeFunctions(ctx)` | DONE (next commit) |
 | UI-only (no engine) | 2 | `content/pdf-viewer`, `developer/views` | N/A (no migration needed) |
 
 #### Outlier strategies (decisions documented for future sessions)
