@@ -29,14 +29,14 @@
   async function loadDocs() {
     loading = true;
     try {
-      const r = await api.get<{ documents: Doc[] }>('/api/documents/generated');
+      const r = await api.get<{ documents: Doc[] }>('/ext/content/documents/generated');
       docs = r.documents ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadTemplates() {
     try {
-      const r = await api.get<{ templates: Template[] }>('/api/documents/templates');
+      const r = await api.get<{ templates: Template[] }>('/ext/content/documents/templates');
       templates = r.templates ?? [];
     } catch { /* ignore */ }
   }
@@ -51,7 +51,7 @@
     if (!selectedTemplate) return;
     saving = true;
     try {
-      const r = await api.post<{ document: Doc }>(`/api/documents/generate/${selectedTemplate.id}`, { variables });
+      const r = await api.post<{ document: Doc }>(`/ext/content/documents/generate/${selectedTemplate.id}`, { variables });
       docs = [r.document, ...docs];
       showGenModal = false;
       tab = 'documents';
@@ -63,7 +63,7 @@
   async function deleteDoc(id: string) {
     if (!confirm('Delete this document?')) return;
     try {
-      await api.delete(`/api/documents/generated/${id}`);
+      await api.delete(`/ext/content/documents/generated/${id}`);
       docs = docs.filter(d => d.id !== id);
       toast.success('Deleted.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -73,7 +73,7 @@
     if (!signModal || !signForm.signer_email) return;
     saving = true;
     try {
-      await api.post(`/api/documents/generated/${signModal.id}/sign-request`, signForm);
+      await api.post(`/ext/content/documents/generated/${signModal.id}/sign-request`, signForm);
       signModal = null;
       signForm = { signer_email: '', signer_name: '', message: '' };
       toast.success('Sign request sent.');
@@ -134,7 +134,7 @@
                     {/if}
                     {#if d.share_token}
                       <button class="btn btn-xs btn-ghost" title="View shared link"
-                        onclick={() => { navigator.clipboard.writeText(`${(window as any).__ZVELTIO_ENGINE_URL__ || ''}/api/documents/share/${d.share_token}`); toast.success('Link copied.'); }}>
+                        onclick={() => { navigator.clipboard.writeText(`${(window as any).__ZVELTIO_ENGINE_URL__ || ''}/ext/content/documents/share/${d.share_token}`); toast.success('Link copied.'); }}>
                         <Eye size={11} />
                       </button>
                     {/if}

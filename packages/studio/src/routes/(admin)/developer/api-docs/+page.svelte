@@ -17,19 +17,19 @@
 
   async function loadChangelog() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/api-docs/changelogs'); changelogs = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/changelogs'); changelogs = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadCustom() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/api-docs/custom'); customDocs = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/custom'); customDocs = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadTokens() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/api-docs/access-tokens'); tokens = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/access-tokens'); tokens = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
@@ -37,7 +37,7 @@
   async function createCustom() {
     saving = true;
     try {
-      await api.post('/api/api-docs/custom', customForm);
+      await api.post('/ext/developer/api-docs/custom', customForm);
       showCustomForm = false;
       customForm = { slug: '', title: '', body: '# New documentation page\n\nWrite content in Markdown.', is_public: false };
       await loadCustom();
@@ -47,12 +47,12 @@
   }
 
   async function generateToken() {
-    try { await api.post('/api/api-docs/access-tokens', {}); await loadTokens(); toast.success('Token generated.'); }
+    try { await api.post('/ext/developer/api-docs/access-tokens', {}); await loadTokens(); toast.success('Token generated.'); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
   async function revokeToken(id: string) {
     if (!confirm('Revoke token?')) return;
-    try { await api.delete(`/api/api-docs/access-tokens/${id}`); await loadTokens(); toast.success('Revoked.'); }
+    try { await api.delete(`/ext/developer/api-docs/access-tokens/${id}`); await loadTokens(); toast.success('Revoked.'); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 

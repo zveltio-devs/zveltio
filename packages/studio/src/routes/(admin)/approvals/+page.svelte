@@ -57,7 +57,7 @@
  loading = true;
  error = null;
  try {
- let endpoint = '/api/approvals?limit=50&offset=0';
+ let endpoint = '/ext/workflow/approvals?limit=50&offset=0';
  if (activeTab === 'pending') endpoint += '&status=pending';
  else if (activeTab === 'my_pending') endpoint += '&my_pending=true';
  else if (activeTab === 'completed') endpoint += '&status=approved,rejected,cancelled';
@@ -92,7 +92,7 @@
  showDetailModal = true;
  decisionComment = '';
  try {
- const data = await api.get<{ steps: ApprovalStep[] }>(`/api/approvals/${request.id}`);
+ const data = await api.get<{ steps: ApprovalStep[] }>(`/ext/workflow/approvals/${request.id}`);
  requestSteps = data.steps || [];
  } catch {
  requestSteps = [];
@@ -109,7 +109,7 @@
  async function makeDecision(requestId: string, decision: 'approved' | 'rejected') {
  deciding = true;
  try {
- await api.post(`/api/approvals/${requestId}/decide`, {
+ await api.post(`/ext/workflow/approvals/${requestId}/decide`, {
  decision,
  comment: decisionComment || undefined,
  });
@@ -131,7 +131,7 @@
  onconfirm: async () => {
  confirmState.open = false;
  try {
- await api.post(`/api/approvals/${requestId}/cancel`);
+ await api.post(`/ext/workflow/approvals/${requestId}/cancel`);
  await loadRequests();
  closeDetail();
  } catch (e) {

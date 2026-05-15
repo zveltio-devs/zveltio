@@ -31,7 +31,7 @@
   async function loadInvoices() {
     loading = true;
     try {
-      const r = await api.get<{ data: Invoice[] }>('/api/invoicing/invoices');
+      const r = await api.get<{ data: Invoice[] }>('/ext/finance/invoicing/invoices');
       invoices = r.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -39,7 +39,7 @@
 
   async function loadStats() {
     try {
-      const r = await api.get<{ stats: Stats }>('/api/invoicing/invoices/stats');
+      const r = await api.get<{ stats: Stats }>('/ext/finance/invoicing/invoices/stats');
       stats = r.stats;
     } catch { /* ignore */ }
   }
@@ -51,7 +51,7 @@
   async function create() {
     saving = true;
     try {
-      const r = await api.post<{ data: Invoice }>('/api/invoicing/invoices', form);
+      const r = await api.post<{ data: Invoice }>('/ext/finance/invoicing/invoices', form);
       invoices = [r.data, ...invoices];
       showModal = false;
       toast.success('Invoice created.');
@@ -62,7 +62,7 @@
   async function sendInvoice(id: string) {
     actionId = id;
     try {
-      await api.post(`/api/invoicing/invoices/${id}/send`, {});
+      await api.post(`/ext/finance/invoicing/invoices/${id}/send`, {});
       await loadInvoices();
       toast.success('Invoice sent.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -72,7 +72,7 @@
   async function markPaid(id: string, total: number) {
     actionId = id;
     try {
-      await api.post(`/api/invoicing/invoices/${id}/pay`, { amount: total });
+      await api.post(`/ext/finance/invoicing/invoices/${id}/pay`, { amount: total });
       await loadInvoices();
       toast.success('Invoice marked as paid.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -83,7 +83,7 @@
     if (!confirm('Delete this invoice?')) return;
     actionId = id;
     try {
-      await api.delete(`/api/invoicing/invoices/${id}`);
+      await api.delete(`/ext/finance/invoicing/invoices/${id}`);
       invoices = invoices.filter(i => i.id !== id);
       toast.success('Deleted.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

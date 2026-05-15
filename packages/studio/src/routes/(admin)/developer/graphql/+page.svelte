@@ -16,7 +16,7 @@
   async function runQuery() {
     running = true; queryResult = '';
     try {
-      const res = await api.post<object>('/api/graphql', { query: queryText });
+      const res = await api.post<object>('/ext/developer/graphql', { query: queryText });
       queryResult = JSON.stringify(res, null, 2);
     } catch (e: any) { toast.error(e?.message ?? 'Query failed'); queryResult = ''; }
     finally { running = false; }
@@ -24,19 +24,19 @@
 
   async function loadLogs() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/graphql/operations?limit=100'); logs = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/operations?limit=100'); logs = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadPersisted() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/graphql/persisted'); persisted = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/persisted'); persisted = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadPolicies() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/graphql/field-policies'); policies = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/field-policies'); policies = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }

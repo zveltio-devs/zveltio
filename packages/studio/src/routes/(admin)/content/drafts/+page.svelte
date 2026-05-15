@@ -10,7 +10,7 @@
   async function load() {
     loading = true;
     try {
-      const r = await api.get<{ data: any[] }>('/api/drafts');
+      const r = await api.get<{ data: any[] }>('/ext/content/drafts');
       drafts = r.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -18,7 +18,7 @@
 
   async function publish(id: string) {
     try {
-      await api.post(`/api/drafts/${id}/publish`, {});
+      await api.post(`/ext/content/drafts/${id}/publish`, {});
       await load();
       toast.success('Draft published.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -27,7 +27,7 @@
   async function discard(id: string) {
     if (!confirm('Discard draft?')) return;
     try {
-      await api.delete(`/api/drafts/${id}`);
+      await api.delete(`/ext/content/drafts/${id}`);
       drafts = drafts.filter(d => d.id !== id);
       toast.success('Discarded.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

@@ -19,7 +19,7 @@
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
-      const r = await api.get<{ data: any[] }>(`/api/expenses?${params}`);
+      const r = await api.get<{ data: any[] }>(`/ext/finance/expenses?${params}`);
       expenses = r.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -28,7 +28,7 @@
   async function createExpense() {
     saving = true;
     try {
-      await api.post('/api/expenses', form);
+      await api.post('/ext/finance/expenses', form);
       showForm = false;
       form = { expense_date: new Date().toISOString().slice(0, 10), category: 'travel', description: '', amount: 0, currency: 'RON', vendor: '', receipt_url: '' };
       await load();
@@ -39,7 +39,7 @@
 
   async function approve(id: string) {
     try {
-      await api.post(`/api/expenses/${id}/approve`, {});
+      await api.post(`/ext/finance/expenses/${id}/approve`, {});
       await load();
       toast.success('Approved.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

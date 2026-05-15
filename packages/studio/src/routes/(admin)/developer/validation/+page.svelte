@@ -28,7 +28,7 @@
     try {
       const params = new URLSearchParams();
       if (selectedCollection) params.set('collection', selectedCollection);
-      const r = await api.get<{ data: any[] }>(`/api/validation/rules?${params}`);
+      const r = await api.get<{ data: any[] }>(`/ext/developer/validation/rules?${params}`);
       rules = r.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -43,7 +43,7 @@
     try {
       let cfg: any = {};
       try { cfg = JSON.parse(form.config); } catch { throw new Error('Invalid JSON in config'); }
-      await api.post('/api/validation/rules', { ...form, config: cfg });
+      await api.post('/ext/developer/validation/rules', { ...form, config: cfg });
       showForm = false;
       form = { collection: '', field_name: '', field_type: 'text', rule_type: 'required', description: '', config: '{}', severity: 'error' };
       aiPrompt = '';
@@ -57,7 +57,7 @@
     if (!aiPrompt.trim() || !form.field_name) return;
     aiGenerating = true;
     try {
-      const r = await api.post<any>('/api/validation/ai-generate', { field_name: form.field_name, field_type: form.field_type, description: aiPrompt });
+      const r = await api.post<any>('/ext/developer/validation/ai-generate', { field_name: form.field_name, field_type: form.field_type, description: aiPrompt });
       const ai = r.data ?? r;
       form.rule_type = ai.rule_type ?? form.rule_type;
       form.description = ai.description ?? aiPrompt;
@@ -68,7 +68,7 @@
 
   async function deleteRule(id: string) {
     if (!confirm('Delete rule?')) return;
-    try { await api.delete(`/api/validation/rules/${id}`); await loadRules(); }
+    try { await api.delete(`/ext/developer/validation/rules/${id}`); await loadRules(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 

@@ -29,7 +29,7 @@
  async function loadAll() {
  loading = true;
  const [locRes, keysRes] = await Promise.all([
- api.get<{ locales: any[] }>('/api/translations/locales'),
+ api.get<{ locales: any[] }>('/ext/i18n/translations/locales'),
  loadKeys(),
  ]);
  locales = locRes.locales || [];
@@ -40,7 +40,7 @@
  async function loadKeys() {
  const qs = new URLSearchParams({ limit: String(pagination.limit), page: String(pagination.page) });
  if (search.trim()) qs.set('search', search.trim());
- const res = await api.get<{ keys: any[]; pagination: any }>(`/api/translations?${qs}`);
+ const res = await api.get<{ keys: any[]; pagination: any }>(`/ext/i18n/translations?${qs}`);
  keys = res.keys || [];
  pagination = { ...pagination, ...res.pagination };
  return res;
@@ -50,7 +50,7 @@
  if (!newKey.key.trim()) return;
  saving = true;
  try {
- await api.post('/api/translations', newKey);
+ await api.post('/ext/i18n/translations', newKey);
  await loadKeys();
  showAddKey = false;
  newKey = { key: '', context: '', default_value: '', description: '' };
@@ -65,8 +65,8 @@
  if (!newLocale.code || !newLocale.name) return;
  saving = true;
  try {
- await api.post('/api/translations/locales', newLocale);
- const res = await api.get<{ locales: any[] }>('/api/translations/locales');
+ await api.post('/ext/i18n/translations/locales', newLocale);
+ const res = await api.get<{ locales: any[] }>('/ext/i18n/translations/locales');
  locales = res.locales;
  showAddLocale = false;
  newLocale = { code: '', name: '', is_default: false };
@@ -85,7 +85,7 @@
  confirmLabel: 'Delete',
  onconfirm: async () => {
  confirmState.open = false;
- await api.delete(`/api/translations/${id}`);
+ await api.delete(`/ext/i18n/translations/${id}`);
  keys = keys.filter((k) => k.id !== id);
  },
  };
@@ -101,7 +101,7 @@
  const { keyId, locale } = editingCell;
  saving = true;
  try {
- await api.put(`/api/translations/${keyId}/${locale}`, {
+ await api.put(`/ext/i18n/translations/${keyId}/${locale}`, {
  value: editValue,
  is_machine_translated: false,
  reviewed: false,

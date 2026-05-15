@@ -30,7 +30,7 @@
   async function load() {
     loading = true;
     try {
-      const r = await api.get<{ data: Asset[] }>('/api/assets');
+      const r = await api.get<{ data: Asset[] }>('/ext/operations/assets');
       assets = r.data ?? [];
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to load assets');
@@ -43,7 +43,7 @@
     if (!form.name.trim()) return;
     saving = true;
     try {
-      const r = await api.post<{ data: Asset }>('/api/assets', {
+      const r = await api.post<{ data: Asset }>('/ext/operations/assets', {
         ...form,
         acquisition_cost: form.acquisition_cost ? parseFloat(form.acquisition_cost) : 0,
       });
@@ -62,7 +62,7 @@
     if (!confirm('Delete this asset?')) return;
     deleting = id;
     try {
-      await api.delete(`/api/assets/${id}`);
+      await api.delete(`/ext/operations/assets/${id}`);
       assets = assets.filter(a => a.id !== id);
       toast.success('Deleted.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

@@ -34,26 +34,26 @@
   });
 
   async function loadProjects() {
-    const r = await api.get<{ data: Project[] }>('/api/time/projects').catch(() => ({ data: [] }));
+    const r = await api.get<{ data: Project[] }>('/ext/hr/time-tracking/projects').catch(() => ({ data: [] }));
     projects = r.data ?? [];
   }
   async function loadEntries() {
     loading = true;
     try {
-      const r = await api.get<{ data: Entry[] }>('/api/time/entries');
+      const r = await api.get<{ data: Entry[] }>('/ext/hr/time-tracking/entries');
       entries = r.data ?? [];
     } catch { /* ignore */ }
     finally { loading = false; }
   }
   async function loadTimer() {
-    const r = await api.get<{ timer: Timer }>('/api/time/timer').catch(() => ({ timer: null }));
+    const r = await api.get<{ timer: Timer }>('/ext/hr/time-tracking/timer').catch(() => ({ timer: null }));
     timer = r.timer;
   }
 
   async function createProject() {
     saving = true;
     try {
-      const r = await api.post<{ data: Project }>('/api/time/projects', {
+      const r = await api.post<{ data: Project }>('/ext/hr/time-tracking/projects', {
         ...projectForm,
         hourly_rate: projectForm.hourly_rate ? parseFloat(projectForm.hourly_rate) : null,
       });
@@ -69,7 +69,7 @@
     if (!timerForm.project_id) return;
     saving = true;
     try {
-      const r = await api.post<{ timer: Timer }>('/api/time/timer/start', timerForm);
+      const r = await api.post<{ timer: Timer }>('/ext/hr/time-tracking/timer/start', timerForm);
       timer = r.timer;
       timerForm = { project_id: '', description: '' };
       showModal = false;
@@ -81,7 +81,7 @@
   async function stopTimer() {
     saving = true;
     try {
-      await api.post('/api/time/timer/stop', {});
+      await api.post('/ext/hr/time-tracking/timer/stop', {});
       timer = null;
       await loadEntries();
       toast.success('Timer stopped.');
@@ -93,7 +93,7 @@
     if (!confirm('Delete this time entry?')) return;
     deleting = id;
     try {
-      await api.delete(`/api/time/entries/${id}`);
+      await api.delete(`/ext/hr/time-tracking/entries/${id}`);
       entries = entries.filter(e => e.id !== id);
       toast.success('Deleted.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

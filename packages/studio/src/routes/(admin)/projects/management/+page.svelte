@@ -26,7 +26,7 @@
   async function loadProjects() {
     loading = true;
     try {
-      const r = await api.get<{ data: any[] }>('/api/projects');
+      const r = await api.get<{ data: any[] }>('/ext/projects/management');
       projects = r.data ?? [];
       if (!activeProject && projects[0]) activeProject = projects[0];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
@@ -34,13 +34,13 @@
   }
   async function loadTasks() {
     if (!activeProject) { tasks = []; return; }
-    try { const r = await api.get<{ data: any[] }>(`/api/projects/${activeProject.id}/tasks`); tasks = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>(`/ext/projects/management/${activeProject.id}/tasks`); tasks = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
   async function createProject() {
     saving = true;
     try {
-      await api.post('/api/projects', projectForm);
+      await api.post('/ext/projects/management', projectForm);
       showProjectForm = false;
       projectForm = { name: '', description: '', start_date: '', end_date: '' };
       await loadProjects();
@@ -52,7 +52,7 @@
     if (!activeProject) return;
     saving = true;
     try {
-      await api.post(`/api/projects/${activeProject.id}/tasks`, taskForm);
+      await api.post(`/ext/projects/management/${activeProject.id}/tasks`, taskForm);
       showTaskForm = false;
       taskForm = { title: '', description: '', status: 'todo', priority: 'medium', assignee_id: '', due_date: '' };
       await loadTasks();
@@ -62,7 +62,7 @@
   }
   async function moveTask(taskId: string, status: string) {
     try {
-      await api.patch(`/api/projects/tasks/${taskId}`, { status });
+      await api.patch(`/ext/projects/management/tasks/${taskId}`, { status });
       await loadTasks();
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
