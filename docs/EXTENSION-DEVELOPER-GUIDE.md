@@ -469,9 +469,10 @@ ctx.events.on('record.created', async (e) => {
 Failure in a post-write handler **does not** roll back the write. Use this
 for side effects only (emails, webhooks, search indexing).
 
-### Query alter (v1.0)
+### Query alter
 
-Attach `WHERE` clauses to all queries against a table — globally.
+Attach `WHERE` clauses to queries against a table — globally, without
+modifying any route handler.
 
 ```typescript
 ctx.queryAlter.register({
@@ -486,7 +487,28 @@ ctx.queryAlter.register({
 Use cases:
 - Tenant isolation.
 - Soft-delete filtering (hide rows where `deleted_at IS NOT NULL`).
-- GDPR redaction.
+- GDPR / column-level redaction.
+
+Ownership + lifecycle:
+- Each `register({...})` call is automatically tagged with your extension's
+  name. When your extension is disabled or hot-reloaded, all your alters
+  are removed by the loader — you do not call `unregisterAll()` yourself
+  unless you explicitly want to retract an alter at runtime.
+- Multiple extensions can register alters for the same table; they chain
+  in registration order.
+
+**Scope today**:
+- Applied to: single-record `GET /:collection/:id`, and the before-row reads
+  inside PUT/PATCH/DELETE single-record handlers. This means a row hidden by
+  your alter cannot be updated or deleted by guessing its ID.
+- **NOT yet applied to** the main list endpoint `GET /:collection`
+  (`dynamicSelect` uses raw SQL — full migration is a follow-up). Plan
+  accordingly if your alter is the sole tenant-isolation mechanism: until
+  the list endpoint is wired, also enforce isolation via RLS / Casbin /
+  `getRlsFilters` for list responses.
+- UPDATE / DELETE Kysely calls (the actual mutation step) don't yet receive
+  the alter — they trust the `id` lookup which IS alter-filtered, so the
+  net effect is the same in practice.
 
 ### Entity access (v1.0)
 
