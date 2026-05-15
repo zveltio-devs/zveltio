@@ -39,7 +39,7 @@
   async function load() {
     loading = true;
     try {
-      const res = await api.get<{ pages: Page[] }>('/api/ext/pages');
+      const res = await api.get<{ pages: Page[] }>('/ext/content/page-builder/blocks');
       pages = res.pages ?? [];
     } catch (e) {
       toast.error(extractError(e));
@@ -52,7 +52,7 @@
     if (!form.title.trim() || !form.slug.trim()) return;
     saving = true;
     try {
-      const res = await api.post<{ page: Page }>('/api/ext/pages', {
+      const res = await api.post<{ page: Page }>('/ext/content/page-builder/blocks', {
         title: form.title.trim(),
         slug: form.slug.trim(),
         blocks: [],
@@ -78,7 +78,7 @@
     if (!selected) return;
     saving = true;
     try {
-      const res = await api.put<{ page: Page }>(`/api/ext/pages/${selected.id}`, {
+      const res = await api.put<{ page: Page }>(`/ext/content/page-builder/blocks/${selected.id}`, {
         title: selected.title,
         slug: selected.slug,
         blocks: selected.blocks,
@@ -99,7 +99,7 @@
   async function deletePage(id: string) {
     if (!confirm('Delete this page?')) return;
     try {
-      await api.delete(`/api/ext/pages/${id}`);
+      await api.delete(`/ext/content/page-builder/blocks/${id}`);
       pages = pages.filter(p => p.id !== id);
       if (selected?.id === id) { selected = null; view = 'list'; }
     } catch (e) {
