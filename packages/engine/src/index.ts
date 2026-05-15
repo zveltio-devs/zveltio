@@ -11,6 +11,7 @@ import { fieldTypeRegistry } from './lib/field-type-registry.js';
 import { extensionLoader, buildExtensionInternals, serviceRegistry } from './lib/extension-loader.js';
 import { queryAlterRegistry } from './lib/query-alter.js';
 import { entityAccessRegistry } from './lib/entity-access.js';
+import { cronRunner } from './lib/cron-runner.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
@@ -587,6 +588,23 @@ async function bootstrap() {
 
   await flowScheduler.start(db);
   console.log('✅ Flow scheduler started');
+
+  // Native extension schedules (S2-05) — start the runner with a base ctx.
+  // Per-extension handlers get the scoped ctx via cronRunner internals.
+  cronRunner.start(db, {
+    db,
+    auth,
+    fieldTypeRegistry,
+    events: engineEvents,
+    checkPermission,
+    getUserRoles,
+    DDLManager,
+    services: serviceRegistry.scope('engine'),
+    queryAlter: queryAlterRegistry.scope('engine'),
+    entityAccess: entityAccessRegistry.scope('engine'),
+    internals: buildExtensionInternals(),
+  });
+  console.log('✅ Extension cron runner started');
 
   // Build initial Hono app — all middleware, core routes, extension routes
   _currentApp = await buildHonoApp();
