@@ -267,6 +267,36 @@ export interface BeforeDeletePayload {
   abort(reason: string): never;
 }
 
+/**
+ * Native scheduled task. Extensions declare these via `ZveltioExtension.schedules()`.
+ *
+ * Specify exactly ONE timing field:
+ *   - `intervalMs`: re-run every N milliseconds.
+ *   - `at`: run once a day at `{ hour, minute }` (server's local timezone).
+ *   - `cron`: reserved for future cron-expression support; currently logged
+ *     as unsupported and the schedule is skipped.
+ *
+ * Every invocation persists to the `zv_extension_schedule_runs` table with
+ * status `running` → (`ok` | `failed` | `dlq`). `failed` rows trigger another
+ * attempt up to `retry.maxAttempts`; the final failed attempt is recorded as
+ * `dlq` (dead letter — admin can replay manually).
+ *
+ * Cross-instance: NOT yet coordinated. Multiple engine replicas will each run
+ * the same schedule until distributed locking lands.
+ */
+export interface ExtensionSchedule {
+  /** Stable name, unique within this extension. Used as the persistence key. */
+  name: string;
+  intervalMs?: number;
+  at?: { hour: number; minute: number };
+  cron?: string;
+  /** Async work to perform. `runId` is the row id in zv_extension_schedule_runs. */
+  handler: (ctx: ExtensionContext, runId: string) => Promise<void>;
+  retry?: { maxAttempts?: number; backoffMs?: number };
+  /** Reserved — single-engine assumption today. Documented behaviour. */
+  singleton?: boolean;
+}
+
 /** The interface every Zveltio extension must implement. */
 export interface ZveltioExtension {
   /** Unique name — must match manifest.json `name` exactly (e.g. `'hr/employees'`). */
@@ -282,6 +312,11 @@ export interface ZveltioExtension {
   registerFieldTypes?: (registry: FieldTypeRegistryAPI) => void;
   /** Return absolute paths to SQL migration files, run in order on first activation. */
   getMigrations?: () => string[];
+  /**
+   * Return the list of scheduled tasks. Called once after `register()`. The
+   * engine's cron runner picks them up and starts polling.
+   */
+  schedules?: () => ExtensionSchedule[];
   /**
    * Called when the extension is disabled or the server shuts down.
    * Close database connections, clear timers, etc.

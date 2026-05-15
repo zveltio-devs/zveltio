@@ -72,6 +72,7 @@ import m060 from './sql/068_insights_enterprise.sql' with { type: 'text' };
 import m061 from './sql/069_insights_reconcile.sql' with { type: 'text' };
 import m062 from './sql/070_extension_registry_tenant.sql' with { type: 'text' };
 import m063 from './sql/071_zv_migrations_down_sql.sql' with { type: 'text' };
+import m064 from './sql/072_extension_schedule_runs.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -139,4 +140,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '069_insights_reconcile.sql': m061,
   '070_extension_registry_tenant.sql': m062,
   '071_zv_migrations_down_sql.sql': m063,
+  '072_extension_schedule_runs.sql': m064,
 };
