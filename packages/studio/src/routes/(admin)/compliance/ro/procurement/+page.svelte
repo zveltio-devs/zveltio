@@ -35,9 +35,9 @@
     loading = true;
     try {
       const [ord, sup, bud] = await Promise.all([
-        api.get<{ orders: any[] }>('/api/ro-procurement/orders'),
-        api.get<{ suppliers: any[] }>('/api/ro-procurement/suppliers'),
-        api.get<{ budget_lines: any[] }>(`/api/ro-procurement/budget?year=${new Date().getFullYear()}`),
+        api.get<{ orders: any[] }>('/ext/compliance/ro/procurement/orders'),
+        api.get<{ suppliers: any[] }>('/ext/compliance/ro/procurement/suppliers'),
+        api.get<{ budget_lines: any[] }>(`/ext/compliance/ro/procurement/budget?year=${new Date().getFullYear()}`),
       ]);
       orders = ord.orders ?? [];
       suppliers = sup.suppliers ?? [];
@@ -57,7 +57,7 @@
     if (!orderForm.number || !orderForm.supplier_name) return;
     creating = true;
     try {
-      await api.post('/api/ro-procurement/orders', orderForm);
+      await api.post('/ext/compliance/ro/procurement/orders', orderForm);
       showOrderModal = false;
       await loadAll();
       toast.success('Comanda creata.');
@@ -69,7 +69,7 @@
     if (!supplierForm.name || !supplierForm.cui) return;
     creating = true;
     try {
-      await api.post('/api/ro-procurement/suppliers', supplierForm);
+      await api.post('/ext/compliance/ro/procurement/suppliers', supplierForm);
       showSupplierModal = false;
       supplierForm = { name: '', cui: '', county: '', category: '', contact_email: '' };
       await loadAll();
@@ -79,12 +79,12 @@
   }
 
   async function approveOrder(id: string) {
-    try { await api.post(`/api/ro-procurement/orders/${id}/approve`, {}); await loadAll(); }
+    try { await api.post(`/ext/compliance/ro/procurement/orders/${id}/approve`, {}); await loadAll(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
   async function receiveOrder(id: string) {
-    try { await api.post(`/api/ro-procurement/orders/${id}/receive`, {}); await loadAll(); }
+    try { await api.post(`/ext/compliance/ro/procurement/orders/${id}/receive`, {}); await loadAll(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
