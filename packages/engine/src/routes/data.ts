@@ -12,6 +12,7 @@ import { broadcastDataEvent } from './realtime.js';
 // AI auto-embedding is now handled by the `ai` extension via record.created /
 // record.updated events emitted by engineEvents below.
 import { engineEvents, AbortHookError } from '../lib/event-bus.js';
+import { queryAlterRegistry } from '../lib/query-alter.js';
 import { triggerDataFlows } from './flows.js';
 import {
   dynamicSelect,
@@ -863,14 +864,31 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const created: any[] = [];
     const errors: Array<{ index: number; errors: string[] }> = [];
 
-    // TODO(S2-02): route through engineEvents.runBefore('record.beforeInsert')
-    // per record. Aborts inside the transaction need to translate to per-row
-    // errors[] entries rather than a 422 for the whole batch.
+    // Per-row pre-insert hook. A hook abort becomes a per-row error so the
+    // rest of the batch still proceeds. Non-abort exceptions roll back the
+    // entire transaction (something is genuinely wrong).
     await (effectiveDb as any).transaction().execute(async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { errors: valErrors, processed } = await processInput(body.records[i], collectionDef);
         if (valErrors.length > 0) { errors.push({ index: i, errors: valErrors }); continue; }
-        const record = await dynamicInsert(trx, tableName, { ...processed, created_by: user.id, updated_by: user.id });
+
+        let finalInsert: Record<string, unknown>;
+        try {
+          const hooked = await engineEvents.runBefore('record.beforeInsert', {
+            collection,
+            data: { ...processed, created_by: user.id, updated_by: user.id },
+            userId: user.id,
+          });
+          finalInsert = hooked.data;
+        } catch (err) {
+          if (err instanceof AbortHookError) {
+            errors.push({ index: i, errors: [`EXT_HOOK_ABORTED: ${err.reason}`] });
+            continue;
+          }
+          throw err;
+        }
+
+        const record = await dynamicInsert(trx, tableName, finalInsert);
         created.push(record);
       }
     });
@@ -910,14 +928,41 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const updated: any[] = [];
     const errors: Array<{ index: number; id: string; errors: string[] }> = [];
 
-    // TODO(S2-02): route through engineEvents.runBefore('record.beforeUpdate')
-    // per record, with before-row fetched inside the transaction.
+    // Per-row pre-update hook. Before-row fetched inside the transaction so
+    // a concurrent write between read and update is at least visible in the
+    // same tx snapshot. Hook abort becomes a per-row error.
     await (effectiveDb as any).transaction().execute(async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { id, ...fields } = body.records[i];
         const { errors: valErrors, processed } = await processInput(fields, collectionDef, true);
         if (valErrors.length > 0) { errors.push({ index: i, id, errors: valErrors }); continue; }
-        const record = await dynamicUpdate(trx, tableName, id, { ...processed, updated_by: user.id });
+
+        const beforeRow = await (trx as any)
+          .selectFrom(tableName)
+          .selectAll()
+          .where('id', '=', id)
+          .executeTakeFirst();
+        if (!beforeRow) { errors.push({ index: i, id, errors: ['Record not found'] }); continue; }
+
+        let finalPatch: Record<string, unknown>;
+        try {
+          const hooked = await engineEvents.runBefore('record.beforeUpdate', {
+            collection,
+            id,
+            before: beforeRow,
+            patch: { ...processed, updated_by: user.id },
+            userId: user.id,
+          });
+          finalPatch = hooked.patch;
+        } catch (err) {
+          if (err instanceof AbortHookError) {
+            errors.push({ index: i, id, errors: [`EXT_HOOK_ABORTED: ${err.reason}`] });
+            continue;
+          }
+          throw err;
+        }
+
+        const record = await dynamicUpdate(trx, tableName, id, finalPatch);
         if (record) updated.push(record);
         else errors.push({ index: i, id, errors: ['Record not found'] });
       }
@@ -957,24 +1002,51 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
 
-    // TODO(S2-02): route through engineEvents.runBefore('record.beforeDelete')
-    // per record. Aborted IDs should drop out of the delete set.
     const existing = await (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
       .where('id', 'in', body.ids)
       .execute();
 
-    await (effectiveDb as any)
-      .deleteFrom(tableName)
-      .where('id', 'in', body.ids)
-      .execute();
-
+    // Per-row pre-delete hook. Aborted IDs drop out of the delete set and
+    // are reported back as per-row errors (so the caller can distinguish
+    // them from rows that didn't exist).
+    const aborted: Array<{ id: string; reason: string }> = [];
+    const allowed: any[] = [];
     for (const record of existing) {
-      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id }).catch(() => {});
+      try {
+        await engineEvents.runBefore('record.beforeDelete', {
+          collection,
+          id: record.id,
+          record,
+          userId: user.id,
+        });
+        allowed.push(record);
+      } catch (err) {
+        if (err instanceof AbortHookError) {
+          aborted.push({ id: record.id, reason: err.reason });
+        } else {
+          throw err;
+        }
+      }
     }
 
-    return c.json({ deleted: existing.length, ids: existing.map((r: any) => r.id) });
+    if (allowed.length > 0) {
+      await (effectiveDb as any)
+        .deleteFrom(tableName)
+        .where('id', 'in', allowed.map((r) => r.id))
+        .execute();
+
+      for (const record of allowed) {
+        afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id }).catch(() => {});
+      }
+    }
+
+    return c.json({
+      deleted: allowed.length,
+      ids: allowed.map((r) => r.id),
+      ...(aborted.length > 0 ? { aborted } : {}),
+    }, aborted.length > 0 ? 207 : 200);
   });
 
   // ── GET /:collection/:id — Get single record ─────────────────────
@@ -1045,6 +1117,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
       if (condition.op === 'eq') recordQuery = recordQuery.where(field, '=', condition.value);
       else if (condition.op === 'neq') recordQuery = recordQuery.where(field, '!=', condition.value);
     }
+
+    // Apply extension query alters (tenant isolation, soft-delete, etc.)
+    recordQuery = queryAlterRegistry.applyAll(recordQuery, tableName, user);
 
     const record = await recordQuery.executeTakeFirst();
 
@@ -1174,13 +1249,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const toUpdate = { ...processed, updated_by: user.id };
 
     // Pre-update hooks need the current row for the `before` field. Read it
-    // once — if the record doesn't exist we can short-circuit before invoking
-    // any hooks (avoids extensions reacting to non-existent rows).
-    const beforeRow = await (effectiveDb as any)
+    // once — if the record doesn't exist (or extension query alters hide it)
+    // we short-circuit before invoking any hooks.
+    let beforeQuery = (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
+      .where('id', '=', id);
+    beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
+    const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
 
     let finalPatch: Record<string, unknown>;
@@ -1251,11 +1327,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const effectiveDb = getDb(c, db);
     const toUpdate = { ...allowedPatch, updated_by: user.id };
 
-    const beforeRow = await (effectiveDb as any)
+    let beforeQuery = (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
+      .where('id', '=', id);
+    beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
+    const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
 
     let finalPatch: Record<string, unknown>;
@@ -1315,12 +1392,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const effectiveDb = getDb(c, db);
 
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-    // Fetch existing for revision log, then delete atomically
-    const existing = await (effectiveDb as any)
+    // Fetch existing for revision log, then delete atomically. Apply query
+    // alters so a row hidden by an extension filter cannot be deleted by ID.
+    let existingQuery = (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
+      .where('id', '=', id);
+    existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
+    const existing = await existingQuery.executeTakeFirst();
 
     if (!existing) return c.json({ error: 'Record not found' }, 404);
 
