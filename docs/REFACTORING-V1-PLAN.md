@@ -81,7 +81,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S3-02 | `registerFormAlter()` — Studio form modification API | 3 | 2d | TODO |
 | S3-03 | `registerSlot()` — Studio composition slots | 3 | 1d | TODO |
 | S3-04 | License rotation API | 3 | 0.5d | TODO |
-| S4-01 | DB schema codegen — generate `.d.ts` per extension | 4 | 2d | TODO |
+| S4-01 | DB schema codegen — generate `.d.ts` per extension | 4 | 2d | DONE-PARTIAL — parser + generator + CLI command shipped (next commit). `zveltio extension types` reads `<ext>/engine/migrations/*.sql` and emits `<ext>/.zveltio/db.d.ts`. Generic `ZveltioExtension<DB>` → `ctx.db: Kysely<DB>` propagation (S4-02) + migrating 47 extensions to use the generated types is the next iteration. |
 | S4-02 | `ctx.db: Kysely<ExtensionSchema>` typed at compile time | 4 | 1d | TODO |
 | S4-03 | `zveltio extension dev` — engine watch + Studio HMR | 4 | 2d | TODO |
 | S4-04 | `zveltio extension validate` command | 4 | 1d | TODO |

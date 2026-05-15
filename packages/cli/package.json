@@ -15,7 +15,8 @@
     "dev": "bun run --watch src/index.ts"
   },
   "dependencies": {
-    "commander": "^12.0.0"
+    "commander": "^12.0.0",
+    "@zveltio/sdk": "workspace:*"
   },
   "devDependencies": {
     "bun-types": "latest",

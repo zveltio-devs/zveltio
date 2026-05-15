@@ -6,6 +6,7 @@ import { startCommand } from './commands/start.js';
 import { deployCommand } from './commands/deploy.js';
 import { migrateCommand } from './commands/migrate.js';
 import { extensionCommand } from './commands/extension.js';
+import { extensionTypesCommand } from './commands/extension-types.js';
 import { generateTypesCommand } from './commands/generate-types.js';
 import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
@@ -188,5 +189,12 @@ ext
   .description('Publish extension to the Zveltio marketplace')
   .option('--token <token>', 'Marketplace auth token')
   .action((_opts) => extensionCommand('publish', '', _opts));
+
+ext
+  .command('types')
+  .description('Generate a .d.ts from the extension\'s SQL migrations (S4-01). Writes <extension>/.zveltio/db.d.ts.')
+  .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .option('--output <path>', 'Output file path (default: <dir>/.zveltio/db.d.ts)')
+  .action((opts) => extensionTypesCommand(opts));
 
 program.parse(process.argv);
