@@ -560,6 +560,12 @@ async function bootstrap() {
         services: serviceRegistry.scope('engine'),
         queryAlter: queryAlterRegistry.scope('engine'),
         entityAccess: entityAccessRegistry.scope('engine'),
+        // Bootstrap context: routes registered through this stub during load
+        // are tagged as engine-owned, not extension-owned. Real extensions
+        // get an `app`-bound version from extension-loader's loadExtension.
+        registerPublicRoute: () => {
+          console.warn('[extension-loader] registerPublicRoute called from engine bootstrap context — no-op');
+        },
         internals: buildExtensionInternals(),
       })
       .then(() => ensureDefaultExtensions(db))
@@ -602,6 +608,10 @@ async function bootstrap() {
     services: serviceRegistry.scope('engine'),
     queryAlter: queryAlterRegistry.scope('engine'),
     entityAccess: entityAccessRegistry.scope('engine'),
+    // Cron handlers cannot register routes (no app reference in runtime).
+    registerPublicRoute: () => {
+      console.warn('[cron-runner] schedules cannot register public routes — no-op');
+    },
     internals: buildExtensionInternals(),
   });
   console.log('✅ Extension cron runner started');
