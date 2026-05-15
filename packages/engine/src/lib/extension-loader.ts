@@ -1139,9 +1139,21 @@ class ExtensionLoader {
       // after the first request during hot-load), swallow that specific error and
       // still mark the extension as loaded. triggerReload() will rebuild a fresh
       // Hono app where routes register correctly.
+      //
+      // S3-01: extensions with `mountStrategy: 'subapp'` get a fresh per-extension
+      // Hono instance; the engine mounts it at `/ext/<name>`. Disable simply
+      // drops the sub-app on the next app rebuild — no orphan routes.
+      // The default 'global' path remains unchanged for backward compatibility.
       let routeRegistrationDeferred = false;
+      const mountStrategy = extension.mountStrategy ?? 'global';
       try {
-        await extension.register(app, restrictedCtx);
+        if (mountStrategy === 'subapp') {
+          const subApp = new Hono();
+          await extension.register(subApp, restrictedCtx);
+          app.route(`/ext/${extName}`, subApp);
+        } else {
+          await extension.register(app, restrictedCtx);
+        }
       } catch (regErr: any) {
         if ((regErr as Error)?.message?.includes('matcher is already built')) {
           routeRegistrationDeferred = true;
@@ -2034,7 +2046,14 @@ class ExtensionLoader {
     };
 
     try {
-      await extension.register(app, restrictedCtx);
+      const mountStrategy = extension.mountStrategy ?? 'global';
+      if (mountStrategy === 'subapp') {
+        const subApp = new Hono();
+        await extension.register(subApp, restrictedCtx);
+        app.route(`/ext/${name}`, subApp);
+      } else {
+        await extension.register(app, restrictedCtx);
+      }
 
       // Re-register schedules on hot-reload. unregisterAll is idempotent and
       // we want the new definitions to win.

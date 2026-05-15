@@ -13,7 +13,7 @@
   async function loadForms() {
     loading = true;
     try {
-      const res = await api.get<{ forms: any[] }>('/api/forms');
+      const res = await api.get<{ forms: any[] }>('/ext/forms');
       forms = res.forms ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load forms'); }
     finally { loading = false; }
@@ -22,7 +22,7 @@
   async function toggleActive(form: any) {
     togglingId = form.id;
     try {
-      await api.patch(`/api/forms/${form.id}`, { active: !form.active });
+      await api.patch(`/ext/forms/${form.id}`, { active: !form.active });
       form.active = !form.active;
       forms = [...forms];
     } catch (e: any) { toast.error('Failed to update form: ' + (e.message ?? '')); }
@@ -32,7 +32,7 @@
   async function deleteForm(id: string, name: string) {
     if (!confirm(`Delete form "${name}"? This will also delete all submissions.`)) return;
     try {
-      await api.delete(`/api/forms/${id}`);
+      await api.delete(`/ext/forms/${id}`);
       forms = forms.filter((f) => f.id !== id);
       toast.success('Form deleted.');
     } catch (e: any) { toast.error('Failed: ' + (e.message ?? '')); }
