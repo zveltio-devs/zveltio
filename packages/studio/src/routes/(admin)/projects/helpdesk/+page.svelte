@@ -21,23 +21,23 @@
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
-      const r = await api.get<{ data: any[] }>(`/api/helpdesk/tickets?${params}`);
+      const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets?${params}`);
       tickets = r.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
   async function loadCategories() {
-    try { const r = await api.get<{ data: any[] }>('/api/helpdesk/categories'); categories = r.data ?? []; } catch {}
+    try { const r = await api.get<{ data: any[] }>('/ext/projects/helpdesk/categories'); categories = r.data ?? []; } catch {}
   }
   async function loadMessages(id: string) {
-    try { const r = await api.get<{ data: any[] }>(`/api/helpdesk/tickets/${id}/messages`); messages = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets/${id}/messages`); messages = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
   async function createTicket() {
     saving = true;
     try {
-      await api.post('/api/helpdesk/tickets', form);
+      await api.post('/ext/projects/helpdesk/tickets', form);
       showForm = false;
       form = { subject: '', description: '', category_id: '', priority: 'medium', requester_email: '' };
       await loadTickets();
@@ -49,7 +49,7 @@
   async function reply() {
     if (!activeTicket || !newMessage.trim()) return;
     try {
-      await api.post(`/api/helpdesk/tickets/${activeTicket.id}/messages`, { body: newMessage });
+      await api.post(`/ext/projects/helpdesk/tickets/${activeTicket.id}/messages`, { body: newMessage });
       newMessage = '';
       await loadMessages(activeTicket.id);
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -57,7 +57,7 @@
 
   async function resolve(id: string) {
     try {
-      await api.post(`/api/helpdesk/tickets/${id}/resolve`, {});
+      await api.post(`/ext/projects/helpdesk/tickets/${id}/resolve`, {});
       await loadTickets();
       if (activeTicket?.id === id) activeTicket = null;
       toast.success('Ticket resolved.');

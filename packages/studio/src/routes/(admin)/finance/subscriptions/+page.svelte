@@ -13,9 +13,9 @@
   let saving = $state(false);
   let planForm = $state({ name: '', code: '', price: 0, currency: 'RON', interval: 'monthly', trial_days: 0 });
 
-  async function loadSubs() { const r = await api.get<{ data: any[] }>('/api/subscriptions/subscribers'); subscribers = r.data ?? []; }
-  async function loadPlans() { const r = await api.get<{ data: any[] }>('/api/subscriptions/plans'); plans = r.data ?? []; }
-  async function loadDunning() { const r = await api.get<{ data: any[] }>('/api/subscriptions/dunning'); dunning = r.data ?? []; }
+  async function loadSubs() { const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/subscribers'); subscribers = r.data ?? []; }
+  async function loadPlans() { const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/plans'); plans = r.data ?? []; }
+  async function loadDunning() { const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/dunning'); dunning = r.data ?? []; }
 
   async function loadTab() {
     loading = true;
@@ -30,7 +30,7 @@
   async function createPlan() {
     saving = true;
     try {
-      await api.post('/api/subscriptions/plans', planForm);
+      await api.post('/ext/finance/subscriptions/plans', planForm);
       showPlanForm = false;
       planForm = { name: '', code: '', price: 0, currency: 'RON', interval: 'monthly', trial_days: 0 };
       await loadPlans();

@@ -30,7 +30,7 @@
  const params = new URLSearchParams({ schema });
  const ex = excludeList();
  if (ex.length) params.set('exclude', ex.join(','));
- const res = await api.get<{ tables: TablePreview[] }>(`/api/introspect/preview?${params}`);
+ const res = await api.get<{ tables: TablePreview[] }>(`/ext/developer/byod/preview?${params}`);
  previewTables = res.tables ?? [];
  previewed = true;
  } catch (e: any) {
@@ -43,7 +43,7 @@
  async function importTables() {
  importing = true;
  try {
- const res = await api.post<{ imported: number; updated: number; tables: TablePreview[] }>('/api/introspect', {
+ const res = await api.post<{ imported: number; updated: number; tables: TablePreview[] }>('/ext/developer/byod', {
  schema,
  exclude: excludeList(),
  });

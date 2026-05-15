@@ -38,7 +38,7 @@
   async function load() {
     loading = true;
     try {
-      const res = await api.get<{ checklists: Checklist[] }>('/api/checklists');
+      const res = await api.get<{ checklists: Checklist[] }>('/ext/workflow/checklists');
       checklists = res.checklists ?? [];
     } catch (e) {
       toast.error(extractError(e));
@@ -51,7 +51,7 @@
     if (!form.name.trim()) return;
     saving = true;
     try {
-      const res = await api.post<{ checklist: Checklist }>('/api/checklists', {
+      const res = await api.post<{ checklist: Checklist }>('/ext/workflow/checklists', {
         name: form.name.trim(),
         description: form.description || null,
         items: [],
@@ -77,7 +77,7 @@
     if (!selected) return;
     saving = true;
     try {
-      const res = await api.put<{ checklist: Checklist }>(`/api/checklists/${selected.id}`, {
+      const res = await api.put<{ checklist: Checklist }>(`/ext/workflow/checklists/${selected.id}`, {
         name: selected.name,
         description: selected.description || null,
         items: editItems,
@@ -96,7 +96,7 @@
   async function deleteChecklist(id: string) {
     if (!confirm('Delete this checklist?')) return;
     try {
-      await api.delete(`/api/checklists/${id}`);
+      await api.delete(`/ext/workflow/checklists/${id}`);
       checklists = checklists.filter(c => c.id !== id);
       if (selected?.id === id) { selected = null; view = 'list'; }
     } catch (e) {
@@ -109,7 +109,7 @@
     view = 'responses';
     loadingResponses = true;
     try {
-      const res = await api.get<{ responses: Response[] }>(`/api/checklists/${c.id}/responses`);
+      const res = await api.get<{ responses: Response[] }>(`/ext/workflow/checklists/${c.id}/responses`);
       responses = res.responses ?? [];
     } catch (e) {
       toast.error(extractError(e));

@@ -15,9 +15,9 @@
     loading = true;
     try {
       const [active, orders, reports] = await Promise.all([
-        api.get<{ data: any }>('/api/pos/sessions/active').catch(() => ({ data: null })),
-        api.get<{ data: any[] }>('/api/pos/orders?limit=20'),
-        api.get<{ data: any[] }>('/api/pos/z-reports?limit=10').catch(() => ({ data: [] })),
+        api.get<{ data: any }>('/ext/operations/pos/sessions/active').catch(() => ({ data: null })),
+        api.get<{ data: any[] }>('/ext/operations/pos/orders?limit=20'),
+        api.get<{ data: any[] }>('/ext/operations/pos/z-reports?limit=10').catch(() => ({ data: [] })),
       ]);
       activeSession = active.data;
       recentOrders = orders.data ?? [];
@@ -28,7 +28,7 @@
 
   async function openSession() {
     try {
-      await api.post('/api/pos/sessions/open', { opening_float: openingFloat });
+      await api.post('/ext/operations/pos/sessions/open', { opening_float: openingFloat });
       await loadAll();
       toast.success('Session opened.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -37,7 +37,7 @@
   async function closeSession() {
     if (!activeSession) return;
     try {
-      await api.post(`/api/pos/sessions/${activeSession.id}/close`, { closing_float: closingFloat });
+      await api.post(`/ext/operations/pos/sessions/${activeSession.id}/close`, { closing_float: closingFloat });
       await loadAll();
       toast.success('Session closed.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

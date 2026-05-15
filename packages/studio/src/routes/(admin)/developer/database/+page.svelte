@@ -15,7 +15,7 @@
   async function loadTables() {
     loading = true;
     try {
-      const r = await api.get<{ data?: any[]; tables?: any[] }>('/api/database/tables');
+      const r = await api.get<{ data?: any[]; tables?: any[] }>('/ext/developer/database/tables');
       tables = (r.data ?? r.tables ?? []).filter((t: any) => !t.name?.startsWith('zv_') || t.is_data);
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -24,7 +24,7 @@
   async function openTable(t: any) {
     activeTable = t;
     try {
-      const r = await api.get<any>(`/api/database/tables/${encodeURIComponent(t.name)}`);
+      const r = await api.get<any>(`/ext/developer/database/tables/${encodeURIComponent(t.name)}`);
       columns = r.columns ?? r.data?.columns ?? [];
       rows = r.rows ?? r.data?.rows ?? [];
       rowCount = r.row_count ?? r.data?.row_count ?? rows.length;

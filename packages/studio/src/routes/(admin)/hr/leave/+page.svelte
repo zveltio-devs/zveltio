@@ -19,9 +19,9 @@
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
       const [reqs, emps, types] = await Promise.all([
-        api.get<{ data: any[] }>(`/api/leave/requests?${params}`),
-        api.get<{ data: any[] }>('/api/hr?limit=200'),
-        api.get<{ data: any[] }>('/api/leave/types'),
+        api.get<{ data: any[] }>(`/ext/hr/leave/requests?${params}`),
+        api.get<{ data: any[] }>('/ext/hr/employees?limit=200'),
+        api.get<{ data: any[] }>('/ext/hr/leave/types'),
       ]);
       requests = reqs.data ?? [];
       employees = emps.data ?? [];
@@ -33,7 +33,7 @@
   async function createRequest() {
     saving = true;
     try {
-      await api.post('/api/leave/requests', form);
+      await api.post('/ext/hr/leave/requests', form);
       showForm = false;
       form = { employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '' };
       await loadAll();
@@ -44,7 +44,7 @@
 
   async function decide(id: string, approved: boolean) {
     try {
-      await api.post(`/api/leave/requests/${id}/${approved ? 'approve' : 'reject'}`, {});
+      await api.post(`/ext/hr/leave/requests/${id}/${approved ? 'approve' : 'reject'}`, {});
       await loadAll();
       toast.success(approved ? 'Approved.' : 'Rejected.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
