@@ -1212,7 +1212,7 @@
           </div>
           <p class="text-sm text-base-content/50 leading-relaxed">
             Automatically embed records on create/update for semantic search via
-            <code class="text-primary text-xs">POST /api/ai/search</code>.
+            <code class="text-primary text-xs">POST /ext/ai/search</code>.
             Requires an AI provider with embedding support.
           </p>
           <label class="flex items-center gap-3 cursor-pointer">

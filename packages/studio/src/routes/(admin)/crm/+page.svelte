@@ -44,13 +44,13 @@
     loading = true;
     try {
       if (tab === 'contacts') {
-        const r = await api.get<{ data: Contact[] }>('/api/contacts');
+        const r = await api.get<{ data: Contact[] }>('/ext/crm/contacts');
         contacts = r.data ?? [];
       } else if (tab === 'organizations') {
-        const r = await api.get<{ data: Organization[] }>('/api/organizations');
+        const r = await api.get<{ data: Organization[] }>('/ext/crm/organizations');
         orgs = r.data ?? [];
       } else {
-        const r = await api.get<{ data: Deal[] }>('/api/transactions');
+        const r = await api.get<{ data: Deal[] }>('/ext/crm/transactions');
         deals = r.data ?? [];
       }
     } catch (e: any) {
@@ -78,7 +78,7 @@
     if (!contactForm.first_name.trim()) return;
     saving = true;
     try {
-      const r = await api.post<{ data: Contact }>('/api/contacts', contactForm);
+      const r = await api.post<{ data: Contact }>('/ext/crm/contacts', contactForm);
       contacts = [r.data, ...contacts];
       contactForm = { first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '' };
       showModal = false;
@@ -91,7 +91,7 @@
     if (!orgForm.name.trim()) return;
     saving = true;
     try {
-      const r = await api.post<{ data: Organization }>('/api/organizations', orgForm);
+      const r = await api.post<{ data: Organization }>('/ext/crm/organizations', orgForm);
       orgs = [r.data, ...orgs];
       orgForm = { name: '', industry: '', website: '', email: '', phone: '', city: '' };
       showModal = false;
@@ -104,7 +104,7 @@
     if (!dealForm.title.trim()) return;
     saving = true;
     try {
-      const r = await api.post<{ data: Deal }>('/api/transactions', {
+      const r = await api.post<{ data: Deal }>('/ext/crm/transactions', {
         ...dealForm,
         value: dealForm.value ? parseFloat(dealForm.value) : null,
       });
@@ -186,7 +186,7 @@
                 <td class="text-xs text-base-content/40">{new Date(c.created_at).toLocaleDateString()}</td>
                 <td>
                   <button class="btn btn-ghost btn-xs text-error" disabled={deleting === c.id}
-                    onclick={() => deleteItem(c.id, '/api/contacts')}>
+                    onclick={() => deleteItem(c.id, '/ext/crm/contacts')}>
                     {#if deleting === c.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
                   </button>
                 </td>
@@ -214,7 +214,7 @@
                 <td class="text-xs text-base-content/40">{new Date(o.created_at).toLocaleDateString()}</td>
                 <td>
                   <button class="btn btn-ghost btn-xs text-error" disabled={deleting === o.id}
-                    onclick={() => deleteItem(o.id, '/api/organizations')}>
+                    onclick={() => deleteItem(o.id, '/ext/crm/organizations')}>
                     {#if deleting === o.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
                   </button>
                 </td>
@@ -242,7 +242,7 @@
                 <td class="text-xs text-base-content/40">{new Date(d.created_at).toLocaleDateString()}</td>
                 <td>
                   <button class="btn btn-ghost btn-xs text-error" disabled={deleting === d.id}
-                    onclick={() => deleteItem(d.id, '/api/transactions')}>
+                    onclick={() => deleteItem(d.id, '/ext/crm/transactions')}>
                     {#if deleting === d.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
                   </button>
                 </td>
