@@ -64,7 +64,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 
 | ID | Title | Sprint | Effort | Status |
 |----|-------|--------|--------|--------|
-| S1-01 | Ed25519 signature verification on extension download | 1 | 1d | DONE-PARTIAL (engine-side complete; registry-side signing publication is the remaining task) |
+| S1-01 | Ed25519 signature verification on extension download | 1 | 1d | DONE-PARTIAL (ed47bf9 — engine-side complete; registry-side signing publication remains) |
 | S1-02 | peerDeps install fail-close + package allow-list | 1 | 0.5d | DONE (1522cea) |
 | S1-03 | `pg_advisory_lock` on install/enable/disable | 1 | 0.5d | DONE (1522cea) |
 | S1-04 | Transactional migration apply with auto-DOWN on failure | 1 | 1d | DONE (1522cea) |
