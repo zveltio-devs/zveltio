@@ -73,8 +73,8 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S1-07 | Download retry with exponential backoff | 1 | 0.5d | DONE (1522cea) |
 | S1-08 | Module cache busting in dev mode | 1 | 0.5d | DONE (1522cea) |
 | S2-01 | Pre-write hooks (`record.beforeInsert/Update/Delete` with `abort` + `mutate`) | 2 | 2d | DONE (1522cea) |
-| S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | DONE (bulk + single-record routes done; extension-internal writes via RestrictedDb still pending — separate follow-up) |
-| S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE (Kysely-builder sites; `dynamicSelect` raw-SQL path is a follow-up) |
+| S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | DONE-PARTIAL (8ac9791 — bulk + single-record routes; RestrictedDb writes follow-up) |
+| S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE-PARTIAL (8ac9791 — Kysely sites; `dynamicSelect` raw-SQL list path follow-up) |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | TODO |
 | S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | TODO |
 | S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | TODO |
