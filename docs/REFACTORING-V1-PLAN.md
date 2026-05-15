@@ -65,14 +65,14 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | ID | Title | Sprint | Effort | Status |
 |----|-------|--------|--------|--------|
 | S1-01 | Ed25519 signature verification on extension download | 1 | 1d | TODO |
-| S1-02 | peerDeps install fail-close + package allow-list | 1 | 0.5d | DONE (uncommitted, 2026-05-15) |
-| S1-03 | `pg_advisory_lock` on install/enable/disable | 1 | 0.5d | DONE (uncommitted, 2026-05-15) |
-| S1-04 | Transactional migration apply with auto-DOWN on failure | 1 | 1d | DONE (uncommitted, 2026-05-15) |
-| S1-05 | Complete uninstall (run DOWN, clear `zv_migrations` rows) | 1 | 0.5d | DONE (uncommitted, 2026-05-15) |
-| S1-06 | Size quotas (bundle, node_modules) declared in manifest | 1 | 0.5d | DONE (uncommitted, 2026-05-15) |
-| S1-07 | Download retry with exponential backoff | 1 | 0.5d | DONE (uncommitted, 2026-05-15) |
-| S1-08 | Module cache busting in dev mode | 1 | 0.5d | DONE (uncommitted, 2026-05-15) |
-| S2-01 | Pre-write hooks (`record.beforeInsert/Update/Delete` with `abort` + `mutate`) | 2 | 2d | DONE (uncommitted, 2026-05-15) |
+| S1-02 | peerDeps install fail-close + package allow-list | 1 | 0.5d | DONE (1522cea) |
+| S1-03 | `pg_advisory_lock` on install/enable/disable | 1 | 0.5d | DONE (1522cea) |
+| S1-04 | Transactional migration apply with auto-DOWN on failure | 1 | 1d | DONE (1522cea) |
+| S1-05 | Complete uninstall (run DOWN, clear `zv_migrations` rows) | 1 | 0.5d | DONE (1522cea) |
+| S1-06 | Size quotas (bundle, node_modules) declared in manifest | 1 | 0.5d | DONE (1522cea) |
+| S1-07 | Download retry with exponential backoff | 1 | 0.5d | DONE (1522cea) |
+| S1-08 | Module cache busting in dev mode | 1 | 0.5d | DONE (1522cea) |
+| S2-01 | Pre-write hooks (`record.beforeInsert/Update/Delete` with `abort` + `mutate`) | 2 | 2d | DONE (1522cea) |
 | S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | PARTIAL (single-record paths done; bulk + extension-internal writes pending) |
 | S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | TODO |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | TODO |
