@@ -74,7 +74,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S1-08 | Module cache busting in dev mode | 1 | 0.5d | DONE (1522cea) |
 | S2-01 | Pre-write hooks (`record.beforeInsert/Update/Delete` with `abort` + `mutate`) | 2 | 2d | DONE (1522cea) |
 | S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | DONE-PARTIAL (8ac9791 — bulk + single-record routes; RestrictedDb writes follow-up) |
-| S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE-PARTIAL (8ac9791 — Kysely sites; `dynamicSelect` raw-SQL list path follow-up) |
+| S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE — Kysely sites in 8ac9791; `dynamicSelect` list path closed via Kysely rewrite + `applyAlters` callback (next commit). |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (c463ee4) |
 | S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | DONE-PARTIAL (f2c5581 — `intervalMs` + `at` shipped; full cron expr + cross-instance lock are follow-ups) |
 | S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | DONE-PARTIAL — 43/45 active extensions on sub-app. Commits: 1907f72 foundation; pilots 042eaf5; batch 1 7a46316 + dedf9e6; batch 2 3e4ae19 + 2251b6c; batch 3 outliers 13688ba + b91940f; `ctx.registerPublicRoute()` + storage/cloud closure c188cd8 + 7793541. Only `developer/edge-functions` remains on `'global'` (dynamic `/api/fn/*` user-deployed routes registered at runtime, not at extension load — different pattern). UI-only no-op (2): `content/pdf-viewer`, `developer/views`. |

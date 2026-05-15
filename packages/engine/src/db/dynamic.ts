@@ -82,6 +82,17 @@ export interface QueryOptions {
    * Only set for collections created after migration 059 (has_trgm = true in zvd_collections).
    */
   hasTrgm?: boolean;
+  /**
+   * Optional hook to mutate the Kysely query builder before execution.
+   * Used by routes/data.ts to apply extension `queryAlter` filters (S2-03)
+   * so global concerns (tenant isolation, soft-delete masks, redaction)
+   * affect the list endpoint just like single-record GETs.
+   *
+   * The callback receives the in-flight Kysely builder and must return it
+   * (typically chained `.where()` calls). It's applied to both the rows
+   * query and the count query so totals stay consistent with results.
+   */
+  applyAlters?: (qb: any) => any;
 }
 
 export interface QueryResult {
@@ -134,53 +145,72 @@ export async function dynamicSelect(
   tableName: string,
   options: QueryOptions = {},
 ): Promise<QueryResult> {
-  const table = sql.id(sanitizeIdentifier(tableName));
-  const { limit = 100, offset = 0, filters = {}, sort, fts, hasTrgm } = options;
+  // sanitizeIdentifier validates the name; Kysely will quote it on emission.
+  const tableNameSanitized = sanitizeIdentifier(tableName);
+  const {
+    limit = 100,
+    offset = 0,
+    filters = {},
+    sort,
+    fts,
+    hasTrgm,
+    applyAlters,
+  } = options;
 
-  const conditions = Object.entries(filters).map(([k, v]) =>
-    buildCondition(k, v),
-  );
+  // Build both queries with the Kysely builder so extension query alters
+  // (S2-03) — supplied via `applyAlters` — can attach .where() clauses
+  // uniformly. Raw SQL is used only for the parts Kysely can't express
+  // typesafely against a runtime-resolved table: filters (via sql template)
+  // and FTS expressions.
+  let qb: any = (db as any).selectFrom(tableNameSanitized).selectAll();
+  let countQb: any = (db as any)
+    .selectFrom(tableNameSanitized)
+    .select(sql<number>`count(*)::int`.as('total'));
+
+  // Filters — reuse buildCondition which already escapes identifiers + binds
+  // values. Kysely's .where() accepts a raw sql expression as a guard.
+  for (const [field, cond] of Object.entries(filters)) {
+    const expr = buildCondition(field, cond);
+    qb = qb.where(expr);
+    countQb = countQb.where(expr);
+  }
+
   if (fts) {
+    let ftsExpr;
     if (hasTrgm) {
       // Combined: FTS via tsvector OR trgm similarity on search_text (fuzzy/prefix matching).
       // search_text is maintained by the DDL trigger for collections created after migration 059.
       const likePattern = `%${fts.replace(/%/g, '').replace(/_/g, '')}%`;
-      conditions.push(sql`(
-        search_vector @@ websearch_to_tsquery('english', ${fts})
-        OR search_text ILIKE ${likePattern}
-      )`);
+      ftsExpr = sql`(search_vector @@ websearch_to_tsquery('english', ${fts}) OR search_text ILIKE ${likePattern})`;
     } else {
       // websearch_to_tsquery() tolerates arbitrary user input without syntax errors
-      conditions.push(
-        sql`search_vector @@ websearch_to_tsquery('english', ${fts})`,
-      );
+      ftsExpr = sql`search_vector @@ websearch_to_tsquery('english', ${fts})`;
     }
+    qb = qb.where(ftsExpr);
+    countQb = countQb.where(ftsExpr);
   }
-  const whereClause =
-    conditions.length > 0
-      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
-      : sql``;
 
-  const orderCol = sql.id(sanitizeIdentifier(sort?.field ?? 'created_at'));
-  const orderDir = sql.raw(sort?.direction === 'asc' ? 'ASC' : 'DESC');
-  const orderClause = sql`ORDER BY ${orderCol} ${orderDir}`;
+  // Extension query alters — must run on BOTH queries so the count reflects
+  // the same row set that's returned. Without this, an extension that
+  // filters out half the rows would report a misleading total.
+  if (applyAlters) {
+    qb = applyAlters(qb);
+    countQb = applyAlters(countQb);
+  }
+
+  // Sort + pagination apply only to the rows query.
+  const sortField = sanitizeIdentifier(sort?.field ?? 'created_at');
+  qb = qb.orderBy(sortField, sort?.direction === 'asc' ? 'asc' : 'desc');
+  qb = qb.limit(limit).offset(offset);
 
   const [rows, countRow] = await Promise.all([
-    sql`
-      SELECT * FROM ${table}
-      ${whereClause}
-      ${orderClause}
-      LIMIT ${limit} OFFSET ${offset}
-    `.execute(db),
-    sql`
-      SELECT COUNT(*)::int AS total FROM ${table}
-      ${whereClause}
-    `.execute(db),
+    qb.execute() as Promise<DynamicRecord[]>,
+    countQb.executeTakeFirst() as Promise<{ total: number } | undefined>,
   ]);
 
   return {
-    records: rows.rows as DynamicRecord[],
-    total: (countRow.rows[0] as any)?.total ?? 0,
+    records: rows,
+    total: Number(countRow?.total ?? 0),
     limit,
     offset,
   };
