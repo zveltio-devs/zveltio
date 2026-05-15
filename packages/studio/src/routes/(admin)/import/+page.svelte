@@ -24,8 +24,8 @@
  async function loadJobs() {
  jobsLoading = true;
  try {
- // NOTE: endpoint is /api/import/jobs (not /logs)
- const data = await api.get<{ jobs: any[] }>('/api/import/jobs');
+ // NOTE: endpoint is /ext/data/import/jobs (not /logs)
+ const data = await api.get<{ jobs: any[] }>('/ext/data/import/jobs');
  jobs = data.jobs || [];
  } catch { jobs = []; }
  finally { jobsLoading = false; }
@@ -51,7 +51,7 @@
  fd.append('format', format);
  fd.append('skip_header', String(skipHeader));
  fd.append('delimiter', delimiter);
- const res = await fetch(`/api/import/${selectedCollection}`, {
+ const res = await fetch(`/ext/data/import/${selectedCollection}`, {
  method: 'POST', credentials: 'include', body: fd,
  });
  result = await res.json();

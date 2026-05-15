@@ -21,9 +21,9 @@
   onMount(async () => {
     try {
       const [plansRes, subsRes, usageRes] = await Promise.all([
-        api.get<{ plans: any[] }>('/api/billing/plans'),
-        api.get<{ subscriptions: any[] }>('/api/billing/subscriptions'),
-        api.get<{ usage: any[] }>('/api/billing/usage'),
+        api.get<{ plans: any[] }>('/ext/billing/plans'),
+        api.get<{ subscriptions: any[] }>('/ext/billing/subscriptions'),
+        api.get<{ usage: any[] }>('/ext/billing/usage'),
       ]);
       plans = plansRes.plans ?? [];
       subscriptions = subsRes.subscriptions ?? [];

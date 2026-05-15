@@ -30,7 +30,7 @@
     loading = true;
     try {
       const qs = filter !== 'all' ? `?type=${filter}` : '';
-      const r = await api.get<{ documents: any[] }>(`/api/ro-documents${qs}`);
+      const r = await api.get<{ documents: any[] }>(`/ext/compliance/ro/documents${qs}`);
       documents = r.documents ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -43,7 +43,7 @@
     if (!form.title || !form.number) return;
     creating = true;
     try {
-      await api.post('/api/ro-documents', form);
+      await api.post('/ext/compliance/ro/documents', form);
       showCreateModal = false;
       await loadDocuments();
       toast.success('Document creat.');
@@ -53,13 +53,13 @@
 
   async function signDocument(id: string) {
     if (!confirm('Marchează documentul ca semnat?')) return;
-    try { await api.patch(`/api/ro-documents/${id}/sign`, {}); await loadDocuments(); }
+    try { await api.patch(`/ext/compliance/ro/documents/${id}/sign`, {}); await loadDocuments(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
   async function deleteDocument(id: string) {
     if (!confirm('Șterge documentul?')) return;
-    try { await api.delete(`/api/ro-documents/${id}`); await loadDocuments(); }
+    try { await api.delete(`/ext/compliance/ro/documents/${id}`); await loadDocuments(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 

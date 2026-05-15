@@ -21,7 +21,7 @@
 
   onMount(async () => {
     try {
-      const r = await api.get<{ config: SAMLConfig | null }>('/api/auth/saml/config');
+      const r = await api.get<{ config: SAMLConfig | null }>('/ext/auth/saml/config');
       if (r.config) config = r.config;
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to load SAML config');
@@ -29,13 +29,13 @@
       loading = false;
     }
     const base = (window as any).__ZVELTIO_ENGINE_URL__ || '';
-    metadataUrl = `${base}/api/auth/saml/metadata`;
+    metadataUrl = `${base}/ext/auth/saml/metadata`;
   });
 
   async function save() {
     saving = true;
     try {
-      await api.post('/api/auth/saml/config', config);
+      await api.post('/ext/auth/saml/config', config);
       toast.success('SAML configuration saved.');
     } catch (e: any) {
       toast.error(e?.message ?? 'Error saving config');
@@ -74,8 +74,8 @@
         <div class="form-control">
           <label class="label py-0"><span class="label-text text-xs">ACS (Callback) URL</span></label>
           <div class="flex gap-2">
-            <input class="input input-sm flex-1 font-mono text-xs" readonly value={`${(window as any).__ZVELTIO_ENGINE_URL__ || ''}/api/auth/saml/callback`} />
-            <button class="btn btn-ghost btn-sm" onclick={() => copyUrl(`${(window as any).__ZVELTIO_ENGINE_URL__ || ''}/api/auth/saml/callback`)}><Copy size={13} /></button>
+            <input class="input input-sm flex-1 font-mono text-xs" readonly value={`${(window as any).__ZVELTIO_ENGINE_URL__ || ''}/ext/auth/saml/callback`} />
+            <button class="btn btn-ghost btn-sm" onclick={() => copyUrl(`${(window as any).__ZVELTIO_ENGINE_URL__ || ''}/ext/auth/saml/callback`)}><Copy size={13} /></button>
           </div>
         </div>
       </div>

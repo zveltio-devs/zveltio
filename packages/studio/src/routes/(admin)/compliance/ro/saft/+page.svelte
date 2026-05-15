@@ -39,9 +39,9 @@
     loading = true;
     try {
       const [expR, accR, entR] = await Promise.allSettled([
-        api.get<{ exports: any[] }>('/api/saft'),
-        api.get<{ accounts: any[] }>('/api/saft/accounts'),
-        api.get<{ entries: any[] }>('/api/saft/entries'),
+        api.get<{ exports: any[] }>('/ext/compliance/ro/saft'),
+        api.get<{ accounts: any[] }>('/ext/compliance/ro/saft/accounts'),
+        api.get<{ entries: any[] }>('/ext/compliance/ro/saft/entries'),
       ]);
       if (expR.status === 'fulfilled') exports_ = expR.value.exports ?? [];
       if (accR.status === 'fulfilled') accounts = accR.value.accounts ?? [];
@@ -53,9 +53,9 @@
     if (!exportForm.company_name || !exportForm.company_cui) return;
     creating = true;
     try {
-      await api.post('/api/saft', exportForm);
+      await api.post('/ext/compliance/ro/saft', exportForm);
       showCreateModal = false;
-      const r = await api.get<{ exports: any[] }>('/api/saft');
+      const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
       exports_ = r.exports ?? [];
       toast.success('Export creat.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -64,15 +64,15 @@
 
   async function generateXML(id: string) {
     try {
-      await api.post(`/api/saft/${id}/generate`, {});
+      await api.post(`/ext/compliance/ro/saft/${id}/generate`, {});
       toast.success('SAF-T XML generat!');
-      const r = await api.get<{ exports: any[] }>('/api/saft');
+      const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
       exports_ = r.exports ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to generate XML'); }
   }
 
   async function downloadXML(id: string, start: string, end: string) {
-    const res = await fetch(`${ENGINE_URL}/api/saft/${id}/xml`, { credentials: 'include' });
+    const res = await fetch(`${ENGINE_URL}/ext/compliance/ro/saft/${id}/xml`, { credentials: 'include' });
     if (!res.ok) { toast.error('Genereaza XML mai intai'); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -84,16 +84,16 @@
   async function submitToANAF(id: string) {
     if (!confirm('Trimite SAF-T la ANAF?')) return;
     try {
-      await api.post(`/api/saft/${id}/submit`, {});
+      await api.post(`/ext/compliance/ro/saft/${id}/submit`, {});
       toast.success('Trimis la ANAF!');
-      const r = await api.get<{ exports: any[] }>('/api/saft');
+      const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
       exports_ = r.exports ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Submission failed'); }
   }
 
   async function deleteExport(id: string) {
     if (!confirm('Sterge exportul?')) return;
-    try { await api.delete(`/api/saft/${id}`); exports_ = exports_.filter((e) => e.id !== id); }
+    try { await api.delete(`/ext/compliance/ro/saft/${id}`); exports_ = exports_.filter((e) => e.id !== id); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
@@ -101,10 +101,10 @@
     if (!accountForm.code || !accountForm.description) return;
     creating = true;
     try {
-      await api.post('/api/saft/accounts', accountForm);
+      await api.post('/ext/compliance/ro/saft/accounts', accountForm);
       showAccountModal = false;
       accountForm = { code: '', description: '', account_type: 'balance' };
-      const r = await api.get<{ accounts: any[] }>('/api/saft/accounts');
+      const r = await api.get<{ accounts: any[] }>('/ext/compliance/ro/saft/accounts');
       accounts = r.accounts ?? [];
       toast.success('Cont adaugat.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -113,7 +113,7 @@
 
   async function deleteAccount(id: string) {
     if (!confirm('Sterge contul?')) return;
-    try { await api.delete(`/api/saft/accounts/${id}`); accounts = accounts.filter((a) => a.id !== id); }
+    try { await api.delete(`/ext/compliance/ro/saft/accounts/${id}`); accounts = accounts.filter((a) => a.id !== id); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
@@ -121,10 +121,10 @@
     if (!entryForm.account_code || !entryForm.description) return;
     creating = true;
     try {
-      await api.post('/api/saft/entries', { ...entryForm, debit: Number(entryForm.debit), credit: Number(entryForm.credit) });
+      await api.post('/ext/compliance/ro/saft/entries', { ...entryForm, debit: Number(entryForm.debit), credit: Number(entryForm.credit) });
       showEntryModal = false;
       entryForm = { account_code: '', entry_date: new Date().toISOString().split('T')[0], description: '', debit: 0, credit: 0, document_number: '' };
-      const r = await api.get<{ entries: any[] }>('/api/saft/entries');
+      const r = await api.get<{ entries: any[] }>('/ext/compliance/ro/saft/entries');
       entries = r.entries ?? [];
       toast.success('Inregistrare adaugata.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -133,7 +133,7 @@
 
   async function deleteEntry(id: string) {
     if (!confirm('Sterge inregistrarea?')) return;
-    try { await api.delete(`/api/saft/entries/${id}`); entries = entries.filter((e) => e.id !== id); }
+    try { await api.delete(`/ext/compliance/ro/saft/entries/${id}`); entries = entries.filter((e) => e.id !== id); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 

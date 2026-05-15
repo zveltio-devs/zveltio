@@ -25,7 +25,7 @@
  format,
  limit: String(limit),
  });
- const res = await fetch(`/api/export/${selectedCollection}?${params}`, {
+ const res = await fetch(`/ext/data/export/${selectedCollection}?${params}`, {
  credentials: 'include',
  });
  if (!res.ok) {
