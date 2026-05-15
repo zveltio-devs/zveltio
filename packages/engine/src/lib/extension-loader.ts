@@ -31,6 +31,7 @@ import { validatePublicUrl } from './edge-functions/safe-fetch.js';
 import { sendNotification } from './notifications.js';
 import { serviceRegistry } from './service-registry.js';
 import { queryAlterRegistry, type QueryAlterScope } from './query-alter.js';
+import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js';
 import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
 import { isPackageAllowed } from './peer-deps-allowlist.js';
 
@@ -728,6 +729,9 @@ export interface ExtensionContext {
   /** Query-alter registry — see query-alter.ts. Extensions add global WHERE
    * filters here (tenant isolation, soft-delete masks, redaction). */
   queryAlter: QueryAlterScope;
+  /** Entity-access registry — see entity-access.ts. Per-record allow/deny
+   * callbacks; first deny wins across all extensions. */
+  entityAccess: EntityAccessScope;
   internals: ExtensionInternals;
 }
 
@@ -1069,6 +1073,7 @@ class ExtensionLoader {
         // calls are tagged for cleanup on unload. Idempotent on hot-reload.
         services: serviceRegistry.scope(extName),
         queryAlter: queryAlterRegistry.scope(extName),
+        entityAccess: entityAccessRegistry.scope(extName),
         internals: ctx.internals,
       };
 
@@ -1903,6 +1908,8 @@ class ExtensionLoader {
     // Drop the extension's query alters so post-unload selects don't keep
     // applying its filters.
     queryAlterRegistry.unregisterAll(name);
+    // Drop the extension's entity-access checks too, for the same reason.
+    entityAccessRegistry.unregisterAll(name);
 
     this.loaded.delete(name);
     console.log(`🔌 Extension unloaded from memory: ${name}`);
@@ -1946,6 +1953,7 @@ class ExtensionLoader {
       DDLManager:      this.ctx.DDLManager ?? DDLManager,
       services:        serviceRegistry.scope(name),
       queryAlter:      queryAlterRegistry.scope(name),
+      entityAccess:    entityAccessRegistry.scope(name),
       internals:       this.ctx.internals,
     };
 

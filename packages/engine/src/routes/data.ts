@@ -13,6 +13,7 @@ import { broadcastDataEvent } from './realtime.js';
 // record.updated events emitted by engineEvents below.
 import { engineEvents, AbortHookError } from '../lib/event-bus.js';
 import { queryAlterRegistry } from '../lib/query-alter.js';
+import { entityAccessRegistry } from '../lib/entity-access.js';
 import { triggerDataFlows } from './flows.js';
 import {
   dynamicSelect,
@@ -1125,6 +1126,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     if (!record) return c.json({ error: 'Record not found' }, 404);
 
+    // Per-record entity-access check. A 404 (not 403) hides whether the
+    // record exists at all from a viewer without permission.
+    if (!(await entityAccessRegistry.isAllowed(tableName, record, user, 'view'))) {
+      return c.json({ error: 'Record not found' }, 404);
+    }
+
     const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
     const serializedRecord = applyColumnAccess(await serializeRecord(record, collectionDef), colAccess);
 
@@ -1259,6 +1266,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
 
+    // Entity-access enforcement: a row visible to query-alter still needs
+    // explicit permission to be modified. 403 distinguishes "you cannot
+    // touch this row" from the 404 we'd return for a hidden row.
+    if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
     let finalPatch: Record<string, unknown>;
     try {
       const hooked = await engineEvents.runBefore('record.beforeUpdate', {
@@ -1335,6 +1349,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
 
+    if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
     let finalPatch: Record<string, unknown>;
     try {
       const hooked = await engineEvents.runBefore('record.beforeUpdate', {
@@ -1402,6 +1420,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const existing = await existingQuery.executeTakeFirst();
 
     if (!existing) return c.json({ error: 'Record not found' }, 404);
+
+    if (!(await entityAccessRegistry.isAllowed(tableName, existing, user, 'delete'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
 
     try {
       await engineEvents.runBefore('record.beforeDelete', {
