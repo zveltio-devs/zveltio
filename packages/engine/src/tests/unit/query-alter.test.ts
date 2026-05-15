@@ -107,4 +107,23 @@ describe('QueryAlterRegistryImpl', () => {
     const result = registry.applyAll(new FakeQB(), 'zvd_x', null) as FakeQB;
     expect(result.whereCalls).toEqual([{ field: 'static', op: '=', value: 'yes' }]);
   });
+
+  it('works through the dynamicSelect applyAlters callback shape', () => {
+    // The data.ts list path calls dynamicSelect with:
+    //   applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user)
+    // Verify the callback semantics match: receives a builder, returns the
+    // chained builder, both rows + count queries get the same treatment.
+    registry.registerAs('crm', 'zvd_contacts', (qb: FakeQB, user: any) =>
+      qb.where('tenant_id', '=', user.tenantId),
+    );
+
+    const applyAlters = (qb: any) =>
+      registry.applyAll(qb, 'zvd_contacts', { tenantId: 't1' });
+
+    const rowsQb = applyAlters(new FakeQB()) as FakeQB;
+    const countQb = applyAlters(new FakeQB()) as FakeQB;
+
+    expect(rowsQb.whereCalls).toEqual([{ field: 'tenant_id', op: '=', value: 't1' }]);
+    expect(countQb.whereCalls).toEqual([{ field: 'tenant_id', op: '=', value: 't1' }]);
+  });
 });
