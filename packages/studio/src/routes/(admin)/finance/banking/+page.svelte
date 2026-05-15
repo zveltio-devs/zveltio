@@ -14,13 +14,13 @@
   let saving = $state(false);
   let form = $state({ name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 });
 
-  async function loadAccounts() { try { const r = await api.get<{ data: any[] }>('/api/banking/accounts'); accounts = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
-  async function loadTransactions() { try { const r = await api.get<{ data: any[] }>('/api/banking/transactions?limit=100'); transactions = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
+  async function loadAccounts() { try { const r = await api.get<{ data: any[] }>('/ext/finance/banking/accounts'); accounts = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
+  async function loadTransactions() { try { const r = await api.get<{ data: any[] }>('/ext/finance/banking/transactions?limit=100'); transactions = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
   async function loadReconciliation() {
     try {
       const [u, inv] = await Promise.all([
-        api.get<{ data: any[] }>('/api/banking/transactions?reconciled=false&limit=100'),
-        api.get<{ data: any[] }>('/api/invoicing/invoices?status=sent&limit=100').catch(() => ({ data: [] })),
+        api.get<{ data: any[] }>('/ext/finance/banking/transactions?reconciled=false&limit=100'),
+        api.get<{ data: any[] }>('/ext/finance/invoicing/invoices?status=sent&limit=100').catch(() => ({ data: [] })),
       ]);
       unreconciled = u.data ?? [];
       openInvoices = inv.data ?? [];
@@ -38,7 +38,7 @@
   async function createAccount() {
     saving = true;
     try {
-      await api.post('/api/banking/accounts', form);
+      await api.post('/ext/finance/banking/accounts', form);
       showForm = false;
       form = { name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 };
       await loadAccounts();

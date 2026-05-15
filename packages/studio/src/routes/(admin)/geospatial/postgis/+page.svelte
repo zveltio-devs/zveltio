@@ -21,7 +21,7 @@
   async function loadGeofences() {
     loading = true;
     try {
-      const data = await api.get<{ geofences: any[] }>('/api/geo/geofences');
+      const data = await api.get<{ geofences: any[] }>('/ext/geospatial/postgis/geofences');
       geofences = data.geofences ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -31,7 +31,7 @@
     if (!nearForm.collection) return;
     searching = true;
     try {
-      const data = await api.post<{ records: any[] }>('/api/geo/near', nearForm);
+      const data = await api.post<{ records: any[] }>('/ext/geospatial/postgis/near', nearForm);
       nearResults = data.records ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Search failed'); }
     finally { searching = false; }
@@ -42,7 +42,7 @@
     creating = true;
     try {
       const coordinates = JSON.parse(coordinatesJson);
-      await api.post('/api/geo/geofences', { name: newGeofenceName, coordinates });
+      await api.post('/ext/geospatial/postgis/geofences', { name: newGeofenceName, coordinates });
       newGeofenceName = ''; coordinatesJson = '';
       await loadGeofences();
       toast.success('Geofence created.');
@@ -52,7 +52,7 @@
 
   async function deleteGeofence(id: string) {
     if (!confirm('Delete this geofence?')) return;
-    try { await api.delete(`/api/geo/geofences/${id}`); await loadGeofences(); }
+    try { await api.delete(`/ext/geospatial/postgis/geofences/${id}`); await loadGeofences(); }
     catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 </script>
@@ -137,7 +137,7 @@
     <div class="card bg-base-200 border border-base-300 max-w-xl">
       <div class="card-body gap-3">
         <h2 class="font-medium text-sm">Point Clustering (DBSCAN)</h2>
-        <p class="text-sm text-base-content/60">Use the API endpoint <code class="badge badge-ghost badge-sm">POST /api/geo/cluster</code> with parameters:</p>
+        <p class="text-sm text-base-content/60">Use the API endpoint <code class="badge badge-ghost badge-sm">POST /ext/geospatial/postgis/cluster</code> with parameters:</p>
         <pre class="bg-base-300 rounded p-3 text-xs font-mono">{JSON.stringify({ collection: "your_collection", location_field: "location", eps_meters: 500, min_points: 3 }, null, 2)}</pre>
         <p class="text-sm text-base-content/60">Returns clusters with centroid coordinates and point counts.</p>
       </div>

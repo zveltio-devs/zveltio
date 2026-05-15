@@ -18,7 +18,7 @@
 
   async function load() {
     loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/document-templates'); templates = r.data ?? []; }
+    try { const r = await api.get<{ data: any[] }>('/ext/content/document-templates'); templates = r.data ?? []; }
     catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
   }
@@ -38,8 +38,8 @@
   async function save() {
     saving = true;
     try {
-      if (editing) await api.patch(`/api/document-templates/${editing.id}`, form);
-      else await api.post('/api/document-templates', form);
+      if (editing) await api.patch(`/ext/content/document-templates/${editing.id}`, form);
+      else await api.post('/ext/content/document-templates', form);
       showForm = false;
       await load();
       toast.success(editing ? 'Template updated.' : 'Template created.');

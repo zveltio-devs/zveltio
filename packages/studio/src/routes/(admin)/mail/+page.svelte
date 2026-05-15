@@ -73,7 +73,7 @@
   async function loadAll() {
     loading = true;
     try {
-      const r = await api.get<{ accounts: any[] }>('/api/mail/accounts');
+      const r = await api.get<{ accounts: any[] }>('/ext/communications/mail/accounts');
       accounts = r.accounts ?? [];
       if (accounts.length > 0 && !selectedAccount) {
         await selectAccount(accounts.find((a: any) => a.is_default) ?? accounts[0]);
@@ -84,7 +84,7 @@
   }
 
   async function loadStats() {
-    try { const r = await api.get<{ stats: any }>('/api/mail/stats'); stats = r.stats ?? {}; } catch { /* ignore */ }
+    try { const r = await api.get<{ stats: any }>('/ext/communications/mail/stats'); stats = r.stats ?? {}; } catch { /* ignore */ }
   }
 
   async function selectAccount(account: any) {
@@ -92,7 +92,7 @@
     messages = []; folders = []; summary = '';
     loading = true;
     try {
-      const r = await api.get<{ folders: any[] }>(`/api/mail/accounts/${account.id}/folders`);
+      const r = await api.get<{ folders: any[] }>(`/ext/communications/mail/accounts/${account.id}/folders`);
       folders = r.folders ?? [];
       const inbox = folders.find((f: any) => f.type === 'inbox') ?? folders[0];
       if (inbox) await selectFolder(inbox);
@@ -104,7 +104,7 @@
     selectedFolder = folder; selectedMessage = null; summary = '';
     selectedIds = new Set(); messages = []; loading = true;
     try {
-      const r = await api.get<{ messages: any[] }>(`/api/mail/folders/${folder.id}/messages?limit=50`);
+      const r = await api.get<{ messages: any[] }>(`/ext/communications/mail/folders/${folder.id}/messages?limit=50`);
       messages = r.messages ?? [];
     } catch (e: any) { toast.error(e.message ?? 'Failed to load messages'); }
     finally { loading = false; }
@@ -113,7 +113,7 @@
   async function selectMessage(msg: any) {
     summary = ''; loading = true;
     try {
-      const r = await api.get<{ message: any }>(`/api/mail/messages/${msg.id}`);
+      const r = await api.get<{ message: any }>(`/ext/communications/mail/messages/${msg.id}`);
       selectedMessage = r.message;
       messages = messages.map((m: any) => m.id === msg.id ? { ...m, is_read: true } : m);
     } catch (e: any) { toast.error(e.message ?? 'Failed to load message'); }
@@ -124,7 +124,7 @@
     if (!selectedAccount) return;
     syncing = true;
     try {
-      await api.post(`/api/mail/accounts/${selectedAccount.id}/sync`, {});
+      await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/sync`, {});
       if (selectedFolder) await selectFolder(selectedFolder);
       await loadStats();
     } catch (e: any) { toast.error(e.message ?? 'Sync failed'); }
@@ -132,19 +132,19 @@
   }
 
   async function toggleStar(msg: any) {
-    await api.patch(`/api/mail/messages/${msg.id}`, { is_starred: !msg.is_starred });
+    await api.patch(`/ext/communications/mail/messages/${msg.id}`, { is_starred: !msg.is_starred });
     messages = messages.map((m: any) => m.id === msg.id ? { ...m, is_starred: !m.is_starred } : m);
   }
 
   async function deleteMessage(msg: any) {
-    await api.delete(`/api/mail/messages/${msg.id}`);
+    await api.delete(`/ext/communications/mail/messages/${msg.id}`);
     messages = messages.filter((m: any) => m.id !== msg.id);
     if (selectedMessage?.id === msg.id) selectedMessage = null;
   }
 
   async function downloadEml() {
     if (!selectedMessage) return;
-    const res = await fetch(`${ENGINE_URL}/api/mail/messages/${selectedMessage.id}/eml`, { credentials: 'include' });
+    const res = await fetch(`${ENGINE_URL}/ext/communications/mail/messages/${selectedMessage.id}/eml`, { credentials: 'include' });
     const blob = await res.blob();
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = `${selectedMessage.subject || 'message'}.eml`; a.click();
@@ -152,7 +152,7 @@
 
   async function bulkAction(action: string) {
     if (selectedIds.size === 0) return;
-    await api.post('/api/mail/bulk', { message_ids: [...selectedIds], action });
+    await api.post('/ext/communications/mail/bulk', { message_ids: [...selectedIds], action });
     if (action === 'delete' || action === 'spam') {
       messages = messages.filter((m: any) => !selectedIds.has(m.id));
     } else {
@@ -181,7 +181,7 @@
   async function openReplyContext(type: 'reply' | 'reply_all' | 'forward') {
     if (!selectedMessage) return;
     try {
-      const ctx = await api.post<any>(`/api/mail/messages/${selectedMessage.id}/reply-context`, { type });
+      const ctx = await api.post<any>(`/ext/communications/mail/messages/${selectedMessage.id}/reply-context`, { type });
       composeTo = (ctx.to ?? []).map((a: any) => a.address).join(', ');
       composeCc = (ctx.cc ?? []).map((a: any) => a.address).join(', ');
       composeSubject = ctx.subject ?? ''; composeBody = ctx.bodyText ?? '';
@@ -192,7 +192,7 @@
   async function autoSaveDraft() {
     if (!selectedAccount || !showCompose) return;
     try {
-      const r = await api.post<{ draft_id: string }>('/api/mail/drafts', {
+      const r = await api.post<{ draft_id: string }>('/ext/communications/mail/drafts', {
         draft_id: draftId,
         account_id: selectedAccount.id,
         to: composeTo.split(',').map((s: string) => ({ address: s.trim() })).filter((a: any) => a.address),
@@ -216,9 +216,9 @@
     try {
       if (draftId) {
         await autoSaveDraft();
-        await api.post(`/api/mail/drafts/${draftId}/send`, {});
+        await api.post(`/ext/communications/mail/drafts/${draftId}/send`, {});
       } else {
-        await api.post('/api/mail/send', {
+        await api.post('/ext/communications/mail/send', {
           account_id: selectedAccount.id,
           to: composeTo.split(',').map((s: string) => s.trim()).filter(Boolean),
           cc: composeCc ? composeCc.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
@@ -239,7 +239,7 @@
   async function fetchSuggestions(q: string) {
     if (q.length < 2) { toSuggestions = []; return; }
     try {
-      const r = await api.get<{ contacts: any[] }>(`/api/mail/contacts?q=${encodeURIComponent(q)}&limit=8`);
+      const r = await api.get<{ contacts: any[] }>(`/ext/communications/mail/contacts?q=${encodeURIComponent(q)}&limit=8`);
       toSuggestions = r.contacts ?? [];
     } catch { toSuggestions = []; }
   }
@@ -255,7 +255,7 @@
     if (!selectedMessage) return;
     summarizing = true; summary = '';
     try {
-      const r = await api.post<{ summary: string }>(`/api/mail/messages/${selectedMessage.id}/summarize`, {});
+      const r = await api.post<{ summary: string }>(`/ext/communications/mail/messages/${selectedMessage.id}/summarize`, {});
       summary = r.summary ?? '';
     } catch (e: any) { toast.error(e.message ?? 'Failed'); }
     finally { summarizing = false; }
@@ -265,23 +265,23 @@
     if (!selectedMessage) return;
     aiDraftLoading = true;
     try {
-      const r = await api.post<{ draft: string }>(`/api/mail/messages/${selectedMessage.id}/reply-draft`, {});
+      const r = await api.post<{ draft: string }>(`/ext/communications/mail/messages/${selectedMessage.id}/reply-draft`, {});
       if (r.draft) openReplyContext('reply').then(() => { composeBody = r.draft; });
     } catch (e: any) { toast.error(e.message ?? 'Failed'); }
     finally { aiDraftLoading = false; }
   }
 
   async function loadDrafts() {
-    try { const r = await api.get<{ drafts: any[] }>('/api/mail/drafts'); drafts = r.drafts ?? []; } catch { /* ignore */ }
+    try { const r = await api.get<{ drafts: any[] }>('/ext/communications/mail/drafts'); drafts = r.drafts ?? []; } catch { /* ignore */ }
   }
 
   async function deleteDraft(id: string) {
-    await api.delete(`/api/mail/drafts/${id}`);
+    await api.delete(`/ext/communications/mail/drafts/${id}`);
     drafts = drafts.filter((d: any) => d.id !== id);
   }
 
   async function openDraft(draft: any) {
-    const r = await api.get<{ draft: any }>(`/api/mail/drafts/${draft.id}`);
+    const r = await api.get<{ draft: any }>(`/ext/communications/mail/drafts/${draft.id}`);
     const d = r.draft;
     const parseAddrs = (v: any) => {
       try { return (Array.isArray(v) ? v : JSON.parse(v)).map((a: any) => a.address).join(', '); }
@@ -294,16 +294,16 @@
   }
 
   async function loadContacts() {
-    try { const r = await api.get<{ contacts: any[] }>(`/api/mail/contacts?q=${encodeURIComponent(contactSearch)}&limit=50`); contacts = r.contacts ?? []; } catch { /* ignore */ }
+    try { const r = await api.get<{ contacts: any[] }>(`/ext/communications/mail/contacts?q=${encodeURIComponent(contactSearch)}&limit=50`); contacts = r.contacts ?? []; } catch { /* ignore */ }
   }
 
   async function loadSignatures() {
-    try { const r = await api.get<{ signatures: any[] }>('/api/mail/signatures'); signatures = r.signatures ?? []; } catch { /* ignore */ }
+    try { const r = await api.get<{ signatures: any[] }>('/ext/communications/mail/signatures'); signatures = r.signatures ?? []; } catch { /* ignore */ }
   }
 
   async function saveSignature() {
     if (!sigName.trim()) return;
-    const path = editSig ? `/api/mail/signatures/${editSig.id}` : '/api/mail/signatures';
+    const path = editSig ? `/ext/communications/mail/signatures/${editSig.id}` : '/ext/communications/mail/signatures';
     if (editSig) await api.put(path, { name: sigName, body_html: sigHtml, is_default: sigDefault });
     else await api.post(path, { name: sigName, body_html: sigHtml, is_default: sigDefault });
     editSig = null; sigName = ''; sigHtml = ''; sigDefault = false;
@@ -311,30 +311,30 @@
   }
 
   async function deleteSignature(id: string) {
-    await api.delete(`/api/mail/signatures/${id}`);
+    await api.delete(`/ext/communications/mail/signatures/${id}`);
     await loadSignatures();
   }
 
   async function loadFilters() {
     if (!selectedAccount) return;
-    try { const r = await api.get<{ filters: any[] }>(`/api/mail/accounts/${selectedAccount.id}/filters`); filters = r.filters ?? []; } catch { /* ignore */ }
+    try { const r = await api.get<{ filters: any[] }>(`/ext/communications/mail/accounts/${selectedAccount.id}/filters`); filters = r.filters ?? []; } catch { /* ignore */ }
   }
 
   async function saveFilter() {
     if (!selectedAccount || !newFilter.name) return;
-    await api.post(`/api/mail/accounts/${selectedAccount.id}/filters`, newFilter);
+    await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/filters`, newFilter);
     showFilterModal = false;
     newFilter = { name: '', conditions: [{ field: 'from', operator: 'contains', value: '' }], actions: [{ type: 'mark_read' }], is_active: true };
     await loadFilters();
   }
 
   async function toggleFilter(filter: any) {
-    await api.patch(`/api/mail/accounts/${selectedAccount.id}/filters/${filter.id}`, { is_active: !filter.is_active });
+    await api.patch(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${filter.id}`, { is_active: !filter.is_active });
     await loadFilters();
   }
 
   async function deleteFilter(id: string) {
-    await api.delete(`/api/mail/accounts/${selectedAccount.id}/filters/${id}`);
+    await api.delete(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${id}`);
     filters = filters.filter((f: any) => f.id !== id);
   }
 
@@ -459,8 +459,8 @@
         <div class="p-2 border-b border-base-300 space-y-1">
           <div class="join w-full">
             <input class="input input-bordered input-sm join-item flex-1" placeholder="Search..." bind:value={searchQuery}
-              onkeydown={async (e) => { if (e.key === 'Enter') { const r = await api.get<any>(`/api/mail/search?q=${encodeURIComponent(searchQuery)}`); messages = r.messages ?? []; } }} />
-            <button class="btn btn-sm join-item" onclick={async () => { const r = await api.get<any>(`/api/mail/search?q=${encodeURIComponent(searchQuery)}`); messages = r.messages ?? []; }}>
+              onkeydown={async (e) => { if (e.key === 'Enter') { const r = await api.get<any>(`/ext/communications/mail/search?q=${encodeURIComponent(searchQuery)}`); messages = r.messages ?? []; } }} />
+            <button class="btn btn-sm join-item" onclick={async () => { const r = await api.get<any>(`/ext/communications/mail/search?q=${encodeURIComponent(searchQuery)}`); messages = r.messages ?? []; }}>
               <Search class="w-3 h-3" />
             </button>
           </div>
@@ -885,7 +885,7 @@
           onclick={async () => {
             addingAccount = true;
             try {
-              await api.post('/api/mail/accounts', newAccount);
+              await api.post('/ext/communications/mail/accounts', newAccount);
               showAddAccount = false;
               newAccount = { name: '', email_address: '', display_name: '', imap_host: '', imap_port: 993, imap_secure: true, imap_user: '', imap_password: '', smtp_host: '', smtp_port: 587, smtp_secure: true, smtp_user: '', smtp_password: '', is_default: false };
               await loadAll();

@@ -19,15 +19,15 @@
   async function loadProducts() {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
-    const res = await api.get<{ data: any[] }>(`/api/inventory/products?${params}`);
+    const res = await api.get<{ data: any[] }>(`/ext/operations/inventory/products?${params}`);
     products = res.data ?? [];
   }
   async function loadWarehouses() {
-    const res = await api.get<{ data: any[] }>('/api/inventory/warehouses');
+    const res = await api.get<{ data: any[] }>('/ext/operations/inventory/warehouses');
     warehouses = res.data ?? [];
   }
   async function loadStock() {
-    const res = await api.get<{ data: any[] }>('/api/inventory/stock-levels');
+    const res = await api.get<{ data: any[] }>('/ext/operations/inventory/stock-levels');
     stock = res.data ?? [];
   }
 
@@ -44,7 +44,7 @@
   async function createProduct() {
     saving = true;
     try {
-      await api.post('/api/inventory/products', productForm);
+      await api.post('/ext/operations/inventory/products', productForm);
       showProductForm = false;
       productForm = { sku: '', name: '', description: '', price: 0, currency: 'RON', tax_rate: 19, is_active: true };
       await loadProducts();
@@ -56,7 +56,7 @@
   async function createWarehouse() {
     saving = true;
     try {
-      await api.post('/api/inventory/warehouses', warehouseForm);
+      await api.post('/ext/operations/inventory/warehouses', warehouseForm);
       showWarehouseForm = false;
       warehouseForm = { name: '', code: '', address: '' };
       await loadWarehouses();

@@ -14,7 +14,7 @@
   onMount(async () => {
     const [notifRes, tasksRes, zoneRes] = await Promise.allSettled([
       api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
-      api.get<{ tasks: any[] }>('/api/approvals?status=pending&assigned_to=me'),
+      api.get<{ tasks: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me'),
       api.get<{ nav: any[] }>('/api/zones/intranet/render'),
     ]);
     if (notifRes.status === 'fulfilled') {

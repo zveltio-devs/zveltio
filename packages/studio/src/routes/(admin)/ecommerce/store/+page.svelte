@@ -33,20 +33,20 @@
   async function loadProducts() {
     loading = true;
     try {
-      const r = await api.get<{ data: Product[] }>('/api/ecommerce/admin/products');
+      const r = await api.get<{ data: Product[] }>('/ext/ecommerce/store/admin/products');
       products = r.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load products'); }
     finally { loading = false; }
   }
   async function loadOrders() {
     try {
-      const r = await api.get<{ data: Order[] }>('/api/ecommerce/admin/orders');
+      const r = await api.get<{ data: Order[] }>('/ext/ecommerce/store/admin/orders');
       orders = r.data ?? [];
     } catch { /* ignore */ }
   }
   async function loadStats() {
     try {
-      const r = await api.get<{ stats: Stats }>('/api/ecommerce/admin/stats');
+      const r = await api.get<{ stats: Stats }>('/ext/ecommerce/store/admin/stats');
       stats = r.stats;
     } catch { /* ignore */ }
   }
@@ -56,7 +56,7 @@
     saving = true;
     try {
       const slug = productForm.slug || productForm.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const r = await api.post<{ data: Product }>('/api/ecommerce/admin/products', {
+      const r = await api.post<{ data: Product }>('/ext/ecommerce/store/admin/products', {
         ...productForm,
         slug,
         price: productForm.price ? parseFloat(productForm.price) : null,
@@ -73,7 +73,7 @@
   async function deleteProduct(id: string) {
     if (!confirm('Delete this product?')) return;
     try {
-      await api.delete(`/api/ecommerce/admin/products/${id}`);
+      await api.delete(`/ext/ecommerce/store/admin/products/${id}`);
       products = products.filter(p => p.id !== id);
       toast.success('Deleted.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -81,7 +81,7 @@
 
   async function updateOrderStatus(id: string, status: string) {
     try {
-      await api.patch(`/api/ecommerce/admin/orders/${id}`, { status });
+      await api.patch(`/ext/ecommerce/store/admin/orders/${id}`, { status });
       orders = orders.map(o => o.id === id ? { ...o, status } : o);
       toast.success('Order updated.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

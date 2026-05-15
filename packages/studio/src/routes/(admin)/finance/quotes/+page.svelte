@@ -27,7 +27,7 @@
   async function load() {
     loading = true;
     try {
-      const r = await api.get<{ data: Quote[] }>('/api/quotes');
+      const r = await api.get<{ data: Quote[] }>('/ext/finance/quotes');
       quotes = r.data ?? [];
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to load quotes');
@@ -47,7 +47,7 @@
     if (!form.client_name.trim()) return;
     saving = true;
     try {
-      const r = await api.post<{ data: Quote }>('/api/quotes', form);
+      const r = await api.post<{ data: Quote }>('/ext/finance/quotes', form);
       quotes = [r.data, ...quotes];
       showModal = false;
       toast.success('Quote created.');
@@ -61,7 +61,7 @@
   async function doAction(id: string, action: string) {
     actionId = id;
     try {
-      await api.post(`/api/quotes/${id}/${action}`, {});
+      await api.post(`/ext/finance/quotes/${id}/${action}`, {});
       await load();
       toast.success(`Quote ${action.replace('-', ' ')}.`);
     } catch (e: any) {
@@ -75,7 +75,7 @@
     if (!confirm('Delete this quote?')) return;
     actionId = id;
     try {
-      await api.delete(`/api/quotes/${id}`);
+      await api.delete(`/ext/finance/quotes/${id}`);
       quotes = quotes.filter(q => q.id !== id);
       toast.success('Deleted.');
     } catch (e: any) {

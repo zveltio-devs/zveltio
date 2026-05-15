@@ -13,7 +13,7 @@
     try {
       // The approvals extension exposes /api/approvals; if not installed we
       // fall back to empty so the page degrades gracefully.
-      const res = await api.get<{ tasks?: any[]; approvals?: any[] }>('/api/approvals?status=pending&assigned_to=me');
+      const res = await api.get<{ tasks?: any[]; approvals?: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me');
       tasks = res.tasks ?? res.approvals ?? [];
     } catch {
       tasks = [];
@@ -25,7 +25,7 @@
   async function approve(id: string) {
     busy = id;
     try {
-      await api.post(`/api/approvals/${id}/approve`, {});
+      await api.post(`/ext/workflow/approvals/${id}/approve`, {});
       toast.success('Approved');
       await load();
     } catch (e: any) {
@@ -38,7 +38,7 @@
   async function reject(id: string) {
     busy = id;
     try {
-      await api.post(`/api/approvals/${id}/reject`, {});
+      await api.post(`/ext/workflow/approvals/${id}/reject`, {});
       toast.success('Rejected');
       await load();
     } catch (e: any) {

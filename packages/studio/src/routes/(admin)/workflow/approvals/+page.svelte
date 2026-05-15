@@ -23,7 +23,7 @@
   async function loadWorkflows() {
     loading = true;
     try {
-      const data = await api.get<{ workflows: any[] }>('/api/approvals/workflows');
+      const data = await api.get<{ workflows: any[] }>('/ext/workflow/approvals/workflows');
       workflows = data.workflows ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
     finally { loading = false; }
@@ -32,7 +32,7 @@
   async function decide(requestId: string, decision: 'approved' | 'rejected') {
     const comment = decision === 'rejected' ? prompt('Rejection reason (optional):') ?? undefined : undefined;
     try {
-      await api.post(`/api/approvals/${requestId}/decide`, { decision, comment });
+      await api.post(`/ext/workflow/approvals/${requestId}/decide`, { decision, comment });
       await loadRequests();
       toast.success(decision === 'approved' ? 'Approved.' : 'Rejected.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
@@ -41,7 +41,7 @@
   async function cancel(requestId: string) {
     if (!confirm('Cancel this approval request?')) return;
     try {
-      await api.post(`/api/approvals/${requestId}/cancel`, {});
+      await api.post(`/ext/workflow/approvals/${requestId}/cancel`, {});
       await loadRequests();
       toast.success('Cancelled.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }

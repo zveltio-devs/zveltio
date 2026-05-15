@@ -41,7 +41,7 @@
 
  async function loadFolders() {
  try {
- const data = await api.get<{ folders: any[] }>('/api/media/folders');
+ const data = await api.get<{ folders: any[] }>('/ext/content/media/folders');
  folders = data.folders || [];
  } catch (e: any) { toast.error(e.message ?? 'Something went wrong'); }
  }
@@ -53,21 +53,21 @@
  if (searchQuery) params.set('search', searchQuery);
  if (selectedTag) params.set('tag', selectedTag);
  params.set('limit', '100');
- const data = await api.get<{ files: any[] }>(`/api/media/files?${params}`);
+ const data = await api.get<{ files: any[] }>(`/ext/content/media/files?${params}`);
  files = data.files || [];
  } catch (e: any) { toast.error(e.message ?? 'Something went wrong'); }
  }
 
  async function loadTags() {
  try {
- const data = await api.get<{ tags: any[] }>('/api/media/tags');
+ const data = await api.get<{ tags: any[] }>('/ext/content/media/tags');
  tags = data.tags || [];
  } catch (e: any) { toast.error(e.message ?? 'Something went wrong'); }
  }
 
  async function loadStats() {
  try {
- stats = await api.get('/api/media/stats');
+ stats = await api.get('/ext/content/media/stats');
  } catch { /* non-critical */ }
  }
 
@@ -81,7 +81,7 @@
  async function createFolder() {
  if (!folderName.trim()) return;
  try {
- await api.post('/api/media/folders', { name: folderName, parent_id: selectedFolder });
+ await api.post('/ext/content/media/folders', { name: folderName, parent_id: selectedFolder });
  showFolderModal = false;
  folderName = '';
  await loadFolders();
@@ -97,7 +97,7 @@
  onconfirm: async () => {
  confirmState.open = false;
  try {
- await api.delete(`/api/media/folders/${id}`);
+ await api.delete(`/ext/content/media/folders/${id}`);
  await loadFolders();
  if (selectedFolder === id) selectFolder(null);
  } catch (e: any) { toast.error(e.message); }
@@ -123,7 +123,7 @@
  const formData = new FormData();
  formData.append('file', file);
  if (selectedFolder) formData.append('folder_id', selectedFolder);
- await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include' });
+ await fetch('/ext/content/media/upload', { method: 'POST', body: formData, credentials: 'include' });
  uploaded++;
  uploadProgress = Math.round((uploaded / uploadingFiles.length) * 100);
  } catch (e) { console.error('Upload failed for', file.name, e); }
@@ -145,7 +145,7 @@
  onconfirm: async () => {
  confirmState.open = false;
  try {
- await api.delete(`/api/media/files/${id}`);
+ await api.delete(`/ext/content/media/files/${id}`);
  await loadFiles();
  await loadStats();
  if (showFileDetails?.id === id) showFileDetails = null;
@@ -164,7 +164,7 @@
  onconfirm: async () => {
  confirmState.open = false;
  try {
- await api.post('/api/media/files/batch-delete', { ids: Array.from(selectedFiles) });
+ await api.post('/ext/content/media/files/batch-delete', { ids: Array.from(selectedFiles) });
  selectedFiles = new Set();
  await loadFiles();
  await loadStats();
@@ -176,7 +176,7 @@
  async function createTag() {
  if (!tagName.trim()) return;
  try {
- await api.post('/api/media/tags', { name: tagName, color: tagColor });
+ await api.post('/ext/content/media/tags', { name: tagName, color: tagColor });
  showTagModal = false;
  tagName = '';
  await loadTags();
@@ -185,14 +185,14 @@
 
  async function addTagToFile(fileId: string, tagId: string) {
  try {
- await api.post(`/api/media/files/${fileId}/tags`, { tag_id: tagId });
+ await api.post(`/ext/content/media/files/${fileId}/tags`, { tag_id: tagId });
  await loadFiles();
  } catch (e) { console.error('Failed to add tag:', e); }
  }
 
  async function removeTagFromFile(fileId: string, tagId: string) {
  try {
- await api.delete(`/api/media/files/${fileId}/tags/${tagId}`);
+ await api.delete(`/ext/content/media/files/${fileId}/tags/${tagId}`);
  await loadFiles();
  } catch (e) { console.error('Failed to remove tag:', e); }
  }

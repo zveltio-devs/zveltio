@@ -16,7 +16,7 @@
   async function loadPeriods() {
     loading = true;
     try {
-      const res = await api.get<{ data: any[] }>('/api/payroll/periods');
+      const res = await api.get<{ data: any[] }>('/ext/hr/payroll/periods');
       periods = res.data ?? [];
       if (!selectedPeriod && periods.length > 0) selectedPeriod = periods[0].id;
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
@@ -26,7 +26,7 @@
   async function loadEntries() {
     if (!selectedPeriod) { entries = []; return; }
     try {
-      const res = await api.get<{ data: any[] }>(`/api/payroll/periods/${selectedPeriod}/entries`);
+      const res = await api.get<{ data: any[] }>(`/ext/hr/payroll/periods/${selectedPeriod}/entries`);
       entries = res.data ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
@@ -34,7 +34,7 @@
   async function createPeriod() {
     saving = true;
     try {
-      await api.post('/api/payroll/periods', periodForm);
+      await api.post('/ext/hr/payroll/periods', periodForm);
       showCreatePeriod = false;
       periodForm = { name: '', period_start: '', period_end: '', pay_date: '' };
       await loadPeriods();
@@ -45,14 +45,14 @@
 
   async function generateEntries(periodId: string) {
     try {
-      await api.post(`/api/payroll/periods/${periodId}/generate`, {});
+      await api.post(`/ext/hr/payroll/periods/${periodId}/generate`, {});
       await loadEntries();
       toast.success('Entries generated.');
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
 
   function exportRevisal(periodId: string) {
-    window.open(`${ENGINE_URL}/api/payroll/periods/${periodId}/revisal-export`, '_blank');
+    window.open(`${ENGINE_URL}/ext/hr/payroll/periods/${periodId}/revisal-export`, '_blank');
   }
 
   onMount(loadPeriods);

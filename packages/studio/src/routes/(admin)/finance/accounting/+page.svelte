@@ -29,9 +29,9 @@
     get balanced() { return Math.abs(this.debit - this.credit) < 0.005; },
   });
 
-  async function loadEntries() { try { const r = await api.get<{ data: any[] }>('/api/accounting/journal-entries?limit=100'); entries = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
-  async function loadAccounts() { try { const r = await api.get<{ data: any[] }>('/api/accounting/accounts'); accounts = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
-  async function loadFiscal() { try { const r = await api.get<{ data: any[] }>('/api/accounting/fiscal-years'); fiscalYears = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
+  async function loadEntries() { try { const r = await api.get<{ data: any[] }>('/ext/finance/accounting/journal-entries?limit=100'); entries = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
+  async function loadAccounts() { try { const r = await api.get<{ data: any[] }>('/ext/finance/accounting/accounts'); accounts = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
+  async function loadFiscal() { try { const r = await api.get<{ data: any[] }>('/ext/finance/accounting/fiscal-years'); fiscalYears = r.data ?? []; } catch (e: any) { toast.error(e?.message ?? 'Error'); } }
 
   async function loadTab() {
     loading = true;
@@ -47,7 +47,7 @@
   async function createEntry() {
     saving = true;
     try {
-      await api.post('/api/accounting/journal-entries', entryForm);
+      await api.post('/ext/finance/accounting/journal-entries', entryForm);
       showEntryForm = false;
       entryForm = { entry_date: new Date().toISOString().slice(0, 10), description: '', document_number: '',
         lines: [{ account_code: '', description: '', debit: 0, credit: 0 }, { account_code: '', description: '', debit: 0, credit: 0 }] };
@@ -60,7 +60,7 @@
   async function createAccount() {
     saving = true;
     try {
-      await api.post('/api/accounting/accounts', accountForm);
+      await api.post('/ext/finance/accounting/accounts', accountForm);
       showAccountForm = false;
       accountForm = { code: '', name: '', account_type: 'asset', parent_code: '' };
       await loadAccounts();
