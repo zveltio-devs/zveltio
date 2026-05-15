@@ -763,6 +763,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
           offset,
           fts: query.search ? query.search.trim().substring(0, 500) : undefined,
           hasTrgm: !!(collectionDef as any).has_trgm,
+          applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
         }));
       }
     } else {
@@ -777,6 +778,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         offset,
         fts: query.search ? query.search.trim().substring(0, 500) : undefined,
         hasTrgm: !!(collectionDef as any).has_trgm,
+        applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
       });
     }
 
