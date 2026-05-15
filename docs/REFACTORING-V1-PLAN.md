@@ -75,7 +75,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S2-01 | Pre-write hooks (`record.beforeInsert/Update/Delete` with `abort` + `mutate`) | 2 | 2d | DONE (1522cea) |
 | S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | DONE-PARTIAL (8ac9791 — bulk + single-record routes; RestrictedDb writes follow-up) |
 | S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE-PARTIAL (8ac9791 — Kysely sites; `dynamicSelect` raw-SQL list path follow-up) |
-| S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | TODO |
+| S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (uncommitted, 2026-05-15) |
 | S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | TODO |
 | S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | TODO |
 | S3-02 | `registerFormAlter()` — Studio form modification API | 3 | 2d | TODO |
@@ -1199,6 +1199,25 @@ Implementation diverged slightly from the design:
 
 **Acceptance criteria status**:
 - [x] Editing `engine/index.ts` and re-loading picks up changes in dev. Verified by inspection — Bun's import cache keys on the URL so the suffix forces a fresh module evaluation.
+
+### S2-04 — Entity access (DONE 2026-05-15)
+
+Same scope+ownership model as query-alter; first deny wins, default allow.
+
+- New module [`packages/engine/src/lib/entity-access.ts`](../packages/engine/src/lib/entity-access.ts) — `EntityAccessRegistryImpl` with `registerAs`, `checkAccess(table, record, user, op)`, `isAllowed(...)` sugar, `unregisterAll`, `clear`, `scope(extName)`.
+- Decision type: `'allow' | 'deny'`. Operations: `'view' | 'update' | 'delete'`. Checks are async.
+- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) exports `EntityAccessScope` and adds `entityAccess` field to `ExtensionContext` with payroll example in JSDoc.
+- Engine `ExtensionContext` extended; both ctx-construction sites in `extension-loader.ts` + bootstrap in `src/index.ts` wire `entityAccessRegistry.scope(name)`. `unload()` calls `entityAccessRegistry.unregisterAll(name)`.
+- `data.ts` enforces at 4 single-record sites:
+  - `GET /:collection/:id`: after the record is fetched (post query-alter), an `isAllowed(..., 'view')` check returning false yields **404 (not 403)** so the caller cannot distinguish "doesn't exist" from "you can't see it".
+  - PUT, PATCH, DELETE single: after the before-row fetch, `isAllowed(..., 'update' | 'delete')` returning false yields **403 Forbidden** — at this point the user already knows the row exists (the response wouldn't lie about it).
+- Unit tests in [`entity-access.test.ts`](../packages/engine/src/tests/unit/entity-access.test.ts) — 11 tests: default allow, first-deny short-circuits, all-allow passes, payload propagation, async checks, table isolation, realistic payroll-style policy, unregisterAll, scope tagging + cleanup, clear, isAllowed sugar.
+
+**Acceptance criteria status**:
+- [x] HR can view all payroll records; regular user only their own (payroll-style policy test).
+- [x] Update by a non-permitted user returns HTTP 403 (PUT/PATCH integration via `entityAccessRegistry.isAllowed`).
+- [x] Per-record check is per-row and async (test "supports async checks").
+- [ ] List endpoint filters per-row — deferred, same reason as S2-03 (`dynamicSelect` raw SQL; per-row async check on every list response is also expensive). For list-level filtering of large sets, prefer `queryAlter`; entity-access is for the precise single-record gate.
 
 ### S2-03 — Query alter (DONE 2026-05-15)
 

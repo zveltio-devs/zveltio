@@ -66,6 +66,13 @@ export interface ExtensionContext {
    */
   queryAlter: QueryAlterScope;
 
+  /**
+   * Per-record authorization callbacks. Return `'deny'` to block access to
+   * a specific row; first deny across all extensions wins. See
+   * `EntityAccessScope` for an example.
+   */
+  entityAccess: EntityAccessScope;
+
   // ─── Engine-internal helpers (for official extensions) ───────────────────────
   // These expose deep engine functionality to first-party extensions.
   // Third-party extensions should rely on the stable API above instead.
@@ -122,6 +129,41 @@ export interface ExtensionInternals {
   extractTextFromFile: (buffer: ArrayBuffer | Buffer | Uint8Array, mimeType: string) => Promise<string>;
   /** Send an in-app notification to a user (writes to zv_notifications system table). */
   sendNotification: (db: any, input: { user_id: string; type?: string; title: string; message?: string; data?: unknown }) => Promise<void>;
+}
+
+/**
+ * Entity-access scope handed to each extension via `ctx.entityAccess`.
+ *
+ * Use this for row-level authorization that cannot be expressed via roles
+ * alone: "only the owner can view this", "drafts editable only by author",
+ * "manager can approve only their direct reports", etc.
+ *
+ * Semantics: first `deny` wins. If no checks are registered for a table,
+ * access is allowed (no extension cares about it).
+ *
+ * @example
+ *   ctx.entityAccess.register({
+ *     table: 'zvd_payroll',
+ *     async check(record, user, op) {
+ *       if (user.roles.includes('hr')) return 'allow';
+ *       if (op === 'view' && record.user_id === user.id) return 'allow';
+ *       return 'deny';
+ *     },
+ *   });
+ *
+ * Scoped to the registering extension — automatically cleaned up on unload.
+ */
+export interface EntityAccessScope {
+  register(def: {
+    table: string;
+    check: (
+      record: any,
+      user: any,
+      op: 'view' | 'update' | 'delete',
+    ) => ('allow' | 'deny') | Promise<'allow' | 'deny'>;
+  }): void;
+  list(): Array<{ table: string }>;
+  unregisterAll(): void;
 }
 
 /**

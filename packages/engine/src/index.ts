@@ -10,6 +10,7 @@ import { initRls } from './lib/rls.js';
 import { fieldTypeRegistry } from './lib/field-type-registry.js';
 import { extensionLoader, buildExtensionInternals, serviceRegistry } from './lib/extension-loader.js';
 import { queryAlterRegistry } from './lib/query-alter.js';
+import { entityAccessRegistry } from './lib/entity-access.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
@@ -557,6 +558,7 @@ async function bootstrap() {
         // ExtensionContext shape and is overridden per-extension.
         services: serviceRegistry.scope('engine'),
         queryAlter: queryAlterRegistry.scope('engine'),
+        entityAccess: entityAccessRegistry.scope('engine'),
         internals: buildExtensionInternals(),
       })
       .then(() => ensureDefaultExtensions(db))

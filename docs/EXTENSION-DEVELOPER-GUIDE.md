@@ -510,9 +510,11 @@ Ownership + lifecycle:
   the alter — they trust the `id` lookup which IS alter-filtered, so the
   net effect is the same in practice.
 
-### Entity access (v1.0)
+### Entity access
 
-Per-record authorization beyond role-based.
+Per-record authorization beyond role-based. Use this when the access
+decision depends on the row itself (owner, status, time of day) rather
+than just the user's role.
 
 ```typescript
 ctx.entityAccess.register({
@@ -520,14 +522,29 @@ ctx.entityAccess.register({
   async check(record, user, op) {
     // op: 'view' | 'update' | 'delete'
     if (user.roles.includes('hr')) return 'allow';
-    if (record.user_id === user.id && op === 'view') return 'allow';
+    if (op === 'view' && record.user_id === user.id) return 'allow';
     return 'deny';
   },
 });
 ```
 
-Any `deny` denies. All registered checks must pass. Read access checks happen
-per row (so list endpoints filter rows you can't see).
+Semantics:
+- Any extension's `'deny'` blocks access (first deny wins, short-circuits).
+- Default is `'allow'` — if no extension registers a check for a table,
+  the standard role/RLS chain remains in charge.
+- Checks may be async; the data layer awaits them.
+- Cleanup on unload is automatic (scoped registration).
+
+HTTP behavior in single-record routes:
+- `GET /:collection/:id` returns **404** on deny (hides existence).
+- `PUT/PATCH/DELETE /:collection/:id` returns **403** on deny (the
+  client already knows the row exists from prior context).
+
+**Scope today**:
+- Enforced at single-record `GET`, `PUT`, `PATCH`, `DELETE`. Not yet at
+  list endpoints — for filtering large lists, prefer `queryAlter`
+  (cheaper, runs in SQL). Use `entityAccess` for the precise per-row
+  gate on single-record operations.
 
 ---
 
