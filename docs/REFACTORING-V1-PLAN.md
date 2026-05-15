@@ -75,8 +75,8 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S2-01 | Pre-write hooks (`record.beforeInsert/Update/Delete` with `abort` + `mutate`) | 2 | 2d | DONE (1522cea) |
 | S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | DONE-PARTIAL (8ac9791 — bulk + single-record routes; RestrictedDb writes follow-up) |
 | S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE-PARTIAL (8ac9791 — Kysely sites; `dynamicSelect` raw-SQL list path follow-up) |
-| S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (uncommitted, 2026-05-15) |
-| S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | TODO |
+| S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (c463ee4) |
+| S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | DONE-PARTIAL (uncommitted — `intervalMs` + `at` shipped; full cron expr + cross-instance lock are follow-ups) |
 | S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | TODO |
 | S3-02 | `registerFormAlter()` — Studio form modification API | 3 | 2d | TODO |
 | S3-03 | `registerSlot()` — Studio composition slots | 3 | 1d | TODO |
@@ -1199,6 +1199,38 @@ Implementation diverged slightly from the design:
 
 **Acceptance criteria status**:
 - [x] Editing `engine/index.ts` and re-loading picks up changes in dev. Verified by inspection — Bun's import cache keys on the URL so the suffix forces a fresh module evaluation.
+
+### S2-05 — Native cron (DONE-PARTIAL 2026-05-15)
+
+Extensions can declare scheduled tasks declaratively; the engine's cron
+runner polls every 30 s, executes due handlers, persists every run.
+
+- New SQL migration [`072_extension_schedule_runs.sql`](../packages/engine/src/db/migrations/sql/072_extension_schedule_runs.sql) — `zv_extension_schedule_runs` table with `(id, extension_name, schedule_name, started_at, finished_at, status, attempt, error_message, trace_id)`. Two indexes: one on `(ext, schedule, started_at DESC)`, one partial on `status IN ('failed', 'dlq')`. `embedded.ts` regenerated (65 migrations).
+- New module [`cron-runner.ts`](../packages/engine/src/lib/cron-runner.ts):
+  - `CronRunnerImpl` with `register(extName, schedule)`, `unregisterAll(extName)`, `count`, `list`, `clear`, `start(db, ctx)`, `stop()`, `_tick`, `_runOne`, `_insertRun`, `_finishRun`.
+  - 30 s poll interval. Each tick walks registered entries; for each not in-flight whose `nextRunAt <= now`, runs handler async.
+  - Retry policy from `schedule.retry` (defaults: `maxAttempts: 1`, `backoffMs: 1000`). Last failed attempt → `status: 'dlq'`. Intermediate failures → `status: 'failed'`.
+  - `computeNextRun(schedule, now)` (exported pure function): returns `now + intervalMs` for interval schedules; returns today HH:MM if still future, else tomorrow HH:MM, for `at`-based schedules; returns `null` when neither is set.
+- SDK [`packages/sdk/src/extension/index.ts`](../packages/sdk/src/extension/index.ts) adds `ExtensionSchedule` interface and optional `schedules?(): ExtensionSchedule[]` on `ZveltioExtension`.
+- `extension-loader.ts` wire-up:
+  - After `extension.register(...)`, if `extension.schedules` is a function, the loader calls it and `cronRunner.register(name, schedule)` for each item. Failures non-fatal (logged + extension still loaded).
+  - `unload(name)` adds `cronRunner.unregisterAll(name)` alongside the other registry cleanups.
+  - `reRegisterExtension` re-registers schedules on hot-reload.
+- `src/index.ts` starts the runner after `flowScheduler.start(db)`, with a base ctx (handlers get the scope-bound ctx via cron-runner internals).
+- Unit tests in [`cron-runner.test.ts`](../packages/engine/src/tests/unit/cron-runner.test.ts) — 14 tests across 3 describe blocks: `computeNextRun` semantics, `register/unregister/list/count/clear`, and `_runOne` execution (single-run success, max-attempts on failure, stop-on-first-success).
+
+**Deliberate omissions from original design** (documented as follow-ups):
+- **Cron expressions** (`'0 3 * * *'` style) — `schedule.cron` is reserved in the type, logged as unsupported at register, and the schedule is skipped. Adding a real cron parser is a separate effort; `intervalMs` + `at` cover the common cases.
+- **Cross-instance coordination** — the runner is in-process. Multiple engine replicas will each run the same schedule. A distributed lock (Valkey or `pg_advisory_lock`) is needed before going multi-node.
+- **`singleton: true` field** — kept in the type for forward compatibility but not enforced.
+- **OTel `trace_id` per run** — the column exists in the table, but the runner doesn't populate it yet. Easy follow-up once the tracing handle is threaded through.
+
+**Acceptance criteria status**:
+- [x] Extension declares an interval schedule; runner invokes the handler.
+- [x] Handler error → row marked `failed` and retried per policy; final failure → `dlq`.
+- [x] Hot-reload re-registers schedules without leaking old entries.
+- [ ] Per-cron `trace_id` propagation — follow-up.
+- [ ] Distributed singleton — follow-up.
 
 ### S2-04 — Entity access (DONE 2026-05-15)
 

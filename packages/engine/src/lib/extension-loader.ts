@@ -32,6 +32,7 @@ import { sendNotification } from './notifications.js';
 import { serviceRegistry } from './service-registry.js';
 import { queryAlterRegistry, type QueryAlterScope } from './query-alter.js';
 import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js';
+import { cronRunner } from './cron-runner.js';
 import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
 import { isPackageAllowed } from './peer-deps-allowlist.js';
 
@@ -1108,6 +1109,22 @@ class ExtensionLoader {
         });
       }
 
+      // Register native schedules (S2-05). Failure here is non-fatal — log
+      // and continue so the extension is otherwise functional.
+      if (typeof extension.schedules === 'function') {
+        try {
+          const schedules = extension.schedules() ?? [];
+          for (const s of schedules) {
+            cronRunner.register(extName, s as any);
+          }
+          if (schedules.length > 0) {
+            console.log(`⏰ Extension "${extName}" registered ${schedules.length} schedule(s)`);
+          }
+        } catch (err) {
+          console.warn(`[cron-runner] failed to read schedules() for "${extName}":`, (err as Error).message);
+        }
+      }
+
       this.loaded.set(extName, {
         name: extName,
         bundleUrl,
@@ -1910,6 +1927,8 @@ class ExtensionLoader {
     queryAlterRegistry.unregisterAll(name);
     // Drop the extension's entity-access checks too, for the same reason.
     entityAccessRegistry.unregisterAll(name);
+    // Drop the extension's scheduled tasks so the runner stops invoking them.
+    cronRunner.unregisterAll(name);
 
     this.loaded.delete(name);
     console.log(`🔌 Extension unloaded from memory: ${name}`);
@@ -1959,6 +1978,19 @@ class ExtensionLoader {
 
     try {
       await extension.register(app, restrictedCtx);
+
+      // Re-register schedules on hot-reload. unregisterAll is idempotent and
+      // we want the new definitions to win.
+      cronRunner.unregisterAll(name);
+      if (typeof extension.schedules === 'function') {
+        try {
+          for (const s of (extension.schedules() ?? [])) {
+            cronRunner.register(name, s as any);
+          }
+        } catch (err) {
+          console.warn(`[cron-runner] schedules() threw on hot-reload of "${name}":`, (err as Error).message);
+        }
+      }
 
       // Re-register Studio bundle route and update cached bundleUrl
       const extBase = resolveExtensionsBase();

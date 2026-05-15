@@ -596,47 +596,75 @@ if (!contact) return c.json({ error: 'Not found' }, 404);
 
 ---
 
-## 9. Cron jobs (v1.0)
+## 9. Cron jobs
 
-Declare scheduled tasks directly on your extension:
+Declare scheduled tasks directly on your extension. The engine's cron
+runner picks them up after `register()` returns and polls every 30 s.
 
 ```typescript
-schedules() {
-  return [{
-    name: 'send-daily-digest',
-    cron: '0 8 * * *',
-    timezone: 'Europe/Bucharest',
-    singleton: true,
-    retry: { maxAttempts: 3, backoff: 'exponential', deadLetterAfter: true },
-    handler: async (ctx, runId) => {
-      const ctx_log = ctx.logger.child({ runId, schedule: 'send-daily-digest' });
-      ctx_log.info('starting digest');
+const ext: ZveltioExtension<DB> = {
+  name: 'communications/mail',
+  category: 'communications',
+  async register(app, ctx) { /* ... */ },
+  schedules() {
+    return [
+      {
+        name: 'send-daily-digest',
+        // Specify ONE timing field:
+        at: { hour: 8, minute: 0 },           // daily at 08:00 (server timezone)
+        // intervalMs: 6 * 60 * 60 * 1000,    // …or every 6 hours
+        retry: { maxAttempts: 3, backoffMs: 5000 },
+        async handler(ctx, runId) {
+          const recipients = await ctx.db.selectFrom('zvd_users')
+            .selectAll()
+            .where('digest_enabled', '=', true)
+            .execute();
 
-      const recipients = await ctx.db.selectFrom('zvd_users')
-        .selectAll()
-        .where('digest_enabled', '=', true)
-        .execute();
-
-      for (const user of recipients) {
-        await ctx.services.get('mail.send')?.({
-          to: user.email,
-          template: 'daily-digest',
-          data: { /* ... */ },
-        });
-      }
-    },
-  }];
-}
+          for (const user of recipients) {
+            await ctx.services.get('mail.send')?.({
+              to: user.email,
+              template: 'daily-digest',
+              data: { /* ... */ },
+            });
+          }
+        },
+      },
+    ];
+  },
+};
 ```
 
-Key semantics:
-- `cron` accepts standard cron syntax (5 fields).
-- `singleton: true` ensures only one engine instance runs the handler at a
-  time (distributed lock via Valkey).
-- `retry.deadLetterAfter`: after exhausting attempts, the run is marked `dlq`
-  in `zv_extension_schedule_runs`. Admin can replay via Studio.
-- Each run gets its own OTel trace. Use `ctx.logger.child({ runId })` for
-  structured logs.
+Timing options (pick ONE per schedule):
+- **`intervalMs`** — re-runs every N milliseconds.
+- **`at: { hour, minute }`** — runs once a day at HH:MM (server's local
+  timezone).
+- **`cron: 'expr'`** — reserved for cron-expression support. **Not yet
+  supported** — schedules using it are logged as skipped at register
+  time. Use `intervalMs` or `at` instead.
+
+Retry policy:
+- `retry.maxAttempts` (default 1): how many total attempts per fired run.
+- `retry.backoffMs` (default 1000): delay between attempts.
+- Intermediate failures → row in `zv_extension_schedule_runs` with
+  `status='failed'`. Final failure → `status='dlq'` (admin can replay).
+
+Persistence:
+- Every fired run inserts a row in `zv_extension_schedule_runs`:
+  `started_at`, `finished_at`, `status`, `attempt`, `error_message`. Query
+  this table to audit / debug.
+
+**Scope today** (deliberately limited):
+- **Single-engine only.** Multiple engine replicas will each run the same
+  schedule — distributed coordination is a follow-up.
+- **`singleton: true`** on a schedule is accepted in the type but not yet
+  enforced cross-instance.
+- **OTel `trace_id`** is reserved in the table but the runner does not yet
+  emit it.
+
+Hot-reload:
+- On `extension dev`, edited schedules are re-registered automatically when
+  the extension reloads. The old entries are dropped first to avoid
+  duplicates.
 
 ---
 
