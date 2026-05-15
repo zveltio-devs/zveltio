@@ -73,6 +73,31 @@ export interface ExtensionContext {
    */
   entityAccess: EntityAccessScope;
 
+  /**
+   * Register a route on the engine's GLOBAL app, outside the extension's
+   * `/ext/<name>/` namespace. Use sparingly — most routes should live on
+   * the sub-app provided to `register()`. Valid cases:
+   *
+   *   - Public CDN-style endpoints with stable user-facing URLs
+   *     (e.g. `/share/:token` for shared file links).
+   *   - User-deployed handlers whose path shape is dictated by the user
+   *     (e.g. `/api/fn/:name` for edge functions).
+   *
+   * Extensions on `mountStrategy: 'subapp'` use this to keep specific
+   * routes at fixed root-relative paths even though the rest of the
+   * extension lives under `/ext/<name>/`. Public routes are re-registered
+   * on each engine rebuild — disabling the extension makes them disappear
+   * just like sub-app routes.
+   *
+   * @example
+   *   ctx.registerPublicRoute({
+   *     method: 'GET',
+   *     path: '/share/:token',
+   *     handler: async (c) => { ... },
+   *   });
+   */
+  registerPublicRoute(spec: PublicRouteSpec): void;
+
   // ─── Engine-internal helpers (for official extensions) ───────────────────────
   // These expose deep engine functionality to first-party extensions.
   // Third-party extensions should rely on the stable API above instead.
@@ -295,6 +320,19 @@ export interface ExtensionSchedule {
   retry?: { maxAttempts?: number; backoffMs?: number };
   /** Reserved — single-engine assumption today. Documented behaviour. */
   singleton?: boolean;
+}
+
+/**
+ * Spec for a route registered on the engine's global app via
+ * `ctx.registerPublicRoute()`. See the `registerPublicRoute` field on
+ * `ExtensionContext` for usage guidance.
+ */
+export interface PublicRouteSpec {
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD' | 'ALL';
+  /** Absolute path on the global app, e.g. `'/share/:token'`. */
+  path: string;
+  /** Hono handler — receives the Context, returns a Response (or via c.json). */
+  handler: (c: any) => any;
 }
 
 /**

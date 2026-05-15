@@ -17,7 +17,7 @@
 
   async function load() {
     try {
-      const r = await api.get<{ data?: any[]; entries?: any[] }>(`/api/cloud/files?path=${encodeURIComponent(path)}`);
+      const r = await api.get<{ data?: any[]; entries?: any[] }>(`/ext/storage/cloud/files?path=${encodeURIComponent(path)}`);
       entries = r.data ?? r.entries ?? [];
     } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
   }
@@ -33,7 +33,7 @@
         const fd = new FormData();
         fd.append('file', f);
         fd.append('path', path);
-        const r = await fetch(`${ENGINE_URL}/api/cloud/upload`, { method: 'POST', credentials: 'include', body: fd });
+        const r = await fetch(`${ENGINE_URL}/ext/storage/cloud/upload`, { method: 'POST', credentials: 'include', body: fd });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Upload failed');
       }
       await load();
@@ -45,7 +45,7 @@
   async function deleteEntry(e: any) {
     if (!confirm(`Delete ${e.name}?`)) return;
     try {
-      await api.delete(`/api/cloud/files/${encodeURIComponent(e.id ?? e.path)}`);
+      await api.delete(`/ext/storage/cloud/files/${encodeURIComponent(e.id ?? e.path)}`);
       await load();
     } catch (err: any) { toast.error(err?.message ?? 'Error'); }
   }
@@ -55,7 +55,7 @@
   async function createShare() {
     if (!selected) return;
     try {
-      const r = await api.post<{ share_url?: string; token?: string }>('/api/cloud/shares', { file_id: selected.id, ...shareForm });
+      const r = await api.post<{ share_url?: string; token?: string }>('/ext/storage/cloud/shares', { file_id: selected.id, ...shareForm });
       shareUrl = r.share_url ?? `${ENGINE_URL}/share/${r.token}`;
     } catch (e: any) { toast.error(e?.message ?? 'Error'); }
   }
@@ -113,7 +113,7 @@
                   {#if isFolder(e)}
                     <button class="link link-hover text-sm" onclick={() => navigate(`${path === '/' ? '' : path}/${e.name}`)}>{e.name}</button>
                   {:else}
-                    <a class="link link-hover text-sm" href="{ENGINE_URL}/api/cloud/files/{e.id ?? encodeURIComponent(e.path)}/download" target="_blank">{e.name}</a>
+                    <a class="link link-hover text-sm" href="{ENGINE_URL}/ext/storage/cloud/files/{e.id ?? encodeURIComponent(e.path)}/download" target="_blank">{e.name}</a>
                   {/if}
                 </td>
                 <td class="text-right text-xs">{isFolder(e) ? '—' : fmtBytes(Number(e.size_bytes ?? e.size ?? 0))}</td>

@@ -99,4 +99,28 @@ describe('S3-01: sub-app mount semantics', () => {
     expect(await (await outer.request('/ext/forms')).text()).toBe('forms');
     expect(await (await outer.request('/ext/sms/messages')).text()).toBe('sms messages');
   });
+
+  it('public escape-hatch route lives outside /ext/<name> on the global app', async () => {
+    // Mirrors what registerPublicRoute does internally: extension's sub-app
+    // is mounted at /ext/<name>, but the engine also registers a route
+    // directly on the outer app at a fixed path (e.g. /share/:token).
+    const subApp = new Hono();
+    subApp.get('/files', (c) => c.json({ files: [] }));
+
+    const outer = new Hono();
+    outer.route('/ext/storage/cloud', subApp);
+    // Simulate registerPublicRoute({ method: 'GET', path: '/share/:token', ... })
+    outer.get('/share/:token', (c) => c.json({ token: c.req.param('token'), public: true }));
+
+    // Sub-app routes work as before.
+    expect((await outer.request('/ext/storage/cloud/files')).status).toBe(200);
+
+    // Public route reachable at the global path, NOT under /ext/.
+    const res = await outer.request('/share/abc123');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ token: 'abc123', public: true });
+
+    // And not at the would-be sub-app path.
+    expect((await outer.request('/ext/storage/cloud/share/abc123')).status).toBe(404);
+  });
 });

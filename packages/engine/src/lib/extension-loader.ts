@@ -790,6 +790,13 @@ export interface ExtensionContext {
   /** Entity-access registry — see entity-access.ts. Per-record allow/deny
    * callbacks; first deny wins across all extensions. */
   entityAccess: EntityAccessScope;
+  /** Escape hatch for routes on the engine's global app (outside /ext/<name>).
+   * See SDK `registerPublicRoute` JSDoc for usage and trade-offs. */
+  registerPublicRoute: (spec: {
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD' | 'ALL';
+    path: string;
+    handler: (c: any) => any;
+  }) => void;
   internals: ExtensionInternals;
 }
 
@@ -1132,6 +1139,25 @@ class ExtensionLoader {
         services: serviceRegistry.scope(extName),
         queryAlter: queryAlterRegistry.scope(extName),
         entityAccess: entityAccessRegistry.scope(extName),
+        // Escape hatch: extensions on `mountStrategy: 'subapp'` may need a few
+        // routes outside the `/ext/<name>/` namespace (public CDN links, dynamic
+        // user-deployed endpoints). registerPublicRoute mounts them on the
+        // global `app` directly. They disappear on the next rebuild like every
+        // other extension route, so disable still works correctly.
+        registerPublicRoute: (spec) => {
+          const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
+          const fn = (app as any)[m];
+          if (typeof fn !== 'function') {
+            console.warn(`[extension-loader] ${extName} requested unsupported HTTP method "${spec.method}" — skipped`);
+            return;
+          }
+          try {
+            fn.call(app, spec.path, spec.handler);
+            console.log(`🛣️  Extension "${extName}" registered public route: ${spec.method} ${spec.path}`);
+          } catch (err) {
+            console.warn(`[extension-loader] ${extName} public route ${spec.method} ${spec.path} failed:`, (err as Error).message);
+          }
+        },
         internals: ctx.internals,
       };
 
@@ -2042,6 +2068,16 @@ class ExtensionLoader {
       services:        serviceRegistry.scope(name),
       queryAlter:      queryAlterRegistry.scope(name),
       entityAccess:    entityAccessRegistry.scope(name),
+      registerPublicRoute: (spec) => {
+        const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
+        const fn = (app as any)[m];
+        if (typeof fn !== 'function') {
+          console.warn(`[extension-loader] ${name} requested unsupported HTTP method "${spec.method}" — skipped`);
+          return;
+        }
+        try { fn.call(app, spec.path, spec.handler); }
+        catch (err) { console.warn(`[extension-loader] ${name} public route ${spec.method} ${spec.path} failed:`, (err as Error).message); }
+      },
       internals:       this.ctx.internals,
     };
 
