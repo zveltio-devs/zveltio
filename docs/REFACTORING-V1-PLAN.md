@@ -76,7 +76,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S2-02 | Migrate all core write paths through `writeWithHooks()` wrapper | 2 | 1d | DONE-PARTIAL (8ac9791 — bulk + single-record routes; RestrictedDb writes follow-up) |
 | S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE-PARTIAL (8ac9791 — Kysely sites; `dynamicSelect` raw-SQL list path follow-up) |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (c463ee4) |
-| S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | DONE-PARTIAL (uncommitted — `intervalMs` + `at` shipped; full cron expr + cross-instance lock are follow-ups) |
+| S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | DONE-PARTIAL (f2c5581 — `intervalMs` + `at` shipped; full cron expr + cross-instance lock are follow-ups) |
 | S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | TODO |
 | S3-02 | `registerFormAlter()` — Studio form modification API | 3 | 2d | TODO |
 | S3-03 | `registerSlot()` — Studio composition slots | 3 | 1d | TODO |
