@@ -77,7 +77,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S2-03 | `hook_query_alter` — extensions can attach global filters | 2 | 1d | DONE-PARTIAL (8ac9791 — Kysely sites; `dynamicSelect` raw-SQL list path follow-up) |
 | S2-04 | `hook_entity_access` — per-record authorization callbacks | 2 | 1d | DONE (c463ee4) |
 | S2-05 | Native cron in `ZveltioExtension.schedules()` + DLQ + tracing | 2 | 2d | DONE-PARTIAL (f2c5581 — `intervalMs` + `at` shipped; full cron expr + cross-instance lock are follow-ups) |
-| S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | IN-PROGRESS — foundation + 13/47 extensions migrated (1907f72 + 042eaf5 pilots; 7a46316 + dedf9e6 batch 1). Remaining 34. |
+| S3-01 | Per-extension Hono subapp with dynamic mount/unmount | 3 | 1d | IN-PROGRESS — foundation + 38/47 extensions migrated. Pilots 042eaf5; batch 1 7a46316 + dedf9e6; batch 2 3e4ae19 + 2251b6c. Remaining: 6 outliers (ai, crm, storage/cloud, page-builder, edge-functions, traceability) + 2 UI-only (content/pdf-viewer, developer/views). |
 | S3-02 | `registerFormAlter()` — Studio form modification API | 3 | 2d | TODO |
 | S3-03 | `registerSlot()` — Studio composition slots | 3 | 1d | TODO |
 | S3-04 | License rotation API | 3 | 0.5d | TODO |
@@ -1231,8 +1231,9 @@ Pending (45), grouped by complexity:
 |---|---|---|---|
 | Pilots | 2 | `forms`, `sms` | DONE (042eaf5) |
 | 1 — clean sub-router | 13 | `auth/ldap`, `auth/saml`, `analytics/quality`, `billing`, `compliance/gdpr`, `compliance/ro/*` (5), `data/export`, `data/import`, `search` | DONE (7a46316 + dedf9e6) |
-| 2 — clean sub-router with Studio | ~25 | `communications/mail`, `content/{document-templates,documents,drafts,media}`, `developer/{api-docs,byod,database,graphql,validation}`, `ecommerce/store`, `finance/*` (6), `geospatial/postgis`, `hr/*` (4), `i18n/translations`, `integrations/api-connector`, `operations/{assets,inventory,pos}`, `projects/{helpdesk,management}`, `workflow/{approvals,checklists}` | TODO |
+| 2 — clean sub-router with Studio | 25 | `communications/mail`, `content/{document-templates,documents,drafts,media}`, `developer/{api-docs,byod,database,graphql,validation}`, `ecommerce/store`, `finance/*` (6), `geospatial/postgis`, `hr/*` (4), `i18n/translations`, `integrations/api-connector`, `operations/{assets,inventory,pos}`, `projects/{helpdesk,management}`, `workflow/{approvals,checklists}` | DONE (3e4ae19 + 2251b6c) |
 | 3 — outliers | 6 | `ai`, `crm`, `storage/cloud`, `content/page-builder`, `developer/edge-functions`, `operations/traceability` | TODO |
+| UI-only (no engine) | 2 | `content/pdf-viewer`, `developer/views` | N/A (no migration needed) |
 
 #### Outlier strategies (decisions documented for future sessions)
 
