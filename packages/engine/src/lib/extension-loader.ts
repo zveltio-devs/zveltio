@@ -2130,6 +2130,63 @@ class ExtensionLoader {
     _reloadCallback = fn;
   }
 
+  /**
+   * Dev-only: drop the cached module + scoped state for `name`, then trigger
+   * a full app rebuild. The rebuild's `loadExtension` re-imports with the
+   * cache-buster query string, picking up edits on disk. Returns the load
+   * status so the `zveltio extension dev` watcher can surface failures back
+   * to the developer's terminal instead of leaving the engine running on
+   * stale code.
+   *
+   * Scope-cleanup matches what `disable` does:
+   *   - module cache, loaded map, lastLoadError
+   *   - serviceRegistry, queryAlterRegistry, entityAccessRegistry
+   *   - cronRunner schedules
+   *
+   * NOT cleaned (intentionally): migrations already applied. SQL changes
+   * still require an explicit migration file — this method only re-imports
+   * `engine/index.ts`.
+   */
+  async reloadExtensionFromDisk(name: string): Promise<{ ok: boolean; error?: string }> {
+    if (!this.modules.has(name) && !this.loaded.has(name)) {
+      return { ok: false, error: `extension "${name}" is not currently loaded — restart the engine first` };
+    }
+    this.modules.delete(name);
+    this.loaded.delete(name);
+    this.lastLoadError.delete(name);
+    serviceRegistry.unregisterAll(name);
+    queryAlterRegistry.unregisterAll(name);
+    entityAccessRegistry.unregisterAll(name);
+    cronRunner.unregisterAll(name);
+    await triggerReload(`dev-reload:${name}`);
+    if (this.lastLoadError.has(name)) {
+      return { ok: false, error: this.lastLoadError.get(name)! };
+    }
+    return this.isActive(name)
+      ? { ok: true }
+      : { ok: false, error: 'extension failed to load — check engine logs' };
+  }
+
+  /**
+   * Dev-only HTTP endpoint mounted in non-production. The CLI's
+   * `zveltio extension dev` watcher POSTs `{ name }` here to ask the engine
+   * to re-import an extension's source. No auth — same trust boundary as
+   * the dev server itself (only listens when `NODE_ENV !== 'production'`).
+   */
+  registerDevEndpoints(app: Hono): void {
+    if (process.env.NODE_ENV === 'production') return;
+    app.post('/__zveltio_dev_reload', async (c) => {
+      let body: any;
+      try { body = await c.req.json(); }
+      catch { return c.json({ error: 'body must be JSON' }, 400); }
+      const name = typeof body?.name === 'string' ? body.name.trim() : '';
+      if (!name) return c.json({ error: 'name is required' }, 400);
+      const result = await this.reloadExtensionFromDisk(name);
+      return c.json(result, result.ok ? 200 : 500);
+    });
+    console.log('🛠️  Dev reload endpoint mounted at POST /__zveltio_dev_reload (NODE_ENV != production)');
+  }
+
   getActive(): string[] {
     return [...this.loaded.keys()];
   }

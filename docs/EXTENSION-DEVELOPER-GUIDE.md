@@ -99,12 +99,48 @@ content/my-feature/
 ### Run in development
 
 ```bash
-cd content/my-feature/
+# Terminal 1: keep the engine running. The dev command attaches to it; it
+# does not start the engine itself.
+cd packages/engine && bun run dev
+
+# Terminal 2: watch your extension.
+cd zveltio-extensions/content/my-feature
 zveltio extension dev
-# (v1.0) — watches both engine/ and studio/ with hot-reload
 ```
 
+`zveltio extension dev` does two things:
+
+- **Engine watch**: per-file `fs.watch` over `engine/**/*.{ts,js,sql}`. On
+  change, debounces 250ms and POSTs `{ name }` to
+  `http://localhost:3000/__zveltio_dev_reload`. The engine drops the
+  cached module + scoped state (services, queryAlter, entityAccess, cron)
+  and re-imports with a cache-buster — your next request hits the new
+  code without an engine restart.
+- **Studio dev**: forwards `studio/` to `bun run dev` (vite). The browser
+  gets HMR via vite-plugin-svelte. Skip with `--no-studio` if you're only
+  iterating on backend code.
+
 Open `http://localhost:3000/admin/my-feature` to see your Studio page.
+
+Flags:
+
+```bash
+zveltio extension dev --url http://localhost:3001    # custom engine URL
+zveltio extension dev --name communications/mail     # if cwd lacks manifest
+zveltio extension dev --no-studio                    # engine watch only
+```
+
+Limits (intentional):
+
+- **The engine must already be running and have the extension active.**
+  Reload re-imports the source; it doesn't enable a never-loaded
+  extension. Toggle in Studio's `/admin/extensions` first.
+- **Migration changes (SQL files under `engine/migrations/`) still need a
+  reinstall.** The watcher only re-imports `engine/index.ts`. Add a new
+  numbered migration file, then disable/enable the extension to apply it.
+- **Endpoint is dev-only.** `POST /__zveltio_dev_reload` is skipped when
+  `NODE_ENV=production`. If you see HTTP 404 from the dev probe, check
+  the engine's env.
 
 ---
 
@@ -945,39 +981,40 @@ bun test routes    # only files matching "routes"
 
 ## 12. Local development loop
 
-### The `dev` command (v1.0)
+### The `dev` command
 
 ```bash
-cd zveltio-extensions/content/my-feature/
+# Terminal 1 — keep the engine running.
+cd packages/engine && bun run dev
+
+# Terminal 2 — watch your extension.
+cd zveltio-extensions/content/my-feature
 zveltio extension dev
 ```
 
-This runs:
-1. `bun --watch engine/index.ts` — restarts engine module on engine code
-   change, signals `POST /__zveltio_dev_reload` to reload extension.
-2. `cd studio && bun run dev` — Vite watch on Studio components.
-3. HMR signaling between the two so a Studio component referencing new engine
-   types picks up changes.
+Two concurrent loops:
 
-### Today's workaround (alpha.80)
+1. **Engine watch** — per-file `fs.watch` over `engine/**/*.{ts,js,sql}`,
+   debounced 250ms. On change, POSTs `{ name }` to
+   `<engine>/__zveltio_dev_reload`. The engine clears the cached module +
+   scoped state (services, queryAlter, entityAccess, cron schedules) and
+   re-imports via the existing cache-buster query string. Next request
+   hits the new code; no engine restart.
+2. **Studio watch** — runs `bun run dev` inside `studio/`. Vite handles
+   browser HMR; the CLI just keeps the process alive. Skip with
+   `--no-studio` when you're only touching backend code.
 
-Until `dev` is complete, the manual loop:
+The endpoint is gated behind `NODE_ENV !== 'production'`. If `zveltio
+extension dev` exits with "Engine returned 404 on
+`/__zveltio_dev_reload`", the engine was started with NODE_ENV=production
+— restart it without that env.
 
-```bash
-# Terminal 1: engine
-cd packages/engine
-bun --watch src/index.ts
+Migration changes (new SQL under `engine/migrations/`) still require a
+reinstall: the watcher only re-imports `engine/index.ts`. Toggle the
+extension off and on in `/admin/extensions` to apply a new migration.
 
-# Terminal 2: Studio
-cd packages/studio
-bun run dev
-
-# Terminal 3: extension Studio
-cd zveltio-extensions/content/my-feature/studio
-bun run dev
-```
-
-Symlink your extension into the engine's extensions directory if needed.
+Symlink your extension into the engine's extensions directory if needed
+(or set `ZVELTIO_EXTENSIONS_PATH` to your extension repo).
 
 ### Debugging
 

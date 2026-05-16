@@ -9,6 +9,7 @@ import { extensionCommand } from './commands/extension.js';
 import { extensionTypesCommand } from './commands/extension-types.js';
 import { extensionValidateCommand } from './commands/extension-validate.js';
 import { extensionPublishCommand } from './commands/extension-publish.js';
+import { extensionDevCommand } from './commands/extension-dev.js';
 import { keysGenerateCommand, keysListCommand, keysExportCommand } from './commands/keys.js';
 import { generateTypesCommand } from './commands/generate-types.js';
 import { installCommand } from './commands/install.js';
@@ -184,8 +185,12 @@ ext
 
 ext
   .command('dev')
-  .description('Start extension dev server with hot reload')
-  .action(() => extensionCommand('dev', '', {}));
+  .description('Watch engine/ + studio/, hot-reload the running engine on changes (S4-03)')
+  .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .option('--url <url>', 'Engine URL (env: ZVELTIO_ENGINE_URL)', 'http://localhost:3000')
+  .option('--name <name>', 'Extension name (default: read from manifest.json)')
+  .option('--no-studio', 'Skip the Studio dev process (engine watch only)')
+  .action((opts) => extensionDevCommand(opts));
 
 ext
   .command('publish')
