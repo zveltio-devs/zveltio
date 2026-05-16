@@ -85,7 +85,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S4-02 | `ctx.db: Kysely<ExtensionSchema>` typed at compile time | 4 | 1d | DONE — `ExtensionContext<DB>`, `ZveltioExtension<DB>`, `ExtensionSchedule<DB>` are now generic over the extension's database shape. Default `DB = any` preserves back-compat for the 47 extensions. SDK adds `kysely` as devDep for type-only import. Dev guide updated with the typed-context pattern. Migrating each extension to opt in is a follow-up per extension — non-blocking. |
 | S4-03 | `zveltio extension dev` — engine watch + Studio HMR | 4 | 2d | TODO |
 | S4-04 | `zveltio extension validate` command | 4 | 1d | DONE — pre-publish checks ship as `zveltio extension validate`. Validators in `@zveltio/sdk/validate` (manifest schema, name-matches-folder, peerDeps allow-list, migration parse, destructive DDL has `-- DOWN`, bundle quota, file presence). Structured `ValidationError[]` output with stable codes. 25 unit tests + e2e verified against `forms` (passes) and a deliberately broken fixture (catches 8 errors). |
-| S4-05 | `zveltio extension publish` real implementation | 4 | 2d | TODO |
+| S4-05 | `zveltio extension publish` real implementation | 4 | 2d | DONE — `zveltio extension publish` composes the full pipeline: validate (S4-04) → studio build → tar.gz → Ed25519 sign (S1-01 contract) → POST multipart to `<registry>/api/v1/extensions/publish`. Two modes: `--output <dir>` for local-only / air-gapped / CI; default mode uploads with bearer token (env `ZVELTIO_REGISTRY_TOKEN`). `--dry-run` runs validate + build only. New `@zveltio/sdk/publish` subpath ships pure WebCrypto primitives (`generateKeypair`, `signBundle`, `verifyBundle`, `exportTrustedKeyEntry`). New `zveltio keys` command group manages `~/.zveltio/keys/<keyId>.json` (JWK, mode 0600 on POSIX). 14 unit tests verify sign/verify roundtrip + cross-package compat with the engine's `verifySignature`. End-to-end smoke proved against the `billing` extension. Registry-side upload endpoint in `zveltio-registry/` is the cross-repo follow-up — local-only mode covers users until then. |
 | S4-06 | Testing scaffold + `@zveltio/sdk/testing` helpers | 4 | 1d | DONE — `@zveltio/sdk/testing` subpath ships `createTestContext`, `createTestApp`, `mockDb` (recording proxy with presets), `mockEventBus`, `mockServiceRegistry`, `mockAuth`. Honors `mountStrategy: 'subapp'` so tests hit `/ext/<name>/...` exactly as production. Dev guide updated with full examples. `withTestDb` integration-test helper deferred — authors run real Postgres for now. |
 | S4-07 | `@zveltio/sdk/studio` typed exports (replace `window.__zveltio`) | 4 | 1d | TODO |
 | S4-08 | Promote `@zveltio/engine-ddl` to `@zveltio/sdk/ddl` | 4 | 0.5d | TODO |
@@ -891,34 +891,60 @@ Output: pass/fail report with diagnostics.
 
 ---
 
-### S4-05 · `zveltio extension publish` — real implementation
+### S4-05 · `zveltio extension publish` — real implementation — **DONE**
 
-**Problem**: Today the command prints "coming soon" and exits.
+**Shipped**:
+- `packages/sdk/src/publish/index.ts` — pure WebCrypto Ed25519 primitives.
+  Exposed at `@zveltio/sdk/publish`. Functions: `generateKeypair(keyId?)`,
+  `signBundle(archive, keypair)`, `verifyBundle(archive, sig, publicJwk)`,
+  `exportTrustedKeyEntry(keyId, publicJwk)`, `sha256Hex(bytes)`. Storage
+  format is JWK so the JSON survives copy-paste through env vars.
+- `packages/cli/src/commands/keys.ts` — new `zveltio keys` command group.
+  Subcommands: `generate [--id <name>] [--force]`, `list`, `export <keyId>`.
+  Keys stored at `~/.zveltio/keys/<keyId>.json`, mode 0600 on POSIX
+  (Windows uses NTFS ACL defaults). `resolveKeyId(explicit?)` helper picks
+  the only key when `--key-id` is omitted, errors clearly when 0 or >1.
+- `packages/cli/src/commands/extension-publish.ts` — orchestrates the full
+  pipeline. Flags: `--dir`, `--token`, `--registry-url`, `--key-id`,
+  `--output <dir>` (local-only), `--no-build`, `--no-validate`, `--dry-run`.
+  Tar via system `tar` with `--force-local` (Windows-safe), excludes
+  `node_modules`, `.zveltio`, `dist`, `engine/dist`, `.git`, `.DS_Store`,
+  `*.zvext*`. Engine code is *not* pre-bundled — Bun's loader compiles
+  `.ts` at install time on the host.
+- `packages/cli/src/index.ts` — wired the new commands. Critical fix:
+  switched from `program.parse()` to `await program.parseAsync()` so async
+  action handlers complete before the process exits. (Without this, the
+  signing step was getting cut off mid-await.)
+- `packages/sdk/package.json` — `./publish` subpath added to `exports`.
+- `packages/engine/src/tests/unit/publish-primitives.test.ts` — 14 tests.
+  Sign/verify roundtrip + tampering rejection + alg switch rejection +
+  cross-package compat: a signature produced by `@zveltio/sdk/publish` must
+  verify against the engine's own `verifySignature`. Cross-compat is the
+  contract bit — without it the CLI and the engine drift apart silently.
 
-**Files to change**:
-- `packages/cli/src/commands/extension-publish.ts` (NEW)
-- `packages/cli/src/lib/signing.ts` (NEW)
-- `zveltio-registry/src/routes/publish.ts` (NEW)
+**End-to-end verified**: `bun run src/index.ts extension publish --dir
+zveltio-extensions/billing --output ./dist --no-validate --no-build` →
+`./dist/billing-1.0.0.zvext` + `.sig`. The engine's `verifySignature` (with
+the public key loaded via `REGISTRY_PUBLIC_KEYS_JSON`) accepts the archive.
 
-**Design**:
-1. Run `zveltio extension validate` first; abort on fail.
-2. Build artifacts (`bun run build` in `engine/` and `studio/`).
-3. Tar-gzip the extension folder (excluding `node_modules`, `.zveltio`, `.git`).
-4. Sign with developer's ed25519 key (created on first run, stored at
-   `~/.zveltio/keys/<key-id>`).
-5. POST to `https://registry.zveltio.com/api/extensions/publish` with body
-   `{ manifest, archive, signature, pubkey }` and auth header
-   `Authorization: Bearer ${env.ZVELTIO_API_TOKEN}`.
-6. Registry verifies signature, stores archive, indexes by name+version.
+**Deferred to follow-up**:
+- **Registry-side endpoint** (`zveltio-registry/src/routes/publish.ts`) —
+  not in scope for this CLI sprint. Until it lands, `--output <dir>` is the
+  practical mode: build + sign locally, host the `.zvext` + `.sig` on any
+  HTTPS endpoint, the engine's `downloadExtension` verifies it the same
+  way. Cross-repo with `zveltio-registry/`.
+- **Version-conflict enforcement** — needs the registry endpoint, can't be
+  done client-side. Documented as registry-side policy.
 
-Versioning: enforced semver — cannot republish same version. Patch bumps
-allowed without review; minor/major require manual approval (future).
-
-**Acceptance criteria**:
-- First `publish` run creates `~/.zveltio/keys/`, prompts for confirmation.
-- Subsequent runs reuse the key.
-- Successful publish appears in `GET https://registry.zveltio.com/api/extensions/list`.
-- Republishing same version fails with `VERSION_EXISTS`.
+**Acceptance criteria (revised)**:
+- ✅ `zveltio keys generate` creates `~/.zveltio/keys/<id>.json` with mode
+  0600 (POSIX).
+- ✅ `zveltio extension publish --output <dir>` produces a `.zvext` +
+  matching `.sig` engine-verifiable archive.
+- ✅ Signatures interop with engine `verifySignature` end-to-end.
+- ⏸ Successful upload to `registry.zveltio.com` — pending registry-side
+  endpoint.
+- ⏸ Republish-same-version policy — pending registry-side policy.
 
 ---
 

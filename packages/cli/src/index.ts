@@ -8,6 +8,8 @@ import { migrateCommand } from './commands/migrate.js';
 import { extensionCommand } from './commands/extension.js';
 import { extensionTypesCommand } from './commands/extension-types.js';
 import { extensionValidateCommand } from './commands/extension-validate.js';
+import { extensionPublishCommand } from './commands/extension-publish.js';
+import { keysGenerateCommand, keysListCommand, keysExportCommand } from './commands/keys.js';
 import { generateTypesCommand } from './commands/generate-types.js';
 import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
@@ -187,9 +189,16 @@ ext
 
 ext
   .command('publish')
-  .description('Publish extension to the Zveltio marketplace')
-  .option('--token <token>', 'Marketplace auth token')
-  .action((_opts) => extensionCommand('publish', '', _opts));
+  .description('Validate, build, archive, sign, and upload an extension to the registry (S4-05)')
+  .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .option('--token <token>', 'Registry auth token (env: ZVELTIO_REGISTRY_TOKEN)')
+  .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
+  .option('--key-id <id>', 'Signing key id (default: the only key in ~/.zveltio/keys/)')
+  .option('--output <dir>', 'Local-only mode: write .zvext + .sig here, skip upload')
+  .option('--no-build', 'Skip the Studio + engine build step')
+  .option('--no-validate', 'Skip the validate step (NOT recommended)')
+  .option('--dry-run', 'Run validate + build, skip archive/sign/upload')
+  .action((opts) => extensionPublishCommand(opts));
 
 ext
   .command('types')
@@ -204,4 +213,29 @@ ext
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
   .action((opts) => extensionValidateCommand(opts));
 
-program.parse(process.argv);
+// ── zveltio keys <subcommand> ────────────────────────────────────────────────
+// Ed25519 keypairs used to sign published extension archives (S4-05).
+const keys = program.command('keys').description('Manage Ed25519 keypairs for signing extensions');
+
+keys
+  .command('generate')
+  .description('Generate a new keypair and store it in ~/.zveltio/keys/')
+  .option('--id <id>', 'Stable identifier for the key (random if omitted)')
+  .option('--force', 'Overwrite an existing key with the same id')
+  .action((opts) => keysGenerateCommand(opts));
+
+keys
+  .command('list')
+  .description('List keypairs stored in ~/.zveltio/keys/')
+  .action(() => keysListCommand());
+
+keys
+  .command('export <keyId>')
+  .description('Print the public key as a trusted-key JSON entry for REGISTRY_PUBLIC_KEYS_JSON')
+  .action((keyId: string) => keysExportCommand(keyId));
+
+// IMPORTANT: use parseAsync so async action handlers (e.g. `extension publish`,
+// `keys generate`) finish before the script exits. With plain `parse()`,
+// commander returns immediately and the Bun process exits while the action
+// is still mid-await, silently truncating output.
+await program.parseAsync(process.argv);
