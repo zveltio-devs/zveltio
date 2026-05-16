@@ -84,7 +84,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S4-01 | DB schema codegen — generate `.d.ts` per extension | 4 | 2d | DONE-PARTIAL — parser + generator + CLI command shipped (next commit). `zveltio extension types` reads `<ext>/engine/migrations/*.sql` and emits `<ext>/.zveltio/db.d.ts`. Generic `ZveltioExtension<DB>` → `ctx.db: Kysely<DB>` propagation (S4-02) + migrating 47 extensions to use the generated types is the next iteration. |
 | S4-02 | `ctx.db: Kysely<ExtensionSchema>` typed at compile time | 4 | 1d | DONE — `ExtensionContext<DB>`, `ZveltioExtension<DB>`, `ExtensionSchedule<DB>` are now generic over the extension's database shape. Default `DB = any` preserves back-compat for the 47 extensions. SDK adds `kysely` as devDep for type-only import. Dev guide updated with the typed-context pattern. Migrating each extension to opt in is a follow-up per extension — non-blocking. |
 | S4-03 | `zveltio extension dev` — engine watch + Studio HMR | 4 | 2d | TODO |
-| S4-04 | `zveltio extension validate` command | 4 | 1d | TODO |
+| S4-04 | `zveltio extension validate` command | 4 | 1d | DONE — pre-publish checks ship as `zveltio extension validate`. Validators in `@zveltio/sdk/validate` (manifest schema, name-matches-folder, peerDeps allow-list, migration parse, destructive DDL has `-- DOWN`, bundle quota, file presence). Structured `ValidationError[]` output with stable codes. 25 unit tests + e2e verified against `forms` (passes) and a deliberately broken fixture (catches 8 errors). |
 | S4-05 | `zveltio extension publish` real implementation | 4 | 2d | TODO |
 | S4-06 | Testing scaffold + `@zveltio/sdk/testing` helpers | 4 | 1d | TODO |
 | S4-07 | `@zveltio/sdk/studio` typed exports (replace `window.__zveltio`) | 4 | 1d | TODO |

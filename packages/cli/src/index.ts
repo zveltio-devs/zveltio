@@ -7,6 +7,7 @@ import { deployCommand } from './commands/deploy.js';
 import { migrateCommand } from './commands/migrate.js';
 import { extensionCommand } from './commands/extension.js';
 import { extensionTypesCommand } from './commands/extension-types.js';
+import { extensionValidateCommand } from './commands/extension-validate.js';
 import { generateTypesCommand } from './commands/generate-types.js';
 import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
@@ -196,5 +197,11 @@ ext
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
   .option('--output <path>', 'Output file path (default: <dir>/.zveltio/db.d.ts)')
   .action((opts) => extensionTypesCommand(opts));
+
+ext
+  .command('validate')
+  .description('Pre-publish checks: manifest schema, peerDeps allow-list, migrations parse, destructive DDL has DOWN, bundle quota (S4-04)')
+  .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .action((opts) => extensionValidateCommand(opts));
 
 program.parse(process.argv);
