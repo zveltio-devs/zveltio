@@ -16,6 +16,10 @@
     "./codegen": {
       "types": "./dist/schema-codegen.d.ts",
       "import": "./dist/schema-codegen.js"
+    },
+    "./validate": {
+      "types": "./dist/validate/index.d.ts",
+      "import": "./dist/validate/index.js"
     }
   },
   "files": [
