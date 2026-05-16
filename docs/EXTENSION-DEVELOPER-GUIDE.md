@@ -998,23 +998,106 @@ Symlink your extension into the engine's extensions directory if needed.
 3. Run tests: `bun test`.
 4. Update your `README.md` and `CHANGELOG.md`.
 
-### Publishing (v1.0)
+### Keypair setup (one-time)
+
+The CLI signs every archive with an Ed25519 keypair stored locally. Generate
+one before your first publish:
 
 ```bash
-zveltio extension publish
+zveltio keys generate --id my-publisher-key
 ```
 
-What happens:
-1. Validates manifest + builds.
-2. Generates ed25519 keypair at `~/.zveltio/keys/` if missing.
-3. Tar-gzips the extension (excluding `node_modules`, `.zveltio`, `.git`,
-   `dist`).
-4. Signs the archive.
-5. Uploads to `registry.zveltio.com` with your API token.
+The private half lands in `~/.zveltio/keys/<id>.json` (mode 0600 on POSIX,
+user-only ACL on Windows). The public half prints once — paste it into the
+engine's `REGISTRY_PUBLIC_KEYS_JSON` env (self-hosted installs) or hand it to
+the registry admin. Back up the private file: losing it means re-keying every
+extension you publish.
 
-You need a developer account at `https://developer.zveltio.com` to get an API
-token. First publish requires reviewing the auto-generated keypair (back it
-up).
+To list existing keys:
+
+```bash
+zveltio keys list
+```
+
+To print the public entry again later:
+
+```bash
+zveltio keys export my-publisher-key
+```
+
+### Publishing
+
+```bash
+# Full flow: validate → build → archive → sign → upload to registry.
+zveltio extension publish --token $ZVELTIO_REGISTRY_TOKEN
+```
+
+What happens in order:
+
+1. **Validate** (S4-04) — manifest schema, peerDep allow-list, migrations
+   parse, destructive DDL has DOWN, bundle quota. Same checks as
+   `zveltio extension validate`. Skip with `--no-validate` (only when
+   re-publishing an emergency hotfix; not recommended).
+2. **Build** — runs `bun run build` inside `studio/` if present. Engine code
+   is *not* pre-bundled: the engine loader compiles `.ts` on import at
+   install time. Skip with `--no-build`.
+3. **Archive** — `tar -czf` of the extension folder, excluding
+   `node_modules/`, `.zveltio/`, `dist/`, `engine/dist/`, `.git/`,
+   `.DS_Store`, and any leftover `*.zvext` files.
+4. **Sign** — Ed25519 over `sha256(archive)`. Picks the only key in
+   `~/.zveltio/keys/` automatically, or `--key-id <id>` to override. The
+   resulting `<archive>.sig` envelope mirrors what the engine's
+   `verifySignature` expects (S1-01).
+5. **Upload** — multipart `POST` to
+   `<registry-url>/api/v1/extensions/publish` with the bearer token. Default
+   registry URL: `https://registry.zveltio.com` (override via
+   `--registry-url` or `ZVELTIO_REGISTRY_URL`).
+
+### Local-only mode
+
+For CI, air-gapped deploys, or manual review, skip the upload and write the
+artifacts locally:
+
+```bash
+zveltio extension publish --output ./dist
+# → ./dist/<name>-<version>.zvext
+# → ./dist/<name>-<version>.zvext.sig
+```
+
+The `.zvext` is a plain `.tar.gz`. The `.sig` is the JSON envelope. Upload
+both to your registry of choice — the engine's `downloadExtension` fetches
+the `.sig` as a sibling of the archive URL.
+
+### Dry-run
+
+To exercise the pipeline without producing an archive (e.g., to assert that
+`extension validate` would pass in CI):
+
+```bash
+zveltio extension publish --dry-run
+```
+
+Runs validate + build, then exits cleanly. No archive, no signature, no
+upload.
+
+### Token sources
+
+The registry token is read in this order:
+
+1. `--token <token>` on the command line.
+2. `ZVELTIO_REGISTRY_TOKEN` environment variable.
+
+Missing token → CLI exits with a hint to use `--output` for local-only
+shipping.
+
+### Today's caveat
+
+The upstream `registry.zveltio.com/api/v1/extensions/publish` endpoint is
+still being implemented. Until it lands, `--output <dir>` is the practical
+path: build + sign locally, then upload the resulting `.zvext` + `.sig` to
+any HTTPS host you control. The engine's `downloadExtension` already
+verifies the signature regardless of where the archive is served from, so
+self-hosted registries work today.
 
 ### Version policy
 
