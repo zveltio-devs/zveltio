@@ -170,4 +170,71 @@ describe('CronRunnerImpl — execution via _runOne', () => {
     await (runner as any)._runOne(entry);
     expect(calls).toBe(2);
   });
+
+  // ── S2-05 closure: trace_id propagation ────────────────────────────────
+
+  it('persists a trace_id on insertRun (UUID fallback when OTel is disabled)', async () => {
+    const inserts: Array<Record<string, unknown>> = [];
+    const r = new CronRunnerImpl();
+    (r as any).db = {
+      insertInto: () => ({
+        values: (row: Record<string, unknown>) => {
+          inserts.push(row);
+          return { execute: async () => {} };
+        },
+      }),
+      updateTable: () => ({
+        set: () => ({ where: () => ({ execute: async () => {} }) }),
+      }),
+    };
+    (r as any).ctx = {};
+    const entry: any = {
+      ownerExt: 'ext',
+      schedule: { name: 's', intervalMs: 10_000, handler: async () => {} },
+      nextRunAt: 0,
+      inFlight: true,
+    };
+    await (r as any)._runOne(entry);
+    expect(inserts).toHaveLength(1);
+    const row = inserts[0];
+    // When OTel exporter is not configured, getTracer() returns a no-op
+    // tracer whose span trace_id is all-zeros. Our code substitutes the
+    // run's UUID so the column is still useful for grep.
+    expect(typeof row.trace_id).toBe('string');
+    expect((row.trace_id as string).length).toBeGreaterThan(0);
+    // No-op tracer trace_id is all-zeros; we should NOT have persisted that.
+    expect(row.trace_id).not.toBe('00000000000000000000000000000000');
+  });
+
+  it('writes a fresh trace_id per retry attempt', async () => {
+    const inserts: Array<Record<string, unknown>> = [];
+    const r = new CronRunnerImpl();
+    (r as any).db = {
+      insertInto: () => ({
+        values: (row: Record<string, unknown>) => {
+          inserts.push(row);
+          return { execute: async () => {} };
+        },
+      }),
+      updateTable: () => ({
+        set: () => ({ where: () => ({ execute: async () => {} }) }),
+      }),
+    };
+    (r as any).ctx = {};
+    const entry: any = {
+      ownerExt: 'ext',
+      schedule: {
+        name: 's',
+        intervalMs: 10_000,
+        handler: async () => { throw new Error('always'); },
+        retry: { maxAttempts: 3, backoffMs: 1 },
+      },
+      nextRunAt: 0,
+      inFlight: true,
+    };
+    await (r as any)._runOne(entry);
+    expect(inserts).toHaveLength(3);
+    const traceIds = new Set(inserts.map((row) => row.trace_id as string));
+    expect(traceIds.size).toBe(3);
+  });
 });
