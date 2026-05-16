@@ -513,6 +513,12 @@ async function bootstrap() {
   const db = await initDatabase();
   console.log('✅ Database connected');
 
+  // 1a. Auto-migrate (S4-10) — applies pending migrations under a pg
+  // advisory lock so concurrent replicas don't race. Opt out with
+  // MIGRATIONS_AUTO=false (CI / explicit-control deploys).
+  const { autoMigrate } = await import('./db/auto-migrate.js');
+  await autoMigrate(db);
+
   // 1b. Schema compatibility check — exits if schema is incompatible
   await checkSchemaCompatibility(db);
   console.log(`✅ Zveltio Engine v${ENGINE_VERSION}`);

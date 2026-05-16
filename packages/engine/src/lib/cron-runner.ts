@@ -20,6 +20,8 @@
 
 import type { Database } from '../db/index.js';
 import type { ExtensionContext } from './extension-loader.js';
+import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
+import { getTracer } from './telemetry.js';
 
 export interface ExtensionSchedule {
   /** Unique within the owning extension. Stable across restarts (used as a key). */
@@ -185,23 +187,59 @@ export class CronRunnerImpl {
     const maxAttempts = Math.max(1, policy.maxAttempts);
     const backoffMs = Math.max(0, policy.backoffMs);
 
+    const tracer = getTracer();
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const runId = crypto.randomUUID();
-      try {
-        await this._insertRun(runId, entry.ownerExt, entry.schedule.name, attempt, 'running');
-        await entry.schedule.handler(this.ctx, runId);
-        await this._finishRun(runId, 'ok');
-        return;
-      } catch (err) {
-        const errMsg = (err as Error).message ?? String(err);
-        const isLast = attempt === maxAttempts;
-        await this._finishRun(runId, isLast ? 'dlq' : 'failed', errMsg);
-        console.warn(
-          `[cron-runner] ${entry.ownerExt}::${entry.schedule.name} attempt ${attempt}/${maxAttempts} failed: ${errMsg}`,
-        );
-        if (!isLast && backoffMs > 0) {
-          await Bun.sleep(backoffMs);
-        }
+      // S2-05: wrap each attempt in an OTel span so the handler can
+      // emit child spans that share the trace. The W3C `traceId` we
+      // pluck from the span is what we persist on the run row, so
+      // operators correlate `zv_extension_schedule_runs.trace_id` with
+      // Jaeger/Tempo. With OTel disabled, the no-op span's trace_id is
+      // all-zeros — we fall back to the UUID `runId` so the column is
+      // still useful for grep.
+      const succeeded = await tracer.startActiveSpan(
+        `cron.${entry.ownerExt}.${entry.schedule.name}`,
+        {
+          kind: SpanKind.INTERNAL,
+          attributes: {
+            'cron.extension': entry.ownerExt,
+            'cron.schedule': entry.schedule.name,
+            'cron.attempt': attempt,
+            'cron.max_attempts': maxAttempts,
+            'cron.run_id': runId,
+          },
+        },
+        async (span) => {
+          const spanCtx = span.spanContext();
+          const traceId =
+            spanCtx.traceId && spanCtx.traceId !== '00000000000000000000000000000000'
+              ? spanCtx.traceId
+              : runId;
+          try {
+            await this._insertRun(runId, entry.ownerExt, entry.schedule.name, attempt, 'running', traceId);
+            await entry.schedule.handler(this.ctx!, runId);
+            await this._finishRun(runId, 'ok');
+            span.setStatus({ code: SpanStatusCode.OK });
+            return true;
+          } catch (err) {
+            const errMsg = (err as Error).message ?? String(err);
+            const isLast = attempt === maxAttempts;
+            await this._finishRun(runId, isLast ? 'dlq' : 'failed', errMsg);
+            console.warn(
+              `[cron-runner] ${entry.ownerExt}::${entry.schedule.name} attempt ${attempt}/${maxAttempts} failed: ${errMsg} (trace=${traceId})`,
+            );
+            span.setStatus({ code: SpanStatusCode.ERROR, message: errMsg });
+            span.recordException(err as Error);
+            return false;
+          } finally {
+            span.end();
+          }
+        },
+      );
+      if (succeeded) return;
+      // Failed attempt — back off before retrying, unless this was the last try.
+      if (attempt < maxAttempts && backoffMs > 0) {
+        await Bun.sleep(backoffMs);
       }
     }
   }
@@ -212,6 +250,7 @@ export class CronRunnerImpl {
     scheduleName: string,
     attempt: number,
     status: 'running',
+    traceId?: string,
   ): Promise<void> {
     if (!this.db) return;
     try {
@@ -224,6 +263,7 @@ export class CronRunnerImpl {
           started_at: new Date(),
           status,
           attempt,
+          trace_id: traceId ?? null,
         })
         .execute();
     } catch (err) {
