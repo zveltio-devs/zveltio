@@ -382,14 +382,69 @@ await ctx.DDLManager.createCollection({
 This bypasses the static migration system — it creates tables on demand based
 on user input. Necessary for any extension where the schema is user-defined.
 
-### Generating types from migrations (v1.0)
+### Generating types from migrations
 
 ```bash
 zveltio extension types
 ```
 
-Generates `.zveltio/db.d.ts` from your migrations. Add to `.gitignore`. Re-run
-after every migration edit.
+Generates `.zveltio/db.d.ts` from your `engine/migrations/*.sql` files. The
+output is a Kysely-friendly `export interface ExtensionSchema { ... }` with
+one entry per `CREATE TABLE` you've declared, columns mapped to TypeScript:
+
+```typescript
+// .zveltio/db.d.ts  (auto-generated — do not edit)
+export interface ExtensionSchema {
+  zv_my_items: {
+    id: string;                       // UUID
+    name: string;                     // TEXT
+    metadata: Record<string, unknown>; // JSONB
+    created_at: Date;                 // TIMESTAMPTZ
+  };
+}
+```
+
+Add `.zveltio/` to your `.gitignore` (the monorepo's `.gitignore` already
+covers it). Re-run after every migration edit.
+
+#### Wiring the types into your extension
+
+Pass the schema as a generic to `ZveltioExtension<DB>`. The engine threads
+it through `ctx.db: Kysely<DB>` so `selectFrom(...)` autocompletes table +
+column names and `tsc` flags typos:
+
+```typescript
+import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import type { ExtensionSchema as DB } from './.zveltio/db.js';
+import { join } from 'path';
+import { myFeatureRoutes } from './routes.js';
+
+const extension: ZveltioExtension<DB> = {
+  name: 'category/name',
+  category: 'category',
+  mountStrategy: 'subapp',
+
+  getMigrations() {
+    return [join(import.meta.dir, 'migrations/001_init.sql')];
+  },
+
+  async register(app, ctx) {
+    // ctx.db is Kysely<DB>. The table name is checked against your schema.
+    const rows = await ctx.db
+      .selectFrom('zv_my_items')
+      .select(['id', 'name'])
+      .execute();
+
+    app.route('/', myFeatureRoutes(ctx));
+  },
+};
+
+export default extension;
+```
+
+Migrating an existing extension to typed `ctx.db` is opt-in — the default
+`DB = any` means extensions that don't pass a generic keep compiling
+exactly as before.
 
 ---
 
