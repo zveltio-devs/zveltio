@@ -86,7 +86,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S4-03 | `zveltio extension dev` — engine watch + Studio HMR | 4 | 2d | TODO |
 | S4-04 | `zveltio extension validate` command | 4 | 1d | DONE — pre-publish checks ship as `zveltio extension validate`. Validators in `@zveltio/sdk/validate` (manifest schema, name-matches-folder, peerDeps allow-list, migration parse, destructive DDL has `-- DOWN`, bundle quota, file presence). Structured `ValidationError[]` output with stable codes. 25 unit tests + e2e verified against `forms` (passes) and a deliberately broken fixture (catches 8 errors). |
 | S4-05 | `zveltio extension publish` real implementation | 4 | 2d | TODO |
-| S4-06 | Testing scaffold + `@zveltio/sdk/testing` helpers | 4 | 1d | TODO |
+| S4-06 | Testing scaffold + `@zveltio/sdk/testing` helpers | 4 | 1d | DONE — `@zveltio/sdk/testing` subpath ships `createTestContext`, `createTestApp`, `mockDb` (recording proxy with presets), `mockEventBus`, `mockServiceRegistry`, `mockAuth`. Honors `mountStrategy: 'subapp'` so tests hit `/ext/<name>/...` exactly as production. Dev guide updated with full examples. `withTestDb` integration-test helper deferred — authors run real Postgres for now. |
 | S4-07 | `@zveltio/sdk/studio` typed exports (replace `window.__zveltio`) | 4 | 1d | TODO |
 | S4-08 | Promote `@zveltio/engine-ddl` to `@zveltio/sdk/ddl` | 4 | 0.5d | TODO |
 | S4-09 | Forge `argon2id`-only — expire scrypt legacy hashes | 4 | 0.5d | TODO |
