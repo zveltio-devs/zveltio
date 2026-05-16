@@ -28,6 +28,10 @@
     "./publish": {
       "types": "./dist/publish/index.d.ts",
       "import": "./dist/publish/index.js"
+    },
+    "./studio": {
+      "types": "./dist/studio/index.d.ts",
+      "import": "./dist/studio/index.js"
     }
   },
   "files": [

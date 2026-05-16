@@ -422,7 +422,76 @@ export interface StudioExtensionAPI {
   registerRoute(route: StudioRoute): void;
   registerFieldType(ft: StudioFieldType): void;
   registerAssetPreview(handler: AssetPreviewHandler): void;
+  /**
+   * Register a component into a named slot in core Studio (S3-03).
+   * Slot names are stable strings declared by core (e.g. `dashboard.widgets`,
+   * `collections.list.toolbar`). See the developer guide for the full list.
+   */
+  registerSlot(name: string, contribution: SlotContribution): void;
+  /**
+   * Drupal-style `hook_form_alter` for Studio forms (S3-02). The hook
+   * receives a `form` object with `addField`, `hideField`, `reorder`,
+   * `addValidator`. Form IDs are stable strings (e.g. `core:user-edit`,
+   * `collection:zvd_contacts:edit`).
+   */
+  registerFormAlter(formId: string, hook: FormAlterHook): void;
   engineUrl: string;
+}
+
+/** S3-03: a single slot contribution. */
+export interface SlotContribution {
+  /** Svelte component to render. */
+  component: any;
+  /**
+   * Lower runs first. Default 100. Two contributions with the same
+   * priority render in registration order.
+   */
+  priority?: number;
+  /**
+   * Optional predicate. If returns false, the contribution is skipped.
+   * `ctx` carries whatever the slot host passes (typically `{ user }`).
+   */
+  visible?: (ctx: Record<string, unknown>) => boolean;
+  /** Optional props passed to the component. */
+  props?: Record<string, unknown>;
+}
+
+/** S3-02: signature of a form-alter hook. */
+export type FormAlterHook = (
+  form: FormAlterAPI,
+  ctx: Record<string, unknown>,
+) => void;
+
+/** S3-02: the surface form-alter hooks operate on. */
+export interface FormAlterAPI {
+  addField(spec: { after?: string; before?: string; field: FormField }): void;
+  hideField(name: string): void;
+  reorder(order: string[]): void;
+  addValidator(fieldName: string, validator: (value: unknown) => string | null): void;
+  readonly fields: ReadonlyArray<FormField>;
+}
+
+/** S3-02: minimal form schema shape consumed by alters + renderers. */
+export interface FormSchema {
+  /** Stable form id; matched by `registerFormAlter`. */
+  id: string;
+  /** Fields in render order. */
+  fields: FormField[];
+  /** Free-form metadata renderers may inspect. */
+  meta?: Record<string, unknown>;
+}
+
+/** S3-02: a single form field as seen by alters. */
+export interface FormField {
+  name: string;
+  type: string;
+  label?: string;
+  required?: boolean;
+  hidden?: boolean;
+  options?: Array<string | { value: string; label: string }>;
+  validators?: Array<(value: unknown) => string | null>;
+  /** Anything else the renderer needs. Renderers + alters share this loosely. */
+  [k: string]: unknown;
 }
 
 export interface StudioRoute {

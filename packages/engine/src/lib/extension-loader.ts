@@ -169,6 +169,56 @@ async function getLicenseKey(db: any, extensionName: string): Promise<string | u
   }
 }
 
+// ── License audit helpers (S3-04) ─────────────────────────────────────────────
+// Centralized so all license-modifying handlers share the same audit shape.
+// Errors are swallowed: an audit-write failure must NEVER block the actual
+// rotation/delete. We log to console so ops can still detect missing rows.
+
+interface LicenseAuditRow {
+  action: 'rotate' | 'set' | 'delete';
+  extension_name: string | null;
+  performed_by: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  details?: Record<string, unknown>;
+}
+
+async function writeLicenseAudit(db: any, row: LicenseAuditRow): Promise<void> {
+  try {
+    await db
+      .insertInto('zv_license_audit')
+      .values({
+        action: row.action,
+        extension_name: row.extension_name,
+        performed_by: row.performed_by,
+        ip: row.ip,
+        user_agent: row.user_agent,
+        details: JSON.stringify(row.details ?? {}),
+      })
+      .execute();
+  } catch (err) {
+    console.warn('[license-audit] failed to write audit row:', (err as Error).message);
+  }
+}
+
+/** SHA-256 hex of the first 16 bytes of the token — enough to correlate
+ * rotations in audit logs without storing reversible material. */
+async function fingerprintToken(token: string): Promise<string> {
+  const bytes = new TextEncoder().encode(token);
+  const buf = await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource);
+  const view = new Uint8Array(buf).slice(0, 8);
+  let out = '';
+  for (let i = 0; i < view.length; i++) out += view[i].toString(16).padStart(2, '0');
+  return out;
+}
+
+/** Extract caller IP. Hono honors x-forwarded-for behind trusted proxies. */
+function clientIp(c: any): string | null {
+  const xff = c.req.header('x-forwarded-for') as string | undefined;
+  if (xff) return xff.split(',')[0]!.trim();
+  return c.req.header('x-real-ip') ?? null;
+}
+
 async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   if (catalogCache && Date.now() < catalogCacheExpiry) return catalogCache;
 
@@ -1580,7 +1630,76 @@ class ExtensionLoader {
         .execute()
         .catch(() => {});
 
+      // Audit: record the deletion. Best-effort — never block the response.
+      await writeLicenseAudit(db, {
+        action: 'delete',
+        extension_name: name,
+        performed_by: (await auth.api.getSession({ headers: c.req.raw.headers }))?.user?.id ?? null,
+        ip: clientIp(c),
+        user_agent: c.req.header('user-agent') ?? null,
+      }).catch(() => {});
+
       return c.json({ ok: true });
+    });
+
+    // ── License rotation + audit (S3-04) ──────────────────────────────────
+    // The marketplace_auth_token in zv_settings authenticates this engine
+    // installation against registry-side per-tenant features (analytics,
+    // private mirror access). A rotation invalidates the old token AND
+    // writes an audit row. Admin-only; bearer-token auth would create a
+    // bootstrap problem since this is exactly the token being rotated.
+
+    // POST /api/admin/license/rotate — mint a fresh marketplace token
+    app.post('/api/admin/license/rotate', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+
+      // 32 bytes of high-entropy randomness, hex-encoded → 64 chars.
+      const buf = new Uint8Array(32);
+      crypto.getRandomValues(buf);
+      const newToken = Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+
+      // Capture a fingerprint of the OLD token for the audit row — never
+      // log the new token plaintext (it would defeat the rotation purpose).
+      const oldRow = await db
+        .selectFrom('zv_settings' as any)
+        .select('value' as any)
+        .where('key' as any, '=', 'marketplace_auth_token')
+        .executeTakeFirst()
+        .catch(() => undefined as any);
+      const oldFingerprint = oldRow?.value
+        ? await fingerprintToken(oldRow.value as string)
+        : null;
+
+      await (db as any)
+        .insertInto('zv_settings')
+        .values({ key: 'marketplace_auth_token', value: newToken, is_public: false })
+        .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: newToken }))
+        .execute();
+
+      await writeLicenseAudit(db, {
+        action: 'rotate',
+        extension_name: null,
+        performed_by: session?.user?.id ?? null,
+        ip: clientIp(c),
+        user_agent: c.req.header('user-agent') ?? null,
+        details: { old_token_fingerprint: oldFingerprint },
+      });
+
+      return c.json({ ok: true, token: newToken });
+    });
+
+    // GET /api/admin/license/history — last 50 audit entries (most recent first)
+    app.get('/api/admin/license/history', async (c) => {
+      if (!await requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+      const rows = await db
+        .selectFrom('zv_license_audit' as any)
+        .selectAll()
+        .orderBy('performed_at' as any, 'desc')
+        .limit(50)
+        .execute()
+        .catch(() => [] as any[]);
+      return c.json({ history: rows });
     });
 
     // GET /api/marketplace — catalog fetched from registry (fallback: local) merged with DB state
