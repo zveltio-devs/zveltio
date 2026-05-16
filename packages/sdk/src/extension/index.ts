@@ -1,13 +1,18 @@
 import type { Hono } from 'hono';
+import type { Kysely } from 'kysely';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zveltio Extension API — public types for extension authors
 //
 // This is the single source of truth for extension types.
 // Both the engine (which loads extensions) and extension authors (who implement
-// them) use these interfaces.  Concrete engine-internal types (Database, EventBus,
-// DDLManager) are intentionally typed as `any` here so extensions compile without
-// depending on engine internals.
+// them) use these interfaces.  Engine-internal types (EventBus, DDLManager)
+// stay as `any` so extensions compile without depending on engine internals.
+//
+// The `DB` generic parameter on `ExtensionContext<DB>` and `ZveltioExtension<DB>`
+// (S4-02) lets an extension thread its codegen'd schema type (via
+// `zveltio extension types` — S4-01) through to `ctx.db`. Default is `any`
+// for back-compat with extensions that don't (yet) generate types.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface FieldTypeRegistryAPI {
@@ -21,12 +26,22 @@ export interface FieldTypeRegistryAPI {
   serialize(type: string, value: any): any;
 }
 
-/** Context injected into every extension's register() call. */
-export interface ExtensionContext {
+/**
+ * Context injected into every extension's `register()` call.
+ *
+ * The `DB` generic threads the extension's codegen'd database schema
+ * (`@zveltio/sdk/codegen` → `<ext>/.zveltio/db.d.ts`) through to `ctx.db`.
+ * Default `any` keeps legacy extensions compiling untouched. Migrated
+ * extensions get full Kysely autocomplete + typo detection.
+ */
+export interface ExtensionContext<DB = any> {
   // ─── Stable public API ───────────────────────────────────────────────────────
 
-  /** Kysely database instance (restricted — cannot query zv_* system tables). */
-  db: any;
+  /**
+   * Kysely database instance (restricted — cannot query zv_* system tables).
+   * Typed via the `DB` generic; use `ZveltioExtension<MySchema>` to opt in.
+   */
+  db: Kysely<DB>;
   /** Better-Auth instance — use `ctx.auth.api.getSession({ headers })` in route handlers. */
   auth: any;
   /** Field type registry — register custom field types here. */
@@ -309,14 +324,14 @@ export interface BeforeDeletePayload {
  * Cross-instance: NOT yet coordinated. Multiple engine replicas will each run
  * the same schedule until distributed locking lands.
  */
-export interface ExtensionSchedule {
+export interface ExtensionSchedule<DB = any> {
   /** Stable name, unique within this extension. Used as the persistence key. */
   name: string;
   intervalMs?: number;
   at?: { hour: number; minute: number };
   cron?: string;
   /** Async work to perform. `runId` is the row id in zv_extension_schedule_runs. */
-  handler: (ctx: ExtensionContext, runId: string) => Promise<void>;
+  handler: (ctx: ExtensionContext<DB>, runId: string) => Promise<void>;
   retry?: { maxAttempts?: number; backoffMs?: number };
   /** Reserved — single-engine assumption today. Documented behaviour. */
   singleton?: boolean;
@@ -353,7 +368,22 @@ export interface PublicRouteSpec {
 export type MountStrategy = 'global' | 'subapp';
 
 /** The interface every Zveltio extension must implement. */
-export interface ZveltioExtension {
+/**
+ * The interface every Zveltio extension implements.
+ *
+ * @example Untyped (legacy / new extensions before codegen)
+ *   const ext: ZveltioExtension = { ... }
+ *
+ * @example Typed via codegen (S4-01 + S4-02)
+ *   import type { ExtensionSchema as DB } from './.zveltio/db.js';
+ *   const ext: ZveltioExtension<DB> = {
+ *     async register(app, ctx) {
+ *       // ctx.db is Kysely<DB> — full autocomplete on table + column names
+ *       const items = await ctx.db.selectFrom('zv_my_items').selectAll().execute();
+ *     }
+ *   };
+ */
+export interface ZveltioExtension<DB = any> {
   /** Unique name — must match manifest.json `name` exactly (e.g. `'hr/employees'`). */
   name: string;
   /** Category shown in the marketplace (e.g. `'hr'`, `'finance'`, `'content'`). */
@@ -368,7 +398,7 @@ export interface ZveltioExtension {
    * Called once when the extension is activated.
    * Register Hono routes, subscribe to events, etc.
    */
-  register: (app: Hono, ctx: ExtensionContext) => Promise<void>;
+  register: (app: Hono, ctx: ExtensionContext<DB>) => Promise<void>;
   /** Register custom Studio field types contributed by this extension. */
   registerFieldTypes?: (registry: FieldTypeRegistryAPI) => void;
   /** Return absolute paths to SQL migration files, run in order on first activation. */
@@ -377,7 +407,7 @@ export interface ZveltioExtension {
    * Return the list of scheduled tasks. Called once after `register()`. The
    * engine's cron runner picks them up and starts polling.
    */
-  schedules?: () => ExtensionSchedule[];
+  schedules?: () => ExtensionSchedule<DB>[];
   /**
    * Called when the extension is disabled or the server shuts down.
    * Close database connections, clear timers, etc.
