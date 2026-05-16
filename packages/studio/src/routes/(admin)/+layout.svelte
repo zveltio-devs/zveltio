@@ -6,6 +6,7 @@
   import { auth } from '$lib/auth.svelte.js';
   import { initExtensions, extensions } from '$lib/extensions.svelte.js';
   import { loadExtensionBundles } from '$lib/bundle-loader.js';
+  import Slot from '$lib/components/common/Slot.svelte';
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
     Puzzle, LogOut, HardDrive, Key, ClipboardList, Languages,
@@ -318,6 +319,13 @@
         {/if}
 
       </nav>
+
+      <!-- S3-03: sidebar.bottom slot — extensions inject items above the footer
+           (status badges, build info, custom shortcuts). Collapses to nothing
+           when no extension targets it. -->
+      <div class="shrink-0 border-t border-base-300 px-2 py-1">
+        <Slot name="sidebar.bottom" ctx={{ user: auth.user, collapsed }} />
+      </div>
 
       <!-- Footer -->
       <div class="shrink-0 border-t border-base-300 px-2 py-2 space-y-0.5">

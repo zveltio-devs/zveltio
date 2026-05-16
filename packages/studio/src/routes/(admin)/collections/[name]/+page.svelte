@@ -13,6 +13,8 @@
   import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
   import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
   import AddFieldDrawer from '$lib/components/fields/AddFieldDrawer.svelte';
+  import Slot from '$lib/components/common/Slot.svelte';
+  import { auth } from '$lib/auth.svelte.js';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   const collectionName = $derived(page.params.name ?? '');
@@ -644,6 +646,11 @@
         {collection?.display_name || collectionName}
       </h1>
       <p class="text-sm text-base-content/40 font-mono mt-0.5">zvd_{collectionName}</p>
+      <!-- S3-03: collection-detail.header — extensions inject badges,
+           status pills, sync indicators below the title.
+           ctx carries the collection name so contributions can be
+           per-collection (e.g. "show only for zvd_orders"). -->
+      <Slot name="collection-detail.header" ctx={{ user: auth.user, collection: collectionName }} />
     </div>
     <!-- Context-sensitive header actions -->
     {#if activeTab === 'data'}

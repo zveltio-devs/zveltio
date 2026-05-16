@@ -8,6 +8,32 @@
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import EmptyState from '$lib/components/common/EmptyState.svelte';
  import SearchBar from '$lib/components/common/SearchBar.svelte';
+ import SchemaForm from '$lib/components/common/SchemaForm.svelte';
+ import { auth } from '$lib/auth.svelte.js';
+ import type { FormSchema } from '@zveltio/sdk/extension';
+
+ // S3-02: schema-driven invite form so extensions can register form-alter
+ // hooks against `core:user-invite` (e.g. add `preferred_language`, hide
+ // `name` for tenants that don't want it, attach extra validators).
+ const inviteSchema: FormSchema = {
+   id: 'core:user-invite',
+   fields: [
+     { name: 'email', type: 'email',  label: 'Email',          required: true,  placeholder: 'user@example.com' },
+     { name: 'name',  type: 'text',   label: 'Name (optional)',                  placeholder: 'John Doe' },
+     {
+       name: 'role',
+       type: 'select',
+       label: 'Role',
+       required: true,
+       options: [
+         { value: 'member',  label: 'Member'  },
+         { value: 'manager', label: 'Manager' },
+         { value: 'admin',   label: 'Admin'   },
+       ],
+     },
+   ],
+ };
+ let inviteFormRef: { validateAll: () => boolean } | null = $state(null);
 
  let users = $state<any[]>([]);
  let loading = $state(true);
@@ -46,6 +72,7 @@
  }
 
  async function inviteUser() {
+ if (inviteFormRef && !inviteFormRef.validateAll()) return;
  if (!inviteForm.email) return;
  inviting = true;
  try {
@@ -182,36 +209,13 @@
  <div class="modal-box max-w-md">
  <h3 class="font-bold text-lg mb-4">Invite User</h3>
 
- <div class="space-y-3">
- <div class="form-control">
- <label class="label" for="invite-email"><span class="label-text">Email</span></label>
- <input
- id="invite-email"
- type="email"
- bind:value={inviteForm.email}
- placeholder="user@example.com"
- class="input"
+ <SchemaForm
+   bind:this={inviteFormRef}
+   formId="core:user-invite"
+   schema={inviteSchema}
+   bind:values={inviteForm}
+   ctx={{ user: auth.user, mode: 'create' }}
  />
- </div>
- <div class="form-control">
- <label class="label" for="invite-name"><span class="label-text">Name (optional)</span></label>
- <input
- id="invite-name"
- type="text"
- bind:value={inviteForm.name}
- placeholder="John Doe"
- class="input"
- />
- </div>
- <div class="form-control">
- <label class="label" for="invite-role"><span class="label-text">Role</span></label>
- <select id="invite-role" bind:value={inviteForm.role} class="select">
- <option value="member">Member</option>
- <option value="manager">Manager</option>
- <option value="admin">Admin</option>
- </select>
- </div>
- </div>
 
  <div class="modal-action">
  <button class="btn btn-ghost" onclick={() => (showInviteModal = false)}>Cancel</button>
