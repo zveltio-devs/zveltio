@@ -853,16 +853,18 @@ typically `{ user, mode }`. Throwing hooks are isolated: the rest still
 run. Multiple alters on the same form id run in registration order, so
 two extensions can layer changes.
 
-Well-known form IDs (extended by core renderers):
-- `core:user-edit`, `core:user-create`
-- `core:collection-create`, `core:collection-edit`
-- `collection:<table>:edit` — generated per user collection at render
+Well-known form IDs (live — extension hooks fire against these):
+- `core:user-invite` — admin "Invite User" modal
 
-> Form-alter only works on forms whose renderer calls
-> `studioApi.applyFormAlters(formId, schema, ctx)` before render. Today
-> core forms still bind directly to their field arrays — wiring each is
-> incremental and tracked as a follow-up. The API + types ship now so
-> extensions can author hooks against the contract.
+More core forms wire through SchemaForm incrementally. Until your target
+form is migrated, the hook is harmless (registers fine, just never fires).
+
+> Form-alter only works on forms whose renderer is built on
+> `<SchemaForm formId="..." schema={...} bind:values />`. SchemaForm
+> calls `studioApi.applyFormAlters(formId, schema, ctx)` internally.
+> Custom hand-rolled forms can opt in by calling
+> `studioApi.applyFormAlters` themselves before rendering their field
+> list.
 
 ### Slots (S3-03)
 
@@ -890,12 +892,17 @@ declare `let { user, initialRange } = $props()`.
 If no extension targets the slot the markup collapses to nothing —
 hosts can declare slots liberally without empty-state worries.
 
-Well-known slots (extended as core pages grow them):
-- `dashboard.widgets` — top of the admin dashboard
+Well-known slots (live):
+- `dashboard.widgets` — top of the admin dashboard. `ctx: { user }`.
+- `sidebar.bottom` — admin sidebar, above the footer. `ctx: { user, collapsed }`.
+- `settings.tabs` — Settings page tab bar (extension tabs render after core).
+  `ctx: { user, activeTab }`.
+- `collection-detail.header` — under the collection name on
+  `/admin/collections/<name>`. `ctx: { user, collection }`.
 
-> Slot hosts are added incrementally. The infrastructure ships with one
-> live slot (`dashboard.widgets`); adding more is a one-line change in
-> the host page (`<Slot name="..." ctx={...} />`).
+> Slot hosts are added incrementally. Adding one is a one-line change in
+> the host page (`<Slot name="..." ctx={...} />`). The list above grows
+> as core pages adopt the pattern.
 
 ---
 
