@@ -351,6 +351,11 @@ async function buildHonoApp(): Promise<Hono> {
   // ── Marketplace routes ────────────────────────────────────────────────────
   extensionLoader.registerMarketplace(app, db);
 
+  // ── Dev-only reload endpoint (S4-03) ──────────────────────────────────────
+  // Mounted on every rebuild so the CLI watcher can keep posting. Becomes a
+  // no-op in production (gated inside registerDevEndpoints).
+  extensionLoader.registerDevEndpoints(app);
+
   // ── Extension routes (all currently active extensions) ────────────────────
   for (const extName of extensionLoader.getActive()) {
     await extensionLoader.reRegisterExtension(extName, app);
