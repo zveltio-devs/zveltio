@@ -5,6 +5,7 @@
   import { page } from '$app/state';
   import { auth } from '$lib/auth.svelte.js';
   import { initExtensions, extensions } from '$lib/extensions.svelte.js';
+  import { loadExtensionBundles } from '$lib/bundle-loader.js';
   import {
     LayoutDashboard, Database, Users, Shield, Webhook, Settings,
     Puzzle, LogOut, HardDrive, Key, ClipboardList, Languages,
@@ -50,6 +51,11 @@
     await auth.init();
     if (!auth.isAuthenticated) { goto(`${base}/login`); return; }
     await initExtensions();
+
+    // S3-02 + S3-03: load extension Studio bundles so they can register
+    // routes, slots, and form-alters before any admin page renders.
+    // Failures are logged per-bundle; one bad extension can't block the rest.
+    await loadExtensionBundles();
 
     // First-login redirect: if no collections exist and user hasn't completed/skipped onboarding, send to wizard
     const onboardingDone = localStorage.getItem('zveltio-onboarding-done');

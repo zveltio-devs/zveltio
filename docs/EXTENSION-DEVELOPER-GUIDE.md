@@ -818,38 +818,57 @@ registerFieldType({
 });
 ```
 
-### Form alters (v1.0)
+### Form alters (S3-02)
 
-Modify built-in or other extensions' forms.
+Mutate any registered Studio form before it renders. Same shape as
+Drupal's `hook_form_alter`.
 
 ```typescript
 import { registerFormAlter } from '@zveltio/sdk/studio';
 
-registerFormAlter('core:user-edit', (form) => {
+registerFormAlter('core:user-edit', (form, ctx) => {
+  // Add a field after an existing one. Anchor by name.
   form.addField({
     after: 'email',
-    name: 'preferred_language',
-    type: 'select',
-    options: ['en', 'ro', 'fr'],
-    label: 'Preferred language',
+    field: {
+      name: 'preferred_language',
+      type: 'select',
+      options: ['en', 'ro', 'fr'],
+      label: 'Preferred language',
+    },
   });
+  // Hide without removing — server-side defaults still apply.
   form.hideField('legacy_pin');
+  // Append a validator. Return null if valid, an error string otherwise.
   form.addValidator('phone', (value) => {
-    return value.startsWith('+') ? null : 'Must start with +';
+    return typeof value === 'string' && value.startsWith('+') ? null : 'Must start with +';
   });
+  // Move fields to the front of the form.
+  form.reorder(['name', 'email']);
 });
 ```
 
-Well-known form IDs (incomplete list):
-- `core:user-edit`
-- `core:user-create`
-- `core:collection-create`
-- `core:collection-edit`
-- `collection:<table>:edit` — generated per user collection
+Hooks receive `(form, ctx)`. `ctx` is whatever the form host passes —
+typically `{ user, mode }`. Throwing hooks are isolated: the rest still
+run. Multiple alters on the same form id run in registration order, so
+two extensions can layer changes.
 
-### Slots (v1.0)
+Well-known form IDs (extended by core renderers):
+- `core:user-edit`, `core:user-create`
+- `core:collection-create`, `core:collection-edit`
+- `collection:<table>:edit` — generated per user collection at render
 
-Inject components into existing Studio pages.
+> Form-alter only works on forms whose renderer calls
+> `studioApi.applyFormAlters(formId, schema, ctx)` before render. Today
+> core forms still bind directly to their field arrays — wiring each is
+> incremental and tracked as a follow-up. The API + types ship now so
+> extensions can author hooks against the contract.
+
+### Slots (S3-03)
+
+Inject components into named composition points scattered through
+Studio. Slot hosts declare a slot once with `<Slot name="...">`;
+extensions fill it.
 
 ```typescript
 import { registerSlot } from '@zveltio/sdk/studio';
@@ -857,17 +876,26 @@ import RevenueWidget from './widgets/RevenueWidget.svelte';
 
 registerSlot('dashboard.widgets', {
   component: RevenueWidget,
-  priority: 10,
-  visible: (ctx) => ctx.user.roles.includes('finance'),
+  priority: 10,                              // lower runs first; default 100
+  visible: (ctx) => Array.isArray((ctx.user as any)?.roles)
+    && (ctx.user as any).roles.includes('finance'),
+  props: { initialRange: '30d' },           // passed to the component
 });
 ```
 
-Well-known slots:
-- `dashboard.widgets`
-- `collection-detail.header`
-- `user-profile.sections`
-- `settings.tabs`
-- `sidebar.bottom`
+The component receives `props` AND any keys the host passes as `ctx`.
+For `dashboard.widgets` the host passes `{ user }`, so the widget can
+declare `let { user, initialRange } = $props()`.
+
+If no extension targets the slot the markup collapses to nothing —
+hosts can declare slots liberally without empty-state worries.
+
+Well-known slots (extended as core pages grow them):
+- `dashboard.widgets` — top of the admin dashboard
+
+> Slot hosts are added incrementally. The infrastructure ships with one
+> live slot (`dashboard.widgets`); adding more is a one-line change in
+> the host page (`<Slot name="..." ctx={...} />`).
 
 ---
 

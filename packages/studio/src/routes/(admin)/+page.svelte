@@ -12,6 +12,8 @@
   import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
   import SectionCard from '$lib/components/common/SectionCard.svelte';
+  import Slot from '$lib/components/common/Slot.svelte';
+  import { auth } from '$lib/auth.svelte.js';
 
   // ── State ──────────────────────────────────────────────────────
   let statsLoading = $state(true);
@@ -199,6 +201,9 @@
       Refresh
     </button>
   </PageHeader>
+
+  <!-- S3-03: dashboard.widgets slot — extensions inject widgets here -->
+  <Slot name="dashboard.widgets" ctx={{ user: auth.user }} />
 
   <!-- Stats cards -->
   {#if statsLoading}
