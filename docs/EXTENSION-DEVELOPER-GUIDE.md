@@ -835,53 +835,103 @@ Well-known slots:
 
 ---
 
-## 11. Testing (v1.0)
+## 11. Testing
+
+`@zveltio/sdk/testing` provides four primitives — enough to write meaningful
+unit tests for your extension without a real Postgres or auth setup:
+
+- `createTestContext(overrides?)` — a fake `ExtensionContext` with sensible
+  defaults (recording mock db, signed-in test user, no-op event bus, scoped
+  registries). Override any field per test.
+- `createTestApp(extension, opts?)` — spins up a Hono with your extension's
+  `register()` called against it. Honors `mountStrategy`.
+- `mockDb(presets?)` — proxy that records every method chain. Terminal calls
+  (`.execute`, `.executeTakeFirst`, `.executeTakeFirstOrThrow`) return your
+  presets or `[]` / `undefined`.
+- `mockEventBus`, `mockServiceRegistry`, `mockAuth` — composable building
+  blocks if you don't want the full `createTestContext`.
 
 ### Unit tests
 
 ```typescript
-// engine/tests/services.test.ts
 import { test, expect } from 'bun:test';
-import { createTestContext } from '@zveltio/sdk/testing';
-import { registerServices } from '../services';
+import { createTestContext, createTestApp, mockDb } from '@zveltio/sdk/testing';
+import extension from '../index.js';
 
-test('contacts.lookup returns the matching contact', async () => {
-  const ctx = createTestContext({
-    db: {
-      selectFrom: () => ({ /* mock query builder */ }),
-    },
+test('GET / lists items', async () => {
+  // Preset the db response. Chain captures METHOD names only; args are
+  // not part of the key. Use suffix matches or function presets if you
+  // need argument-based differentiation.
+  const db = mockDb({
+    'selectFrom.selectAll.execute': [
+      { id: '1', name: 'A' },
+      { id: '2', name: 'B' },
+    ],
   });
 
-  registerServices(ctx);
-  const lookup = ctx.services.get('contacts.lookup')!;
-  const result = await lookup('jane@example.com');
-  expect(result?.email).toBe('jane@example.com');
+  const ctx = createTestContext({ db });
+  const app = await createTestApp(extension, { ctx, mountSubappAt: false });
+
+  const res = await app.request('/');
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.items).toHaveLength(2);
+});
+
+test('POST aborts when an extension hook says no', async () => {
+  const ctx = createTestContext();
+  // Wire a pre-write hook from outside the extension to verify the
+  // extension propagates it correctly.
+  (ctx.events as any).onBefore('record.beforeInsert', (e: any) => {
+    e.abort('not allowed in tests');
+  });
+
+  const app = await createTestApp(extension, { ctx, mountSubappAt: false });
+  const res = await app.request('/', { method: 'POST', body: '{}' });
+  expect(res.status).toBe(422);
 });
 ```
 
-### Integration tests
+### Verifying side effects
+
+`mockDb` records every chain call. Use that to assert your extension hits
+the database with the expected shape:
 
 ```typescript
-// engine/tests/routes.integration.test.ts
-import { test, expect } from 'bun:test';
-import { createTestApp, withTestDb } from '@zveltio/sdk/testing';
-import extension from '../index';
+test('writes go through the dynamicInsert path', async () => {
+  const db = mockDb();
+  const ctx = createTestContext({ db });
+  const app = await createTestApp(extension, { ctx, mountSubappAt: false });
 
-test('POST /items creates an item', async () => {
-  await withTestDb(async (db) => {
-    const app = createTestApp(extension, { db });
-    const res = await app.request('/ext/my-feature/items', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'test' }),
-    });
-    expect(res.status).toBe(201);
-  });
+  await app.request('/', { method: 'POST', body: JSON.stringify({ name: 'x' }) });
+
+  const inserts = db.calls.filter((c) => c.chain.includes('insertInto'));
+  expect(inserts.length).toBeGreaterThan(0);
 });
 ```
 
-`withTestDb` starts a fresh Postgres via testcontainers, runs your migrations,
-yields the database, then rolls back.
+### Custom user / auth
+
+```typescript
+import { createTestContext, mockAuth } from '@zveltio/sdk/testing';
+
+const ctx = createTestContext({
+  auth: mockAuth({ user: { id: 'alice', roles: ['admin'] } }),
+});
+// ctx.auth.api.getSession() returns { user: alice }.
+// ctx.checkPermission always returns true in the default mock — override
+// via createTestContext({ extra: { checkPermission: async () => false } })
+// if you want to test the denial path.
+```
+
+### Integration tests (real Postgres)
+
+For end-to-end coverage against actual SQL, run a real Postgres via
+`testcontainers-bun` or your own docker-compose. `@zveltio/sdk/testing`
+doesn't ship a `withTestDb` helper today — integration scaffolding is on
+the roadmap. Until then, drive your tests through the engine's
+`/api/marketplace/<name>/install` + `/enable` flow against a disposable
+engine instance.
 
 ### Running tests
 
