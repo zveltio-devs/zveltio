@@ -4,6 +4,8 @@
  import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff, Gauge } from '@lucide/svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
+ import Slot from '$lib/components/common/Slot.svelte';
+ import { auth } from '$lib/auth.svelte.js';
 
  let loading = $state(true);
  let saving = $state(false);
@@ -118,6 +120,9 @@
  <t.icon size={16} />{t.label}
  </button>
  {/each}
+ <!-- S3-03: settings.tabs slot — extensions contribute custom tab buttons here.
+      Contributions are rendered after the core tabs. -->
+ <Slot name="settings.tabs" ctx={{ user: auth.user, activeTab: tab }} />
  </div>
 
  {#if loading}
