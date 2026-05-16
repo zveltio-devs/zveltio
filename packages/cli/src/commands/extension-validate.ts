@@ -1,0 +1,183 @@
+/**
+ * `zveltio extension validate` — run pre-publish checks against an extension
+ * on disk. Pure offline tool: reads files, runs validators from
+ * `@zveltio/sdk/validate`, prints a structured report.
+ *
+ * Exit code 0 = clean. Non-zero = at least one validation error.
+ *
+ * Run from inside the extension's root (or pass --dir):
+ *   $ zveltio extension validate
+ */
+
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { join, relative } from 'path';
+import { validateExtension, type ValidationError } from '@zveltio/sdk/validate';
+import { parseSchema } from '@zveltio/sdk/codegen';
+
+// ANSI helpers
+const c = {
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
+  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+};
+
+// Same allow-list as the engine's installer. Kept inline so the CLI doesn't
+// reach across into engine internals. If the engine list grows, this list
+// must grow too (test in `packages/engine/src/tests/unit/peer-deps-allowlist.test.ts`
+// catches drift).
+const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
+  'node-saml',
+  'ldapts',
+  'imapflow',
+  'mailparser',
+  'nodemailer',
+  '@aws-sdk/client-s3',
+  '@aws-sdk/s3-request-presigner',
+  'nanoid',
+  'qrcode',
+  'pdfkit',
+  'graphql',
+]);
+
+export interface ExtensionValidateOptions {
+  /** Override the extension root. Defaults to `process.cwd()`. */
+  dir?: string;
+  /** Suppress process.exit on validation failure (useful for embedding). */
+  silentExit?: boolean;
+}
+
+function recursiveSize(dir: string): number {
+  let total = 0;
+  if (!existsSync(dir)) return 0;
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    // Skip node_modules + .zveltio (generated) + dist
+    if (name === 'node_modules' || name === '.zveltio' || name === 'dist') continue;
+    let st;
+    try { st = statSync(full); } catch { continue; }
+    if (st.isDirectory()) total += recursiveSize(full);
+    else if (st.isFile()) total += st.size;
+  }
+  return total;
+}
+
+/**
+ * Infer the folder-path slug from the directory. For
+ *   `.../zveltio-extensions/finance/invoicing` → `finance/invoicing`.
+ * If the extension is somewhere else, fall back to the basename.
+ */
+function inferExpectedName(dir: string): string {
+  const norm = dir.replace(/\\/g, '/');
+  const idx = norm.indexOf('zveltio-extensions/');
+  if (idx >= 0) {
+    return norm.slice(idx + 'zveltio-extensions/'.length).replace(/\/$/, '');
+  }
+  return norm.split('/').filter(Boolean).pop() ?? '';
+}
+
+export async function extensionValidateCommand(opts: ExtensionValidateOptions = {}): Promise<void> {
+  const dir = opts.dir ?? process.cwd();
+  console.log(`\n${c.bold('Extension validate')}\n`);
+  console.log(`  Extension dir: ${c.dim(dir)}`);
+
+  // Read manifest.json
+  const manifestPath = join(dir, 'manifest.json');
+  let manifest: unknown = null;
+  if (existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    } catch (e) {
+      console.error(c.red(`  manifest.json is not valid JSON: ${(e as Error).message}`));
+      manifest = null;
+    }
+  }
+
+  // Read migrations (if folder exists)
+  const migrationsDir = join(dir, 'engine', 'migrations');
+  let sqlFiles: Array<{ filename: string; sql: string }> = [];
+  let parsedTableCount = 0;
+  if (existsSync(migrationsDir)) {
+    sqlFiles = readdirSync(migrationsDir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+      .map((filename) => ({
+        filename,
+        sql: readFileSync(join(migrationsDir, filename), 'utf8'),
+      }));
+    try {
+      parsedTableCount = parseSchema(sqlFiles.map((f) => f.sql)).tables.length;
+    } catch {
+      parsedTableCount = 0;
+    }
+  }
+
+  // File presence
+  const paths: Record<string, boolean> = {};
+  for (const rel of ['manifest.json', 'engine/index.ts', 'engine/index.js']) {
+    paths[rel] = existsSync(join(dir, rel));
+  }
+  // engine/index.* — accept either .ts or .js
+  const required: string[] = ['manifest.json'];
+  if (!(paths['engine/index.ts'] || paths['engine/index.js'])) {
+    required.push('engine/index.ts'); // surface as missing
+  }
+
+  const bundleBytes = recursiveSize(dir);
+
+  const result = validateExtension({
+    manifest: {
+      manifest,
+      expectedName: inferExpectedName(dir),
+    },
+    peerDeps: {
+      peerDependencies: (manifest && typeof manifest === 'object' && !Array.isArray(manifest))
+        ? (manifest as any).peerDependencies
+        : undefined,
+      allowedPackages: PEER_DEPS_ALLOWLIST,
+    },
+    migrations: {
+      files: sqlFiles,
+      requireDownForDestructive: true,
+    },
+    filePresence: { paths, required },
+    bundleSize: {
+      bundleBytes,
+      bundleSizeKbMax: (manifest && typeof manifest === 'object' && !Array.isArray(manifest))
+        ? (manifest as any)?.quotas?.bundleSizeKbMax
+        : undefined,
+    },
+    stats: { tables: parsedTableCount, migrations: sqlFiles.length },
+  });
+
+  // Print summary
+  console.log(`  Manifest:      ${manifest ? c.green('OK') : c.red('missing or invalid')}`);
+  console.log(`  Migrations:    ${c.dim(`${result.stats.migrations} file(s), ${result.stats.tables} table(s) parsed`)}`);
+  console.log(`  Peer deps:     ${c.dim(`${result.stats.peerDeps} declared`)}`);
+  console.log(`  Bundle size:   ${c.dim(`${Math.ceil(bundleBytes / 1024)} KB`)}`);
+  console.log('');
+
+  if (result.ok) {
+    console.log(c.green('Validation passed.'));
+    console.log(c.dim('  Run `zveltio extension types` to refresh generated types, then `zveltio extension publish` when ready.'));
+    console.log('');
+    return;
+  }
+
+  // Print errors grouped by code
+  console.log(c.red(`Validation failed with ${result.errors.length} error(s):`));
+  console.log('');
+  for (const e of result.errors) {
+    printError(e);
+  }
+  console.log('');
+  if (!opts.silentExit) process.exit(1);
+}
+
+function printError(e: ValidationError): void {
+  const loc = e.file ? c.dim(` (${e.file})`) : '';
+  console.log(`  ${c.red(e.code)}  ${e.message}${loc}`);
+}
+
+export const _internalForTests = { inferExpectedName, recursiveSize };
