@@ -25,6 +25,8 @@ import type {
   FormField,
   SlotContribution,
   StudioRoute,
+  StudioFieldType,
+  AssetPreviewHandler,
 } from '../extension/index.js';
 
 interface FormProxy extends FormAlterAPI {
@@ -138,8 +140,8 @@ interface StudioGlobal {
   registerRoute(route: StudioRoute): void;
   registerSlot(name: string, contribution: SlotContribution): void;
   registerFormAlter(formId: string, hook: FormAlterHook): void;
-  registerFieldType(ft: unknown): void;
-  registerAssetPreview(handler: unknown): void;
+  registerFieldType(ft: StudioFieldType): void;
+  registerAssetPreview(handler: AssetPreviewHandler): void;
   engineUrl?: string;
 }
 
@@ -190,6 +192,27 @@ export function registerFormAlter(formId: string, hook: FormAlterHook): void {
   getStudioGlobal()?.registerFormAlter(formId, hook);
 }
 
+/** Register a custom Studio field type contributed by this extension. */
+export function registerFieldType(ft: StudioFieldType): void {
+  getStudioGlobal()?.registerFieldType(ft);
+}
+
+/**
+ * Register a custom preview handler for asset URLs / MIME types.
+ *
+ * @example
+ *   import { registerAssetPreview } from '@zveltio/sdk/studio';
+ *   import PdfPreview from './PdfPreview.svelte';
+ *
+ *   registerAssetPreview({
+ *     match: (a) => a.mimeType === 'application/pdf',
+ *     component: PdfPreview,
+ *   });
+ */
+export function registerAssetPreview(handler: AssetPreviewHandler): void {
+  getStudioGlobal()?.registerAssetPreview(handler);
+}
+
 /** Engine base URL — pre-installed by Studio for cross-origin fetches. */
 export function getEngineUrl(): string {
   if (typeof window === 'undefined') return '';
@@ -201,6 +224,8 @@ export function getEngineUrl(): string {
 export type {
   StudioExtensionAPI,
   StudioRoute,
+  StudioFieldType,
+  AssetPreviewHandler,
   SlotContribution,
   FormAlterHook,
   FormAlterAPI,

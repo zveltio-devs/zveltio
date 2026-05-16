@@ -497,10 +497,21 @@ export interface FormField {
 export interface StudioRoute {
   path: string;
   component: any; // Svelte component
-  label: string;
-  icon: string;
-  category: string;
+  /** Sidebar label. Optional — when omitted, the route exists for routing
+   *  but doesn't surface in the nav (use together with `hidden` for purely
+   *  programmatic child routes). */
+  label?: string;
+  icon?: string;
+  /** Sidebar group key. Optional; extensions that don't care about
+   *  grouping can leave it off. */
+  category?: string;
   children?: StudioRoute[];
+  /** Display under a custom heading instead of the default category. Used
+   *  by extensions that want a localized group label (e.g. "Trasabilitate"). */
+  parent?: string;
+  /** Hide from the sidebar even when label is set. Useful for detail
+   *  pages (`/items/:id`) that are reachable via in-app navigation. */
+  hidden?: boolean;
 }
 
 export interface StudioFieldType {
