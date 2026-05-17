@@ -363,24 +363,34 @@
           {/if}
         </button>
 
-        <!-- User -->
+        <!-- User — clickable area navigates to /admin/account (S5-08
+             surfaces passkey management there). -->
         <div class="
           flex items-center gap-2.5 px-2.5 py-2 rounded-lg
           {collapsed ? 'flex-col' : ''}
         ">
-          <div class="
-            shrink-0 rounded-full bg-primary text-primary-content
-            flex items-center justify-center font-semibold
-            {collapsed ? 'w-7 h-7 text-xs' : 'w-8 h-8 text-xs'}
-          " title={auth.user?.name}>
-            {auth.user?.name?.charAt(0).toUpperCase() || 'U'}
-          </div>
-          {#if !collapsed}
-            <div class="flex-1 min-w-0">
-              <p class="text-[11px] font-medium leading-none truncate text-base-content">{auth.user?.name || 'User'}</p>
-              <p class="text-[11px] text-base-content/45 mt-0.5 truncate">{auth.user?.email}</p>
+          <a
+            href="{base}/account"
+            title={collapsed ? 'Account settings' : 'Account settings'}
+            class="
+              flex items-center gap-2.5 flex-1 min-w-0 hover:bg-base-300 rounded-md
+              {collapsed ? 'flex-col' : ''}
+            "
+          >
+            <div class="
+              shrink-0 rounded-full bg-primary text-primary-content
+              flex items-center justify-center font-semibold
+              {collapsed ? 'w-7 h-7 text-xs' : 'w-8 h-8 text-xs'}
+            ">
+              {auth.user?.name?.charAt(0).toUpperCase() || 'U'}
             </div>
-          {/if}
+            {#if !collapsed}
+              <div class="flex-1 min-w-0">
+                <p class="text-[11px] font-medium leading-none truncate text-base-content">{auth.user?.name || 'User'}</p>
+                <p class="text-[11px] text-base-content/45 mt-0.5 truncate">{auth.user?.email}</p>
+              </div>
+            {/if}
+          </a>
           <button
             onclick={signOut}
             title="Sign out"

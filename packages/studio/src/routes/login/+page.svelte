@@ -2,11 +2,14 @@
  import { goto } from '$app/navigation';
  import { base } from '$app/paths';
  import { auth } from '$lib/auth.svelte.js';
+ import { Fingerprint } from '@lucide/svelte';
+ import { startAuthentication } from '@simplewebauthn/browser';
 
  let email = $state('');
  let password = $state('');
  let error = $state('');
  let loading = $state(false);
+ let passkeyLoading = $state(false);
 
  async function login() {
   error = '';
@@ -18,6 +21,59 @@
    error = err instanceof Error ? err.message : 'Sign in failed';
   } finally {
    loading = false;
+  }
+ }
+
+ function browserSupportsPasskey(): boolean {
+  return typeof window !== 'undefined'
+   && 'PublicKeyCredential' in window
+   && typeof navigator.credentials?.get === 'function';
+ }
+
+ /**
+  * S5-08: sign in with a registered passkey. Browser drives the
+  * ceremony; we POST the assertion to better-auth's verifier endpoint
+  * which sets the session cookie on success.
+  */
+ async function signInWithPasskey() {
+  if (!browserSupportsPasskey()) {
+   error = 'This browser does not support passkeys';
+   return;
+  }
+  error = '';
+  passkeyLoading = true;
+  try {
+   const optsRes = await fetch('/api/auth/passkey/generate-authenticate-options', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+   });
+   if (!optsRes.ok) throw new Error(`Failed to start passkey sign-in: HTTP ${optsRes.status}`);
+   const options = await optsRes.json();
+
+   const assertion = await startAuthentication({ optionsJSON: options });
+
+   const verifyRes = await fetch('/api/auth/passkey/verify-authentication', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ response: assertion }),
+   });
+   if (!verifyRes.ok) {
+    const body = await verifyRes.json().catch(() => null) as any;
+    throw new Error(body?.message ?? `Sign-in failed: HTTP ${verifyRes.status}`);
+   }
+   await auth.init();
+   goto(`${base}/`);
+  } catch (err) {
+   const msg = err instanceof Error ? err.message : String(err);
+   // User cancellation isn't an error worth showing.
+   if (!msg.includes('NotAllowedError') && !msg.includes('AbortError') && !msg.includes('cancelled')) {
+    error = `Passkey sign-in failed: ${msg}`;
+   }
+  } finally {
+   passkeyLoading = false;
   }
  }
 </script>
@@ -55,6 +111,22 @@
      {#if loading}<span class="loading loading-spinner loading-sm"></span>{/if}
      Sign In
     </button>
+
+    {#if browserSupportsPasskey()}
+     <div class="divider text-xs text-base-content/40 my-1">or</div>
+     <button
+      class="btn btn-outline w-full gap-2"
+      onclick={signInWithPasskey}
+      disabled={passkeyLoading}
+     >
+      {#if passkeyLoading}
+       <span class="loading loading-spinner loading-sm"></span>
+      {:else}
+       <Fingerprint size={16} />
+      {/if}
+      Sign in with passkey
+     </button>
+    {/if}
    </div>
   </div>
  </div>
