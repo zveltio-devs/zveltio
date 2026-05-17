@@ -40,6 +40,10 @@
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
       "import": "./dist/rpc/index.js"
+    },
+    "./offline": {
+      "types": "./dist/offline/index.d.ts",
+      "import": "./dist/offline/index.js"
     }
   },
   "files": [
