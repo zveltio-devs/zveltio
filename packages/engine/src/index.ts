@@ -15,10 +15,6 @@ import { cronRunner } from './lib/cron-runner.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
-// S5-03: the legacy RealtimeManager (lib/realtime.ts) is superseded by
-// realtimeBus(); the file stays in the tree for one more wave so external
-// scripts that import `realtimeManager` keep typechecking, then it'll be
-// removed.
 import { realtimeBus, PgNotifyRealtimeBus } from './lib/realtime-bus.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
