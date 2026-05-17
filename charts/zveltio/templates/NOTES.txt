@@ -1,0 +1,56 @@
+{{ include "zveltio.fullname" . }} installed successfully.
+
+📦  Engine image:        {{ include "zveltio.image" . }}
+🛢️   Database:            {{ if .Values.postgresql.enabled }}in-cluster Postgres ({{ include "zveltio.fullname" . }}-postgres){{ else }}external (DATABASE_URL){{ end }}
+🔌  Valkey:              {{ if .Values.redis.enabled }}in-cluster ({{ include "zveltio.fullname" . }}-valkey){{ else if .Values.engine.config.valkeyUrl }}external (VALKEY_URL set){{ else }}DISABLED (single-instance realtime only){{ end }}
+🚦  Auto-migrate:        {{ if eq (.Values.engine.config.migrationsAuto | toString) "true" }}enabled{{ else }}DISABLED (run `zveltio migrate` manually){{ end }}
+{{ if .Values.migrationJob.enabled -}}
+    Pre-install migration Job is enabled.
+{{- end }}
+{{ if .Values.autoscaling.enabled -}}
+📈  Autoscaling:         {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} replicas, CPU target {{ .Values.autoscaling.targetCPUUtilizationPercentage }}%
+{{- else -}}
+📈  Replicas:            {{ .Values.engine.replicaCount }}
+{{- end }}
+
+Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+    http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if eq .Values.engine.service.type "NodePort" }}
+  Run: kubectl get svc {{ include "zveltio.fullname" . }}-engine -o jsonpath='{.spec.ports[0].nodePort}'
+{{- else if eq .Values.engine.service.type "LoadBalancer" }}
+  Run: kubectl get svc -w {{ include "zveltio.fullname" . }}-engine
+{{- else if eq .Values.engine.service.type "ClusterIP" }}
+  Port-forward locally:
+    kubectl port-forward svc/{{ include "zveltio.fullname" . }}-engine 3000:{{ .Values.engine.service.port }} -n {{ .Release.Namespace }}
+    Then open: http://localhost:3000/admin
+{{- end }}
+
+⚠️  Production checklist (set these via `helm upgrade ... --set` or values file):
+{{- if not .Values.engine.config.betterAuthSecret }}
+  ✗ engine.config.betterAuthSecret  — REQUIRED (32+ random chars; openssl rand -hex 32)
+{{- end }}
+{{- if not .Values.engine.config.encryptionKey }}
+  ✗ engine.config.encryptionKey     — REQUIRED for encrypted-field columns
+{{- end }}
+{{- if and (not .Values.postgresql.enabled) (not .Values.engine.config.databaseUrl) }}
+  ✗ engine.config.databaseUrl       — REQUIRED (postgres://...)
+{{- end }}
+{{- if not .Values.engine.config.betterAuthUrl }}
+  ✗ engine.config.betterAuthUrl     — REQUIRED for cookie auth (public base URL)
+{{- end }}
+{{- if not .Values.ingress.enabled }}
+  ⚠ ingress.enabled                  — recommended (otherwise port-forward only)
+{{- end }}
+{{- if eq (.Values.engine.image.tag | toString) "" }}
+  ✓ image tag — defaulted to Chart.appVersion ({{ .Chart.AppVersion }}); pin a SHA in prod
+{{- end }}
+
+Create the first super-admin once the engine is reachable:
+  kubectl exec -it deploy/{{ include "zveltio.fullname" . }}-engine -n {{ .Release.Namespace }} -- zveltio create-god
+
+For full deployment guidance see docs/DEPLOYMENT-K8S.md in the repo.

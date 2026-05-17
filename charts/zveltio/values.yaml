@@ -1,0 +1,245 @@
+# Default values for zveltio.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+#
+# Production checklist — set these before installing:
+#   - `engine.config.databaseUrl`            external Postgres connection
+#   - `engine.config.betterAuthSecret`       32+ char random string
+#   - `engine.config.encryptionKey`          base64 of 32 random bytes
+#   - `ingress.hosts[0].host`                your domain
+#   - `engine.image.tag`                     pin a real release tag, not "latest"
+
+# ── Engine ────────────────────────────────────────────────────────────────────
+
+engine:
+  replicaCount: 1
+  # Bump to 2+ once the realtime bus (Valkey or pg_notify, see S5-03) is wired.
+  # Above 2 replicas you SHOULD set `redis.enabled: true` (or point
+  # `engine.config.valkeyUrl` at a managed instance) for clean fan-out.
+
+  image:
+    # Public image once registry-side publish lands. Until then, build
+    # locally with `bun run build:binary && docker build` and push to your
+    # registry of choice.
+    repository: ghcr.io/zveltio-devs/zveltio-engine
+    pullPolicy: IfNotPresent
+    # Pin a specific version in production. `latest` is convenient for dev
+    # but trades reproducibility for convenience.
+    tag: "" # defaults to .Chart.appVersion
+
+  imagePullSecrets: []
+  nameOverride: ""
+  fullnameOverride: ""
+
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  podAnnotations: {}
+  podLabels: {}
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false # engine writes extension downloads + uploads
+
+  resources:
+    # Conservative defaults for a single-node dev/staging deploy. Production
+    # should size based on expected concurrency.
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+  service:
+    type: ClusterIP
+    port: 3000
+    annotations: {}
+
+  # ── Runtime config (mapped to engine env vars) ─────────────────────────────
+  # Keep secrets in `existingSecret` for production. Inline values below are
+  # for dev / first-install convenience.
+  config:
+    # External services. Required.
+    databaseUrl: "" # postgres://user:pass@host:5432/zveltio
+    # Native (non-pooled) Postgres URL for LISTEN/NOTIFY. Falls back to
+    # databaseUrl if unset. Required only if your databaseUrl points at
+    # PgBouncer / PgDog (which can't hold LISTEN connections).
+    nativeDatabaseUrl: ""
+
+    # Optional Valkey/Redis for cache + cross-instance realtime (S5-03).
+    # Strongly recommended when engine.replicaCount > 2.
+    valkeyUrl: ""
+
+    # Optional S3-compatible storage for uploads (via aws4fetch). When
+    # unset, the engine writes to the local filesystem under
+    # `/data/uploads`.
+    s3:
+      endpoint: ""
+      bucket: ""
+      region: ""
+      accessKeyId: ""
+      secretAccessKey: ""
+
+    # ── Auth ────────────────────────────────────────────────────────────────
+    betterAuthSecret: "" # 32+ random chars — generate with `openssl rand -hex 32`
+    betterAuthUrl: ""    # public base URL, e.g. https://zveltio.example.com
+
+    # ── Encryption-at-rest keys (S2 security work) ─────────────────────────
+    encryptionKey: ""        # AES-256-GCM master key (base64 of 32 bytes)
+    mailEncryptionKey: ""    # SMTP credentials encryption
+    aiKeyEncryptionKey: ""   # AI provider keys encryption
+
+    # ── Observability ──────────────────────────────────────────────────────
+    metricsToken: ""          # bearer for /metrics; empty disables
+    otelExporterOtlpEndpoint: ""
+
+    # ── Behavior ───────────────────────────────────────────────────────────
+    # Auto-apply pending migrations on startup (S4-10). Disable for CI
+    # / explicit-control deploys.
+    migrationsAuto: "true"
+
+    # Engine port inside the container. Service maps this to .service.port.
+    port: "3000"
+    nodeEnv: "production"
+
+    # ── Extension signing (S1-01 + S4-05) ──────────────────────────────────
+    # Set true once registry-side signing lands so unsigned extensions
+    # are refused at install.
+    requireExtensionSignatures: "false"
+    # JSON array of trusted public keys. Example:
+    #   '[{"keyId":"prod-2026","publicKeyHex":"..."}]'
+    registryPublicKeysJson: ""
+
+    # Additional env vars passed through as-is. Useful for extension-specific
+    # config (SMTP_HOST, FCM_SERVER_KEY, APNS_*, etc.).
+    extra: {}
+
+  # Use an existing Secret instead of inlining secrets in values.yaml.
+  # When set, the chart skips creating its own Secret resource.
+  existingSecret: ""
+
+  # ── Health probes ──────────────────────────────────────────────────────────
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 20
+    timeoutSeconds: 5
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Pod placement
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ── Ingress ──────────────────────────────────────────────────────────────────
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # Example for cert-manager + nginx:
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: zveltio.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: zveltio-tls
+    #   hosts:
+    #     - zveltio.example.com
+
+# ── Horizontal Pod Autoscaler ───────────────────────────────────────────────
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+  # targetMemoryUtilizationPercentage: 80
+
+# ── Pod Disruption Budget ───────────────────────────────────────────────────
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# ── Persistence (engine local filesystem) ───────────────────────────────────
+# Used when S3 isn't configured — uploads + downloaded extension archives
+# live under /data. Disable for stateless deployments that go through S3.
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+  # mountPath: "/data"  # do not change; engine code expects /data
+
+# ── Optional in-cluster Postgres ────────────────────────────────────────────
+# Off by default. Most production deployments use a managed Postgres
+# (Cloud SQL / RDS / Aiven / Supabase / etc.). Set `postgresql.enabled: true`
+# for a single-node dev/staging install.
+
+postgresql:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "18-alpine"
+  auth:
+    username: zveltio
+    password: "changeme"
+    database: zveltio
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 20Gi
+
+# ── Optional in-cluster Valkey ──────────────────────────────────────────────
+# Off by default. Production deployments typically use a managed Valkey/Redis.
+
+redis:
+  enabled: false
+  image:
+    repository: valkey/valkey
+    tag: "8-alpine"
+  auth:
+    enabled: false
+    password: ""
+  persistence:
+    enabled: false # cache is restartable; persistence is rarely worth it
+    size: 5Gi
+
+# ── Pre-install / post-upgrade migration job ────────────────────────────────
+# By default the engine auto-migrates on startup (S4-10 / MIGRATIONS_AUTO=true).
+# Set to true to also run a one-shot migration Job before each release —
+# useful for safe blue/green deploys where you want migrations applied
+# before any new pod takes traffic.
+
+migrationJob:
+  enabled: false
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300

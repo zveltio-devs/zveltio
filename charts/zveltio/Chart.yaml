@@ -1,0 +1,35 @@
+apiVersion: v2
+name: zveltio
+description: |
+  Zveltio Business OS — self-hosted SaaS platform with extensible engine,
+  Studio admin UI, and 50+ official extensions. This chart deploys the
+  engine; Postgres, Valkey, and S3-compatible storage are external (managed
+  or in-cluster) by default but optional in-cluster deployments are
+  available behind feature flags.
+
+type: application
+
+# Helm chart version (bump on chart changes only)
+version: 0.1.0
+
+# Engine app version (must match packages/engine/package.json on release)
+appVersion: "1.0.0-alpha.80"
+
+keywords:
+  - zveltio
+  - business-os
+  - saas
+  - low-code
+  - postgres
+
+home: https://zveltio.com
+sources:
+  - https://github.com/zveltio-devs/zveltio
+
+maintainers:
+  - name: Zveltio Devs
+    url: https://github.com/zveltio-devs
+
+annotations:
+  category: ApplicationServer
+  licenses: Apache-2.0
