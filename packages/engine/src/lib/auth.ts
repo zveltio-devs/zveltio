@@ -6,6 +6,87 @@ import type { Database } from '../db/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
 
+// ── S4-09: scrypt → argon2id silent migration ──────────────────────────────
+//
+// When a legacy scrypt verification succeeds, we re-hash the password with
+// argon2id and write it back to better-auth's `account` table. The next
+// sign-in for the same user hits the argon2id branch and finishes faster.
+//
+// PASSWORD_LEGACY_SCRYPT_DEADLINE (ISO date) is a hard cut-off: after that
+// date, scrypt verification is refused even on correct input. Operators
+// monitor `countLegacyScryptHashes(db)` to know when it's safe to set the
+// deadline — typically 90 days after the first deployment of this code.
+// Default: unset, meaning "accept scrypt indefinitely".
+
+function isLegacyScryptDeadlinePassed(): boolean {
+  const deadline = process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
+  if (!deadline) return false;
+  const d = new Date(deadline);
+  if (isNaN(d.getTime())) return false;
+  return Date.now() > d.getTime();
+}
+
+/**
+ * Rewrite a successful scrypt verification's password column with a
+ * fresh argon2id hash. Lookups by the old hash value — better-auth stores
+ * one row per (user, provider) in `account`, and the password is unique
+ * enough (per-user salt) to identify the row.
+ *
+ * Fire-and-forget; failures are logged but don't fail the sign-in.
+ */
+async function rehashLegacyAccountToArgon2id(
+  db: Database | null,
+  oldHash: string,
+  password: string,
+): Promise<void> {
+  if (!db) return;
+  const row = await (db as any)
+    .selectFrom('account')
+    .select(['id', 'password'])
+    .where('password', '=', oldHash)
+    .executeTakeFirst();
+  if (!row) return; // row updated already by a concurrent login? Either way: stop.
+
+  const newHash = await Bun.password.hash(password, {
+    algorithm: 'argon2id', memoryCost: 4096, timeCost: 3,
+  });
+  await (db as any)
+    .updateTable('account')
+    .set({ password: newHash, updatedAt: new Date() })
+    .where('id', '=', row.id)
+    .where('password', '=', oldHash) // optimistic: only update if still scrypt
+    .execute();
+}
+
+/**
+ * Count rows in `account` whose password column still uses the legacy
+ * scrypt format (`salt:hexkey`). Operators run this against production to
+ * decide when to set `PASSWORD_LEGACY_SCRYPT_DEADLINE`. Returns 0 means
+ * "safe to enforce the deadline immediately".
+ *
+ * Detection: argon2id / bcrypt hashes start with `$`. scrypt rows don't.
+ * NULL password (OAuth-only accounts) is excluded.
+ */
+export async function countLegacyScryptHashes(db: Database): Promise<number> {
+  try {
+    const rows = await (db as any)
+      .selectFrom('account')
+      .select((eb: any) => eb.fn.count('id').as('count'))
+      .where('password', 'is not', null)
+      // SQL pattern: anything that DOES NOT start with `$`.
+      .where('password', 'not like', '$%')
+      .executeTakeFirst();
+    return Number((rows as any)?.count ?? 0);
+  } catch {
+    return 0; // table missing on fresh installs, etc.
+  }
+}
+
+// Db reference used by the password.verify callback for the re-hash
+// side effect. Captured from the initAuth parameter — the verify closure
+// reads this module-level binding so it sees the value after init.
+let _authDb: Database | null = null;
+
 async function sendEmail(to: string, subject: string, html: string, text: string) {
   const { createTransport } = await import('nodemailer');
   const transport = createTransport({
@@ -35,6 +116,9 @@ export async function initAuth(db: Database) {
   if (!process.env.BETTER_AUTH_SECRET) {
     throw new Error('BETTER_AUTH_SECRET environment variable is required');
   }
+  // S4-09: capture db so the password.verify callback can re-hash
+  // scrypt → argon2id without taking db as a closure argument.
+  _authDb = db;
 
   const port = process.env.PORT || '3000';
   const baseURL = process.env.BETTER_AUTH_URL || `http://localhost:${port}`;
@@ -116,7 +200,11 @@ export async function initAuth(db: Database) {
       // Use argon2id via Bun.password (4 MB RAM) instead of better-auth's
       // default scrypt (32 MB RAM) so create-god and login work on small VMs.
       // Legacy scrypt hashes (salt:hexkey format) are verified transparently
-      // so existing users are not locked out after upgrading.
+      // so existing users are not locked out after upgrading. Successful
+      // scrypt verifications trigger a silent re-hash to argon2id, so the
+      // population of scrypt rows drains naturally as users sign in
+      // (S4-09 migration). After PASSWORD_LEGACY_SCRYPT_DEADLINE has
+      // passed, scrypt verification fails — by then nobody should be left.
       password: {
         hash: (password: string) =>
           Bun.password.hash(password, { algorithm: 'argon2id', memoryCost: 4096, timeCost: 3 }),
@@ -125,13 +213,25 @@ export async function initAuth(db: Database) {
           if (hash.startsWith('$')) {
             return Bun.password.verify(password, hash);
           }
+          // S4-09: legacy scrypt path. Verify, then schedule a silent
+          // re-hash so the next sign-in goes through the argon2id branch.
+          if (isLegacyScryptDeadlinePassed()) {
+            console.warn('[auth] Refusing legacy scrypt hash — past PASSWORD_LEGACY_SCRYPT_DEADLINE.');
+            return false;
+          }
           // Legacy hashes: better-auth default scrypt format "salt:hexkey"
           const [salt, key] = hash.split(':');
           if (!salt || !key) return false;
           try {
             const { scryptSync } = await import('crypto');
             const derived = scryptSync(password, salt, 64, { N: 16384, r: 16, p: 1 });
-            return derived.toString('hex') === key;
+            if (derived.toString('hex') !== key) return false;
+            // Schedule re-hash — fire-and-forget so a DB error doesn't
+            // block sign-in. The user is already authenticated.
+            rehashLegacyAccountToArgon2id(_authDb, hash, password).catch((err) => {
+              console.warn('[auth] Re-hash to argon2id failed (will retry on next login):', err.message);
+            });
+            return true;
           } catch {
             return false;
           }
