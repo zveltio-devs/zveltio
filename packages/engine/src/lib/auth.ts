@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
+import { passkey } from '@better-auth/passkey';
 import type { Database } from '../db/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
@@ -180,6 +181,20 @@ export async function initAuth(db: Database) {
           },
         }),
       ] : []),
+
+      // S5-08: WebAuthn / Passkeys — phishing-resistant credentials.
+      // RP (relying party) settings: ID is the effective domain (must NOT
+      // include scheme or port); origin is the full URL the browser will
+      // see during ceremonies. For dev, both default to localhost. Set
+      // BETTER_AUTH_URL / PASSKEY_RP_ID in production.
+      passkey({
+        rpID: process.env.PASSKEY_RP_ID
+          || new URL(baseURL).hostname,
+        rpName: process.env.APP_NAME || 'Zveltio',
+        // Origin must match the page the user is authenticating from.
+        // Most installations serve Studio + API on the same baseURL.
+        origin: baseURL,
+      }),
     ],
   });
 
