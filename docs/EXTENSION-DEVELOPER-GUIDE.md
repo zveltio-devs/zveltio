@@ -540,10 +540,33 @@ Key semantics:
 - `abort(reason)` throws `AbortHookError`. The data layer catches it and
   returns HTTP 422 `{ code: 'EXT_HOOK_ABORTED', reason }`. No row is written.
 - A handler that throws anything other than `AbortHookError` becomes a 500.
-- **Scope today**: single-record `POST/PUT/PATCH/DELETE /:collection[/:id]`
-  are hooked. **Bulk endpoints** (`/:collection/bulk`) do not yet invoke
-  pre-hooks — tracked as S2-02. Plan accordingly if your extension relies on
-  bulk routes.
+
+**Hook scope** — what triggers pre-hooks:
+
+| Source | beforeInsert | beforeUpdate | beforeDelete |
+|---|---|---|---|
+| `POST /:collection` (HTTP) | ✓ | — | — |
+| `PUT/PATCH/DELETE /:collection/:id` (HTTP) | — | ✓ / ✓ / ✓ | ✓ |
+| `POST /:collection/bulk` etc. (HTTP) | per-row ✓ | per-row ✓ | per-row ✓ |
+| `ctx.db.insertInto('zvd_*').values(...).execute()` | ✓ | — | — |
+| `ctx.db.updateTable('zvd_*').set(...).where('id', '=', X).execute()` | — | ✓ | — |
+| `ctx.db.deleteFrom('zvd_*').where('id', '=', X).execute()` | — | — | ✓ |
+| `ctx.db.updateTable/deleteFrom` with bulk WHERE | — | skip + warn | skip + warn |
+| Raw ``ctx.db.executeQuery(sql`...`)`` | — | — | — |
+
+For extension-internal writes, the hook payload's `userId` is set to
+`system:<your-extension-name>` so post-write hooks can tell user-driven
+changes from extension-driven ones.
+
+**Why bulk updates/deletes skip hooks**: a `WHERE tenant_id = X` may touch
+thousands of rows. Firing per-row hooks would be slow and surprising
+(rows that didn't exist when the hook author wrote the rule could match).
+Pre-fetch ids in a `selectFrom` and loop with single-row writes if you
+need per-row semantics.
+
+**Raw SQL bypasses hooks**: ``ctx.db.executeQuery(sql`INSERT INTO ...`)``
+goes around the Kysely builder and so around the hook layer. Use the
+Kysely builder for hooked writes.
 
 ### Post-write hooks (today + v1.0)
 
