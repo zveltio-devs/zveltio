@@ -15,7 +15,11 @@ import { cronRunner } from './lib/cron-runner.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
-import { realtimeManager } from './lib/realtime.js';
+// S5-03: the legacy RealtimeManager (lib/realtime.ts) is superseded by
+// realtimeBus(); the file stays in the tree for one more wave so external
+// scripts that import `realtimeManager` keep typechecking, then it'll be
+// removed.
+import { realtimeBus, PgNotifyRealtimeBus } from './lib/realtime-bus.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { cancelPendingCleanups } from './lib/ghost-ddl.js';
@@ -588,13 +592,28 @@ async function bootstrap() {
         console.warn('⚠️ Extension loading failed (non-fatal):', err.message);
       }),
 
-    // Realtime LISTEN/NOTIFY — must connect directly to PostgreSQL, not through
-    // PgDog/PgBouncer, because LISTEN requires a persistent dedicated connection.
-    (() => {
-      const realtimeUrl = process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
-      return realtimeUrl ? realtimeManager.start(realtimeUrl) : Promise.resolve();
+    // S5-03: cross-instance realtime bus. Picks Valkey if VALKEY_URL is
+    // set, otherwise pg_notify. The pg_notify backend must connect
+    // directly to Postgres (not through PgDog/PgBouncer) because LISTEN
+    // requires a persistent dedicated connection.
+    (async () => {
+      const bus = realtimeBus();
+      if (bus.backend === 'pg-notify') {
+        const realtimeUrl = process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
+        if (!realtimeUrl) return;
+        // Plug the Kysely instance so publish() can pg_notify on our pool.
+        (bus as PgNotifyRealtimeBus).setPublisher({
+          execute: async (sqlText: string) => {
+            const { sql } = await import('kysely');
+            return sql.raw(sqlText).execute(db);
+          },
+        });
+        await bus.start();
+      } else if (bus.backend === 'valkey') {
+        await bus.start();
+      }
     })().catch((err: Error) => {
-      console.warn('⚠️ Realtime init failed (non-fatal):', err.message);
+      console.warn('⚠️ Realtime bus init failed (non-fatal):', err.message);
     }),
   ]);
   console.log(`✅ Parallel services started in ${Date.now() - parallelStart}ms`);
@@ -663,9 +682,7 @@ async function shutdown() {
   webhookWorker.stop();
   flowScheduler.stop();
   cancelPendingCleanups();
-  realtimeManager.stop().catch(() => {
-    /* ignore */
-  });
+  realtimeBus().stop().catch(() => { /* */ });
   // S5-04: stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
     const { stopDDLQueue } = await import('./lib/ddl-queue.js');
