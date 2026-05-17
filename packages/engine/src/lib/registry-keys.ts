@@ -29,9 +29,14 @@ export interface RegistryKey {
 }
 
 const BUILTIN_KEYS: RegistryKey[] = [
-  // Empty for now. When the registry generates its production keypair, add it
-  // here as:
-  //   { keyId: 'registry-prod-2026-01', publicKey: hexToBytes('aabb...') },
+  // Production zveltio-registry signing key (wave 36, 2026-05-17). Compiled
+  // binaries trust archives signed by this key without any env-var setup.
+  // Operators can layer additional trusted keys via
+  // REGISTRY_PUBLIC_KEYS_JSON for private mirrors.
+  {
+    keyId: 'registry-prod-2026',
+    publicKey: hexToBytes('7c9182ab9015d40f9199b7e282357e3ea21d6697c2c51a7c43ca9dfc9a7fc123'),
+  },
 ];
 
 interface EnvKeyEntry {
