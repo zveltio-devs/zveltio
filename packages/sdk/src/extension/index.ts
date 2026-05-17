@@ -52,7 +52,17 @@ export interface ExtensionContext<DB = any> {
   checkPermission: (userId: string, resource: string, action: string) => Promise<boolean>;
   /** Get all roles assigned to a user. */
   getUserRoles: (userId: string) => Promise<string[]>;
-  /** DDLManager class — schema migration utilities (Ghost Tables, zero-downtime DDL). */
+  /**
+   * DDLManager — schema-migration utilities for collections and fields
+   * (S4-08). See `@zveltio/sdk/ddl` for the interface. The engine owns the
+   * implementation; extensions use the instance handed in here. Typed as
+   * `any` at this layer (vs the SDK's DDLManager interface) so existing
+   * `ctx.DDLManager` call sites in the 50+ extensions don't break when
+   * upgrading; opt in to the typed surface with:
+   *
+   *   import type { DDLManager } from '@zveltio/sdk/ddl';
+   *   const ddl: DDLManager = ctx.DDLManager;
+   */
   DDLManager: any;
 
   /**
