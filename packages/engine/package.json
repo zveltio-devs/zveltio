@@ -14,9 +14,10 @@
     "typecheck": "tsc --noEmit",
     "db:init": "bun scripts/init-db.ts",
     "cdc:setup": "bun scripts/setup-cdc.ts",
-    "lint": "eslint src --ext .ts",
-    "format": "prettier --write src",
-    "format:check": "prettier --check src",
+    "lint": "biome lint src",
+    "lint:fix": "biome lint --write src",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:unit": "bun test src/tests/unit",
@@ -45,10 +46,7 @@
   "devDependencies": {
     "@zveltio/sdk": "workspace:*",
     "@types/nodemailer": "^6.4.17",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
     "bun-types": "latest",
-    "eslint": "^8.57.0",
     "typescript": "^5.4.0"
   }
 }

@@ -1,0 +1,124 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.js",
+      "**/*.jsx",
+      "**/*.json",
+      "**/*.svelte",
+      "!**/dist/**",
+      "!**/build/**",
+      "!**/node_modules/**",
+      "!**/.svelte-kit/**",
+      "!**/.zveltio/**",
+      "!**/coverage/**",
+      "!**/*.min.js",
+      "!packages/engine/src/studio-dist/**",
+      "!packages/engine/src/db/migrations/embedded.ts",
+      "!packages/engine/src/db/migrations/sql/**"
+    ]
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedVariables": "off",
+        "noUnusedImports": "off",
+        "noUnusedFunctionParameters": "off",
+        "noEmptyPattern": "off",
+        "useParseIntRadix": "off",
+        "useYield": "off",
+        "useExhaustiveDependencies": "off"
+      },
+      "style": {
+        "useImportType": "off",
+        "useNodejsImportProtocol": "off",
+        "useTemplate": "off",
+        "useSelfClosingElements": "off",
+        "noNonNullAssertion": "off",
+        "useExponentiationOperator": "off",
+        "useLiteralEnumMembers": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noConsole": "off",
+        "noExportsInTest": "off",
+        "noImplicitAnyLet": "off",
+        "noTsIgnore": "off",
+        "noShadowRestrictedNames": "off",
+        "noAssignInExpressions": "warn",
+        "noGlobalIsNan": "warn",
+        "noPrototypeBuiltins": "warn",
+        "noUselessEscapeInString": "warn",
+        "useBiomeIgnoreFolder": "off",
+        "useIterableCallbackReturn": "off"
+      },
+      "complexity": {
+        "noForEach": "off",
+        "noBannedTypes": "off",
+        "noThisInStatic": "off",
+        "noStaticOnlyClass": "off",
+        "noUselessContinue": "off",
+        "noUselessThisAlias": "off",
+        "useOptionalChain": "off",
+        "useLiteralKeys": "off"
+      },
+      "performance": {
+        "noDelete": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "always",
+      "arrowParentheses": "always",
+      "bracketSpacing": true
+    }
+  },
+  "json": {
+    "formatter": {
+      "indentWidth": 2
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["**/tests/**/*.ts", "**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    }
+  ]
+}
