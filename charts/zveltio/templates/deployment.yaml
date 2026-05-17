@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zveltio.fullname" . }}-engine
+  labels:
+    {{- include "zveltio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.engine.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "zveltio.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: engine
+  template:
+    metadata:
+      annotations:
+        # Roll pods when the Secret or ConfigMap changes so env updates
+        # take effect without a manual restart.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.engine.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "zveltio.labels" . | nindent 8 }}
+        app.kubernetes.io/component: engine
+        {{- with .Values.engine.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.engine.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "zveltio.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.engine.podSecurityContext | nindent 8 }}
+      containers:
+        - name: engine
+          securityContext:
+            {{- toYaml .Values.engine.securityContext | nindent 12 }}
+          image: {{ include "zveltio.image" . | quote }}
+          imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.engine.config.port | int }}
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ include "zveltio.secretName" . }}
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.engine.config.nodeEnv | quote }}
+            - name: PORT
+              value: {{ .Values.engine.config.port | quote }}
+            - name: MIGRATIONS_AUTO
+              value: {{ .Values.engine.config.migrationsAuto | quote }}
+            - name: REQUIRE_EXTENSION_SIGNATURES
+              value: {{ .Values.engine.config.requireExtensionSignatures | quote }}
+            {{- range $k, $v := .Values.engine.config.extra }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.engine.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.engine.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.engine.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "zveltio.fullname" . }}-data
+      {{- end }}
+      {{- with .Values.engine.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

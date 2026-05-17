@@ -1,0 +1,49 @@
+{{- /*
+Pre-install / pre-upgrade migration Job. Off by default — the engine
+auto-migrates on startup (S4-10, MIGRATIONS_AUTO=true). Enable this for
+blue/green flows where you want migrations applied BEFORE any new pod
+takes traffic.
+
+Helm hook annotations:
+  - `pre-install,pre-upgrade` — runs before the Deployment rolls.
+  - `hook-delete-policy: before-hook-creation,hook-succeeded` — clean
+    up old Jobs so the same release name can be reinstalled.
+*/ -}}
+{{- if .Values.migrationJob.enabled -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "zveltio.fullname" . }}-migrate
+  labels:
+    {{- include "zveltio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrationJob.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migrationJob.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "zveltio.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.engine.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "zveltio.serviceAccountName" . }}
+      containers:
+        - name: migrate
+          image: {{ include "zveltio.image" . | quote }}
+          imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+          # The standalone migration runner exits 0 on success, 1 on failure.
+          # Uses the same DATABASE_URL the engine pod will use.
+          command: ["bun", "run", "migrate"]
+          envFrom:
+            - secretRef:
+                name: {{ include "zveltio.secretName" . }}
+{{- end }}

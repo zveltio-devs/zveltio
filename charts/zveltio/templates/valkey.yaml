@@ -1,0 +1,65 @@
+{{- /*
+Optional in-cluster Valkey. Same caveats as the Postgres template — for
+production, use a managed Valkey/Redis or a dedicated operator
+(Bitnami's redis-operator, Spotahome's redis-operator). This config is
+sized for development.
+*/ -}}
+{{- if .Values.redis.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "zveltio.fullname" . }}-valkey
+  labels:
+    {{- include "zveltio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  ports:
+    - port: 6379
+      targetPort: valkey
+      protocol: TCP
+      name: valkey
+  selector:
+    {{- include "zveltio.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zveltio.fullname" . }}-valkey
+  labels:
+    {{- include "zveltio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "zveltio.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: valkey
+  template:
+    metadata:
+      labels:
+        {{- include "zveltio.labels" . | nindent 8 }}
+        app.kubernetes.io/component: valkey
+    spec:
+      containers:
+        - name: valkey
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          {{- if and .Values.redis.auth.enabled .Values.redis.auth.password }}
+          args:
+            - --requirepass
+            - {{ .Values.redis.auth.password | quote }}
+          {{- end }}
+          ports:
+            - name: valkey
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: valkey
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: valkey
+            initialDelaySeconds: 10
+            periodSeconds: 20
+{{- end }}
