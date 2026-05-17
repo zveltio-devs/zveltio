@@ -32,6 +32,10 @@
     "./studio": {
       "types": "./dist/studio/index.d.ts",
       "import": "./dist/studio/index.js"
+    },
+    "./ddl": {
+      "types": "./dist/ddl/index.d.ts",
+      "import": "./dist/ddl/index.js"
     }
   },
   "files": [
