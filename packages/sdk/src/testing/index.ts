@@ -349,3 +349,21 @@ export async function createTestApp(
   await extension.register(app, ctx);
   return app;
 }
+
+// ─── Integration test helpers (Postgres) ─────────────────────────────────
+//
+// `withTestDb` + friends live in a separate module so the testcontainers
+// dynamic import doesn't fan out on every consumer of `mockDb` /
+// `createTestContext`. Re-exported here for the
+// `import { withTestDb } from '@zveltio/sdk/testing'` ergonomics.
+
+export {
+  withTestDb,
+  startTestDb,
+  applyMigrationStrings,
+  applyMigrationFiles,
+  stopReusedTestDb,
+  splitStatements,
+  type TestDb,
+  type WithTestDbOptions,
+} from './with-test-db.js';
