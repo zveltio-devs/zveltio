@@ -1,0 +1,52 @@
+name: Migration Safety
+
+on:
+  pull_request:
+    paths:
+      - 'packages/engine/src/db/migrations/sql/**'
+      - 'atlas.hcl'
+      - '.github/workflows/migrate-safety.yml'
+
+# Only one run per PR — re-running on every push wastes CI minutes.
+concurrency:
+  group: migrate-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  atlas-lint:
+    name: Atlas Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Atlas computes the diff against the base ref. Need full
+          # history for that.
+          fetch-depth: 0
+
+      - name: Setup Atlas
+        uses: ariga/setup-atlas@v0
+        with:
+          # Pin the version so an Atlas release that changes analyzer
+          # behavior doesn't surprise us mid-PR. Bump deliberately.
+          version: v0.30.0
+
+      - name: Lint migrations against base branch
+        uses: ariga/atlas-action/migrate/lint@v1
+        with:
+          dir: 'file://packages/engine/src/db/migrations/sql'
+          # Use the dev database from atlas.hcl so we get the same
+          # severity policy locally + in CI.
+          config: 'file://atlas.hcl'
+          env: engine
+          # Compare against the PR base — Atlas only lints files that
+          # are NEW or CHANGED since the merge-base. Established
+          # migrations don't get re-graded as the policy tightens.
+          dir-name: zveltio-engine
+        env:
+          # Atlas Cloud token — optional; without it, Atlas falls back
+          # to local linting. We use local-only here; Cloud features
+          # (versioned schema, drift detection) are a separate decision.
+          ATLAS_TOKEN: ${{ secrets.ATLAS_TOKEN }}

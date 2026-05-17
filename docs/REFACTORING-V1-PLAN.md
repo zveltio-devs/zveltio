@@ -99,7 +99,7 @@ contributor velocity. Sprint 5 is strategic differentiation.
 | S5-06 | Helm chart + Kustomize overlays for K8s self-host | 5 | 1w | TODO |
 | S5-07 | Electric SQL offline sync in SDK | 5 | 2w | TODO |
 | S5-08 | Passkeys / WebAuthn enabled by default | 5 | 1d | TODO |
-| S5-09 | Atlas migration safety in CI | 5 | 1d | TODO |
+| S5-09 | Atlas migration safety in CI | 5 | 1d | DONE — `.github/workflows/migrate-safety.yml` runs Atlas (ariga.io/atlas) lint on every PR that touches `packages/engine/src/db/migrations/sql/**` or `atlas.hcl`. Concurrency-grouped per ref so re-pushes cancel in-flight runs. Atlas only lints NEW/CHANGED migrations vs the PR base — existing 73 migrations are grandfathered. Policy in `atlas.hcl`: `destructive`, `concurrent_index`, and `data_depend` analyzers fail the build (catches DROP/ALTER without explicit handling, `CREATE INDEX` without CONCURRENTLY, `NOT NULL` ALTER on column with nulls). Atlas spins its own ephemeral Postgres 18 container for syntax + semantic validation — no secrets/connection-strings needed for local-only mode. `ATLAS_TOKEN` secret is optional (enables Atlas Cloud features later, not required for the lint). |
 | S5-10 | Studio: superforms + Paraglide + Layerchart + Vitest | 5 | 1w | TODO |
 
 **Total estimated effort**: ~12-14 weeks for one full-time engineer. Sprints 1+2
