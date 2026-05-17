@@ -190,6 +190,15 @@ describe('parseSignature', () => {
 describe('registry-keys env loading', () => {
   let envBackup: string | undefined;
 
+  // The env-only filter — strips out BUILTIN_KEYS entries so we only
+  // assert what `REGISTRY_PUBLIC_KEYS_JSON` parses into. Since wave 36
+  // added the production registry-prod-2026 pubkey to BUILTIN_KEYS,
+  // tests that previously expected `getTrustedKeys()` to be empty now
+  // need to filter the prod key out.
+  function envOnlyKeys() {
+    return getTrustedKeys().filter((k) => k.keyId !== 'registry-prod-2026');
+  }
+
   beforeEach(() => {
     envBackup = process.env.REGISTRY_PUBLIC_KEYS_JSON;
     delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
@@ -200,15 +209,17 @@ describe('registry-keys env loading', () => {
     else process.env.REGISTRY_PUBLIC_KEYS_JSON = envBackup;
   });
 
-  it('returns empty when env is unset', () => {
-    expect(getTrustedKeys()).toEqual([]);
+  it('returns only BUILTIN keys when env is unset', () => {
+    expect(envOnlyKeys()).toEqual([]);
+    // And BUILTIN_KEYS contributes registry-prod-2026.
+    expect(getTrustedKeys().map((k) => k.keyId)).toContain('registry-prod-2026');
   });
 
   it('parses valid env entries', () => {
     process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
       { keyId: 'k1', publicKeyHex: 'aa'.repeat(32) },
     ]);
-    const keys = getTrustedKeys();
+    const keys = envOnlyKeys();
     expect(keys).toHaveLength(1);
     expect(keys[0].keyId).toBe('k1');
     expect(keys[0].publicKey.length).toBe(32);
@@ -218,7 +229,7 @@ describe('registry-keys env loading', () => {
     process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
       { keyId: 'short', publicKeyHex: 'aabb' },
     ]);
-    expect(getTrustedKeys()).toEqual([]);
+    expect(envOnlyKeys()).toEqual([]);
   });
 
   it('skips entries missing required fields', () => {
@@ -226,12 +237,12 @@ describe('registry-keys env loading', () => {
       { publicKeyHex: 'aa'.repeat(32) },
       { keyId: 'k2' },
     ]);
-    expect(getTrustedKeys()).toEqual([]);
+    expect(envOnlyKeys()).toEqual([]);
   });
 
-  it('returns empty array on non-JSON input', () => {
+  it('returns no env keys on non-JSON input', () => {
     process.env.REGISTRY_PUBLIC_KEYS_JSON = 'not-valid-json{';
-    expect(getTrustedKeys()).toEqual([]);
+    expect(envOnlyKeys()).toEqual([]);
   });
 
   it('hexToBytes round-trips', () => {
