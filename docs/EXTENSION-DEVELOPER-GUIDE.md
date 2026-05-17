@@ -1020,12 +1020,77 @@ const ctx = createTestContext({
 
 ### Integration tests (real Postgres)
 
-For end-to-end coverage against actual SQL, run a real Postgres via
-`testcontainers-bun` or your own docker-compose. `@zveltio/sdk/testing`
-doesn't ship a `withTestDb` helper today — integration scaffolding is on
-the roadmap. Until then, drive your tests through the engine's
-`/api/marketplace/<name>/install` + `/enable` flow against a disposable
-engine instance.
+For end-to-end coverage against actual SQL, use `withTestDb` to spin up
+a real Postgres container via `@testcontainers/postgresql`.
+
+```bash
+bun add -d @testcontainers/postgresql pg @types/pg
+```
+
+The `withTestDb` callback receives a fresh Kysely instance against an
+empty database — apply your migrations, run your assertions, the
+wrapper tears the container down.
+
+```typescript
+// engine/tests/contacts.integration.test.ts
+import { describe, it, expect } from 'bun:test';
+import { withTestDb, applyMigrationFiles } from '@zveltio/sdk/testing';
+import { join } from 'path';
+import { glob } from 'glob';
+import contactsExtension from '../index.js';
+
+describe('contacts extension — integration', () => {
+  it('createContact persists a row and fires beforeInsert hooks', async () => {
+    await withTestDb(async (db) => {
+      // 1. Apply migrations (engine system migrations + this extension's).
+      const engineMigrations = await glob('../../packages/engine/src/db/migrations/sql/*.sql');
+      const extMigrations    = await glob('./engine/migrations/*.sql');
+      await applyMigrationFiles(db, [...engineMigrations, ...extMigrations]);
+
+      // 2. Drive a real write through the extension's HTTP routes.
+      const ctx = createTestContext({ db });
+      const app = await createTestApp(contactsExtension, { ctx });
+
+      const res = await app.request('/ext/contacts/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'a@b.com', name: 'Alice' }),
+      });
+      expect(res.status).toBe(201);
+
+      // 3. Assert against the real SQL state.
+      const rows = await db.selectFrom('zvd_contacts').selectAll().execute();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].email).toBe('a@b.com');
+    });
+  });
+});
+```
+
+**Options on `withTestDb`** (also available as `startTestDb({...})` for
+manual lifecycle control):
+
+| Option | Default | Notes |
+|---|---|---|
+| `image` | `postgres:18-alpine` | Override for older PG / extensions like pgvector. |
+| `database` | random per-call | DB name created inside the container. |
+| `migrations` | `[]` | Optional SQL strings applied immediately after the container is ready. |
+| `startupTimeoutMs` | `60_000` | Cold image pulls in CI can take longer — bump to `120_000`. |
+| `reuse` | `false` | Reuse a single container across calls (new DB per test). |
+
+**Performance**: first call pays the image-pull cost (~3-5s); subsequent
+calls in the same Bun process reuse the cached image (~1-2s). Pass
+`reuse: true` if you want to share one container across an entire
+`describe()` block.
+
+**Cleanup at process exit**: call `stopReusedTestDb()` once in
+`afterAll` / `globalTeardown` to stop the cached container when using
+`reuse: true`.
+
+**Helper `applyMigrationFiles`**: runs each file in order, splitting on
+SQL statements (handles `$$ ... $$` dollar-quoted blocks and `-- line`
+/ `/* block */` comments). Use it to replay engine migrations + your
+extension's own SQL.
 
 ### Running tests
 
