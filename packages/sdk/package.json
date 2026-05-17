@@ -36,6 +36,10 @@
     "./ddl": {
       "types": "./dist/ddl/index.d.ts",
       "import": "./dist/ddl/index.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc/index.d.ts",
+      "import": "./dist/rpc/index.js"
     }
   },
   "files": [
