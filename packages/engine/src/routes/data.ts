@@ -8,6 +8,7 @@ import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { checkPermission } from '../lib/permissions.js';
 import { WebhookManager } from '../lib/webhooks.js';
 import { broadcastEvent } from './ws.js';
+import { realtimeBus } from '../lib/realtime-bus.js';
 import { broadcastDataEvent } from './realtime.js';
 // AI auto-embedding is now handled by the `ai` extension via record.created /
 // record.updated events emitted by engineEvents below.
@@ -479,13 +480,16 @@ async function afterWrite(
   broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data);
   broadcastDataEvent(collection, eventName, data);
 
-  sql`SELECT pg_notify('zveltio_changes', ${JSON.stringify({
+  // S5-03: publish to the cross-instance realtime bus (Valkey if
+  // configured, else pg_notify). The bus filters its own echo so the
+  // already-fired local `broadcastEvent` above doesn't double-deliver.
+  realtimeBus().publish({
     event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
     collection,
-    record_id: recordId,
+    record_id: recordId as string,
     data,
     timestamp: new Date().toISOString(),
-  })})`.execute(db).catch((err) => console.error('[afterWrite] pg_notify failed:', err));
+  }).catch((err) => console.error('[afterWrite] realtime publish failed:', err));
 
   // Embedding triggered via engineEvents.emit('record.created' | 'record.updated')
   // below — the `ai` extension subscribes to those events. No core call needed.
