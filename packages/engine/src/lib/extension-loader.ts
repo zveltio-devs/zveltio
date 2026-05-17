@@ -670,6 +670,15 @@ const ManifestSchema = z.object({
     nodeModulesSizeMbMax: z.number().int().positive().default(200),
     migrationsMax: z.number().int().positive().default(100),
   }).optional(),
+  /**
+   * Extension runtime (S5-05 full). `"js"` (default) loads via dynamic
+   * import of `engine/index.ts`. `"wasm"` loads via `WasmExtensionHost`
+   * — the engine reads `engine/extension.wasm` and runs it inside a
+   * capability-bound WebAssembly instance. WASM extensions get real
+   * isolation (separate linear memory, no V8 heap access) at the cost
+   * of a small ABI surface; see `docs/EXTENSION-DEVELOPER-GUIDE.md` §16.
+   */
+  runtime: z.enum(['js', 'wasm']).default('js').optional(),
 }).passthrough();
 
 // Default quotas exposed for callers that don't have a full manifest yet.
@@ -1035,6 +1044,12 @@ class ExtensionLoader {
       // Migrations quota is determined from manifest (or defaults if no manifest).
       // Hoisted out of the if-block so the check after getMigrations() can see it.
       let migrationsLimit = DEFAULT_QUOTAS.migrationsMax;
+      // Extension category — hoisted so the WASM branch below can reach it
+      // for the synthetic ZveltioExtension. Default matches the manifest schema.
+      let extCategory: string = 'custom';
+      // S5-05: runtime selector ('js' | 'wasm'). Hoisted for the same reason
+      // as migrationsLimit + extCategory. Defaults to 'js' for back-compat.
+      let extRuntime: 'js' | 'wasm' = 'js';
 
       // Validate manifest.json if present, then check compatibility + dependencies
       const manifestPath = join(extDir, 'manifest.json');
@@ -1047,6 +1062,8 @@ class ExtensionLoader {
           console.warn(`⚠️  Extension "${extName}": invalid manifest.json —`, (err as Error).message);
           return;
         }
+        if (typeof manifest.category === 'string') extCategory = manifest.category;
+        if (manifest.runtime === 'wasm') extRuntime = 'wasm';
 
         // Engine version compatibility
         const compat = isCompatible(getEngineVersion(), manifest.zveltioMinVersion, manifest.zveltioMaxVersion);
@@ -1138,13 +1155,51 @@ class ExtensionLoader {
         });
       }
 
-      // Import and register extension. In development, append a cache-buster
-      // query string so re-loading an edited extension picks up changes; in
-      // production the module is loaded once at startup and the cache is a feature.
-      const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
-      const cacheBuster = process.env.NODE_ENV === 'production' ? '' : `?v=${Date.now()}`;
-      const module = await import(`${resolvedPath}${cacheBuster}`);
-      const extension: ZveltioExtension = module.default;
+      // S5-05 full — if the manifest opts into the WASM runtime, load the
+      // `.wasm` extension through `WasmExtensionHost`. Returns a synthetic
+      // `ZveltioExtension` whose register() invokes the WASM module's
+      // exported register inside the capability-bound sandbox. The rest
+      // of the loader treats it the same as a JS extension.
+      //
+      // Note today's WASM ABI is small (log, db_*, fetch_*, crypto*,
+      // env_read, fs_*). Route registration from inside WASM isn't yet
+      // wired through the imports table — that arrives with the
+      // companion tooling wave. So WASM extensions today are
+      // compute-only or background-only. JS first-party extensions
+      // continue to handle the HTTP surface.
+      let extension: ZveltioExtension;
+      if (extRuntime === 'wasm') {
+        const wasmPath = join(extDir, 'engine', 'extension.wasm');
+        if (!existsSync(wasmPath)) {
+          this.lastLoadError.set(extName,
+            `manifest.runtime = "wasm" but engine/extension.wasm is missing`);
+          return;
+        }
+        const { loadWasmExtension } = await import('./wasm-extension-host.js');
+        const wasm = await loadWasmExtension(wasmPath, { extName });
+        // Synthetic ZveltioExtension that proxies into the WASM handle.
+        extension = {
+          name: extName,
+          category: extCategory,
+          mountStrategy: 'global',
+          async register(_app, _ctx) {
+            // WASM register() runs inside the sandbox. It can't bind
+            // Hono routes today; that requires a routing-bridge ABI.
+            // Compute / background work happens here.
+            await wasm.register();
+          },
+        };
+        // Keep a reference so reloads + unloads can call shutdown().
+        (extension as any).__wasmHandle = wasm;
+      } else {
+        // Import and register extension. In development, append a cache-buster
+        // query string so re-loading an edited extension picks up changes; in
+        // production the module is loaded once at startup and the cache is a feature.
+        const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
+        const cacheBuster = process.env.NODE_ENV === 'production' ? '' : `?v=${Date.now()}`;
+        const module = await import(`${resolvedPath}${cacheBuster}`);
+        extension = module.default;
+      }
 
       if (!extension || typeof extension.register !== 'function') {
         console.warn(`⚠️  Extension "${extName}": missing default export or register() function`);
