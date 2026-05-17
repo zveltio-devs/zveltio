@@ -658,7 +658,7 @@ async function bootstrap() {
 }
 
 // Graceful shutdown
-function shutdown() {
+async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
   webhookWorker.stop();
   flowScheduler.stop();
@@ -666,6 +666,11 @@ function shutdown() {
   realtimeManager.stop().catch(() => {
     /* ignore */
   });
+  // S5-04: stop pg-boss so its connection pool drains cleanly. Best-effort.
+  try {
+    const { stopDDLQueue } = await import('./lib/ddl-queue.js');
+    await stopDDLQueue();
+  } catch { /* not initialized yet */ }
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
