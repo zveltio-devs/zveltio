@@ -1,0 +1,21 @@
+# Patterns to ignore when building Helm packages.
+# See https://helm.sh/docs/topics/charts/#the-helmignore-file
+.DS_Store
+.git/
+.gitignore
+.bzr/
+.hg/
+.hgignore
+.svn/
+# IDE / scratch
+.vscode/
+.idea/
+*.tmproj
+*.bak
+*.swp
+*~
+# CI artifacts
+.github/
+ci/
+# Test outputs
+*.tgz
