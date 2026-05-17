@@ -24,17 +24,33 @@
  *      keep this file in sync. CODEOWNERS for this file enforces a
  *      reviewer.
  *
- * What's included today
- * ---------------------
- * - `POST/GET/PUT/PATCH/DELETE /api/data/:collection[/:id]`  (S5-02 MVP)
+ * What's included today (S5-02 v2)
+ * --------------------------------
+ * - `/api/data/*`        — CRUD on user collections
+ * - `/api/collections/*` — collection management + async DDL job polling
+ * - `/api/users/*`       — admin user management
+ * - `/api/me`            — current-session user
+ * - `/api/health`        — minimal status check
  *
  * What's NOT yet included
  * -----------------------
- *   `/api/collections/*`, `/api/users/*`, `/api/auth/*`, `/api/admin/*`,
- *   `/api/storage/*`, `/api/webhooks/*`, etc. They still work via plain
- *   `fetch` — they just don't get the typed RPC client experience yet.
- *   Each can be added one block at a time without breaking the existing
- *   typed routes.
+ *   `/api/auth/*` (passes through better-auth — out of fixture scope),
+ *   `/api/admin/*`, `/api/storage/*`, `/api/webhooks/*`, `/api/rpc/*`,
+ *   `/api/ext/*` (extension-contributed, not core), `/api/marketplace/*`,
+ *   `/api/notifications/*`, `/api/realtime/*`, `/api/views/*`,
+ *   `/api/zones/*`, `/api/api-keys/*`, `/api/revisions/*`, etc.
+ *
+ * Each can be added one block at a time without breaking the existing
+ * typed routes. The pattern is: define the response interface, declare
+ * a mini-Hono builder with `.method(path, c => c.json<Type>(...))`,
+ * mount it on `_apiRoutes` via `.route('/path', _builder)`.
+ *
+ * Drift mitigation today
+ * ----------------------
+ * Contract tests in `tests/unit/api-types-contract.test.ts` verify that
+ * the fixture's promised paths exist at runtime by walking
+ * `routes/index.ts`'s `app.route(...)` calls. CI catches stale fixtures
+ * before they ship to clients.
  */
 
 import { Hono } from 'hono';
@@ -81,10 +97,74 @@ export interface ApiError {
   fields?: Record<string, string>;
 }
 
+// ── Collections ─────────────────────────────────────────────────────────────
+
+export interface Collection {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  is_managed?: boolean;
+  is_system?: boolean;
+  fields?: Array<{
+    name: string;
+    type: string;
+    required?: boolean;
+    [k: string]: unknown;
+  }>;
+  [k: string]: unknown;
+}
+
+export interface CollectionListResponse { collections: Collection[] }
+export interface CollectionResponse { collection: Collection }
+/** Async DDL — collection mutations return a job id that Studio polls. */
+export interface DdlJobResponse { jobId: string }
+export interface DdlJobStatusResponse {
+  id: string;
+  type: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'dlq';
+  error: string | null;
+  retry_count: number;
+  max_retries: number;
+}
+
+// ── Users ───────────────────────────────────────────────────────────────────
+
+export interface UserSummary {
+  id: string;
+  name: string | null;
+  email: string;
+  roles?: string[];
+  created_at?: string;
+}
+export interface UserListResponse {
+  users: UserSummary[];
+  total: number;
+}
+export interface UserResponse { user: UserSummary }
+export interface InviteUserBody {
+  email: string;
+  name?: string;
+  role?: 'member' | 'manager' | 'admin';
+}
+export interface InviteUserResponse { ok: true; user: UserSummary }
+
+// ── /api/me ─────────────────────────────────────────────────────────────────
+
+export interface MeResponse {
+  user: UserSummary;
+  permissions?: Record<string, string[]>;
+  tenants?: Array<{ id: string; name: string }>;
+}
+
+// ── /api/health ─────────────────────────────────────────────────────────────
+
+export interface HealthResponse { status: 'ok' }
+
 // ── /api/data fixture ───────────────────────────────────────────────────────
 //
 // Each `.get/.post/.put/.patch/.delete` here documents the actual route
-// over in `routes/data.ts`. The Hono builder captures path + method + (via
+// over in `routes/<file>.ts`. The Hono builder captures path + method + (via
 // `c.json<T>()`) the response type — that's what `createRpcClient<Type>()`
 // turns into client autocomplete.
 
@@ -96,16 +176,47 @@ const _dataRoutes = new Hono()
   .patch('/:collection/:id', (c) => c.json<SingleResponse>({ record: {} }))
   .delete('/:collection/:id', (c) => c.json<DeleteResponse>({ ok: true, id: '' }));
 
+// ── /api/collections ────────────────────────────────────────────────────────
+
+const _collectionsRoutes = new Hono()
+  .get('/', (c) => c.json<CollectionListResponse>({ collections: [] }))
+  .post('/', (c) => c.json<DdlJobResponse>({ jobId: '' }, 202))
+  .get('/:name', (c) => c.json<CollectionResponse>({ collection: { id: '', name: '' } }))
+  .patch('/:name', (c) => c.json<CollectionResponse>({ collection: { id: '', name: '' } }))
+  .delete('/:name', (c) => c.json<DdlJobResponse>({ jobId: '' }, 202))
+  .get('/:name/jobs/:jobId', (c) => c.json<DdlJobStatusResponse>({
+    id: '', type: '', status: 'pending', error: null, retry_count: 0, max_retries: 3,
+  }))
+  .post('/:name/fields', (c) => c.json<DdlJobResponse>({ jobId: '' }, 202))
+  .delete('/:name/fields/:fieldName', (c) => c.json<DdlJobResponse>({ jobId: '' }, 202));
+
+// ── /api/users ──────────────────────────────────────────────────────────────
+
+const _usersRoutes = new Hono()
+  .get('/', (c) => c.json<UserListResponse>({ users: [], total: 0 }))
+  .post('/invite', (c) => c.json<InviteUserResponse>({ ok: true, user: { id: '', name: null, email: '' } }, 201))
+  .get('/:id', (c) => c.json<UserResponse>({ user: { id: '', name: null, email: '' } }))
+  .patch('/:id', (c) => c.json<UserResponse>({ user: { id: '', name: null, email: '' } }))
+  .delete('/:id', (c) => c.json<DeleteResponse>({ ok: true, id: '' }));
+
+// ── /api/me ─────────────────────────────────────────────────────────────────
+
+const _meRoutes = new Hono()
+  .get('/', (c) => c.json<MeResponse>({ user: { id: '', name: null, email: '' } }));
+
+// ── /api/health + version ───────────────────────────────────────────────────
+
+const _healthRoutes = new Hono()
+  .get('/', (c) => c.json<HealthResponse>({ status: 'ok' }));
+
 // ── Engine root fixture ─────────────────────────────────────────────────────
-//
-// As more route surfaces opt in to the typed client, mount them here.
-//   const _apiRoutes = new Hono()
-//     .route('/api/data', _dataRoutes)
-//     .route('/api/collections', _collectionsRoutes)  // ← future wave
-//     .route('/api/users', _usersRoutes)              // ← future wave
 
 const _apiRoutes = new Hono()
-  .route('/api/data', _dataRoutes);
+  .route('/api/data', _dataRoutes)
+  .route('/api/collections', _collectionsRoutes)
+  .route('/api/users', _usersRoutes)
+  .route('/api/me', _meRoutes)
+  .route('/api/health', _healthRoutes);
 
 /**
  * Public type the SDK binds against:
