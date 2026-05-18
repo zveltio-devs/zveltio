@@ -161,6 +161,21 @@ export interface MeResponse {
 
 export interface HealthResponse { status: 'ok' }
 
+// ── /api/electric ───────────────────────────────────────────────────────────
+
+export interface ElectricConfigResponse {
+  enabled: boolean;
+  electricUrl?: string;
+  tokenTtlSeconds?: number;
+  reason?: string;
+}
+
+export interface ElectricAuthResponse {
+  token: string;
+  expiresAt: number;
+  electricUrl: string;
+}
+
 // ── /api/data fixture ───────────────────────────────────────────────────────
 //
 // Each `.get/.post/.put/.patch/.delete` here documents the actual route
@@ -209,6 +224,14 @@ const _meRoutes = new Hono()
 const _healthRoutes = new Hono()
   .get('/', (c) => c.json<HealthResponse>({ status: 'ok' }));
 
+// ── /api/electric ───────────────────────────────────────────────────────────
+
+const _electricRoutes = new Hono()
+  .get('/config', (c) => c.json<ElectricConfigResponse>({ enabled: false }))
+  .post('/auth', (c) => c.json<ElectricAuthResponse>({
+    token: '', expiresAt: 0, electricUrl: '',
+  }));
+
 // ── Engine root fixture ─────────────────────────────────────────────────────
 
 const _apiRoutes = new Hono()
@@ -216,7 +239,8 @@ const _apiRoutes = new Hono()
   .route('/api/collections', _collectionsRoutes)
   .route('/api/users', _usersRoutes)
   .route('/api/me', _meRoutes)
-  .route('/api/health', _healthRoutes);
+  .route('/api/health', _healthRoutes)
+  .route('/api/electric', _electricRoutes);
 
 /**
  * Public type the SDK binds against:

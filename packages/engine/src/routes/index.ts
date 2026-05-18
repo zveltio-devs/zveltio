@@ -32,6 +32,7 @@ import { importRoutes } from './import.js';
 // documents → extensions/content/documents
 import { mediaRoutes } from './media.js';
 import { syncRoutes } from './sync.js';
+import { electricRoutes } from './electric.js';
 import { openApiRoutes } from './openapi.js';
 import { edgeFunctionsRoutes, edgeFunctionInvokeRoutes } from './edge-functions.js';
 // Promoted-to-core (was extensions/) — these power admin UI pages that should
@@ -266,6 +267,11 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // SDK Local-First Sync (push/pull batch operations)
   app.route('/api/sync', syncRoutes(db, auth));
+
+  // Electric SQL bridge — token mint + config for clients using the
+  // `electric` offline-sync provider. 503s when ELECTRIC_URL +
+  // ELECTRIC_AUTH_TOKEN are unset so the SDK can fall back to CRDT.
+  app.route('/api/electric', electricRoutes(db, auth));
 
   // BYOD Introspection — moved to extensions/developer/byod
 

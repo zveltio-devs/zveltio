@@ -1,0 +1,60 @@
+name: zveltio
+
+# Opt-in overlay that adds Electric SQL alongside the core stack.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.electric.yml up
+#
+# Requires the engine env: ELECTRIC_URL=ws://electric:5133,
+# ELECTRIC_AUTH_TOKEN=<same secret as below>.
+#
+# Apply migration 075_electric_replication.sql (auto-applied by the
+# engine on startup) before any collection can sync — the migration
+# creates the `zveltio_electric` publication that the Electric service
+# subscribes to.
+
+services:
+  electric:
+    image: electricsql/electric:0.12.1
+    container_name: zveltio-electric
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Electric connects directly to Postgres (not via PgDog) — logical
+      # replication needs a session-level connection that PgDog's session
+      # pooler would technically support but the Electric driver assumes
+      # it owns the connection.
+      DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@db:5432/${POSTGRES_DB:-zveltio}'
+      # Public URL the engine hands to clients in the auth response.
+      # Override when deploying behind a TLS-terminating reverse proxy.
+      ELECTRIC_WRITE_TO_PG_MODE: 'logical_replication'
+      AUTH_MODE: 'secure'
+      AUTH_JWT_ALG: 'HS256'
+      AUTH_JWT_KEY: '${ELECTRIC_AUTH_TOKEN:?ERROR: ELECTRIC_AUTH_TOKEN must be set in .env}'
+      # Publication created by migration 075.
+      ELECTRIC_PUBLICATION: 'zveltio_electric'
+      # Slot name. Electric creates the slot on first connect; pre-creating
+      # would orphan it on engines that disable Electric later.
+      LOGICAL_PUBLISHER_HOST: 'db'
+      ELECTRIC_PORT: '5133'
+    ports:
+      # Expose for local dev. Production should keep this internal-only
+      # and route through a TLS-terminating proxy.
+      - '${ELECTRIC_PORT:-5133}:5133'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:5133/api/status']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zveltio_internal
+
+  # Inject the Electric env vars into the engine so it can mint tokens.
+  engine:
+    environment:
+      ELECTRIC_URL: '${ELECTRIC_URL:-ws://electric:5133}'
+      ELECTRIC_AUTH_TOKEN: '${ELECTRIC_AUTH_TOKEN:?ERROR: ELECTRIC_AUTH_TOKEN must be set in .env}'
+    depends_on:
+      electric:
+        condition: service_healthy

@@ -39,6 +39,7 @@ const FIXTURE_MOUNTS = [
   '/api/users',
   '/api/me',
   '/api/health',
+  '/api/electric',
 ];
 
 describe('S5-02 fixture drift — top-level mounts', () => {
