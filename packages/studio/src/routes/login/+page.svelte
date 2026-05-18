@@ -1,8 +1,9 @@
 <script lang="ts">
  import { goto } from '$app/navigation';
  import { base } from '$app/paths';
+ import { page } from '$app/state';
  import { auth } from '$lib/auth.svelte.js';
- import { Fingerprint } from '@lucide/svelte';
+ import { Fingerprint, AlertCircle } from '@lucide/svelte';
  import { startAuthentication } from '@simplewebauthn/browser';
 
  let email = $state('');
@@ -11,12 +12,26 @@
  let loading = $state(false);
  let passkeyLoading = $state(false);
 
+ // Layout redirects unauthenticated users here with ?reason= and ?redirect=
+ // — surface the reason so users understand why they were bounced, and
+ // preserve the deep link so we return them to it after sign-in.
+ const reason = $derived(page.url.searchParams.get('reason'));
+ const redirectTo = $derived(page.url.searchParams.get('redirect') ?? `${base}/`);
+ const reasonMessage = $derived.by(() => {
+  switch (reason) {
+   case 'session_required': return 'Sign in to continue.';
+   case 'session_expired':  return 'Your session expired — sign in again to continue.';
+   case 'signed_out':       return 'You have been signed out.';
+   default: return null;
+  }
+ });
+
  async function login() {
   error = '';
   loading = true;
   try {
    await auth.signIn(email, password);
-   goto(`${base}/`);
+   goto(redirectTo);
   } catch (err) {
    error = err instanceof Error ? err.message : 'Sign in failed';
   } finally {
@@ -89,6 +104,13 @@
    <h1 class="text-2xl font-semibold">Zveltio Studio</h1>
    <p class="text-base-content/50 text-sm mt-1">Sign in to your account</p>
   </div>
+
+  {#if reasonMessage}
+   <div role="status" class="alert alert-info py-2 mb-4 text-sm">
+    <AlertCircle size={16} />
+    <span>{reasonMessage}</span>
+   </div>
+  {/if}
 
   <!-- Card -->
   <div class="card bg-base-100 shadow-lg">

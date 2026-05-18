@@ -2,58 +2,213 @@
 @plugin 'daisyui';
 
 /* ─────────────────────────────────────────────────────────────────
-   ZVELTIO DESIGN SYSTEM — single source of truth
+   ZVELTIO DESIGN SYSTEM — refreshed for 2026
    Tailwind v4 + DaisyUI v5 + OKLCH brand colors
+   Inspired by Linear / Cron / Vercel admin aesthetics.
+
+   Token philosophy:
+     - One brand primary (indigo) + one secondary (violet) for hierarchy.
+     - Three accent hues (teal, peach, sage) for variety in stat cards,
+       category badges, and visualizations — escape mono-indigo.
+     - Shadows replace borders on cards (softer, more depth).
+     - Display type scale for confident page heroes.
 ───────────────────────────────────────────────────────────────── */
 
 /* ── Light Theme ─────────────────────────────────────────────── */
 [data-theme='light'] {
-  --color-primary:           oklch(0.55 0.22 260);
-  --color-primary-content:   oklch(1 0 0);
-  --color-secondary:         oklch(0.55 0.18 300);
-  --color-secondary-content: oklch(1 0 0);
-  --color-accent:            oklch(0.65 0.16 200);
-  --color-accent-content:    oklch(1 0 0);
+  /* Brand primary — slightly more saturated indigo */
+  --color-primary:           oklch(0.56 0.24 264);
+  --color-primary-content:   oklch(0.99 0 0);
+  --color-secondary:         oklch(0.58 0.22 305);
+  --color-secondary-content: oklch(0.99 0 0);
+
+  /* Accent — teal for "neutral active" actions */
+  --color-accent:            oklch(0.68 0.14 200);
+  --color-accent-content:    oklch(0.99 0 0);
+
+  /* Surfaces — slightly warmer base than pure neutral grey */
   --color-base-100:          oklch(1 0 0);
-  --color-base-200:          oklch(0.97 0.004 260);
-  --color-base-300:          oklch(0.92 0.008 260);
-  --color-base-content:      oklch(0.21 0.012 260);
-  --color-success:           oklch(0.62 0.18 150);
-  --color-success-content:   oklch(1 0 0);
-  --color-warning:           oklch(0.70 0.18 70);
-  --color-warning-content:   oklch(0.21 0.012 260);
-  --color-error:             oklch(0.60 0.22 30);
-  --color-error-content:     oklch(1 0 0);
-  --radius-btn:              0.5rem;
-  --radius-box:              0.75rem;
+  --color-base-200:          oklch(0.975 0.005 270);
+  --color-base-300:          oklch(0.935 0.008 270);
+  --color-base-content:      oklch(0.22 0.014 270);
+
+  /* Semantic — refined for 2026 ergonomics */
+  --color-success:           oklch(0.66 0.17 152);
+  --color-success-content:   oklch(0.99 0 0);
+  --color-warning:           oklch(0.78 0.16 76);
+  --color-warning-content:   oklch(0.22 0.014 270);
+  --color-error:             oklch(0.62 0.22 28);
+  --color-error-content:     oklch(0.99 0 0);
+  --color-info:              oklch(0.68 0.14 220);
+  --color-info-content:      oklch(0.99 0 0);
+
+  /* Extra accents — not DaisyUI tokens, use via var() in stat cards */
+  --color-accent-peach:      oklch(0.78 0.13 50);
+  --color-accent-sage:       oklch(0.72 0.10 140);
+  --color-accent-coral:      oklch(0.72 0.16 20);
+
+  /* Geometry */
+  --radius-selector:         0.5rem;
+  --radius-field:            0.625rem;
+  --radius-box:              1rem;       /* up from 0.75 — softer, 2026 cards */
+
+  /* Shadow scale — used in lieu of borders on cards */
+  --shadow-z1: 0 1px 2px oklch(0.22 0.014 270 / 0.04), 0 1px 1px oklch(0.22 0.014 270 / 0.03);
+  --shadow-z2: 0 4px 8px oklch(0.22 0.014 270 / 0.05), 0 2px 4px oklch(0.22 0.014 270 / 0.04);
+  --shadow-z3: 0 12px 24px oklch(0.22 0.014 270 / 0.08), 0 4px 8px oklch(0.22 0.014 270 / 0.05);
+  --shadow-glow: 0 0 24px oklch(0.56 0.24 264 / 0.20);
 }
 
 /* ── Dark Theme ──────────────────────────────────────────────── */
 [data-theme='dark'] {
-  --color-primary:           oklch(0.65 0.18 260);
-  --color-primary-content:   oklch(0.13 0.02 260);
-  --color-secondary:         oklch(0.65 0.15 300);
-  --color-secondary-content: oklch(0.13 0.02 260);
-  --color-accent:            oklch(0.75 0.14 200);
-  --color-accent-content:    oklch(0.13 0.02 260);
-  --color-base-100:          oklch(0.20 0.012 260);
-  --color-base-200:          oklch(0.16 0.012 260);
-  --color-base-300:          oklch(0.13 0.01 260);
-  --color-base-content:      oklch(0.93 0.008 260);
-  --color-success:           oklch(0.68 0.16 150);
-  --color-success-content:   oklch(0.13 0.02 260);
-  --color-warning:           oklch(0.78 0.16 70);
-  --color-warning-content:   oklch(0.13 0.02 260);
-  --color-error:             oklch(0.68 0.20 30);
-  --color-error-content:     oklch(0.13 0.02 260);
-  --radius-btn:              0.5rem;
-  --radius-box:              0.75rem;
+  --color-primary:           oklch(0.70 0.18 264);
+  --color-primary-content:   oklch(0.14 0.02 264);
+  --color-secondary:         oklch(0.68 0.16 305);
+  --color-secondary-content: oklch(0.14 0.02 264);
+  --color-accent:            oklch(0.76 0.13 200);
+  --color-accent-content:    oklch(0.14 0.02 264);
+
+  /* Dark surfaces — distinct elevation, not just luminance-flipped */
+  --color-base-100:          oklch(0.18 0.014 270);
+  --color-base-200:          oklch(0.15 0.012 270);
+  --color-base-300:          oklch(0.22 0.014 270);
+  --color-base-content:      oklch(0.93 0.008 270);
+
+  --color-success:           oklch(0.70 0.16 152);
+  --color-success-content:   oklch(0.14 0.02 264);
+  --color-warning:           oklch(0.80 0.15 76);
+  --color-warning-content:   oklch(0.14 0.02 264);
+  --color-error:             oklch(0.70 0.20 28);
+  --color-error-content:     oklch(0.99 0 0);
+  --color-info:              oklch(0.74 0.13 220);
+  --color-info-content:      oklch(0.14 0.02 264);
+
+  --color-accent-peach:      oklch(0.78 0.12 50);
+  --color-accent-sage:       oklch(0.74 0.10 140);
+  --color-accent-coral:      oklch(0.74 0.15 20);
+
+  --radius-selector:         0.5rem;
+  --radius-field:            0.625rem;
+  --radius-box:              1rem;
+
+  /* Dark shadows — deeper, with a hint of the primary glow on hover */
+  --shadow-z1: 0 1px 2px oklch(0 0 0 / 0.30), 0 1px 1px oklch(0 0 0 / 0.20);
+  --shadow-z2: 0 4px 8px oklch(0 0 0 / 0.35), 0 2px 4px oklch(0 0 0 / 0.25);
+  --shadow-z3: 0 12px 24px oklch(0 0 0 / 0.40), 0 4px 8px oklch(0 0 0 / 0.30);
+  --shadow-glow: 0 0 32px oklch(0.70 0.18 264 / 0.25);
+}
+
+/* ── Density mode ────────────────────────────────────────────── */
+/* Two modes — toggle via `data-density="compact"` on <html>.
+   Comfortable (default): generous padding, larger tap targets.
+   Compact: 70-80% of the padding, tighter line-height — power-user
+   density for big spreadsheet-style workflows. */
+:root[data-density='compact'] {
+  --density-scale: 0.8;
+}
+:root:not([data-density='compact']) {
+  --density-scale: 1;
+}
+
+[data-density='compact'] .table :where(td, th) {
+  padding-top: calc(0.4rem * var(--density-scale, 1));
+  padding-bottom: calc(0.4rem * var(--density-scale, 1));
+}
+[data-density='compact'] .card-body {
+  padding: calc(1rem * var(--density-scale, 1));
+}
+[data-density='compact'] .btn-sm {
+  height: calc(2rem * var(--density-scale, 1));
+  min-height: calc(2rem * var(--density-scale, 1));
 }
 
 /* ── Typography ──────────────────────────────────────────────── */
 :root {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Display type scale — confident headers for 2026 hero areas */
+  --font-display-2xl: 700 2.5rem/1.1 var(--font-sans);    /* 40px */
+  --font-display-xl:  700 2rem/1.15 var(--font-sans);    /* 32px */
+  --font-display-lg:  600 1.5rem/1.2 var(--font-sans);   /* 24px */
+}
+
+/* Body text refinements — restrained weight, generous leading */
+body {
+  font-feature-settings: 'cv11', 'ss01', 'ss03';  /* Inter stylistic alternates */
+  letter-spacing: -0.005em;
+}
+
+h1, .display-2xl { font: var(--font-display-2xl); letter-spacing: -0.025em; }
+h2, .display-xl  { font: var(--font-display-xl);  letter-spacing: -0.02em;  }
+h3, .display-lg  { font: var(--font-display-lg);  letter-spacing: -0.015em; }
+
+/* ── Utility classes ─────────────────────────────────────────── */
+
+/* Shadow utilities — use instead of `border` on cards for 2026 depth */
+.shadow-z1 { box-shadow: var(--shadow-z1); }
+.shadow-z2 { box-shadow: var(--shadow-z2); }
+.shadow-z3 { box-shadow: var(--shadow-z3); }
+.shadow-glow { box-shadow: var(--shadow-glow); }
+
+/* Soft badge variant — for status pills. Lower-contrast than the solid
+   daisyUI badges; reads as "informational" rather than "alert". Pair
+   with `badge-success` / `badge-warning` / `badge-info` etc. The
+   background is derived from the foreground color via color-mix, so
+   adding a new semantic color works out of the box. */
+.badge.badge-soft {
+  background-color: color-mix(in oklch, currentColor 12%, transparent);
+  border: 1px solid color-mix(in oklch, currentColor 22%, transparent);
+  color: currentColor;
+}
+.badge-success.badge-soft { color: var(--color-success); }
+.badge-warning.badge-soft { color: var(--color-warning); }
+.badge-error.badge-soft   { color: var(--color-error); }
+.badge-info.badge-soft    { color: var(--color-info); }
+.badge-primary.badge-soft { color: var(--color-primary); }
+.badge-secondary.badge-soft { color: var(--color-secondary); }
+.badge-accent.badge-soft  { color: var(--color-accent); }
+
+/* Animated brand mark — for logo, AI greetings, status pulses */
+@keyframes brand-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.7; transform: scale(1.05); }
+}
+.animate-brand-pulse { animation: brand-pulse 2.4s ease-in-out infinite; }
+
+/* Skeleton shimmer — replaces flat opacity loading states */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-base-200) 0%,
+    var(--color-base-300) 50%,
+    var(--color-base-200) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* Page-enter — applied to <main> child via :where(...) to avoid breaking
+   existing layouts. Subtle fade-up, fast enough to not feel sluggish. */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+main > :where(*) { animation: page-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Reduced motion — disable the page-enter and pulses */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  main > :where(*) { animation: none; }
 }
 
 /* ── Accessibility (WCAG 2.1) ────────────────────────────────── */
@@ -75,16 +230,6 @@
   border: 0;
 }
 
-.sr-only-focusable:focus,
-.sr-only-focusable:active {
-  position: static;
-  width: auto;
-  height: auto;
-  overflow: visible;
-  clip: auto;
-  white-space: normal;
-}
-
 .skip-link {
   position: absolute;
   top: -40px;
@@ -97,16 +242,6 @@
   text-decoration: none;
 }
 .skip-link:focus { top: 0; }
-
-/* ── Reduced motion ──────────────────────────────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
 
 /* ── Color scheme fallback ───────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
@@ -121,4 +256,5 @@
   body { background: white !important; color: black !important; }
   .no-print { display: none !important; }
   a::after { content: ' (' attr(href) ')'; font-size: 0.8em; color: #666; }
+  main > :where(*) { animation: none; }
 }

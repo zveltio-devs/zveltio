@@ -1,11 +1,9 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { Plus, Play, Pause, Trash2, LoaderCircle, Workflow, Zap, Clock, Webhook, RefreshCw } from '@lucide/svelte';
+ import { Play, Pause, Trash2, LoaderCircle, Workflow, Zap, Clock, Webhook, RefreshCw } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import Pagination from '$lib/components/common/Pagination.svelte';
- import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import CrudListPage from '$lib/components/common/CrudListPage.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  interface Flow {
@@ -160,27 +158,33 @@
  }
 </script>
 
-<div class="space-y-6">
- <PageHeader title="Flows" subtitle="Automate actions with trigger → step pipelines" count={total || undefined}>
-   <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading}>
-     <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
-   </button>
-   <button class="btn btn-primary btn-sm" onclick={openModal}>
-     <Plus size={16} /> New Flow
-   </button>
- </PageHeader>
+<CrudListPage
+  title="Flows"
+  subtitle="Automate actions with trigger → step pipelines"
+  count={total || undefined}
+  {loading}
+  actionLabel="New Flow"
+  onAction={openModal}
+  empty={{
+    illustration: 'spark',
+    illustrationColor: 'text-accent',
+    title: 'Automate your first workflow',
+    description: 'Flows turn triggers (record created, schedule, webhook) into actions (send email, call API, run AI) — without writing code.',
+    actionLabel: 'Create flow',
+    onAction: openModal,
+  }}
+>
+  {#snippet headerExtras()}
+    <div class="flex justify-end">
+      <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading} aria-label="Refresh flows">
+        <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
+        Refresh
+      </button>
+    </div>
+  {/snippet}
 
- {#if loading}
- <LoadingSkeleton type="card" rows={6} />
- {:else if flows.length === 0}
- <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
- <Workflow size={48} class="opacity-20" />
- <p class="text-lg font-semibold text-base-content/60">No flows yet</p>
- <p class="text-sm text-center max-w-sm">Automate business logic with event-driven flows.</p>
- <button class="btn btn-primary btn-sm mt-2" onclick={openModal}>Create Flow</button>
- </div>
- {:else}
- <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  {#snippet list()}
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
  {#each flows as flow}
  {@const TriggerIcon = triggerIcon(flow.trigger_type)}
  <div class="card bg-base-200 group {!flow.is_active ? 'opacity-60' : ''}">
@@ -244,9 +248,9 @@
  </div>
  </div>
  {/each}
- </div>
- {/if}
-</div>
+    </div>
+  {/snippet}
+</CrudListPage>
 
 <!-- Create flow modal -->
 {#if showModal}

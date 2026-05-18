@@ -1,11 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
-  import { Plus, Key, Trash2, Copy, Check, LoaderCircle } from '@lucide/svelte';
+  import { Key, Trash2, Copy, Check, LoaderCircle } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import Pagination from '$lib/components/common/Pagination.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   interface ApiKey {
@@ -141,24 +140,23 @@
   }
 </script>
 
-<div class="space-y-6">
-  <PageHeader title="API Keys" subtitle="Manage programmatic access to the API" count={apiKeys.length}>
-    <button class="btn btn-primary btn-sm gap-1.5" onclick={() => (showCreateModal = true)}>
-      <Plus size={14} /> Create Key
-    </button>
-  </PageHeader>
-
-  {#if loading}
-    <LoadingSkeleton type="table" rows={5} />
-  {:else if apiKeys.length === 0}
-    <div class="card bg-base-200 text-center py-16">
-      <Key size={40} class="mx-auto text-base-content/30 mb-3" />
-      <p class="text-base-content/60">No API keys yet. Create one to get started.</p>
-      <button class="btn btn-primary btn-sm mt-4" onclick={() => (showCreateModal = true)}>
-        <Plus size={14} /> Create First Key
-      </button>
-    </div>
-  {:else}
+<CrudListPage
+  title="API Keys"
+  subtitle="Manage programmatic access to the API"
+  count={apiKeys.length}
+  {loading}
+  actionLabel="Create Key"
+  onAction={() => (showCreateModal = true)}
+  empty={{
+    illustration: 'target',
+    illustrationColor: 'text-secondary',
+    title: 'Generate your first key',
+    description: 'API keys give SDKs, automations, or external services scoped access to the engine. Each key can have a different permission scope.',
+    actionLabel: 'Create key',
+    onAction: () => (showCreateModal = true),
+  }}
+>
+  {#snippet list()}
     <div class="card bg-base-200">
       <div class="overflow-x-auto">
         <table class="table">
@@ -203,9 +201,12 @@
         </table>
       </div>
     </div>
-  {/if}
-  <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; loadKeys(); }} />
-</div>
+  {/snippet}
+
+  {#snippet pagination()}
+    <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; loadKeys(); }} />
+  {/snippet}
+</CrudListPage>
 
 <!-- Create modal -->
 {#if showCreateModal}

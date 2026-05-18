@@ -1,5 +1,4 @@
-export { default as RichTextEditor } from './RichTextEditor.svelte';
-export { default as JSONEditor } from './JSONEditor.svelte';
-export { default as ColorPicker } from './ColorPicker.svelte';
-// Note: FilePicker / LocationField / MapPicker are not yet implemented; their
-// exports were removed when they pointed at missing files.
+export { default as AddFieldDrawer } from './AddFieldDrawer.svelte';
+// Note: RichTextEditor, JSONEditor, ColorPicker, FilePicker, LocationField, and
+// MapPicker are not yet implemented. Re-add exports here when their `.svelte`
+// files land — leaving aspirational exports causes typecheck/runtime errors.

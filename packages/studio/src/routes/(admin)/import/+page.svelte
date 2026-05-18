@@ -145,7 +145,7 @@
  <div class="card-body">
  <div class="flex items-center justify-between mb-4">
  <h2 class="font-semibold text-base">Recent Imports</h2>
- <button class="btn btn-ghost btn-xs" onclick={loadJobs} title="Refresh"><RefreshCw size={14} /></button>
+ <button class="btn btn-ghost btn-xs" onclick={loadJobs} title="Refresh" aria-label="Refresh import jobs"><RefreshCw size={14} /></button>
  </div>
  {#if jobsLoading}
  <div class="flex justify-center py-10"><LoaderCircle size={24} class="animate-spin text-primary" /></div>

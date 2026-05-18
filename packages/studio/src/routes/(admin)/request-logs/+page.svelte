@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { Activity } from '@lucide/svelte';
+  import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 
   interface LogEntry {
     id: number;
@@ -92,7 +93,7 @@
   </div>
 
   {#if loading}
-    <div class="flex justify-center py-12"><span class="loading loading-spinner loading-md"></span></div>
+    <PageSpinner size={24} />
   {:else if logs.length === 0}
     <div class="text-center py-16 text-base-content/40">
       <Activity class="w-10 h-10 mx-auto mb-3 opacity-30" />

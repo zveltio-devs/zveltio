@@ -4,6 +4,7 @@
  import { Plus, Search, Trash2, Globe, Check, X } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import PageSpinner from '$lib/components/common/PageSpinner.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let locales = $state<any[]>([]);
@@ -251,9 +252,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-12">
- <span class="loading loading-spinner loading-lg"></span>
- </div>
+ <PageSpinner />
  {:else}
  <!-- Translation table -->
  <div class="overflow-x-auto">
@@ -292,8 +291,8 @@
  if (e.key === 'Escape') cancelEdit();
  }}
  />
- <button class="btn btn-ghost btn-xs text-success" onclick={saveEdit} title="Save"><Check size={12} /></button>
- <button class="btn btn-ghost btn-xs" onclick={cancelEdit} title="Cancel"><X size={12} /></button>
+ <button class="btn btn-ghost btn-xs text-success" onclick={saveEdit} title="Save" aria-label="Save translation"><Check size={12} /></button>
+ <button class="btn btn-ghost btn-xs" onclick={cancelEdit} title="Cancel" aria-label="Cancel edit"><X size={12} /></button>
  </div>
  {:else}
  <button

@@ -349,7 +349,7 @@
 <!-- Modal: New Dashboard -->
 {#if showNewDash}
   <dialog class="modal modal-open">
-    <div class="modal-box max-w-sm">
+    <div class="modal-box max-w-md">
       <h3 class="font-bold text-lg mb-4">New Dashboard</h3>
       <div class="space-y-3">
         <div class="form-control">

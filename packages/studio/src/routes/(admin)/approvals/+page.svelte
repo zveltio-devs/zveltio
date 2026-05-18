@@ -6,6 +6,8 @@
  } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import Pagination from '$lib/components/common/Pagination.svelte';
+ import PageSpinner from '$lib/components/common/PageSpinner.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  interface ApprovalRequest {
@@ -34,6 +36,8 @@
 
  let requests = $state<ApprovalRequest[]>([]);
  let total = $state(0);
+ let currentPage = $state(1);
+ const LIMIT = 25;
  let loading = $state(true);
  let error = $state<string | null>(null);
  let activeTab = $state<'all' | 'pending' | 'my_pending' | 'completed'>('all');
@@ -57,7 +61,8 @@
  loading = true;
  error = null;
  try {
- let endpoint = '/ext/workflow/approvals?limit=50&offset=0';
+ const offset = (currentPage - 1) * LIMIT;
+ let endpoint = `/ext/workflow/approvals?limit=${LIMIT}&offset=${offset}`;
  if (activeTab === 'pending') endpoint += '&status=pending';
  else if (activeTab === 'my_pending') endpoint += '&my_pending=true';
  else if (activeTab === 'completed') endpoint += '&status=approved,rejected,cancelled';
@@ -74,6 +79,7 @@
 
  function setTab(tab: typeof activeTab) {
  activeTab = tab;
+ currentPage = 1;
  loadRequests();
  }
 
@@ -176,7 +182,7 @@
   <button class="btn btn-ghost btn-xs gap-1" onclick={() => viewMode = viewMode === 'list' ? 'kanban' : 'list'}>
    {viewMode === 'list' ? 'Kanban view' : 'List view'}
   </button>
-  <button class="btn btn-ghost btn-sm" onclick={loadRequests} title="Refresh"><RefreshCw size={16} /></button>
+  <button class="btn btn-ghost btn-sm" onclick={loadRequests} title="Refresh" aria-label="Refresh approvals"><RefreshCw size={16} /></button>
  </PageHeader>
 
  <div class="tabs tabs-boxed bg-base-200 p-1">
@@ -195,9 +201,7 @@
  {/if}
 
  {#if loading}
- <div class="card bg-base-100 shadow-sm">
-  <div class="card-body text-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
- </div>
+ <PageSpinner />
  {:else if viewMode === 'kanban'}
  <div class="grid grid-cols-3 gap-4">
   {#each ['pending', 'approved', 'rejected'] as status}
@@ -268,6 +272,7 @@
   </tbody>
   </table>
   </div>
+  <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; loadRequests(); }} />
   {/if}
  </div>
  {/if}

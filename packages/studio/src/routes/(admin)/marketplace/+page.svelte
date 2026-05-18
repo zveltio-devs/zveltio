@@ -8,6 +8,7 @@
   } from '@lucide/svelte';
   import { ENGINE_URL } from '$lib/config.js';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import PageSpinner from '$lib/components/common/PageSpinner.svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { refreshExtensions } from '$lib/extensions.svelte.js';
@@ -355,9 +356,7 @@
       <!-- Grid -->
       <div class="flex-1">
         {#if loading}
-          <div class="flex justify-center py-20">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
-          </div>
+          <PageSpinner py={20} />
         {:else if filtered.length === 0}
           <div class="text-center py-20 opacity-50">
             <Puzzle size={48} class="mx-auto mb-3" />
