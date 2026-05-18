@@ -1,11 +1,10 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { webhooksApi, collectionsApi } from '$lib/api.js';
- import { Plus, Webhook, LoaderCircle } from '@lucide/svelte';
+ import { Webhook, LoaderCircle, Trash2 } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import Pagination from '$lib/components/common/Pagination.svelte';
- import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import CrudListPage from '$lib/components/common/CrudListPage.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  let webhooks = $state<any[]>([]);
@@ -93,8 +92,33 @@
  confirmLabel: 'Delete',
  onconfirm: async () => {
  confirmState.open = false;
+ // Snapshot for the optional Undo — fetched before delete so we
+ // can re-create the webhook with the same config + events.
+ const snapshot = webhooks.find((w) => w.id === id);
+ try {
  await webhooksApi.delete(id);
  await load();
+ toast.undoable(`Deleted "${name}"`, {
+ onUndo: async () => {
+ if (!snapshot) return;
+ await webhooksApi.create({
+ name: snapshot.name,
+ url: snapshot.url,
+ method: snapshot.method,
+ events: snapshot.events,
+ collections: snapshot.collections,
+ active: snapshot.active,
+ secret: snapshot.secret || undefined,
+ retry_attempts: snapshot.retry_attempts,
+ timeout: snapshot.timeout,
+ });
+ await load();
+ toast.success(`Restored "${name}"`);
+ },
+ });
+ } catch (err) {
+ toast.error(err instanceof Error ? err.message : 'Delete failed');
+ }
  },
  };
  }
@@ -110,70 +134,86 @@
  }
 </script>
 
-<div class="space-y-6">
- <PageHeader title="Webhooks" subtitle="HTTP callbacks triggered by data events" count={total || undefined}>
-   <button class="btn btn-primary btn-sm" onclick={openCreate}>
-     <Plus size={16} /> New Webhook
-   </button>
- </PageHeader>
+<CrudListPage
+  title="Webhooks"
+  subtitle="HTTP callbacks triggered by data events"
+  count={total || undefined}
+  {loading}
+  actionLabel="New Webhook"
+  onAction={openCreate}
+  empty={{
+    illustration: 'cloud',
+    illustrationColor: 'text-accent',
+    title: 'Wire up an external service',
+    description: 'Webhooks fire HTTP POSTs to your services when records change — perfect for syncing to Slack, Stripe, or your own systems.',
+    actionLabel: 'Add webhook',
+    onAction: openCreate,
+  }}
+>
+  {#snippet list()}
+    <div class="card bg-base-100 shadow-sm overflow-x-auto">
+      <table class="table table-sm w-full">
+        <thead>
+          <tr>
+            <th>Name</th><th>URL</th><th>Events</th><th>Status</th><th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each webhooks as wh}
+            <tr class="hover group">
+              <td class="font-medium">{wh.name}</td>
+              <td class="font-mono text-xs text-base-content/50 max-w-48 truncate">{wh.url}</td>
+              <td>
+                <div class="flex flex-wrap gap-1">
+                  {#each (wh.events || []).slice(0, 3) as ev}
+                    <span class="badge badge-ghost badge-xs">{ev}</span>
+                  {/each}
+                  {#if wh.events?.length > 3}
+                    <span class="badge badge-ghost badge-xs">+{wh.events.length - 3}</span>
+                  {/if}
+                </div>
+                {#if testResults[wh.id]}
+                  <p class="text-xs mt-1 {testResults[wh.id].ok ? 'text-success' : 'text-error'}">
+                    {testResults[wh.id].ok ? '✓ Delivered' : `✗ ${testResults[wh.id].error}`}
+                  </p>
+                {/if}
+              </td>
+              <td>
+                <span class="badge badge-sm {wh.active ? 'badge-success' : 'badge-ghost'}">
+                  {wh.active ? 'active' : 'paused'}
+                </span>
+              </td>
+              <td class="text-right">
+                <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                  <button
+                    class="btn btn-ghost btn-xs"
+                    onclick={() => testWebhook(wh.id)}
+                    disabled={testing === wh.id}
+                    aria-label="Test webhook {wh.name}"
+                  >
+                    {#if testing === wh.id}<LoaderCircle size={12} class="animate-spin" />{:else}Test{/if}
+                  </button>
+                  <button class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)} aria-label="Edit webhook {wh.name}">Edit</button>
+                  <button
+                    class="btn btn-ghost btn-xs text-error"
+                    onclick={() => remove(wh.id, wh.name)}
+                    aria-label="Delete webhook {wh.name}"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/snippet}
 
- {#if loading}
- <LoadingSkeleton type="list" rows={5} />
- {:else if webhooks.length === 0}
- <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
- <Webhook size={48} class="opacity-20" />
- <p class="text-lg font-semibold text-base-content/60">No webhooks yet</p>
- <p class="text-sm text-center max-w-sm">Send HTTP callbacks to external services when events occur.</p>
- <button class="btn btn-primary btn-sm mt-2" onclick={openCreate}>Add Webhook</button>
- </div>
- {:else}
- <div class="card bg-base-100 shadow-sm overflow-x-auto">
- <table class="table table-sm w-full">
- <thead>
- <tr>
- <th>Name</th><th>URL</th><th>Events</th><th>Status</th><th class="text-right">Actions</th>
- </tr>
- </thead>
- <tbody>
- {#each webhooks as wh}
- <tr class="hover group">
- <td class="font-medium">{wh.name}</td>
- <td class="font-mono text-xs text-base-content/50 max-w-48 truncate">{wh.url}</td>
- <td>
- <div class="flex flex-wrap gap-1">
- {#each (wh.events || []).slice(0, 3) as ev}
- <span class="badge badge-ghost badge-xs">{ev}</span>
- {/each}
- {#if wh.events?.length > 3}
- <span class="badge badge-ghost badge-xs">+{wh.events.length - 3}</span>
- {/if}
- </div>
- {#if testResults[wh.id]}
- <p class="text-xs mt-1 {testResults[wh.id].ok ? 'text-success' : 'text-error'}">
- {testResults[wh.id].ok ? '✓ Delivered' : `✗ ${testResults[wh.id].error}`}
- </p>
- {/if}
- </td>
- <td>
- <span class="badge badge-sm {wh.active ? 'badge-success' : 'badge-ghost'}">
- {wh.active ? 'active' : 'paused'}
- </span>
- </td>
- <td class="text-right">
- <button class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100" onclick={() => testWebhook(wh.id)} disabled={testing === wh.id}>
- {#if testing === wh.id}<LoaderCircle size={12} class="animate-spin" />{:else}Test{/if}
- </button>
- <button class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100" onclick={() => openEdit(wh)}>Edit</button>
- <button class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100" onclick={() => remove(wh.id, wh.name)}>Del</button>
- </td>
- </tr>
- {/each}
- </tbody>
- </table>
- </div>
- {/if}
- <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; load(); }} />
-</div>
+  {#snippet pagination()}
+    <Pagination {total} page={currentPage} limit={LIMIT} onchange={(p) => { currentPage = p; load(); }} />
+  {/snippet}
+</CrudListPage>
 
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }} />
 
@@ -198,17 +238,26 @@
  </select>
  </div>
  <div class="form-control">
- <label class="label" for="webhook-secret"><span class="label-text">Secret (optional)</span></label>
+ <label class="label" for="webhook-secret">
+   <span class="label-text">Secret (optional)</span>
+   <span class="label-text-alt text-base-content/50">HMAC-SHA256 of body</span>
+ </label>
  <input id="webhook-secret" class="input font-mono" bind:value={form.secret} placeholder="Signing secret" />
  </div>
  </div>
  <div class="grid grid-cols-2 gap-4">
  <div class="form-control">
- <label class="label" for="webhook-retry"><span class="label-text">Retry attempts</span></label>
+ <label class="label" for="webhook-retry">
+   <span class="label-text">Retry attempts</span>
+   <span class="label-text-alt text-base-content/50">0–10</span>
+ </label>
  <input id="webhook-retry" type="number" class="input" bind:value={form.retry_attempts} min="0" max="10" />
  </div>
  <div class="form-control">
- <label class="label" for="webhook-timeout"><span class="label-text">Timeout (ms)</span></label>
+ <label class="label" for="webhook-timeout">
+   <span class="label-text">Timeout</span>
+   <span class="label-text-alt text-base-content/50">milliseconds (1000–30000)</span>
+ </label>
  <input id="webhook-timeout" type="number" class="input" bind:value={form.timeout} min="1000" max="30000" step="500" />
  </div>
  </div>

@@ -1,9 +1,9 @@
 <script lang="ts">
  import { onMount } from 'svelte';
  import { api } from '$lib/api.js';
- import { DatabaseBackup, Plus, Download, Trash2, RefreshCw, LoaderCircle, Clock, CheckCircle, XCircle } from '@lucide/svelte';
+ import { DatabaseBackup, Download, Trash2, RefreshCw, LoaderCircle, Clock, CheckCircle, XCircle } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import CrudListPage from '$lib/components/common/CrudListPage.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  interface Backup {
@@ -110,32 +110,33 @@
  }
 </script>
 
-<div class="space-y-6">
- <PageHeader title="Backup" subtitle="Database snapshots and restore points">
-  <div class="flex gap-2">
-  <button class="btn btn-ghost btn-sm" onclick={loadBackups} disabled={loading}>
-  <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
-  </button>
-  <button class="btn btn-primary btn-sm" onclick={() => (showModal = true)}>
-  <Plus size={16} /> New Backup
-  </button>
-  </div>
- </PageHeader>
+<CrudListPage
+  title="Backup"
+  subtitle="Database snapshots and restore points"
+  count={backups.length}
+  {loading}
+  actionLabel="New Backup"
+  onAction={() => (showModal = true)}
+  empty={{
+    illustration: 'table',
+    illustrationColor: 'text-info',
+    title: 'Protect your data',
+    description: 'Backups are point-in-time snapshots you can restore from. Schedule them, or trigger one manually before a risky migration.',
+    actionLabel: 'Create backup',
+    onAction: () => (showModal = true),
+  }}
+>
+  {#snippet headerExtras()}
+    <div class="flex justify-end">
+      <button class="btn btn-ghost btn-sm gap-2" onclick={loadBackups} disabled={loading} aria-label="Refresh backups">
+        <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
+        Refresh
+      </button>
+    </div>
+  {/snippet}
 
- {#if loading}
- <div class="flex justify-center py-16">
- <LoaderCircle size={32} class="animate-spin text-primary" />
- </div>
- {:else if backups.length === 0}
- <div class="text-center py-16 text-base-content/40">
- <DatabaseBackup size={48} class="mx-auto mb-3" />
- <p class="text-sm">No backups yet.</p>
- <button class="btn btn-primary btn-sm mt-4" onclick={() => (showModal = true)}>
- <Plus size={14} /> Create First Backup
- </button>
- </div>
- {:else}
- <div class="space-y-3">
+  {#snippet list()}
+    <div class="space-y-3">
  {#each backups as backup}
  <div class="flex items-center gap-4 p-3 border border-base-200 rounded-xl hover:bg-base-50 transition-colors">
  <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0
@@ -171,17 +172,14 @@
  </div>
  </div>
  {/each}
- {#if backups.length === 0}
- <div class="text-center py-12 text-base-content/40 text-sm">No backups yet.</div>
- {/if}
- </div>
- {/if}
-</div>
+    </div>
+  {/snippet}
+</CrudListPage>
 
 <!-- Create Backup Modal -->
 {#if showModal}
  <div class="modal modal-open">
- <div class="modal-box max-w-sm">
+ <div class="modal-box max-w-md">
  <h3 class="font-bold text-lg mb-4">New Backup</h3>
  <div class="form-control">
  <label class="label" for="backup-notes"><span class="label-text">Notes (optional)</span></label>

@@ -1,4 +1,23 @@
 <script lang="ts">
+  /**
+   * Admin shell.
+   *
+   * Owns:
+   *   - Auth init + the redirect to /login if unauthenticated.
+   *   - Extension bundle load (extensions must register routes/slots/form-alters
+   *     before any admin page renders).
+   *   - First-login redirect to onboarding (when no collections exist).
+   *   - Persistent sidebar collapse + theme state.
+   *   - Cmd+K palette open/close.
+   *
+   * Delegates:
+   *   - Desktop sidebar  → `lib/components/layout/Sidebar.svelte`
+   *   - Mobile drawer    → `lib/components/layout/MobileSidebar.svelte`
+   *   - Nav model        → `lib/nav-model.ts`
+   *
+   * Keeping the shell thin makes it easy to swap the sidebar layout without
+   * also touching auth/init/onboarding logic.
+   */
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { base } from '$app/paths';
@@ -6,24 +25,22 @@
   import { auth } from '$lib/auth.svelte.js';
   import { initExtensions, extensions } from '$lib/extensions.svelte.js';
   import { loadExtensionBundles } from '$lib/bundle-loader.js';
+  import { buildNavModel, buildExtensionNav } from '$lib/nav-model.js';
+  import { studioApi } from '$lib/extension-api.svelte.js';
+  import Sidebar from '$lib/components/layout/Sidebar.svelte';
+  import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
   import Slot from '$lib/components/common/Slot.svelte';
-  import {
-    LayoutDashboard, Database, Users, Shield, Webhook, Settings,
-    Puzzle, LogOut, HardDrive, Key, ClipboardList, Languages,
-    Upload, Bell, Download, Workflow, Package, GitBranch, Plug,
-    Building2, Images, DatabaseBackup, Layout, CheckSquare,
-    ScanSearch, Search, Code, Bookmark, BarChart2, Terminal, Activity,
-    LayoutGrid, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Menu, X, Zap,
-  } from '@lucide/svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
   import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
   import CommandPalette from '$lib/components/common/CommandPalette.svelte';
+  import { Menu, Search, Sun, Moon } from '@lucide/svelte';
 
   let { children } = $props();
   let collapsed = $state(false);
   let mobileOpen = $state(false);
   let dark = $state(false);
   let cmdOpen = $state(false);
+  let density = $state<'comfortable' | 'compact'>('comfortable');
 
   $effect(() => {
     if (typeof localStorage !== 'undefined')
@@ -37,33 +54,43 @@
       localStorage.setItem('zveltio-theme', theme);
   });
 
-  function isActive(href: string): boolean {
-    const cur = page.url.pathname;
-    if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
-    return cur.startsWith(href);
-  }
+  $effect(() => {
+    document.documentElement.setAttribute('data-density', density);
+    if (typeof localStorage !== 'undefined')
+      localStorage.setItem('zveltio-density', density);
+  });
 
   onMount(async () => {
     const sc = localStorage.getItem('zveltio-sidebar');
     if (sc !== null) collapsed = sc === 'true';
     const t = localStorage.getItem('zveltio-theme');
     if (t) dark = t === 'dark';
+    const d = localStorage.getItem('zveltio-density');
+    if (d === 'compact' || d === 'comfortable') density = d;
 
     await auth.init();
-    if (!auth.isAuthenticated) { goto(`${base}/login`); return; }
+    if (!auth.isAuthenticated) {
+      // Preserve the deep link so the user lands on the page they wanted
+      // after sign-in instead of the dashboard.
+      const from = page.url.pathname + page.url.search;
+      const params = new URLSearchParams();
+      if (from && from !== '/' && !from.startsWith('/login')) params.set('redirect', from);
+      params.set('reason', 'session_required');
+      goto(`${base}/login?${params.toString()}`);
+      return;
+    }
     await initExtensions();
 
-    // S3-02 + S3-03: load extension Studio bundles so they can register
-    // routes, slots, and form-alters before any admin page renders.
-    // Failures are logged per-bundle; one bad extension can't block the rest.
+    // S3-02 + S3-03: extension Studio bundles register routes/slots before
+    // any admin page renders. One bad bundle can't block the others.
     await loadExtensionBundles();
 
-    // First-login redirect: if no collections exist and user hasn't completed/skipped onboarding, send to wizard
+    // First-login redirect to onboarding when no collections exist.
     const onboardingDone = localStorage.getItem('zveltio-onboarding-done');
     const isOnboarding = page.url.pathname.includes('/onboarding');
     if (!onboardingDone && !isOnboarding) {
       try {
-        const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ || '';
+        const engineUrl = (window as { __ZVELTIO_ENGINE_URL__?: string }).__ZVELTIO_ENGINE_URL__ ?? '';
         const res = await fetch(`${engineUrl}/api/collections`, { credentials: 'include' });
         const data = await res.json();
         if (!data?.collections?.length) goto(`${base}/onboarding`);
@@ -82,126 +109,20 @@
     return () => window.removeEventListener('keydown', onKeydown);
   });
 
-  type NavItem = { href: string; icon: any; label: string; ext?: string };
-  type NavGroup = { label?: string; items: NavItem[] };
+  const nav = $derived(buildNavModel(extensions));
+  const allExtNav = $derived(buildExtensionNav(extensions));
 
-  const rawNav: NavGroup[] = [
-    {
-      items: [
-        { href: `${base}/`,           icon: LayoutDashboard, label: 'Dashboard'  },
-        { href: `${base}/onboarding`, icon: Zap,             label: 'Quick Setup' },
-      ]
-    },
-    {
-      label: 'Content & Data',
-      items: [
-        { href: `${base}/collections`, icon: Database,    label: 'Collections' },
-        { href: `${base}/views`,       icon: Layout,      label: 'Views'       },
-        { href: `${base}/media`,       icon: Images,      label: 'Media',      ext: 'content/media' },
-      ]
-    },
-    {
-      label: 'Portals & Zones',
-      items: [
-        { href: `${base}/zones`,       icon: LayoutGrid,  label: 'Zones'       },
-      ]
-    },
-    {
-      label: 'Users & Access',
-      items: [
-        { href: `${base}/users`,       icon: Users,    label: 'Users'       },
-        { href: `${base}/permissions`,         icon: Shield,   label: 'Permissions'        },
-        { href: `${base}/rls`,                icon: Shield,   label: 'Row Security'       },
-        { href: `${base}/column-permissions`, icon: Shield,   label: 'Column Security'    },
-        { href: `${base}/api-keys`,    icon: Key,      label: 'API Keys'    },
-        { href: `${base}/tenants`,     icon: Building2, label: 'Tenants'   },
-      ]
-    },
-    {
-      label: 'Automation',
-      items: [
-        { href: `${base}/flows`,         icon: Workflow,    label: 'Flows'         },
-        { href: `${base}/webhooks`,      icon: Webhook,     label: 'Webhooks'      },
-        { href: `${base}/notifications`, icon: Bell,        label: 'Notifications' },
-        { href: `${base}/approvals`,     icon: CheckSquare, label: 'Approvals'     },
-      ]
-    },
-    {
-      label: 'Intelligence',
-      items: [
-        // AI Hub nav comes from the `ai` extension's manifest (studio.pages).
-        { href: `${base}/insights`,         icon: BarChart2,   label: 'Insights'     },
-      ]
-    },
-    {
-      label: 'Developer',
-      items: [
-        { href: `${base}/edge-functions`,      icon: Code,       label: 'Edge Functions'    },
-        { href: `${base}/rpc`,                 icon: Zap,        label: 'RPC Functions'     },
-        { href: `${base}/schema-branches`,     icon: GitBranch,  label: 'Schema Branches'   },
-        { href: `${base}/virtual-collections`, icon: Plug,       label: 'Virtual Collections' },
-        { href: `${base}/saved-queries`,       icon: Bookmark,   label: 'Saved Queries'     },
-        { href: `${base}/sql`,                 icon: Terminal,   label: 'SQL Editor'        },
-        { href: `${base}/introspect`,          icon: ScanSearch, label: 'BYOD Import',        ext: 'developer/byod' },
-      ]
-    },
-    {
-      label: 'Operations',
-      items: [
-        { href: `${base}/storage`,      icon: HardDrive,    label: 'Storage'    },
-        { href: `${base}/backup`,       icon: DatabaseBackup, label: 'Backup'   },
-        { href: `${base}/import`,       icon: Upload,       label: 'Import',    ext: 'data/import' },
-        { href: `${base}/export`,       icon: Download,     label: 'Export',    ext: 'data/export' },
-        { href: `${base}/request-logs`,   icon: Activity,      label: 'Request Logs' },
-        { href: `${base}/audit`,        icon: ClipboardList, label: 'Audit Log' },
-        { href: `${base}/translations`, icon: Languages,    label: 'Translations', ext: 'i18n/translations' },
-        { href: `${base}/marketplace`,  icon: Package,      label: 'Marketplace' },
-        { href: `${base}/settings`,     icon: Settings,     label: 'Settings'    },
-      ]
-    },
-  ];
-
-  // Extensions already wired into rawNav (media, byod, import, export, translations).
-  // Derive the set from rawNav itself so this stays in sync automatically.
-  const rawNavExtNames = new Set(
-    rawNav.flatMap((g) => g.items).filter((i) => i.ext).map((i) => i.ext!),
-  );
-
-  // Sidebar entries for extension Studio pages.
-  // Priority: explicit studio.pages path (updated manifests) → extension name as slug (legacy manifests).
-  // Excludes extensions already shown in rawNav to avoid duplicates.
-  const allExtNav = $derived<NavItem[]>(
-    extensions.initialized ? extensions.meta
-      .filter((m) => extensions.isActive(m.name))
-      .filter((m) => !rawNavExtNames.has(m.name))
-      .filter((m) => (m.studio?.pages && m.studio.pages.length > 0) || m.contributes?.studio)
-      .map((m) => {
-        const firstPage = m.studio?.pages?.[0];
-        const slug = firstPage?.path
-          ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
-          : m.name;
-        return {
-          href: `${base}/${slug}`,
-          icon: Puzzle,
-          label: firstPage?.label || m.displayName || m.name,
-        };
-      }) : [],
-  );
-
-  /** Filter rawNav by extension activation. Items without `ext` always show.
-   *  Items with `ext` are visible only when the extension is running. */
-  const nav = $derived<NavGroup[]>(
-    rawNav
-      .map((g) => ({
-        ...g,
-        items: g.items.filter((it) => !it.ext || extensions.isActive(it.ext)),
-      }))
-      .filter((g) => g.items.length > 0),
+  // Conditional desktop top-bar — only renders if an extension contributed
+  // to topbar.center or topbar.right (e.g. AI extension's global prompt
+  // bar). Keeps chrome minimal when nothing wants the space.
+  const hasTopbarContent = $derived(
+    studioApi.getSlotContributions('topbar.center').length > 0
+      || studioApi.getSlotContributions('topbar.right').length > 0,
   );
 
   async function signOut() {
     await auth.signOut();
-    goto(`${base}/login`);
+    goto(`${base}/login?reason=signed_out`);
   }
 </script>
 
@@ -214,269 +135,81 @@
   </div>
 
 {:else if auth.isAuthenticated}
+  <!-- Skip-to-content link for keyboard users. Hidden until focused. -->
+  <a href="#admin-main" class="skip-link">Skip to main content</a>
+
   <div class="flex h-screen bg-base-100 overflow-hidden">
 
-    <!-- ─── Sidebar (desktop) ──────────────────────────────── -->
-    <aside class="
-      hidden lg:flex flex-col shrink-0 bg-base-200 border-r border-base-300
-      transition-all duration-200 ease-in-out
-      {collapsed ? 'w-16' : 'w-64'}
-    ">
+    <Sidebar
+      {nav}
+      {allExtNav}
+      {collapsed}
+      {dark}
+      {density}
+      user={auth.user}
+      onToggleCollapse={() => (collapsed = !collapsed)}
+      onToggleDark={() => (dark = !dark)}
+      onToggleDensity={() => (density = density === 'compact' ? 'comfortable' : 'compact')}
+      onSignOut={signOut}
+    />
 
-      <!-- Logo + collapse toggle -->
-      <div class="flex items-center h-14 px-3 border-b border-base-300 shrink-0 gap-2">
-        {#if collapsed}
-          <div class="mx-auto w-7 h-7 rounded-lg shrink-0 flex items-center justify-center"
-               style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
-            <span class="text-white font-bold text-sm leading-none">Z</span>
-          </div>
-        {:else}
-          <a href="{base}/" class="flex items-center gap-2.5 flex-1 min-w-0">
-            <div class="w-7 h-7 rounded-lg shrink-0 flex items-center justify-center"
-                 style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
-              <span class="text-white font-bold text-sm leading-none">Z</span>
-            </div>
-            <span class="font-semibold text-sm tracking-tight text-base-content truncate">Zveltio</span>
-          </a>
-        {/if}
-        <button
-          onclick={() => (collapsed = !collapsed)}
-          class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content shrink-0
-            {collapsed ? 'mx-auto' : ''}"
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {#if collapsed}<PanelLeftOpen size={15} />{:else}<PanelLeftClose size={15} />{/if}
-        </button>
-      </div>
+    <MobileSidebar
+      open={mobileOpen}
+      {nav}
+      {allExtNav}
+      onClose={() => (mobileOpen = false)}
+    />
 
-      <!-- Navigation -->
-      <nav class="flex-1 overflow-y-auto overflow-x-hidden py-2">
-        {#each nav as group, gi}
-          {#if group.label}
-            {#if !collapsed}
-              <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">
-                <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
-                  {group.label}
-                </span>
-              </div>
-            {:else}
-              <div class="mx-3 my-2.5 h-px bg-base-content/8"></div>
-            {/if}
-          {/if}
-
-          {#each group.items as item}
-            {@const active = isActive(item.href)}
-            <div class="px-2 py-0.5">
-              <a
-                href={item.href}
-                title={collapsed ? item.label : undefined}
-                class="
-                  flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-                  transition-colors duration-100 outline-none
-                  {active
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-                  {collapsed ? 'justify-center' : ''}
-                "
-              >
-                <item.icon size={16} class="shrink-0" />
-                {#if !collapsed}
-                  <span class="truncate leading-none">{item.label}</span>
-                {/if}
-              </a>
-            </div>
-          {/each}
-        {/each}
-
-        <!-- Extension routes (manifest-driven, compiled into SvelteKit routes) -->
-        {#if allExtNav.length > 0}
-          {#if !collapsed}
-            <div class="px-4 pt-5 pb-1">
-              <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 flex items-center gap-1 select-none">
-                <Puzzle size={10} /> Extensions
-              </span>
-            </div>
-          {:else}
-            <div class="mx-3 my-2.5 h-px bg-base-content/8"></div>
-          {/if}
-          {#each allExtNav as item}
-            <div class="px-2 py-0.5">
-              <a
-                href={item.href}
-                title={collapsed ? item.label : undefined}
-                class="
-                  flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-                  transition-colors duration-100
-                  {isActive(item.href) ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-                  {collapsed ? 'justify-center' : ''}
-                "
-              >
-                <item.icon size={16} class="shrink-0" />
-                {#if !collapsed}<span class="truncate leading-none">{item.label}</span>{/if}
-              </a>
-            </div>
-          {/each}
-        {/if}
-
-      </nav>
-
-      <!-- S3-03: sidebar.bottom slot — extensions inject items above the footer
-           (status badges, build info, custom shortcuts). Collapses to nothing
-           when no extension targets it. -->
-      <div class="shrink-0 border-t border-base-300 px-2 py-1">
-        <Slot name="sidebar.bottom" ctx={{ user: auth.user, collapsed }} />
-      </div>
-
-      <!-- Footer -->
-      <div class="shrink-0 border-t border-base-300 px-2 py-2 space-y-0.5">
-
-        <!-- Intranet link -->
-        <a
-          href="{base}/intranet"
-          title={collapsed ? 'Employee Intranet' : undefined}
-          class="
-            flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-            text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
-            {collapsed ? 'justify-center' : ''}
-          "
-        >
-          <Users2 size={16} class="shrink-0" />
-          {#if !collapsed}<span class="leading-none">Employee Intranet</span>{/if}
-        </a>
-
-        <!-- Dark mode toggle -->
-        <button
-          onclick={() => (dark = !dark)}
-          title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-          class="
-            w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
-            text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
-            {collapsed ? 'justify-center' : ''}
-          "
-        >
-          {#if dark}
-            <Sun size={16} class="shrink-0" />
-            {#if !collapsed}<span class="leading-none">Light Mode</span>{/if}
-          {:else}
-            <Moon size={16} class="shrink-0" />
-            {#if !collapsed}<span class="leading-none">Dark Mode</span>{/if}
-          {/if}
-        </button>
-
-        <!-- User — clickable area navigates to /admin/account (S5-08
-             surfaces passkey management there). -->
-        <div class="
-          flex items-center gap-2.5 px-2.5 py-2 rounded-lg
-          {collapsed ? 'flex-col' : ''}
-        ">
-          <a
-            href="{base}/account"
-            title={collapsed ? 'Account settings' : 'Account settings'}
-            class="
-              flex items-center gap-2.5 flex-1 min-w-0 hover:bg-base-300 rounded-md
-              {collapsed ? 'flex-col' : ''}
-            "
-          >
-            <div class="
-              shrink-0 rounded-full bg-primary text-primary-content
-              flex items-center justify-center font-semibold
-              {collapsed ? 'w-7 h-7 text-xs' : 'w-8 h-8 text-xs'}
-            ">
-              {auth.user?.name?.charAt(0).toUpperCase() || 'U'}
-            </div>
-            {#if !collapsed}
-              <div class="flex-1 min-w-0">
-                <p class="text-[11px] font-medium leading-none truncate text-base-content">{auth.user?.name || 'User'}</p>
-                <p class="text-[11px] text-base-content/45 mt-0.5 truncate">{auth.user?.email}</p>
-              </div>
-            {/if}
-          </a>
-          <button
-            onclick={signOut}
-            title="Sign out"
-            class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content shrink-0"
-          >
-            <LogOut size={13} />
-          </button>
-        </div>
-      </div>
-    </aside>
-
-    <!-- ─── Mobile overlay ──────────────────────────────────── -->
-    {#if mobileOpen}
-      <button
-        class="fixed inset-0 z-40 bg-black/50 lg:hidden cursor-default"
-        aria-label="Close menu"
-        onclick={() => (mobileOpen = false)}
-      ></button>
-
-      <aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-base-200 border-r border-base-300 lg:hidden">
-        <div class="flex items-center h-14 px-3 border-b border-base-300 gap-2">
-          <div class="w-7 h-7 rounded-lg shrink-0 flex items-center justify-center"
-               style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">
-            <span class="text-white font-bold text-sm">Z</span>
-          </div>
-          <span class="font-semibold text-sm tracking-tight text-base-content">Zveltio</span>
-          <button onclick={() => (mobileOpen = false)} class="btn btn-ghost btn-xs ml-auto">
-            <X size={16} />
-          </button>
-        </div>
-
-        <nav class="flex-1 overflow-y-auto py-2">
-          {#each nav as group, gi}
-            {#if group.label}
-              <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">
-                <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
-                  {group.label}
-                </span>
-              </div>
-            {/if}
-            {#each group.items as item}
-              {@const active = isActive(item.href)}
-              <div class="px-2 py-0.5">
-                <a
-                  href={item.href}
-                  onclick={() => (mobileOpen = false)}
-                  class="
-                    flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-                    transition-colors duration-100
-                    {active ? 'bg-primary/10 text-primary' : 'text-base-content/60 hover:bg-base-300 hover:text-base-content'}
-                  "
-                >
-                  <item.icon size={16} class="shrink-0" />
-                  <span class="truncate leading-none">{item.label}</span>
-                </a>
-              </div>
-            {/each}
-          {/each}
-        </nav>
-      </aside>
-    {/if}
-
-    <!-- ─── Main content ─────────────────────────────────────── -->
+    <!-- Main content -->
     <div class="flex-1 flex flex-col min-w-0">
 
       <!-- Mobile header -->
-      <header class="lg:hidden flex items-center gap-3 px-4 h-14 border-b border-base-300 bg-base-100 shrink-0">
-        <button onclick={() => (mobileOpen = true)} class="btn btn-ghost btn-sm">
+      <header class="lg:hidden flex items-center gap-3 px-4 h-14 bg-base-100/80 backdrop-blur-xl shadow-z1 shrink-0">
+        <button onclick={() => (mobileOpen = true)} aria-label="Open menu" class="btn btn-ghost btn-sm">
           <Menu size={18} />
         </button>
-        <div class="w-6 h-6 rounded-lg bg-primary flex items-center justify-center">
+        <div class="w-7 h-7 rounded-lg bg-linear-to-br from-primary to-secondary flex items-center justify-center shadow-z1">
           <span class="text-primary-content font-bold text-xs">Z</span>
         </div>
         <span class="font-bold text-sm">Zveltio</span>
+        <!-- Extension slot: mobile topbar center (e.g. AI prompt bar). -->
+        <div class="flex-1 min-w-0">
+          <Slot name="topbar.center" ctx={{ user: auth.user, viewport: 'mobile' }} />
+        </div>
         <div class="ml-auto flex items-center gap-1">
-          <button onclick={() => (cmdOpen = true)} class="btn btn-ghost btn-sm" title="Search (⌘K)">
+          <Slot name="topbar.right" ctx={{ user: auth.user, viewport: 'mobile' }} />
+          <button onclick={() => (cmdOpen = true)} aria-label="Search (⌘K)" class="btn btn-ghost btn-sm" title="Search (⌘K)">
             <Search size={16} />
           </button>
-          <button onclick={() => (dark = !dark)} class="btn btn-ghost btn-sm">
+          <button onclick={() => (dark = !dark)} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} class="btn btn-ghost btn-sm">
             {#if dark}<Sun size={16} />{:else}<Moon size={16} />{/if}
           </button>
         </div>
       </header>
 
-      <main class="flex-1 overflow-y-auto p-6">
+      <!-- Desktop top-bar — conditional. Only renders when an extension
+           targets topbar.center or topbar.right (e.g. AI extension's
+           global prompt bar). Keeps chrome minimal otherwise. -->
+      {#if hasTopbarContent}
+        <header class="hidden lg:flex items-center gap-3 px-6 h-12 bg-base-100/70 backdrop-blur-xl shadow-z1 shrink-0">
+          <Slot name="topbar.left" ctx={{ user: auth.user, viewport: 'desktop' }} />
+          <div class="flex-1 min-w-0">
+            <Slot name="topbar.center" ctx={{ user: auth.user, viewport: 'desktop' }} />
+          </div>
+          <div class="flex items-center gap-1 ml-auto">
+            <Slot name="topbar.right" ctx={{ user: auth.user, viewport: 'desktop' }} />
+          </div>
+        </header>
+      {/if}
+
+      <main id="admin-main" class="flex-1 overflow-y-auto p-6 relative" tabindex="-1">
         {@render children()}
+
+        <!-- Floating-assist slot — extensions can inject a fixed-position
+             CTA (e.g. AI "Ask anything" floating button) that lives over
+             the page content. Slot ctx carries the current pathname so
+             contributions can render page-specific copy. -->
+        <Slot name="page.assist" ctx={{ user: auth.user, pathname: page.url.pathname }} />
       </main>
     </div>
   </div>

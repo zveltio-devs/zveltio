@@ -3,6 +3,7 @@
  import { ClipboardList, Filter } from '@lucide/svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import Pagination from '$lib/components/common/Pagination.svelte';
+ import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 
  const engineUrl = import.meta.env.PUBLIC_ENGINE_URL || '';
 
@@ -123,7 +124,7 @@
  </div>
 
  {#if loading}
- <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
+ <PageSpinner />
  {:else if revisions.length === 0}
  <div class="card bg-base-200 text-center py-16">
  <ClipboardList size={40} class="mx-auto text-base-content/30 mb-3" />

@@ -1,13 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { collectionsApi } from '$lib/api.js';
-  import { Plus, Table, Trash2, Settings, LoaderCircle, Database } from '@lucide/svelte';
+  import { Table, Trash2, Settings, Database, Shield } from '@lucide/svelte';
   import { base } from '$app/paths';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import EmptyState from '$lib/components/common/EmptyState.svelte';
-  import SearchBar from '$lib/components/common/SearchBar.svelte';
+  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 
   let collections = $state<any[]>([]);
   let loading = $state(true);
@@ -27,6 +26,32 @@
   let fieldTypes = $state<any[]>([]);
   let allCollections = $state<any[]>([]);
   let search = $state('');
+
+  // Bulk-select state (L29). System collections (zv_*) can't be deleted —
+  // they're excluded from bulk selection to keep the action safe.
+  let selectedNames = $state<Set<string>>(new SvelteSet());
+  const selectableCollections = $derived(collections.filter((c) => !c.is_system));
+  const selectedCount = $derived(selectedNames.size);
+  const allSelectable = $derived(
+    selectableCollections.length > 0
+      && selectableCollections.every((c) => selectedNames.has(c.name)),
+  );
+  const someSelected = $derived(selectedCount > 0 && !allSelectable);
+  function toggleSelectCol(name: string) {
+    const next = new SvelteSet(selectedNames);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    selectedNames = next;
+  }
+  function toggleSelectAll() {
+    const next = new SvelteSet(selectedNames);
+    if (allSelectable) {
+      for (const c of selectableCollections) next.delete(c.name);
+    } else {
+      for (const c of selectableCollections) next.add(c.name);
+    }
+    selectedNames = next;
+  }
+  function clearColSelection() { selectedNames = new SvelteSet(); }
 
   const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
   const SYSTEM_FIELDS = new Set(['id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector', 'search_text']);
@@ -163,6 +188,29 @@
     };
   }
 
+  async function deleteSelectedCollections() {
+    const names = Array.from(selectedNames);
+    if (names.length === 0) return;
+    confirmState = {
+      open: true,
+      title: `Delete ${names.length} collection${names.length === 1 ? '' : 's'}`,
+      message: `Permanently drop ${names.length} collection${names.length === 1 ? '' : 's'} and all their data? This cannot be undone.`,
+      confirmLabel: `Delete ${names.length}`,
+      onconfirm: async () => {
+        confirmState.open = false;
+        const results = await Promise.allSettled(names.map((n) => collectionsApi.delete(n)));
+        const failures = results.filter((r) => r.status === 'rejected').length;
+        if (failures > 0) {
+          toast.error(`Dropped ${names.length - failures}/${names.length} — ${failures} failed.`);
+        } else {
+          toast.success(`Dropped ${names.length} collection${names.length === 1 ? '' : 's'}.`);
+        }
+        clearColSelection();
+        await loadCollections();
+      },
+    };
+  }
+
   function fieldCount(col: any): number {
     const f = typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields;
     return f?.length ?? 0;
@@ -244,39 +292,69 @@
   }
 </script>
 
-<div class="space-y-6">
-  <!-- Header -->
-  <PageHeader title="Collections" subtitle="Define and manage your data models" count={collections.length}>
-    <button class="btn btn-primary btn-sm" onclick={() => { showCreateModal = true; nameError = ''; }}>
-      <Plus size={16} />
-      New Collection
-    </button>
-  </PageHeader>
+<CrudListPage
+  title="Collections"
+  subtitle="Define and manage your data models"
+  count={collections.length}
+  {loading}
+  search={search}
+  onSearchChange={(v) => (search = v)}
+  searchPlaceholder="Search collections..."
+  actionLabel="New Collection"
+  onAction={() => { showCreateModal = true; nameError = ''; }}
+  empty={{
+    illustration: 'table',
+    illustrationColor: 'text-primary',
+    title: 'Build your first collection',
+    description: 'Collections are the schema-less tables where Zveltio stores your data. Pick a template below or start blank.',
+    actionLabel: 'Create collection',
+    onAction: () => (showCreateModal = true),
+  }}
+  noSearchMatch={searchNoMatch}
+>
+  {#snippet headerExtras()}
+    {#if selectedCount > 0}
+      <div role="region" aria-label="Bulk actions" class="card bg-primary/5 border border-primary/30">
+        <div class="card-body p-3 flex flex-row items-center gap-3">
+          <span class="text-sm"><strong>{selectedCount}</strong> selected</span>
+          <button class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label="Clear selection">Clear</button>
+          <div class="grow"></div>
+          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label="Delete selected collections">
+            <Trash2 size={14} /> Delete {selectedCount}
+          </button>
+        </div>
+      </div>
+    {:else if selectableCollections.length > 0}
+      <label class="flex items-center gap-2 text-xs text-base-content/50 cursor-pointer w-fit">
+        <input
+          type="checkbox"
+          class="checkbox checkbox-xs"
+          checked={allSelectable}
+          indeterminate={someSelected}
+          onchange={toggleSelectAll}
+          aria-label="Select all collections (excluding system)"
+        />
+        Select all
+      </label>
+    {/if}
+  {/snippet}
 
-  <!-- Search -->
-  {#if collections.length > 4}
-    <SearchBar value={search} onchange={(v: string) => search = v} placeholder="Search collections..." />
-  {/if}
-
-  {#if loading}
-    <div class="flex justify-center py-16">
-      <LoaderCircle size={28} class="animate-spin text-primary" />
-    </div>
-  {:else if collections.length === 0}
-    <EmptyState
-      icon={Database}
-      title="No collections yet"
-      description="Collections are database tables. Create one to start storing and managing data."
-      actionLabel="Create your first collection"
-      onaction={() => showCreateModal = true}
-    />
-  {:else}
+  {#snippet list()}
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {#each filtered as col (col.name)}
-        <div class="group card bg-base-200 hover:bg-base-300 transition-colors border border-transparent hover:border-base-300">
+        <div class="group card bg-base-200 hover:bg-base-300 transition-colors border {selectedNames.has(col.name) ? 'border-primary' : 'border-transparent hover:border-base-300'}">
           <div class="card-body p-4 gap-3">
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
+                {#if !col.is_system}
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs shrink-0"
+                    checked={selectedNames.has(col.name)}
+                    onchange={() => toggleSelectCol(col.name)}
+                    aria-label="Select {col.display_name || col.name}"
+                  />
+                {/if}
                 <div class="p-1.5 rounded-lg bg-primary/10 shrink-0">
                   <Table size={14} class="text-primary" />
                 </div>
@@ -285,15 +363,19 @@
                   <p class="text-xs text-base-content/40 font-mono truncate">{col.name}</p>
                 </div>
               </div>
-              <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs" title="Open">
+              <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs" title="Open collection" aria-label="Open {col.display_name || col.name}">
                   <Settings size={13} />
+                </a>
+                <a href="{base}/permissions?collection={col.name}" class="btn btn-ghost btn-xs" title="Permissions for this collection" aria-label="Permissions for {col.display_name || col.name}">
+                  <Shield size={13} />
                 </a>
                 {#if !col.is_system}
                   <button
                     onclick={() => deleteCollection(col.name)}
                     class="btn btn-ghost btn-xs text-error"
-                    title="Delete"
+                    title="Delete collection"
+                    aria-label="Delete {col.display_name || col.name}"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -313,12 +395,12 @@
         </div>
       {/each}
     </div>
+  {/snippet}
+</CrudListPage>
 
-    {#if search && filtered.length === 0}
-      <p class="text-center text-sm text-base-content/40 py-8">No collections match "{search}"</p>
-    {/if}
-  {/if}
-</div>
+{#snippet searchNoMatch(q: string)}
+  <p class="text-center text-sm text-base-content/40 py-8">No collections match "{q}"</p>
+{/snippet}
 
 <!-- Create Modal -->
 {#if showCreateModal}

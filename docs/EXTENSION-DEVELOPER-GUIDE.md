@@ -917,11 +917,29 @@ hosts can declare slots liberally without empty-state worries.
 
 Well-known slots (live):
 - `dashboard.widgets` — top of the admin dashboard. `ctx: { user }`.
+- `dashboard.hero` — featured area above the stat cards (e.g. AI greeting,
+  what-changed feed). `ctx: { user, stats }`.
+- `dashboard.suggestions` — below the stat cards (recommendations, anomaly
+  alerts). `ctx: { user, stats, collections }`.
 - `sidebar.bottom` — admin sidebar, above the footer. `ctx: { user, collapsed }`.
+- `topbar.left` / `topbar.center` / `topbar.right` — slim top-bar above
+  `<main>`. Desktop top-bar **renders only** when one of these slots has
+  content (otherwise no chrome cost). Mobile header always renders and
+  embeds these slots inline. `ctx: { user, viewport: 'mobile' | 'desktop' }`.
+- `page.assist` — floating-position slot inside every `<main>` for FAB-style
+  contextual assistants. `ctx: { user, pathname }`.
 - `settings.tabs` — Settings page tab bar (extension tabs render after core).
   `ctx: { user, activeTab }`.
+- `account.sections` — `/admin/account` page sections. `ctx: { user }`.
 - `collection-detail.header` — under the collection name on
   `/admin/collections/<name>`. `ctx: { user, collection }`.
+- `collection-detail.actions` — next to the header primary action.
+  `ctx: { user, collection, activeTab }`.
+
+**For first-class integrations** (the `ai` extension, observability
+dashboards, etc.), prefer these slots over routing into a separate page
+— they bring extension UX into the user's existing flow rather than
+making them context-switch.
 
 > Slot hosts are added incrementally. Adding one is a one-line change in
 > the host page (`<Slot name="..." ctx={...} />`). The list above grows

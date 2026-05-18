@@ -3,12 +3,11 @@
   import { api } from '$lib/api.js';
   import { base } from '$app/paths';
   import {
-    Plus, Layout, LayoutGrid, Globe, Lock, Users, LoaderCircle, Trash2,
+    Layout, LayoutGrid, Globe, Lock, Users, LoaderCircle, Trash2,
     ToggleLeft, ToggleRight, ExternalLink,
   } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   let zones = $state<any[]>([]);
@@ -106,24 +105,23 @@
   }
 </script>
 
-<div class="space-y-6">
-  <!-- Header -->
-  <PageHeader title="Zones" subtitle="Each zone is a complete portal with its own pages and access rules" count={zones.length}>
-    <button class="btn btn-primary btn-sm gap-1" onclick={() => (showModal = true)}>
-      <Plus size={15}/> New Zone
-    </button>
-  </PageHeader>
-
-  {#if loading}
-    <LoadingSkeleton type="card" rows={6} />
-  {:else if zones.length === 0}
-    <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
-      <Layout size={48} class="opacity-20" />
-      <p class="text-lg font-semibold text-base-content/60">No zones yet</p>
-      <p class="text-sm text-center max-w-sm">Zones define your portal structure with pages and navigation.</p>
-      <button class="btn btn-primary btn-sm mt-2" onclick={() => (showModal = true)}>New Zone</button>
-    </div>
-  {:else}
+<CrudListPage
+  title="Zones"
+  subtitle="Each zone is a complete portal with its own pages and access rules"
+  count={zones.length}
+  {loading}
+  actionLabel="New Zone"
+  onAction={() => (showModal = true)}
+  empty={{
+    illustration: 'table',
+    illustrationColor: 'text-accent',
+    title: 'Shape your first portal',
+    description: 'Zones bundle pages and access rules into named portals — public site, client portal, intranet — each with its own URL.',
+    actionLabel: 'Create zone',
+    onAction: () => (showModal = true),
+  }}
+>
+  {#snippet list()}
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {#each zones as z (z.id)}
         <div class="group card bg-base-200 hover:bg-base-300 transition-all border border-transparent hover:border-primary/30 hover:shadow-sm">
@@ -175,8 +173,8 @@
         </div>
       {/each}
     </div>
-  {/if}
-</div>
+  {/snippet}
+</CrudListPage>
 
 <!-- Create Modal -->
 {#if showModal}
