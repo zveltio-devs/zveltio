@@ -28,15 +28,15 @@
  */
 
 import { sql } from 'kysely';
-import * as PgBossMod from 'pg-boss';
+import { PgBoss } from 'pg-boss';
 import type { Database } from '../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 
-// pg-boss ships both CJS + ESM; ESM consumers get the constructor on `.default`,
-// CJS consumers get it as the namespace. Resolve once at module load.
-type PgBossCtor = new (opts: any) => any;
-type PgBossInst = InstanceType<PgBossCtor>;
-const PgBoss = ((PgBossMod as any).default ?? PgBossMod) as PgBossCtor;
+// pg-boss 12+ is ESM-only and exposes `PgBoss` as a NAMED export (not
+// default). Prior versions had a default export; the previous unwrap
+// (`PgBossMod.default ?? PgBossMod`) broke on Bun 1.3.14 where the
+// fallback resolved to a non-constructible namespace object.
+type PgBossInst = InstanceType<typeof PgBoss>;
 
 let _db: Database;
 let _boss: PgBossInst | null = null;
@@ -91,21 +91,27 @@ export async function initDDLQueue(db: Database): Promise<void> {
   }
 
   try {
+    // pg-boss 12 removed the top-level `archiveCompletedAfterSeconds` /
+    // `retentionDays` constructor options that pg-boss 10 accepted. Job
+    // retention is now configured per-queue via `createQueue({ retentionDays })`
+    // — applied below — and supervise runs maintenance automatically.
     _boss = new PgBoss({
       connectionString,
-      // Archive completed jobs after 7 days so the table stays small.
-      // Dead-letter / failed jobs stay until manual cleanup.
-      archiveCompletedAfterSeconds: 7 * 24 * 60 * 60,
-      retentionDays: 30,
-      // Reduce churn: pg-boss's default 60s pollInterval is fine.
     });
     _boss.on('error', (err: Error) => {
       console.warn('[ddl-queue] pg-boss error:', err.message);
     });
     await _boss.start();
 
+    // Per-queue retention matching the pg-boss 10 defaults we relied on:
+    //   - Completed jobs auto-delete after 7 days (was archiveCompletedAfterSeconds).
+    //   - Created/retry jobs auto-delete after 30 days (was retentionDays).
+    const QUEUE_RETENTION = {
+      deleteAfterSeconds: 7 * 24 * 60 * 60,
+      retentionSeconds: 30 * 24 * 60 * 60,
+    };
     for (const qname of Object.values(QUEUE_NAMES)) {
-      await _boss.createQueue(qname).catch(() => { /* already exists */ });
+      await _boss.createQueue(qname, QUEUE_RETENTION).catch(() => { /* already exists */ });
     }
 
     // One-time recovery: reindex any CREATE INDEX CONCURRENTLY that left an

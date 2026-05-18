@@ -121,7 +121,7 @@
               <td class="font-mono text-xs max-w-xs truncate" title={log.path}>{log.path}</td>
               <td><span class="badge badge-xs {statusColor(log.status)}">{log.status}</span></td>
               <td class="text-xs {log.duration_ms > 500 ? 'text-warning font-bold' : ''}">{log.duration_ms}ms</td>
-              <td class="font-mono text-xs truncate max-w-[8rem]" title={log.user_id ?? ''}>{log.user_id ? log.user_id.slice(0, 8) + '…' : '—'}</td>
+              <td class="font-mono text-xs truncate max-w-32" title={log.user_id ?? ''}>{log.user_id ? log.user_id.slice(0, 8) + '…' : '—'}</td>
               <td class="font-mono text-xs">{log.ip ?? '—'}</td>
             </tr>
           {/each}
