@@ -1,150 +1,316 @@
-# 🚀 Zveltio
+<!--
+  README — canonical source of truth for Zveltio positioning.
+  The frontpage at https://zveltio.com (zveltio-website/src/routes/+page.svelte)
+  mirrors this narrative with a rich Svelte layout. Both files share the same
+  positioning, hero copy, comparison data, and call-to-action text — when
+  you edit positioning here, mirror the same changes in the Svelte page.
+  (No auto-sync — the rich layout would make a sync script brittle.)
+-->
 
-**Self-hosted Business OS** for organizations that own their infrastructure and data. Built with Bun, Hono, Kysely, Better-Auth, and Casbin. Designed for enterprises and public institutions — intranet, ERP, ecommerce, CRM, document management, and more, all on the same platform.
+# Zveltio
+
+> **The open-source platform for any business application.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Bun](https://img.shields.io/badge/Bun-1.2.0+-red)](https://bun.sh)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue)](https://www.typescriptlang.org/)
+[![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange)](https://github.com/zveltio-devs/zveltio/releases)
+[![Bun](https://img.shields.io/badge/Bun-1.3+-red)](https://bun.sh)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4+-blue)](https://www.typescriptlang.org/)
+[![Postgres](https://img.shields.io/badge/Postgres-17+-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/zveltio-devs/zveltio)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/zveltio-devs/zveltio)
-[![Deploy on Fly.io](https://img.shields.io/badge/Deploy%20on-Fly.io-8b5cf6?logo=fly.io&logoColor=white)](https://fly.io/docs/launch/)
+Zveltio is a self-hosted foundation for building business applications. It bundles the core every business app needs — collections, auth, permissions, real-time, AI, audit trail, automation, file storage, edge functions — into a single binary with an extensible plugin system.
 
----
+**Use the included plugins to replace your SaaS stack. Build custom applications on the core. Or do both.**
 
-## ⚡ Quick Install
+Modern TypeScript stack (Bun + Hono + Postgres). AI-native. GDPR-compliant by default. MIT-licensed.
+
+> ⚠️ **Alpha** — APIs evolve between versions. Build with us; early adopters shape the product. See [Alpha caveats](#alpha-caveats).
 
 ```bash
 curl -fsSL https://get.zveltio.com/install.sh | bash
 ```
 
-Full installation guide: **[get.zveltio.com](https://get.zveltio.com)**
+**[Deploy →](https://get.zveltio.com)** · **[Browse plugins →](https://zveltio.com/extensions)** · **[Build on Zveltio →](https://zveltio.com/intro)**
 
 ---
 
-## ✨ Key Features
+## Build any business app — self-hosted, modern, yours
 
-- 🔧 **Dynamic Collections** — Create database tables at runtime, no migrations needed
-- 🔐 **Authentication** — Better-Auth: sessions, OAuth, 2FA, API keys
-- 🛡️ **RBAC / ABAC** — Casbin with God bypass (Emergency Admin)
-- 🤖 **AI Native** — OpenAI, Anthropic, Ollama, Azure; semantic search, Text-to-SQL, Data Alchemist
-- 🔄 **Automation Flows** — Visual builder, DLQ retry, idempotency
-- 📬 **Mail Client** — IMAP/SMTP with Sieve filters and AI compose
-- ☁️ **Cloud Storage** — SeaweedFS S3-compatible, file versioning, trash, public share links
-- 🔀 **Zero-Downtime Migrations** — Ghost DDL algorithm (auto-activated for tables > 100k rows)
-- 🧩 **Extensions** — Plugin system with marketplace
-- 🌐 **GraphQL** — Auto-generated read-only API
-- 🏢 **Multi-Tenancy** — Built-in tenant registry with environment isolation
-- 🔁 **Real-time** — WebSocket + PostgreSQL LISTEN/NOTIFY
-- 📊 **Export** — PDF, Excel, CSV from any collection
-- 🌍 **i18n** — Built-in translation system
+The engine ships with everything every business application needs. Activate plugins for common domains, or build custom logic on top.
+
+### What's in the engine core
+
+| Capability | Details |
+|---|---|
+| **Dynamic Collections** | Schemaless tables created at runtime. No code-side migrations for routine schema changes. |
+| **Auth + RBAC + RLS** | Better-Auth (sessions, OAuth, 2FA, passkeys) + Casbin role policies + Postgres row-level security. |
+| **Real-time** | WebSocket + Postgres LISTEN/NOTIFY. Live updates without polling. |
+| **File storage** | S3-compatible (SeaweedFS bundled, or BYO AWS/MinIO/R2). |
+| **AI providers** | OpenAI, Anthropic, Ollama, Azure. Semantic search via pgvector, text-to-SQL, schema generation from natural language. |
+| **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
+| **Edge functions** | Sandboxed TypeScript runtime for custom serverless logic. |
+| **Automation flows** | Visual trigger → step builder with DLQ retry and idempotency. |
+| **Webhooks** | HMAC-signed outbound webhooks on data changes. |
+| **Multi-tenancy** | Isolated tenants with environment branching. |
+| **Plugin system** | Engine extensions + Studio extensions, signed, capability-policy sandboxed. |
+| **Offline sync** | CRDT-based local-first storage (Electric SQL provider optional). |
+
+### The Studio (admin UI)
+
+A SvelteKit 5 admin panel ships in the same package. Visual collections editor, permissions matrix, query playground, audit log viewer, AI assistant, marketplace browser, dashboard with sparklines + trend deltas. Open `/admin` after install.
+
+Don't like Svelte? The engine exposes everything via REST + WebSocket — bring your own React, Vue, or HTMX admin. The engine is framework-agnostic.
 
 ---
 
-## 🏗️ Architecture
+## Your business stack, on your hardware. Build it or borrow it.
 
-Monorepo with Turborepo:
+Three real ways teams use Zveltio today.
 
+### 1. Replace your SaaS stack
+
+Activate the bundled plugins for the SaaS subscriptions you'd rather not pay for anymore.
+
+| SaaS you might replace | Zveltio plugin |
+|---|---|
+| HubSpot / Pipedrive | `crm` — contacts, organizations, deals pipeline |
+| Hosted IMAP+SMTP / Front | `communications/mail` — full mail client with AI compose |
+| Zapier / Make / n8n | `flows` — visual automation with DLQ + retry |
+| Square / Shopify POS | `operations/pos` — point of sale + inventory + procurement |
+| Monday / Asana approvals | `workflow/approvals` — multi-step approval chains, SLA tracking |
+| Notion / Coda templates | `content/document-templates` — HTML/PDF template engine |
+| Cloudflare Workers / Lambda | `developer/edge-functions` — sandboxed TypeScript serverless |
+| Contentful / Sanity | `content/page-builder` — block-based CMS with headless API |
+| ChatGPT Teams / Copilot | `ai` — multi-provider, native to your data |
+| AppSheet / Glide | `developer/views` — kanban, calendar, gallery, map layouts |
+
+A typical SME running 10-15 of these subscriptions saves **€2 000-5 000 / month** — without per-seat fees.
+
+### 2. Build a vertical product
+
+Build legal-tech, healthcare-CRM, real-estate-management, ag-tech, education-LMS, fintech-back-office. Don't rewrite auth + admin + permissions + audit for the 47th time.
+
+The engine handles plumbing; you focus on domain logic. A typical vertical SaaS skeleton — collections + auth + RLS + admin UI + REST API — is **0 lines of code** in Zveltio.
+
+### 3. Custom internal tools
+
+Intranet portals. Employee dashboards. Client area portals. Document workflows. Internal analytics. Approval chains tied to your specific process.
+
+Self-hosted, owned, modifiable. No SaaS vendor reading your operations data.
+
+---
+
+## How extensions work
+
+Zveltio extensions are **plugins**, not forks. Two types ship together:
+
+### Engine extensions
+- TypeScript modules that mount Hono routes at `/ext/<name>/`, declare migrations, hook pre/post-write triggers, alter queries, gate entity access, run cron jobs.
+- Signed with Ed25519 at publish time, verified at install.
+- Capability-policy sandboxed — explicit `db.read` / `db.write` / `fetch.https` / `crypto.subtle` / `env.read` grants. Denials logged.
+- Optional WASM runtime for strict isolation (Rust / TinyGo / AssemblyScript).
+
+### Studio extensions
+- Svelte 5 components packaged at publish time, copied into the Studio route tree on enable.
+- Register slots, form-alter hooks, custom field types via typed SDK imports (`@zveltio/sdk/studio`).
+
+### Installation model
+- Engine downloads signed archives from the marketplace (registry verified by hardcoded pubkey).
+- Studio rebuilds itself with the new pages — bulletproof against Svelte runtime fragmentation (we tried dynamic component loading; it broke. Postmortem in `git log alpha.71..alpha.74`).
+- Both engine routes and Studio pages appear without engine restart for the API layer.
+
+Build your own: `zveltio extension init <name>` scaffolds. `zveltio extension publish` signs + uploads. Full guide: [docs/EXTENSION-DEVELOPER-GUIDE.md](docs/EXTENSION-DEVELOPER-GUIDE.md).
+
+---
+
+## What you can install today
+
+60+ first-party plugins, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
+
+**Data & Content** · `collections` (core) · `views` (kanban, calendar, gallery, map) · `content/page-builder` (CMS) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts`
+
+**Customer & Business** · `crm` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking`
+
+**Workflow & Automation** · `flows` · `webhooks` · `notifications` · `workflow/approvals` · `workflow/checklists` · `projects/management` · `projects/helpdesk`
+
+**Communications & HR** · `communications/mail` · `hr/employees` · `hr/time-tracking` · `hr/leave`
+
+**Developer** · `developer/edge-functions` · `developer/graphql` · `developer/api-docs` · `developer/byod` · `developer/database` · `developer/validation` · `saved-queries` · `schema-branches` · `sql-editor`
+
+**Intelligence** · `ai` (multi-provider) · `insights` (analytics dashboards) · `analytics/quality`
+
+**Auth & Compliance** · `auth/saml` · `auth/ldap` · `compliance/gdpr` · `compliance/ro/efactura` · `compliance/ro/saft` · `compliance/ro/etransport` · `compliance/ro/procurement` · `compliance/ro/documents`
+
+**Infrastructure** · `storage/cloud` · `backup` (PITR + scheduled) · `geospatial/postgis` · `i18n/translations`
+
+Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T, e-Transport ANAF). The architecture supports building equivalents for any market — US Sales Tax, UK MTD, German Elster, Italian SDI, French CFI. PRs welcome.
+
+---
+
+## Zveltio vs alternatives
+
+A platform, not a category. Here's where it lands relative to neighbours:
+
+| | **Zveltio** | Salesforce / Monday / HubSpot | Odoo | Supabase / Pocketbase | Retool / Tooljet |
+|---|---|---|---|---|---|
+| **Self-hosted** | ✅ | ❌ SaaS only | ✅ | partial (community) | partial (paid) |
+| **License** | MIT | proprietary | LGPL / proprietary | Apache / MIT | Elastic / proprietary |
+| **Modern stack** | ✅ TS + Bun | N/A | ❌ Python / PHP era | ✅ TS | ✅ TS |
+| **AI-native** | ✅ | partial | ❌ | partial | partial |
+| **Per-seat fee** | ❌ | $30-300 / seat / mo | partial | tier-based | $10-50 / user / mo |
+| **Plugin ecosystem** | ✅ open, growing | ✅ closed marketplace | ✅ ERP-shaped | ❌ | ❌ |
+| **Custom code first-class** | ✅ | platform-only | constrained | ✅ | constrained (low-code) |
+| **GDPR built-in** | ✅ | bolted on | partial | partial | partial |
+| **Total ownership** | ✅ MIT + self-host | ❌ | partial | partial | partial |
+
+We're closest to **Odoo conceptually** (full business platform with plugins) but rebuilt on a modern stack with AI as a first-class concern, not an afterthought. We're closest to **Salesforce Platform / Microsoft Power Platform** in the "build your business apps on this foundation" sense — but FOSS, self-hosted, and a fraction of the cost.
+
+---
+
+## Who's it for
+
+✅ **Software agencies** building custom apps for clients — reduce boilerplate 60-70%, ship in weeks not months.
+
+✅ **SMEs and mid-market** consolidating their SaaS stack — replace 8-15 subscriptions with one self-hosted platform.
+
+✅ **Vertical SaaS founders** — legal-tech, real-estate, healthcare, ag-tech, education-LMS. Don't rewrite auth.
+
+✅ **Enterprises and public sector** with data-sovereignty requirements — data stays on your hardware.
+
+✅ **Startups** that need a full business stack but don't have €3-5K / month for SaaS.
+
+❌ **Not for**: bloggers (use WordPress / Ghost), pure mobile-app backends (use Supabase / Firebase), single-purpose CRUD apps (use a boilerplate), teams with zero ops capability (use managed SaaS).
+
+---
+
+## Tech stack
+
+No hidden dependencies. No surprises.
+
+| Layer | Technology | Why |
+|---|---|---|
+| Runtime | [Bun](https://bun.sh) 1.3+ | TypeScript-native, fast startup, batteries included |
+| Web framework | [Hono](https://hono.dev) 4.4+ | Edge-friendly, typed RPC, ultra-low overhead |
+| Database | [PostgreSQL](https://www.postgresql.org/) 17+ with pgvector | Full RDBMS + AI vector search, no NoSQL chaos |
+| Query builder | [Kysely](https://kysely.dev) 0.27+ | Type-safe SQL, no ORM tax |
+| Connection pool | [PgDog](https://github.com/pgdogdev/pgdog) | Multi-threaded, scram-sha-256 native |
+| Cache & realtime | [Valkey](https://valkey.io) 8+ | Redis-compatible, fully open |
+| Auth | [Better-Auth](https://better-auth.com) 1.6+ | Sessions, OAuth, passkeys, 2FA, magic links |
+| Authorization | [Casbin](https://casbin.org) 5.30+ | RBAC + ABAC policy engine |
+| File storage | [SeaweedFS](https://github.com/seaweedfs/seaweedfs) 3.68 | S3-compatible, self-hostable |
+| Admin UI | [SvelteKit](https://kit.svelte.dev) 2 + Svelte 5 runes | Modern reactive, small bundles |
+| Job queue | [pg-boss](https://github.com/timgit/pg-boss) 12 | Postgres-native, no separate Redis queue |
+| Migration safety | [Atlas](https://atlasgo.io) lint | CI-time DDL safety analysis |
+| Observability | [OpenTelemetry](https://opentelemetry.io) | Industry-standard tracing |
+| i18n | [Paraglide JS](https://inlang.com) 2.18+ | Type-safe translations, tree-shakeable |
+| Charts | [Layerchart](https://layerchart.com) | Svelte 5 first, D3-powered |
+
+---
+
+## Getting started
+
+### Quick install (recommended)
+
+```bash
+curl -fsSL https://get.zveltio.com/install.sh | bash
 ```
-zveltio/                   # This repo — core engine
-├── packages/
-│   ├── engine/            # Core API server (Bun + Hono + Kysely)
-│   ├── cli/               # CLI (zveltio start, migrate, update, create-god...)
-│   ├── sdk/               # Vanilla JS/TypeScript client
-│   ├── sdk-react/         # React 18+ hooks (@zveltio/react)
-│   ├── sdk-react-native/  # React Native hooks (@zveltio/react-native)
-│   ├── sdk-vue/           # Vue 3 composables (@zveltio/vue)
-│   └── studio/            # Admin UI (SvelteKit 5)
-├── Dockerfile
-├── docker-compose.yml
-└── scripts/
-    ├── install.sh
-    └── generate-compose.sh
 
-zveltio-extensions/        # Separate repo — marketplace extensions
-├── analytics/             # Insights dashboards
-├── auth/                  # LDAP, SAML
-├── communications/        # Mail (IMAP/SMTP)
-├── compliance/            # GDPR, eFactura, SAF-T (RO)
-├── content/               # Page builder, document templates
-├── developer/             # Edge functions, GraphQL, views
-├── geospatial/            # PostGIS field types
-├── storage/               # Cloud storage (S3)
-└── workflow/              # Approvals, checklists
+Interactive installer — picks Docker or native, configures `.env`, runs migrations, creates god user.
+
+### Docker
+
+```bash
+curl -fsSL https://get.zveltio.com/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://get.zveltio.com/.env.example -o .env
+# Edit .env (BETTER_AUTH_SECRET, S3 keys, GRAFANA_ADMIN_PASSWORD)
+docker compose up -d
 ```
 
-### Technology Stack
+Engine: `http://localhost:3000`. Studio: `http://localhost:3000/admin`.
 
-| Layer         | Technology      | Purpose                          |
-| ------------- | --------------- | -------------------------------- |
-| Runtime       | Bun 1.2.0       | JavaScript/TypeScript runtime    |
-| Framework     | Hono 4.4        | Ultra-fast web framework         |
-| Database      | PostgreSQL 17   | Primary DB + pgvector            |
-| ORM           | Kysely 0.27     | Type-safe query builder          |
-| Pool          | PgDog 0.1.33    | Connection pooler (session mode) |
-| Cache         | Valkey 8        | Redis-compatible cache           |
-| Auth          | Better-Auth     | Authentication                   |
-| RBAC          | Casbin 5.30     | Authorization                    |
-| Storage       | SeaweedFS 3.68  | S3-compatible object storage     |
-| UI            | SvelteKit 5     | Admin interface (Studio)         |
+### Native binary
 
----
+```bash
+curl -fsSL https://get.zveltio.com/releases/latest/zveltio-linux-x64 -o zveltio
+chmod +x zveltio && ./zveltio start
+```
 
-## 🛠️ Development Setup
+Five binaries available: `linux-x64`, `linux-x64-baseline` (older CPUs), `linux-arm64`, `macos-x64`, `macos-arm64`.
 
-For contributors and extension developers:
+### Develop & contribute
 
 ```bash
 git clone https://github.com/zveltio-devs/zveltio.git
 cd zveltio
 bun install
-
-# Start infrastructure (PostgreSQL, Valkey, SeaweedFS)
-docker compose -f docker-compose.infra.yml up -d
-
-# Configure environment
+docker compose -f docker-compose.infra.yml up -d   # Postgres, Valkey, SeaweedFS
 cp .env.example .env
-
-# Run migrations
-zveltio migrate
-
-# Start engine with hot reload
-zveltio dev
-
-# Start Studio (separate terminal)
-cd packages/studio && bun run dev
+bun run dev                                         # engine with hot reload
+cd packages/studio && bun run dev                   # admin UI on :5173
 ```
 
-**Access:**
-- Engine API: http://localhost:3000
-- Studio: http://localhost:5173
+Building extensions: [docs/EXTENSION-DEVELOPER-GUIDE.md](docs/EXTENSION-DEVELOPER-GUIDE.md).
 
 ---
 
-## 📦 CLI Commands
+## Architecture
 
-```bash
-zveltio start           # Start in production mode
-zveltio dev             # Start with hot reload
-zveltio migrate         # Run pending migrations
-zveltio create-god      # Create super-admin
-zveltio update          # Update to latest version
-zveltio install <ext>   # Install extension
-zveltio generate-types  # Generate TypeScript types
+```
+                  ┌────────────────────────────────────┐
+                  │  REST / WebSocket / GraphQL API    │
+                  └────────────────────────────────────┘
+                                  ▲
+                                  │ /api/*  /ext/<plugin>/*
+                                  │
+          ┌───────────────────────┴───────────────────────┐
+          │   Engine binary (Bun + Hono)                  │
+          │   • Auth + RBAC + RLS                         │
+          │   • Collections + dynamic schema              │
+          │   • Real-time bus + audit trail               │
+          │   • AI providers + edge functions             │
+          │   • Plugin runtime (signed, sandboxed)        │
+          └───────────────┬───────────────────┬───────────┘
+                          │                   │
+                  ┌───────▼────────┐   ┌──────▼──────┐
+                  │  Postgres 17   │   │  Valkey 8   │
+                  │  + pgvector    │   │ cache+pubsub│
+                  └────────────────┘   └─────────────┘
+
+  Clients (any): ┌─────────┐ ┌──────────┐ ┌─────────┐ ┌────────────┐
+                 │ Studio  │ │ Intranet │ │ Client  │ │ 3rd-party  │
+                 │ (Svelte)│ │ (Svelte) │ │(Svelte) │ │  React/Vue │
+                 └─────────┘ └──────────┘ └─────────┘ └────────────┘
 ```
 
----
-
-## 📖 Documentation
-
-Full documentation at **[zveltio.com/docs](https://zveltio.com/docs)**
+**Engine** is framework-agnostic. We ship a Svelte 5 Studio + Intranet + Client zones, but you can replace any of them with a custom React / Vue / HTMX UI that consumes `/api/*`. The plugin marketplace is Svelte-first because the bundled Studio is Svelte; the engine API is open to anyone.
 
 ---
 
-## 📝 License
+## Alpha caveats
 
-MIT — See [LICENSE](LICENSE)
+Honest about where we are: **alpha.82** as of the latest release.
+
+✅ **Stable enough for**: agency-built apps with one operator, internal tools, vertical SaaS pilots, custom platforms with engineering ownership.
+
+⚠️ **Not yet for**: business-critical paths in regulated industries (no SOC2 / ISO 27001 yet), enterprise contracts requiring SLAs, headless multi-region deployments at >10k users without operational maturity.
+
+**APIs may break between alpha versions.** We publish migration notes in [CHANGELOG.md](CHANGELOG.md) and the [Migration Guide](docs/MIGRATION-ALPHA-TO-BETA.md). Expect to read the changelog before upgrading.
+
+**Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. Zveltio's own glue code is what's alpha — and we test it (377 unit + 142 integration tests in CI on every commit).
+
+**v1.0 target**: when feature freeze is announced, current alpha-track installs get a migration path. We track v1.0 readiness in [docs/REFACTORING-V1-PLAN.md](docs/REFACTORING-V1-PLAN.md).
 
 ---
 
-Zveltio is a product of [DaRe IT Systems S.R.L.](https://dareit.ro)
+## License
+
+MIT — see [LICENSE](LICENSE). No per-seat fees, no commercial restriction, no source-available bait-and-switch.
+
+If you build something on Zveltio that helps your business, the only thing we ask is a star ⭐ on this repo and — if you can spare it — a write-up so others know it's viable.
+
+---
+
+## The platform behind your business. Build it. Plug it in. Own it forever.
+
+Zveltio is a product of [DaRe IT Systems S.R.L.](https://dareit.ro) — based in Romania, open to the world.
+
+**[Read the docs →](https://zveltio.com/intro)** · **[Join the community →](https://github.com/zveltio-devs/zveltio/discussions)** · **[Report an issue →](https://github.com/zveltio-devs/zveltio/issues)**
