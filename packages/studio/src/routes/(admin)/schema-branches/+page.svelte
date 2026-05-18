@@ -2,10 +2,10 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import {
-    GitBranch, Plus, RefreshCw, Trash2, Eye, Merge, AlertCircle,
+    GitBranch, RefreshCw, Trash2, Eye, Merge, AlertCircle,
     CircleCheck, Clock, X, Globe, GlobeLock, ShieldCheck, ShieldX, MessageSquare,
   } from '@lucide/svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
+  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   interface SchemaBranch {
@@ -228,29 +228,35 @@
   }
 </script>
 
-<div class="space-y-6">
-  <PageHeader title="Schema Branches" subtitle="Manage database schema versions">
-    <div class="flex gap-2">
-      <button class="btn btn-ghost btn-sm" onclick={loadBranches}><RefreshCw size={14} /></button>
-      <button class="btn btn-primary btn-sm gap-1" onclick={() => (showCreateModal = true)}><Plus size={14} /> Create Branch</button>
+<CrudListPage
+  title="Schema Branches"
+  subtitle="Manage database schema versions"
+  count={branches.length}
+  {loading}
+  actionLabel="Create Branch"
+  onAction={() => (showCreateModal = true)}
+  empty={{
+    illustration: 'target',
+    illustrationColor: 'text-primary',
+    title: 'Try schema changes safely',
+    description: 'Branches give you an isolated copy of the schema. Make changes, preview the diff, and merge only when you\'re happy.',
+    actionLabel: 'Create branch',
+    onAction: () => (showCreateModal = true),
+  }}
+>
+  {#snippet headerExtras()}
+    <div class="flex items-center justify-between gap-3 -mt-2">
+      <div class="alert alert-info flex-1">
+        <AlertCircle size={16} />
+        <span class="text-sm">Branches create an isolated PostgreSQL schema copy. Test schema changes safely, then merge when ready.</span>
+      </div>
+      <button class="btn btn-ghost btn-sm shrink-0" onclick={loadBranches} disabled={loading} aria-label="Refresh branches">
+        <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
+      </button>
     </div>
-  </PageHeader>
+  {/snippet}
 
-  <div class="alert alert-info">
-    <AlertCircle size={16} />
-    <span class="text-sm">Branches create an isolated PostgreSQL schema copy. Test schema changes safely, then merge when ready.</span>
-  </div>
-
-  {#if loading}
-    <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg"></span></div>
-  {:else if branches.length === 0}
-    <div class="card bg-base-200 text-center py-12">
-      <GitBranch size={48} class="mx-auto opacity-30" />
-      <h3 class="mt-4 font-medium">No Schema Branches</h3>
-      <p class="text-sm opacity-60 mt-2">Create your first branch to test schema changes safely</p>
-      <button class="btn btn-primary btn-sm mt-4 gap-1" onclick={() => (showCreateModal = true)}><Plus size={14} /> Create Branch</button>
-    </div>
-  {:else}
+  {#snippet list()}
     <div class="card bg-base-100 shadow-sm overflow-x-auto">
       <table class="table">
         <thead>
@@ -340,8 +346,8 @@
         </tbody>
       </table>
     </div>
-  {/if}
-</div>
+  {/snippet}
+</CrudListPage>
 
 <!-- Create Modal -->
 {#if showCreateModal}

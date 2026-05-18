@@ -3,13 +3,12 @@
   import { api, collectionsApi } from '$lib/api.js';
   import { base } from '$app/paths';
   import {
-    Plus, Trash2, Layout, LayoutGrid, Table2, Columns3, CalendarDays,
-    GalleryHorizontal, BarChart2, Map, List, Clock, Search,
+    Trash2, Layout, LayoutGrid, Table2, Columns3, CalendarDays,
+    GalleryHorizontal, BarChart2, Map, List, Clock,
     LoaderCircle, Database,
   } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   let views = $state<any[]>([]);
@@ -117,32 +116,27 @@
   }
 </script>
 
-<div class="space-y-6">
-  <!-- Header -->
-  <PageHeader title="Views" subtitle="Reusable data display blocks" count={views.length}>
-    <button class="btn btn-primary btn-sm gap-1" onclick={() => (showModal = true)}>
-      <Plus size={15}/> New View
-    </button>
-  </PageHeader>
-
-  <!-- Search -->
-  {#if views.length > 4}
-    <label class="input input-sm w-64 flex items-center gap-2">
-      <Search size={14} class="text-base-content/40"/>
-      <input type="text" placeholder="Filter views…" bind:value={searchQuery} class="grow"/>
-    </label>
-  {/if}
-
-  {#if loading}
-    <LoadingSkeleton type="card" rows={6} />
-  {:else if views.length === 0}
-    <div class="flex flex-col items-center justify-center py-20 text-base-content/40 gap-3">
-      <LayoutGrid size={48} class="opacity-20" />
-      <p class="text-lg font-semibold text-base-content/60">No views yet</p>
-      <p class="text-sm text-center max-w-sm">Views let you display collection data in different layouts.</p>
-      <button class="btn btn-primary btn-sm mt-2" onclick={() => (showModal = true)}>Create View</button>
-    </div>
-  {:else}
+<CrudListPage
+  title="Views"
+  subtitle="Reusable data display blocks"
+  count={views.length}
+  {loading}
+  search={searchQuery}
+  onSearchChange={(v) => (searchQuery = v)}
+  searchPlaceholder="Filter views..."
+  actionLabel="New View"
+  onAction={() => (showModal = true)}
+  empty={{
+    illustration: 'spark',
+    illustrationColor: 'text-secondary',
+    title: 'Display your data your way',
+    description: 'Views let you show collection records as tables, kanban boards, calendars, maps — pick the layout that fits the data.',
+    actionLabel: 'Create view',
+    onAction: () => (showModal = true),
+  }}
+  noSearchMatch={viewsSearchNoMatch}
+>
+  {#snippet list()}
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {#each filtered as v (v.id)}
         {@const TypeIcon = viewTypeIcon(v.view_type)}
@@ -182,12 +176,12 @@
         </div>
       {/each}
     </div>
+  {/snippet}
+</CrudListPage>
 
-    {#if searchQuery && filtered.length === 0}
-      <p class="text-center text-sm text-base-content/40 py-8">No views match "{searchQuery}"</p>
-    {/if}
-  {/if}
-</div>
+{#snippet viewsSearchNoMatch(q: string)}
+  <p class="text-center text-sm text-base-content/40 py-8">No views match "{q}"</p>
+{/snippet}
 
 <!-- Create Modal -->
 {#if showModal}

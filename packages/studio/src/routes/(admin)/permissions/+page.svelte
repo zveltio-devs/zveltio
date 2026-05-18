@@ -5,6 +5,7 @@
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
   import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+  import SearchBar from '$lib/components/common/SearchBar.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
 
   type Resource = { name: string; display_name: string; type: 'collection' | 'zone'; actions: string[] };
@@ -30,17 +31,20 @@
 
   const roleNames = $derived(['god', 'admin', 'member', ...roles.map((r) => r.name)]);
 
-  const collections = $derived(resources.filter((r) => r.type === 'collection'));
-  const zones       = $derived(resources.filter((r) => r.type === 'zone'));
+  let matrixFilter = $state('');
 
-  const ACTION_COLORS: Record<string, string> = {
-    view:   'checkbox-info',
-    create: 'checkbox-success',
-    update: 'checkbox-warning',
-    delete: 'checkbox-error',
-    read:   'checkbox-info',
-    write:  'checkbox-warning',
-  };
+  const collections = $derived(
+    resources
+      .filter((r) => r.type === 'collection')
+      .filter((r) => !matrixFilter || r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) || r.name.toLowerCase().includes(matrixFilter.toLowerCase()))
+  );
+  const zones = $derived(
+    resources
+      .filter((r) => r.type === 'zone')
+      .filter((r) => !matrixFilter || r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) || r.name.toLowerCase().includes(matrixFilter.toLowerCase()))
+  );
+  const totalCollections = $derived(resources.filter((r) => r.type === 'collection').length);
+  const totalZones = $derived(resources.filter((r) => r.type === 'zone').length);
 
   onMount(async () => { await loadAll(); await loadHierarchy(); });
 
@@ -194,13 +198,21 @@
       {#if selectedRole}
       <div class="space-y-6">
 
+        {#if totalCollections + totalZones > 8}
+          <SearchBar
+            value={matrixFilter}
+            onchange={(v) => (matrixFilter = v)}
+            placeholder="Filter resources by name..."
+          />
+        {/if}
+
         <!-- Collections section -->
         {#if collections.length > 0}
         <div>
           <div class="flex items-center gap-2 mb-3">
             <Database size={15} class="text-base-content/50" />
             <span class="text-sm font-semibold text-base-content/60 uppercase tracking-wider">
-              Collections ({collections.length})
+              Collections ({collections.length}{matrixFilter ? ` of ${totalCollections}` : ''})
             </span>
           </div>
 
@@ -223,7 +235,8 @@
                   <td class="text-center">
                     <input
                       type="checkbox"
-                      class="checkbox checkbox-sm {ACTION_COLORS[action] ?? 'checkbox-primary'}"
+                      class="checkbox checkbox-sm checkbox-primary"
+                      aria-label="{action} {res.display_name}"
                       checked={has(selectedRole.id, res.name, action)}
                       onchange={() => toggle(selectedRole.id, res.name, action)}
                     />
@@ -243,7 +256,7 @@
           <div class="flex items-center gap-2 mb-3">
             <Globe size={15} class="text-base-content/50" />
             <span class="text-sm font-semibold text-base-content/60 uppercase tracking-wider">
-              Zones ({zones.length})
+              Zones ({zones.length}{matrixFilter ? ` of ${totalZones}` : ''})
             </span>
           </div>
 
@@ -264,7 +277,8 @@
                   <td class="text-center">
                     <input
                       type="checkbox"
-                      class="checkbox checkbox-sm {ACTION_COLORS[action] ?? 'checkbox-primary'}"
+                      class="checkbox checkbox-sm checkbox-primary"
+                      aria-label="{action} {res.display_name}"
                       checked={has(selectedRole.id, res.name, action)}
                       onchange={() => toggle(selectedRole.id, res.name, action)}
                     />

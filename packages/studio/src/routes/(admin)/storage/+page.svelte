@@ -226,7 +226,7 @@
     <div class="modal-box max-w-4xl w-full">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold truncate">{previewFile.original_name}</h3>
-        <button class="btn btn-ghost btn-sm btn-square" onclick={() => previewFile = null}>✕</button>
+        <button class="btn btn-ghost btn-sm btn-square" onclick={() => previewFile = null} aria-label="Close preview">✕</button>
       </div>
 
       {#if isImage(previewFile.mime_type)}

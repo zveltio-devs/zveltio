@@ -652,6 +652,10 @@
            per-collection (e.g. "show only for zvd_orders"). -->
       <Slot name="collection-detail.header" ctx={{ user: auth.user, collection: collectionName }} />
     </div>
+    <!-- Extension actions slot — extensions inject contextual actions next
+         to the header (e.g. "Generate schema with AI", "Sync to Stripe").
+         Rendered before the built-in primary action. -->
+    <Slot name="collection-detail.actions" ctx={{ user: auth.user, collection: collectionName, activeTab }} />
     <!-- Context-sensitive header actions -->
     {#if activeTab === 'data'}
       <button onclick={openDrawer} class="btn btn-primary btn-sm gap-1.5">

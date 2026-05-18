@@ -3,6 +3,7 @@
  import { api } from '$lib/api.js';
  import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
  import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import PageSpinner from '$lib/components/common/PageSpinner.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  interface VirtualCollection {
@@ -149,9 +150,7 @@
  {/if}
 
  {#if loading}
- <div class="flex justify-center py-20">
- <span class="loading loading-spinner loading-lg text-primary"></span>
- </div>
+ <PageSpinner py={20} />
  {:else if collections.length === 0}
  <div class="card bg-base-200 text-center py-16">
  <Plug size={40} class="mx-auto mb-4 text-base-content/30" />

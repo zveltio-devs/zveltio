@@ -3,7 +3,6 @@
  import { api } from '$lib/api.js';
  import {
  Building2,
- Plus,
  RefreshCw,
  Edit,
  PauseCircle,
@@ -15,7 +14,7 @@
  Check,
  } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
+ import CrudListPage from '$lib/components/common/CrudListPage.svelte';
  import { toast } from '$lib/stores/toast.svelte.js';
 
  // ── State ──────────────────────────────────────────────────────────────────
@@ -184,33 +183,34 @@
 
 </script>
 
-<div class="space-y-6">
- <PageHeader title="Tenants" subtitle="Manage SaaS tenants and their environments" count={tenants.length}>
-  <div class="flex gap-2">
-  <button class="btn btn-ghost btn-sm gap-2" onclick={loadTenants} disabled={loading}>
-  <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
-  Refresh
-  </button>
-  <button class="btn btn-primary btn-sm gap-1.5" onclick={() => (showCreateModal = true)}>
-  <Plus size={16} />
-  New Tenant
-  </button>
-  </div>
- </PageHeader>
+<CrudListPage
+  title="Tenants"
+  subtitle="Manage SaaS tenants and their environments"
+  count={tenants.length}
+  loading={loading && tenants.length === 0}
+  actionLabel="New Tenant"
+  onAction={() => (showCreateModal = true)}
+  empty={{
+    illustration: 'cloud',
+    illustrationColor: 'text-secondary',
+    title: 'Spin up your first tenant',
+    description: 'Tenants isolate environments — perfect for SaaS where customers share the engine but not their data.',
+    actionLabel: 'Create tenant',
+    onAction: () => (showCreateModal = true),
+  }}
+>
+  {#snippet headerExtras()}
+    <div class="flex justify-end">
+      <button class="btn btn-ghost btn-sm gap-2" onclick={loadTenants} disabled={loading} aria-label="Refresh tenants">
+        <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
+        Refresh
+      </button>
+    </div>
+  {/snippet}
 
- <!-- Tenants table -->
- <div class="card bg-base-100 shadow-sm overflow-x-auto">
- {#if loading && tenants.length === 0}
- <div class="flex justify-center py-16">
- <span class="loading loading-spinner loading-lg"></span>
- </div>
- {:else if tenants.length === 0}
- <div class="text-center py-16">
- <Building2 size={48} class="mx-auto opacity-30 mb-3" />
- <p class="opacity-60">No tenants yet. Create the first one.</p>
- </div>
- {:else}
- <table class="table table-sm w-full">
+  {#snippet list()}
+    <div class="card bg-base-100 shadow-sm overflow-x-auto">
+      <table class="table table-sm w-full">
  <thead>
  <tr>
  <th>Tenant</th>
@@ -333,10 +333,10 @@
  {/if}
  {/each}
  </tbody>
- </table>
- {/if}
- </div>
-</div>
+      </table>
+    </div>
+  {/snippet}
+</CrudListPage>
 
 <!-- ── Create Tenant Modal ─────────────────────────────────────────────────── -->
 {#if showCreateModal}
@@ -549,7 +549,7 @@
 <!-- ── Create Environment Modal ───────────────────────────────────────────── -->
 {#if creatingEnvForTenant}
  <div class="modal modal-open">
- <div class="modal-box max-w-sm">
+ <div class="modal-box max-w-md">
  <div class="flex items-center justify-between mb-4">
  <h3 class="font-bold text-lg">Add Environment</h3>
  <button

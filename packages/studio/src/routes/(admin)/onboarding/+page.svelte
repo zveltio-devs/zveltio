@@ -258,7 +258,7 @@
                 </div>
                 <div class="flex items-center gap-2">
                   <code class="flex-1 bg-base-200 rounded px-3 py-2 text-xs font-mono break-all">{apiKey}</code>
-                  <button class="btn btn-ghost btn-sm" onclick={copyKey}><Copy size={14} /></button>
+                  <button class="btn btn-ghost btn-sm" onclick={copyKey} aria-label="Copy API key" title="Copy"><Copy size={14} /></button>
                 </div>
               </div>
             {:else}

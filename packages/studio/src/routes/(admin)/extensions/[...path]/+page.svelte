@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import { extensions } from '$lib/extensions.svelte.js';
   import { Puzzle, CheckCircle } from '@lucide/svelte';
+  import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 
   const paramPath = $derived(page.params.path ?? '');
 
@@ -17,9 +18,7 @@
 </script>
 
 {#if !extensions.initialized}
-  <div class="flex items-center justify-center h-64">
-    <span class="loading loading-spinner loading-lg"></span>
-  </div>
+  <PageSpinner py={16} label="Loading extension" />
 {:else if isActive && extMeta}
   <!-- Extension active but no dedicated Studio page compiled in yet -->
   <div class="max-w-lg mx-auto mt-16 text-center space-y-4">
