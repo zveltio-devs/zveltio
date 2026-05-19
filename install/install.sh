@@ -650,16 +650,38 @@ UNIT
   fi
 
   # ── Studio source (for extension rebuild-at-install) ─────────────────────────
+  #
+  # Tarball layout (alpha.84+):
+  #   studio/    — Studio SvelteKit source, package.json depends on
+  #                "@zveltio/sdk": "file:../sdk" so bun install resolves
+  #                offline without a workspace root.
+  #   sdk/       — Pre-built SDK (dist/ + package.json + README).
+  #
+  # We extract into a wrapper directory so the `file:../sdk` reference
+  # resolves to a sibling of `studio/`. The wrapper dir is at
+  # ${ZVELTIO_DIR}/studio-bundle/, and `bun install` runs inside
+  # ${ZVELTIO_DIR}/studio-bundle/studio/.
   local STUDIO_SRC_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/studio-source.tar.gz"
   if curl -fsSL --head "$STUDIO_SRC_URL" &>/dev/null; then
     info "Downloading Studio source for extension integration..."
-    mkdir -p "${ZVELTIO_DIR}/studio-src"
+    rm -rf "${ZVELTIO_DIR}/studio-bundle"
+    mkdir -p "${ZVELTIO_DIR}/studio-bundle"
     wget -q "$STUDIO_SRC_URL" -O /tmp/zveltio-studio-src.tar.gz
-    tar -xzf /tmp/zveltio-studio-src.tar.gz -C "${ZVELTIO_DIR}/studio-src" --strip-components=2
+    tar -xzf /tmp/zveltio-studio-src.tar.gz -C "${ZVELTIO_DIR}/studio-bundle"
     rm /tmp/zveltio-studio-src.tar.gz
-    # Install Studio dependencies so bun run build works
-    (cd "${ZVELTIO_DIR}/studio-src" && /usr/local/bin/bun install --frozen-lockfile 2>/dev/null || bun install)
-    success "Studio source ready at ${ZVELTIO_DIR}/studio-src"
+
+    # Back-compat symlink for any extension scripts that hard-code
+    # ${ZVELTIO_DIR}/studio-src as the studio root.
+    ln -snf "${ZVELTIO_DIR}/studio-bundle/studio" "${ZVELTIO_DIR}/studio-src"
+
+    # Install Studio dependencies so `bun run build` works on first
+    # extension activation. The SDK is sibling-resolved via file:../sdk.
+    if [ -d "${ZVELTIO_DIR}/studio-bundle/studio" ]; then
+      (cd "${ZVELTIO_DIR}/studio-bundle/studio" && /usr/local/bin/bun install 2>/dev/null || bun install)
+      success "Studio source ready at ${ZVELTIO_DIR}/studio-bundle/studio"
+    else
+      warn "Studio source tarball had unexpected layout — extension rebuild may fail."
+    fi
   else
     info "Studio source not in this release — extension Studio pages will use generic fallback."
   fi

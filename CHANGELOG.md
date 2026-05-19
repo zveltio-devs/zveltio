@@ -2,6 +2,21 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.84] - 2026-05-19
+
+### Fixed
+- **Install failure on alpha.83**: the Studio-source tarball shipped only
+  `packages/studio/`, but the Studio's `package.json` references
+  `@zveltio/sdk: workspace:*`. On the install host there is no workspace
+  root and no SDK alongside, so `bun install` failed with
+  `error: @zveltio/sdk@workspace:* failed to resolve`.
+- Release workflow now builds a self-contained Studio bundle: `studio/`
+  + `sdk/` (pre-built) at the tarball root, with Studio's package.json
+  rewritten to `"@zveltio/sdk": "file:../sdk"`. `install.sh` extracts to
+  `${ZVELTIO_DIR}/studio-bundle/` and runs `bun install` inside
+  `studio-bundle/studio/`. A `studio-src` symlink stays for back-compat
+  with any extension scripts that hard-code the old path.
+
 ## [1.0.0-alpha.83] - 2026-05-18
 
 v1.0 ship-readiness pack. Eleven P0 items closed plus a full visual schema
