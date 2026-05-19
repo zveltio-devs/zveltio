@@ -1,0 +1,64 @@
+# Public demo deployment — `docker compose -f demo/docker-compose.yml up -d`.
+#
+# Runs the engine with DEMO_MODE=true so the Studio shows the demo banner
+# and the engine blocks a small set of destructive admin actions (see
+# packages/engine/src/middleware/demo-mode.ts).
+#
+# A separate scheduled task (cron + demo/reset.sh) wipes the data on a
+# schedule. Don't run this stack on a domain that holds real data.
+
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zveltio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: zveltio
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U zveltio']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  valkey:
+    image: valkey/valkey:8
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  engine:
+    image: ghcr.io/zveltio-devs/zveltio:latest
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey:   { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://zveltio:${POSTGRES_PASSWORD}@postgres:5432/zveltio
+      VALKEY_URL: redis://valkey:6379
+      PORT: '3000'
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?generate a 32+ char secret}
+      BETTER_AUTH_URL: ${PUBLIC_URL:-http://localhost:3000}
+      NODE_ENV: production
+
+      # Demo flags — read by the engine + Studio.
+      DEMO_MODE: 'true'
+      DEMO_EMAIL:    'demo@zveltio.com'
+      DEMO_PASSWORD: 'demo123456'
+      DEMO_RESET_CRON: 'hourly at :00'   # human-readable hint shown in the banner
+
+      # Generous rate limits but still bounded — public demos attract bots.
+      RL_API_MAX_REQUESTS: '500'
+      RL_WRITE_MAX_REQUESTS: '120'
+    ports:
+      - '3000:3000'
+
+volumes:
+  pg_data:

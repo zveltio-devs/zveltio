@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { collectionsApi } from '$lib/api.js';
-  import { Table, Trash2, Settings, Database, Shield } from '@lucide/svelte';
+  import { Table, Trash2, Settings, Database, Shield, GitFork } from '@lucide/svelte';
   import { base } from '$app/paths';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
@@ -325,17 +325,22 @@
         </div>
       </div>
     {:else if selectableCollections.length > 0}
-      <label class="flex items-center gap-2 text-xs text-base-content/50 cursor-pointer w-fit">
-        <input
-          type="checkbox"
-          class="checkbox checkbox-xs"
-          checked={allSelectable}
-          indeterminate={someSelected}
-          onchange={toggleSelectAll}
-          aria-label="Select all collections (excluding system)"
-        />
-        Select all
-      </label>
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <label class="flex items-center gap-2 text-xs text-base-content/50 cursor-pointer w-fit">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-xs"
+            checked={allSelectable}
+            indeterminate={someSelected}
+            onchange={toggleSelectAll}
+            aria-label="Select all collections (excluding system)"
+          />
+          Select all
+        </label>
+        <a href="{base}/collections/erd" class="btn btn-ghost btn-xs gap-1.5" aria-label="View schema as diagram">
+          <GitFork size={13} /> Schema diagram
+        </a>
+      </div>
     {/if}
   {/snippet}
 

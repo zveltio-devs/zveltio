@@ -1,0 +1,57 @@
+{
+  "id": "invoicing",
+  "name": "Invoicing",
+  "description": "Customers, invoices, line items, payments. End-to-end billing in four tables.",
+  "icon": "Receipt",
+  "tags": ["finance", "starter"],
+  "collections": [
+    {
+      "name": "inv_customers",
+      "display_name": "Customers",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "email", "type": "email" },
+        { "name": "tax_id", "type": "text" },
+        { "name": "billing_address", "type": "text" },
+        { "name": "currency", "type": "enum", "options": { "values": ["EUR", "USD", "GBP", "RON"] } }
+      ]
+    },
+    {
+      "name": "inv_invoices",
+      "display_name": "Invoices",
+      "fields": [
+        { "name": "number", "type": "text", "required": true },
+        { "name": "customer", "type": "m2o", "options": { "related_collection": "inv_customers" }, "required": true },
+        { "name": "issue_date", "type": "date", "required": true },
+        { "name": "due_date", "type": "date" },
+        { "name": "status", "type": "enum", "options": { "values": ["draft", "sent", "paid", "overdue", "void"] } },
+        { "name": "subtotal", "type": "number" },
+        { "name": "tax", "type": "number" },
+        { "name": "total", "type": "number" },
+        { "name": "notes", "type": "richtext" }
+      ]
+    },
+    {
+      "name": "inv_line_items",
+      "display_name": "Line items",
+      "fields": [
+        { "name": "invoice", "type": "m2o", "options": { "related_collection": "inv_invoices" }, "required": true },
+        { "name": "description", "type": "text", "required": true },
+        { "name": "quantity", "type": "number", "required": true },
+        { "name": "unit_price", "type": "number", "required": true },
+        { "name": "amount", "type": "number" }
+      ]
+    },
+    {
+      "name": "inv_payments",
+      "display_name": "Payments",
+      "fields": [
+        { "name": "invoice", "type": "m2o", "options": { "related_collection": "inv_invoices" }, "required": true },
+        { "name": "received_at", "type": "datetime", "required": true },
+        { "name": "amount", "type": "number", "required": true },
+        { "name": "method", "type": "enum", "options": { "values": ["bank", "card", "cash", "other"] } },
+        { "name": "reference", "type": "text" }
+      ]
+    }
+  ]
+}

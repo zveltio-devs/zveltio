@@ -21,6 +21,12 @@ jobs:
         run: cd packages/sdk && bun run build
       - name: Type check engine
         run: cd packages/engine && bun run typecheck
+      - name: Audit regression check
+        # Fail the build if any privileged route has lost its auditLog() call.
+        # See scripts/audit-regression-check.ts for the maintained list.
+        run: |
+          bun run scripts/audit-inventory.ts
+          bun run scripts/audit-regression-check.ts
 
   lint:
     name: Lint
@@ -168,5 +174,71 @@ jobs:
           SLOW_QUERY_THRESHOLD_MS: '0'
         run: cd packages/engine && bun run test:integration
       - name: Show engine logs (always)
+        if: always()
+        run: cat /tmp/engine.log || true
+
+  perf-smoke:
+    name: Perf Smoke (CRUD + list p95 budgets)
+    runs-on: ubuntu-latest
+    # Catches catastrophic regressions only — see bench/ci-check.ts for
+    # threshold rationale. Track drift via the uploaded artifact.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zveltio_test
+          POSTGRES_USER: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      valkey:
+        image: valkey/valkey:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 'latest' }
+      - run: bun install
+      - run: cd packages/sdk && bun run build
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+        run: bun packages/engine/src/db/migrate.ts
+      - name: Seed admin user
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+        # Use the engine's own better-auth sign-up to create the admin so the
+        # password hash format matches whatever the runtime expects.
+        run: |
+          bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/api/health > /dev/null && break
+            sleep 1
+          done
+          curl -sf -X POST http://localhost:3000/api/auth/sign-up/email \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@example.com","password":"admin1234","name":"Admin"}' \
+            > /tmp/signup.json || true
+          cat /tmp/signup.json || true
+      - name: Run perf smoke
+        env:
+          BENCH_BASE_URL: http://localhost:3000
+          BENCH_EMAIL: admin@example.com
+          BENCH_PASSWORD: admin1234
+        run: bun run bench/ci-check.ts
+      - name: Upload bench result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-result
+          path: bench/results/ci.json
+          if-no-files-found: ignore
+      - name: Engine logs (always)
         if: always()
         run: cat /tmp/engine.log || true

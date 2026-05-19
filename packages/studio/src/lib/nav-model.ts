@@ -16,7 +16,7 @@ import {
   Upload, Bell, Download, Workflow, Package, GitBranch, Plug,
   Building2, Images, DatabaseBackup, Layout, CheckSquare,
   ScanSearch, Code, Bookmark, BarChart2, Terminal, Activity,
-  LayoutGrid, Zap,
+  LayoutGrid, Zap, Sparkles,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
@@ -61,6 +61,7 @@ const RAW_NAV: NavGroup[] = [
     label: 'Build',
     items: [
       { href: `${base}/collections`, icon: Database,   label: 'Collections' },
+      { href: `${base}/templates`,   icon: Sparkles,   label: 'Templates'   },
       { href: `${base}/views`,       icon: Layout,     label: 'Views'       },
       { href: `${base}/zones`,       icon: LayoutGrid, label: 'Zones'       },
       { href: `${base}/media`,       icon: Images,     label: 'Media',      ext: 'content/media' },

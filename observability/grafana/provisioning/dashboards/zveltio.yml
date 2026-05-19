@@ -1,0 +1,16 @@
+# Grafana dashboard provisioning. Mount this file into Grafana at
+# /etc/grafana/provisioning/dashboards/zveltio.yml and the JSON dashboards
+# directory at /var/lib/grafana/dashboards/zveltio.
+
+apiVersion: 1
+
+providers:
+  - name: 'zveltio'
+    orgId: 1
+    folder: 'Zveltio'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/zveltio

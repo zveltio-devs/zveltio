@@ -1,0 +1,125 @@
+{
+  "title": "Zveltio — Engine Overview",
+  "uid": "zveltio-engine-overview",
+  "tags": ["zveltio"],
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(zveltio_uptime_seconds, instance)",
+        "includeAll": true,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Uptime",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{ "expr": "zveltio_uptime_seconds{instance=~\"$instance\"}" }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active extensions",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "zveltio_extensions_active{instance=~\"$instance\"}" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Heap usage",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "expr": "zveltio_memory_heap_usage_percent{instance=~\"$instance\"}" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "RSS",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [{ "expr": "zveltio_memory_rss_bytes{instance=~\"$instance\"}" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Request rate (req/s, 1m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "rate(zveltio_requests_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Heap used vs total",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "expr": "zveltio_memory_heap_used_bytes{instance=~\"$instance\"}",
+          "legendFormat": "used"
+        },
+        {
+          "expr": "zveltio_memory_heap_total_bytes{instance=~\"$instance\"}",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Memory: peak heap + peak RSS",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "expr": "zveltio_memory_peak_heap_used_bytes{instance=~\"$instance\"}",
+          "legendFormat": "peak heap"
+        },
+        {
+          "expr": "zveltio_memory_peak_rss_bytes{instance=~\"$instance\"}",
+          "legendFormat": "peak RSS"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Zone requests (by zone)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "rate(zveltio_zone_requests_total{instance=~\"$instance\"}[5m])",
+          "legendFormat": "{{zone}}"
+        }
+      ]
+    }
+  ]
+}

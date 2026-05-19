@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Have a question?
+    url: https://github.com/zveltio-devs/zveltio/discussions/new?category=q-a
+    about: Use Discussions for "how do I…" or design questions.
+  - name: Security vulnerability
+    url: https://github.com/zveltio-devs/zveltio/blob/master/SECURITY.md
+    about: Do NOT file public issues for security bugs. See SECURITY.md.
+  - name: Discord
+    url: https://discord.gg/zveltio
+    about: Real-time community chat.
