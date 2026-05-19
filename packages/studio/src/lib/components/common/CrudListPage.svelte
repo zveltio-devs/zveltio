@@ -65,11 +65,20 @@
     loading = false,
     search, onSearchChange, searchPlaceholder = 'Search...',
     searchThreshold = 4,
-    actionLabel, actionHref, onAction, actionIcon: ActionIcon = Plus,
+    actionLabel, actionHref, onAction, actionIcon,
     empty,
     noSearchMatch, headerExtras,
     list, pagination,
   }: Props = $props();
+
+  // Resolve actionIcon at render time. The pattern
+  //   `actionIcon: ActionIcon = Plus`
+  // used to break under rolldown — Plus appeared only as a destructure
+  // default value, the bundler tree-shook the binding, and call sites that
+  // relied on the default got `ReferenceError: Plus is not defined`. Using
+  // $derived forces Plus to be referenced in the runtime template path so
+  // it stays in the chunk.
+  const ActionIcon = $derived(actionIcon ?? Plus);
 
   const showSearch = $derived(
     onSearchChange !== undefined && (count ?? 0) > searchThreshold,
