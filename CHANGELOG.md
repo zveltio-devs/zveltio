@@ -2,6 +2,20 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.85] - 2026-05-19
+
+### Fixed
+- **Studio: "New Collection" button silently no-ops on alpha.83/.84**.
+  `CrudListPage` destructured `actionIcon: ActionIcon = Plus` — Plus
+  appeared only as a default value, rolldown tree-shook the binding, and
+  the chunk at runtime threw `ReferenceError: Plus is not defined` the
+  moment the action button rendered. Click handlers below the error were
+  never reached, so the user saw a button that did nothing. Replaced the
+  destructure default with `const ActionIcon = $derived(actionIcon ?? Plus)`,
+  which keeps Plus reachable from the template path so the bundler
+  preserves it. Affects every page that uses CrudListPage (the
+  collections list is the most user-visible).
+
 ## [1.0.0-alpha.84] - 2026-05-19
 
 ### Fixed
