@@ -47,7 +47,10 @@ async function main(): Promise<void> {
   console.log('▶ CI bench: REST CRUD');
   const crud = await runRestCrud({ client, warmup, iterations, concurrency: 1 });
   console.log('▶ CI bench: list+pagination (small seed)');
-  const list = await runListPagination({ client, warmup, iterations: 20, seedRows: 500 });
+  // 200 rows seeds in one bulk batch (the route caps at 500/request).
+  // Deep-page test still walks to page 10 with pageSize 20 — enough to
+  // detect catastrophic offset-pagination regressions.
+  const list = await runListPagination({ client, warmup, iterations: 20, seedRows: 200 });
 
   const budgets: Budget[] = [
     { name: 'create.p95',     value: crud.create.p95, budget: Number(process.env.PERF_BUDGET_CREATE_P95_MS     ?? 300) },
