@@ -51,7 +51,12 @@
   }: Props = $props();
 
   let editing = $state(false);
-  let draft = $state(value);
+  // `draft` is initialised to '' (typed) and overwritten from `value`
+  // every time the user enters edit mode (see enterEdit()). The previous
+  // shape — `$state(value)` — only captured the initial value at mount
+  // and stayed stale if the parent updated the prop while editing was
+  // closed.
+  let draft = $state<string>('');
   let saving = $state(false);
   let error = $state<string | null>(null);
   let inputRef: HTMLInputElement | undefined = $state();

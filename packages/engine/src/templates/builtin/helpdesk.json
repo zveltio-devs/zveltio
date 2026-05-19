@@ -31,7 +31,7 @@
         { "name": "subject", "type": "text", "required": true },
         { "name": "customer", "type": "m2o", "options": { "related_collection": "hd_customers" }, "required": true },
         { "name": "category", "type": "m2o", "options": { "related_collection": "hd_categories" } },
-        { "name": "status", "type": "enum", "options": { "values": ["new", "open", "pending", "resolved", "closed"] } },
+        { "name": "ticket_status", "type": "enum", "options": { "values": ["new", "open", "pending", "resolved", "closed"] } },
         { "name": "priority", "type": "enum", "options": { "values": ["low", "normal", "high", "urgent"] } },
         { "name": "assignee", "type": "text" },
         { "name": "body", "type": "richtext", "required": true },
