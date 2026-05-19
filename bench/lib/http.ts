@@ -9,8 +9,25 @@
 
 export interface BenchHttpClient {
   baseUrl: string;
-  /** Optional bearer token for authenticated routes. */
+  /**
+   * Either:
+   *   - a `Cookie` header value (e.g. `better-auth.session_token=…`), OR
+   *   - an API key starting with `zvk_` (sent as Authorization: Bearer).
+   *
+   * The engine accepts both forms on admin routes; we auto-detect which
+   * one based on the prefix. Cookie is the default because /api/auth/
+   * sign-in/email sets a session cookie, not an API key.
+   */
   authToken?: string;
+}
+
+/** Pick the right auth header for the token shape. */
+function authHeader(client: BenchHttpClient): Record<string, string> {
+  if (!client.authToken) return {};
+  if (client.authToken.startsWith('zvk_')) {
+    return { Authorization: `Bearer ${client.authToken}` };
+  }
+  return { Cookie: client.authToken };
 }
 
 export interface TimedResponse {
@@ -29,7 +46,7 @@ export async function timedGet(
   const t0 = performance.now();
   const res = await fetch(`${client.baseUrl}${path}`, {
     method: 'GET',
-    headers: client.authToken ? { Authorization: `Bearer ${client.authToken}` } : {},
+    headers: authHeader(client),
   });
   const body = await res.json().catch(() => undefined);
   return { status: res.status, durationMs: performance.now() - t0, body };
@@ -48,7 +65,7 @@ export async function timedPost(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(client.authToken ? { Authorization: `Bearer ${client.authToken}` } : {}),
+      ...authHeader(client),
     },
     body: JSON.stringify(payload),
   });
@@ -69,7 +86,7 @@ export async function timedPatch(
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      ...(client.authToken ? { Authorization: `Bearer ${client.authToken}` } : {}),
+      ...authHeader(client),
     },
     body: JSON.stringify(payload),
   });
@@ -87,7 +104,7 @@ export async function timedDelete(
   const t0 = performance.now();
   const res = await fetch(`${client.baseUrl}${path}`, {
     method: 'DELETE',
-    headers: client.authToken ? { Authorization: `Bearer ${client.authToken}` } : {},
+    headers: authHeader(client),
   });
   const body = await res.json().catch(() => undefined);
   return { status: res.status, durationMs: performance.now() - t0, body };
@@ -114,12 +131,18 @@ export async function waitForHealthy(
 }
 
 /**
- * Sign in via better-auth and return the session cookie value to use
- * as `Authorization: Bearer <token>` for subsequent calls.
+ * Sign in via better-auth and return the `Cookie` header value to use
+ * on subsequent authenticated requests.
  *
- * Most engine routes accept either a session cookie or an API token.
- * Benchmarks use the API token path because it skips cookie parsing on
- * every request — closer to what an SDK consumer does in production.
+ * Admin routes call `auth.api.getSession({ headers })`, which reads the
+ * session cookie that better-auth set during sign-in — there is no
+ * "Authorization: Bearer <session-token>" path. So we capture the
+ * Set-Cookie response header and replay it verbatim.
+ *
+ * For benchmarks that *do* want API-key auth (a hot path closer to
+ * production SDK consumers), create an API key via /api/admin/api-keys
+ * and pass the `zvk_…` string as `authToken` — the helper auto-detects
+ * the prefix and uses Authorization: Bearer.
  */
 export async function signInForToken(
   baseUrl: string,
@@ -135,7 +158,22 @@ export async function signInForToken(
     const body = await res.text().catch(() => '');
     throw new Error(`sign-in failed: ${res.status} ${body.slice(0, 200)}`);
   }
-  const data = await res.json() as { token?: string };
-  if (!data.token) throw new Error('sign-in response missing token');
-  return data.token;
+
+  // Better-auth uses Set-Cookie. fetch in Bun/Node 18+ supports getSetCookie()
+  // which preserves multi-cookie semantics; fall back to raw header parsing.
+  const setCookies = (res.headers as any).getSetCookie?.()
+    ?? res.headers.get('set-cookie')?.split(/,(?=[^;]+=)/g)
+    ?? [];
+
+  // Extract just the `name=value` part of each cookie (drop attributes like
+  // Path/HttpOnly/Expires) and join — that's what a browser sends back.
+  const cookieHeader = (setCookies as string[])
+    .map((c) => c.split(';')[0].trim())
+    .filter(Boolean)
+    .join('; ');
+
+  if (!cookieHeader) {
+    throw new Error('sign-in succeeded but no session cookie was set — engine misconfigured?');
+  }
+  return cookieHeader;
 }

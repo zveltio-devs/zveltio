@@ -765,9 +765,7 @@
     </button>
 
     <span
-      class="text-[10px] tabular-nums"
-      class:text-success={serverSynced}
-      class:text-base-content/40={!serverSynced}
+      class="text-[10px] tabular-nums {serverSynced ? 'text-success' : 'text-base-content/40'}"
       title={serverSynced ? 'Layout synced to your account' : 'Layout saved locally only — sign in to sync across devices'}
     >
       {serverSynced ? '● synced' : '○ local'}

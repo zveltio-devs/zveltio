@@ -7,6 +7,16 @@
 
 import type { BenchHttpClient } from './http.js';
 
+// Mirror the auth-header helper from http.ts so setup.ts uses the same
+// rule (cookie vs zvk_ Bearer) without importing private internals.
+function authHeader(client: BenchHttpClient): Record<string, string> {
+  if (!client.authToken) return {};
+  if (client.authToken.startsWith('zvk_')) {
+    return { Authorization: `Bearer ${client.authToken}` };
+  }
+  return { Cookie: client.authToken };
+}
+
 export interface BenchCollection {
   /** Generated collection name like `bench_users_8f3a` */
   name: string;
@@ -32,7 +42,7 @@ export async function createCollection(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(client.authToken ? { Authorization: `Bearer ${client.authToken}` } : {}),
+      ...authHeader(client),
     },
     body: JSON.stringify({ name, fields }),
   });
@@ -49,7 +59,7 @@ async function waitForJob(client: BenchHttpClient, jobId: string, timeoutMs = 30
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
     const res = await fetch(`${client.baseUrl}/api/collections/jobs/${jobId}`, {
-      headers: client.authToken ? { Authorization: `Bearer ${client.authToken}` } : {},
+      headers: authHeader(client),
     });
     if (res.ok) {
       const j = await res.json() as { state?: string };
@@ -64,7 +74,7 @@ async function waitForJob(client: BenchHttpClient, jobId: string, timeoutMs = 30
 export async function dropCollection(client: BenchHttpClient, name: string): Promise<void> {
   const res = await fetch(`${client.baseUrl}/api/collections/${name}`, {
     method: 'DELETE',
-    headers: client.authToken ? { Authorization: `Bearer ${client.authToken}` } : {},
+    headers: authHeader(client),
   });
   if (!res.ok && res.status !== 404) {
     const body = await res.text().catch(() => '');
