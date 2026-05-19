@@ -2,6 +2,55 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.86] - 2026-05-19
+
+Audit pass on alpha.85 — found via Liviu's real WSL install + browser
+testing. Tier-1 (UI-blocking) fixed; tier-2 polish fixes batched in.
+
+### Fixed (UI-blocking)
+
+- **Templates with reserved `status` field name failed silently** on
+  install. The DDL job died with `column "status" specified more than
+  once` (DDLManager auto-adds `status` as a system column) and left
+  phantom metadata in `zvd_collections`. Renamed the conflicting field
+  in `helpdesk` (`status → ticket_status`), `invoicing`
+  (`status → invoice_status`), and `project` (two: `status →
+  project_status` on projects, `status → task_status` on tasks).
+- **Templates route now validates SYSTEM_FIELDS upfront.** Before, a
+  template that referenced a reserved field name would enqueue the DDL
+  job + leave ghost metadata. Now returns 400 before any side effects
+  with a clear message naming the offending field.
+- **ERD drag state was non-reactive.** `dragMode`, `cardDragName`, and
+  `didMove` were plain `let` instead of `$state(...)`. Drag-to-move
+  worked because position updates propagated through other reactive
+  paths, but the cursor classes and the "didMove" border highlight
+  stayed stale. All three are now `$state`. Pure-numeric drag offsets
+  (dragStartX/Y, etc.) stay as plain locals since nothing renders them.
+
+### Fixed (polish)
+
+- **`<svelte:component>` modernised.** `NavLink.svelte` and `Slot.svelte`
+  were the last two places using the deprecated dynamic-component tag.
+  Replaced with the Svelte 5 runes idiom (`const Icon = $derived(...)`
+  then `<Icon ...>`).
+- **`InlineEdit` $state-referenced-locally warning.** Was
+  `let draft = $state(value)` — Svelte 5 flagged the prop capture. Now
+  initialises to `''` and is overwritten from `value` in `enterEdit()`,
+  which was already the behaviour intended by the original code.
+
+### Known issues (logged for alpha.87)
+
+- A subset of marketplace extensions (`communications/mail`,
+  `auth/saml`, `compliance/ro/efactura`) fail to activate on first
+  install with `Cannot find package '<dep>'` even though the dep IS
+  installed in `/opt/zveltio/extensions/node_modules/`. The compiled
+  binary's dynamic-import resolver doesn't walk into the symlinked
+  `node_modules` for some specifiers. 12 out of the 16 most common
+  extensions install + enable cleanly.
+- `geospatial/postgis` requires `CREATE EXTENSION postgis` in psql —
+  that's a correct precondition, not a bug, but the install.sh + docs
+  should call it out.
+
 ## [1.0.0-alpha.85] - 2026-05-19
 
 ### Fixed

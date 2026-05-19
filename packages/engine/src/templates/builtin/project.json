@@ -11,7 +11,7 @@
       "fields": [
         { "name": "name", "type": "text", "required": true },
         { "name": "description", "type": "richtext" },
-        { "name": "status", "type": "enum", "options": { "values": ["planning", "active", "on_hold", "completed", "archived"] } },
+        { "name": "project_status", "type": "enum", "options": { "values": ["planning", "active", "on_hold", "completed", "archived"] } },
         { "name": "owner", "type": "text" },
         { "name": "start_date", "type": "date" },
         { "name": "end_date", "type": "date" }
@@ -24,7 +24,7 @@
         { "name": "title", "type": "text", "required": true },
         { "name": "description", "type": "richtext" },
         { "name": "project", "type": "m2o", "options": { "related_collection": "pm_projects" }, "required": true },
-        { "name": "status", "type": "enum", "options": { "values": ["todo", "in_progress", "blocked", "review", "done"] } },
+        { "name": "task_status", "type": "enum", "options": { "values": ["todo", "in_progress", "blocked", "review", "done"] } },
         { "name": "priority", "type": "enum", "options": { "values": ["low", "medium", "high", "urgent"] } },
         { "name": "assignee", "type": "text" },
         { "name": "due_date", "type": "date" },
