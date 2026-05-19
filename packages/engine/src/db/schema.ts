@@ -415,6 +415,15 @@ export interface ZvBackupsTable {
   completed_at: Date | null;
 }
 
+export interface ZvErdLayoutsTable {
+  id: Generated<string>;
+  user_id: string;
+  collection_name: string;
+  x: number;
+  y: number;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvAiProvidersTable {
   id: Generated<string>;
   name: string;
@@ -1494,6 +1503,7 @@ export interface DbSchema {
   zv_storage_quotas: ZvStorageQuotasTable;
   zv_import_logs: ZvImportLogsTable;
   zv_backups: ZvBackupsTable;
+  zv_erd_layouts: ZvErdLayoutsTable;
   zv_ai_providers: ZvAiProvidersTable;
   zv_prompt_templates: ZvPromptTemplatesTable;
   zv_ai_chats: ZvAiChatsTable;

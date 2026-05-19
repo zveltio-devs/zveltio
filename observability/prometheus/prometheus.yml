@@ -1,0 +1,31 @@
+# Prometheus scrape config for Zveltio. Drop alongside the engine on the
+# same host (or point at a remote engine) and Grafana will see metrics
+# named `zveltio_*` from a job called `zveltio`.
+#
+# Usage:
+#   docker run --rm -p 9090:9090 \
+#     -v $(pwd)/observability/prometheus:/etc/prometheus \
+#     prom/prometheus:latest
+#
+# Then point Grafana's data source at http://prometheus:9090.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: zveltio
+    metrics_path: /api/metrics
+    # If METRICS_TOKEN is set on the engine, drop this in via env
+    # substitution or expose via a sidecar — Prometheus doesn't support
+    # bearer-token env vars natively.
+    static_configs:
+      - targets: ['host.docker.internal:3000']
+        labels:
+          environment: dev
+
+  # Postgres exporter (run prom/postgres-exporter as a sidecar pointing at
+  # the same DATABASE_URL the engine uses).
+  - job_name: postgres
+    static_configs:
+      - targets: ['host.docker.internal:9187']

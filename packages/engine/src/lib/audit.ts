@@ -19,7 +19,17 @@ export type AuditEventType =
   | 'extension.load_failed'
   | 'extension.unloaded'
   | 'sql.executed'
-  | 'sql.failed';
+  | 'sql.failed'
+  | 'backup.created'
+  | 'backup.deleted'
+  | 'backup.downloaded'
+  | 'backup.restored'
+  | 'backup.scheduled'
+  | 'pitr.config_changed'
+  | 'pitr.restored'
+  | 'approval.workflow_changed'
+  | 'approval.decided'
+  | 'export.executed';
 
 export interface AuditEvent {
   type: AuditEventType;

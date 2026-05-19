@@ -1,0 +1,19 @@
+{
+  "name": "@zveltio/bench",
+  "version": "1.0.0-alpha.82",
+  "private": true,
+  "type": "module",
+  "description": "Performance benchmark suite — reproducible numbers for REST, list, realtime, cold-start",
+  "scripts": {
+    "bench": "bun runner.ts",
+    "bench:crud": "BENCH_SKIP=list,realtime,coldstart bun runner.ts",
+    "bench:list": "BENCH_SKIP=crud,realtime,coldstart bun runner.ts",
+    "bench:realtime": "BENCH_SKIP=crud,list,coldstart bun runner.ts",
+    "bench:coldstart": "BENCH_COLDSTART=1 BENCH_SKIP=crud,list,realtime bun runner.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.4.0"
+  }
+}

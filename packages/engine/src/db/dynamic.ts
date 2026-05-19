@@ -334,3 +334,69 @@ export async function dynamicDropColumn(
     await sql`ALTER TABLE ${table} DROP COLUMN IF EXISTS ${col}`.execute(trx);
   });
 }
+
+export async function dynamicRenameColumn(
+  db: Database,
+  tableName: string,
+  fromColumn: string,
+  toColumn: string,
+): Promise<void> {
+  const table = sql.id(sanitizeIdentifier(tableName));
+  const from = sql.id(sanitizeIdentifier(fromColumn));
+  const to = sql.id(sanitizeIdentifier(toColumn));
+  // RENAME COLUMN takes AccessExclusiveLock briefly — same lock_timeout
+  // guard as add/drop so an in-flight query doesn't starve the rename.
+  await withLockTimeout(db, async (trx) => {
+    await sql`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`.execute(trx);
+  });
+}
+
+/**
+ * ALTER COLUMN ... TYPE with a USING expression that the caller supplies.
+ *
+ * The USING clause is REQUIRED for any conversion Postgres can't do via
+ * implicit cast (e.g. text → integer). The caller picks the expression
+ * based on the source/destination types — see field-type-conversions.ts.
+ *
+ * sqlType MUST be a vetted DDL fragment, NOT user input — we don't escape
+ * the type name because Postgres types have their own syntax (e.g.
+ * `numeric(10,2)`, `varchar(255)`). The route layer is responsible for
+ * resolving the type via fieldTypeRegistry which only emits safe DDL.
+ */
+export async function dynamicChangeColumnType(
+  db: Database,
+  tableName: string,
+  columnName: string,
+  sqlType: string,
+  usingExpression?: string,
+): Promise<void> {
+  const table = sql.id(sanitizeIdentifier(tableName));
+  const col = sql.id(sanitizeIdentifier(columnName));
+  const usingClause = usingExpression
+    ? sql.raw(`USING ${usingExpression}`)
+    : sql.raw('');
+  await withLockTimeout(db, async (trx) => {
+    await sql`
+      ALTER TABLE ${table}
+      ALTER COLUMN ${col} TYPE ${sql.raw(sqlType)} ${usingClause}
+    `.execute(trx);
+  });
+}
+
+/** Toggle NOT NULL on a column. Used for the `required` flag. */
+export async function dynamicSetColumnRequired(
+  db: Database,
+  tableName: string,
+  columnName: string,
+  required: boolean,
+): Promise<void> {
+  const table = sql.id(sanitizeIdentifier(tableName));
+  const col = sql.id(sanitizeIdentifier(columnName));
+  await withLockTimeout(db, async (trx) => {
+    if (required) {
+      await sql`ALTER TABLE ${table} ALTER COLUMN ${col} SET NOT NULL`.execute(trx);
+    } else {
+      await sql`ALTER TABLE ${table} ALTER COLUMN ${col} DROP NOT NULL`.execute(trx);
+    }
+  });
+}

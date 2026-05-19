@@ -1,0 +1,55 @@
+{
+  "id": "project",
+  "name": "Project Management",
+  "description": "Projects, tasks, assignees, comments. Trello-style kanban or list view.",
+  "icon": "Kanban",
+  "tags": ["ops", "starter"],
+  "collections": [
+    {
+      "name": "pm_projects",
+      "display_name": "Projects",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "description", "type": "richtext" },
+        { "name": "status", "type": "enum", "options": { "values": ["planning", "active", "on_hold", "completed", "archived"] } },
+        { "name": "owner", "type": "text" },
+        { "name": "start_date", "type": "date" },
+        { "name": "end_date", "type": "date" }
+      ]
+    },
+    {
+      "name": "pm_tasks",
+      "display_name": "Tasks",
+      "fields": [
+        { "name": "title", "type": "text", "required": true },
+        { "name": "description", "type": "richtext" },
+        { "name": "project", "type": "m2o", "options": { "related_collection": "pm_projects" }, "required": true },
+        { "name": "status", "type": "enum", "options": { "values": ["todo", "in_progress", "blocked", "review", "done"] } },
+        { "name": "priority", "type": "enum", "options": { "values": ["low", "medium", "high", "urgent"] } },
+        { "name": "assignee", "type": "text" },
+        { "name": "due_date", "type": "date" },
+        { "name": "estimate_hours", "type": "number" }
+      ]
+    },
+    {
+      "name": "pm_comments",
+      "display_name": "Comments",
+      "fields": [
+        { "name": "task", "type": "m2o", "options": { "related_collection": "pm_tasks" }, "required": true },
+        { "name": "author", "type": "text" },
+        { "name": "body", "type": "richtext", "required": true }
+      ]
+    },
+    {
+      "name": "pm_time_logs",
+      "display_name": "Time logs",
+      "fields": [
+        { "name": "task", "type": "m2o", "options": { "related_collection": "pm_tasks" }, "required": true },
+        { "name": "user", "type": "text" },
+        { "name": "logged_at", "type": "datetime", "required": true },
+        { "name": "hours", "type": "number", "required": true },
+        { "name": "note", "type": "text" }
+      ]
+    }
+  ]
+}

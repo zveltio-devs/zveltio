@@ -1,0 +1,54 @@
+{
+  "id": "inventory",
+  "name": "Asset Inventory",
+  "description": "Products, suppliers, stock movements, locations. Track what you have and where it is.",
+  "icon": "Package",
+  "tags": ["ops", "starter"],
+  "collections": [
+    {
+      "name": "inv_suppliers",
+      "display_name": "Suppliers",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "contact_email", "type": "email" },
+        { "name": "phone", "type": "text" },
+        { "name": "country", "type": "text" }
+      ]
+    },
+    {
+      "name": "inv_locations",
+      "display_name": "Locations",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "address", "type": "text" },
+        { "name": "kind", "type": "enum", "options": { "values": ["warehouse", "shop", "office", "transit"] } }
+      ]
+    },
+    {
+      "name": "inv_products",
+      "display_name": "Products",
+      "fields": [
+        { "name": "sku", "type": "text", "required": true },
+        { "name": "name", "type": "text", "required": true },
+        { "name": "description", "type": "text" },
+        { "name": "supplier", "type": "m2o", "options": { "related_collection": "inv_suppliers" } },
+        { "name": "unit_cost", "type": "number" },
+        { "name": "unit_price", "type": "number" },
+        { "name": "reorder_level", "type": "integer" }
+      ]
+    },
+    {
+      "name": "inv_movements",
+      "display_name": "Stock movements",
+      "fields": [
+        { "name": "product", "type": "m2o", "options": { "related_collection": "inv_products" }, "required": true },
+        { "name": "location", "type": "m2o", "options": { "related_collection": "inv_locations" }, "required": true },
+        { "name": "kind", "type": "enum", "options": { "values": ["receipt", "issue", "adjustment", "transfer"] }, "required": true },
+        { "name": "quantity", "type": "number", "required": true },
+        { "name": "moved_at", "type": "datetime", "required": true },
+        { "name": "reference", "type": "text" },
+        { "name": "note", "type": "text" }
+      ]
+    }
+  ]
+}

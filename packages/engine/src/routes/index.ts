@@ -42,6 +42,8 @@ import { savedQueriesRoutes } from './saved-queries.js';
 import { schemaBranchesRoutes } from './schema-branches.js';
 import { insightsRoutes } from './insights.js';
 import { sqlEditorRoutes } from './sql-editor.js';
+import { templatesRoutes } from './templates.js';
+import { erdLayoutRoutes } from './erd-layout.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { ensureCoreCollections } from '../core-collections/index.js';
 import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit, initRateLimitDb } from '../middleware/rate-limit.js';
@@ -51,6 +53,7 @@ import { godAuditMiddleware } from '../middleware/god-audit.js';
 import { requestLogMiddleware } from '../middleware/request-log.js';
 import { previewEnvMiddleware } from '../middleware/preview-env.js';
 import { tracingMiddleware } from '../middleware/tracing.js';
+import { demoModeMiddleware } from '../middleware/demo-mode.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
 // /api/flows         — automation flows (routes/flows.ts)
@@ -101,6 +104,11 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // ── Distributed tracing — W3C traceparent propagation on all /api/* requests ─
   app.use('/api/*', tracingMiddleware());
+
+  // ── Demo-mode guard — no-op unless DEMO_MODE=true ────────────────────────
+  // Must run BEFORE the route handlers (admin guard etc.) so we never reach
+  // a destructive endpoint, even with a god session.
+  app.use('/api/*', demoModeMiddleware());
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   app.use('/api/auth/sign-in/*', authRateLimit);
@@ -254,6 +262,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Ad-hoc SQL editor — admin-only, audited
   app.route('/api/admin/sql', sqlEditorRoutes(db, auth));
+
+  // Pre-built business templates (CRM / Invoicing / Project / Help Desk / Inventory)
+  app.route('/api/templates', templatesRoutes(db, auth));
+
+  // Per-user ERD positions for the schema-diagram view
+  app.route('/api/erd/layout', erdLayoutRoutes(db, auth));
 
   // Documents Management — moved to extensions/content/documents
 

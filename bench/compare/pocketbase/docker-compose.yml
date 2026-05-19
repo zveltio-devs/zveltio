@@ -1,0 +1,41 @@
+version: '3.9'
+
+# Reproducible bench environment for Zveltio vs Pocketbase comparison.
+# Goal: identical host, identical disk, identical Postgres for both engines,
+# so the only variable is the engine itself.
+#
+# Usage:
+#   docker compose -f bench/compare/pocketbase/docker-compose.yml up -d
+#   BENCH_BASE_URL=http://localhost:3000 bun run bench/runner.ts --tag zveltio
+#   BENCH_BASE_URL=http://localhost:8090 BENCH_VARIANT=pocketbase bun run bench/runner.ts --tag pocketbase
+#   docker compose -f bench/compare/pocketbase/docker-compose.yml down -v
+#
+# We pin specific image tags so re-runs months apart still produce comparable
+# numbers. Update tags intentionally, never with `:latest`.
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: zveltio
+      POSTGRES_PASSWORD: zveltio
+      POSTGRES_DB: zveltio
+    ports:
+      - '5433:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U zveltio']
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:0.22.20
+    ports:
+      - '8090:8090'
+    volumes:
+      - pb_data:/pb_data
+    # Pocketbase needs an admin to be bootstrapped before benches can run.
+    # See bench/compare/pocketbase/setup.md for the one-time setup.
+
+volumes:
+  pb_data:

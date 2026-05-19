@@ -29,6 +29,7 @@
   import { studioApi } from '$lib/extension-api.svelte.js';
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
   import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
+  import DemoBanner from '$lib/components/common/DemoBanner.svelte';
   import Slot from '$lib/components/common/Slot.svelte';
   import ToastContainer from '$lib/components/common/ToastContainer.svelte';
   import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
@@ -137,6 +138,8 @@
 {:else if auth.isAuthenticated}
   <!-- Skip-to-content link for keyboard users. Hidden until focused. -->
   <a href="#admin-main" class="skip-link">Skip to main content</a>
+
+  <DemoBanner />
 
   <div class="flex h-screen bg-base-100 overflow-hidden">
 

@@ -24,6 +24,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, getUserRoles } from '../lib/permissions.js';
+import { auditLog } from '../lib/audit.js';
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -144,6 +145,13 @@ export function approvalsRoutes(db: Database, auth: any) {
         .execute();
     }
 
+    await auditLog(db, {
+      type: 'approval.workflow_changed',
+      userId: user.id,
+      resourceId: (workflow as any).id,
+      resourceType: 'approval_workflow',
+      metadata: { action: 'created', name: data.name, collection: data.collection, steps: data.steps?.length ?? 0 },
+    });
     return c.json({ workflow }, 201);
   });
 
@@ -191,6 +199,13 @@ export function approvalsRoutes(db: Database, auth: any) {
       }
     }
 
+    await auditLog(db, {
+      type: 'approval.workflow_changed',
+      userId: user.id,
+      resourceId: id,
+      resourceType: 'approval_workflow',
+      metadata: { action: 'updated', fields: Object.keys(data) },
+    });
     return c.json({ workflow });
   });
 
@@ -202,6 +217,13 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     const { id } = c.req.param();
     await db.deleteFrom('zv_approval_workflows' as any).where('id', '=', id).execute();
+    await auditLog(db, {
+      type: 'approval.workflow_changed',
+      userId: user.id,
+      resourceId: id,
+      resourceType: 'approval_workflow',
+      metadata: { action: 'deleted' },
+    });
     return c.json({ success: true });
   });
 
@@ -456,6 +478,13 @@ export function approvalsRoutes(db: Database, auth: any) {
         .where('id', '=', id)
         .execute();
 
+      await auditLog(db, {
+        type: 'approval.decided',
+        userId: user.id,
+        resourceId: id,
+        resourceType: 'approval_request',
+        metadata: { decision: 'rejected', step_id: (request as any).current_step_id, comment },
+      });
       return c.json({ status: 'rejected' });
     }
 
@@ -487,6 +516,13 @@ export function approvalsRoutes(db: Database, auth: any) {
       .where('id', '=', id)
       .execute();
 
+    await auditLog(db, {
+      type: 'approval.decided',
+      userId: user.id,
+      resourceId: id,
+      resourceType: 'approval_request',
+      metadata: { decision: 'approved', final: true, comment },
+    });
     return c.json({ status: 'approved' });
   });
 
