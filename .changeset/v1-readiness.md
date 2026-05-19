@@ -1,5 +1,4 @@
 ---
-"zveltio": patch
 "@zveltio/sdk": patch
 ---
 
