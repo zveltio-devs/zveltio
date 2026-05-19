@@ -172,11 +172,25 @@ export function templatesRoutes(db: Database, auth: any): Hono {
         }),
       }));
 
-      // Validate field types upfront — fail fast before any DDL is enqueued.
+      // Validate field types + reserved-name conflicts upfront. Fail fast
+      // before any DDL is enqueued so we never leave half-installed
+      // collections with phantom metadata in zvd_collections (which is
+      // what happened when an early version of the helpdesk/invoicing/
+      // project templates used "status" as a user field name — that
+      // column already exists as a system column added by DDLManager).
+      const SYSTEM_FIELDS = new Set([
+        'id', 'created_at', 'updated_at', 'status', 'created_by',
+        'updated_by', 'search_vector',
+      ]);
       for (const coll of renamed) {
         for (const f of coll.fields) {
           if (!fieldTypeRegistry.has(f.type)) {
             return c.json({ error: `Unknown field type '${f.type}' in collection '${coll.name}'` }, 400);
+          }
+          if (SYSTEM_FIELDS.has(f.name)) {
+            return c.json({
+              error: `Field name '${f.name}' in collection '${coll.name}' conflicts with a reserved system column. Rename the field in the template manifest.`,
+            }, 400);
           }
         }
       }

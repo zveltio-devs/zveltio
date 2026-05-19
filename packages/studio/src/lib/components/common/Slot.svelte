@@ -42,6 +42,7 @@
 
 {#each contributions as c, i (i)}
   {#if c.component}
-    <svelte:component this={c.component} {...(c.props ?? {})} {...ctx} />
+    {@const Component = c.component}
+    <Component {...(c.props ?? {})} {...ctx} />
   {/if}
 {/each}

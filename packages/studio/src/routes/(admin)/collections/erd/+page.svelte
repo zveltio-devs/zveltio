@@ -184,15 +184,20 @@
   // We disambiguate by tracking the click target + total movement.
 
   type DragMode = 'idle' | 'pan' | 'card';
-  let dragMode: DragMode = 'idle';
+  // These three drive template bindings (cursor classes, "didMove" border
+  // highlight). Plain `let` would leave the DOM stale after assignment, so
+  // they must be $state. The pure numeric trackers (dragStartX/Y,
+  // panStartX/Y, cardStartX/Y) are read by mousemove handlers but never
+  // rendered, so they stay as plain locals.
+  let dragMode = $state<DragMode>('idle');
+  let cardDragName = $state('');
+  let didMove = $state(false);
   let dragStartX = 0;
   let dragStartY = 0;
   let panStartX = 0;
   let panStartY = 0;
-  let cardDragName = '';
   let cardStartX = 0;
   let cardStartY = 0;
-  let didMove = false;
   const CLICK_THRESHOLD_PX = 4;
 
   function onCanvasMouseDown(e: MouseEvent) {

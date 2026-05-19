@@ -24,7 +24,7 @@
         { "name": "customer", "type": "m2o", "options": { "related_collection": "inv_customers" }, "required": true },
         { "name": "issue_date", "type": "date", "required": true },
         { "name": "due_date", "type": "date" },
-        { "name": "status", "type": "enum", "options": { "values": ["draft", "sent", "paid", "overdue", "void"] } },
+        { "name": "invoice_status", "type": "enum", "options": { "values": ["draft", "sent", "paid", "overdue", "void"] } },
         { "name": "subtotal", "type": "number" },
         { "name": "tax", "type": "number" },
         { "name": "total", "type": "number" },
