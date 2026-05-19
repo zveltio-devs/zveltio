@@ -2,6 +2,76 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.83] - 2026-05-18
+
+v1.0 ship-readiness pack. Eleven P0 items closed plus a full visual schema
+designer + first-class business templates + a public demo mode.
+
+### Added
+
+#### Performance
+- Benchmark suite at `bench/` — REST CRUD, list + pagination, realtime WS,
+  cold-start. Pocketbase comparison via `bench/compare/pocketbase/`.
+- CI `perf-smoke` job that enforces p95 budgets and uploads the result JSON
+  as an artifact (`PERF_BUDGET_*_P95_MS` overridable).
+
+#### Reliability
+- `docs/DISASTER-RECOVERY.md` — operator runbook (scenarios A–F, RPO/RTO
+  targets) + `scripts/dr-drill.sh` quarterly drill (requires `ZVELTIO_ENV=drill`).
+- `GET /api/health/ready` — kubernetes-style readiness probe (db + cache +
+  migrations).
+- `GET /api/health/deep` — comprehensive operator diagnostic with per-check
+  timings + disk write canary.
+
+#### Observability
+- `observability/` — Prometheus + Grafana docker-compose with the
+  pre-provisioned "Zveltio Engine Overview" dashboard.
+
+#### Security & audit
+- `scripts/audit-inventory.ts` — generates `docs/AUDIT-COVERAGE.md` listing
+  every mutating route handler and whether it calls `auditLog()`. Coverage
+  went from 7 % to 22 % (12 → 41 audited handlers).
+- `scripts/audit-regression-check.ts` — locks 28 critical-path handlers
+  into CI; PRs that drop an `auditLog()` call on a mandatory route fail
+  the build.
+- New `AuditEventType` values: `backup.*`, `pitr.*`, `approval.*`,
+  `export.executed`.
+
+#### Features
+- **Five pre-built business templates** — CRM, Invoicing, Project Mgmt,
+  Help Desk, Asset Inventory. One-click install via `/admin/templates`,
+  engine endpoint `POST /api/templates/:id/install` creates collections in
+  dependency order.
+- **Visual schema designer** at `/admin/collections/erd`. Drag-to-arrange
+  with **per-user server-side persistence** (table `zv_erd_layouts`, route
+  `/api/erd/layout`, localStorage fallback). Force-directed auto-arrange
+  (Fruchterman–Reingold). Export to PNG (@2×) + SVG. Inline editing on
+  every card — double-click renames any field, pencil opens a popover for
+  type + required. `PATCH /api/collections/:name/fields/:field` handles
+  rename (incl. m2o/reference relations + zvd_relations sync), type change
+  (lib/field-type-conversions.ts), and required toggle in one atomic call.
+- **Public demo mode** — `DEMO_MODE=true` env flag. Engine middleware
+  blocks destructive admin ops with HTTP 451 (`packages/engine/src/middleware/demo-mode.ts`).
+  Studio shows a persistent banner; login surfaces throwaway credentials.
+  Reproducible deploy via `demo/docker-compose.yml` + `demo/seed.sh` +
+  hourly `demo/reset.sh` cron.
+
+#### Community + go-to-market
+- `CONTRIBUTING.md`, GitHub issue + discussion templates under `.github/`.
+- Website: `/support` (Community / Indie / Business / Enterprise tiers)
+  and `/demo` pages.
+
+### Migrations
+- `076_erd_layout.sql` — per-user ERD positions (`zv_erd_layouts`).
+
+### Breaking changes
+None. Every new endpoint, env flag, and middleware is additive.
+
+### Tooling
+- `scripts/sync-engine-version.ts` reworked to read the bumped SDK version
+  and propagate to root + engine + studio (root + ignored packages are
+  invisible to Changesets but must track the SDK version).
+
 ## [1.0.0-alpha.72] - 2026-05-10
 
 ### Changes
