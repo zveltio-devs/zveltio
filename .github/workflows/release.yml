@@ -29,14 +29,48 @@ jobs:
           name: studio-dist
           path: packages/studio/dist/
           retention-days: 1
-      # Studio source tarball — used by install.sh for rebuild-at-install
+      # Studio source tarball — used by install.sh for rebuild-at-install.
+      #
+      # Must be self-contained: when extracted on the install host there is
+      # no workspace root and no SDK source nearby, so `bun install` would
+      # fail to resolve `@zveltio/sdk@workspace:*`. We pre-bundle the
+      # already-built SDK alongside the Studio source and rewrite the dep
+      # to a `file:` reference so bun install resolves it offline.
       - name: Package Studio source
         run: |
-          tar -czf /tmp/studio-source.tar.gz \
-            --exclude='packages/studio/node_modules' \
-            --exclude='packages/studio/dist' \
-            --exclude='packages/studio/static/runtime' \
-            packages/studio/
+          STAGE=$(mktemp -d)
+          mkdir -p "$STAGE/studio" "$STAGE/sdk"
+
+          # Studio source — strip node_modules, dist, runtime artifacts.
+          rsync -a --exclude=node_modules --exclude=dist \
+                --exclude='static/runtime' \
+                packages/studio/ "$STAGE/studio/"
+
+          # SDK pre-built (already produced earlier in this same job).
+          rsync -a --exclude=node_modules --exclude=src --exclude=testing \
+                packages/sdk/ "$STAGE/sdk/"
+
+          # Rewrite the workspace dep so bun install can resolve it on a
+          # host that has no monorepo context. `file:../sdk` works
+          # regardless of whether the user is running bun install with
+          # frozen-lockfile or not. The original bun.lock would still
+          # reference workspace:* — remove it so bun re-resolves cleanly.
+          if [ -f "$STAGE/studio/package.json" ]; then
+            node -e "
+              const fs = require('fs');
+              const p = JSON.parse(fs.readFileSync('$STAGE/studio/package.json'));
+              for (const k of ['dependencies','devDependencies']) {
+                if (!p[k]) continue;
+                for (const dep of Object.keys(p[k])) {
+                  if (p[k][dep] === 'workspace:*') p[k][dep] = 'file:../sdk';
+                }
+              }
+              fs.writeFileSync('$STAGE/studio/package.json', JSON.stringify(p, null, 2) + '\n');
+            "
+          fi
+          rm -f "$STAGE/studio/bun.lock" "$STAGE/studio/bun.lockb" "$STAGE/studio/package-lock.json"
+
+          tar -czf /tmp/studio-source.tar.gz -C "$STAGE" studio sdk
       - uses: actions/upload-artifact@v4
         with:
           name: studio-source
