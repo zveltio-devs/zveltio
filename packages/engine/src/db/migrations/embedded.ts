@@ -75,6 +75,8 @@ import m063 from './sql/071_zv_migrations_down_sql.sql' with { type: 'text' };
 import m064 from './sql/072_extension_schedule_runs.sql' with { type: 'text' };
 import m065 from './sql/073_license_audit.sql' with { type: 'text' };
 import m066 from './sql/074_drop_legacy_ddl_jobs.sql' with { type: 'text' };
+import m067 from './sql/075_electric_replication.sql' with { type: 'text' };
+import m068 from './sql/076_erd_layout.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -145,4 +147,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '072_extension_schedule_runs.sql': m064,
   '073_license_audit.sql': m065,
   '074_drop_legacy_ddl_jobs.sql': m066,
+  '075_electric_replication.sql': m067,
+  '076_erd_layout.sql': m068,
 };

@@ -226,6 +226,15 @@ jobs:
             -d '{"email":"admin@example.com","password":"admin1234","name":"Admin"}' \
             > /tmp/signup.json || true
           cat /tmp/signup.json || true
+      - name: Grant god role to bench admin
+        env:
+          PGPASSWORD: postgres
+        # Admin routes check `user.role === 'god'`. Fresh sign-ups land with
+        # the default role and would 401 on /api/collections. The integration
+        # tests do the same thing (see tests/integration/etag.test.ts).
+        run: |
+          psql -h localhost -U postgres -d zveltio_test \
+            -c "UPDATE \"user\" SET role = 'god' WHERE email = 'admin@example.com'"
       - name: Run perf smoke
         env:
           BENCH_BASE_URL: http://localhost:3000

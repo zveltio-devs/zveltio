@@ -83,7 +83,10 @@ async function main() {
 
   if (!skip.has('realtime')) {
     console.log('\n▶ Realtime WS fan-out');
-    const sessionCookie = process.env.BENCH_SESSION_COOKIE;
+    // The realtime bench's WS upgrade also needs the session cookie. Since
+    // signInForToken already returns one (it's the same shape the engine's
+    // /api/ws handler wants), just pass it through.
+    const sessionCookie = process.env.BENCH_SESSION_COOKIE ?? token;
     const r = await runRealtime({ client, warmup: Math.min(5, cfg.warmup), iterations: Math.min(50, cfg.iterations), sessionCookie });
     results.realtime = r;
     if (r.skipped) {
