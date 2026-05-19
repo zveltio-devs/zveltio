@@ -120,11 +120,14 @@
         for (const [jobId, _name] of pending) {
           try {
             const j = await collectionsApi.jobStatus(jobId);
-            if ((j.job as any)?.state === 'completed') {
+            // Route returns { job: { status, error, ... } } — see
+            // mapJobToPublic in packages/engine/src/lib/ddl-queue.ts.
+            const status = (j.job as any)?.status;
+            if (status === 'completed') {
               pending.delete(jobId);
               installCompletedCount++;
-            } else if ((j.job as any)?.state === 'failed') {
-              throw new Error(`Job ${jobId} failed: ${(j.job as any)?.error_message ?? 'unknown'}`);
+            } else if (status === 'failed') {
+              throw new Error(`Job ${jobId} failed: ${(j.job as any)?.error ?? 'unknown'}`);
             }
           } catch { /* keep polling */ }
         }
