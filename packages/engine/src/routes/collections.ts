@@ -5,7 +5,14 @@ import { DDLManager, CollectionSchema, FieldSchema } from '../lib/ddl-manager.js
 import { checkPermission } from '../lib/permissions.js';
 import { enqueueDDLJob, getDDLJob } from '../lib/ddl-queue.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
-import { dynamicAddColumn, dynamicDropColumn } from '../db/dynamic.js';
+import {
+  dynamicAddColumn,
+  dynamicDropColumn,
+  dynamicRenameColumn,
+  dynamicChangeColumnType,
+  dynamicSetColumnRequired,
+} from '../db/dynamic.js';
+import { resolveConversion } from '../lib/field-type-conversions.js';
 import { SYSTEM_COLLECTIONS, getSystemCollection } from '../lib/system-collections.js';
 import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
@@ -230,6 +237,14 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const name = c.req.param('name');
       const updates = c.req.valid('json');
       await DDLManager.updateCollectionMetadata(db, name, updates);
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user?.id,
+        resourceId: name,
+        resourceType: 'collection_metadata',
+        metadata: updates,
+      });
       return c.json({ success: true });
     },
   );
@@ -430,10 +445,184 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         });
         DDLManager.invalidateCache(name);
 
+        const user = c.get('user' as never) as any;
+        await auditLog(db, {
+          type: 'settings.changed',
+          userId: user?.id,
+          resourceId: name,
+          resourceType: 'collection_field',
+          metadata: { action: 'added', field: { name: field.name, type: field.type } },
+        });
         return c.json({ success: true, field });
       } catch (error: any) {
         if (error?.code === 'DUPLICATE') return c.json({ error: error.message }, 409);
         return c.json({ error: error instanceof Error ? error.message : 'Failed to add field' }, 400);
+      }
+    },
+  );
+
+  // PATCH /:name/fields/:field — Modify a field (rename / change type / toggle required).
+  //
+  // Body accepts any combination of:
+  //   - new_name: string  → ALTER TABLE RENAME COLUMN + sync zvd_relations
+  //   - new_type: string  → ALTER COLUMN TYPE + USING expr from
+  //                          field-type-conversions.ts
+  //   - required: boolean → ALTER COLUMN SET/DROP NOT NULL
+  //
+  // Operations apply in the order: type → required → rename. Type change
+  // first because the USING clause references the *current* column name.
+  // Rename last so a downstream error doesn't leave us with a column that
+  // has the new name but stale type metadata.
+  //
+  // Relation fields (m2o, reference, o2m, m2m):
+  //   - rename: supported; we also update zvd_relations.source_field.
+  //     For m2o/reference the FK column lives on the source table so we
+  //     rename it physically; for o2m/m2m the source field is metadata
+  //     (the FK lives on the target / junction table) so it's a
+  //     metadata-only rename.
+  //   - type/required: not supported here. Use the relation-edit flow
+  //     for cardinality changes.
+  app.patch(
+    '/:name/fields/:field',
+    zValidator('json', z.object({
+      new_name: z.string().regex(SAFE_NAME_RE, 'lowercase, snake_case').optional(),
+      new_type: z.string().regex(/^[a-z][a-z0-9_]*$/, 'lowercase identifier').optional(),
+      required: z.boolean().optional(),
+    }).refine((d) => d.new_name !== undefined || d.new_type !== undefined || d.required !== undefined, {
+      message: 'At least one of new_name, new_type, required must be provided',
+    })),
+    async (c) => {
+      const name = c.req.param('name');
+      const fieldName = c.req.param('field');
+      const { new_name: newName, new_type: newType, required } = c.req.valid('json');
+
+      if (!SAFE_NAME_RE.test(fieldName)) {
+        return c.json({ error: 'Invalid field name' }, 400);
+      }
+      if (SYSTEM_FIELDS.has(fieldName) || (newName && SYSTEM_FIELDS.has(newName))) {
+        return c.json({ error: 'Cannot modify system fields' }, 400);
+      }
+
+      const collection = await DDLManager.getCollection(db, name);
+      if (!collection) return c.json({ error: 'Collection not found' }, 404);
+
+      const guardError = await assertMutable(name, 'add'); // rename/type/required keep the column → "add" semantics
+      if (guardError) return c.json({ error: guardError }, 403);
+
+      let existingFields: any[];
+      try {
+        existingFields = typeof collection.fields === 'string'
+          ? JSON.parse(collection.fields)
+          : (collection.fields ?? []);
+      } catch {
+        existingFields = [];
+      }
+
+      const fieldDef = existingFields.find((f: any) => f.name === fieldName);
+      if (!fieldDef) {
+        return c.json({ error: `Field "${fieldName}" not found in collection "${name}"` }, 404);
+      }
+
+      const isRelation = ALL_RELATION_TYPES.has(fieldDef.type);
+
+      if (newName) {
+        if (newName === fieldName) {
+          return c.json({ error: 'New name is identical to the current name' }, 400);
+        }
+        if (existingFields.some((f: any) => f.name === newName)) {
+          return c.json({ error: `Field "${newName}" already exists in collection "${name}"` }, 409);
+        }
+      }
+      if (newType && isRelation) {
+        return c.json({
+          error: 'Changing type on a relation field is not supported. Delete and re-add the field.',
+        }, 400);
+      }
+      if (newType && fieldDef.type === 'computed') {
+        return c.json({ error: 'Computed fields cannot change type via this endpoint.' }, 400);
+      }
+      if (required !== undefined && isRelation && fieldDef.type !== 'm2o' && fieldDef.type !== 'reference') {
+        return c.json({
+          error: 'Toggling required is only supported on m2o/reference relations among relation types.',
+        }, 400);
+      }
+
+      const tableName = DDLManager.getTableName(name);
+      const actions: string[] = [];
+      let updatedFieldShape: any = { ...fieldDef };
+
+      try {
+        // ── 1) Type change ────────────────────────────────────────────
+        if (newType && newType !== fieldDef.type) {
+          if (!fieldTypeRegistry.has(newType)) {
+            return c.json({ error: `Unknown field type: "${newType}"` }, 400);
+          }
+          const targetDef = fieldTypeRegistry.get(newType)!;
+          const targetSqlType = targetDef.db.columnType;
+          const conv = resolveConversion(fieldDef.type, newType, targetSqlType, fieldName);
+          if (!conv.ok) {
+            return c.json({ error: conv.reason }, 400);
+          }
+          await dynamicChangeColumnType(db, tableName, fieldName, conv.sqlType, conv.using);
+          updatedFieldShape = { ...updatedFieldShape, type: newType };
+          actions.push(`type ${fieldDef.type}→${newType}`);
+        }
+
+        // ── 2) Required toggle ────────────────────────────────────────
+        if (required !== undefined && required !== !!fieldDef.required) {
+          await dynamicSetColumnRequired(db, tableName, fieldName, required);
+          updatedFieldShape = { ...updatedFieldShape, required };
+          actions.push(`required→${required}`);
+        }
+
+        // ── 3) Rename ─────────────────────────────────────────────────
+        if (newName && newName !== fieldName) {
+          if (isRelation) {
+            // Physical column rename only for m2o/reference (FK on source).
+            // o2m/m2m fields are metadata on the source side; we only
+            // update zvd_relations + zvd_collections.fields.
+            if (fieldDef.type === 'm2o' || fieldDef.type === 'reference') {
+              await dynamicRenameColumn(db, tableName, fieldName, newName);
+            }
+            await (db as any)
+              .updateTable('zvd_relations')
+              .set({ source_field: newName })
+              .where('source_collection', '=', name)
+              .where('source_field', '=', fieldName)
+              .execute();
+          } else {
+            await dynamicRenameColumn(db, tableName, fieldName, newName);
+            // Also sync any zvd_relations rows where this is the target_field
+            // (i.e. another collection has an o2m pointing at this column).
+            await (db as any)
+              .updateTable('zvd_relations')
+              .set({ target_field: newName })
+              .where('target_collection', '=', name)
+              .where('target_field', '=', fieldName)
+              .execute();
+          }
+          updatedFieldShape = { ...updatedFieldShape, name: newName };
+          actions.push(`renamed ${fieldName}→${newName}`);
+        }
+
+        // ── Persist metadata ──────────────────────────────────────────
+        const finalName = updatedFieldShape.name;
+        const updatedFields = existingFields.map((f: any) =>
+          f.name === fieldName ? updatedFieldShape : f
+        );
+        await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
+
+        const user = c.get('user' as never) as any;
+        await auditLog(db, {
+          type: 'settings.changed',
+          userId: user?.id,
+          resourceId: name,
+          resourceType: 'collection_field',
+          metadata: { actions, from: fieldName, to: finalName },
+        });
+        return c.json({ success: true, field: updatedFieldShape, actions });
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : 'Failed to modify field' }, 400);
       }
     },
   );
@@ -508,6 +697,14 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
       await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
 
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user?.id,
+        resourceId: name,
+        resourceType: 'collection_field',
+        metadata: { action: 'removed', field: fieldName },
+      });
       return c.json({ success: true });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'Failed to delete field' }, 400);

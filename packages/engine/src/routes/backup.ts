@@ -4,6 +4,7 @@ import { sql } from 'kysely';
 import { z } from 'zod';
 import { createHash } from 'crypto';
 import { checkPermission } from '../lib/permissions.js';
+import { auditLog } from '../lib/audit.js';
 import type { Database } from '../db/index.js';
 
 const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/zveltio-backups';
@@ -158,6 +159,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     backupBg().catch((err) => console.error('Backup bg error:', err));
 
+    await auditLog(db, {
+      type: 'backup.created',
+      userId: user.id,
+      resourceId: backupId,
+      resourceType: 'backup',
+      metadata: { filename, notes },
+    });
     return c.json({ backup_id: backupId, status: 'in_progress', filename });
   });
 
@@ -223,6 +231,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   // DELETE /api/backup/:id
   router.delete('/:id', async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user' as never) as any;
 
     const backup = await sql<{ filename: string }>`
       SELECT filename FROM zv_backups WHERE id = ${id}
@@ -238,6 +247,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
         }
       }
       await sql`DELETE FROM zv_backups WHERE id = ${id}`.execute(db);
+      await auditLog(db, {
+        type: 'backup.deleted',
+        userId: user?.id,
+        resourceId: id,
+        resourceType: 'backup',
+        metadata: { filename: backup.rows[0].filename },
+      });
     }
 
     return c.json({ success: true });
@@ -264,6 +280,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   });
 
   router.patch('/pitr/config', async (c) => {
+    const user = c.get('user' as never) as any;
     const body = await c.req.json().catch(() => ({}));
     const parsed = PitrConfigSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -280,6 +297,12 @@ export function backupRoutes(db: Database, auth: any): Hono {
       retention_days: number; updated_at: Date;
     }>`SELECT id::text, is_enabled, wal_archive_path, retention_days, updated_at
        FROM zv_pitr_config LIMIT 1`.execute(db);
+    await auditLog(db, {
+      type: 'pitr.config_changed',
+      userId: user?.id,
+      resourceType: 'pitr_config',
+      metadata: { is_enabled, retention_days, wal_archive_path },
+    });
     return c.json({ config: result.rows[0] });
   });
 
@@ -330,6 +353,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   });
 
   router.post('/pitr/restore', async (c) => {
+    const user = c.get('user' as never) as any;
     const body = await c.req.json().catch(() => ({}));
     const parsed = PitrRestoreSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -344,6 +368,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const cfgResult = await sql<{ wal_archive_path: string | null }>`
       SELECT wal_archive_path FROM zv_pitr_config LIMIT 1`.execute(db);
     const walPath = cfgResult.rows[0]?.wal_archive_path ?? '/var/lib/wal-g/archive';
+    await auditLog(db, {
+      type: 'pitr.restored',
+      userId: user?.id,
+      resourceId: restore_point_id ?? undefined,
+      resourceType: 'pitr_restore',
+      metadata: { target_time: resolvedTime, instructions_only: true },
+    });
     return c.json({
       message: 'PITR restore instructions generated. This operation requires manual intervention.',
       target_time: resolvedTime,
@@ -421,6 +452,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
       ) RETURNING id::text
     `.execute(db);
 
+    await auditLog(db, {
+      type: 'backup.scheduled',
+      userId: user.id,
+      resourceId: result.rows[0].id,
+      resourceType: 'backup_schedule',
+      metadata: { name: data.name, cron: data.cron_expression, action: 'created' },
+    });
     return c.json({ schedule_id: result.rows[0].id }, 201);
   });
 
@@ -428,6 +466,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
   router.patch('/schedules/:id', zValidator('json', ScheduleSchema.partial()), async (c) => {
     const id = c.req.param('id');
     const data = c.req.valid('json');
+    const user = c.get('user' as never) as any;
 
     const existing = await sql<{ id: string }>`
       SELECT id::text FROM zv_backup_schedules WHERE id = ${id}
@@ -466,13 +505,28 @@ export function backupRoutes(db: Database, auth: any): Hono {
       .where('id', '=', id)
       .execute();
 
+    await auditLog(db, {
+      type: 'backup.scheduled',
+      userId: user?.id,
+      resourceId: id,
+      resourceType: 'backup_schedule',
+      metadata: { action: 'updated', fields: Object.keys(data) },
+    });
     return c.json({ success: true });
   });
 
   // DELETE /schedules/:id — delete schedule
   router.delete('/schedules/:id', async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user' as never) as any;
     await sql`DELETE FROM zv_backup_schedules WHERE id = ${id}`.execute(db);
+    await auditLog(db, {
+      type: 'backup.scheduled',
+      userId: user?.id,
+      resourceId: id,
+      resourceType: 'backup_schedule',
+      metadata: { action: 'deleted' },
+    });
     return c.json({ success: true });
   });
 

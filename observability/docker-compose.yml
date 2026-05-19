@@ -1,0 +1,40 @@
+# Observability stack — Prometheus + Grafana, pre-wired with the Zveltio
+# overview dashboard. Bring up alongside a running engine and Grafana will
+# auto-load the dashboard at http://localhost:3001 (admin / admin).
+#
+# Usage:
+#   docker compose -f observability/docker-compose.yml up -d
+#
+# Tear down + wipe state:
+#   docker compose -f observability/docker-compose.yml down -v
+
+version: '3.9'
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prom_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    ports:
+      - '3001:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards/zveltio:ro
+      - graf_data:/var/lib/grafana
+
+volumes:
+  prom_data:
+  graf_data:

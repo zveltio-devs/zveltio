@@ -1,0 +1,29 @@
+title: "[Show & Tell] "
+labels: ["show-and-tell"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Built something with Zveltio? An extension, a deployment story, an
+        integration? Tell us. We'll feature standout posts on the website.
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you build?
+      placeholder: A CRM for veterinary clinics, a multi-tenant invoicing app, …
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Link (optional)
+      placeholder: https://github.com/me/cool-zveltio-thing
+  - type: textarea
+    id: takeaways
+    attributes:
+      label: What worked, what didn't
+      description: |
+        Be honest. We learn more from "this rough edge slowed me down" than
+        from "everything was perfect".
+    validations:
+      required: false

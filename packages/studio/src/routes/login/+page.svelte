@@ -2,8 +2,9 @@
  import { goto } from '$app/navigation';
  import { base } from '$app/paths';
  import { page } from '$app/state';
+ import { onMount } from 'svelte';
  import { auth } from '$lib/auth.svelte.js';
- import { Fingerprint, AlertCircle } from '@lucide/svelte';
+ import { Fingerprint, AlertCircle, Sparkles } from '@lucide/svelte';
  import { startAuthentication } from '@simplewebauthn/browser';
 
  let email = $state('');
@@ -11,6 +12,25 @@
  let error = $state('');
  let loading = $state(false);
  let passkeyLoading = $state(false);
+
+ // Demo-mode credentials surface to remove the "wait, what login?" friction
+ // for visitors arriving at a public demo. Engine returns these via
+ // /api/health when DEMO_MODE=true. Never enabled on real installs.
+ let demoCreds = $state<{ email: string; password: string } | null>(null);
+ onMount(async () => {
+  try {
+   const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ ?? '';
+   const r = await fetch(`${engineUrl}/api/health`, { credentials: 'include' });
+   const j = await r.json();
+   if (j?.demo_mode && j?.demo_credentials) demoCreds = j.demo_credentials;
+  } catch { /* engine unreachable — show normal login */ }
+ });
+
+ function useDemoCreds() {
+  if (!demoCreds) return;
+  email = demoCreds.email;
+  password = demoCreds.password;
+ }
 
  // Layout redirects unauthenticated users here with ?reason= and ?redirect=
  // — surface the reason so users understand why they were bounced, and
@@ -109,6 +129,23 @@
    <div role="status" class="alert alert-info py-2 mb-4 text-sm">
     <AlertCircle size={16} />
     <span>{reasonMessage}</span>
+   </div>
+  {/if}
+
+  {#if demoCreds}
+   <div class="alert alert-warning py-3 mb-4 text-sm flex-col items-start gap-2">
+    <div class="flex items-center gap-2 font-semibold w-full">
+     <Sparkles size={14} /> Demo instance
+    </div>
+    <p class="text-xs opacity-90">
+     This is a shared demo. Data resets periodically. Use these credentials:
+    </p>
+    <div class="text-xs font-mono bg-base-100 text-base-content p-2 rounded w-full">
+     {demoCreds.email} / {demoCreds.password}
+    </div>
+    <button type="button" class="btn btn-xs btn-warning self-end" onclick={useDemoCreds}>
+     Fill in
+    </button>
    </div>
   {/if}
 

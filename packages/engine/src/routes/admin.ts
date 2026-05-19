@@ -178,6 +178,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const data = c.req.valid('json');
       await db.updateTable('zv_api_keys').set(data).where('id', '=', id).execute();
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'api_key.created',
+        userId: user?.id,
+        resourceId: id,
+        resourceType: 'api_key',
+        metadata: { action: 'updated', fields: Object.keys(data) },
+      });
       return c.json({ success: true });
     },
   );
@@ -301,6 +309,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // POST /migrate — run pending migrations (admin only)
   app.post('/migrate', async (c) => {
+    const user = c.get('user' as never) as any;
     try {
       const { runMigrations, getLastAppliedMigration } = await import(
         '../db/migrations/index.js'
@@ -308,6 +317,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
       const before = await getLastAppliedMigration(db);
       await runMigrations(db);
       const after = await getLastAppliedMigration(db);
+
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user?.id,
+        resourceType: 'migration',
+        metadata: { applied: after - before, from: before, to: after },
+        ip: c.req.header('x-forwarded-for') ?? undefined,
+      });
 
       return c.json({
         success: true,
@@ -569,6 +586,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
         .values({ name, description: description ?? null })
         .returningAll()
         .executeTakeFirst();
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'permission.granted',
+        userId: user?.id,
+        resourceId: role?.id,
+        resourceType: 'role',
+        metadata: { name, description },
+      });
       return c.json({ role }, 201);
     },
   );
@@ -590,6 +615,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
     await db.deleteFrom('zv_roles').where('id', '=', id).execute();
     await invalidatePermissionCache();
+    const user = c.get('user' as never) as any;
+    await auditLog(db, {
+      type: 'permission.revoked',
+      userId: user?.id,
+      resourceId: id,
+      resourceType: 'role',
+      metadata: { name: role.name },
+    });
     return c.json({ success: true });
   });
 
@@ -645,6 +678,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
       }
 
       await invalidatePermissionCache();
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'permission.granted',
+        userId: user?.id,
+        resourceType: 'permissions_bulk',
+        metadata: { count: permissions.length },
+      });
       return c.json({ success: true });
     },
   );
@@ -695,6 +735,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
       }
       await e.addRoleForUser(child, parent);
       await invalidatePermissionCache();
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'permission.granted',
+        userId: user?.id,
+        resourceType: 'role_hierarchy',
+        metadata: { child, parent, action: 'added' },
+      });
       return c.json({ success: true, child, parent });
     },
   );
@@ -711,6 +758,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
       const e = await getEnforcer();
       await e.deleteRoleForUser(child, parent);
       await invalidatePermissionCache();
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'permission.revoked',
+        userId: user?.id,
+        resourceType: 'role_hierarchy',
+        metadata: { child, parent, action: 'removed' },
+      });
       return c.json({ success: true });
     },
   );
@@ -756,12 +810,20 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
       if (!row) return c.json({ error: 'Rate limit config not found' }, 404);
       invalidateRateLimitCache(keyPrefix);
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user.id,
+        resourceId: keyPrefix,
+        resourceType: 'rate_limit',
+        metadata: body,
+      });
       return c.json({ rate_limit: row });
     },
   );
 
   // POST /rate-limits/reset — restore all tiers to compiled defaults
   app.post('/rate-limits/reset', async (c) => {
+    const user = c.get('user' as never) as any;
     const defaults = [
       { key_prefix: 'auth',        window_ms: 60000, max_requests: 10  },
       { key_prefix: 'api',         window_ms: 60000, max_requests: 200 },
@@ -778,6 +840,12 @@ export function adminRoutes(db: Database, auth: any): Hono {
         .execute();
     }
     invalidateRateLimitCache();
+    await auditLog(db, {
+      type: 'settings.changed',
+      userId: user?.id,
+      resourceType: 'rate_limit_reset',
+      metadata: { tiers: defaults.map((d) => d.key_prefix) },
+    });
     return c.json({ success: true });
   });
 
@@ -815,6 +883,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
       )
       .returningAll()
       .executeTakeFirst();
+    const user = c.get('user' as never) as any;
+    await auditLog(db, {
+      type: 'permission.granted',
+      userId: user?.id,
+      resourceId: row?.id,
+      resourceType: 'column_permission',
+      metadata: data,
+    });
     return c.json({ column_permission: row }, 201);
   });
 
@@ -828,6 +904,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
       .returningAll()
       .executeTakeFirst();
     if (!row) return c.json({ error: 'Not found' }, 404);
+    const user = c.get('user' as never) as any;
+    await auditLog(db, {
+      type: 'permission.granted',
+      userId: user?.id,
+      resourceId: c.req.param('id'),
+      resourceType: 'column_permission',
+      metadata: data,
+    });
     return c.json({ column_permission: row });
   });
 
@@ -837,6 +921,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
       .deleteFrom('zvd_column_permissions')
       .where('id', '=', c.req.param('id'))
       .execute();
+    const user = c.get('user' as never) as any;
+    await auditLog(db, {
+      type: 'permission.revoked',
+      userId: user?.id,
+      resourceId: c.req.param('id'),
+      resourceType: 'column_permission',
+    });
     return c.json({ success: true });
   });
 
@@ -850,12 +941,19 @@ export function adminRoutes(db: Database, auth: any): Hono {
     })),
     async (c) => {
       const { query, timeout_ms: _timeout_ms = 10_000 } = c.req.valid('json');
+      const user = c.get('user' as never) as any;
 
       // Reject obviously dangerous patterns
       const normalized = query.trim().toUpperCase();
       const BLOCKED = ['DROP DATABASE', 'DROP SCHEMA', 'ALTER SYSTEM', 'COPY TO', 'COPY FROM'];
       for (const pat of BLOCKED) {
         if (normalized.includes(pat)) {
+          await auditLog(db, {
+            type: 'sql.failed',
+            userId: user?.id,
+            resourceType: 'sql_editor',
+            metadata: { blocked: pat, query: query.slice(0, 500) },
+          });
           return c.json({ error: `Blocked statement: ${pat}` }, 400);
         }
       }
@@ -863,8 +961,20 @@ export function adminRoutes(db: Database, auth: any): Hono {
       try {
         const result = await sql.raw(query).execute(db) as any;
         const rows = result.rows ?? [];
+        await auditLog(db, {
+          type: 'sql.executed',
+          userId: user?.id,
+          resourceType: 'sql_editor',
+          metadata: { query: query.slice(0, 500), rowCount: rows.length },
+        });
         return c.json({ rows, rowCount: rows.length });
       } catch (err: any) {
+        await auditLog(db, {
+          type: 'sql.failed',
+          userId: user?.id,
+          resourceType: 'sql_editor',
+          metadata: { query: query.slice(0, 500), error: err?.message ?? String(err) },
+        });
         return c.json({ error: err.message ?? String(err) }, 400);
       }
     },

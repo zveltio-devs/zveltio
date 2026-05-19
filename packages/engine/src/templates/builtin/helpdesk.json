@@ -1,0 +1,53 @@
+{
+  "id": "helpdesk",
+  "name": "Help Desk",
+  "description": "Tickets, customers, categories, replies. A minimal support inbox.",
+  "icon": "LifeBuoy",
+  "tags": ["support", "starter"],
+  "collections": [
+    {
+      "name": "hd_categories",
+      "display_name": "Categories",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "description", "type": "text" },
+        { "name": "color", "type": "text" }
+      ]
+    },
+    {
+      "name": "hd_customers",
+      "display_name": "Customers",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "email", "type": "email", "required": true },
+        { "name": "phone", "type": "text" },
+        { "name": "tier", "type": "enum", "options": { "values": ["free", "indie", "business", "enterprise"] } }
+      ]
+    },
+    {
+      "name": "hd_tickets",
+      "display_name": "Tickets",
+      "fields": [
+        { "name": "subject", "type": "text", "required": true },
+        { "name": "customer", "type": "m2o", "options": { "related_collection": "hd_customers" }, "required": true },
+        { "name": "category", "type": "m2o", "options": { "related_collection": "hd_categories" } },
+        { "name": "status", "type": "enum", "options": { "values": ["new", "open", "pending", "resolved", "closed"] } },
+        { "name": "priority", "type": "enum", "options": { "values": ["low", "normal", "high", "urgent"] } },
+        { "name": "assignee", "type": "text" },
+        { "name": "body", "type": "richtext", "required": true },
+        { "name": "first_response_at", "type": "datetime" },
+        { "name": "resolved_at", "type": "datetime" }
+      ]
+    },
+    {
+      "name": "hd_replies",
+      "display_name": "Replies",
+      "fields": [
+        { "name": "ticket", "type": "m2o", "options": { "related_collection": "hd_tickets" }, "required": true },
+        { "name": "author", "type": "text", "required": true },
+        { "name": "body", "type": "richtext", "required": true },
+        { "name": "is_internal", "type": "boolean" }
+      ]
+    }
+  ]
+}

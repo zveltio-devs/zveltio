@@ -2,7 +2,20 @@ import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { ENGINE_VERSION, getVersionInfo } from '../version.js';
 import { getLastAppliedMigration, getAppliedMigrations } from '../db/migrations/index.js';
+import { getCache } from '../lib/cache.js';
 
+
+interface CheckResult { ok: boolean; durationMs: number; error?: string }
+
+async function timed(fn: () => Promise<void>): Promise<CheckResult> {
+  const t0 = performance.now();
+  try {
+    await fn();
+    return { ok: true, durationMs: performance.now() - t0 };
+  } catch (err) {
+    return { ok: false, durationMs: performance.now() - t0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map(Number);
@@ -33,6 +46,11 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   // GET /api/health — public, no auth required.
   // Minimal response — never leak engine/schema/runtime info here. Details live
   // behind /version, which is authenticated. See security sprint notes.
+  //
+  // Exception: `demo_mode` is exposed publicly so the Studio can render a
+  // demo banner + show the throwaway credentials on the login page. This
+  // is intentional — there is no security value in hiding the fact that an
+  // engine is in demo mode (the banner itself advertises it).
   app.get('/', async (c) => {
     let databaseOk = true;
     try {
@@ -41,10 +59,19 @@ export function healthRoutes(db: Database, auth?: any): Hono {
       databaseOk = false;
     }
 
+    const demoMode = process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === '1';
     return c.json(
       {
         status: databaseOk ? 'ok' : 'degraded',
         timestamp: new Date().toISOString(),
+        demo_mode: demoMode,
+        demo_reset_cron: demoMode ? (process.env.DEMO_RESET_CRON ?? null) : undefined,
+        demo_credentials: demoMode ? {
+          email: process.env.DEMO_EMAIL ?? 'demo@zveltio.com',
+          // We intentionally surface the password — demo accounts must be
+          // disposable. Never run with this enabled on real data.
+          password: process.env.DEMO_PASSWORD ?? 'demo123456',
+        } : undefined,
       },
       databaseOk ? 200 : 503,
     );
@@ -62,6 +89,88 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
     const migrations = await getAppliedMigrations(db);
     return c.json({ migrations, total: migrations.length });
+  });
+
+  // GET /api/health/ready — kubernetes-style readiness probe.
+  // Returns 200 only when every hard dependency required to serve traffic is up.
+  // Use this in load balancers / k8s `readinessProbe`. Different from `/` which
+  // is a liveness probe (process alive). Public, no auth — k8s can't auth.
+  app.get('/ready', async (c) => {
+    const checks: Record<string, CheckResult> = {};
+
+    checks.database = await timed(async () => {
+      await (db as any).selectFrom('user').select('id').limit(1).execute();
+    });
+
+    checks.migrations = await timed(async () => {
+      const last = await getLastAppliedMigration(db);
+      if (last < 1) throw new Error('no migrations applied');
+    });
+
+    checks.cache = await timed(async () => {
+      const cache = getCache();
+      if (!cache) return; // cache is optional — treat as "ok" if unconfigured
+      const pong = await cache.ping();
+      if (pong !== 'PONG') throw new Error(`unexpected ping reply: ${pong}`);
+    });
+
+    const allOk = Object.values(checks).every((c) => c.ok);
+    return c.json(
+      { status: allOk ? 'ok' : 'degraded', checks },
+      allOk ? 200 : 503,
+    );
+  });
+
+  // GET /api/health/deep — comprehensive diagnostic for operators.
+  // Auth-gated. Includes everything in /ready plus disk + extension loader
+  // state. Use this from a status page or oncall runbook, not from a probe.
+  app.get('/deep', async (c) => {
+    if (!(await requireAuth(c))) return c.json({ error: 'Unauthorized' }, 401);
+
+    const checks: Record<string, CheckResult> = {};
+
+    checks.database = await timed(async () => {
+      await (db as any).selectFrom('user').select('id').limit(1).execute();
+    });
+
+    checks.migrations = await timed(async () => {
+      const last = await getLastAppliedMigration(db);
+      if (last < 1) throw new Error('no migrations applied');
+    });
+
+    checks.cache = await timed(async () => {
+      const cache = getCache();
+      if (!cache) return;
+      const pong = await cache.ping();
+      if (pong !== 'PONG') throw new Error(`unexpected ping reply: ${pong}`);
+    });
+
+    checks.backup_dir = await timed(async () => {
+      const dir = process.env.BACKUP_DIR ?? '/tmp/zveltio-backups';
+      // Write a tiny canary file and remove it — proves write access.
+      const canary = `${dir}/.health-probe-${Date.now()}`;
+      await Bun.write(canary, 'ok');
+      await Bun.spawn(['rm', '-f', canary]).exited;
+    });
+
+    checks.storage_dir = await timed(async () => {
+      const dir = process.env.STORAGE_DIR;
+      if (!dir) return; // S3 or unconfigured — skip
+      const canary = `${dir}/.health-probe-${Date.now()}`;
+      await Bun.write(canary, 'ok');
+      await Bun.spawn(['rm', '-f', canary]).exited;
+    });
+
+    const allOk = Object.values(checks).every((c) => c.ok);
+    return c.json(
+      {
+        status: allOk ? 'ok' : 'degraded',
+        version: ENGINE_VERSION,
+        timestamp: new Date().toISOString(),
+        checks,
+      },
+      allOk ? 200 : 503,
+    );
   });
 
   // GET /api/health/update-check — check for new engine release (auth-gated).

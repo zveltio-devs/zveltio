@@ -1,0 +1,56 @@
+{
+  "id": "crm",
+  "name": "CRM",
+  "description": "Contacts, companies, deals, activities. The minimum to track a sales pipeline.",
+  "icon": "Users",
+  "tags": ["sales", "starter"],
+  "collections": [
+    {
+      "name": "crm_companies",
+      "display_name": "Companies",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "website", "type": "url" },
+        { "name": "industry", "type": "text" },
+        { "name": "employees", "type": "integer" },
+        { "name": "notes", "type": "richtext" }
+      ]
+    },
+    {
+      "name": "crm_contacts",
+      "display_name": "Contacts",
+      "fields": [
+        { "name": "first_name", "type": "text", "required": true },
+        { "name": "last_name", "type": "text" },
+        { "name": "email", "type": "email" },
+        { "name": "phone", "type": "text" },
+        { "name": "title", "type": "text" },
+        { "name": "company", "type": "m2o", "options": { "related_collection": "crm_companies" } }
+      ]
+    },
+    {
+      "name": "crm_deals",
+      "display_name": "Deals",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "stage", "type": "enum", "options": { "values": ["new", "qualified", "proposal", "won", "lost"] } },
+        { "name": "value", "type": "number" },
+        { "name": "expected_close", "type": "date" },
+        { "name": "company", "type": "m2o", "options": { "related_collection": "crm_companies" } },
+        { "name": "owner", "type": "text" }
+      ]
+    },
+    {
+      "name": "crm_activities",
+      "display_name": "Activities",
+      "fields": [
+        { "name": "type", "type": "enum", "options": { "values": ["call", "email", "meeting", "note"] }, "required": true },
+        { "name": "subject", "type": "text" },
+        { "name": "deal", "type": "m2o", "options": { "related_collection": "crm_deals" } },
+        { "name": "contact", "type": "m2o", "options": { "related_collection": "crm_contacts" } },
+        { "name": "happened_at", "type": "datetime" },
+        { "name": "summary", "type": "richtext" }
+      ]
+    }
+  ]
+}
