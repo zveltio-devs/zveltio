@@ -212,7 +212,14 @@ jobs:
       - name: Seed admin user
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          VALKEY_URL: redis://localhost:6379
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+          BETTER_AUTH_URL: http://localhost:3000
+          # NODE_ENV=test makes enqueueDDLJob synchronously await the
+          # job's completion (see packages/engine/src/lib/ddl-queue.ts:177).
+          # Without this, perf-smoke would race the pg-boss worker poll
+          # interval and time out on the very first collection-create.
+          NODE_ENV: test
         # Use the engine's own better-auth sign-up to create the admin so the
         # password hash format matches whatever the runtime expects.
         run: |
@@ -221,6 +228,9 @@ jobs:
             curl -sf http://localhost:3000/api/health > /dev/null && break
             sleep 1
           done
+          echo "--- engine log so far ---"
+          cat /tmp/engine.log | head -40
+          echo "--- end engine log ---"
           curl -sf -X POST http://localhost:3000/api/auth/sign-up/email \
             -H "Content-Type: application/json" \
             -d '{"email":"admin@example.com","password":"admin1234","name":"Admin"}' \
@@ -241,6 +251,16 @@ jobs:
           BENCH_EMAIL: admin@example.com
           BENCH_PASSWORD: admin1234
         run: bun run bench/ci-check.ts
+      - name: Dump engine log on failure
+        if: failure()
+        # Greps for the DDL-queue + pg-boss lines first so the most relevant
+        # signal lands at the top of the log output, then the full tail.
+        run: |
+          echo '=== DDL-queue / pg-boss lines ==='
+          grep -E 'ddl-queue|pg-boss|DDL queue' /tmp/engine.log || true
+          echo
+          echo '=== Last 80 lines of engine log ==='
+          tail -80 /tmp/engine.log || true
       - name: Upload bench result
         if: always()
         uses: actions/upload-artifact@v4
