@@ -56,19 +56,27 @@ export async function createCollection(
 }
 
 async function waitForJob(client: BenchHttpClient, jobId: string, timeoutMs = 30_000): Promise<void> {
+  // Route shape: GET /api/collections/jobs/:id returns `{ job: { status, ... } }`
+  // where status ∈ pending | running | completed | failed (see
+  // mapJobToPublic in packages/engine/src/lib/ddl-queue.ts).
   const deadline = performance.now() + timeoutMs;
+  let lastStatus = '';
   while (performance.now() < deadline) {
     const res = await fetch(`${client.baseUrl}/api/collections/jobs/${jobId}`, {
       headers: authHeader(client),
     });
     if (res.ok) {
-      const j = await res.json() as { state?: string };
-      if (j.state === 'completed') return;
-      if (j.state === 'failed') throw new Error(`DDL job ${jobId} failed`);
+      const j = await res.json() as { job?: { status?: string; error?: string } };
+      const status = j.job?.status;
+      if (status) lastStatus = status;
+      if (status === 'completed') return;
+      if (status === 'failed') {
+        throw new Error(`DDL job ${jobId} failed: ${j.job?.error ?? 'unknown'}`);
+      }
     }
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(`DDL job ${jobId} did not complete within ${timeoutMs}ms`);
+  throw new Error(`DDL job ${jobId} did not complete within ${timeoutMs}ms (last status: ${lastStatus || 'unknown'})`);
 }
 
 export async function dropCollection(client: BenchHttpClient, name: string): Promise<void> {
