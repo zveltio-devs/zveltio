@@ -166,9 +166,9 @@
   {/snippet}
 </PageHeader>
 
-<!-- Info banner -->
-<div class="mx-6 mb-4 flex items-start gap-3 rounded-lg border border-blue-800/40 bg-blue-950/30 p-3 text-sm text-blue-300">
-  <Info class="mt-0.5 h-4 w-4 shrink-0" />
+<!-- Info banner: DaisyUI alert adapts to light/dark themes. -->
+<div role="status" class="mx-6 mb-4 alert alert-info alert-soft text-sm">
+  <Info class="h-4 w-4 shrink-0" />
   <div>
     Rules are enforced <strong>after</strong> Casbin and RLS.
     <strong>can_read = off</strong> hides the column from GET responses.
