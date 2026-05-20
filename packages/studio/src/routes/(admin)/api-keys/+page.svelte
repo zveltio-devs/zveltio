@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
-  import { Key, Trash2, Copy, Check, LoaderCircle } from '@lucide/svelte';
+  import { Key, Trash2, Copy, Check, LoaderCircle, Plus } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import Pagination from '$lib/components/common/Pagination.svelte';
   import CrudListPage from '$lib/components/common/CrudListPage.svelte';
