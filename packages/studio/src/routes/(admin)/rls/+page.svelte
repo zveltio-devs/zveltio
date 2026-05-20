@@ -153,12 +153,14 @@
   {/snippet}
 </PageHeader>
 
-<!-- Info banner -->
-<div class="mx-6 mb-4 flex items-start gap-3 rounded-lg border border-blue-800/40 bg-blue-950/30 p-3 text-sm text-blue-300">
-  <Info class="mt-0.5 h-4 w-4 shrink-0" />
+<!-- Info banner: DaisyUI alert auto-themes (light + dark) — the old
+     hardcoded `bg-blue-950 text-blue-300` rendered as light-blue text
+     on a light-blue background in light mode, invisible. -->
+<div role="status" class="mx-6 mb-4 alert alert-info alert-soft text-sm">
+  <Info class="h-4 w-4 shrink-0" />
   <div>
     Policies are evaluated <strong>after</strong> Casbin (collection access check).
-    Each matching policy injects a <code class="rounded bg-blue-900/40 px-1">WHERE</code> clause into queries for that role.
+    Each matching policy injects a <code class="rounded bg-base-300 px-1 font-mono">WHERE</code> clause into queries for that role.
     God users and API keys bypass RLS.
   </div>
 </div>

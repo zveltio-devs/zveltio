@@ -2,6 +2,22 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.89] - 2026-05-20
+
+### Fixed
+
+- **Info banners unreadable in light mode** on `/admin/rls`,
+  `/admin/column-permissions`, and `/admin/rpc`. All three used
+  hardcoded dark-mode colors:
+  ```
+  bg-blue-950/30 text-blue-300 border-blue-800/40
+  ```
+  In light mode this produced light-blue text on a light-blue
+  background — invisible. Replaced with DaisyUI's `alert alert-info
+  alert-soft` semantic classes, which auto-adapt to the active theme.
+  Inline `<code>` blocks switched from `bg-blue-900/40` to `bg-base-300`
+  for the same reason.
+
 ## [1.0.0-alpha.88] - 2026-05-20
 
 ### Fixed
