@@ -2,6 +2,33 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.88] - 2026-05-20
+
+### Fixed
+
+- **REAL root cause of `Plus is not defined` on `/collections`.** Three
+  pages have `<Plus ... />` in their template but never imported the
+  icon — pre-existing bug from the alpha.82 UX overhaul that I missed
+  because the previous diagnoses focused only on `CrudListPage`:
+  - `routes/(admin)/collections/+page.svelte` — line 471
+    (`<Plus size={13} /> Add field` inside the New Collection modal)
+  - `routes/(admin)/api-keys/+page.svelte` — line 240
+    (`<Plus size={12} /> Add scope`)
+  - `routes/(admin)/tenants/+page.svelte`
+- Verified the patched chunks now reference the Plus icon chunk
+  (`B8cigCLj2.js`) at build time. Multi-line `import { ... } from
+  '@lucide/svelte'` ran a precise sweep across every .svelte file —
+  no other missing icon imports remain.
+
+### Note
+
+The `CrudListPage` template-inline `<Plus>` fix from alpha.87 stays
+in place — it's correct defensive code that protects future callers
+who rely on the default action icon. The actual user-visible bug was
+upstream: the collections page itself referenced `Plus` without
+importing it, so the icon binding was simply undefined at runtime
+regardless of how `CrudListPage` handled defaults.
+
 ## [1.0.0-alpha.87] - 2026-05-19
 
 ### Fixed

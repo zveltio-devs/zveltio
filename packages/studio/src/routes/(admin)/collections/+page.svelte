@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { collectionsApi } from '$lib/api.js';
-  import { Table, Trash2, Settings, Database, Shield, GitFork } from '@lucide/svelte';
+  import { Table, Trash2, Settings, Database, Shield, GitFork, Plus } from '@lucide/svelte';
   import { base } from '$app/paths';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { toast } from '$lib/stores/toast.svelte.js';
