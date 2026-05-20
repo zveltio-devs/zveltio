@@ -12,6 +12,7 @@
  ChevronUp,
  X,
  Check,
+ Plus,
  } from '@lucide/svelte';
  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
