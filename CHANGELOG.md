@@ -2,6 +2,32 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.87] - 2026-05-19
+
+### Fixed
+
+- **`Plus is not defined` STILL not fixed on alpha.85/.86** despite two
+  separate attempts. Rolldown was tree-shaking the icon binding even
+  when it appeared in a `$derived(...)` expression. The pattern only
+  worked locally — under code-splitting, the bundler placed the icon
+  import in a sibling chunk that the action-button branch didn't pull
+  in. Final fix: stop routing the icon through any binding at all and
+  inline both branches in the template:
+
+  ```svelte
+  {#if actionIcon}
+    {@const Icon = actionIcon}
+    <Icon size={16} />
+  {:else}
+    <Plus size={16} />
+  {/if}
+  ```
+
+  `<Plus>` appears as a real template tag now, which the bundler
+  treats as a hard usage. Verified by inspecting `dist/_app/immutable`:
+  the Plus icon chunk (`B8cigCLj2.js`) is referenced by the CrudListPage
+  chunk's imports list.
+
 ## [1.0.0-alpha.86] - 2026-05-19
 
 Audit pass on alpha.85 — found via Liviu's real WSL install + browser

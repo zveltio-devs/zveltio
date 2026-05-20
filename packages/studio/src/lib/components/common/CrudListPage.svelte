@@ -71,15 +71,6 @@
     list, pagination,
   }: Props = $props();
 
-  // Resolve actionIcon at render time. The pattern
-  //   `actionIcon: ActionIcon = Plus`
-  // used to break under rolldown — Plus appeared only as a destructure
-  // default value, the bundler tree-shook the binding, and call sites that
-  // relied on the default got `ReferenceError: Plus is not defined`. Using
-  // $derived forces Plus to be referenced in the runtime template path so
-  // it stays in the chunk.
-  const ActionIcon = $derived(actionIcon ?? Plus);
-
   const showSearch = $derived(
     onSearchChange !== undefined && (count ?? 0) > searchThreshold,
   );
@@ -89,16 +80,35 @@
   );
 </script>
 
+<!--
+  Action-button icon: inline both branches so rolldown can never lose
+  `Plus`. Previous attempts (`actionIcon: ActionIcon = Plus`, then
+  `const ActionIcon = $derived(actionIcon ?? Plus)`) both failed at
+  runtime with "Plus is not defined" — the bundler placed the icon
+  import in a sibling chunk that the action-button code path didn't
+  pull in. Splitting the if/else into two concrete branches forces
+  `<Plus>` to appear as a real template tag in this module's chunk.
+-->
 <div class="space-y-4">
   <PageHeader {title} {subtitle} {count}>
     {#if actionLabel && actionHref}
       <a href={actionHref} class="btn btn-primary btn-sm gap-2">
-        <ActionIcon size={16} />
+        {#if actionIcon}
+          {@const Icon = actionIcon}
+          <Icon size={16} />
+        {:else}
+          <Plus size={16} />
+        {/if}
         {actionLabel}
       </a>
     {:else if actionLabel && onAction}
       <button class="btn btn-primary btn-sm gap-2" onclick={onAction}>
-        <ActionIcon size={16} />
+        {#if actionIcon}
+          {@const Icon = actionIcon}
+          <Icon size={16} />
+        {:else}
+          <Plus size={16} />
+        {/if}
         {actionLabel}
       </button>
     {/if}
