@@ -2,6 +2,39 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.93] - 2026-05-21
+
+Visual audit run — Playwright headless captured 40 admin pages, then
+read each PNG via the multimodal Read tool to actually look at the
+rendered UI. Two quick UX fixes + documentation of one P0 architectural
+issue that needs a design decision.
+
+### Fixed
+
+- **Collection cards no longer truncate long names with `…`.** Removed
+  `truncate` on the title + slug in `collections/+page.svelte`, replaced
+  with `break-words` plus a `title` attribute for tooltip-on-hover. Now
+  "Stock movements", "Organizations", "inv_locations" render fully instead
+  of "Stock…", "Organizati…", "inv_locati…".
+- **AI Studio empty-state notice promoted from raw text to themed alert.**
+  "No AI provider configured" was a `text-warning` `<p>` that blended
+  into the background. Wrapped in `alert alert-warning alert-soft` with
+  `role="status"` so screen readers announce it and the visual prominence
+  matches its importance.
+
+### Found, not yet fixed (logged in `docs/AUDIT-2026-05-21.md`)
+
+- **P0 — All 42 active extension Studio bundles fail to load** with
+  `Failed to resolve module specifier "svelte/internal/disclose-version"`.
+  Extensions are built with Svelte as external; Studio has no import map
+  in `app.html` so bare specifiers can't resolve at runtime. Three fix
+  paths documented (bundle Svelte per-ext / Vite plugin import-map /
+  Studio re-export at stable URL); each needs a few days of work and a
+  design decision before implementation.
+- **P1 — Browser session lost mid-audit** after ~24 sequential page
+  loads. Possibly cookie-related; not reproducible from raw curl. Worth
+  an investigation pass.
+
 ## [1.0.0-alpha.92] - 2026-05-21
 
 ### Fixed

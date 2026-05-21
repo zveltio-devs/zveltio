@@ -364,8 +364,8 @@
                   <Table size={14} class="text-primary" />
                 </div>
                 <div class="min-w-0">
-                  <h3 class="font-semibold text-sm truncate">{col.display_name || col.name}</h3>
-                  <p class="text-xs text-base-content/40 font-mono truncate">{col.name}</p>
+                  <h3 class="font-semibold text-sm break-words" title={col.display_name || col.name}>{col.display_name || col.name}</h3>
+                  <p class="text-xs text-base-content/40 font-mono break-words" title={col.name}>{col.name}</p>
                 </div>
               </div>
               <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
