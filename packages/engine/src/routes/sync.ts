@@ -158,10 +158,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       // Reassign normalized table name for downstream use
       op.collection = tableName;
 
-      // Permission check: user must have write access to this collection.
-      // I5 FIX: use checkPermission() instead of user.role === 'admin' — Better-Auth
-      // may not populate role on session (magic link, OAuth flows). checkPermission()
-      // always checks god bypass (DB + HMAC cache) first, then Casbin policies.
+      // Permission check via checkPermission(), never user.role —
+      // Better-Auth's session may not carry `role` on magic-link / OAuth
+      // flows. checkPermission handles god bypass + Casbin in the right
+      // order regardless of how the user signed in.
       const collectionShortName = op.collection.replace(/^zvd_/, '');
       const user = c.get('user') as any;
       const canWrite = await checkPermission(

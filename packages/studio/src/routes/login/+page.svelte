@@ -66,7 +66,7 @@
  }
 
  /**
-  * S5-08: sign in with a registered passkey. Browser drives the
+  * Sign in with a registered passkey. Browser drives the WebAuthn
   * ceremony; we POST the assertion to better-auth's verifier endpoint
   * which sets the session cookie on success.
   */

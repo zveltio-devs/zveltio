@@ -1,11 +1,11 @@
 /**
- * WASM Extension Host (S5-05 full).
+ * WASM Extension Host.
  *
  * Real isolation: a `.wasm` extension runs inside a WebAssembly instance
  * whose only contact with the host is through the imports object we
  * provide. Memory is isolated (the module's linear memory is separate
  * from V8's heap). Capability calls go through `policyFor` from
- * `extension-sandbox.ts` so the S5-05 foundation enforces what's allowed.
+ * `extension-sandbox.ts` so the sandbox layer enforces what's allowed.
  *
  * Bun ships WebAssembly natively — no wasmtime-bun dep needed; the
  * platform is a WASI-flavored host with WebAssembly built into the JS
@@ -32,8 +32,8 @@
  *     continue to work; WASM is opt-in via the extension's manifest.
  *   - Implement the full WASI preview-2 component model. Today's host
  *     provides a small explicit ABI (textEncoding + json marshalling)
- *     because that's enough for the policy-bound capability bridge we
- *     designed in S5-05.
+ *     because that's enough for the policy-bound capability bridge
+ *     this host exposes.
  *
  * Wire-up
  * -------
@@ -103,8 +103,8 @@ export async function instantiateWasmExtension(
   // The imports table — every host capability the module is allowed to
   // call. Capabilities NOT in the module's effective policy are STILL
   // present (so importing them doesn't fail to link) but throw when
-  // called, with a clear policy-denied error. The policy decisions are
-  // logged via `observePolicyDecision` (already wired in S5-05).
+  // called, with a clear policy-denied error. Decisions are observed
+  // via `observePolicyDecision`.
   const imports = buildHostImports(opts.extName, memory, opts);
 
   const { instance } = await WebAssembly.instantiate(bytes, imports);

@@ -2,6 +2,28 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.91] - 2026-05-21
+
+### Changed
+
+- **Code cleanup — historic markers removed.** Stripped 10 `Bug #N`
+  prefixes and 18 sprint-code prefixes (`M4 FIX`, `P0 FIX`, `C2 FIX`,
+  `H1 FIX`, `I4 FIX`, `S5-02` through `S5-08`, etc.) from non-test
+  source. The labels were internal sprint trackers from the alpha
+  pre-release cycle; once shipped they became confusing — a recent
+  peer code review interpreted the markers as open bugs when they
+  were actually annotations next to the fix code.
+
+  Where the prefix carried no information beyond "this code exists",
+  the whole comment was deleted. Where the prefix preceded a real
+  explanation, only the prefix was removed and the explanation
+  rephrased to stand on its own.
+
+  No behaviour change. Functional verification against the WSL test
+  instance: create / patch / drop collection, field rename, ERD
+  layout PUT/GET, audit log capture, templates list, backup list,
+  health endpoints — all unchanged.
+
 ## [1.0.0-alpha.90] - 2026-05-20
 
 Four legitimate findings from a peer code review, all implemented.

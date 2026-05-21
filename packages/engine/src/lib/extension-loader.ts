@@ -671,7 +671,7 @@ const ManifestSchema = z.object({
     migrationsMax: z.number().int().positive().default(100),
   }).optional(),
   /**
-   * Extension runtime (S5-05 full). `"js"` (default) loads via dynamic
+   * Extension runtime. `"js"` (default) loads via dynamic
    * import of `engine/index.ts`. `"wasm"` loads via `WasmExtensionHost`
    * — the engine reads `engine/extension.wasm` and runs it inside a
    * capability-bound WebAssembly instance. WASM extensions get real
@@ -1047,8 +1047,8 @@ class ExtensionLoader {
       // Extension category — hoisted so the WASM branch below can reach it
       // for the synthetic ZveltioExtension. Default matches the manifest schema.
       let extCategory: string = 'custom';
-      // S5-05: runtime selector ('js' | 'wasm'). Hoisted for the same reason
-      // as migrationsLimit + extCategory. Defaults to 'js' for back-compat.
+      // Runtime selector ('js' | 'wasm'). Hoisted for the same reason as
+      // migrationsLimit + extCategory. Defaults to 'js' for back-compat.
       let extRuntime: 'js' | 'wasm' = 'js';
 
       // Validate manifest.json if present, then check compatibility + dependencies
@@ -1155,8 +1155,8 @@ class ExtensionLoader {
         });
       }
 
-      // S5-05 full — if the manifest opts into the WASM runtime, load the
-      // `.wasm` extension through `WasmExtensionHost`. Returns a synthetic
+      // WASM runtime path — if the manifest opts in, load the `.wasm`
+      // extension through `WasmExtensionHost`. Returns a synthetic
       // `ZveltioExtension` whose register() invokes the WASM module's
       // exported register inside the capability-bound sandbox. The rest
       // of the loader treats it the same as a JS extension.

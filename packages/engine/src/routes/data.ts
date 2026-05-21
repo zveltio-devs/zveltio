@@ -93,7 +93,7 @@ async function authenticate(c: any, auth: any, db: Database): Promise<{ user: an
           id: `apikey:${apiKey.id}`,
           name: apiKey.name,
           role: 'api_key',
-          // C3 FIX: pass scopes so checkAccess() can enforce them per collection/action
+          // Pass scopes through so checkAccess() can enforce them per collection/action.
           scopes: apiKey.scopes,
         },
         authType: 'api_key',
@@ -132,16 +132,16 @@ async function checkAccess(
   collection: string,
   action: string,
 ): Promise<boolean> {
-  // I5 FIX: removed `user.role === 'admin'` shortcut — Better-Auth may not populate
-  // role on session in all auth flows (magic link, OAuth). checkPermission() handles
-  // god bypass (DB + HMAC cache) first, then Casbin, so admin users with proper
-  // Casbin policies still get access without relying on the session role field.
+  // Note: never short-circuit on `user.role === 'admin'`. Better-Auth doesn't
+  // populate `role` on the session for magic-link / OAuth flows, so we route
+  // every check through checkPermission() — it handles god bypass (DB + HMAC
+  // cache) first, then Casbin, so admins with proper policies still get
+  // access without depending on a session field that may be missing.
   if (user.role === 'api_key') {
     // API keys cannot access system tables
     const tableName = DDLManager.getTableName(collection);
     if (tableName.startsWith('zv_') && !tableName.startsWith('zvd_')) return false;
 
-    // C3 FIX: Enforce API key scopes.
     // Scopes format: Array<{ collection: string; actions: string[] }>
     // Empty scopes array = full access (backwards-compatible default).
     // Wildcard collection '*' or action '*' grants broad access.
@@ -480,7 +480,7 @@ async function afterWrite(
   broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data);
   broadcastDataEvent(collection, eventName, data);
 
-  // S5-03: publish to the cross-instance realtime bus (Valkey if
+  // Publish to the cross-instance realtime bus (Valkey if
   // configured, else pg_notify). The bus filters its own echo so the
   // already-fired local `broadcastEvent` above doesn't double-deliver.
   realtimeBus().publish({

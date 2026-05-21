@@ -27,8 +27,9 @@ function s3Url(key: string): string {
   return `${endpoint}/${bucket}/${key}`;
 }
 
-// H6 FIX: Extract image width/height from raw bytes — no external dependency needed.
-// Supports PNG (IHDR chunk), JPEG (SOF markers), GIF89a/GIF87a, and WebP (VP8/VP8L/VP8X).
+// Extract image width/height from raw bytes — avoids pulling in `image-size`
+// or similar. Supports PNG (IHDR chunk), JPEG (SOF markers), GIF89a/GIF87a,
+// and WebP (VP8/VP8L/VP8X).
 function extractImageDimensions(
   buffer: Buffer,
   mimeType: string,
@@ -231,7 +232,6 @@ export function storageRoutes(db: Database, auth: any): Hono {
       url = `${process.env.S3_PUBLIC_URL || process.env.S3_ENDPOINT}/${process.env.S3_BUCKET || 'zveltio'}/${storagePath}`;
     }
 
-    // H6 FIX: Extract actual pixel dimensions for image formats.
     let width: number | undefined;
     let height: number | undefined;
     if (file.type.startsWith('image/')) {

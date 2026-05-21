@@ -161,8 +161,8 @@ export const WebhookManager = {
         method: payload.method || 'POST',
         headers,
         body,
-        // H1 FIX: Clamp timeout to [100ms, 30s] — prevents 0/negative/infinite waits
-        // even if the DB row contains a bad value from a compromised config.
+        // Clamp the timeout to [100 ms, 30 s] so a bad value in the DB
+        // (compromised config, manual edit) can't produce 0/negative/infinite waits.
         signal: AbortSignal.timeout(
           Math.min(Math.max(payload.timeout || 5_000, 100), 30_000),
         ),

@@ -85,7 +85,7 @@
     </div>
   </section>
 
-  <!-- Passkeys (S5-08) -->
+  <!-- Passkeys -->
   <PasskeysSection />
 
   <!-- S3-03: slot for extensions to add account-page sections (e.g.

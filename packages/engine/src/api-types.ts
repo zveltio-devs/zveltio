@@ -1,5 +1,5 @@
 /**
- * Type-only API contract for `@zveltio/sdk/rpc` consumers (S5-02).
+ * Type-only API contract for `@zveltio/sdk/rpc` consumers.
  *
  * `ZveltioApi` is a Hono app fixture whose `typeof` describes the engine's
  * public HTTP surface — paths, methods, request/response payload shapes.
@@ -24,7 +24,7 @@
  *      keep this file in sync. CODEOWNERS for this file enforces a
  *      reviewer.
  *
- * What's included today (S5-02 v2)
+ * What's included today
  * --------------------------------
  * - `/api/data/*`        — CRUD on user collections
  * - `/api/collections/*` — collection management + async DDL job polling

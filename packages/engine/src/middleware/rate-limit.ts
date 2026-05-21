@@ -141,9 +141,9 @@ export function rateLimit(config: RateLimitConfig) {
         .header('x-forwarded-for')
         ?.split(',')[0]
         ?.trim();
-      // Validate the extracted IP to be a basic IPv4/IPv6 format before trusting it
-      // H4 FIX: Tighten IPv4 regex — old pattern accepted 999.999.999.999 as valid.
-      // New pattern validates each octet is 0-255 strictly.
+      // Validate the extracted IP as IPv4 or IPv6 before trusting it.
+      // Octet pattern is strict 0-255; a looser \d{1,3} would accept
+      // 999.999.999.999 and waste rate-limit slots on bogus identifiers.
       const IPV4_RE =
         /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
       const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
