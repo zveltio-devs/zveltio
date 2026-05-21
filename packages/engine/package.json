@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/engine",
-  "version": "1.0.0-alpha.97",
+  "version": "1.0.0-alpha.98",
   "private": true,
   "type": "module",
   "scripts": {
@@ -43,6 +43,7 @@
     "pdf-lib": "^1.17.1",
     "pg": "^8.11.0",
     "pg-boss": "^12.18.2",
+    "reflect-metadata": "^0.2.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
