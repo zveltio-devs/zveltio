@@ -1,5 +1,5 @@
 <!--
-  Passkeys section (S5-08) — list, register, delete WebAuthn credentials
+  Passkeys section — list, register, delete WebAuthn credentials
   for the signed-in user.
 
   Talks to the engine's @better-auth/passkey plugin via the standard

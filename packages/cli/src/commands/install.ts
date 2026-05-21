@@ -57,9 +57,10 @@ async function installFromPath(
     process.exit(1);
   }
 
-  // P0 FIX: Validate category and name against a strict allowlist to prevent
-  // path traversal. path.join() normalises '..' segments, so a manifest with
-  // category: '../../../etc/cron.d' would write outside the extensions/ directory.
+  // Validate category and name against a strict allowlist — path traversal
+  // guard. `path.join` normalises `..` segments, so a manifest with
+  // `category: '../../../etc/cron.d'` would otherwise write outside the
+  // extensions/ directory.
   const SAFE_SEGMENT_RE = /^[a-z0-9][a-z0-9_-]*$/;
   const category = manifest.category || 'custom';
   if (!SAFE_SEGMENT_RE.test(category)) {

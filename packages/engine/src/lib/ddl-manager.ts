@@ -260,7 +260,6 @@ export class DDLManager {
           `Unknown field type: "${field.type}". Available types: ${fieldTypeRegistry.list().join(', ')}`,
         );
       }
-      // Bug #4: validate related_collection is present for relation fields
       if (RELATION_FK_TYPES.has(field.type) && !field.options?.related_collection) {
         throw new Error(
           `Field "${field.name}" (${field.type}) requires options.related_collection.`,
@@ -279,7 +278,8 @@ export class DDLManager {
       throw new Error(`Collection '${validated.name}' already exists`);
     }
 
-    // Bug #1: separate relation fields (FK column added post-table) from regular fields
+    // Relation FK columns are added AFTER the table exists — we need the
+    // target table present before we can declare a foreign key against it.
     const relationFields = validated.fields.filter(
       (f) => RELATION_FK_TYPES.has(f.type) && f.options?.related_collection,
     );
@@ -318,7 +318,6 @@ export class DDLManager {
       const colDDL = fieldTypeRegistry.getColumnDDL(field as FieldConfig);
       if (!colDDL) continue;
       columns.push(colDDL);
-      // Bug #7: create index for unique/indexed regular fields
       const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, field as FieldConfig);
       if (indexDDL) indexes.push(toConcurrentIndex(indexDDL));
     }
@@ -538,7 +537,9 @@ export class DDLManager {
       await sql.raw(`DROP TABLE IF EXISTS ${tableName} CASCADE`).execute(trx);
     });
 
-    // Bug #3: clean up relation metadata (both sides)
+    // Clean up relation metadata for both sides — the FK constraint is
+    // already gone (DROP TABLE CASCADE handled it), but the zvd_relations
+    // rows persist and would re-emerge as ghost relations in the schema view.
     await (db as any)
       .deleteFrom('zvd_relations')
       .where((eb: any) => eb.or([
@@ -675,7 +676,8 @@ export class DDLManager {
 
   // ── previewCollection ────────────────────────────────────────────────────────
 
-  /** Bug #9: includes FK constraints for relation fields in preview SQL. */
+  /** Returns the exact SQL that `createCollection` would run, including
+   *  FK constraints for relation fields — used by the Studio "Preview" dialog. */
   static async previewCollection(schema: z.infer<typeof CollectionSchema>): Promise<{ sql: string[] }> {
     const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
     if (!SAFE_NAME.test(schema.name)) throw new Error(`Invalid collection name: "${schema.name}"`);
@@ -769,8 +771,9 @@ export class DDLManager {
   }
 
   /**
-   * Bug #10: reads FK metadata from information_schema to detect relation fields
-   * and populate options.related_collection on introspected fields.
+   * Reads field metadata from information_schema, including FK references
+   * via the constraint tables — that's how introspected fields get
+   * `options.related_collection` populated for BYOD / sync-schema flows.
    */
   static async introspectTable(db: Database, collectionName: string): Promise<FieldConfig[]> {
     const tableName = this.getTableName(collectionName);
@@ -792,7 +795,6 @@ export class DDLManager {
       ORDER BY ordinal_position
     `.execute(db);
 
-    // Bug #10: fetch FK references for this table
     const fks = await sql<{
       column_name: string;
       foreign_table_name: string;

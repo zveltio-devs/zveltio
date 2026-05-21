@@ -588,7 +588,7 @@ async function bootstrap() {
         console.warn('⚠️ Extension loading failed (non-fatal):', err.message);
       }),
 
-    // S5-03: cross-instance realtime bus. Picks Valkey if VALKEY_URL is
+    // Cross-instance realtime bus. Picks Valkey if VALKEY_URL is
     // set, otherwise pg_notify. The pg_notify backend must connect
     // directly to Postgres (not through PgDog/PgBouncer) because LISTEN
     // requires a persistent dedicated connection.
@@ -679,7 +679,7 @@ async function shutdown() {
   flowScheduler.stop();
   cancelPendingCleanups();
   realtimeBus().stop().catch(() => { /* */ });
-  // S5-04: stop pg-boss so its connection pool drains cleanly. Best-effort.
+  // Stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
     const { stopDDLQueue } = await import('./lib/ddl-queue.js');
     await stopDDLQueue();

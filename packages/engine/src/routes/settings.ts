@@ -134,7 +134,8 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
       }
       const { value, is_public } = c.req.valid('json');
-      // M3 FIX: JSON.stringify throws on circular references — return 400 instead of 500.
+      // JSON.stringify throws on circular references — return 400 with a
+      // clear message instead of letting it become a generic 500.
       let serialized: string;
       try {
         serialized = JSON.stringify(value);

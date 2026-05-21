@@ -1,5 +1,5 @@
 /**
- * Electric SQL bridge — token mint + service config (S5-07 full).
+ * Electric SQL bridge — token mint + service config.
  *
  * Electric SQL streams Postgres changes to clients over a websocket. The
  * client authenticates to Electric with a short-lived JWT signed by a

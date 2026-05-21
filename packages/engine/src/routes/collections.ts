@@ -267,7 +267,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // DELETE /:name — Delete collection
   app.delete('/:name', async (c) => {
     const name = c.req.param('name');
-    // M4 FIX: Use tenant-scoped DB so cross-tenant collection deletion is impossible.
+    // Use the tenant-scoped DB binding so a request from one tenant can
+    // never drop a collection belonging to another.
     const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const guardError = await assertMutable(name, 'drop');
     if (guardError) return c.json({ error: guardError }, 403);
@@ -346,7 +347,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Field "${field.name}" already exists in collection "${name}"` }, 409);
       }
 
-      // Bug #4: validate related_collection required for all relation types
+      // Every relation type needs a target — if the caller omits it we
+      // get a confusing "column X cannot reference NULL" later, so reject
+      // here with a clear message instead.
       const opts = (field as any).options ?? {};
       const relatedCollection = opts.related_collection ? String(opts.related_collection) : null;
       if (ALL_RELATION_TYPES.has(field.type) && !relatedCollection) {
@@ -373,7 +376,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         const tableName = DDLManager.getTableName(name);
 
         if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
-          // Bug #5: m2o/reference — FK column in source table, use shared DDLManager helpers
+          // m2o / reference: FK column lives in the SOURCE table. Both
+          // helpers delegate to DDLManager so add-field stays in sync
+          // with the create-table path's FK semantics.
           const targetTable = DDLManager.getTableName(relatedCollection);
           const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
           const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
@@ -428,8 +433,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           }
         }
 
-        // Bug #6 + #8: lock the collection row atomically to prevent concurrent
-        // field additions from producing duplicate field metadata.
+        // Row-lock the collection (FOR UPDATE) inside a transaction so
+        // two concurrent add-field calls can't both observe the same
+        // pre-mutation fields[] and overwrite each other's writes.
         await (db as any).transaction().execute(async (trx: any) => {
           const locked = await (trx as any)
             .selectFrom('zvd_collections')

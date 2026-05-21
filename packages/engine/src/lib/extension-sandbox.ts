@@ -1,8 +1,8 @@
 /**
- * Extension runtime policy + observability layer (S5-05).
+ * Extension runtime policy + observability layer.
  *
- * The original Sprint-5 plan called for "WASM sandbox via wasmtime-bun
- * (or Wasmer) for third-party isolation". That's a multi-week
+ * The original WASM sandbox plan called for wasmtime-bun (or Wasmer)
+ * for third-party isolation. That's a multi-week
  * architectural shift: extensions today share the engine's V8/JSC heap,
  * and moving third-party code into WASM requires:
  *
@@ -79,8 +79,8 @@ export interface ExtensionPolicy {
     routesMax: number;
     /** Soft CPU budget per single request (ms). -1 disables. */
     cpuMsPerRequest: number;
-    /** Memory ceiling for the extension's WASM instance (KB). Ignored
-     *  in today's same-process world; honored when S5-05 ships WASM. */
+    /** Memory ceiling for the extension's WASM instance (KB). Enforced
+     *  by `WasmExtensionHost`; ignored for JS extensions (same process). */
     memoryKbMax: number;
   };
 }
