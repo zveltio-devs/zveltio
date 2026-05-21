@@ -1,3 +1,13 @@
+// `reflect-metadata` must be the first import — tsyringe (pulled in
+// transitively via @better-auth/passkey → @simplewebauthn/server →
+// @peculiar/x509 → tsyringe) initialises decorators at module load
+// and throws "tsyringe requires a reflect polyfill" without this.
+// The dev path works because something else in the test/HMR runtime
+// happens to load reflect first; the `bun build --compile` binary
+// has a tighter load order and exposes the bug, which is exactly
+// what alpha.97's install on WSL hit.
+import 'reflect-metadata';
+
 import { Hono } from 'hono';
 import { logger } from 'hono/logger';
 import { cors } from 'hono/cors';

@@ -2,6 +2,31 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.98] - 2026-05-21
+
+### Fixed — compiled binary crashed on boot
+
+The `zveltio-linux-x64` (and all matrix targets) binary failed with
+"tsyringe requires a reflect polyfill" when run on a fresh install
+via `install.sh`. The error fired during database migration boot,
+before the engine could even handle a request.
+
+Root cause: `@better-auth/passkey` → `@simplewebauthn/server` →
+`@peculiar/x509` pulls in `tsyringe`, which initialises decorators
+at module load and requires `reflect-metadata` to be loaded first.
+The dev path (HMR / `bun --watch`) happened to load reflect first,
+hiding the bug. The `bun build --compile` binary has a tighter
+load order and exposed it.
+
+Fix: `import 'reflect-metadata'` as the very first line of
+`packages/engine/src/index.ts`, plus a direct dependency entry in
+`packages/engine/package.json` (was a phantom transitive dep).
+
+This bug has been latent since `cacd554` (S5-08 enabled passkeys
+by default) — every binary release from then on would have failed
+on a clean install, but the issue wasn't surfaced until WSL
+end-to-end install validation on alpha.97.
+
 ## [1.0.0-alpha.97] - 2026-05-21
 
 ### CI — release workflow race-guard
