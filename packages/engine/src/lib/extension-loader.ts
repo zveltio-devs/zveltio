@@ -1984,26 +1984,69 @@ class ExtensionLoader {
           hotLoaded = true;
         }
 
-        // Rebuild and swap the Hono app so the new extension's routes are live
-        // without restarting the process. No-op if _reloadCallback isn't set yet.
+        // Rebuild and swap the Hono app so the new extension's engine routes
+        // are live without restarting the process.
         if (hotLoaded) {
           await triggerReload(`enable:${name}`);
         }
 
-        // Rebuild Studio SPA if source dir is configured (non-blocking fire-and-forget)
-        const { rebuildStudio } = await import('./studio-builder.js');
-        rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
-          console.warn('[studio-builder] Rebuild error:', err),
+        // ── v2: Studio rebuild is the PRIMARY install path, not a
+        // fire-and-forget afterthought. The old model loaded extension
+        // Studio bundles via blob URLs at runtime, which failed for
+        // anything that imported svelte/internal/* (the whole module
+        // graph hit unresolved bare specifiers in the browser).
+        //
+        // Now: copy the ext's studio/ tree into the Studio SvelteKit
+        // source, run `bun run build`, atomically swap the live dist.
+        // Wait for it inline so the marketplace UI can show real
+        // success/failure + a refresh prompt to the user.
+        const studioCanRebuild = !!(
+          process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR
         );
+        let studioRebuild: 'success' | 'failed' | 'skipped' = 'skipped';
+        let studioRebuildError = '';
+        let studioRebuildMs = 0;
+
+        if (hotLoaded && studioCanRebuild) {
+          const { rebuildStudio } = await import('./studio-builder.js');
+          const t0 = Date.now();
+          const r = await rebuildStudio(self.getActive(), resolveExtensionsBase())
+            .catch((err) => ({ rebuilt: false, error: (err as Error).message }));
+          studioRebuildMs = Date.now() - t0;
+          if (r.rebuilt) {
+            studioRebuild = 'success';
+            // Broadcast to every connected client so they can show a
+            // "Studio updated — refresh to load new pages" toast.
+            // broadcastToAll bypasses the subscribe filter — this is a
+            // system event, not a collection event, so no subscription
+            // exists for it on the client side.
+            try {
+              const { broadcastToAll } = await import('../routes/ws.js');
+              broadcastToAll({
+                type: 'studio:reloaded',
+                changed: [name],
+                ms: studioRebuildMs,
+              });
+            } catch { /* WS module may not be initialised yet during boot */ }
+          } else {
+            studioRebuild = 'failed';
+            studioRebuildError = r.error ?? 'unknown';
+            console.warn(`[studio-builder] Rebuild failed for ${name}:`, studioRebuildError);
+          }
+        }
 
         const nowActive = self.isActive(name);
         return c.json({
           success:       nowActive,
           hot_loaded:    hotLoaded,
           needs_restart: false,
-          studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
+          // `studio_rebuild` is now a real outcome, not a "triggered" hint.
+          // Studio UI uses this to decide whether to prompt for refresh.
+          studio_rebuild: studioRebuild,
+          studio_rebuild_ms: studioRebuildMs,
+          ...(studioRebuildError ? { studio_rebuild_error: studioRebuildError } : {}),
           message:       nowActive
-            ? `Extension ${name} is now active.`
+            ? `Extension ${name} is now active.${studioRebuild === 'success' ? ' Refresh to see new pages.' : ''}`
             : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
           ...(loadError ? { error_detail: loadError } : {}),
         }, nowActive ? 200 : 422);
