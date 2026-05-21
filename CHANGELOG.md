@@ -2,6 +2,41 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.95] - 2026-05-21
+
+### Changed — extension model v2: every extension now aligned
+
+Companion to alpha.94. The foundation lets the Studio rebuild
+absorb extensions at build/install time; this release brings the
+54 first-party extensions in line with that model.
+
+In the `zveltio-extensions` sibling repo (separate commit), every
+extension was stripped of its v1 build pipeline:
+
+- `studio/dist/` — pre-built v1 bundles (the things that failed
+  in the alpha.93 visual audit with
+  "Failed to resolve module specifier 'svelte/internal/disclose-version'")
+- `studio/vite.config.ts`, `studio/package.json`,
+  `studio/node_modules/`, `studio/.turbo/` — per-ext build infra
+- `studio/src/index.ts` — old `registerRoute(...)` bundle entry,
+  called the dead `@zveltio/sdk/studio` API
+- `studio/src/pages/*.svelte` — v1 page wrappers (redundant —
+  `studio/pages/+page.svelte` is the real route)
+
+Six extensions that only had v1 sources were promoted to v2:
+`content/media`, `data/export`, `data/import`, `developer/byod`,
+`i18n/translations`, `operations/traceability` (multi-page).
+
+Net diff on the extensions repo: 314 files changed, 33 insertions,
+47,638 deletions.
+
+### Changed — Studio
+
+- `scripts/sync-extensions.ts` (prebuild) now also copies each
+  extension's `studio/src/` into `$lib/ext/<name>/`, mirroring
+  what the runtime `studio-builder.ts` already does on install.
+  Keeps dev parity with the production hot-install flow.
+
 ## [1.0.0-alpha.94] - 2026-05-21
 
 ### Changed — extension model v2 foundation
