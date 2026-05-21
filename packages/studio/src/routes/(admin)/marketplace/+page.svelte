@@ -198,16 +198,34 @@
   async function enable(ext: Extension) {
     processingId = ext.name;
     try {
+      // Engine now awaits the Studio rebuild inline (v2 model: rebuild
+      // IS the install step, not a side-effect). The response carries
+      // the real outcome — no more "triggered" / unknown end-state.
       const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/enable`, { method: 'POST' });
       if (res.needs_restart) restartNeeded = true;
       await loadCatalog();
-      if (res.studio_rebuild === 'triggered') {
-        startRebuildIndicator(ext.displayName);
-        toast.success(`${ext.displayName} enabled — Studio is rebuilding…`);
+      await refreshExtensions();
+
+      if (!res.success) {
+        toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
+        return;
+      }
+
+      const rebuild = res.studio_rebuild as 'success' | 'failed' | 'skipped' | undefined;
+      const sec = res.studio_rebuild_ms ? `${(res.studio_rebuild_ms / 1000).toFixed(1)}s` : '';
+
+      if (rebuild === 'success') {
+        // Engine broadcasts `studio:reloaded` on WS — the (admin) layout
+        // shows a refresh prompt with "Refresh now" button. We just
+        // confirm the action here.
+        toast.success(`${ext.displayName} active. Studio rebuilt in ${sec}.`);
+      } else if (rebuild === 'failed') {
+        toast.error(`${ext.displayName} engine-loaded but Studio rebuild failed: ${res.studio_rebuild_error ?? 'unknown'}`);
       } else {
-        await refreshExtensions();
-        if (!res.needs_restart) toast.success(`${ext.displayName} is now active`);
-        else toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
+        // skipped → engine isn't configured for hot-rebuild (no
+        // STUDIO_SRC_DIR / STUDIO_BUILDER_URL). Old binary install or
+        // dev mode without source dir.
+        toast.success(`${ext.displayName} active. Studio rebuild skipped — restart engine to pick up Studio pages.`);
       }
     } catch (e: any) {
       toast.error(`Enable failed: ${e.message}`);
@@ -229,12 +247,9 @@
         try {
           const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
           await loadCatalog();
-          if (res?.studio_rebuild === 'triggered') {
-            startRebuildIndicator(ext.displayName);
-            toast.success(`${ext.displayName} disabled — Studio is rebuilding…`);
-          } else {
-            await refreshExtensions();
-          }
+          await refreshExtensions();
+          const sec = res?.studio_rebuild_ms ? ` Studio rebuilt in ${(res.studio_rebuild_ms / 1000).toFixed(1)}s.` : '';
+          toast.success(`${ext.displayName} disabled.${sec}`);
         } catch (e: any) {
           toast.error(`Disable failed: ${e.message}`);
         } finally {
