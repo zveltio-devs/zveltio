@@ -1,5 +1,5 @@
 /**
- * Typed Hono RPC client factory (S5-02).
+ * Typed Hono RPC client factory.
  *
  * Returns a Hono-typed client (via `hono/client#hc`) parameterized by the
  * engine's `AppType`. Callers get autocomplete + tsc-checked URLs + typed

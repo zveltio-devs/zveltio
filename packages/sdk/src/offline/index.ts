@@ -1,5 +1,5 @@
 /**
- * Offline-sync provider abstraction (S5-07 full).
+ * Offline-sync provider abstraction.
  *
  * The SDK ships TWO sync strategies for the Postgres ↔ client-SQLite
  * loop, picked at construction time:

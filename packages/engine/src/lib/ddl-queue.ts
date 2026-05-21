@@ -1,5 +1,5 @@
 /**
- * DDL Queue — pg-boss-backed job queue for DDL operations (S5-04).
+ * DDL Queue — pg-boss-backed job queue for DDL operations.
  *
  * Previously this file hosted a hand-rolled `zv_ddl_jobs` table + polling
  * loop + retry/requeue passes (~324 lines). pg-boss replaces all of that

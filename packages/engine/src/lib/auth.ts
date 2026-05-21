@@ -282,7 +282,7 @@ export async function initAuth(db: Database) {
         }),
       ] : []),
 
-      // S5-08: WebAuthn / Passkeys — phishing-resistant credentials.
+      // WebAuthn / Passkeys — phishing-resistant credentials.
       // RP (relying party) settings: ID is the effective domain (must NOT
       // include scheme or port); origin is the full URL the browser will
       // see during ceremonies. For dev, both default to localhost. Set

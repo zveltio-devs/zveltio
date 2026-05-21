@@ -59,9 +59,9 @@ class KyselyCasbinAdapter {
   }
 
   async savePolicy(model: any): Promise<boolean> {
-    // P0 FIX: wrap DELETE + INSERT in a single transaction so there is never a window
-    // where zvd_permissions is empty. A crash between DELETE and INSERT previously wiped
-    // all Casbin policies, locking out every non-god user permanently.
+    // Wrap TRUNCATE + INSERT in a single transaction so there's never a
+    // window where zvd_permissions is empty. A crash in the middle would
+    // otherwise wipe every Casbin policy and lock out all non-god users.
     // TRUNCATE is transactional in PostgreSQL and rolls back on failure.
     await (_db as any).transaction().execute(async (trx: Database) => {
       await sql`TRUNCATE TABLE zvd_permissions`.execute(trx);
@@ -122,7 +122,7 @@ export async function initPermissions(db: Database): Promise<void> {
   const model = newModelFromString(CASBIN_MODEL);
   _enforcer = await newEnforcer(model, new KyselyCasbinAdapter());
 
-  // C2 FIX: HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
+  // HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
   // to Redis could craft a valid signed value and escalate privileges.
   // Fail-closed: throw at startup rather than running insecurely.

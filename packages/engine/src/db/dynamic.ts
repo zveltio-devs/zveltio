@@ -36,9 +36,10 @@ async function withLockTimeout(
 // ─── Identifier sanitization ──────────────────────────────────────────────────
 
 function sanitizeIdentifier(name: string): string {
-  // I4 FIX: Throw on invalid chars instead of silently stripping.
-  // Silent stripping could map "id'--" → "id--" producing a valid but wrong identifier,
-  // causing confusing "column not found" errors or, worse, aliasing different columns.
+  // Throw on invalid chars instead of silently stripping. Silent stripping
+  // could map "id'--" → "id--" producing a valid-but-wrong identifier and
+  // either a confusing "column not found" error or, worse, aliasing a
+  // different column entirely.
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
     throw new Error(
       `Invalid SQL identifier "${name}" — only letters, digits, and underscores allowed, must start with a letter or underscore.`,

@@ -1,5 +1,5 @@
 /**
- * Cross-instance realtime bus (S5-03).
+ * Cross-instance realtime bus.
  *
  * Abstracts away "how do other engine replicas hear about my writes?" so
  * the rest of the codebase only sees `realtimeBus.publish(payload)`.
