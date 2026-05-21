@@ -19,14 +19,42 @@ every extension follows — read it before building one.
 my-extension/
 ├── manifest.json
 ├── engine/
-│   ├── index.ts           # default-exports ZveltioExtension
-│   ├── routes.ts          # Hono routes
-│   ├── lib/               # local helpers
+│   ├── index.ts                   # default-exports ZveltioExtension
+│   ├── routes.ts                  # Hono routes
+│   ├── lib/                       # local helpers
 │   └── migrations/
 │       └── 001_init.sql
-├── studio/                # SvelteKit pages compiled to studio/dist/bundle.js
-└── client/                # End-user components (npm-published separately)
+├── studio/                        # Admin UI — compiled INTO Studio at install
+│   ├── pages/
+│   │   ├── +page.svelte           # /admin/<slug>/
+│   │   └── settings/
+│   │       └── +page.svelte       # /admin/<slug>/settings/
+│   └── src/
+│       └── components/            # shared components → $lib/ext/<name>/components/
+└── client/                        # End-user components (npm-published separately)
 ```
+
+### Studio v2 — no per-extension build
+
+As of `1.0.0-alpha.94` extensions no longer ship a pre-built bundle.
+There is **no** `studio/dist/`, **no** per-extension `vite.config.ts`,
+**no** per-extension `package.json`. The Studio compiles every active
+extension as part of its own SvelteKit build:
+
+- `studio/pages/**/*.svelte` is copied into Studio's route tree at
+  `(admin)/<slug>/` where `<slug>` is derived from
+  `manifest.studio.pages[0].path` (e.g. `/admin/crm` → `crm`).
+- `studio/src/**` is copied into `src/lib/ext/<extension-name>/` so
+  pages can import shared components via
+  `import Foo from '$lib/ext/category/name/components/Foo.svelte'`.
+- The rebuild happens automatically on enable/disable (see
+  `studio-builder.ts`). On a successful build the engine broadcasts
+  a `studio:reloaded` WebSocket event so connected clients can prompt
+  the user to refresh.
+
+Use the same imports the Studio core uses — `$lib/api.js`,
+`$lib/stores/toast.svelte.js`, Svelte 5 runes, DaisyUI classes.
+Anything else has to be vendored under `studio/src/`.
 
 ## `manifest.json`
 
@@ -220,6 +248,14 @@ export function myRoutes(ctx: ExtensionContext): Hono<{ Variables: { user: any }
 - **Never** `import` from `'../../../packages/engine/src/...'` or `'@zveltio/engine-...'` virtual packages. Those used to be intercepted by `Bun.plugin` shims, but the shim is removed in `1.0.0-alpha.60`. Today these imports fail at runtime.
 - **Never** put helper functions that use `auth` / `checkPermission` / `db` / engine internals at module top level — they have no access to the destructured ctx values.
 - **Never** type your route factory as `(db: any, auth: any)`. Always `(ctx: ExtensionContext)`.
+- **Never** ship a `studio/dist/`, `studio/vite.config.ts`, or
+  `studio/package.json`. The v1 per-extension build pipeline was
+  removed in `1.0.0-alpha.94`. Anything you ship there is dead
+  weight — the Studio rebuild ignores it.
+- **Never** import from `@zveltio/sdk/studio` — that was the v1
+  runtime route registration API. It no longer exists. Just put
+  pages under `studio/pages/<slug>/+page.svelte` and they become
+  real SvelteKit routes after install.
 
 ## Migration from earlier extension styles
 
@@ -240,3 +276,41 @@ Extensions are downloaded as ZIPs from `registry.zveltio.com` and extracted to `
 For per-extension peer dependencies declared in `manifest.peerDependencies`, the engine runs `bun add` in `<EXTENSIONS_DIR>/` at activation time.
 
 Both paths require Bun to be on `PATH` for the user running the engine. The official installer handles this — see `install/install.sh`.
+
+## Studio rebuild — what happens on enable/disable
+
+`POST /api/marketplace/:name/enable` and `.../disable` synchronously
+run the Studio rebuild and return the real outcome:
+
+```json
+{
+  "success": true,
+  "studio_rebuild": "success",      // or "failed" / "skipped"
+  "studio_rebuild_ms": 4280,
+  "studio_rebuild_error": null,
+  "message": "Extension crm is now active. Refresh to see new pages."
+}
+```
+
+The rebuild fires only when the engine has the means to run it —
+either `STUDIO_SRC_DIR` is set (engine runs `bun run build` directly
+in the Studio source dir) or `STUDIO_BUILDER_URL` points at a
+builder sidecar container. Without either, `studio_rebuild` returns
+`"skipped"` and the operator must restart the engine to pick up the
+new pages.
+
+On success the engine broadcasts a `studio:reloaded` WebSocket
+message to every connected client (the Studio admin layout shows
+a toast with a "Refresh now" action).
+
+**Trade-offs to know about:**
+
+- Rebuild takes ~5s in the best case. The atomic dist swap briefly
+  serves ~50ms of 503s. Acceptable for an admin tool; not acceptable
+  for end-user traffic, which is why the rebuild path applies only
+  to Studio (admin) and not to the public engine API.
+- If the build fails (TypeScript error in the extension, missing
+  peer dep, etc.) the live dist is **untouched** — the previous
+  working version keeps serving. `studio_rebuild: "failed"` carries
+  the build stderr so the marketplace UI can surface it to the
+  operator.
