@@ -2,6 +2,29 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.97] - 2026-05-21
+
+### CI — release workflow race-guard
+
+When the alpha.94/.95/.96 batch was pushed at once, the three
+Release workflows ran in parallel. Each `update-website` job tried
+to push its own `latest.json` to `zveltio-get`. The .95 workflow
+happened to finish last and clobbered .96 — leaving the public
+installer endpoint pointing at the wrong version.
+
+Two changes to `.github/workflows/release.yml`:
+
+1. `concurrency: { group: zveltio-get-push }` on `update-website`
+   so parallel workflows serialize their pushes instead of racing.
+2. `latest.json` copy step now compares versions before
+   overwriting. A workflow for an older tag can no longer
+   downgrade the current `latest.json` even if it finishes after
+   a newer one. Stable releases still win over prereleases.
+
+Also added a `git pull --rebase --autostash` before the push so
+the same workflow re-runs cleanly after a previous one in the
+same batch has just committed.
+
 ## [1.0.0-alpha.96] - 2026-05-21
 
 ### Changed — disable flow parity

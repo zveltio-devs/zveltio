@@ -372,6 +372,15 @@ jobs:
     needs: publish-release
     runs-on: ubuntu-latest
     continue-on-error: true
+    # Serialize push to zveltio-get so multiple parallel Release workflows
+    # (e.g. when several tags are pushed at once) don't race on latest.json.
+    # The race in alpha.94/.95/.96 batch left latest.json pointing at .95
+    # because the .95 workflow happened to commit last. With this lock,
+    # only one update-website job runs at a time across the whole repo;
+    # later runs see the prior commit and produce a clean append.
+    concurrency:
+      group: zveltio-get-push
+      cancel-in-progress: false
     # Run for ALL channels — latest.json and versions.json must always reflect reality.
     # sync-extensions is still stable-only (extensions are production infrastructure).
     steps:
@@ -397,14 +406,57 @@ jobs:
             "${{ github.repository }}" \
             zveltio-get/versions.json
 
-      - name: Copy latest.json
-        run: find release-assets/ -name "latest.json" -exec cp {} zveltio-get/latest.json \;
+      # Only overwrite latest.json if this release's version is >= what's
+      # already on zveltio-get for the same channel. Without this guard,
+      # a slower workflow for an OLDER tag (pushed earlier in a batch)
+      # could finish last and downgrade latest.json — which is exactly
+      # what happened on the alpha.94/.95/.96 batch.
+      - name: Copy latest.json (only if newer or same)
+        run: |
+          NEW_FILE=$(find release-assets/ -name "latest.json" | head -1)
+          if [ -z "$NEW_FILE" ]; then
+            echo "No latest.json in release-assets — nothing to copy."
+            exit 0
+          fi
+          NEW_VER=$(node -p "require('$NEW_FILE').version")
+          NEW_CHANNEL=$(node -p "require('$NEW_FILE').channel")
+
+          if [ -f zveltio-get/latest.json ]; then
+            CUR_VER=$(node -p "require('./zveltio-get/latest.json').version")
+            CUR_CHANNEL=$(node -p "require('./zveltio-get/latest.json').channel")
+            # Compare only within the same channel — alpha never downgrades alpha,
+            # but a stable release should always win over any prerelease.
+            if [ "$CUR_CHANNEL" = "$NEW_CHANNEL" ] || [ "$CUR_CHANNEL" = "alpha" -a "$NEW_CHANNEL" = "stable" ]; then
+              IS_NEWER=$(node -e "
+                const semver = (s) => s.replace(/^v/, '').split(/[.-]/).map(p => isNaN(+p) ? p : +p);
+                const cmp = (a, b) => {
+                  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+                    const x = a[i] ?? 0, y = b[i] ?? 0;
+                    if (typeof x === 'number' && typeof y === 'number') { if (x !== y) return x - y; }
+                    else { if (String(x) < String(y)) return -1; if (String(x) > String(y)) return 1; }
+                  }
+                  return 0;
+                };
+                process.stdout.write(cmp(semver('$NEW_VER'), semver('$CUR_VER')) >= 0 ? 'yes' : 'no');
+              ")
+              if [ "$IS_NEWER" = "no" ]; then
+                echo "Current latest.json is $CUR_VER ($CUR_CHANNEL), this workflow is $NEW_VER ($NEW_CHANNEL) — keeping current. Race-guard win."
+                exit 0
+              fi
+            fi
+          fi
+          cp "$NEW_FILE" zveltio-get/latest.json
+          echo "Updated latest.json → $NEW_VER ($NEW_CHANNEL)"
 
       - name: Commit and push to zveltio-get
         run: |
           cd zveltio-get
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Pull just in time — another serialized workflow may have just pushed.
+          # With the concurrency lock above we won't be racing, but a Pull is
+          # cheap insurance and lets the same workflow re-run cleanly.
+          git pull --rebase --autostash origin master || true
           git add -f versions.json latest.json
           git diff --cached --quiet || git commit -m \
             "chore: update to ${{ github.ref_name }}"
