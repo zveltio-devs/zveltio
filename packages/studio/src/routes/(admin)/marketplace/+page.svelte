@@ -248,8 +248,17 @@
           const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
           await loadCatalog();
           await refreshExtensions();
-          const sec = res?.studio_rebuild_ms ? ` Studio rebuilt in ${(res.studio_rebuild_ms / 1000).toFixed(1)}s.` : '';
-          toast.success(`${ext.displayName} disabled.${sec}`);
+
+          const rebuild = res?.studio_rebuild as 'success' | 'failed' | 'skipped' | undefined;
+          const sec = res?.studio_rebuild_ms ? `${(res.studio_rebuild_ms / 1000).toFixed(1)}s` : '';
+
+          if (rebuild === 'success') {
+            toast.success(`${ext.displayName} disabled. Studio rebuilt in ${sec}.`);
+          } else if (rebuild === 'failed') {
+            toast.error(`${ext.displayName} disabled but Studio rebuild failed: ${res?.studio_rebuild_error ?? 'unknown'}`);
+          } else {
+            toast.success(`${ext.displayName} disabled. Studio rebuild skipped — restart engine to drop its pages.`);
+          }
         } catch (e: any) {
           toast.error(`Disable failed: ${e.message}`);
         } finally {

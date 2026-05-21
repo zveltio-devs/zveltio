@@ -2,6 +2,46 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.96] - 2026-05-21
+
+### Changed — disable flow parity
+
+`POST /api/marketplace/:name/disable` now AWAITS the Studio rebuild
+inline, mirroring what `enable` does. Without this, a disabled
+extension's pages remained reachable in the live dist until the
+next enable triggered a rebuild — confusing for the operator
+("I just disabled it, why is the route still there?").
+
+Response shape matches enable: `studio_rebuild: 'success' |
+'failed' | 'skipped'`, `studio_rebuild_ms`, optional
+`studio_rebuild_error`. On success, the engine broadcasts
+`studio:reloaded` (`reason: 'disable'`) so connected clients see
+the refresh prompt toast.
+
+Marketplace UI updated to read the new shape.
+
+### Fixed — content/media route conflict
+
+Studio core had a hand-coded 618-line `/admin/media` page. The
+`content/media` extension shipped a thin v1 stub (89 lines). When
+sync-extensions ran, it overwrote the rich Studio version with the
+stub — a real regression discovered during the alpha.95 sanity
+build. The extension now owns the rich page (618 lines copied
+into `content/media/studio/pages/+page.svelte`); sync regenerates
+the Studio route from the extension, no clobber.
+
+### Docs
+
+`docs/EXTENSION-AUTHORING.md` updated with two new sections:
+- "Studio v2 — no per-extension build" — what's gone, what to
+  ship instead, why.
+- "Studio rebuild — what happens on enable/disable" — the actual
+  response shape, the trade-offs (5s build, 50ms 503 swap window),
+  what happens on build failure.
+
+Plus the existing "What to avoid" list now flags shipping
+`studio/dist/` or importing `@zveltio/sdk/studio` as hard errors.
+
 ## [1.0.0-alpha.95] - 2026-05-21
 
 ### Changed — extension model v2: every extension now aligned
