@@ -22,6 +22,7 @@ const EXT_ROOTS = [
 ].filter(Boolean).filter((p) => existsSync(p as string)) as string[];
 
 const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)');
+const LIB_EXT    = join(STUDIO_ROOT, 'src/lib/ext');
 
 // Docker builder sets SKIP_SYNC_EXT=1 because it runs sync inline before build
 if (process.env.SKIP_SYNC_EXT === '1') {
@@ -85,6 +86,18 @@ for (const extRoot of EXT_ROOTS) {
     const dest = join(ROUTES_EXT, slug);
     mkdirSync(dest, { recursive: true });
     cpSync(pagesDir, dest, { recursive: true });
+
+    // Also copy studio/src/ (shared components, libs) → $lib/ext/<name>/ so
+    // pages can import them via $lib/ext/<extName>/components/Foo.svelte.
+    // This mirrors what the runtime studio-builder.ts does for installed
+    // extensions; keeps dev parity with prod hot-install flow.
+    const srcDir = join(extRoot, extName, 'studio', 'src');
+    if (existsSync(srcDir)) {
+      const libDest = join(LIB_EXT, extName);
+      mkdirSync(libDest, { recursive: true });
+      cpSync(srcDir, libDest, { recursive: true });
+    }
+
     console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);
     synced++;
   }
