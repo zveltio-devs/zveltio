@@ -2,6 +2,38 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.92] - 2026-05-21
+
+### Fixed
+
+- **Hot-enable of bundle-only extensions no longer fails with
+  "Can not add a route since the matcher is already built".** A live
+  sweep of all 54 marketplace extensions surfaced two consistent
+  failures (`content/pdf-viewer`, `developer/views`) that both have
+  a no-op `register()` plus a Studio bundle. The existing try/catch
+  wrapped `extension.register()` but not the subsequent
+  `app.get(bundleUrl, ...)`, so the matcher-built error from the
+  bundle-route registration escaped and the enable response read
+  `success: false`. Wrapped the bundle registration in the same
+  defer-then-rebuild path. `triggerReload` then re-runs `loadExtension`
+  on a fresh Hono app where both `register()` and the bundle route
+  land cleanly.
+
+### Added
+
+- **`docs/AUDIT-2026-05-21.md`** — full audit of alpha.91:
+  - Live sweep of all 54 extensions: 54/54 install, 42/54 enable
+    (78%), 12 categorised failures with proposed fixes.
+  - Code-size hotspots flagged (`extension-loader.ts` 2393 LOC,
+    `collections/[name]` 1561 LOC) with split recommendations.
+  - Missing features vs Supabase/Pocketbase/Directus.
+  - Better implementations identified — notably a four-phase
+    extension install (verify → stage → promote → verify-post) that
+    would resolve three of the four failure categories.
+  - Honest disclaimer on what was/wasn't verified — visual UI/UX,
+    a11y dynamic, and per-extension Studio pages still need a human
+    with a browser.
+
 ## [1.0.0-alpha.91] - 2026-05-21
 
 ### Changed

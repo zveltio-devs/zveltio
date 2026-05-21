@@ -1293,7 +1293,11 @@ class ExtensionLoader {
         }
       }
 
-      // Register Studio bundle if it exists (skip if route registration was deferred)
+      // Register Studio bundle if it exists. Wrapped in the same
+      // matcher-built defer as extension.register() above: extensions
+      // that contribute ONLY a Studio bundle (no engine routes) would
+      // otherwise throw here on hot-load with the same error, even
+      // though the previous catch passed cleanly.
       const studioBundlePath = join(extDir, 'studio/dist/bundle.js');
       const bundleKey = extName.replace(/\//g, '_');
       const bundleUrl = existsSync(studioBundlePath)
@@ -1301,16 +1305,24 @@ class ExtensionLoader {
         : undefined;
 
       if (bundleUrl && !routeRegistrationDeferred) {
-        app.get(bundleUrl, async (c) => {
-          const content = await Bun.file(studioBundlePath).text();
-          c.header('Content-Type', 'application/javascript');
-          c.header('Cache-Control', 'public, max-age=3600');
-          return c.body(content);
-        });
+        try {
+          app.get(bundleUrl, async (c) => {
+            const content = await Bun.file(studioBundlePath).text();
+            c.header('Content-Type', 'application/javascript');
+            c.header('Cache-Control', 'public, max-age=3600');
+            return c.body(content);
+          });
+        } catch (regErr: any) {
+          if ((regErr as Error)?.message?.includes('matcher is already built')) {
+            routeRegistrationDeferred = true;
+          } else {
+            throw regErr;
+          }
+        }
       }
 
-      // Register native schedules (S2-05). Failure here is non-fatal — log
-      // and continue so the extension is otherwise functional.
+      // Register native schedules. Failure here is non-fatal — log and
+      // continue so the extension is otherwise functional.
       if (typeof extension.schedules === 'function') {
         try {
           const schedules = extension.schedules() ?? [];
