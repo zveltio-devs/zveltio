@@ -2084,17 +2084,50 @@ class ExtensionLoader {
         // Rebuild Hono app without this extension's routes (zero-downtime)
         await triggerReload(`disable:${name}`);
 
-        // Rebuild Studio SPA without this extension's pages (fire-and-forget)
-        const { rebuildStudio } = await import('./studio-builder.js');
-        rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) =>
-          console.warn('[studio-builder] Rebuild error:', err),
+        // Rebuild Studio SPA inline — parity with enable. Without this
+        // the disabled extension's pages remain reachable in the dist
+        // until the NEXT enable triggers a rebuild, which is confusing
+        // ("I just disabled it, why is it still there?").
+        const studioCanRebuild = !!(
+          process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR
         );
+        let studioRebuild: 'success' | 'failed' | 'skipped' = 'skipped';
+        let studioRebuildError = '';
+        let studioRebuildMs = 0;
+
+        if (studioCanRebuild) {
+          const { rebuildStudio } = await import('./studio-builder.js');
+          const t0 = Date.now();
+          const r = await rebuildStudio(self.getActive(), resolveExtensionsBase())
+            .catch((err) => ({ rebuilt: false, error: (err as Error).message }));
+          studioRebuildMs = Date.now() - t0;
+          if (r.rebuilt) {
+            studioRebuild = 'success';
+            try {
+              const { broadcastToAll } = await import('../routes/ws.js');
+              broadcastToAll({
+                type: 'studio:reloaded',
+                changed: [name],
+                ms: studioRebuildMs,
+                reason: 'disable',
+              });
+            } catch { /* WS module may not be initialised yet */ }
+          } else {
+            studioRebuild = 'failed';
+            studioRebuildError = r.error ?? 'unknown';
+            console.warn(`[studio-builder] Rebuild on disable failed for ${name}:`, studioRebuildError);
+          }
+        }
 
         return c.json({
           success:       true,
           needs_restart: false,
-          studio_rebuild: (process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR) ? 'triggered' : 'skipped',
-          message:       `Extension ${name} disabled.`,
+          studio_rebuild: studioRebuild,
+          studio_rebuild_ms: studioRebuildMs,
+          ...(studioRebuildError ? { studio_rebuild_error: studioRebuildError } : {}),
+          message:       studioRebuild === 'success'
+            ? `Extension ${name} disabled. Refresh to remove its pages.`
+            : `Extension ${name} disabled.`,
         });
       });
     });
