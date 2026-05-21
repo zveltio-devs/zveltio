@@ -34,6 +34,7 @@ interface RealtimeEvent {
 }
 
 type CollectionListener = (event: RealtimeEvent) => void;
+type SystemListener = (event: RealtimeEvent) => void;
 
 const ENGINE_URL =
   (typeof window !== 'undefined' && (window as any).__ZVELTIO_ENGINE_URL__) || '';
@@ -44,6 +45,10 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let subscribedCollections = new Set<string>();
 let listeners = new Map<string, Set<CollectionListener>>();
+// System-level events (server-pushed without a subscription handshake):
+// `studio:reloaded`, future `tenant:limit_reached`, etc. Indexed by the
+// message's `type` field rather than `collection`.
+let systemListeners = new Map<string, Set<SystemListener>>();
 
 // Exposed reactive state. Components can `import { realtime } from ...`
 // then read `realtime.connected` to render a status indicator.
@@ -105,6 +110,21 @@ async function connect(): Promise<void> {
     let msg: RealtimeEvent;
     try { msg = JSON.parse(String((e as MessageEvent).data)); }
     catch { return; }
+
+    // System messages: identified by the type field, no `collection`.
+    // The server uses broadcastToAll for these, so every connected
+    // client receives them without a subscription handshake.
+    if (!msg.collection && msg.type) {
+      const sysSet = systemListeners.get(msg.type);
+      if (sysSet && sysSet.size > 0) {
+        for (const fn of [...sysSet]) {
+          try { fn(msg); }
+          catch (err) { console.error('[realtime] system listener threw:', err); }
+        }
+      }
+      return;
+    }
+
     if (!msg.collection) return;
     const set = listeners.get(msg.collection);
     if (!set || set.size === 0) return;
@@ -169,6 +189,25 @@ function onCollection(collection: string, listener: CollectionListener): () => v
   };
 }
 
+/**
+ * Subscribe to a system-level event. Unlike onCollection, no subscribe
+ * message is sent to the server — these events are broadcast to all
+ * connected clients automatically. Used for global notifications like
+ * "studio:reloaded" (compile-time extension was just installed).
+ */
+function onSystem(eventType: string, listener: SystemListener): () => void {
+  if (!systemListeners.has(eventType)) systemListeners.set(eventType, new Set());
+  systemListeners.get(eventType)!.add(listener);
+  // Open the socket lazily so the first system subscription wakes it.
+  if (!socket) void connect();
+  return () => {
+    const set = systemListeners.get(eventType);
+    if (!set) return;
+    set.delete(listener);
+    if (set.size === 0) systemListeners.delete(eventType);
+  };
+}
+
 /** Force-close the socket — used at sign-out so the next user opens fresh. */
 function disconnect() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -176,6 +215,7 @@ function disconnect() {
   if (socket) { try { socket.close(); } catch { /* ignore */ } socket = null; }
   subscribedCollections.clear();
   listeners.clear();
+  systemListeners.clear();
   _connected = false;
 }
 
@@ -183,5 +223,6 @@ export const realtime = {
   get connected() { return _connected; },
   get lastError() { return _lastError; },
   onCollection,
+  onSystem,
   disconnect,
 };

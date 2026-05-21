@@ -24,8 +24,16 @@
   import { page } from '$app/state';
   import { auth } from '$lib/auth.svelte.js';
   import { realtime } from '$lib/stores/realtime.svelte.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
   import { initExtensions, extensions } from '$lib/extensions.svelte.js';
-  import { loadExtensionBundles } from '$lib/bundle-loader.js';
+  // v2 extension model: extension Studio pages are now compiled INTO this
+  // Studio's SvelteKit route tree at install time (see
+  // packages/engine/src/lib/studio-builder.ts). The old runtime bundle
+  // loader is no longer wired — pages just exist as regular routes after
+  // a rebuild + swap. `extension-api.svelte.ts` still provides the
+  // window.__zveltio contribution API for any extension that wants to
+  // contribute slot items or topbar widgets at runtime.
+  import { installGlobalApi as installExtensionApi } from '$lib/extension-api.svelte.js';
   import { buildNavModel, buildExtensionNav } from '$lib/nav-model.js';
   import { studioApi } from '$lib/extension-api.svelte.js';
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
@@ -83,9 +91,24 @@
     }
     await initExtensions();
 
-    // S3-02 + S3-03: extension Studio bundles register routes/slots before
-    // any admin page renders. One bad bundle can't block the others.
-    await loadExtensionBundles();
+    // Install the contribution API on window for any extension that
+    // wants to register slot items at runtime. The compiled extension
+    // pages (now native SvelteKit routes after Studio rebuild) call
+    // into this from their <script> blocks.
+    const engineUrl = (window as { __ZVELTIO_ENGINE_URL__?: string }).__ZVELTIO_ENGINE_URL__ ?? '';
+    installExtensionApi(engineUrl);
+
+    // Listen for "studio:reloaded" events — emitted by the engine after
+    // it rebuilds the Studio dist following an extension install/enable.
+    // Browser's currently-loaded chunks are stale at this point; prompt
+    // the user to refresh so they pick up the new ext pages.
+    realtime.onSystem('studio:reloaded', (event) => {
+      const changed = (event?.changed as string[] | undefined) ?? [];
+      const label = changed.length === 1 ? changed[0] : `${changed.length} extensions`;
+      toast.info(`Studio updated (${label}) — refresh to load new pages.`, {
+        action: { label: 'Refresh now', handler: () => location.reload() },
+      });
+    });
 
     // First-login redirect to onboarding when no collections exist.
     const onboardingDone = localStorage.getItem('zveltio-onboarding-done');

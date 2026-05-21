@@ -2,6 +2,53 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.94] - 2026-05-21
+
+### Changed — extension model v2 foundation
+
+Strapi-style compile-time integration replaces runtime bundle loading.
+First wave of the refactor agreed on in [docs/EXTENSIONS-V2-DESIGN.md].
+
+**Engine**:
+- `POST /api/marketplace/:name/enable` now AWAITS the Studio rebuild
+  inline instead of fire-and-forget. The response carries the real
+  outcome: `studio_rebuild: 'success' | 'failed' | 'skipped'`,
+  `studio_rebuild_ms`, plus `studio_rebuild_error` on failure. No more
+  guessing whether the rebuild finished.
+- After a successful rebuild, the engine broadcasts a `studio:reloaded`
+  WebSocket message to ALL connected clients (via `broadcastToAll` —
+  not subscription-filtered).
+
+**Studio**:
+- Dropped `loadExtensionBundles()` from `(admin)/+layout.svelte`. That
+  was the path that fetched extension Studio bundles as text, wrapped
+  them in blob URLs, and dynamic-imported them — which failed for
+  every extension that imported from `svelte/internal/*` (no import
+  map). All 42 active extensions had this broken in alpha.93.
+  Replaced with `installGlobalApi()` only — extensions now live in
+  Studio's compiled route tree, no runtime bundle loading needed.
+- `realtime.onSystem('studio:reloaded', ...)` listener in the admin
+  layout shows a toast with a "Refresh now" action button so users see
+  the new pages without manual reload.
+- Marketplace page reads the new sync response shape; success / failed
+  / skipped each get a specific message with timing.
+
+**Trade-off accepted**: a Studio rebuild takes ~5s and briefly serves
+~50 ms of 503s during the atomic swap. For an admin tool where
+extension installs happen rarely, this is the correct cost — and it
+eliminates every runtime resolution issue we hit in v1
+(import-map missing, peer deps unresolved, Hono matcher locked, etc.).
+
+### Not in this release (next wave)
+
+- Disable flow parity (currently `disable` doesn't rebuild — old pages
+  remain reachable in the bundle until next enable triggers a rebuild)
+- `EXTENSION-AUTHORING-V2.md` developer guide
+- Migration of pilot extensions to the v2 layout (crm, invoicing,
+  approvals, mail, api-docs)
+- Atomic blue/green swap to drop the 50ms 503 window
+- Progress SSE endpoint for live rebuild feedback
+
 ## [1.0.0-alpha.93] - 2026-05-21
 
 Visual audit run — Playwright headless captured 40 admin pages, then
