@@ -16,6 +16,9 @@
   import Slot from '$lib/components/common/Slot.svelte';
   import { auth } from '$lib/auth.svelte.js';
   import { toast } from '$lib/stores/toast.svelte.js';
+  import { withOptimistic } from '$lib/stores/optimistic.svelte.js';
+  import { realtime } from '$lib/stores/realtime.svelte.js';
+  import { onDestroy } from 'svelte';
 
   const collectionName = $derived(page.params.name ?? '');
 
@@ -93,6 +96,37 @@
   $effect(() => {
     const name = collectionName;
     if (name) loadAll(name);
+  });
+
+  // ── Realtime live sync ───────────────────────────────────────────────────
+  // Subscribe to inserts/updates/deletes on the current collection.
+  // Each event triggers a debounced reload — the engine sends one event
+  // per row mutation, so a bulk update would otherwise hammer the API.
+  let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
+  let realtimeTeardown: (() => void) | null = null;
+
+  $effect(() => {
+    const name = collectionName;
+    if (!name) return;
+    realtimeTeardown?.();
+    realtimeTeardown = realtime.onCollection(name, () => {
+      if (reloadDebounce) clearTimeout(reloadDebounce);
+      reloadDebounce = setTimeout(() => {
+        // Skip the loading flicker for live sync — the user didn't ask
+        // for a reload, so we shouldn't break their scroll position.
+        reloadData().catch(() => { /* network blip — next event retries */ });
+      }, 250);
+    });
+    return () => {
+      if (reloadDebounce) { clearTimeout(reloadDebounce); reloadDebounce = null; }
+      realtimeTeardown?.();
+      realtimeTeardown = null;
+    };
+  });
+
+  onDestroy(() => {
+    if (reloadDebounce) clearTimeout(reloadDebounce);
+    realtimeTeardown?.();
   });
 
   async function loadAll(name: string) {
@@ -542,7 +576,10 @@
     };
   }
 
-  // ── Delete record ─────────────────────────────────────────────────────────
+  // ── Delete record (optimistic) ────────────────────────────────────────────
+  // Drop the row from local state immediately so the UI feels instant.
+  // If the server rejects (403, 409, etc.) we restore the snapshot and
+  // surface the error via toast.
   async function deleteRecord(id: string) {
     confirmState = {
       open: true,
@@ -551,12 +588,14 @@
       confirmLabel: 'Delete',
       onconfirm: async () => {
         confirmState.open = false;
-        try {
-          await dataApi.delete(collectionName, id);
-          await reloadData();
-        } catch (err: any) {
-          toast.error(err.message);
-        }
+        const snapshot = records;
+        await withOptimistic({
+          apply: () => { records = records.filter((r) => r.id !== id); },
+          rollback: (prev) => { records = prev; },
+          snapshot,
+          commit: () => dataApi.delete(collectionName, id),
+          onError: (err) => toast.error(err.message),
+        });
       },
     };
   }
