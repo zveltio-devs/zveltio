@@ -143,9 +143,15 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Collection '${data.name}' already exists` }, 409);
       }
 
+      // Register metadata immediately so GET /:name works without waiting
+      // for the DDL job. pg-boss has its own connection pool, so we can't
+      // wrap both calls in one Kysely transaction — instead we
+      // try-then-rollback: if enqueue fails, delete the metadata row we
+      // just inserted to keep zvd_collections in sync with reality.
+      let metadataRegistered = false;
       try {
-        // Register metadata immediately so GET /:name works without waiting for DDL job
         await DDLManager.registerMetadata(db, data);
+        metadataRegistered = true;
         const jobId = await enqueueDDLJob(db, 'create_collection', data);
         const user = c.get('user') as any;
         await auditLog(db, {
@@ -166,6 +172,15 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           202,
         );
       } catch (error) {
+        if (metadataRegistered) {
+          // Rollback the metadata row so we don't leave a ghost collection
+          // visible to GET /api/collections while no physical table exists.
+          await (db as any)
+            .deleteFrom('zvd_collections')
+            .where('name', '=', data.name)
+            .execute()
+            .catch((err: any) => console.warn(`[collections] rollback failed for '${data.name}':`, err?.message ?? err));
+        }
         return c.json({ error: error instanceof Error ? error.message : 'Unknown error' }, 400);
       }
     },

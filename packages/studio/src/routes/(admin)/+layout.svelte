@@ -23,6 +23,7 @@
   import { base } from '$app/paths';
   import { page } from '$app/state';
   import { auth } from '$lib/auth.svelte.js';
+  import { realtime } from '$lib/stores/realtime.svelte.js';
   import { initExtensions, extensions } from '$lib/extensions.svelte.js';
   import { loadExtensionBundles } from '$lib/bundle-loader.js';
   import { buildNavModel, buildExtensionNav } from '$lib/nav-model.js';
@@ -122,6 +123,11 @@
   );
 
   async function signOut() {
+    // Close the realtime WS first so the next signed-in user gets a
+    // fresh session instead of inheriting subscriptions from the
+    // previous one. realtime.disconnect() is idempotent so this is
+    // safe even if no WS was ever opened.
+    realtime.disconnect();
     await auth.signOut();
     goto(`${base}/login?reason=signed_out`);
   }

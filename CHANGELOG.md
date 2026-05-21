@@ -2,6 +2,42 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.90] - 2026-05-20
+
+Four legitimate findings from a peer code review, all implemented.
+
+### Added
+
+- **WebSocket live sync in Studio.** New `realtime` store at
+  `packages/studio/src/lib/stores/realtime.svelte.ts` opens one shared
+  WS to `/api/ws`, subscribes per-collection on demand, and reconnects
+  with exponential backoff. The collection detail page now subscribes
+  automatically — inserts/updates/deletes from any other client refresh
+  the grid within ~250 ms (debounced so a bulk update doesn't hammer
+  the API). Disconnects cleanly on sign-out.
+- **`withOptimistic` helper.** Tiny wrapper at
+  `lib/stores/optimistic.svelte.ts` that captures a state snapshot,
+  patches local state immediately, awaits the network call, and rolls
+  back on failure. Applied to record delete on the collection detail
+  page — the row disappears instantly instead of waiting for the
+  round-trip.
+- **SvelteKit error boundaries.** Four new `+error.svelte` pages
+  (root, admin, client, intranet). Previously an unhandled error
+  rendered SvelteKit's default white-screen fallback; now users get a
+  themed page with a Retry button (invalidateAll) and a "back to
+  dashboard" link, plus the raw error message in a collapsible block
+  so they can paste it into a bug report.
+
+### Fixed
+
+- **Atomic collection create — no more ghost rows on enqueue failure.**
+  `POST /api/collections` previously inserted metadata into
+  `zvd_collections` and then enqueued the DDL job in two separate steps.
+  pg-boss has its own connection pool so a Kysely transaction can't
+  span both. Solution: if the enqueue throws, delete the metadata row
+  we just inserted. The route now stays consistent with the physical
+  schema on every error path.
+
 ## [1.0.0-alpha.89] - 2026-05-20
 
 ### Fixed
