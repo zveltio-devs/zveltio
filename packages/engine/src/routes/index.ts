@@ -102,13 +102,19 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     await initDDLQueue(db);
   }
 
-  // ── Distributed tracing — W3C traceparent propagation on all /api/* requests ─
+  // ── Distributed tracing — W3C traceparent on /api/* AND /ext/* so an
+  // extension endpoint (SAML callback, mail download, …) appears under
+  // the same trace as the rest of the request. Without /ext/* coverage
+  // the spans for extension routes show up as orphans in Tempo / Jaeger.
   app.use('/api/*', tracingMiddleware());
+  app.use('/ext/*', tracingMiddleware());
 
-  // ── Demo-mode guard — no-op unless DEMO_MODE=true ────────────────────────
-  // Must run BEFORE the route handlers (admin guard etc.) so we never reach
-  // a destructive endpoint, even with a god session.
+  // ── Demo-mode guard — no-op unless DEMO_MODE=true. Must run BEFORE
+  // route handlers so we never reach a destructive endpoint even with a
+  // god session. Mounted on /ext/* too, so an extension exposing a
+  // destructive endpoint can't escape the demo-mode lockdown.
   app.use('/api/*', demoModeMiddleware());
+  app.use('/ext/*', demoModeMiddleware());
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   app.use('/api/auth/sign-in/*', authRateLimit);

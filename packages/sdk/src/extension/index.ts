@@ -179,6 +179,43 @@ export interface ExtensionInternals {
   extractTextFromFile: (buffer: ArrayBuffer | Buffer | Uint8Array, mimeType: string) => Promise<string>;
   /** Send an in-app notification to a user (writes to zv_notifications system table). */
   sendNotification: (db: any, input: { user_id: string; type?: string; title: string; message?: string; data?: unknown }) => Promise<void>;
+  /**
+   * Create a Better-Auth session for an already-authenticated user (SSO bridge).
+   *
+   * SAML / LDAP / OIDC extensions verify the user out-of-band and need a
+   * Better-Auth session that `auth.api.getSession({ headers })` will accept.
+   * This helper handles the exact column shape (camelCase) of the `session`
+   * table AND the signed-cookie format Better-Auth expects, so SSO providers
+   * don't have to inline Better-Auth internals.
+   *
+   * Returns the `Set-Cookie` header value — the route handler attaches it to
+   * its Response. Pass `crossDomain: true` to emit `SameSite=None; Secure`
+   * (needed when Studio runs on a different origin than the engine).
+   */
+  createBetterAuthSession: (
+    db: any,
+    userId: string,
+    opts?: {
+      ipAddress?: string;
+      userAgent?: string;
+      ttlSeconds?: number;
+      crossDomain?: boolean;
+    },
+  ) => Promise<{ token: string; setCookie: string }>;
+  /**
+   * Encrypt a secret (LDAP bind passwords, third-party API keys, …) with
+   * the engine's AES-256-GCM field encryption key (FIELD_ENCRYPTION_KEY).
+   * Output is prefixed with `enc:v1:`, so calling this on an already-
+   * encrypted value is a no-op. Throws if FIELD_ENCRYPTION_KEY is unset;
+   * extensions should refuse the write rather than persist plaintext.
+   */
+  encryptSecret: (plaintext: string) => Promise<string>;
+  /**
+   * Reverse of `encryptSecret`. Returns the plaintext if the value has
+   * the `enc:v1:` prefix; otherwise returns the value as-is so reads of
+   * legacy unencrypted rows still work during a rolling encryption rollout.
+   */
+  decryptSecret: (value: string) => Promise<string>;
 }
 
 /**
