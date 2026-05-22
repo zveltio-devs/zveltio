@@ -54,7 +54,12 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst() as any;
     if (!result) return c.json({ error: `No user found with email: ${email}` }, 404);
     const { invalidateGodCache } = await import('../lib/permissions.js');
-    await invalidateGodCache(result.id).catch(() => {});
+    await invalidateGodCache(result.id).catch((err: Error) => {
+      // Cache invalidation failure on a privilege grant is HIGH-IMPACT:
+      // the new god role won't be visible until the cache TTL expires.
+      // Logging is the minimum — operator may need to bounce the cache.
+      console.error('[permissions] invalidateGodCache failed after role grant:', err.message);
+    });
     return c.json({ success: true, user: { id: result.id, email: result.email, role: result.role } });
   });
 
@@ -106,7 +111,11 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         resourceId: userId,
         resourceType: 'user',
         metadata: { action: 'role_assigned', role },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        // Permission/role audit must survive — if it fails, the auditor
+        // loses traceability for a privilege change. Log loudly.
+        console.error('[permissions] audit log failed:', err.message);
+      });
       return c.json({ success: true, userId, role });
     },
   );
@@ -134,7 +143,11 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         resourceId: userId,
         resourceType: 'user',
         metadata: { action: 'role_removed', role },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        // Permission/role audit must survive — if it fails, the auditor
+        // loses traceability for a privilege change. Log loudly.
+        console.error('[permissions] audit log failed:', err.message);
+      });
       return c.json({ success: true });
     },
   );
@@ -162,7 +175,11 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         userId: admin?.id,
         resourceType: 'policy',
         metadata: { subject, resource, effect: action },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        // Permission/role audit must survive — if it fails, the auditor
+        // loses traceability for a privilege change. Log loudly.
+        console.error('[permissions] audit log failed:', err.message);
+      });
       return c.json({ success: true });
     },
   );
@@ -190,7 +207,11 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         userId: admin?.id,
         resourceType: 'policy',
         metadata: { subject, resource, effect: action },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        // Permission/role audit must survive — if it fails, the auditor
+        // loses traceability for a privilege change. Log loudly.
+        console.error('[permissions] audit log failed:', err.message);
+      });
       return c.json({ success: true });
     },
   );

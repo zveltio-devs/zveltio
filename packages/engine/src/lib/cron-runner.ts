@@ -150,10 +150,16 @@ export class CronRunnerImpl {
     this.db = db;
     this.ctx = ctx;
     this.running = true;
-    // First tick immediately, then every POLL_MS.
-    this._tick().catch(() => { /* swallow */ });
+    // First tick immediately, then every POLL_MS. Errors are logged but
+    // don't crash the loop — a single bad cron job shouldn't disable the
+    // whole scheduler.
+    this._tick().catch((err) => {
+      console.error('[cron-runner] initial tick failed:', err);
+    });
     this.timer = setInterval(() => {
-      this._tick().catch(() => { /* swallow */ });
+      this._tick().catch((err) => {
+        console.error('[cron-runner] tick failed:', err);
+      });
     }, POLL_MS);
   }
 

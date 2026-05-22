@@ -30,6 +30,10 @@ export function requestLogMiddleware(db: Database): MiddlewareHandler {
         user_agent: c.req.header('user-agent') ?? null,
       })
       .execute()
-      .catch(() => { /* non-fatal */ });
+      .catch((err: Error) => {
+        // Request log is best-effort — log loudly so a wedged audit
+        // pipeline doesn't go unnoticed (every request loses traceability).
+        console.warn('[request-log] write failed:', err.message);
+      });
   };
 }

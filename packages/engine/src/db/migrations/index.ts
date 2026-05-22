@@ -1,9 +1,25 @@
 import type { Database } from '../index.js';
-import { readdir } from 'fs/promises';
-import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { EMBEDDED_MIGRATIONS } from './embedded.js';
+
+// Small Bun-native helpers used in place of node:fs — matches the
+// project rule "Bun.file, Bun.spawn — NOT fs/child_process".
+async function dirExists(path: string): Promise<boolean> {
+  try {
+    // Bun.file().stat() works on any path; isDirectory tells us if the
+    // entry is a directory (vs a missing path which throws).
+    const stat = await Bun.file(path).stat();
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function listSqlFilesSync(dir: string): string[] {
+  const glob = new Bun.Glob('*.sql');
+  return [...glob.scanSync({ cwd: dir, onlyFiles: true })];
+}
 
 /**
  * Splits a SQL string into individual statements on top-level semicolons.
@@ -257,14 +273,21 @@ async function applyMigration(
       execution_ms: executionMs,
     })
     .execute()
-    .catch(() => {}); // Non-fatal if tracking fails
+    .catch((err: Error) => {
+      // Tracking failure is non-fatal because the migration itself
+      // already succeeded — but a chronic failure means the next run
+      // will re-apply the same migration, which can break idempotence.
+      console.warn(`[migrations] zv_schema_versions tracking failed for ${filename}:`, err.message);
+    });
 
   // Also record in legacy zv_migrations table for backward compat
   await (db as any)
     .insertInto('zv_migrations')
     .values({ name: filename.replace('.sql', '') })
     .execute()
-    .catch(() => {});
+    .catch((err: Error) => {
+      console.warn(`[migrations] legacy zv_migrations row insert failed for ${filename}:`, err.message);
+    });
 
   console.log(
     `   ✅ Migration ${String(migrationNumber).padStart(3, '0')} — ${name} (${executionMs}ms)`,
@@ -277,9 +300,9 @@ export async function runPending(db: Database): Promise<void> {
   let files: string[];
   let getContent: (file: string) => Promise<string>;
 
-  if (existsSync(migrationsDir)) {
+  if (await dirExists(migrationsDir)) {
     // Development / source mode: read from filesystem
-    files = (await readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
+    files = listSqlFilesSync(migrationsDir).sort();
     getContent = (file) => Bun.file(join(migrationsDir, file)).text();
   } else {
     // Compiled binary mode: use embedded migrations bundled at build time
@@ -344,8 +367,7 @@ export async function rollbackMigration(
   try {
     const migrationsDir = join(import.meta.dir, 'sql');
 
-    const allFiles = readdirSync(migrationsDir)
-      .filter((f) => f.endsWith('.sql'))
+    const allFiles = listSqlFilesSync(migrationsDir)
       .map((f) => ({
         filename: f,
         version: parseInt(f.match(/^(\d+)/)?.[1] ?? '0'),
@@ -358,7 +380,7 @@ export async function rollbackMigration(
     }
 
     for (const file of allFiles) {
-      const content = readFileSync(join(migrationsDir, file.filename), 'utf-8');
+      const content = await Bun.file(join(migrationsDir, file.filename)).text();
       const { down } = parseMigrationFile(content);
 
       if (!down) {
