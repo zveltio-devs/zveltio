@@ -131,7 +131,12 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
         user_id: user.id,
       })
       .execute()
-      .catch(() => { /* non-fatal */ });
+      .catch((err: Error) => {
+        // Failure to record the revert in zvd_revisions breaks the audit
+        // trail for the revert itself (the underlying record IS reverted).
+        // Log so an operator can backfill if needed.
+        console.warn('[revisions] revert audit write failed:', err.message);
+      });
 
     return c.json({ success: true, record: reverted });
   });

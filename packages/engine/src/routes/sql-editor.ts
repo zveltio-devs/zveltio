@@ -1,13 +1,16 @@
 /**
  * SQL Editor — admin-only ad-hoc SQL execution.
  *
- * POST /api/admin/sql  →  { query: "..." }  →  { rows, rowCount }
+ * POST /api/admin/sql  →  { query: "...", timeout_ms?: number }  →  { rows, rowCount }
  *
  * Safety:
  *  - Admin-only (requires session + admin permission).
  *  - Audited via auditLog so we have a paper trail of who ran what.
- *  - Uses pool.unsafe() — no prepared statement caching, simple-query protocol —
- *    which intentionally allows multi-statement scripts (CREATE + INSERT + ...).
+ *  - Statement-level timeout (default 30s, max 5min) enforced via
+ *    `SET LOCAL statement_timeout` so a runaway admin query can't
+ *    pin a pool connection indefinitely. Multi-statement scripts
+ *    (CREATE + INSERT + …) are still allowed inside the transaction —
+ *    READ ONLY is intentionally NOT set here so DDL/DML works.
  */
 
 import { Hono } from 'hono';
@@ -20,6 +23,9 @@ import { auditLog } from '../lib/audit.js';
 
 const SqlSchema = z.object({
   query: z.string().min(1).max(50_000),
+  // 100ms minimum to allow CI smoke tests; 5min ceiling to stop a
+  // forgotten CREATE INDEX from squatting the connection forever.
+  timeout_ms: z.number().int().min(100).max(300_000).optional(),
 });
 
 export function sqlEditorRoutes(db: Database, auth: any): Hono {
@@ -36,12 +42,22 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
   });
 
   router.post('/', zValidator('json', SqlSchema), async (c) => {
-    const { query } = c.req.valid('json');
+    const { query, timeout_ms = 30_000 } = c.req.valid('json');
     const user = c.get('user') as { id: string };
     const start = Date.now();
     try {
-      const result = await sql.raw(query).execute(db);
-      const rows = (result.rows ?? []) as Record<string, unknown>[];
+      // Run inside a transaction with SET LOCAL statement_timeout so the
+      // timeout binds to the same connection as the user query. Without
+      // this wrap, `.execute(db)` on the pool can hand SET LOCAL and the
+      // query to different connections and the cap becomes a no-op.
+      // We intentionally do NOT set TRANSACTION READ ONLY here — this
+      // route is the admin power tool for DDL/DML.
+      const seconds = Math.max(1, Math.ceil(timeout_ms / 1000));
+      const result = await (db as any).transaction().execute(async (trx: any) => {
+        await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
+        return sql.raw(query).execute(trx);
+      });
+      const rows = ((result as any).rows ?? []) as Record<string, unknown>[];
 
       // Audit every successful execution — content stored, but truncated.
       auditLog(db, {
@@ -53,7 +69,9 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
           row_count: rows.length,
           ms: Date.now() - start,
         },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        console.warn('[sql-editor] audit log failed:', err.message);
+      });
 
       return c.json({ rows, rowCount: rows.length, ms: Date.now() - start });
     } catch (err) {
@@ -63,7 +81,9 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
         userId: user.id,
         resourceType: 'sql',
         metadata: { query: query.slice(0, 2000), error: message },
-      }).catch(() => {});
+      }).catch((auditErr: Error) => {
+        console.warn('[sql-editor] failure audit write failed:', auditErr.message);
+      });
       return c.json({ error: message }, 400);
     }
   });

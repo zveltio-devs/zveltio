@@ -225,7 +225,12 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       })
       .where('id', '=', id)
       .execute()
-      .catch(() => { /* non-fatal */ });
+      .catch((err: Error) => {
+        // View tracking failure is non-fatal but worth surfacing —
+        // a persistent failure here usually indicates a connection
+        // pool or RLS misconfiguration that hides bigger problems.
+        console.warn(`[insights] view_count update failed for dashboard ${id}:`, err.message);
+      });
 
     return c.json({ dashboard: dash, panels });
   });
@@ -550,7 +555,13 @@ export function insightsRoutes(db: Database, auth: any): Hono {
           }),
         )
         .execute()
-        .catch(() => { /* non-fatal */ });
+        .catch((err: Error) => {
+          // Panel-cache write failure means the next call re-runs the
+          // query — slower but correct. Log so a chronic failure shows
+          // up in operator logs (otherwise the panel "feels" fast for
+          // one user, slow for everyone else).
+          console.warn(`[insights] panel_cache upsert failed for panel ${id}:`, err.message);
+        });
 
       // Update panel metadata
       const currentAvg = panel.avg_execution_ms ?? executionMs;
@@ -563,7 +574,9 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         })
         .where('id', '=', id)
         .execute()
-        .catch(() => { /* non-fatal */ });
+        .catch((err: Error) => {
+          console.warn(`[insights] panel metadata update failed for ${id}:`, err.message);
+        });
 
       return c.json({ data: rows, type: panel.type, row_count: rows.length, cached: false, execution_ms: executionMs });
     } catch (err: any) {
@@ -573,7 +586,9 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         .set({ error_count: sql`error_count + 1` })
         .where('id', '=', id)
         .execute()
-        .catch(() => { /* non-fatal */ });
+        .catch((bookkeepingErr: Error) => {
+          console.warn(`[insights] error_count bump failed for ${id}:`, bookkeepingErr.message);
+        });
 
       return c.json({ error: String(err) }, 400);
     }
@@ -778,7 +793,9 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         .set({ use_count: sql`use_count + 1` })
         .where('id', '=', id)
         .execute()
-        .catch(() => { /* non-fatal */ });
+        .catch((err: Error) => {
+          console.warn(`[insights] use_count bump failed for saved-query ${id}:`, err.message);
+        });
 
       return c.json({ data: result.rows, columns: Object.keys(result.rows[0] || {}) });
     } catch (err) {

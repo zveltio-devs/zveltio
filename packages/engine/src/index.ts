@@ -369,7 +369,14 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
         enabled_at: new Date(),
       })
       .execute()
-      .catch(() => {}); // ignore race (unique constraint)
+      .catch((err: Error) => {
+        // Unique-constraint races are expected when multiple replicas
+        // boot together — log at debug level so unexpected errors still
+        // surface but the common case stays quiet.
+        if (!/duplicate key|unique constraint/i.test(err.message)) {
+          console.warn(`[bootstrap] default extension activation (${def.name}) failed:`, err.message);
+        }
+      });
     console.log(`🔌 Default extension auto-activated: ${def.name}`);
   }
 }
@@ -749,7 +756,9 @@ async function shutdown() {
   webhookWorker.stop();
   flowScheduler.stop();
   cancelPendingCleanups();
-  realtimeBus().stop().catch(() => { /* */ });
+  realtimeBus().stop().catch((err: Error) => {
+    console.warn('[shutdown] realtimeBus.stop() failed:', err.message);
+  });
   // Stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
     const { stopDDLQueue } = await import('./lib/ddl-queue.js');

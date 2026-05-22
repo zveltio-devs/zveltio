@@ -10,7 +10,6 @@
  *   - PATCH bump → MAX_SCHEMA_VERSION unchanged
  */
 
-import { readdirSync } from 'fs';
 import { join } from 'path';
 import { EMBEDDED_MIGRATIONS } from './db/migrations/embedded.js';
 import pkg from '../package.json' with { type: 'json' };
@@ -27,10 +26,19 @@ export const MIN_SCHEMA_VERSION = 0;
 export function getMaxSchemaVersion(): number {
   try {
     const migrationsDir = join(import.meta.dir, 'db', 'migrations', 'sql');
-    const files = readdirSync(migrationsDir)
-      .filter((f) => f.endsWith('.sql'))
-      .map((f) => parseInt(f.match(/^(\d+)/)?.[1] ?? '0'));
-    return Math.max(...files, 0);
+    // Bun.Glob is the native equivalent of readdirSync + filter — keeps
+    // the lookup synchronous (required because MAX_SCHEMA_VERSION is a
+    // module-level const evaluated at import time) without pulling in
+    // node:fs. Falls through to EMBEDDED_MIGRATIONS in the compiled
+    // binary, where the dir doesn't exist on disk.
+    const glob = new Bun.Glob('*.sql');
+    const versions: number[] = [];
+    for (const f of glob.scanSync({ cwd: migrationsDir, onlyFiles: true })) {
+      const m = f.match(/^(\d+)/);
+      if (m) versions.push(parseInt(m[1], 10));
+    }
+    if (versions.length === 0) throw new Error('no migrations on disk');
+    return Math.max(...versions);
   } catch {
     // Compiled binary: derive max version from embedded migrations
     const versions = Object.keys(EMBEDDED_MIGRATIONS)

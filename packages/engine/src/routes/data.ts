@@ -494,8 +494,12 @@ async function afterWrite(
   // Embedding triggered via engineEvents.emit('record.created' | 'record.updated')
   // below — the `ai` extension subscribes to those events. No core call needed.
 
-  // Invalidate query cache for this collection on every write
-  invalidateQueryCache(collection).catch(() => { /* non-critical */ });
+  // Invalidate query cache for this collection on every write.
+  // If this fails the read path serves stale data until TTL expires —
+  // log so a chronic failure (Valkey down, eviction storm) is visible.
+  invalidateQueryCache(collection).catch((err) => {
+    console.warn(`[data] invalidateQueryCache failed for ${collection}:`, (err as Error).message);
+  });
 
   // Trigger data_event flows (fire-and-forget — must not block the request)
   triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch((err) =>
@@ -838,9 +842,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
       next_cursor,
     };
 
-    // Cache the response (fire-and-forget, non-blocking)
+    // Cache the response (fire-and-forget, non-blocking). A cache write
+    // failure is recoverable — the next request just goes back to the DB
+    // — but a chronic failure indicates Valkey trouble worth surfacing.
     if (!query.as_of && !query.cursor) {
-      setQueryCache(qcKey, listResponse).catch(() => { /* non-critical */ });
+      setQueryCache(qcKey, listResponse).catch((err) => {
+        console.warn(`[data] setQueryCache failed for ${collection}:`, (err as Error).message);
+      });
     }
 
     return c.json(listResponse);
@@ -901,7 +909,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
     });
 
     for (const record of created) {
-      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id }).catch(() => {});
+      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id }).catch((err: Error) => {
+        console.warn(`[data] afterWrite(create, ${collection}/${record.id}) failed:`, err.message);
+      });
     }
 
     return c.json({ created: created.length, records: created, errors }, errors.length > 0 ? 207 : 201);
@@ -976,7 +986,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
     });
 
     for (const record of updated) {
-      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'update', data: record, userId: user.id }).catch(() => {});
+      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'update', data: record, userId: user.id }).catch((err: Error) => {
+        console.warn(`[data] afterWrite(update, ${collection}/${record.id}) failed:`, err.message);
+      });
     }
 
     return c.json({ updated: updated.length, records: updated, errors }, errors.length > 0 ? 207 : 200);
@@ -1045,7 +1057,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
         .execute();
 
       for (const record of allowed) {
-        afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id }).catch(() => {});
+        afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id }).catch((err: Error) => {
+          console.warn(`[data] afterWrite(delete, ${collection}/${record.id}) failed:`, err.message);
+        });
       }
     }
 

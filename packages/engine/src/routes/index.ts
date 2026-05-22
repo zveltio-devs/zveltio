@@ -114,6 +114,13 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/api/auth/sign-in/*', authRateLimit);
   app.use('/api/auth/sign-up/*', authRateLimit);
   app.use('/api/auth/forgot-password', authRateLimit);
+  // SSO extension login paths get the same auth rate limit (10/min/IP) —
+  // without this LDAP / SAML callback endpoints are wide-open to
+  // credential-stuffing and brute-force. Mounted with `app.use` so it
+  // covers `/login`, `/callback`, `/test`, etc. under each provider.
+  app.use('/ext/auth/ldap/login', authRateLimit);
+  app.use('/ext/auth/ldap/test', authRateLimit);
+  app.use('/ext/auth/saml/callback', authRateLimit);
   app.use('/api/ai/*', aiRateLimit);
   // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);

@@ -395,11 +395,15 @@ export class GhostDDL {
             `DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${migration.originalTable}"`,
           )
           .execute(db)
-          .catch(() => {});
+          .catch((cleanupErr: Error) => {
+            console.warn(`[ghost-ddl] DROP TRIGGER cleanup failed for ${migration.triggerName}:`, cleanupErr.message);
+          });
         await sql
           .raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`)
           .execute(db)
-          .catch(() => {});
+          .catch((cleanupErr: Error) => {
+            console.warn(`[ghost-ddl] DROP FUNCTION cleanup failed for ${triggerFn}:`, cleanupErr.message);
+          });
       } catch (cleanupErr) {
         console.warn(
           '[GhostDDL] Cleanup after failure also failed:',

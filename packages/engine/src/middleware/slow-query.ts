@@ -35,7 +35,9 @@ export function slowQueryMiddleware(db: Database): MiddlewareHandler {
           duration_ms: entry.duration_ms,
         })
         .execute()
-        .catch(() => {});
+        .catch((err: Error) => {
+          console.warn('[slow-query] write failed:', err.message);
+        });
     }
   };
 }
