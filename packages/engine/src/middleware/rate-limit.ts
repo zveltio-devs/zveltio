@@ -94,6 +94,28 @@ interface RateLimitConfig {
   db?: Database;
 }
 
+// One-shot warning per process if a deployment looks like it's behind a
+// proxy (forwarded headers present) but TRUSTED_PROXY isn't set. Without
+// the env var, the middleware ignores the forwarded IP and every client
+// behind that proxy shares the same rate-limit bucket — which means one
+// abusive client can DoS everyone else, or one well-behaved client gets
+// blocked because another behind the same proxy is hammering.
+let _proxyHintWarned = false;
+function maybeWarnProxyMisconfig(c: Context): void {
+  if (_proxyHintWarned) return;
+  if (process.env.TRUSTED_PROXY === 'true') return;
+  const hasFwd = !!(c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || c.req.header('forwarded'));
+  if (!hasFwd) return;
+  _proxyHintWarned = true;
+  console.warn(
+    '[rate-limit] X-Forwarded-For/X-Real-IP detected but TRUSTED_PROXY ' +
+    'is not set — all clients behind the proxy share the same rate-limit ' +
+    'bucket. Set TRUSTED_PROXY=true ONLY if your edge/proxy strips ' +
+    'inbound X-Forwarded-For headers before re-setting them, otherwise ' +
+    'clients can spoof their IP.',
+  );
+}
+
 export function rateLimit(config: RateLimitConfig) {
   const { keyPrefix, message = 'Too Many Requests', db } = config;
 
@@ -136,6 +158,7 @@ export function rateLimit(config: RateLimitConfig) {
       // Without this guard, any client can set the header to bypass per-IP rate limiting.
       const userId: string | undefined = session?.id;
 
+      maybeWarnProxyMisconfig(c);
       const trustedProxy = process.env.TRUSTED_PROXY === 'true';
       const rawForwardedFor = c.req
         .header('x-forwarded-for')
