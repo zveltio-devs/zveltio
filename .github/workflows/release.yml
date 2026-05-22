@@ -418,16 +418,22 @@ jobs:
             echo "No latest.json in release-assets — nothing to copy."
             exit 0
           fi
-          NEW_VER=$(node -p "require('$NEW_FILE').version")
-          NEW_CHANNEL=$(node -p "require('$NEW_FILE').channel")
+
+          # Read fields via fs.readFileSync, NOT require(). require() with a
+          # bare relative path like "release-assets/latest.json" is treated as
+          # a module name lookup and throws ERR_MODULE_NOT_FOUND. That was the
+          # latent bug from alpha.97 that left zveltio-get stuck at alpha.96
+          # for two consecutive releases.
+          NEW_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$NEW_FILE','utf8')).version)")
+          NEW_CHANNEL=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$NEW_FILE','utf8')).channel)")
 
           if [ -f zveltio-get/latest.json ]; then
-            CUR_VER=$(node -p "require('./zveltio-get/latest.json').version")
-            CUR_CHANNEL=$(node -p "require('./zveltio-get/latest.json').channel")
+            CUR_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('zveltio-get/latest.json','utf8')).version)")
+            CUR_CHANNEL=$(node -e "console.log(JSON.parse(require('fs').readFileSync('zveltio-get/latest.json','utf8')).channel)")
             # Compare only within the same channel — alpha never downgrades alpha,
             # but a stable release should always win over any prerelease.
             if [ "$CUR_CHANNEL" = "$NEW_CHANNEL" ] || [ "$CUR_CHANNEL" = "alpha" -a "$NEW_CHANNEL" = "stable" ]; then
-              IS_NEWER=$(node -e "
+              IS_NEWER=$(NEW_VER="$NEW_VER" CUR_VER="$CUR_VER" node -e "
                 const semver = (s) => s.replace(/^v/, '').split(/[.-]/).map(p => isNaN(+p) ? p : +p);
                 const cmp = (a, b) => {
                   for (let i = 0; i < Math.max(a.length, b.length); i++) {
@@ -437,7 +443,7 @@ jobs:
                   }
                   return 0;
                 };
-                process.stdout.write(cmp(semver('$NEW_VER'), semver('$CUR_VER')) >= 0 ? 'yes' : 'no');
+                process.stdout.write(cmp(semver(process.env.NEW_VER), semver(process.env.CUR_VER)) >= 0 ? 'yes' : 'no');
               ")
               if [ "$IS_NEWER" = "no" ]; then
                 echo "Current latest.json is $CUR_VER ($CUR_CHANNEL), this workflow is $NEW_VER ($NEW_CHANNEL) — keeping current. Race-guard win."

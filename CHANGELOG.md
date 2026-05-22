@@ -2,6 +2,30 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.99] - 2026-05-22
+
+### Fixed — race-guard workflow bug introduced in alpha.97
+
+The race-guard I added in alpha.97 had its own bug: read the
+new latest.json with `node -p "require('$NEW_FILE')..."`, where
+$NEW_FILE was a relative path like `release-assets/latest.json`.
+Node treats bare relative paths as MODULE specifiers, not file
+paths, so the call failed with ERR_MODULE_NOT_FOUND.
+
+Effect: every `update-website` job since alpha.97 has been failing
+silently (the job is `continue-on-error: true`). zveltio-get's
+latest.json was stuck at alpha.96 from May 21 19:21 onward, even
+though alpha.97 and alpha.98 shipped after that.
+
+Switched to `JSON.parse(fs.readFileSync(...))` and passed version
+strings to the comparison node script via `env` (instead of bash
+string interpolation, which was also fragile against pre-release
+suffixes containing dots).
+
+Also fixed: latest.json on zveltio-get was manually corrected to
+alpha.98 in commit `05cf966` before this release shipped, so
+users running install.sh now get the binary that actually boots.
+
 ## [1.0.0-alpha.98] - 2026-05-21
 
 ### Fixed — compiled binary crashed on boot
