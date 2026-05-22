@@ -20,9 +20,61 @@ export interface RunResult {
   duration_ms: number;
 }
 
-// Worker bootstrap: sets up message handler, shadows dangerous globals via AsyncFunction params
+// Worker bootstrap. Runs INSIDE a freshly-spawned Bun Worker (one per
+// request). Order matters:
+//   1. Capture the real Function/AsyncFunction constructors and `fetch`
+//      while they're still reachable.
+//   2. Run lockdownGlobals() — see edge-functions/sandbox-lockdown.ts for
+//      rationale. After this point, any user-code attempt to reach Bun,
+//      process, Worker, eval, Function, or to use the .constructor escape
+//      trick on a function prototype, throws.
+//   3. Compile the user handler via the captured AsyncFunction constructor
+//      with dangerous globals also shadowed as parameters (belt-and-braces
+//      against typos that would otherwise just look like undefined values).
+//
+// SSRF: `fetch` passed to the user is the parent's network primitive — we
+// don't have safeFetch reachable from inside a data:-URL Worker, so this
+// runner is appropriate only for ADMIN-authored edge functions. Anything
+// untrusted should use the file-based sandbox in edge-functions/sandbox.ts
+// which mounts safeFetch by import.
 const WORKER_BOOTSTRAP = `
 'use strict';
+const BLOCKED = ['Bun','process','require','module','exports','__dirname','__filename','Worker','importScripts','eval','Function'];
+function buildThrower(name) {
+  return () => { throw new Error('[sandbox] access to "' + name + '" is blocked'); };
+}
+function lockdownGlobals() {
+  for (const name of BLOCKED) {
+    try {
+      Object.defineProperty(globalThis, name, {
+        get: buildThrower(name),
+        set: buildThrower(name),
+        configurable: false,
+        enumerable: false,
+      });
+    } catch (_) {
+      try { globalThis[name] = buildThrower(name); } catch (_) { /* read-only */ }
+    }
+  }
+  const throwingCtor = function() { throw new Error('[sandbox] dynamic code construction is blocked'); };
+  function lockProto(proto) {
+    try {
+      Object.defineProperty(proto, 'constructor', {
+        value: throwingCtor, configurable: false, writable: false, enumerable: false,
+      });
+    } catch (_) { /* frozen */ }
+  }
+  lockProto((function(){}).constructor.prototype);
+  lockProto(Object.getPrototypeOf(async function(){}));
+  lockProto(Object.getPrototypeOf(function*(){}));
+  lockProto(Object.getPrototypeOf(async function*(){}));
+  try { Object.freeze(Object.prototype); } catch (_) {}
+  try { Object.freeze(Array.prototype); } catch (_) {}
+  try { Object.freeze(String.prototype); } catch (_) {}
+  try { Object.freeze(Number.prototype); } catch (_) {}
+  try { Object.freeze(Function.prototype); } catch (_) {}
+}
+
 self.onmessage = async (e) => {
   const { id, code, request, env, timeoutMs } = e.data;
   const logs = [];
@@ -33,8 +85,11 @@ self.onmessage = async (e) => {
     info:  (...a) => logs.push('[info] '  + a.map(String).join(' ')),
   };
   try {
-    // Shadow dangerous globals by naming them as params (shadows outer Worker scope)
+    // Stash constructor + fetch BEFORE lockdown — lockdown disables both.
     const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+    const _fetch = fetch;
+    lockdownGlobals();
+
     const userFn = new AsyncFn(
       'request','env','console','fetch',
       'process','Bun','require','module','exports','globalThis','eval','Function','Worker','importScripts','self',
@@ -46,7 +101,7 @@ self.onmessage = async (e) => {
       setTimeout(() => rej(new Error('Execution timed out after ' + timeoutMs + 'ms')), timeoutMs)
     );
     const raw = await Promise.race([
-      userFn(request, env, _console, fetch,
+      userFn(request, env, _console, _fetch,
         undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
       timeout,
     ]);

@@ -72,7 +72,7 @@
   }
 
   async function downloadXML(id: string, start: string, end: string) {
-    const res = await fetch(`${ENGINE_URL}/ext/compliance/ro/saft/${id}/xml`, { credentials: 'include' });
+    const res = await api.fetch(`/ext/compliance/ro/saft/${id}/xml`);
     if (!res.ok) { toast.error('Genereaza XML mai intai'); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);

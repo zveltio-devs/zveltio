@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   let orders = $state<any[]>([]);
@@ -26,8 +27,8 @@
 
   $effect(() => {
     loadOrders();
-    fetch(`${API}/items?type=finished`).then(r => r.json()).then(d => { items = d.data ?? []; });
-    fetch(`${API}/production/recipes`).then(r => r.json()).then(d => { recipes = d.data ?? []; });
+    api.fetch(`${API}/items?type=finished`).then(r => r.json()).then(d => { items = d.data ?? []; });
+    api.fetch(`${API}/production/recipes`).then(r => r.json()).then(d => { recipes = d.data ?? []; });
   });
 
   $effect(() => { statusFilter; loadOrders(); });
@@ -37,7 +38,7 @@
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      const res = await fetch(`${API}/production?${params}`);
+      const res = await api.fetch(`${API}/production?${params}`);
       orders = res.ok ? (await res.json()).data : [];
     } finally {
       loading = false;
@@ -45,7 +46,7 @@
   }
 
   async function loadAvailableLots(itemId: string) {
-    const res = await fetch(`${API}/lots?status=available&limit=200`);
+    const res = await api.fetch(`${API}/lots?status=available&limit=200`);
     lots = res.ok ? (await res.json()).data : [];
   }
 
@@ -54,7 +55,7 @@
     processing = true;
     error = '';
     try {
-      const res = await fetch(`${API}/production`, {
+      const res = await api.fetch(`${API}/production`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -76,13 +77,13 @@
   }
 
   async function startOrder(id: string) {
-    await fetch(`${API}/production/${id}/start`, { method: 'PATCH' });
+    await api.fetch(`${API}/production/${id}/start`, { method: 'PATCH' });
     await loadOrders();
     if (selectedOrder?.id === id) await loadOrder(id);
   }
 
   async function loadOrder(id: string) {
-    const res = await fetch(`${API}/production/${id}`);
+    const res = await api.fetch(`${API}/production/${id}`);
     if (res.ok) {
       selectedOrder = (await res.json()).data;
       await loadAvailableLots(selectedOrder.output_lot_id);
@@ -94,7 +95,7 @@
     processing = true;
     error = '';
     try {
-      const res = await fetch(`${API}/production/${selectedOrder.id}/consume`, {
+      const res = await api.fetch(`${API}/production/${selectedOrder.id}/consume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lot_id: consumeForm.lot_id, quantity_used: parseFloat(consumeForm.quantity_used) }),
@@ -113,7 +114,7 @@
     e.preventDefault();
     processing = true;
     try {
-      await fetch(`${API}/production/${selectedOrder.id}/haccp`, {
+      await api.fetch(`${API}/production/${selectedOrder.id}/haccp`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

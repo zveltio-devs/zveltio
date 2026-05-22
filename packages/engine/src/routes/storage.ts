@@ -106,6 +106,75 @@ function extractImageDimensions(
   return {};
 }
 
+/**
+ * Strip script/event-handler nodes out of an SVG string.
+ *
+ * An SVG with `<script>` or `<foreignObject>` content executes when the
+ * browser renders it inline. Even an `<img src="...svg">` can run scripts
+ * if the SVG is served from the same origin. We delete the dangerous
+ * subtrees and scrub every `on*` attribute before storage.
+ *
+ * We deliberately use a regex sweep rather than parsing the SVG: bringing
+ * in a DOM parser on every upload is heavy, and the cases we need to kill
+ * are stable. False positives (e.g. an SVG with a `<title>` that happens
+ * to contain the literal word "script") are not destructive — the worst
+ * case is a stripped attribute, not a corrupted file.
+ */
+function sanitizeSvgString(svg: string): string {
+  let s = svg;
+  // Strip <script>...</script>
+  s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  // Strip <script .../> self-closing
+  s = s.replace(/<script\b[^>]*\/>/gi, '');
+  // Strip <foreignObject> — can embed arbitrary HTML, including <iframe>
+  s = s.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject>/gi, '');
+  // Strip all on* event handler attributes (onload, onclick, …)
+  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g, '');
+  // Strip javascript: / data: / vbscript: URIs in href / xlink:href
+  s = s.replace(/(href|xlink:href)\s*=\s*"\s*(?:javascript|data|vbscript):[^"]*"/gi, '$1="#"');
+  s = s.replace(/(href|xlink:href)\s*=\s*'\s*(?:javascript|data|vbscript):[^']*'/gi, "$1='#'");
+  // Strip <use href="data:..."> — Chrome and Firefox both allow script:
+  // execution through external SVG references.
+  s = s.replace(/<use\b[^>]*\b(?:href|xlink:href)\s*=\s*(?:"|')\s*(?:javascript|data|vbscript):/gi, '<use ');
+  return s;
+}
+
+const MIME_BY_EXT: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml',
+  pdf: 'application/pdf', txt: 'text/plain', md: 'text/plain', csv: 'text/csv',
+  json: 'application/json', xml: 'application/xml',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac',
+  zip: 'application/zip', tar: 'application/x-tar', gz: 'application/gzip', '7z': 'application/x-7z-compressed',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ppt: 'application/vnd.ms-powerpoint',
+};
+
+/**
+ * Detect a file's real MIME from its magic bytes, ignoring the
+ * client-supplied `file.type`. A user can rename `evil.html` to `safe.png`
+ * and trick the browser into rendering it as HTML if we trust the header;
+ * checking the actual bytes catches that. Falls back to the extension
+ * allowlist mapping when we don't have a magic-byte signature for the
+ * file type (e.g. plain text formats).
+ */
+function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
+  if (buf.length >= 4) {
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return 'image/gif';
+    if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'application/pdf';
+    if (buf[0] === 0x50 && buf[1] === 0x4b) return MIME_BY_EXT[ext] ?? 'application/zip';
+    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return 'image/webp'; // RIFF — could be WAV/AVI too, prefer ext
+  }
+  return MIME_BY_EXT[ext] ?? null;
+}
+
 
 export function storageRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -212,6 +281,29 @@ export function storageRoutes(db: Database, auth: any): Hono {
       );
     }
 
+    // SVG sanitization — an SVG with embedded <script> or <foreignObject>
+    // executes JavaScript when the browser renders it from our origin,
+    // which is XSS. We strip script/handler nodes server-side before the
+    // file is ever written to storage. Rejecting outright would break the
+    // common "upload your company logo" path, so we sanitize instead.
+    let safeBytes = buffer;
+    let detectedMime: string | null = null;
+    if (rawExt === 'svg') {
+      try {
+        const raw = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+        const cleaned = sanitizeSvgString(raw);
+        safeBytes = Buffer.from(cleaned, 'utf-8');
+        detectedMime = 'image/svg+xml';
+      } catch (err) {
+        return c.json({ error: `SVG could not be parsed: ${(err as Error).message}` }, 400);
+      }
+    }
+
+    // Magic-bytes detection — client-supplied file.type is trusted only
+    // as a hint; the actual Content-Type we record comes from the file
+    // content so a renamed `.png` can't be served as `text/html`.
+    if (!detectedMime) detectedMime = detectMimeFromMagic(buffer, rawExt) ?? file.type;
+
     const filename = `${crypto.randomUUID()}.${rawExt}`;
     const storagePath = `uploads/${new Date().getFullYear()}/${filename}`;
 
@@ -220,10 +312,10 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (client) {
       const res = await client.fetch(s3Url(storagePath), {
         method: 'PUT',
-        body: buffer,
+        body: safeBytes,
         headers: {
-          'Content-Type': file.type,
-          'Content-Length': String(buffer.length),
+          'Content-Type': detectedMime,
+          'Content-Length': String(safeBytes.length),
         },
       });
       if (!res.ok) {
@@ -234,8 +326,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     let width: number | undefined;
     let height: number | undefined;
-    if (file.type.startsWith('image/')) {
-      const dims = extractImageDimensions(buffer, file.type);
+    if (detectedMime.startsWith('image/')) {
+      const dims = extractImageDimensions(safeBytes, detectedMime);
       width = dims.width;
       height = dims.height;
     }
@@ -247,8 +339,10 @@ export function storageRoutes(db: Database, auth: any): Hono {
         folder_id: folderId || null,
         filename,
         original_name: file.name,
-        mimetype: file.type,
-        size: file.size,
+        // Trust the server-detected content type, not the client header —
+        // a renamed `.html` would otherwise be served as `text/html`.
+        mimetype: detectedMime,
+        size: safeBytes.length,
         storage_path: storagePath,
         url,
         width,

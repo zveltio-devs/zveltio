@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   type Tab = 'pending' | 'confirmed' | 'direct';
@@ -33,7 +34,7 @@
 
   $effect(() => {
     if (activeTab === 'direct') {
-      fetch(`${API}/lots?status=available&limit=200`)
+      api.fetch(`${API}/lots?status=available&limit=200`)
         .then(r => r.json())
         .then(d => { lots = d.data ?? []; });
     }
@@ -45,7 +46,7 @@
     try {
       const status = activeTab === 'pending' ? 'pending' : activeTab === 'confirmed' ? 'confirmed' : null;
       const params = status ? `?status=${status}` : '';
-      const res = await fetch(`${API}/dispatches${params}`);
+      const res = await api.fetch(`${API}/dispatches${params}`);
       dispatches = res.ok ? (await res.json()).data : [];
     } catch (e: any) {
       error = e.message;
@@ -55,7 +56,7 @@
   }
 
   async function selectDispatch(d: any) {
-    const res = await fetch(`${API}/dispatches/${d.id}`);
+    const res = await api.fetch(`${API}/dispatches/${d.id}`);
     selected = res.ok ? (await res.json()).data : d;
     confirmForm = { quantity_dispatched: String(selected.quantity_invoiced ?? ''), notes: '' };
     assignLotId = selected.lot_id ?? '';
@@ -63,7 +64,7 @@
 
   async function assignLot() {
     if (!assignLotId || !selected) return;
-    const res = await fetch(`${API}/dispatches/${selected.id}/assign-lot`, {
+    const res = await api.fetch(`${API}/dispatches/${selected.id}/assign-lot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lot_id: assignLotId }),
@@ -80,7 +81,7 @@
     confirming = true;
     error = '';
     try {
-      const res = await fetch(`${API}/dispatches/${selected.id}/confirm`, {
+      const res = await api.fetch(`${API}/dispatches/${selected.id}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -100,7 +101,7 @@
 
   async function cancelDispatch(id: string) {
     if (!confirm('Anulați expedierea?')) return;
-    await fetch(`${API}/dispatches/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    await api.fetch(`${API}/dispatches/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     selected = null;
     await loadDispatches();
   }
@@ -111,7 +112,7 @@
     error = '';
     directDone = null;
     try {
-      const res = await fetch(`${API}/dispatches/direct`, {
+      const res = await api.fetch(`${API}/dispatches/direct`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

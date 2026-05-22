@@ -23,6 +23,21 @@ class ApiClient {
     return res.json();
   }
 
+  /**
+   * Low-level fetch wrapper for callers that need the Response object
+   * itself (streaming downloads, non-JSON bodies, manual status handling).
+   * Adds the engine base URL and credentials so callers don't have to
+   * remember to set them. Use the typed `.get/.post/.put/.patch/.delete`
+   * helpers for the common JSON-in/JSON-out flow.
+   */
+  fetch(path: string, init: RequestInit = {}): Promise<Response> {
+    return fetch(`${this.base}${path}`, {
+      credentials: 'include',
+      ...init,
+      headers: { ...(init.headers ?? {}) },
+    });
+  }
+
   get<T>(path: string) { return this.request<T>('GET', path); }
   post<T>(path: string, body?: any) { return this.request<T>('POST', path, body); }
   put<T>(path: string, body: any) { return this.request<T>('PUT', path, body); }

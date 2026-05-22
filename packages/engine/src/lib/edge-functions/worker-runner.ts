@@ -244,12 +244,26 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
   const start = Date.now();
 
   try {
+    // ═══ Sandbox lockdown — runs ONCE per Worker, BEFORE user code is
+    //     compiled or evaluated. Replaces Bun/process/Function/eval on
+    //     globalThis with non-configurable throwing getters and replaces
+    //     the .constructor slot on every function prototype with a
+    //     throwing stub. After this point, `(()=>{}).constructor("return Bun")()`
+    //     and equivalents fail closed at runtime.
+    const { lockdownGlobals } = await import('./sandbox-lockdown.js');
+    // Transpile FIRST while Bun.Transpiler is still reachable — lockdown
+    // makes `Bun` throw, so any later access from this file would crash too.
     const transpiler = new Bun.Transpiler({ loader: 'ts' });
-    const js = transpiler.transformSync(code); // STDLIB nu mai este necesar
+    const js = transpiler.transformSync(code);
+    // Stash the real Function constructor so we can still build the
+    // user handler closure ourselves below; lockdown disables ALL future
+    // access via the prototype chain.
+    const FunctionCtor = Function;
+    lockdownGlobals();
 
     const safeGlobals: Record<string, any> = {
       // ═══ Allowed globals ═══
-      fetch: safeFetch, // Proxy securizat, NU fetch direct
+      fetch: safeFetch, // SSRF-protected proxy, NOT raw fetch
       Request,
       Response,
       URL,
@@ -271,7 +285,11 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
         warn: (...args: any[]) => logs.push(`[warn] ${args.join(' ')}`),
       },
 
-      // ═══ Explicit blocks — prevents escape from sandbox ═══
+      // ═══ Defense in depth: shadow names as params even though lockdown
+      //     already blocks property access. A user trying to type `process`
+      //     gets `undefined` instead of throwing — matches the documented
+      //     "these aren't available" UX while keeping the real lockdown
+      //     for any reflective access. ═══
       process: undefined,
       require: undefined,
       module: undefined,
@@ -282,27 +300,17 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
       globalThis: undefined,
       Bun: undefined,
       Deno: undefined,
-      self: undefined, // Block access to worker self
-      postMessage: undefined, // Block direct parent communication
-      importScripts: undefined, // Block external script loading
-      eval: undefined, // Block recursive eval
-      Function: undefined, // Block new Function creation
+      self: undefined,
+      postMessage: undefined,
+      importScripts: undefined,
+      eval: undefined,
+      Function: undefined,
     };
 
-    const fn = new Function(
+    const fn = new FunctionCtor(
       ...Object.keys(safeGlobals),
       `${SECURITY_PREFIX}\n${js}; return typeof handler !== 'undefined' ? handler : (typeof module !== 'undefined' ? module.exports?.default : null);`,
     );
-
-    // Freeze prototypes to prevent prototype pollution attacks
-    // Safe in worker thread — does NOT propagate to parent process
-    try {
-      Object.freeze(Object.prototype);
-      Object.freeze(Array.prototype);
-      Object.freeze(String.prototype);
-    } catch {
-      // Already frozen or unsupported — continue
-    }
 
     const handler = fn(...Object.values(safeGlobals));
 

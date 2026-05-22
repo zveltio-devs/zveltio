@@ -7,7 +7,96 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission, getUserRoles } from '../lib/permissions.js';
+
+/**
+ * Resolve whether `userId` can read a dashboard. Order matters — admin
+ * check is last because Casbin lookups are slower than the direct row
+ * predicates that already gate most calls.
+ */
+async function canReadDashboard(
+  db: Database,
+  dash: { id: string; created_by: string; is_public: boolean },
+  userId: string,
+): Promise<boolean> {
+  if (dash.is_public) return true;
+  if (dash.created_by === userId) return true;
+
+  // Direct user share
+  const userShare = await (db as any)
+    .selectFrom('zvd_dashboard_shares')
+    .select(['id'])
+    .where('dashboard_id', '=', dash.id)
+    .where('shared_with_user_id', '=', userId)
+    .executeTakeFirst();
+  if (userShare) return true;
+
+  // Role share — the audit found that share lookup ignored
+  // `shared_with_role`, so users granted access via a role got 403
+  // anyway. Now we resolve the user's Casbin roles and check any of
+  // them appears on the share row.
+  const roles = await getUserRoles(userId).catch(() => [] as string[]);
+  if (roles.length > 0) {
+    const roleShare = await (db as any)
+      .selectFrom('zvd_dashboard_shares')
+      .select(['id'])
+      .where('dashboard_id', '=', dash.id)
+      .where('shared_with_role', 'in', roles)
+      .executeTakeFirst();
+    if (roleShare) return true;
+  }
+
+  return checkPermission(userId, 'admin', '*');
+}
+
+// Multi-statement injection guard for stored panel/saved SQL — the
+// startsWith('SELECT') check is necessary but not sufficient because
+// Bun.SQL forwards multi-statement payloads. Matches the list in
+// flow-executor.ts so the surface is consistent across runners.
+const DANGEROUS_SQL_PATTERNS: RegExp[] = [
+  /;\s*(DROP|DELETE|UPDATE|INSERT|CREATE|ALTER|TRUNCATE|GRANT|REVOKE)/i,
+  /pg_sleep/i,
+  /pg_read_file/i,
+  /pg_write_file/i,
+  /copy\s+.*\s+to\s+/i,
+  /copy\s+.*\s+from\s+/i,
+  /lo_export/i,
+  /lo_import/i,
+];
+
+/**
+ * Execute a read-only SELECT/WITH query with a Postgres statement_timeout.
+ *
+ * Three safety layers, all on the same connection:
+ *  - SET TRANSACTION READ ONLY — Postgres refuses INSERT/UPDATE/DELETE/DDL
+ *    even if the upstream regex check is somehow bypassed (defence in depth
+ *    against e.g. semicolons inside multi-statement payloads).
+ *  - SET LOCAL statement_timeout — caps wall-clock so a cartesian join can't
+ *    monopolise a pool connection. Must be SET LOCAL (transaction-scoped),
+ *    not SET, so the connection returns to the pool clean on commit.
+ *  - Wrapped in a transaction so the two SETs and the user query share the
+ *    same connection. Without the transaction, `.execute(db)` can pick a
+ *    different pool connection per call and the safety SETs become no-ops.
+ */
+async function runReadOnlySql(
+  db: Database,
+  query: string,
+  timeoutSec = 10,
+): Promise<{ rows: any[] }> {
+  return (db as any).transaction().execute(async (trx: Database) => {
+    await sql.raw(`SET TRANSACTION READ ONLY`).execute(trx);
+    await sql.raw(`SET LOCAL statement_timeout = '${timeoutSec}s'`).execute(trx);
+    const result = await sql.raw(query).execute(trx);
+    return { rows: (result as any).rows ?? [] };
+  });
+}
+
+function rejectIfDangerous(query: string): string | null {
+  for (const re of DANGEROUS_SQL_PATTERNS) {
+    if (re.test(query)) return 'Query contains a forbidden pattern.';
+  }
+  return null;
+}
 
 export function insightsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -116,18 +205,8 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
     if (!dash) return c.json({ error: 'Not found' }, 404);
 
-    // Access check: public, owner, or shared
-    if (!dash.is_public && dash.created_by !== user.id) {
-      const share = await (db as any)
-        .selectFrom('zvd_dashboard_shares')
-        .select(['id'])
-        .where('dashboard_id', '=', id)
-        .where('shared_with_user_id', '=', user.id)
-        .executeTakeFirst();
-      if (!share) {
-        const isAdmin = await checkPermission(user.id, 'admin', '*');
-        if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
-      }
+    if (!(await canReadDashboard(db, dash, user.id))) {
+      return c.json({ error: 'Forbidden' }, 403);
     }
 
     const panels = await (db as any)
@@ -278,6 +357,10 @@ export function insightsRoutes(db: Database, auth: any): Hono {
   });
 
   // ── POST /dashboards/:id/panels ──────────────────────────────────────────────
+  // Panels store raw SQL that anyone with /execute access then runs. Treat
+  // panel mutation as admin-only — otherwise any authenticated user could
+  // attach a `SELECT * FROM account` panel to their own dashboard and read
+  // password hashes via /panels/:id/execute.
   app.post(
     '/dashboards/:id/panels',
     zValidator(
@@ -292,6 +375,10 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      const user = c.get('user') as any;
+      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
+
       const dashboardId = c.req.param('id');
       const body = c.req.valid('json');
 
@@ -336,6 +423,10 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      const user = c.get('user') as any;
+      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
+
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
@@ -361,6 +452,10 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── DELETE /panels/:id ───────────────────────────────────────────────────────
   app.delete('/panels/:id', async (c) => {
+    const user = c.get('user') as any;
+    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
+
     const deleted = await (db as any)
       .deleteFrom('zv_panels')
       .where('id', '=', c.req.param('id'))
@@ -373,6 +468,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── POST /panels/:id/execute ─────────────────────────────────────────────────
   app.post('/panels/:id/execute', async (c) => {
+    const user = c.get('user') as any;
     const id = c.req.param('id');
 
     const panel = await (db as any)
@@ -382,6 +478,22 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!panel) return c.json({ error: 'Panel not found' }, 404);
+
+    // Access check: caller must have access to the parent dashboard
+    // (owner, public, share, or admin). Without this, knowing a panel id
+    // is enough to execute its raw SQL — a privilege escalation since
+    // any admin can attach a `SELECT * FROM account` panel and the link
+    // would then leak password hashes to everyone who happens to GET it.
+    const dash = await (db as any)
+      .selectFrom('zv_dashboards')
+      .select(['id', 'created_by', 'is_public'])
+      .where('id', '=', panel.dashboard_id)
+      .executeTakeFirst();
+    if (!dash) return c.json({ error: 'Panel not found' }, 404);
+
+    if (!(await canReadDashboard(db, dash, user.id))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
 
     // Check cache first
     const cached = await (db as any)
@@ -408,16 +520,12 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     if (!normalized.startsWith('SELECT') && !normalized.startsWith('WITH')) {
       return c.json({ error: 'Only SELECT queries are allowed in panels' }, 400);
     }
+    const blocked = rejectIfDangerous(panelQuery);
+    if (blocked) return c.json({ error: blocked }, 400);
 
     const start = Date.now();
     try {
-      const result = (await Promise.race([
-        sql.raw(panelQuery).execute(db),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Query timeout')), 10000),
-        ),
-      ])) as any;
-
+      const result = await runReadOnlySql(db, panelQuery, 10);
       const executionMs = Date.now() - start;
       const rows = result.rows ?? [];
 
@@ -490,14 +598,11 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (!normalized.startsWith('SELECT') && !normalized.startsWith('WITH')) {
         return c.json({ error: 'Only SELECT queries are allowed' }, 400);
       }
+      const blocked = rejectIfDangerous(query);
+      if (blocked) return c.json({ error: blocked }, 400);
 
       try {
-        const result = (await Promise.race([
-          sql.raw(query).execute(db),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Query timeout')), 10000),
-          ),
-        ])) as any;
+        const result = await runReadOnlySql(db, query, 10);
         return c.json({
           data: result.rows,
           columns: Object.keys(result.rows[0] || {}),
@@ -540,6 +645,11 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const user = c.get('user') as any;
+      // Stored SQL is read back on /execute; require admin so a low-priv
+      // user can't park a `SELECT * FROM account` query and call it back.
+      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
+
       const body = c.req.valid('json');
 
       const savedQuery = await (db as any)
@@ -632,6 +742,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── POST /saved-queries/:id/execute ─────────────────────────────────────────
   app.post('/saved-queries/:id/execute', async (c) => {
+    const user = c.get('user') as any;
     const id = c.req.param('id');
 
     const savedQuery = await (db as any)
@@ -642,19 +753,24 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
     if (!savedQuery) return c.json({ error: 'Saved query not found' }, 404);
 
+    // Visibility check — owner, public, or admin. Without this, knowing
+    // the id of someone else's private saved query would be enough to run
+    // it (IDOR) and read its rows.
+    if (!savedQuery.is_public && savedQuery.created_by !== user.id) {
+      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
+    }
+
     const queryText = savedQuery.query?.trim();
     const normalized = queryText.toUpperCase();
     if (!normalized.startsWith('SELECT') && !normalized.startsWith('WITH')) {
       return c.json({ error: 'Only SELECT queries are allowed' }, 400);
     }
+    const blocked = rejectIfDangerous(queryText);
+    if (blocked) return c.json({ error: blocked }, 400);
 
     try {
-      const result = (await Promise.race([
-        sql.raw(queryText).execute(db),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Query timeout')), 10000),
-        ),
-      ])) as any;
+      const result = await runReadOnlySql(db, queryText, 10);
 
       // Increment use_count
       await (db as any)

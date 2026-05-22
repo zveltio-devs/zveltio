@@ -34,10 +34,16 @@ export const flowScheduler = {
     if (db) _db = db;
     _running = true;
 
-    // Immediate first tick, then every SCHEDULER_POLL_MS
-    await this._tick().catch(() => {});
+    // Immediate first tick, then every SCHEDULER_POLL_MS. Errors are
+    // logged but don't crash the scheduler loop — a single bad flow row
+    // shouldn't take the whole scheduler down on every tick.
+    await this._tick().catch((err) => {
+      console.error('[FlowScheduler] tick (initial) failed:', err);
+    });
     _timer = setInterval(() => {
-      this._tick().catch(() => {});
+      this._tick().catch((err) => {
+        console.error('[FlowScheduler] tick failed:', err);
+      });
     }, SCHEDULER_POLL_MS);
 
     // Garbage collector — runs daily at 03:00
@@ -92,10 +98,20 @@ export const flowScheduler = {
           .execute();
 
         for (const flow of flows) {
-          this._executeScheduledFlow(flow).catch(() => {});
+          this._executeScheduledFlow(flow).catch((err) => {
+            // Individual flow failures shouldn't poison the tick — surface
+            // them so they show up in operator logs and metrics.
+            console.error('[FlowScheduler] _executeScheduledFlow failed', {
+              flow: flow?.id, name: flow?.name, error: (err as Error)?.message,
+            });
+          });
         }
       });
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      // Tick-level error — e.g. transaction failed because the pool is
+      // exhausted. We log and let the next tick try again.
+      console.error('[FlowScheduler] tick error:', err);
+    }
   },
 
   async _executeScheduledFlow(flow: any): Promise<void> {
@@ -125,14 +141,18 @@ export const flowScheduler = {
         }
       }
 
-      // Advance next_run_at
+      // Advance next_run_at — if this fails the flow keeps re-running
+      // every tick until the row update succeeds (busy-looping a single
+      // flow), so log the error explicitly instead of silently swallowing.
       const intervalMs = ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 || DEFAULT_AI_INTERVAL_MS;
       await (_db as any)
         .updateTable('zv_flows')
         .set({ last_run_at: new Date(), next_run_at: new Date(Date.now() + intervalMs) })
         .where('id', '=', flow.id)
         .execute()
-        .catch(() => {});
+        .catch((err: Error) => {
+          console.error('[FlowScheduler] failed to advance ai_task next_run_at', { flow: flow.id, error: err.message });
+        });
 
       return; // Skip standard flow executor for ai_task
     }
@@ -148,7 +168,8 @@ export const flowScheduler = {
       console.error(`[FlowScheduler] flow failed`, { flow: flow.id, name: flow.name, run: result.runId, error: result.error });
     }
 
-    // Advance next_run_at — use trigger_config.interval_seconds if set, else default
+    // Advance next_run_at — see ai_task path above for why we don't
+    // swallow this failure silently.
     const intervalMs = ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 || DEFAULT_CRON_INTERVAL_MS;
     await (_db as any)
       .updateTable('zv_flows')
@@ -158,7 +179,9 @@ export const flowScheduler = {
       })
       .where('id', '=', flow.id)
       .execute()
-      .catch(() => {});
+      .catch((err: Error) => {
+        console.error('[FlowScheduler] failed to advance next_run_at', { flow: flow.id, error: err.message });
+      });
   },
 };
 

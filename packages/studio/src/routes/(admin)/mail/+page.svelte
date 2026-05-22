@@ -144,7 +144,7 @@
 
   async function downloadEml() {
     if (!selectedMessage) return;
-    const res = await fetch(`${ENGINE_URL}/ext/communications/mail/messages/${selectedMessage.id}/eml`, { credentials: 'include' });
+    const res = await api.fetch(`/ext/communications/mail/messages/${selectedMessage.id}/eml`);
     const blob = await res.blob();
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = `${selectedMessage.subject || 'message'}.eml`; a.click();

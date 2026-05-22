@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   let { id }: { id: string } = $props();
@@ -20,8 +21,8 @@
     error = '';
     try {
       const [lotRes, timelineRes] = await Promise.all([
-        fetch(`${API}/lots/${id}`),
-        fetch(`${API}/tree/${id}/timeline`),
+        api.fetch(`${API}/lots/${id}`),
+        api.fetch(`${API}/tree/${id}/timeline`),
       ]);
       if (!lotRes.ok) throw new Error(await lotRes.text());
       lot = (await lotRes.json()).data;
@@ -36,7 +37,7 @@
   async function loadUpstream() {
     if (upstream) return;
     try {
-      const res = await fetch(`${API}/tree/${id}/upstream`);
+      const res = await api.fetch(`${API}/tree/${id}/upstream`);
       upstream = res.ok ? (await res.json()).data : null;
     } catch {}
   }
@@ -45,7 +46,7 @@
     if (!confirm('Eliberați lotul din carantină?')) return;
     releasing = true;
     try {
-      const res = await fetch(`${API}/lots/${id}/release`, { method: 'PATCH' });
+      const res = await api.fetch(`${API}/lots/${id}/release`, { method: 'PATCH' });
       if (!res.ok) throw new Error(await res.text());
       await loadLot();
     } catch (e: any) {

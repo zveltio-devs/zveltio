@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   let lots = $state<any[]>([]);
@@ -18,7 +19,7 @@
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (statusFilter) params.set('status', statusFilter);
-      const res = await fetch(`${API}/lots?${params}`);
+      const res = await api.fetch(`${API}/lots?${params}`);
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       lots = json.data;
