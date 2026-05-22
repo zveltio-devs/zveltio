@@ -34,6 +34,8 @@ import { scheduleFileIndexing, extractTextFromFile } from './cloud/document-inde
 import { DataLoaderRegistry, checkQueryDepth } from './graphql-dataloader.js';
 import { enqueueDDLJob } from './ddl-queue.js';
 import { validatePublicUrl } from './edge-functions/safe-fetch.js';
+import { createBetterAuthSession } from './sso-session.js';
+import { encryptField, decryptField, isEncryptedValue } from './field-crypto.js';
 import { sendNotification } from './notifications.js';
 import { serviceRegistry } from './service-registry.js';
 import { queryAlterRegistry, type QueryAlterScope } from './query-alter.js';
@@ -831,6 +833,15 @@ export function buildExtensionInternals(): ExtensionInternals {
     validatePublicUrl: validatePublicUrl as ExtensionInternals['validatePublicUrl'],
     extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],
+    createBetterAuthSession: createBetterAuthSession as ExtensionInternals['createBetterAuthSession'],
+    encryptSecret: async (plaintext: string) => {
+      if (isEncryptedValue(plaintext)) return plaintext;
+      return encryptField(plaintext);
+    },
+    decryptSecret: async (value: string) => {
+      if (!isEncryptedValue(value)) return value;
+      return decryptField(value);
+    },
   };
 }
 
@@ -893,6 +904,18 @@ export interface ExtensionInternals {
   validatePublicUrl: (url: string) => Promise<URL>;
   extractTextFromFile: (buffer: ArrayBuffer | Buffer | Uint8Array, mimeType: string) => Promise<string>;
   sendNotification: (db: any, input: any) => Promise<void>;
+  createBetterAuthSession: (
+    db: any,
+    userId: string,
+    opts?: {
+      ipAddress?: string;
+      userAgent?: string;
+      ttlSeconds?: number;
+      crossDomain?: boolean;
+    },
+  ) => Promise<{ token: string; setCookie: string }>;
+  encryptSecret: (plaintext: string) => Promise<string>;
+  decryptSecret: (value: string) => Promise<string>;
 }
 
 interface LoadedExtension {

@@ -60,13 +60,25 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     }
 
     const demoMode = process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === '1';
+
+    // Guardrail: an operator who left DEMO_MODE=true in a production
+    // .env would otherwise publish disposable credentials to the world
+    // via the unauthenticated /api/health endpoint. Refuse to surface
+    // demo credentials when NODE_ENV=production AND
+    // DEMO_MODE_ALLOW_IN_PROD isn't explicitly set. The banner still
+    // shows ("demo_mode: true"), so the misconfiguration is visible —
+    // we just don't hand out the passwords.
+    const inProd = process.env.NODE_ENV === 'production';
+    const demoInProdAllowed = process.env.DEMO_MODE_ALLOW_IN_PROD === 'true';
+    const exposeCreds = demoMode && (!inProd || demoInProdAllowed);
+
     return c.json(
       {
         status: databaseOk ? 'ok' : 'degraded',
         timestamp: new Date().toISOString(),
         demo_mode: demoMode,
         demo_reset_cron: demoMode ? (process.env.DEMO_RESET_CRON ?? null) : undefined,
-        demo_credentials: demoMode ? {
+        demo_credentials: exposeCreds ? {
           email: process.env.DEMO_EMAIL ?? 'demo@zveltio.com',
           // We intentionally surface the password — demo accounts must be
           // disposable. Never run with this enabled on real data.

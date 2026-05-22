@@ -142,13 +142,34 @@ async function checkAccess(
     const tableName = DDLManager.getTableName(collection);
     if (tableName.startsWith('zv_') && !tableName.startsWith('zvd_')) return false;
 
-    // Scopes format: Array<{ collection: string; actions: string[] }>
-    // Empty scopes array = full access (backwards-compatible default).
+    // Scopes format: Array<{ collection: string; actions: string[] }>.
+    // Empty array = full access (backwards-compatible default).
     // Wildcard collection '*' or action '*' grants broad access.
+    //
+    // A malformed JSON blob in `scopes` used to crash the auth check
+    // (uncaught JSON.parse). Fail closed — if we can't tell what the key
+    // is allowed to do, refuse. The API key remains usable once an admin
+    // fixes the row.
     const rawScopes = user.scopes;
     if (rawScopes) {
-      const scopes: Array<{ collection: string; actions: string[] }> =
-        typeof rawScopes === 'string' ? JSON.parse(rawScopes) : rawScopes;
+      let scopes: Array<{ collection: string; actions: string[] }> = [];
+      if (typeof rawScopes === 'string') {
+        try {
+          scopes = JSON.parse(rawScopes);
+        } catch (err) {
+          console.warn(
+            `[auth] api_key ${user.id} has unparseable scopes JSON — refusing access:`,
+            (err as Error).message,
+          );
+          return false;
+        }
+      } else {
+        scopes = rawScopes as Array<{ collection: string; actions: string[] }>;
+      }
+      if (!Array.isArray(scopes)) {
+        console.warn(`[auth] api_key ${user.id} scopes is not an array — refusing access`);
+        return false;
+      }
       if (scopes.length > 0) {
         const match = scopes.find(
           (s) => s.collection === collection || s.collection === '*',

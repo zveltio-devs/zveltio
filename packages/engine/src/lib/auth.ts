@@ -233,12 +233,30 @@ export async function initAuth(db: Database) {
     secondaryStorage = await createCacheSecondaryStorage();
   }
 
+  // Cookie security posture — pinned explicitly instead of relying on
+  // better-auth's auto-detect on baseURL. Auto-detect treats `https://`
+  // as production but mis-classifies tunnels (cloudflared, ngrok) and
+  // anything served behind a reverse proxy that terminates TLS upstream
+  // of the engine. Operators set NODE_ENV=production for live deploys;
+  // CROSS_DOMAIN_AUTH=true switches SameSite to None for setups where
+  // Studio and engine run on different origins.
+  const inProd = process.env.NODE_ENV === 'production';
+  const crossDomainAuth = process.env.CROSS_DOMAIN_AUTH === 'true';
+  const advancedCookieConfig = {
+    defaultCookieAttributes: {
+      httpOnly: true,
+      secure: inProd || crossDomainAuth,
+      sameSite: crossDomainAuth ? ('none' as const) : ('lax' as const),
+    },
+  };
+
   // @ts-ignore — better-auth generics diverge between plugin overloads
   const authInstance = betterAuth({
     baseURL,
     trustedOrigins,
     secret: process.env.BETTER_AUTH_SECRET,
     database,
+    advanced: advancedCookieConfig,
     ...(secondaryStorage ? { secondaryStorage } : {}),
 
     emailAndPassword: {
@@ -349,17 +367,34 @@ export async function initAuth(db: Database) {
     ],
   });
 
-  // Patch getSession to return null instead of throwing — better-auth v1.5+
-  // can throw APIError when a malformed/expired cookie is sent, causing routes
-  // that use requireAdmin() to return 500 instead of 401.
+  // Patch getSession to return null only for the expected "no/expired/
+  // malformed cookie" cases that better-auth surfaces as APIError. A
+  // database outage or programmer error should propagate so we see a
+  // proper 500 instead of swallowing it into a silent 401. Without this
+  // narrowing, every infrastructure failure looked like "logged out".
   const origGetSession = authInstance.api.getSession.bind(authInstance.api);
   (authInstance.api as any).getSession = async (...args: any[]) => {
     try {
       return await origGetSession(...args as [any]);
     } catch (err) {
-      // Log the error so we can diagnose session failures — do NOT swallow silently.
-      console.error('[getSession] Error (returning null):', err instanceof Error ? err.message : err);
-      return null;
+      const e = err as { name?: string; status?: number; statusCode?: number; message?: string };
+      const isApiError =
+        e?.name === 'APIError' ||
+        e?.name === 'BetterAuthError' ||
+        // Status codes in the 4xx range are expected client-side cookie
+        // problems (missing, malformed, expired). 5xx and unset status
+        // mean something else broke — surface it.
+        (typeof e?.status === 'number' && e.status >= 400 && e.status < 500) ||
+        (typeof e?.statusCode === 'number' && e.statusCode >= 400 && e.statusCode < 500);
+      if (isApiError) {
+        // Expected: bad cookie → no session. Log at debug so the noise
+        // floor stays low.
+        return null;
+      }
+      // Unexpected: DB outage, code bug, etc. Log loudly AND re-throw so
+      // the route's error handler returns the right status code.
+      console.error('[getSession] Unexpected error — re-throwing:', e?.message ?? err);
+      throw err;
     }
   };
 

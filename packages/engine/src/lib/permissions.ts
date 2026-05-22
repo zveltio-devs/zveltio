@@ -373,6 +373,24 @@ function _decodeRolesCache(userId: string, raw: string): string[] | null {
   }
 }
 
+/**
+ * Return every role known to the Casbin enforcer (the union of all role
+ * names assigned to any user). Used by routes that need to validate a
+ * caller-supplied role name (e.g. dashboard sharing) before persisting
+ * it, so we don't store dead references to roles that don't exist.
+ */
+export async function listAllRoles(): Promise<string[]> {
+  const e = await getEnforcer();
+  // ptype='g' grouping policies — each row is [user, role]. Take the
+  // second column as the role set.
+  const policies: string[][] = (await e.getNamedGroupingPolicy('g')) ?? [];
+  const set = new Set<string>();
+  for (const row of policies) {
+    if (row.length >= 2 && row[1]) set.add(row[1]);
+  }
+  return [...set];
+}
+
 export async function getUserRoles(userId: string): Promise<string[]> {
   const cache = getCache();
   const cacheKey = `roles:${userId}`;

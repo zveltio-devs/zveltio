@@ -51,6 +51,75 @@ export async function runGarbageCollector(db: Database): Promise<void> {
     }
   }
 
+  // ── Retention purges for high-churn audit tables ──────────────────
+  // zv_request_logs grows ~one row per API call — without a retention
+  // sweep the table reaches hundreds of millions of rows on a busy
+  // deployment and starts hurting writes. REQUEST_LOG_RETENTION_DAYS
+  // controls the cutoff (default 30, set to 0 to keep forever).
+  // Same shape extended to zv_slow_queries; both are observability
+  // tables, not source of truth for anything.
+  const retentionDays = parseInt(process.env.REQUEST_LOG_RETENTION_DAYS ?? '30', 10);
+  if (retentionDays > 0) {
+    try {
+      const reqDeleted = await sql<{ deleted: number }>`
+        WITH d AS (
+          DELETE FROM zv_request_logs
+          WHERE created_at < NOW() - (${retentionDays}::int || ' days')::interval
+          RETURNING 1
+        )
+        SELECT COUNT(*)::int AS deleted FROM d
+      `.execute(db).catch(() => ({ rows: [] as Array<{ deleted: number }> }));
+      const n = reqDeleted.rows[0]?.deleted ?? 0;
+      if (n > 0) {
+        console.log(`[GC] zv_request_logs: ${n} rows older than ${retentionDays}d purged`);
+        totalDeleted += n;
+      }
+    } catch (err) {
+      console.warn('[GC] zv_request_logs purge failed:', (err as Error).message);
+    }
+
+    try {
+      const slowDeleted = await sql<{ deleted: number }>`
+        WITH d AS (
+          DELETE FROM zv_slow_queries
+          WHERE created_at < NOW() - (${retentionDays}::int || ' days')::interval
+          RETURNING 1
+        )
+        SELECT COUNT(*)::int AS deleted FROM d
+      `.execute(db).catch(() => ({ rows: [] as Array<{ deleted: number }> }));
+      const n = slowDeleted.rows[0]?.deleted ?? 0;
+      if (n > 0) {
+        console.log(`[GC] zv_slow_queries: ${n} rows older than ${retentionDays}d purged`);
+        totalDeleted += n;
+      }
+    } catch (err) {
+      console.warn('[GC] zv_slow_queries purge failed:', (err as Error).message);
+    }
+  }
+
+  // Audit log retention — separate knob because compliance teams often
+  // require longer audit retention (default 365 days, 0 = keep forever).
+  const auditRetentionDays = parseInt(process.env.AUDIT_LOG_RETENTION_DAYS ?? '365', 10);
+  if (auditRetentionDays > 0) {
+    try {
+      const auditDeleted = await sql<{ deleted: number }>`
+        WITH d AS (
+          DELETE FROM zv_audit_log
+          WHERE created_at < NOW() - (${auditRetentionDays}::int || ' days')::interval
+          RETURNING 1
+        )
+        SELECT COUNT(*)::int AS deleted FROM d
+      `.execute(db).catch(() => ({ rows: [] as Array<{ deleted: number }> }));
+      const n = auditDeleted.rows[0]?.deleted ?? 0;
+      if (n > 0) {
+        console.log(`[GC] zv_audit_log: ${n} rows older than ${auditRetentionDays}d purged`);
+        totalDeleted += n;
+      }
+    } catch (err) {
+      console.warn('[GC] zv_audit_log purge failed:', (err as Error).message);
+    }
+  }
+
   console.log(`[GC] Done. Total rows purged: ${totalDeleted}`);
 }
 

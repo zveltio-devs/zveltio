@@ -7,7 +7,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getUserRoles } from '../lib/permissions.js';
+import { checkPermission, getUserRoles, listAllRoles } from '../lib/permissions.js';
 
 /**
  * Resolve whether `userId` can read a dashboard. Order matters — admin
@@ -315,6 +315,20 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
       }
 
+      // Validate `shared_with_role` against the live Casbin role list.
+      // Persisting a dead role name silently broke the existing role-share
+      // lookup (canReadDashboard) — readers who actually had the typo'd
+      // role would never match anything.
+      if (body.shared_with_role) {
+        const allRoles = await listAllRoles().catch(() => [] as string[]);
+        if (!allRoles.includes(body.shared_with_role)) {
+          return c.json({
+            error: `Role "${body.shared_with_role}" does not exist`,
+            known_roles: allRoles,
+          }, 400);
+        }
+      }
+
       const share = await (db as any)
         .insertInto('zvd_dashboard_shares')
         .values({
@@ -563,7 +577,10 @@ export function insightsRoutes(db: Database, auth: any): Hono {
           console.warn(`[insights] panel_cache upsert failed for panel ${id}:`, err.message);
         });
 
-      // Update panel metadata
+      // Update panel metadata, including resetting error_count to 0 — a
+      // panel that errored historically but now runs cleanly shouldn't
+      // stay flagged forever. Without this reset a one-off Postgres hiccup
+      // permanently marks the panel as "broken".
       const currentAvg = panel.avg_execution_ms ?? executionMs;
       const newAvg = Math.round((currentAvg + executionMs) / 2);
       await (db as any)
@@ -571,6 +588,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         .set({
           last_executed_at: new Date(),
           avg_execution_ms: newAvg,
+          error_count: 0,
         })
         .where('id', '=', id)
         .execute()

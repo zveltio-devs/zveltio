@@ -1,0 +1,63 @@
+# Dependency updates — Dependabot configuration.
+#
+# The Zveltio engine ships with a curated dependency set (Hono, Kysely,
+# Better-Auth, Bun's Postgres driver, …). Most CVEs in this stack land in
+# minor/patch releases, so we let Dependabot open one PR per ecosystem
+# every Monday. Major upgrades are excluded (they need a manual review +
+# release notes pass), and the GitHub Actions ecosystem is included too
+# so the release/sync workflows themselves stay on patched runners.
+#
+# `groups` collapses related security/dev-tool updates into a single PR
+# so we don't get ten PRs for one Vite minor; one PR per group per week.
+
+version: 2
+updates:
+  # ── npm (engine + studio + SDK + CLI + AI extension dependencies) ─────
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    ignore:
+      # Hold majors back — they're audited manually because of breaking
+      # API changes (Hono v4→v5, Kysely, Better-Auth, etc.).
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      dev-tooling:
+        patterns:
+          - "vite"
+          - "vitest"
+          - "@vitest/*"
+          - "typescript"
+          - "@types/*"
+          - "eslint*"
+          - "prettier"
+      hono:
+        patterns:
+          - "hono"
+          - "@hono/*"
+      better-auth:
+        patterns:
+          - "better-auth"
+          - "@better-auth/*"
+      kysely:
+        patterns:
+          - "kysely"
+          - "kysely-*"
+      svelte:
+        patterns:
+          - "svelte"
+          - "@sveltejs/*"
+          - "svelte-*"
+
+  # ── GitHub Actions used by release.yml, ci.yml, etc. ─────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
