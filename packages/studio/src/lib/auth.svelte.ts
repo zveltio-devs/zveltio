@@ -1,4 +1,4 @@
-import { ENGINE_URL } from './config.js';
+import { api } from './api.js';
 
 let currentUser = $state<any>(null);
 let loading = $state(true);
@@ -10,7 +10,7 @@ export const auth = {
 
   async init() {
     try {
-      const res = await fetch(`${ENGINE_URL}/api/me`, { credentials: 'include' });
+      const res = await api.fetch(`/api/me`);
       if (res.ok) {
         const data = await res.json();
         currentUser = data.user;
@@ -25,9 +25,8 @@ export const auth = {
   },
 
   async signIn(email: string, password: string) {
-    const res = await fetch(`${ENGINE_URL}/api/auth/sign-in/email`, {
+    const res = await api.fetch(`/api/auth/sign-in/email`, {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
@@ -43,9 +42,8 @@ export const auth = {
   },
 
   async signOut() {
-    await fetch(`${ENGINE_URL}/api/auth/sign-out`, {
+    await api.fetch(`/api/auth/sign-out`, {
       method: 'POST',
-      credentials: 'include',
     });
     currentUser = null;
   },

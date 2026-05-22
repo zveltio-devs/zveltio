@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Download, Plus, X } from '@lucide/svelte';
+  import { api as zApi } from '$lib/api.js';
+  import { ENGINE_URL } from '$lib/config.js';
 
-  const engineUrl = (window as any).__zveltio?.engineUrl ?? '';
+  // engineUrl stays — it backs the direct <window.open> download link
+  // below. Programmatic JSON calls go through zApi.
+  const engineUrl = ENGINE_URL;
   let jobs = $state<any[]>([]);
   let collections = $state<any[]>([]);
   let error = $state('');
@@ -12,7 +16,7 @@
   let form = $state({ collection: '', format: 'csv' as 'csv' | 'json' | 'ndjson' | 'xlsx', filter: '', limit: 0 });
 
   async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${engineUrl}${path}`, { credentials: 'include', ...init });
+    const res = await zApi.fetch(path, init);
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
     return json as T;

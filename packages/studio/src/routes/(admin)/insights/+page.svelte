@@ -3,8 +3,7 @@
   import { BarChart2, Plus, Trash2, Play, Grid, Code2, X, GripVertical, RefreshCw } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
-
-  const engineUrl = (import.meta as any).env?.PUBLIC_ENGINE_URL ?? '';
+  import { api } from '$lib/api.js';
 
   // ── Types ─────────────────────────────────────────────────────────────────────
   interface Panel {
@@ -67,7 +66,7 @@
 
   async function loadDashboards() {
     loadingDashboards = true;
-    const res = await fetch(`${engineUrl}/api/insights/dashboards`, { credentials: 'include' }).then(r => r.json());
+    const res = await api.fetch(`/api/insights/dashboards`, { credentials: 'include' }).then(r => r.json());
     dashboards = res.dashboards ?? [];
     if (dashboards.length > 0 && !activeDashboard) {
       await selectDashboard(dashboards[0]);
@@ -79,7 +78,7 @@
     activeDashboard = d;
     loadingPanels = true;
     panelResults = {};
-    const res = await fetch(`${engineUrl}/api/insights/dashboards/${d.id}`, { credentials: 'include' }).then(r => r.json());
+    const res = await api.fetch(`/api/insights/dashboards/${d.id}`, { credentials: 'include' }).then(r => r.json());
     panels = res.panels ?? [];
     loadingPanels = false;
     // Auto-run all panels
@@ -88,7 +87,7 @@
 
   async function createDashboard() {
     if (!newDashName) return;
-    const res = await fetch(`${engineUrl}/api/insights/dashboards`, {
+    const res = await api.fetch(`/api/insights/dashboards`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -108,7 +107,7 @@
       confirmLabel: 'Delete',
       onconfirm: async () => {
         confirmState.open = false;
-        await fetch(`${engineUrl}/api/insights/dashboards/${id}`, { method: 'DELETE', credentials: 'include' });
+        await api.fetch(`/api/insights/dashboards/${id}`, { method: 'DELETE', credentials: 'include' });
         if (activeDashboard?.id === id) {
           activeDashboard = null;
           panels = [];
@@ -120,7 +119,7 @@
 
   async function addPanel() {
     if (!activeDashboard || !newPanelName || !newPanelQuery) return;
-    await fetch(`${engineUrl}/api/insights/dashboards/${activeDashboard.id}/panels`, {
+    await api.fetch(`/api/insights/dashboards/${activeDashboard.id}/panels`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -139,7 +138,7 @@
   }
 
   async function deletePanel(id: string) {
-    await fetch(`${engineUrl}/api/insights/panels/${id}`, { method: 'DELETE', credentials: 'include' });
+    await api.fetch(`/api/insights/panels/${id}`, { method: 'DELETE', credentials: 'include' });
     panels = panels.filter(p => p.id !== id);
     const r = { ...panelResults };
     delete r[id];
@@ -148,7 +147,7 @@
 
   async function runPanel(p: Panel) {
     panelResults = { ...panelResults, [p.id]: { data: [], loading: true } };
-    const res = await fetch(`${engineUrl}/api/insights/panels/${p.id}/execute`, {
+    const res = await api.fetch(`/api/insights/panels/${p.id}/execute`, {
       method: 'POST',
       credentials: 'include',
     }).then(r => r.json());
@@ -166,7 +165,7 @@
     adHocRunning = true;
     adHocError = '';
     adHocResult = null;
-    const res = await fetch(`${engineUrl}/api/insights/query`, {
+    const res = await api.fetch(`/api/insights/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   type ReportType = 'ansvsa' | 'reception' | 'consumption' | 'stock' | 'haccp';
@@ -30,7 +31,7 @@
         params.set('from', dateFrom);
         params.set('to', dateTo);
       }
-      const res = await fetch(`${API}/reports/${ENDPOINT[reportType]}?${params}`);
+      const res = await api.fetch(`${API}/reports/${ENDPOINT[reportType]}?${params}`);
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       data = json.data ?? [];

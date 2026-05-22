@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Upload, X, File as FileIcon } from '@lucide/svelte';
- import { ENGINE_URL } from '$lib/config.js';
+ import { api } from '$lib/api.js';
 
  interface Props {
  value?: string | null;
@@ -37,9 +37,8 @@ import { Upload, X, File as FileIcon } from '@lucide/svelte';
  // Default: upload to engine storage
  const formData = new FormData();
  formData.append('file', file);
- const res = await fetch(`${ENGINE_URL}/api/storage/upload`, {
+ const res = await api.fetch(`/api/storage/upload`, {
  method: 'POST',
- credentials: 'include',
  body: formData,
  });
  if (!res.ok) throw new Error('Upload failed');

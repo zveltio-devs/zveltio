@@ -104,7 +104,7 @@
     testResult = '';
     try {
       const colSlug = colName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') || 'test';
-      const res = await fetch(`${engineUrl}/api/data/${colSlug}?limit=1`, {
+      const res = await api.fetch(`/api/data/${colSlug}?limit=1`, {
         headers: { 'X-API-Key': apiKey },
       });
       const data = await res.json();

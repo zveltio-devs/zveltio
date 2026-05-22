@@ -1,4 +1,4 @@
-import { ENGINE_URL } from './config.js';
+import { api } from './api.js';
 
 export type ExtensionMeta = {
   name: string;
@@ -13,7 +13,7 @@ let extensionMetaList = $state<ExtensionMeta[]>([]);
 let initialized = $state(false);
 
 async function fetchExtensions(): Promise<void> {
-  const res = await fetch(`${ENGINE_URL}/api/extensions`, { credentials: 'include' });
+  const res = await api.fetch(`/api/extensions`);
   const data = await res.json();
   activeExtensions = data.extensions || [];
   extensionMetaList = data.meta || [];

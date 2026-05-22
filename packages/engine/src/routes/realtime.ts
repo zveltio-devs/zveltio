@@ -176,12 +176,53 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     const userId = session.user.id;
-    const collections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
+    const rawCollections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
     const extraChannels = c.req.query('channel')?.split(',').filter(Boolean).map((ch) =>
       ch.startsWith('zveltio:') ? ch : `zveltio:${ch}`,
     ) ?? [];
     const recordId = c.req.query('record_id') || undefined;
     const filters = parseSubFilters(c.req.query('filter'));
+
+    // Permission gate — caller must have data:<collection>:read for every
+    // collection they want to stream. Without this, a curl with the
+    // session cookie could subscribe to zvd_users / account and receive a
+    // mirror of every write that happens there in real time. ws.ts
+    // already enforces the same check; realtime.ts (SSE) was missing it.
+    //
+    // Wildcard streaming (empty collections) is also gated: it's only
+    // allowed for admins, since otherwise it would expose data from every
+    // collection in the system to any authenticated user.
+    if (rawCollections.length === 0) {
+      const isAdmin = await checkPermission(userId, 'admin', '*').catch(() => false);
+      if (!isAdmin) {
+        return c.json({
+          error: 'Wildcard collection streams require admin; specify ?collection=name1,name2',
+        }, 403);
+      }
+    }
+    const collections: string[] = [];
+    const denied: string[] = [];
+    for (const col of rawCollections) {
+      // Collection channel may carry an `:event` suffix (e.g. "orders:insert").
+      const base = col.split(':')[0];
+      // Reject obviously invalid names early so they never hit Casbin
+      if (!base || !/^[a-zA-Z0-9_]+$/.test(base)) {
+        denied.push(col);
+        continue;
+      }
+      const canRead = await checkPermission(userId, base, 'read').catch(() => false);
+      if (canRead) {
+        collections.push(col);
+      } else {
+        denied.push(col);
+      }
+    }
+    if (collections.length === 0 && rawCollections.length > 0) {
+      return c.json({
+        error: 'No read permission on any of the requested collections',
+        denied,
+      }, 403);
+    }
 
     return streamSSE(c, async (stream) => {
       const sub: StreamSub = { stream, collections, recordId, filters };
@@ -226,6 +267,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
           type: 'connected',
           userId,
           collections,
+          denied,
           channels: extraChannels,
           record_id: recordId ?? null,
           filters,

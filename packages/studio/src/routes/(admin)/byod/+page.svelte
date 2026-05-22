@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { DatabaseZap, Plus, X, ScanLine, Play } from '@lucide/svelte';
+  import { api as zApi } from '$lib/api.js';
 
-  const engineUrl = (window as any).__zveltio?.engineUrl ?? '';
   let tab = $state<'profiles' | 'history'>('profiles');
   let profiles = $state<any[]>([]);
   let history = $state<any[]>([]);
@@ -19,8 +19,12 @@
     exclude_patterns: 'pg_*,information_schema.*',
   });
 
+  // Local wrapper around the shared $lib/api client (renamed import to
+  // `zApi` to avoid colliding with this helper's name). Routes credentials
+  // through the centralised module instead of re-implementing the cookie
+  // and base-URL logic per page.
   async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${engineUrl}${path}`, { credentials: 'include', ...init });
+    const res = await zApi.fetch(path, init);
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
     return json as T;

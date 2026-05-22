@@ -6,7 +6,7 @@
     Workflow, Brain, FileText, Zap, Map, Shield, Code2, Key,
     Circle, Hammer,
   } from '@lucide/svelte';
-  import { ENGINE_URL } from '$lib/config.js';
+  import { api as marketplaceApi } from '$lib/api.js';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import PageSpinner from '$lib/components/common/PageSpinner.svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
@@ -123,10 +123,12 @@
   });
 
   // ── API helper ─────────────────────────────────────────────────────────────
+  // Local wrapper around the shared $lib/api client — keeps the existing
+  // call sites unchanged while routing through the centralised credentials/
+  // base-URL logic instead of re-implementing it per page.
   async function api(path: string, opts: RequestInit = {}) {
-    const res = await fetch(`${ENGINE_URL}${path}`, {
+    const res = await marketplaceApi.fetch(path, {
       ...opts,
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...opts.headers },
     });
     if (!res.ok) {

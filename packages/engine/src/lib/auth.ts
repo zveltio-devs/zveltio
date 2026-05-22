@@ -27,6 +27,28 @@ function isLegacyScryptDeadlinePassed(): boolean {
 }
 
 /**
+ * Argon2id tuning. Default (4 MB memory, 3 iterations) is intentionally
+ * low so create-god + login still work on the smallest deployment VMs.
+ * Operators on real hardware should bump these via env vars — OWASP
+ * recommends ≥19 MB for argon2id in 2024. Clamped to sane upper bounds
+ * so a typo doesn't make every login take 30 seconds.
+ */
+function argonMemoryCost(): number {
+  const env = parseInt(process.env.ARGON_MEMORY_COST_KIB || '', 10);
+  if (Number.isFinite(env) && env >= 1024 && env <= 1_048_576) return env;
+  return 4096;
+}
+function argonTimeCost(): number {
+  const env = parseInt(process.env.ARGON_TIME_COST || '', 10);
+  if (Number.isFinite(env) && env >= 1 && env <= 20) return env;
+  return 3;
+}
+
+function argonOptions(): { algorithm: 'argon2id'; memoryCost: number; timeCost: number } {
+  return { algorithm: 'argon2id', memoryCost: argonMemoryCost(), timeCost: argonTimeCost() };
+}
+
+/**
  * Rewrite a successful scrypt verification's password column with a
  * fresh argon2id hash. Lookups by the old hash value — better-auth stores
  * one row per (user, provider) in `account`, and the password is unique
@@ -47,9 +69,7 @@ async function rehashLegacyAccountToArgon2id(
     .executeTakeFirst();
   if (!row) return; // row updated already by a concurrent login? Either way: stop.
 
-  const newHash = await Bun.password.hash(password, {
-    algorithm: 'argon2id', memoryCost: 4096, timeCost: 3,
-  });
+  const newHash = await Bun.password.hash(password, argonOptions());
   await (db as any)
     .updateTable('account')
     .set({ password: newHash, updatedAt: new Date() })
@@ -87,14 +107,42 @@ export async function countLegacyScryptHashes(db: Database): Promise<number> {
 // reads this module-level binding so it sees the value after init.
 let _authDb: Database | null = null;
 
-async function sendEmail(to: string, subject: string, html: string, text: string) {
+// Cached transporter — nodemailer's `createTransport` opens a pool when
+// `pool: true` is passed, so we want a single shared instance across
+// magic-link emails / password resets / verification mails instead of
+// reconnecting per send. The transporter is recreated whenever the
+// SMTP env vars change shape (e.g. test harness flips them between
+// runs); in normal production they're static after process start.
+let _smtpTransport: import('nodemailer').Transporter | null = null;
+let _smtpFingerprint = '';
+
+function smtpFingerprint(): string {
+  return [
+    process.env.SMTP_HOST ?? '',
+    process.env.SMTP_PORT ?? '',
+    process.env.SMTP_SECURE ?? '',
+    process.env.SMTP_USER ?? '',
+  ].join('|');
+}
+
+async function getSmtpTransport(): Promise<import('nodemailer').Transporter> {
+  const fp = smtpFingerprint();
+  if (_smtpTransport && fp === _smtpFingerprint) return _smtpTransport;
   const { createTransport } = await import('nodemailer');
-  const transport = createTransport({
+  _smtpTransport = createTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: process.env.SMTP_SECURE === 'true',
     auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' } : undefined,
+    pool: true,
+    maxConnections: 3,
   });
+  _smtpFingerprint = fp;
+  return _smtpTransport;
+}
+
+async function sendEmail(to: string, subject: string, html: string, text: string) {
+  const transport = await getSmtpTransport();
   await transport.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@zveltio.com',
     to,
@@ -139,21 +187,24 @@ export async function initAuth(db: Database) {
     }
   } catch { /* non-fatal */ }
 
-  // If CORS_ORIGINS is explicitly set, restrict to those origins only.
-  // Otherwise trust any origin — for self-hosted deployments the server
-  // can be reached via any hostname/IP and restricting origins here would
-  // lock out legitimate admins. Auth security comes from credentials, not CORS.
-  // If CORS_ORIGINS is explicitly set, restrict to those origins only.
-  // Otherwise trust any origin — for self-hosted deployments the server
-  // can be reached via any hostname/IP and restricting origins here would
-  // lock out legitimate admins. Auth security comes from credentials, not CORS.
-  const trustedOrigins: string[] | ((_req?: Request) => string[]) =
-    process.env.CORS_ORIGINS
-      ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-      : (_req?: Request) => {
-          const origin = _req?.headers?.get('origin');
-          return origin ? [origin] : [];
-        };
+  // CORS_ORIGINS, if set, is the explicit allowlist (split + trim).
+  // Otherwise we restrict to the engine's own baseURL plus auto-detected
+  // local network interfaces (see localOrigins above) — this covers the
+  // self-hosted case where the engine is reached via either localhost
+  // or its LAN IP, without echoing arbitrary Origin headers back as
+  // "trusted" (which would defeat CSRF protection with `credentials:
+  // include` cookies). In production set CORS_ORIGINS explicitly.
+  const trustedOrigins: string[] = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : localOrigins;
+
+  if (!process.env.CORS_ORIGINS && process.env.NODE_ENV === 'production') {
+    console.warn(
+      '[auth] CORS_ORIGINS is not set in production — falling back to ' +
+      `auto-detected origins (${localOrigins.length} entries). Set ` +
+      'CORS_ORIGINS explicitly to lock down the allowlist.',
+    );
+  }
 
   // Pass the engine's own Kysely (BunSqlDialect) instance to better-auth via the
   // { db, type } object form. createKyselyAdapter detects "db" in database and uses
@@ -207,7 +258,7 @@ export async function initAuth(db: Database) {
       // passed, scrypt verification fails — by then nobody should be left.
       password: {
         hash: (password: string) =>
-          Bun.password.hash(password, { algorithm: 'argon2id', memoryCost: 4096, timeCost: 3 }),
+          Bun.password.hash(password, argonOptions()),
         verify: async ({ hash, password }: { hash: string; password: string }) => {
           // New hashes: argon2id / bcrypt — start with '$'
           if (hash.startsWith('$')) {

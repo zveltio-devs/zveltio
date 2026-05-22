@@ -4,6 +4,7 @@
  import { page } from '$app/state';
  import { onMount } from 'svelte';
  import { auth } from '$lib/auth.svelte.js';
+ import { api } from '$lib/api.js';
  import { Fingerprint, AlertCircle, Sparkles } from '@lucide/svelte';
  import { startAuthentication } from '@simplewebauthn/browser';
 
@@ -19,8 +20,7 @@
  let demoCreds = $state<{ email: string; password: string } | null>(null);
  onMount(async () => {
   try {
-   const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ ?? '';
-   const r = await fetch(`${engineUrl}/api/health`, { credentials: 'include' });
+   const r = await api.fetch(`/api/health`);
    const j = await r.json();
    if (j?.demo_mode && j?.demo_credentials) demoCreds = j.demo_credentials;
   } catch { /* engine unreachable — show normal login */ }
@@ -78,9 +78,8 @@
   error = '';
   passkeyLoading = true;
   try {
-   const optsRes = await fetch('/api/auth/passkey/generate-authenticate-options', {
+   const optsRes = await api.fetch('/api/auth/passkey/generate-authenticate-options', {
     method: 'POST',
-    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
    });
@@ -89,9 +88,8 @@
 
    const assertion = await startAuthentication({ optionsJSON: options });
 
-   const verifyRes = await fetch('/api/auth/passkey/verify-authentication', {
+   const verifyRes = await api.fetch('/api/auth/passkey/verify-authentication', {
     method: 'POST',
-    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ response: assertion }),
    });

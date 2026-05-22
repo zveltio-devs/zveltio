@@ -2,8 +2,8 @@
   import { onMount } from 'svelte';
   import { Plus, Play, Trash2, Save, Code, CircleCheck } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { api } from '$lib/api.js';
 
-  const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ || '';
 
   let functions = $state<any[]>([]);
   let loading = $state(true);
@@ -38,7 +38,7 @@ async function handler(request, env) {
   async function loadFunctions() {
     loading = true;
     try {
-      const res = await fetch(`${engineUrl}/ext/developer/edge-functions`, { credentials: 'include' });
+      const res = await api.fetch(`/ext/developer/edge-functions`, { credentials: 'include' });
       const data = await res.json();
       functions = data.functions || [];
       if (functions.length > 0 && !selected) {
@@ -50,7 +50,7 @@ async function handler(request, env) {
   }
 
   async function selectFunction(fn: any) {
-    const res = await fetch(`${engineUrl}/ext/developer/edge-functions/${fn.id}`, { credentials: 'include' });
+    const res = await api.fetch(`/ext/developer/edge-functions/${fn.id}`, { credentials: 'include' });
     const data = await res.json();
     selected = data.function;
     invokeResult = null;
@@ -60,7 +60,7 @@ async function handler(request, env) {
     if (!selected) return;
     saving = true;
     try {
-      await fetch(`${engineUrl}/ext/developer/edge-functions/${selected.id}`, {
+      await api.fetch(`/ext/developer/edge-functions/${selected.id}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -78,7 +78,7 @@ async function handler(request, env) {
     invoking = true;
     invokeResult = null;
     try {
-      const res = await fetch(`${engineUrl}/ext/developer/edge-functions/${selected.id}/invoke`, {
+      const res = await api.fetch(`/ext/developer/edge-functions/${selected.id}/invoke`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -95,7 +95,7 @@ async function handler(request, env) {
     if (!form.name || !form.display_name) return;
     creating = true;
     try {
-      const res = await fetch(`${engineUrl}/ext/developer/edge-functions`, {
+      const res = await api.fetch(`/ext/developer/edge-functions`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -119,7 +119,7 @@ async function handler(request, env) {
       confirmLabel: 'Delete',
       onconfirm: async () => {
         confirmState.open = false;
-        await fetch(`${engineUrl}/ext/developer/edge-functions/${id}`, { method: 'DELETE', credentials: 'include' });
+        await api.fetch(`/ext/developer/edge-functions/${id}`, { method: 'DELETE', credentials: 'include' });
         selected = null;
         await loadFunctions();
       },
@@ -127,7 +127,7 @@ async function handler(request, env) {
   }
 
   async function toggleActive(fn: any) {
-    await fetch(`${engineUrl}/ext/developer/edge-functions/${fn.id}`, {
+    await api.fetch(`/ext/developer/edge-functions/${fn.id}`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

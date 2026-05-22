@@ -959,7 +959,15 @@ export function adminRoutes(db: Database, auth: any): Hono {
       }
 
       try {
-        const result = await sql.raw(query).execute(db) as any;
+        // Wrap in a transaction so SET LOCAL statement_timeout applies on
+        // the same connection that runs the user query — without this the
+        // pool can route them to different sessions and the timeout is a
+        // no-op. Caller-supplied timeout_ms is clamped by the zod schema.
+        const result = await (db as any).transaction().execute(async (trx: any) => {
+          const seconds = Math.max(1, Math.ceil(_timeout_ms / 1000));
+          await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
+          return sql.raw(query).execute(trx);
+        }) as any;
         const rows = result.rows ?? [];
         await auditLog(db, {
           type: 'sql.executed',
