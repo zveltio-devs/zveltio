@@ -27,6 +27,7 @@
  */
 
 import { ENGINE_URL } from './config.js';
+import { api } from './api.js';
 import { installGlobalApi } from './extension-api.svelte.js';
 
 interface EngineExtensionsResponse {
@@ -53,7 +54,7 @@ export async function loadExtensionBundles(): Promise<{ loaded: number; failed: 
 
   let payload: EngineExtensionsResponse;
   try {
-    const res = await fetch(`${ENGINE_URL}/api/extensions`, { credentials: 'include' });
+    const res = await api.fetch(`/api/extensions`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     payload = (await res.json()) as EngineExtensionsResponse;
   } catch (err) {
@@ -66,10 +67,15 @@ export async function loadExtensionBundles(): Promise<{ loaded: number; failed: 
   const failed: string[] = [];
 
   for (const { name, url } of bundles) {
-    const fullUrl = url.startsWith('http') ? url : `${ENGINE_URL}${url}`;
+    // `url` is sometimes absolute (CDN-hosted bundles), sometimes relative.
+    // api.fetch handles only the relative case, so we keep the explicit
+    // ENGINE_URL prefixing for the absolute fallback path.
+    const isAbsolute = url.startsWith('http');
     try {
-      const res = await fetch(fullUrl, { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${fullUrl}`);
+      const res = isAbsolute
+        ? await fetch(url, { credentials: 'include' })
+        : await api.fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
       const code = await res.text();
       // Wrap in blob → dynamic import. The bundle runs in its own module
       // scope so its top-level `var`s don't pollute Studio's globals.

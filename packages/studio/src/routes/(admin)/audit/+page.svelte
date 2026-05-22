@@ -4,8 +4,7 @@
  import PageHeader from '$lib/components/common/PageHeader.svelte';
  import Pagination from '$lib/components/common/Pagination.svelte';
  import PageSpinner from '$lib/components/common/PageSpinner.svelte';
-
- const engineUrl = import.meta.env.PUBLIC_ENGINE_URL || '';
+ import { api } from '$lib/api.js';
 
  let revisions = $state<any[]>([]);
  let loading = $state(true);
@@ -32,7 +31,7 @@
  if (filterUser) params.set('user', encodeURIComponent(filterUser));
  if (filterFrom) params.set('from', filterFrom);
 
- const res = await fetch(`${engineUrl}/api/admin/revisions?${params}`, { credentials: 'include' }).then((r) => r.json());
+ const res = await api.fetch(`/api/admin/revisions?${params}`, { credentials: 'include' }).then((r) => r.json());
  revisions = (res.revisions || []).filter((r: any) => !filterOp || r.operation === filterOp);
  total = res.total ?? (revisions.length < limit ? (page - 1) * limit + revisions.length : page * limit + 1);
  loading = false;

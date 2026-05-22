@@ -14,6 +14,7 @@
    */
   import { onMount } from 'svelte';
   import { Sparkles, X } from '@lucide/svelte';
+  import { api } from '$lib/api.js';
 
   interface DemoState {
     enabled: boolean;
@@ -30,8 +31,7 @@
     if (cached) { demo = cached; return; }
 
     try {
-      const engineUrl = (window as any).__ZVELTIO_ENGINE_URL__ ?? '';
-      const res = await fetch(`${engineUrl}/api/health`, { credentials: 'include' });
+      const res = await api.fetch(`/api/health`);
       const data = await res.json();
       const next: DemoState = {
         enabled: !!data?.demo_mode,

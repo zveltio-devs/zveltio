@@ -115,8 +115,8 @@
     const isOnboarding = page.url.pathname.includes('/onboarding');
     if (!onboardingDone && !isOnboarding) {
       try {
-        const engineUrl = (window as { __ZVELTIO_ENGINE_URL__?: string }).__ZVELTIO_ENGINE_URL__ ?? '';
-        const res = await fetch(`${engineUrl}/api/collections`, { credentials: 'include' });
+        const { api: layoutApi } = await import('$lib/api.js');
+        const res = await layoutApi.fetch(`/api/collections`);
         const data = await res.json();
         if (!data?.collections?.length) goto(`${base}/onboarding`);
       } catch { /* silently skip — don't block admin on network error */ }

@@ -83,15 +83,43 @@ function getContentType(path: string): string {
 }
 
 // ─── Static file serving ──────────────────────────────────────
+/**
+ * Inject a CSP nonce into every <script> tag in an HTML document.
+ *
+ * SvelteKit's static adapter emits inline `<script>__sveltekit_xxx = {...}</script>`
+ * blobs for client hydration. Without `'unsafe-inline'` in the CSP these
+ * scripts would be blocked, but with `'unsafe-inline'` any reflected XSS
+ * can also run. The nonce-based approach is the modern middle ground:
+ * tag every legitimate script with a per-request nonce, then allow only
+ * that nonce in script-src. Browsers that honour the nonce stop accepting
+ * `'unsafe-inline'` once a nonce is present (per CSP3).
+ */
+function injectCspNonce(html: string, nonce: string): string {
+  // Add the attribute to both `<script>` and `<script type="module">` etc.
+  // We intentionally avoid touching <script src="..."> with an explicit
+  // nonce too — adding a `nonce="..."` to a sourced script is also fine
+  // and matches what 'strict-dynamic' expects.
+  return html.replace(/<script(\s)/g, `<script nonce="${nonce}"$1`)
+             .replace(/<script>/g, `<script nonce="${nonce}">`);
+}
+
 async function serveStaticFile(
   distRoot: string,
   urlPath: string,
+  cspNonce?: string,
 ): Promise<Response | null> {
   // Prevent directory traversal — resolve the full path and verify it stays within distRoot.
   // URL-decode first to catch %2e%2e encoded traversals.
-  const decoded = decodeURIComponent(urlPath);
+  // Normalise both forward and back slashes — `resolve` handles both on
+  // Windows hosts but the prefix check must match the normalisation.
+  const decoded = decodeURIComponent(urlPath).replace(/\\/g, '/');
   const resolved = resolve(distRoot, decoded.replace(/^\/+/, ''));
-  if (!resolved.startsWith(resolve(distRoot))) {
+  const rootResolved = resolve(distRoot);
+  // Trailing separator ensures `/srv/dist` cannot match `/srv/distEVIL`.
+  const rootWithSep = rootResolved.endsWith('/') || rootResolved.endsWith('\\')
+    ? rootResolved
+    : rootResolved + (process.platform === 'win32' ? '\\' : '/');
+  if (resolved !== rootResolved && !resolved.startsWith(rootWithSep)) {
     return null; // traversal attempt — return 404 implicitly
   }
   const safe = resolved;
@@ -103,7 +131,12 @@ async function serveStaticFile(
     if (await file.exists()) {
       const ct = getContentType(candidate);
       const immutable = safe.includes('/_app/immutable/');
-      return new Response(file, {
+      // For HTML responses, rewrite inline <script> tags to carry the
+      // per-request CSP nonce so we can drop 'unsafe-inline' from CSP.
+      const body = ct.startsWith('text/html') && cspNonce
+        ? injectCspNonce(await file.text(), cspNonce)
+        : file;
+      return new Response(body, {
         headers: {
           'Content-Type': ct,
           'Cache-Control': immutable
@@ -119,7 +152,10 @@ async function serveStaticFile(
   // SPA fallback — serve index.html for client-side routing
   const fallback = Bun.file(join(distRoot, 'index.html'));
   if (await fallback.exists()) {
-    return new Response(fallback, {
+    const body = cspNonce
+      ? injectCspNonce(await fallback.text(), cspNonce)
+      : fallback;
+    return new Response(body, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
@@ -232,11 +268,14 @@ if (_cmd === 'create-god') {
   const { initDatabase: _initDb2 } = await import('./db/index.js');
   const _db = await _initDb2();
   // Use argon2id via Bun.password — matches auth.ts password.hash config.
-  // argon2id(memoryCost=4096) uses only ~4 MB RAM, works on small VMs.
+  // Defaults (4 MB / 3 iters) keep create-god usable on small VMs;
+  // ARGON_MEMORY_COST_KIB / ARGON_TIME_COST env vars bump it in prod.
+  const _memoryEnv = parseInt(process.env.ARGON_MEMORY_COST_KIB || '', 10);
+  const _timeEnv = parseInt(process.env.ARGON_TIME_COST || '', 10);
   const _hash = await Bun.password.hash(_password, {
     algorithm: 'argon2id',
-    memoryCost: 4096,
-    timeCost: 3,
+    memoryCost: Number.isFinite(_memoryEnv) && _memoryEnv >= 1024 && _memoryEnv <= 1_048_576 ? _memoryEnv : 4096,
+    timeCost: Number.isFinite(_timeEnv) && _timeEnv >= 1 && _timeEnv <= 20 ? _timeEnv : 3,
   });
   const _now = new Date();
   const _id = crypto.randomUUID();
@@ -372,10 +411,24 @@ async function buildHonoApp(): Promise<Hono> {
   }
 
   // ── Studio security headers ───────────────────────────────────────────────
+  // Per-request CSP nonce: 16 random bytes, base64-encoded. Stored on the
+  // Hono context so the static-file handler below can splice it into
+  // <script> tags before sending the HTML response.
   app.use('/admin/*', async (c, next) => {
+    const nonceBytes = new Uint8Array(16);
+    crypto.getRandomValues(nonceBytes);
+    const nonce = Buffer.from(nonceBytes).toString('base64');
+    c.set('cspNonce' as never, nonce);
+
+    // script-src uses 'strict-dynamic' alongside the nonce so that any
+    // script loaded by a nonced script also passes — required because
+    // SvelteKit's hydration script imports its module chunks dynamically.
+    // 'unsafe-inline' is kept ONLY as the legacy fallback that modern
+    // browsers ignore once a nonce is present (per CSP3); older browsers
+    // (pre-2018) will continue to allow inline as before.
     c.header('Content-Security-Policy', [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
@@ -383,6 +436,7 @@ async function buildHonoApp(): Promise<Hono> {
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
+      "object-src 'none'",
     ].join('; '));
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('X-Frame-Options', 'DENY');
@@ -395,7 +449,8 @@ async function buildHonoApp(): Promise<Hono> {
   app.get('/admin', (c) => c.redirect('/admin/'));
   app.use('/admin/*', async (c, next) => {
     const path = c.req.path.replace(/^\/admin/, '') || '/';
-    const res = await serveStaticFile(STUDIO_DIST, path);
+    const nonce = c.get('cspNonce' as never) as string | undefined;
+    const res = await serveStaticFile(STUDIO_DIST, path, nonce);
     if (res) return res;
     const studioIndex = Bun.file(join(STUDIO_DIST, 'index.html'));
     if (!(await studioIndex.exists())) {
@@ -545,6 +600,12 @@ async function bootstrap() {
   await initPermissions(db);
   initRls(db);
   console.log('✅ Permissions + RLS initialized');
+
+  // 3a. Field encryption sanity check — warn loudly if FIELD_ENCRYPTION_KEY
+  // is unset while collections have encrypted: true fields, so the operator
+  // notices that sensitive columns are landing on disk in plaintext.
+  const { checkFieldEncryptionAtBoot } = await import('./lib/field-crypto.js');
+  await checkFieldEncryptionAtBoot(db);
 
   // 4. Field Type Registry — core types
   registerCoreFieldTypes(fieldTypeRegistry);

@@ -657,7 +657,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const bunFile = Bun.file(filepath);
 
     let isValid = false;
-    let checksumMd5: string | null = null;
+    // Stored in the legacy `checksum_md5` column. We now compute SHA-256
+    // for collision resistance — MD5 is fine for accidental corruption
+    // but trivially forgeable, so an attacker who could swap the backup
+    // file could also forge a matching MD5. SHA-256 closes that gap.
+    // Column rename is a follow-up migration; the 64-char vs 32-char
+    // length disambiguates old (md5) from new (sha256) rows.
+    let checksumHex: string | null = null;
     let errorMsg: string | null = null;
     let actualSize: number | null = null;
 
@@ -668,7 +674,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
       actualSize = bunFile.size;
       const buffer = await bunFile.arrayBuffer();
-      checksumMd5 = createHash('md5').update(Buffer.from(buffer)).digest('hex');
+      checksumHex = createHash('sha256').update(Buffer.from(buffer)).digest('hex');
       isValid = true;
     } catch (err: any) {
       errorMsg = err.message;
@@ -677,7 +683,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     const result = await sql<{ id: string }>`
       INSERT INTO zv_backup_integrity_checks (backup_id, filename, size_bytes, checksum_md5, is_valid, error)
-      VALUES (${id}, ${filename}, ${actualSize}, ${checksumMd5}, ${isValid}, ${errorMsg})
+      VALUES (${id}, ${filename}, ${actualSize}, ${checksumHex}, ${isValid}, ${errorMsg})
       RETURNING id::text
     `.execute(db);
 
@@ -686,7 +692,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
       backup_id: id,
       filename,
       size_bytes: actualSize,
-      checksum_md5: checksumMd5,
+      checksum_sha256: checksumHex,
       is_valid: isValid,
       error: errorMsg,
     });

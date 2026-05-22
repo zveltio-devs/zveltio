@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ArrowUpCircle, X } from '@lucide/svelte';
-  import { ENGINE_URL } from '$lib/config.js';
+  import { api } from '$lib/api.js';
 
   let updateInfo = $state<{
     has_update: boolean;
@@ -28,11 +28,10 @@
     }
 
     try {
-      // credentials: 'include' — /api/health/update-check is auth-gated since
-      // the version-info endpoints were moved off public exposure.
-      const res = await fetch(`${ENGINE_URL}/api/health/update-check`, {
-        credentials: 'include',
-      });
+      // /api/health/update-check is auth-gated since the version-info
+      // endpoints were moved off public exposure — api.fetch sends the
+      // session cookie automatically.
+      const res = await api.fetch(`/api/health/update-check`);
       if (res.ok) {
         const data = await res.json();
         updateInfo = data as any;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   let items = $state<any[]>([]);
@@ -26,16 +27,16 @@
 
   $effect(() => {
     Promise.all([
-      fetch(`${API}/items?type=raw`).then(r => r.json()).then(d => { items = d.data ?? []; }),
-      fetch(`${API}/suppliers`).then(r => r.json()).then(d => { suppliers = d.data ?? []; }),
-      fetch(`${API}/locations`).then(r => r.json()).then(d => { locations = d.data ?? []; }),
+      api.fetch(`${API}/items?type=raw`).then(r => r.json()).then(d => { items = d.data ?? []; }),
+      api.fetch(`${API}/suppliers`).then(r => r.json()).then(d => { suppliers = d.data ?? []; }),
+      api.fetch(`${API}/locations`).then(r => r.json()).then(d => { locations = d.data ?? []; }),
     ]);
   });
 
   async function parseGS1() {
     if (!form.gs1_raw.trim()) return;
     try {
-      const res = await fetch(`${API}/scan/parse-gs1`, {
+      const res = await api.fetch(`${API}/scan/parse-gs1`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw: form.gs1_raw }),
@@ -68,7 +69,7 @@
       if (form.location_id) payload.location_id = form.location_id;
       if (form.notes) payload.notes = form.notes;
 
-      const res = await fetch(`${API}/lots`, {
+      const res = await api.fetch(`${API}/lots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

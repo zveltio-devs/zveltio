@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Upload, X, AlertCircle, CheckCircle } from '@lucide/svelte';
+  import { api as zApi } from '$lib/api.js';
 
-  const engineUrl = (window as any).__zveltio?.engineUrl ?? '';
   let jobs = $state<any[]>([]);
   let collections = $state<any[]>([]);
   let error = $state('');
@@ -21,7 +21,7 @@
   });
 
   async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${engineUrl}${path}`, { credentials: 'include', ...init });
+    const res = await zApi.fetch(path, init);
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
     return json as T;
@@ -49,8 +49,8 @@
       fd.append('format', form.format);
       if (form.upsert_on) fd.append('upsert_on', form.upsert_on);
       fd.append('create_missing_columns', String(form.create_missing_columns));
-      const res = await fetch(`${engineUrl}/ext/data/import/${encodeURIComponent(form.collection)}`, {
-        method: 'POST', credentials: 'include', body: fd,
+      const res = await zApi.fetch(`/ext/data/import/${encodeURIComponent(form.collection)}`, {
+        method: 'POST', body: fd,
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);

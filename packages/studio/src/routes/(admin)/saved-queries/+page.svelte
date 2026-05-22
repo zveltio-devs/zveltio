@@ -3,8 +3,7 @@
   import { Bookmark, Play, Trash2, Plus, Share2, X } from '@lucide/svelte';
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import PageHeader from '$lib/components/common/PageHeader.svelte';
-
-  const engineUrl = (import.meta as any).env?.PUBLIC_ENGINE_URL ?? '';
+  import { api } from '$lib/api.js';
 
   // ── State ────────────────────────────────────────────────────────────────────
   let queries = $state<any[]>([]);
@@ -48,13 +47,13 @@
     loading = true;
     const params = new URLSearchParams();
     if (filterCollection) params.set('collection', filterCollection);
-    const res = await fetch(`${engineUrl}/api/saved-queries?${params}`, { credentials: 'include' }).then(r => r.json());
+    const res = await api.fetch(`/api/saved-queries?${params}`, { credentials: 'include' }).then(r => r.json());
     queries = res.queries ?? [];
     loading = false;
   }
 
   async function loadCollections() {
-    const res = await fetch(`${engineUrl}/api/collections`, { credentials: 'include' }).then(r => r.json());
+    const res = await api.fetch(`/api/collections`, { credentials: 'include' }).then(r => r.json());
     collections = (res.collections ?? []).map((c: any) => c.name);
   }
 
@@ -69,7 +68,7 @@
   // ── API URL preview ───────────────────────────────────────────────────────────
   async function previewUrl() {
     if (!builderCollection) return;
-    const res = await fetch(`${engineUrl}/api/saved-queries/preview-url`, {
+    const res = await api.fetch(`/api/saved-queries/preview-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -96,7 +95,7 @@
     executing = true;
     executeError = '';
     executeResult = null;
-    const res = await fetch(`${engineUrl}/api/saved-queries/execute`, {
+    const res = await api.fetch(`/api/saved-queries/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -110,7 +109,7 @@
   // ── Save query ────────────────────────────────────────────────────────────────
   async function saveQuery() {
     if (!builderCollection || !builderName) return;
-    await fetch(`${engineUrl}/api/saved-queries`, {
+    await api.fetch(`/api/saved-queries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -152,7 +151,7 @@
       confirmLabel: 'Delete',
       onconfirm: async () => {
         confirmState.open = false;
-        await fetch(`${engineUrl}/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
+        await api.fetch(`/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
         await loadQueries();
       },
     };
@@ -168,7 +167,7 @@
     queryResults = null;
     try {
       if (activeQuery.id) {
-        const res = await fetch(`${engineUrl}/api/saved-queries/${activeQuery.id}/run`, {
+        const res = await api.fetch(`/api/saved-queries/${activeQuery.id}/run`, {
           method: 'POST', credentials: 'include',
         }).then(r => r.json());
         queryResults = { rows: res.records ?? [], columns: res.records?.length ? Object.keys(res.records[0]) : [] };
@@ -181,7 +180,7 @@
   async function saveActiveQuery() {
     if (!activeQuery) return;
     if (activeQuery.id) {
-      await fetch(`${engineUrl}/api/saved-queries/${activeQuery.id}`, {
+      await api.fetch(`/api/saved-queries/${activeQuery.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

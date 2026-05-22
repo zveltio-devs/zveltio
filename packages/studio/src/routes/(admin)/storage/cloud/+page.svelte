@@ -33,7 +33,7 @@
         const fd = new FormData();
         fd.append('file', f);
         fd.append('path', path);
-        const r = await fetch(`${ENGINE_URL}/ext/storage/cloud/upload`, { method: 'POST', credentials: 'include', body: fd });
+        const r = await api.fetch(`/ext/storage/cloud/upload`, { method: 'POST', body: fd });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Upload failed');
       }
       await load();

@@ -103,11 +103,15 @@ async function executeStep(
       }
 
       // Execute with statement_timeout to prevent long-running queries.
-      // SET LOCAL and the user query MUST be separate statements to prevent
-      // bypass via e.g. `'; DROP TABLE ...` appended to the timeout value.
-      await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(db);
-      const result = await sql.raw(cfg.query as string).execute(db);
-      return { output: result.rows };
+      // SET LOCAL only takes effect inside a transaction, AND `.execute(db)`
+      // can hand out a different pool connection per call — so the timeout
+      // MUST live in the same transaction as the user query, otherwise a
+      // cartesian join can monopolise a pool connection indefinitely.
+      const result = await (db as any).transaction().execute(async (trx: Database) => {
+        await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
+        return sql.raw(cfg.query as string).execute(trx);
+      });
+      return { output: (result as any).rows };
     }
 
     // ── run_script ──

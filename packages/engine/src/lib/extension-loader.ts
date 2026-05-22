@@ -1353,7 +1353,9 @@ class ExtensionLoader {
         resourceId: extName,
         resourceType: 'extension',
         metadata: { version: extension.name },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        console.error('[extension-loader] audit log failed:', err.message);
+      });
 
     } catch (err) {
       const errMsg = (err as Error).message ?? String(err);
@@ -1367,7 +1369,9 @@ class ExtensionLoader {
           resourceId: extName,
           resourceType: 'extension',
           metadata: { error: (err as Error).message },
-        }).catch(() => {});
+        }).catch((err: Error) => {
+        console.error('[extension-loader] audit log failed:', err.message);
+      });
       }
     }
   }
@@ -1695,7 +1699,9 @@ class ExtensionLoader {
         .deleteFrom('zv_settings' as any)
         .where('key' as any, '=', `ext_license:${name}`)
         .execute()
-        .catch(() => {});
+        .catch((err: Error) => {
+          console.error('[extension-loader] license delete failed:', err.message);
+        });
 
       // Audit: record the deletion. Best-effort — never block the response.
       await writeLicenseAudit(db, {
@@ -1704,7 +1710,9 @@ class ExtensionLoader {
         performed_by: (await auth.api.getSession({ headers: c.req.raw.headers }))?.user?.id ?? null,
         ip: clientIp(c),
         user_agent: c.req.header('user-agent') ?? null,
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        console.error('[extension-loader] audit log failed:', err.message);
+      });
 
       return c.json({ ok: true });
     });
@@ -1978,7 +1986,9 @@ class ExtensionLoader {
               .set({ is_enabled: false })
               .where('name' as any, '=', name)
               .execute()
-              .catch(() => {});
+              .catch((err: Error) => {
+                console.error('[extension-loader] rollback is_enabled failed — DB and runtime now inconsistent:', err.message);
+              });
           }
         } else {
           hotLoaded = true;
@@ -2298,7 +2308,9 @@ class ExtensionLoader {
         resourceId: name,
         resourceType: 'extension',
         metadata: { needs_restart: ext.registeredRoutes },
-      }).catch(() => {});
+      }).catch((err: Error) => {
+        console.error('[extension-loader] audit log failed:', err.message);
+      });
     }
 
     const needsRestart = ext.registeredRoutes;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   type Tab = 'simulate' | 'active';
@@ -25,7 +26,7 @@
 
   async function loadRecalls() {
     loadingRecalls = true;
-    const res = await fetch(`${API}/recalls?status=active`);
+    const res = await api.fetch(`${API}/recalls?status=active`);
     recalls = res.ok ? (await res.json()).data : [];
     loadingRecalls = false;
   }
@@ -37,7 +38,7 @@
     simulation = null;
     initiated = null;
     try {
-      const res = await fetch(`${API}/recalls/simulate/${lotId.trim()}`, { method: 'POST' });
+      const res = await api.fetch(`${API}/recalls/simulate/${lotId.trim()}`, { method: 'POST' });
       if (!res.ok) throw new Error(await res.text());
       simulation = (await res.json()).data;
     } catch (e: any) {
@@ -53,7 +54,7 @@
     initiating = true;
     simError = '';
     try {
-      const res = await fetch(`${API}/recalls/initiate`, {
+      const res = await api.fetch(`${API}/recalls/initiate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lot_id: lotId.trim(), reason: initiateForm.reason, scope: initiateForm.scope }),
@@ -73,7 +74,7 @@
     e.preventDefault();
     resolving = true;
     try {
-      const res = await fetch(`${API}/recalls/${resolveForm.recallId}/resolve`, {
+      const res = await api.fetch(`${API}/recalls/${resolveForm.recallId}/resolve`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resolution_notes: resolveForm.resolution_notes }),
