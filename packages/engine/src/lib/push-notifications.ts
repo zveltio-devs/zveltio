@@ -188,13 +188,17 @@ export async function sendPushToUser(
     }),
   );
 
-  // Remove stale tokens (e.g. app uninstalled) — non-blocking
+  // Remove stale tokens (e.g. app uninstalled) — non-blocking.
+  // Repeated failure here means we keep re-sending to dead tokens,
+  // burning FCM/APNS quota — log so the trend is visible.
   if (staleTokens.length > 0) {
     (db as any)
       .deleteFrom('zvd_push_tokens')
       .where('id', 'in', staleTokens)
       .execute()
-      .catch(() => { /* non-critical */ });
+      .catch((err: Error) => {
+        console.warn(`[push-notifications] stale-token cleanup (${staleTokens.length}) failed:`, err.message);
+      });
   }
 
   return { sent, failed };

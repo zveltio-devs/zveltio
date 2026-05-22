@@ -204,14 +204,29 @@ export const websocketHandler = {
   },
 
   close(ws: any) {
-    if (ws.data?.id) {
-      const conn = connections.get(ws.data.id);
-      if (conn) unindexAllSubscriptions(ws.data.id, conn.subscriptions);
-      connections.delete(ws.data.id);
-    }
-    wsPermCache.delete(ws);
+    cleanupSocket(ws);
+  },
+
+  // Bun's WebSocket handler fires `error` when the socket dies before
+  // `close` runs (e.g. ETIMEDOUT, abrupt TCP RST). Without an explicit
+  // handler the connection state lingers in `connections` and
+  // `subscriptionIndex` until the next broadcast tries to send and
+  // catches a write error. We treat error as a close so cleanup is
+  // symmetric and the indices don't leak entries.
+  error(ws: any, err: unknown) {
+    console.warn('[ws] socket error:', err instanceof Error ? err.message : String(err));
+    cleanupSocket(ws);
   },
 };
+
+function cleanupSocket(ws: any): void {
+  if (ws.data?.id) {
+    const conn = connections.get(ws.data.id);
+    if (conn) unindexAllSubscriptions(ws.data.id, conn.subscriptions);
+    connections.delete(ws.data.id);
+  }
+  wsPermCache.delete(ws);
+}
 
 // ── Broadcast helpers ─────────────────────────────────────────────────────────
 // Called by data.ts and other routes to push realtime events to subscribers.
@@ -231,6 +246,7 @@ export function broadcastEvent(
 
   // Use subscription index for O(subscribers) instead of O(all connections)
   const sent = new Set<string>();
+  const stale: Array<{ channel: string; connId: string }> = [];
   for (const channel of [collection, wildcardChannel, specificChannel]) {
     const connIds = subscriptionIndex.get(channel);
     if (!connIds) continue;
@@ -238,14 +254,23 @@ export function broadcastEvent(
       if (sent.has(connId)) continue;
       sent.add(connId);
       const conn = connections.get(connId);
-      if (!conn) continue;
+      if (!conn) {
+        // Stale index entry — the close/error handler missed it (e.g.
+        // the socket was killed by the kernel without firing either).
+        // Prune so the index doesn't grow unbounded across reconnects.
+        stale.push({ channel, connId });
+        continue;
+      }
       try {
         conn.ws.send(payload);
       } catch {
-        // Connection dead — will be cleaned up in close()
+        // Connection dead — close/error will fire eventually and call
+        // cleanupSocket. Until then, the next broadcast won't loop
+        // forever because `connections.get` returns undefined above.
       }
     }
   }
+  for (const { channel, connId } of stale) unindexSubscription(channel, connId);
 }
 
 /**

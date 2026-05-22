@@ -51,9 +51,14 @@ export async function sendNotification(
     );
   }
 
-  // Fire-and-forget mobile push — only if FCM or APNS are configured
+  // Fire-and-forget mobile push — only if FCM or APNS are configured.
+  // Push failures are common (stale tokens, FCM/APNS outages) so log at
+  // warn level — escalation happens only when it's the same userId
+  // failing repeatedly.
   if (process.env.FCM_SERVER_KEY || process.env.APNS_KEY) {
-    sendPushToUsers(db, userIds, { title: opts.title, body: opts.message }).catch(() => { /* non-critical */ });
+    sendPushToUsers(db, userIds, { title: opts.title, body: opts.message }).catch((err: Error) => {
+      console.warn(`[notifications] push to ${userIds.length} user(s) failed:`, err.message);
+    });
   }
 }
 

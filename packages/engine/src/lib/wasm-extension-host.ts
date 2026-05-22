@@ -44,7 +44,6 @@
  * runtime a given extension uses.
  */
 
-import { readFileSync } from 'fs';
 import { policyFor, hasCapability, type ExtensionCapability } from './extension-sandbox.js';
 
 /** ABI version of the host-bridge contract. Bumped on any breaking
@@ -80,7 +79,10 @@ export async function loadWasmExtension(
   wasmPath: string,
   opts: WasmHostOptions,
 ): Promise<WasmExtensionHandle> {
-  const bytes = readFileSync(wasmPath);
+  // Bun.file is the canonical async-only IO primitive (project rule —
+  // prefer over node:fs.readFileSync). instantiateWasmExtension takes
+  // a Uint8Array, which is what arrayBuffer() returns after wrap.
+  const bytes = new Uint8Array(await Bun.file(wasmPath).arrayBuffer());
   return instantiateWasmExtension(bytes, opts);
 }
 

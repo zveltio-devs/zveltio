@@ -384,7 +384,9 @@ export async function executeFlow(
       UPDATE zv_flow_runs
       SET status = 'failed', error = ${String(err)}, finished_at = NOW()
       WHERE id = ${runId}
-    `.execute(db).catch(() => {});
+    `.execute(db).catch((bookkeepingErr: Error) => {
+      console.warn(`[flow-executor] failed to mark run ${runId} as failed:`, bookkeepingErr.message);
+    });
     return { runId, status: 'failed', output: {}, error: String(err) };
   }
 
@@ -429,7 +431,9 @@ export async function executeFlow(
           output = ${JSON.stringify(finalOutput)}::jsonb,
           finished_at = NOW()
       WHERE id = ${runId}
-    `.execute(db).catch(() => {});
+    `.execute(db).catch((bookkeepingErr: Error) => {
+      console.warn(`[flow-executor] failed to mark run ${runId} as success:`, bookkeepingErr.message);
+    });
 
     return { runId, status: 'success', output: finalOutput };
   } catch (err) {
@@ -437,7 +441,9 @@ export async function executeFlow(
       UPDATE zv_flow_runs
       SET status = 'failed', error = ${String(err)}, finished_at = NOW()
       WHERE id = ${runId}
-    `.execute(db).catch(() => {});
+    `.execute(db).catch((bookkeepingErr: Error) => {
+      console.warn(`[flow-executor] failed to mark run ${runId} as failed:`, bookkeepingErr.message);
+    });
 
     return { runId, status: 'failed', output, error: String(err) };
   }

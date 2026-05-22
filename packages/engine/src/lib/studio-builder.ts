@@ -12,7 +12,11 @@
  * is served as a pre-built static artifact and no rebuild is possible.
  */
 
-import { existsSync, mkdirSync, cpSync, rmSync, renameSync, readFileSync } from 'fs';
+// Install-time sync filesystem ops (cp/rm/rename/read) for the Studio
+// rebuild pipeline. Bun.file is async-only, so we use node:fs here —
+// the `node:` prefix flags this as "intentionally not Bun.file" rather
+// than an accidental Node.js import.
+import { existsSync, mkdirSync, cpSync, rmSync, renameSync, readFileSync } from 'node:fs';
 import { join } from 'path';
 
 function studioSrcDir(): string | null {

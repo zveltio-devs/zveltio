@@ -3,8 +3,14 @@ import { z } from 'zod';
 import { sql as _sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
-import { existsSync, writeFileSync, mkdirSync, unlinkSync, symlinkSync } from 'fs';
-import { readdir } from 'fs/promises';
+// Extension install/load is naturally a synchronous filesystem operation
+// (unpack archive, copy node_modules, build vite bundles, symlink shared
+// deps). The project rule prefers Bun.file/Bun.spawn for runtime IO, but
+// Bun deliberately exposes node:fs as the native install-time API — there
+// is no synchronous Bun.file equivalent for mkdir/symlink/writeFile. The
+// explicit `node:` prefix makes that intent visible.
+import { existsSync, writeFileSync, mkdirSync, unlinkSync, symlinkSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'path';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
 import type { EventBus } from './event-bus.js';

@@ -45,7 +45,9 @@ export function tenantQuota(db: Database) {
 
         maxCalls = row?.max_api_calls_day ?? 0;
         // Cache for 5 minutes — plan upgrades propagate within that window
-        await cache.set(limitKey, String(maxCalls), 'EX', 300).catch(() => {});
+        await cache.set(limitKey, String(maxCalls), 'EX', 300).catch((err: Error) => {
+          console.warn('[tenant-quota] cache.set(limit) failed:', err.message);
+        });
       }
 
       // 0 or null means "no limit configured" — allow all traffic
@@ -57,7 +59,9 @@ export function tenantQuota(db: Database) {
       // Set expiry on the first call of the day so the key self-cleans at midnight
       if (count === 1) {
         const msUntilMidnight = new Date().setUTCHours(24, 0, 0, 0) - Date.now();
-        await cache.expire(counterKey, Math.ceil(msUntilMidnight / 1000)).catch(() => {});
+        await cache.expire(counterKey, Math.ceil(msUntilMidnight / 1000)).catch((err: Error) => {
+          console.warn('[tenant-quota] cache.expire(counter) failed:', err.message);
+        });
       }
 
       // ── Expose quota headers ──────────────────────────────────────────────
@@ -80,10 +84,14 @@ export function tenantQuota(db: Database) {
             oc.columns(['tenant_id', 'date']).doUpdateSet({ api_calls: count }),
           )
           .execute()
-          .catch(() => { /* non-fatal — reporting lag is acceptable */ });
+          .catch((err: Error) => {
+            console.warn('[tenant-quota] usage report write failed:', err.message);
+          });
       }
-    } catch {
-      // Fail-open: quota errors must never block legitimate requests
+    } catch (err) {
+      // Fail-open: quota errors must never block legitimate requests, but
+      // surface them so a wedged Valkey/DB doesn't silently disable quotas.
+      console.warn('[tenant-quota] middleware error (fail-open):', (err as Error).message);
     }
 
     return next();
