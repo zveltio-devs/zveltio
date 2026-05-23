@@ -130,6 +130,15 @@ export function backupRoutes(db: Database, auth: any): Hono {
           throw new Error('Backup file was not created');
         }
 
+        // Tighten permissions on the dump file: it holds the entire DB
+        // including password hashes, secrets, customer PII. The default
+        // umask on most Linux installs creates 0644 (world-readable),
+        // which on a shared host means any user can `cat` the backup.
+        // 0600 = owner read/write only. No-op on Windows.
+        if (process.platform !== 'win32') {
+          await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
+        }
+
         const size = Bun.file(filepath).size;
 
         await sql`
@@ -586,6 +595,11 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
         if (!(await Bun.file(filepath).exists())) {
           throw new Error('Backup file was not created');
+        }
+
+        // 0600 — see /backup POST above. Same reasoning for scheduled dumps.
+        if (process.platform !== 'win32') {
+          await Bun.spawn(['chmod', '600', filepath]).exited.catch(() => {});
         }
 
         const size = Bun.file(filepath).size;

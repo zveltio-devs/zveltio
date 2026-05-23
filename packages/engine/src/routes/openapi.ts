@@ -1,10 +1,28 @@
 import { Hono } from 'hono';
 import { ENGINE_VERSION } from '../version.js';
+import { auth } from '../lib/auth.js';
+import { checkPermission } from '../lib/permissions.js';
 
 export function openApiRoutes(): Hono {
   const app = new Hono();
 
-  app.get('/', (c) => {
+  app.get('/', async (c) => {
+    // OpenAPI spec leaks the admin/permissions/auth API surface and is
+    // useful reconnaissance for a probing attacker. In production we
+    // gate it behind admin auth; in dev/staging it stays open so SDK
+    // generators (zveltio extension types, openapi-typescript) work
+    // without needing a session.
+    //
+    // The override OPENAPI_PUBLIC=true keeps the spec public even in
+    // production for operators who run a public API docs site.
+    const inProd = process.env.NODE_ENV === 'production';
+    const publicOverride = process.env.OPENAPI_PUBLIC === 'true';
+    if (inProd && !publicOverride) {
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      if (!session) return c.json({ error: 'Unauthorized' }, 401);
+      const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+      if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
+    }
     const spec = buildSpec();
     return c.json(spec);
   });

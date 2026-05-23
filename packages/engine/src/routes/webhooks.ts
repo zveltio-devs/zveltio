@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
+import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -93,14 +94,21 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // Auto-generate secret if not provided — always sign deliveries
     const secret = data.secret || generateWebhookSecret();
 
+    // Encrypt the signing secret with FIELD_ENCRYPTION_KEY before
+    // persisting. The plaintext is returned ONCE to the admin via the
+    // response so they can configure the receiving service; from then
+    // on the DB column holds enc:v1:... ciphertext. WebhookManager
+    // decrypts in memory just before each delivery.
+    const encryptedSecret = (await maybeEncrypt(secret, true)) as string;
+
     const webhook = await (db as any)
       .insertInto('zvd_webhooks')
-      .values({ ...data, secret, created_by: user.id })
+      .values({ ...data, secret: encryptedSecret, created_by: user.id })
       .returningAll()
       .executeTakeFirst();
 
     // Return plaintext secret only on creation — subsequent GETs return masked value
-    return c.json({ webhook, _secret_shown_once: true }, 201);
+    return c.json({ webhook: { ...webhook, secret: '••••••••' }, secret, _secret_shown_once: true }, 201);
   });
 
   // PATCH /:id — Update webhook
@@ -114,15 +122,22 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
         return c.json({ error: err instanceof Error ? err.message : 'Invalid webhook URL' }, 400);
       }
     }
+    // Encrypt the secret if the caller is rotating it through PATCH —
+    // same pattern as POST /. Without this branch a PATCH would write
+    // plaintext over the encrypted column and leak the signing key.
+    const toSet: Record<string, any> = { ...data, updated_at: new Date() };
+    if (typeof data.secret === 'string' && data.secret.length > 0) {
+      toSet.secret = (await maybeEncrypt(data.secret, true)) as string;
+    }
     const webhook = await (db as any)
       .updateTable('zvd_webhooks')
-      .set({ ...data, updated_at: new Date() })
+      .set(toSet)
       .where('id', '=', c.req.param('id'))
       .returningAll()
       .executeTakeFirst();
 
     if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
-    return c.json({ webhook });
+    return c.json({ webhook: maskSecret(webhook) });
   });
 
   // DELETE /:id — Delete webhook
@@ -151,9 +166,10 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   // POST /:id/rotate-secret — Generate a new signing secret
   app.post('/:id/rotate-secret', async (c) => {
     const newSecret = generateWebhookSecret();
+    const encryptedNew = (await maybeEncrypt(newSecret, true)) as string;
     const webhook = await (db as any)
       .updateTable('zvd_webhooks')
-      .set({ secret: newSecret, updated_at: new Date() })
+      .set({ secret: encryptedNew, updated_at: new Date() })
       .where('id', '=', c.req.param('id'))
       .returningAll()
       .executeTakeFirst();
@@ -192,7 +208,12 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       });
 
       if (webhook.secret) {
-        sanitizedHeaders['X-Zveltio-Signature'] = await signBody(testBody, webhook.secret as string);
+        // The stored secret is encrypted (enc:v1:...) — decrypt in
+        // memory to sign the test body. maybeDecrypt returns the value
+        // unchanged on legacy unencrypted rows so test still works
+        // during the encryption rollout.
+        const plaintext = (await maybeDecrypt(webhook.secret, true)) as string;
+        sanitizedHeaders['X-Zveltio-Signature'] = await signBody(testBody, plaintext);
       }
 
       validatePublicUrl(webhook.url as string);
