@@ -126,6 +126,20 @@ export async function runEdgeFunction(
 ): Promise<RunResult> {
   const start = Date.now();
 
+  // Sandbox mode:
+  //   - 'worker' (default): in-process Bun Worker. ~1ms startup, suitable
+  //     for ADMIN-authored edge functions (single tenant or trusted code).
+  //   - 'subprocess': new Bun process per invocation. ~30ms startup but
+  //     OS-level isolation — REQUIRED if you let untrusted/end-users author
+  //     edge functions in a multi-tenant setup.
+  //
+  // Operators flip this per deployment by setting `EDGE_SANDBOX_MODE=subprocess`.
+  const mode = process.env.EDGE_SANDBOX_MODE === 'subprocess' ? 'subprocess' : 'worker';
+  if (mode === 'subprocess') {
+    const { runEdgeFunctionInSubprocess } = await import('./edge-functions/subprocess-runner.js');
+    return runEdgeFunctionInSubprocess(code, request, envVars, timeoutMs);
+  }
+
   // Transpile TypeScript → JavaScript before sandboxing
   let jsCode: string;
   try {

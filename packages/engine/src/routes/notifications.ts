@@ -5,6 +5,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { sendPushToUsers } from '../lib/push-notifications.js';
+import { reqDb } from '../lib/route-db.js';
 
 async function requireAuth(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -75,12 +76,13 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // GET / — List notifications for current user
   app.get('/', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
     const { unread_only, limit = '50', page = '1' } = c.req.query();
     const lim = Math.min(parseInt(limit), 200);
     const offset = (parseInt(page) - 1) * lim;
 
-    let query = (db as any)
+    let query = (tdb as any)
       .selectFrom('zv_notifications')
       .selectAll()
       .where('user_id', '=', user.id)
@@ -92,7 +94,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
     const [notifications, countRow] = await Promise.all([
       query.execute(),
-      (db as any)
+      (tdb as any)
         .selectFrom('zv_notifications')
         .select((eb: any) => [
           eb.fn.count('id').as('total'),
@@ -113,8 +115,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — Get single notification
   app.get('/:id', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    const notification = await (db as any)
+    const notification = await (tdb as any)
       .selectFrom('zv_notifications')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -127,8 +130,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // PATCH /:id/read — Mark as read
   app.patch('/:id/read', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (db as any)
+    await (tdb as any)
       .updateTable('zv_notifications')
       .set({ is_read: true })
       .where('id', '=', c.req.param('id'))
@@ -139,8 +143,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // PATCH /:id/unread — Mark as unread
   app.patch('/:id/unread', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (db as any)
+    await (tdb as any)
       .updateTable('zv_notifications')
       .set({ is_read: false })
       .where('id', '=', c.req.param('id'))
@@ -151,8 +156,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // POST /mark-all-read — Mark all as read for user
   app.post('/mark-all-read', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (db as any)
+    await (tdb as any)
       .updateTable('zv_notifications')
       .set({ is_read: true })
       .where('user_id', '=', user.id)
@@ -163,8 +169,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /clear-all — Clear all read notifications (must be before DELETE /:id to prevent route conflict)
   app.delete('/clear-all', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (db as any)
+    await (tdb as any)
       .deleteFrom('zv_notifications')
       .where('user_id', '=', user.id)
       .where('is_read', '=', true)
@@ -174,8 +181,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id — Delete notification
   app.delete('/:id', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (db as any)
+    await (tdb as any)
       .deleteFrom('zv_notifications')
       .where('id', '=', c.req.param('id'))
       .where('user_id', '=', user.id)
@@ -198,6 +206,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       const user = c.get('user') as any;
       const { endpoint, p256dh, auth: authKey, user_agent } = c.req.valid('json');
 
+      const tdb = reqDb(c, db);
       await sql`
         INSERT INTO zv_push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
         VALUES (${user.id}, ${endpoint}, ${p256dh}, ${authKey}, ${user_agent ?? null})
@@ -205,7 +214,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
           user_id = EXCLUDED.user_id,
           p256dh = EXCLUDED.p256dh,
           auth = EXCLUDED.auth
-      `.execute(db);
+      `.execute(tdb);
 
       return c.json({ success: true }, 201);
     },
@@ -213,9 +222,10 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /push/subscribe — Unsubscribe
   app.delete('/push/subscribe', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
     const { endpoint } = await c.req.json();
-    await (db as any)
+    await (tdb as any)
       .deleteFrom('zv_push_subscriptions')
       .where('user_id', '=', user.id)
       .where('endpoint', '=', endpoint)
@@ -236,6 +246,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       action_url: z.string().url().optional(),
     })),
     async (c) => {
+      const tdb = reqDb(c, db);
       const user = c.get('user') as any;
       const isAdmin = await checkPermission(user.id, 'admin', '*');
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
@@ -247,14 +258,14 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
         targetIds = Array.isArray(user_id) ? user_id : [user_id];
       } else {
         // Broadcast to all active users
-        const users = await (db as any)
+        const users = await (tdb as any)
           .selectFrom('user')
           .select('id')
           .execute();
         targetIds = users.map((u: any) => u.id);
       }
 
-      await sendNotification(db, {
+      await sendNotification(tdb, {
         user_id: targetIds,
         title,
         message,
@@ -278,10 +289,11 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       device_name: z.string().max(100).optional(),
     })),
     async (c) => {
+      const tdb = reqDb(c, db);
       const user = c.get('user') as any;
       const { token, platform, device_name } = c.req.valid('json');
 
-      await (db as any)
+      await (tdb as any)
         .insertInto('zvd_push_tokens')
         .values({ user_id: user.id, token, platform, device_name: device_name ?? null })
         .onConflict((oc: any) =>
@@ -295,8 +307,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // GET /push-tokens — list own tokens
   app.get('/push-tokens', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    const tokens = await (db as any)
+    const tokens = await (tdb as any)
       .selectFrom('zvd_push_tokens')
       .select(['id', 'platform', 'device_name', 'created_at'])
       .where('user_id', '=', user.id)
@@ -306,8 +319,9 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /push-tokens/:id — unregister a token
   app.delete('/push-tokens/:id', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (db as any)
+    await (tdb as any)
       .deleteFrom('zvd_push_tokens')
       .where('id', '=', c.req.param('id'))
       .where('user_id', '=', user.id) // users can only delete their own tokens

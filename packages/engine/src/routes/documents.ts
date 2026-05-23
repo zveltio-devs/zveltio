@@ -18,6 +18,7 @@ import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
 import { renderTemplate, generatePDF, getNextDocumentNumber } from '../lib/doc-generator.js';
 import { DDLManager } from '../lib/ddl-manager.js';
+import { reqDb } from '../lib/route-db.js';
 
 export function documentsRoutes(db: Database, _auth: any): Hono {
   const app = new Hono();
@@ -32,22 +33,25 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
 
   // GET /templates
   app.get('/templates', async (c) => {
+    const tdb = reqDb(c, db);
     const result = await sql<any>`
       SELECT * FROM zv_doc_templates WHERE is_active = true ORDER BY name ASC
-    `.execute(db);
+    `.execute(tdb);
     return c.json({ templates: result.rows });
   });
 
   // GET /templates/:id
   app.get('/templates/:id', async (c) => {
+    const tdb = reqDb(c, db);
     const id = c.req.param('id');
-    const result = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(db);
+    const result = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(tdb);
     if (result.rows.length === 0) return c.json({ error: 'Template not found' }, 404);
     return c.json({ template: result.rows[0] });
   });
 
   // POST /templates — create (admin)
   app.post('/templates', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user');
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
@@ -64,14 +68,15 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
         ${body.prefix || ''}, ${user.id}
       )
       RETURNING id
-    `.execute(db);
+    `.execute(tdb);
 
-    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${result.rows[0].id}`.execute(db);
+    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${result.rows[0].id}`.execute(tdb);
     return c.json({ template: templateResult.rows[0] }, 201);
   });
 
   // PATCH /templates/:id — update (admin)
   app.patch('/templates/:id', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user');
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
@@ -79,7 +84,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const id = c.req.param('id');
     const body = await c.req.json();
 
-    const existing = await sql<{ id: string }>`SELECT id FROM zv_doc_templates WHERE id = ${id}`.execute(db);
+    const existing = await sql<{ id: string }>`SELECT id FROM zv_doc_templates WHERE id = ${id}`.execute(tdb);
     if (existing.rows.length === 0) return c.json({ error: 'Template not found' }, 404);
 
     const ALLOWED = ['name', 'type', 'description', 'template_html', 'template_text', 'variables', 'source_collection', 'field_mapping', 'prefix', 'is_active'];
@@ -100,30 +105,32 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     if (setClauses.length === 0) return c.json({ error: 'No fields to update' }, 400);
 
     setClauses.push(sql`updated_at = NOW()`);
-    await sql`UPDATE zv_doc_templates SET ${sql.join(setClauses, sql`, `)} WHERE id = ${id}`.execute(db);
+    await sql`UPDATE zv_doc_templates SET ${sql.join(setClauses, sql`, `)} WHERE id = ${id}`.execute(tdb);
 
-    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(db);
+    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(tdb);
     return c.json({ template: templateResult.rows[0] });
   });
 
   // DELETE /templates/:id (admin)
   app.delete('/templates/:id', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user');
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const id = c.req.param('id');
-    const result = await sql`DELETE FROM zv_doc_templates WHERE id = ${id} RETURNING id`.execute(db);
+    const result = await sql`DELETE FROM zv_doc_templates WHERE id = ${id} RETURNING id`.execute(tdb);
     if (result.rows.length === 0) return c.json({ error: 'Template not found' }, 404);
     return c.json({ success: true });
   });
 
   // POST /generate/:templateId — generate PDF
   app.post('/generate/:templateId', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user');
     const templateId = c.req.param('templateId');
 
-    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${templateId}`.execute(db);
+    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${templateId}`.execute(tdb);
     const template = templateResult.rows[0];
     if (!template) return c.json({ error: 'Template not found' }, 404);
 
@@ -140,12 +147,12 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
         return c.json({ error: `Access denied to collection "${source_collection}"` }, 403);
       }
 
-      const collectionDef = await DDLManager.getCollection(db, source_collection).catch(() => null);
+      const collectionDef = await DDLManager.getCollection(tdb, source_collection).catch(() => null);
       if (!collectionDef) return c.json({ error: 'Invalid source collection' }, 400);
 
       const tableName = DDLManager.getTableName(source_collection);
       try {
-        const recordResult = await sql<any>`SELECT * FROM ${sql.id(tableName)} WHERE id = ${source_record_id}`.execute(db);
+        const recordResult = await sql<any>`SELECT * FROM ${sql.id(tableName)} WHERE id = ${source_record_id}`.execute(tdb);
         const record = recordResult.rows[0];
         if (record) {
           const mapping = typeof template.field_mapping === 'string'
@@ -162,7 +169,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     allVariables._data_generare = new Date().toLocaleDateString('ro-RO');
     allVariables._generata_de = user.name || user.id;
 
-    const docNumber = await getNextDocumentNumber(db, templateId, template.prefix || '');
+    const docNumber = await getNextDocumentNumber(tdb, templateId, template.prefix || '');
     allVariables._numar_document = docNumber;
 
     const htmlContent = renderTemplate(template.template_html, allVariables);
@@ -171,7 +178,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     await sql`
       INSERT INTO zv_generated_docs (template_id, template_name, source_collection, source_record_id, document_number, variables_data, html_content, generated_by)
       VALUES (${templateId}, ${template.name}, ${source_collection || null}, ${source_record_id || null}, ${docNumber}, ${JSON.stringify(allVariables)}::jsonb, ${htmlContent}, ${user.id})
-    `.execute(db);
+    `.execute(tdb);
 
     c.header('Content-Type', 'application/pdf');
     c.header('Content-Disposition', `attachment; filename="${template.name.replace(/\s/g, '_')}_${docNumber.replace(/\//g, '-')}.pdf"`);
@@ -190,13 +197,14 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     // Base filter: non-admins see only documents they generated
     const ownerFilter = isAdmin ? sql`` : sql`AND generated_by = ${user.id}`;
 
+    const tdb = reqDb(c, db);
     let result;
     if (templateId) {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE template_id = ${templateId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(db);
+      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE template_id = ${templateId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(tdb);
     } else if (sourceCollection && sourceRecordId) {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE source_collection = ${sourceCollection} AND source_record_id = ${sourceRecordId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(db);
+      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE source_collection = ${sourceCollection} AND source_record_id = ${sourceRecordId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(tdb);
     } else {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE 1=1 ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(db);
+      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE 1=1 ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(tdb);
     }
 
     return c.json({ documents: result.rows });
@@ -204,11 +212,12 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
 
   // GET /generated/:id
   app.get('/generated/:id', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user') as any;
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     const id = c.req.param('id');
 
-    const result = await sql<any>`SELECT * FROM zv_generated_docs WHERE id = ${id}`.execute(db);
+    const result = await sql<any>`SELECT * FROM zv_generated_docs WHERE id = ${id}`.execute(tdb);
     if (result.rows.length === 0) return c.json({ error: 'Document not found' }, 404);
 
     const doc = result.rows[0];

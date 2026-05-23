@@ -51,7 +51,9 @@ export function apiKeyGuard(db: Database) {
         ip.includes('/') ? isIpInCidr(clientIp, ip) : ip === clientIp,
       );
       if (!allowed) {
-        logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch(() => {});
+        logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch((err) => {
+          console.warn('[api-key-guard] audit log write failed (denied request):', (err as Error).message);
+        });
         return c.json({ error: `IP ${clientIp} not allowed for this API key` }, 403);
       }
     }
@@ -65,14 +67,18 @@ export function apiKeyGuard(db: Database) {
     } else if (apiKey.permissions_mode === 'casbin' && apiKey.casbin_subject) {
       const allowed = await checkPermission(apiKey.casbin_subject, collection, action);
       if (!allowed) {
-        logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch(() => {});
+        logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch((err) => {
+          console.warn('[api-key-guard] audit log write failed (denied request):', (err as Error).message);
+        });
         return c.json({ error: 'Insufficient permissions' }, 403);
       }
     } else {
       const scopes =
         typeof apiKey.scopes === 'string' ? JSON.parse(apiKey.scopes) : apiKey.scopes;
       if (!checkScopes(scopes, collection, action)) {
-        logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch(() => {});
+        logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch((err) => {
+          console.warn('[api-key-guard] audit log write failed (denied request):', (err as Error).message);
+        });
         return c.json({ error: 'API key does not have access to this resource' }, 403);
       }
     }
@@ -96,7 +102,9 @@ export function apiKeyGuard(db: Database) {
     const start = Date.now();
     await next();
 
-    logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, c.res.status, Date.now() - start).catch(() => {});
+    logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, c.res.status, Date.now() - start).catch((err) => {
+      console.warn('[api-key-guard] audit log write failed:', (err as Error).message);
+    });
   };
 }
 
@@ -161,6 +169,5 @@ async function logAccess(
       status_code: status ?? null,
       duration_ms: duration ?? null,
     })
-    .execute()
-    .catch(() => {});
+    .execute();
 }

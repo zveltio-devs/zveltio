@@ -12,6 +12,7 @@
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
+import { reqDb } from '../lib/route-db.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -103,12 +104,13 @@ export function importRoutes(db: Database, _auth: any) {
   // ── GET /api/import/jobs ─────────────────────────────────────────────────
 
   app.get('/jobs', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user');
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const isAdmin = await checkPermission(user.id, 'admin', '*');
 
-    let query = db
+    let query = tdb
       .selectFrom('zv_import_logs')
       .select(['id', 'collection', 'filename', 'file_format', 'status',
                'total_rows', 'success_rows', 'error_rows', 'created_at', 'completed_at'])
@@ -126,6 +128,7 @@ export function importRoutes(db: Database, _auth: any) {
   // ── POST /api/import/:collection ─────────────────────────────────────────
 
   app.post('/:collection', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user');
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
@@ -160,7 +163,7 @@ export function importRoutes(db: Database, _auth: any) {
     const skipHeader = formData.get('skip_header') !== 'false';
 
     // Validate collection exists + get schema
-    const schemaRow = await db
+    const schemaRow = await tdb
       .selectFrom('zvd_collections')
       .select(['name', 'fields'])
       .where('name', '=', collection)
@@ -179,7 +182,7 @@ export function importRoutes(db: Database, _auth: any) {
 
     // Create log entry
     const logId = crypto.randomUUID();
-    await db.insertInto('zv_import_logs' as any).values({
+    await tdb.insertInto('zv_import_logs' as any).values({
       id: logId,
       collection,
       filename: fileBlob.name,
@@ -206,7 +209,7 @@ export function importRoutes(db: Database, _auth: any) {
         rawRecords = parseCsv(text, delimiter === '\\t' ? '\t' : delimiter, skipHeader) as any;
       }
     } catch (err) {
-      await db.updateTable('zv_import_logs' as any)
+      await tdb.updateTable('zv_import_logs' as any)
         .set({ status: 'failed', completed_at: new Date() } as any)
         .where('id', '=', logId)
         .execute();
@@ -252,7 +255,7 @@ export function importRoutes(db: Database, _auth: any) {
 
       if (toInsert.length > 0) {
         try {
-          await db.insertInto(collection as any).values(toInsert as any).execute();
+          await tdb.insertInto(collection as any).values(toInsert as any).execute();
           successRows += toInsert.length;
         } catch (err) {
           // Batch failed — record each row as error
@@ -266,7 +269,7 @@ export function importRoutes(db: Database, _auth: any) {
 
     const status = errorRows === 0 ? 'completed' : successRows === 0 ? 'failed' : 'partial';
 
-    await db.updateTable('zv_import_logs' as any)
+    await tdb.updateTable('zv_import_logs' as any)
       .set({
         status,
         total_rows: totalRows,
