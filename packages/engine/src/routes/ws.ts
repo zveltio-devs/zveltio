@@ -9,6 +9,13 @@ const wsPermCache = new WeakMap<object, Map<string, boolean>>();
 
 interface WSConnection {
   userId: string;
+  /**
+   * Tenant id resolved at upgrade time from the request's tenant
+   * context. Used to scope `broadcastEvent` so a write in tenant A
+   * doesn't push to subscribers in tenant B even when they subscribed
+   * to the same collection name. `null` for single-tenant deployments.
+   */
+  tenantId: string | null;
   ws: any;
   subscriptions: Set<string>; // collection names or "collection:event" channels
   connectedAt: number;
@@ -54,8 +61,13 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
     const id = `ws_${++wsCounter}_${Date.now()}`;
+    // Lock the tenant id at upgrade time. The WS connection persists
+    // for the life of the socket; later writes broadcast against this
+    // captured tenantId so cross-tenant subscribers don't receive
+    // each other's events.
+    const tenantId = (c.get('tenant') as any)?.id ?? null;
     const upgraded = server.upgrade(c.req.raw, {
-      data: { id, userId: session.user.id },
+      data: { id, userId: session.user.id, tenantId },
     });
 
     if (!upgraded) return c.text('WebSocket upgrade failed', 426);
@@ -90,7 +102,7 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
 
 export const websocketHandler = {
   open(ws: any) {
-    const { id, userId } = ws.data ?? {};
+    const { id, userId, tenantId } = ws.data ?? {};
     if (!id || !userId) {
       // Should never happen — the /api/ws route enforces auth before upgrade.
       ws.close(4001, 'Unauthorized');
@@ -99,6 +111,7 @@ export const websocketHandler = {
 
     connections.set(id, {
       userId,
+      tenantId: tenantId ?? null,
       ws,
       subscriptions: new Set(), // no default subscriptions — clients must explicitly subscribe
       connectedAt: Date.now(),
@@ -239,6 +252,7 @@ export function broadcastEvent(
   collection: string,
   event: 'insert' | 'update' | 'delete',
   data: any,
+  tenantId: string | null = null,
 ): void {
   const payload = JSON.stringify({ type: 'event', collection, event, data, timestamp: Date.now() });
   const specificChannel = `${collection}:${event}`;
@@ -261,6 +275,11 @@ export function broadcastEvent(
         stale.push({ channel, connId });
         continue;
       }
+      // Strict tenant isolation — drop the message rather than deliver
+      // it cross-tenant. NULL is treated as a distinct value so
+      // single-tenant connections aren't fed multi-tenant traffic and
+      // vice-versa.
+      if ((conn.tenantId ?? null) !== (tenantId ?? null)) continue;
       try {
         conn.ws.send(payload);
       } catch {
