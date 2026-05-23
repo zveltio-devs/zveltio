@@ -390,10 +390,20 @@ export async function enableRLS(tableName: string): Promise<void> {
     ON ${sql.id(tableName)}(tenant_id)
   `.execute(_db);
 
-  // 3. Enable RLS
-  await sql`ALTER TABLE ${sql.id(tableName)} ENABLE ROW LEVEL SECURITY`.execute(
-    _db,
-  );
+  // 3. Enable + FORCE RLS.
+  //
+  //    `ENABLE ROW LEVEL SECURITY` alone leaves a giant escape hatch:
+  //    the table OWNER (and anyone with BYPASSRLS) is still exempt
+  //    from policies. In Zveltio the engine connects as the owner of
+  //    the public schema, so without FORCE, every query the engine
+  //    makes effectively sees ALL tenants — RLS becomes advisory.
+  //
+  //    `FORCE ROW LEVEL SECURITY` removes that escape hatch so even
+  //    the owner is bound by the policy. The only way to read across
+  //    tenants is then through a connection that explicitly has the
+  //    BYPASSRLS attribute (which the engine connection should NOT).
+  await sql`ALTER TABLE ${sql.id(tableName)} ENABLE ROW LEVEL SECURITY`.execute(_db);
+  await sql`ALTER TABLE ${sql.id(tableName)} FORCE ROW LEVEL SECURITY`.execute(_db);
 
   // 4. Isolation policy — uses SET LOCAL value from middleware
   //    DROP + CREATE so this function is safe to call multiple times (idempotent)
@@ -405,4 +415,28 @@ export async function enableRLS(tableName: string): Promise<void> {
     USING (tenant_id::text = current_setting('zveltio.current_tenant', true))
     WITH CHECK (tenant_id::text = current_setting('zveltio.current_tenant', true))
   `.execute(_db);
+
+  // 5. NULL tenant_id row warning.
+  //
+  //    enableRLS is typically called AFTER the table already has data.
+  //    Existing rows have tenant_id = NULL, and the policy
+  //    `tenant_id::text = current_setting(...)` evaluates to NULL
+  //    (not true) for them — so they become invisible to every
+  //    tenant. Worse, if the operator later disables RLS or BYPASSRLS,
+  //    the rows are still there with NULL tenant_id and effectively
+  //    leak into any tenant query.
+  //
+  //    We surface this loudly so the operator runs a backfill UPDATE
+  //    before considering the table multi-tenant-safe.
+  const orphans = await sql<{ orphan_count: number }>`
+    SELECT COUNT(*)::int AS orphan_count FROM ${sql.id(tableName)} WHERE tenant_id IS NULL
+  `.execute(_db).catch(() => ({ rows: [{ orphan_count: 0 }] }));
+  const orphanCount = orphans.rows[0]?.orphan_count ?? 0;
+  if (orphanCount > 0) {
+    console.warn(
+      `[tenant-manager] enableRLS(${tableName}): ${orphanCount} row(s) ` +
+      `have tenant_id IS NULL and are now invisible to every tenant. ` +
+      `Backfill with: UPDATE ${tableName} SET tenant_id = '<default-tenant-id>' WHERE tenant_id IS NULL`,
+    );
+  }
 }

@@ -1,0 +1,20 @@
+{
+  "identities": [
+    {
+      "name": "zveltio-engine",
+      "credentials": [
+        {
+          "accessKey": "$S3_ACCESS_KEY",
+          "secretKey": "$S3_SECRET_KEY"
+        }
+      ],
+      "actions": [
+        "Read:zveltio",
+        "Write:zveltio",
+        "List:zveltio",
+        "Tagging:zveltio",
+        "Admin:zveltio"
+      ]
+    }
+  ]
+}

@@ -146,6 +146,49 @@ be the next step.
 
 ---
 
+## Multi-tenant isolation
+
+Tenant isolation rests on three layers, all required:
+
+1. **`tenant_id UUID` column** on each table, FK to `zv_tenants(id)`.
+   Added automatically by `enableRLS(tableName)`.
+2. **`ENABLE + FORCE ROW LEVEL SECURITY`** — FORCE matters. Without
+   it, the engine connects as the table owner and Postgres lets the
+   owner bypass policies; RLS becomes advisory. `enableRLS` issues
+   both `ENABLE` and `FORCE`.
+3. **`tenant_isolation` policy** comparing `tenant_id` against the
+   PostgreSQL session variable `zveltio.current_tenant`, set by
+   `tenantMiddleware` at request start via `SET LOCAL` inside a
+   transaction.
+
+### Routes touching tenant data MUST use `tenantTrx`
+
+`SET LOCAL` persists only for the connection that owns the transaction.
+Routes that read or write tenant-scoped data must use the per-request
+transaction handle, not the pool:
+
+```ts
+// ❌ wrong — pool may hand to a different connection without the GUC
+const rows = await db.selectFrom('zvd_orders').selectAll().execute();
+
+// ✅ right — same connection, GUC active, RLS sees the tenant
+const trx = c.get('tenantTrx') ?? db;
+const rows = await trx.selectFrom('zvd_orders').selectAll().execute();
+```
+
+`routes/data.ts` already does this via `effectiveDb`. Any extension
+that exposes a `zvd_*` route must follow the same pattern.
+
+### Backfilling tenant_id
+
+`enableRLS()` is typically run after a table already has data. Existing
+rows get `tenant_id = NULL`, and the policy treats NULL as "not equal"
+— so they become invisible to every tenant. `enableRLS` now logs a
+warning with the orphan count + UPDATE statement. Operators must
+backfill BEFORE the table is considered multi-tenant-safe.
+
+---
+
 ## Retention
 
 | Table | Default retention | Env var |

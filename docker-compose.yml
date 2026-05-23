@@ -8,7 +8,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-zveltio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zveltio}
+      # Refuse to start without an explicit password — the previous
+      # `:-zveltio` fallback meant any operator who skipped the .env
+      # got a live Postgres with `zveltio:zveltio` credentials.
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:?ERROR: POSTGRES_PASSWORD must be set in .env — generate with: openssl rand -base64 32}'
       POSTGRES_DB: ${POSTGRES_DB:-zveltio}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -51,7 +54,7 @@ services:
       DB_PORT: '5432'
       DB_NAME: ${POSTGRES_DB:-zveltio}
       DB_USER: ${POSTGRES_USER:-zveltio}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-zveltio}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdog_config:/pgdog
     # session mode is required for Better-Auth (SET commands, advisory locks)
@@ -89,9 +92,13 @@ services:
     image: valkey/valkey:8-alpine
     container_name: zveltio-cache
     restart: unless-stopped
+    environment:
+      # Fail-fast: the engine connects to Valkey with this password,
+      # `:-zveltio` defaulting to a literal "zveltio" was a footgun.
+      VALKEY_PASSWORD: '${VALKEY_PASSWORD:?ERROR: VALKEY_PASSWORD must be set in .env — generate with: openssl rand -base64 32}'
     command: >
       valkey-server
-      --requirepass ${VALKEY_PASSWORD:-zveltio}
+      --requirepass ${VALKEY_PASSWORD}
       --protected-mode no
       --appendonly yes
       --appendfsync everysec
@@ -100,7 +107,7 @@ services:
     volumes:
       - valkey_data:/data
     healthcheck:
-      test: ['CMD', 'valkey-cli', '-a', '${VALKEY_PASSWORD:-zveltio}', 'ping']
+      test: ['CMD', 'valkey-cli', '-a', '${VALKEY_PASSWORD}', 'ping']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -113,12 +120,22 @@ services:
     image: chrislusf/seaweedfs:3.68
     container_name: zveltio-storage
     restart: unless-stopped
-    command: server -s3 -filer -ip=0.0.0.0
-    ports:
-      - '${STORAGE_S3_PORT:-8333}:8333'
-      - '${STORAGE_FILER_PORT:-8888}:8888'
+    # SeaweedFS S3 + filer are reachable internally on the
+    # zveltio_internal network. We only expose them on the host when
+    # STORAGE_EXPOSE_PORTS=true is explicitly set in .env — without
+    # the override they stay inside the compose network and only the
+    # engine talks to them. The default ports SeaweedFS uses have NO
+    # authentication on the filer endpoint, so exposing them to the
+    # public internet by accident was a real data leak risk.
+    expose:
+      - '8333'
+      - '8888'
+    command: >
+      server -s3 -filer -ip=0.0.0.0
+      -s3.config=/etc/seaweedfs/s3-config.json
     volumes:
       - seaweedfs_data:/data
+      - ./seaweedfs/s3-config.json:/etc/seaweedfs/s3-config.json:ro
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:8333/']
       interval: 10s
@@ -225,16 +242,16 @@ services:
       NODE_ENV: production
 
       # Database (connect via pooler for production)
-      DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@pooler:6432/${POSTGRES_DB:-zveltio}'
+      DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@pooler:6432/${POSTGRES_DB:-zveltio}'
       # Direct Postgres connection — used by migrate/create-god to bypass PgDog
-      NATIVE_DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD:-zveltio}@db:5432/${POSTGRES_DB:-zveltio}'
+      NATIVE_DATABASE_URL: 'postgresql://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-zveltio}'
 
       # Auth (change BETTER_AUTH_SECRET in production!)
       BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?ERROR: BETTER_AUTH_SECRET must be set in .env - generate with: openssl rand -hex 32}'
       BETTER_AUTH_URL: '${BETTER_AUTH_URL:-http://localhost:3000}'
 
       # Valkey/Redis
-      VALKEY_URL: 'redis://:${VALKEY_PASSWORD:-zveltio}@cache:6379'
+      VALKEY_URL: 'redis://:${VALKEY_PASSWORD}@cache:6379'
 
       # S3 / SeaweedFS
       S3_ENDPOINT: 'http://storage:8333'

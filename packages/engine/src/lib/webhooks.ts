@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from './cache.js';
 import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
+import { maybeDecrypt } from './field-crypto.js';
 
 let _db: Database | null = null;
 
@@ -54,13 +55,31 @@ export const WebhookManager = {
           /* non-fatal — delivery record missing won't block the webhook queue */
         }
 
+        // Decrypt the signing secret in memory before queueing. The DB
+        // column stores the AES-256-GCM ciphertext (enc:v1:...) — if
+        // it were plaintext, anyone with read access to zvd_webhooks
+        // could forge valid webhook signatures and impersonate the
+        // engine to the recipient. The plaintext lives only for the
+        // duration of this delivery — Valkey queue carries it
+        // transiently, then it's GC'd.
+        let plaintextSecret: string | null = null;
+        if (wh.secret) {
+          try {
+            const decrypted = await maybeDecrypt(wh.secret, true);
+            plaintextSecret = typeof decrypted === 'string' ? decrypted : null;
+          } catch (err) {
+            console.warn(`[webhooks] failed to decrypt secret for webhook ${wh.id}:`, (err as Error).message);
+            plaintextSecret = null;
+          }
+        }
+
         const payload = {
           webhookId: wh.id,
           deliveryId,
           url: wh.url,
           method: wh.method || 'POST',
           headers: (wh.headers as Record<string, string>) || {},
-          secret: wh.secret || null,
+          secret: plaintextSecret,
           timeout: wh.timeout || 5000,
           retryAttempts: wh.retry_attempts ?? 3,
           event,
