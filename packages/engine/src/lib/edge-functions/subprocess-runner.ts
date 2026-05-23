@@ -35,7 +35,16 @@
  */
 
 import { spawn } from 'bun';
+import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { EdgeRequest, EdgeResponse, RunResult } from '../edge-function-runner.js';
+
+// Max user-supplied code size handed to a subprocess. 1 MiB is generous
+// for an edge function but caps memory spikes on the parent if a route
+// were tricked into spawning with attacker-sized input. Routes also
+// validate at zod level; this is the second line of defence.
+const MAX_CODE_BYTES = 1024 * 1024;
 
 const SUBPROCESS_BOOTSTRAP = String.raw`
 'use strict';
@@ -146,13 +155,33 @@ function lockdownGlobals(stashed) {
 })();
 `;
 
-// Stash a one-off temp file the subprocess can exec. We do this on
-// module load (not per request) so the file system hit is amortised.
-const bootstrapPath = await (async () => {
-  const tmp = `${process.env.TMPDIR || '/tmp'}/zveltio-edge-runner-${process.pid}.mjs`;
-  await Bun.write(tmp, SUBPROCESS_BOOTSTRAP);
-  return tmp;
+// Stash the bootstrap in a fresh PRIVATE temp dir created with
+// `mkdtemp` (mode 0700, name suffixed with a random component the
+// caller can't predict). Writing the bootstrap to a guessable
+// `${TMPDIR}/zveltio-edge-runner-${pid}.mjs` would be a classic
+// TOCTOU symlink target — an attacker with /tmp write access could
+// pre-place a symlink there before the engine boots and redirect the
+// write to e.g. ~root/.ssh/authorized_keys. `mkdtemp` returns a path
+// that didn't exist a moment ago and is owned by the engine user, so
+// the symlink window is closed before we write into it.
+const bootstrapPath = (() => {
+  const dir = mkdtempSync(join(tmpdir(), 'zveltio-edge-'));
+  const file = join(dir, 'runner.mjs');
+  writeFileSync(file, SUBPROCESS_BOOTSTRAP, { encoding: 'utf-8' });
+  try {
+    chmodSync(file, 0o600);
+  } catch {
+    // Windows lacks POSIX mode; ACL is governed by the parent dir
+    // which mkdtemp already created with restrictive permissions.
+  }
+  return file;
 })();
+
+// Absolute path to THIS Bun binary. Avoids spawning whatever `bun`
+// the child's $PATH resolves to — an attacker with write access to
+// any earlier PATH entry could otherwise replace `bun` and run code
+// inside the engine's user context every time an edge function fires.
+const BUN_BIN = process.execPath;
 
 export async function runEdgeFunctionInSubprocess(
   code: string,
@@ -161,6 +190,15 @@ export async function runEdgeFunctionInSubprocess(
   timeoutMs: number,
 ): Promise<RunResult> {
   const start = Date.now();
+
+  if (code.length > MAX_CODE_BYTES) {
+    return {
+      ok: false,
+      error: `Code exceeds ${MAX_CODE_BYTES} byte limit (got ${code.length})`,
+      logs: [],
+      duration_ms: Date.now() - start,
+    };
+  }
 
   // Transpile TypeScript → JavaScript here (parent), so the subprocess
   // only runs already-transpiled JS and we don't pay the transpiler cost
@@ -174,7 +212,10 @@ export async function runEdgeFunctionInSubprocess(
   }
 
   const proc = spawn({
-    cmd: ['bun', 'run', bootstrapPath],
+    // BUN_BIN is the absolute path to the parent's own interpreter
+    // (process.execPath) — never `'bun'`, which would resolve via the
+    // child's PATH and could be hijacked by a same-host attacker.
+    cmd: [BUN_BIN, 'run', bootstrapPath],
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',

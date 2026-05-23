@@ -51,6 +51,14 @@ export interface RealtimeBusMessage {
   data?: unknown;
   /** RFC 3339. */
   timestamp: string;
+  /**
+   * Tenant id of the write. Required for multi-tenant cross-instance
+   * fan-out: without it the receiving engine has no way to know which
+   * tenant's subscribers should receive the message and would deliver
+   * to every same-collection subscriber across all tenants.
+   * `null` for single-tenant deployments.
+   */
+  tenantId?: string | null;
 }
 
 export interface RealtimeBus {
@@ -79,7 +87,11 @@ function dispatchToWs(msg: RealtimeBusMessage): void {
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
   if (!msg.collection) return;
-  broadcastEvent(msg.collection, wsEvent, msg.data ?? { id: msg.record_id });
+  // tenantId forwarded so cross-instance dispatch honours the same
+  // per-tenant scoping as in-process dispatch — without it the
+  // receiving engine would push the message to every same-collection
+  // WS subscriber regardless of tenant.
+  broadcastEvent(msg.collection, wsEvent, msg.data ?? { id: msg.record_id }, msg.tenantId ?? null);
 }
 
 // ── Valkey backend ──────────────────────────────────────────────────────────

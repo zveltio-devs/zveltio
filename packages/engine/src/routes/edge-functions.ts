@@ -39,11 +39,15 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     zValidator('json', z.object({
       name:         z.string().min(1).max(100).regex(/^[a-z0-9-_]+$/, 'name must be URL-safe lowercase'),
       display_name: z.string().min(1).max(200),
-      description:  z.string().optional(),
-      code:         z.string().min(1),
+      description:  z.string().max(2000).optional(),
+      // 1 MiB matches the subprocess-runner's MAX_CODE_BYTES. Without a
+      // cap a single POST could pin many MB of engine memory per
+      // pending invocation (transpile keeps the source, the subprocess
+      // envelope copies it).
+      code:         z.string().min(1).max(1024 * 1024),
       http_method:  z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ANY']).default('POST'),
       timeout_ms:   z.number().int().min(100).max(60000).default(30000),
-      env_vars:     z.record(z.string(), z.string()).default({}),
+      env_vars:     z.record(z.string(), z.string().max(8192)).default({}),
       is_active:    z.boolean().default(true),
     })),
     async (c) => {
@@ -86,12 +90,12 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   app.patch(
     '/:id',
     zValidator('json', z.object({
-      display_name: z.string().optional(),
-      description:  z.string().optional(),
-      code:         z.string().optional(),
+      display_name: z.string().min(1).max(200).optional(),
+      description:  z.string().max(2000).optional(),
+      code:         z.string().min(1).max(1024 * 1024).optional(),
       http_method:  z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ANY']).optional(),
       timeout_ms:   z.number().int().min(100).max(60000).optional(),
-      env_vars:     z.record(z.string(), z.string()).optional(),
+      env_vars:     z.record(z.string(), z.string().max(8192)).optional(),
       is_active:    z.boolean().optional(),
     })),
     async (c) => {

@@ -194,6 +194,21 @@ const rows = await trx.selectFrom('zvd_orders').selectAll().execute();
 `routes/data.ts` already does this via `effectiveDb`. Any extension
 that exposes a `zvd_*` route must follow the same pattern.
 
+### Tenant scoping of non-DB surfaces
+
+DB queries are not the only place where tenant scoping has to be
+enforced. The following surfaces also carry tenant context and would
+leak across tenants if treated naively:
+
+| Surface | Mechanism |
+|---|---|
+| Query result cache (`qc:*` keys) | Cache key namespace is `qc:{tenantId}:{collection}:{hash}`; invalidation is per-tenant. Set by `buildQueryCacheKey` / `invalidateQueryCache`. |
+| SSE realtime (`broadcastDataEvent`) | Each `StreamSub` records the tenant id at subscribe time; broadcasts drop messages whose tenant id doesn't match. |
+| WebSocket realtime (`broadcastEvent`) | `WSConnection.tenantId` captured at upgrade; `broadcastEvent(collection, event, data, tenantId)` filters strictly on it. |
+| Cross-instance bus (`realtimeBus.publish`) | `RealtimeBusMessage.tenantId` carried in the envelope; the receiving engine forwards it to its own `broadcastEvent`. |
+| AI embeddings (`zvd_ai_embeddings`) | Column `tenant_id` with `DEFAULT NULLIF(current_setting('zveltio.current_tenant'), '')::uuid` + FORCE RLS, plus the auto-embedding event payload carries `tenantId` (the event fires on the GLOBAL pool, so the GUC is unset and the DEFAULT can't help). See migration 009 in the AI extension. |
+| Edge functions subprocess | Bootstrap file lives in a fresh `mkdtemp` dir (mode 0700) to defeat TOCTOU symlink attacks; subprocess runs with the parent's `process.execPath` (not `bun` via PATH) and a minimal env. |
+
 ### Backfilling tenant_id
 
 `enableRLS()` is typically run after a table already has data. Existing

@@ -6,18 +6,30 @@ export interface RecordCreatedPayload {
   collection: string;
   record: any;
   userId: string;
+  /**
+   * Tenant id under which the write happened, derived from the request's
+   * `tenantTrx` context. Extension handlers (e.g. AI auto-embedding)
+   * must propagate this into any tenant-scoped tables they write to
+   * — they run on the GLOBAL pool, NOT inside the request's
+   * transaction, so they lose the `zveltio.current_tenant` GUC and
+   * any column relying on `current_setting(...)` for DEFAULT will see NULL.
+   * `null` when the engine is in legacy single-tenant mode.
+   */
+  tenantId?: string | null;
 }
 
 export interface RecordUpdatedPayload {
   collection: string;
   record: any;
   userId: string;
+  tenantId?: string | null;
 }
 
 export interface RecordDeletedPayload {
   collection: string;
   id: string;
   userId: string;
+  tenantId?: string | null;
 }
 
 // ─── Pre-write hook payloads ──────────────────────────────────────────────────
