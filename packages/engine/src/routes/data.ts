@@ -476,9 +476,18 @@ async function afterWrite(
     data: Record<string, any>;
     delta?: Record<string, any>;
     userId: string;
+    /**
+     * Tenant id from the request's `tenantTrx` context. Forwarded onto
+     * `engineEvents.emit('record.*')` so subscribers (notably the
+     * `ai` extension's auto-embedding hook) can tag their writes with
+     * the right tenant — they run on the GLOBAL pool, NOT inside the
+     * request transaction, so they cannot rely on
+     * `current_setting('zveltio.current_tenant')`.
+     */
+    tenantId?: string | null;
   },
 ): Promise<void> {
-  const { collection, recordId, action, data, delta, userId } = opts;
+  const { collection, recordId, action, data, delta, userId, tenantId } = opts;
 
   // Revision log — awaited so callers see a consistent DB state after the write,
   // but errors are swallowed (non-fatal).
@@ -498,8 +507,11 @@ async function afterWrite(
     action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
 
   await broadcastWebhook(db, eventName, collection, data as { id: string; [key: string]: any });
-  broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data);
-  broadcastDataEvent(collection, eventName, data);
+  // tenant id flows into WS + SSE broadcasts so a write in tenant A
+  // doesn't fan out to subscribers in tenant B (collection names
+  // collide across tenants on both channel namespaces).
+  broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data, tenantId ?? null);
+  broadcastDataEvent(collection, eventName, data, tenantId ?? null);
 
   // Publish to the cross-instance realtime bus (Valkey if
   // configured, else pg_notify). The bus filters its own echo so the
@@ -510,15 +522,19 @@ async function afterWrite(
     record_id: recordId as string,
     data,
     timestamp: new Date().toISOString(),
+    tenantId: tenantId ?? null,
   }).catch((err) => console.error('[afterWrite] realtime publish failed:', err));
 
   // Embedding triggered via engineEvents.emit('record.created' | 'record.updated')
   // below — the `ai` extension subscribes to those events. No core call needed.
 
-  // Invalidate query cache for this collection on every write.
+  // Invalidate query cache for this collection on every write, scoped
+  // to the writing tenant — invalidating across tenants would just
+  // churn other tenants' hot caches with no correctness benefit since
+  // the cache key already includes the tenant id.
   // If this fails the read path serves stale data until TTL expires —
   // log so a chronic failure (Valkey down, eviction storm) is visible.
-  invalidateQueryCache(collection).catch((err) => {
+  invalidateQueryCache(collection, tenantId ?? null).catch((err) => {
     console.warn(`[data] invalidateQueryCache failed for ${collection}:`, (err as Error).message);
   });
 
@@ -533,6 +549,7 @@ async function afterWrite(
     record: data,
     id: recordId,
     userId,
+    tenantId: tenantId ?? null,
   });
 }
 
@@ -560,7 +577,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     // ── Query result cache (Valkey) ────────────────────────────────
     // Only cache standard offset queries (no time-travel, no cursor, no virtual sources)
-    const qcKey = buildQueryCacheKey(collection, user.id, c.req.url);
+    // Tenant id is part of the cache namespace so a user who is a member of
+    // multiple tenants doesn't get tenant A's rows from cache while
+    // querying as tenant B.
+    const qcKey = buildQueryCacheKey(collection, user.id, c.req.url, (c.get('tenant') as any)?.id ?? null);
     if (!query.as_of && !query.cursor) {
       const cached = await getQueryCache(qcKey);
       if (cached) {
@@ -929,8 +949,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     });
 
+    const tid = (c.get('tenant') as any)?.id ?? null;
     for (const record of created) {
-      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id }).catch((err: Error) => {
+      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id, tenantId: tid }).catch((err: Error) => {
         console.warn(`[data] afterWrite(create, ${collection}/${record.id}) failed:`, err.message);
       });
     }
@@ -1006,8 +1027,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     });
 
+    const tid = (c.get('tenant') as any)?.id ?? null;
     for (const record of updated) {
-      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'update', data: record, userId: user.id }).catch((err: Error) => {
+      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'update', data: record, userId: user.id, tenantId: tid }).catch((err: Error) => {
         console.warn(`[data] afterWrite(update, ${collection}/${record.id}) failed:`, err.message);
       });
     }
@@ -1077,8 +1099,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
         .where('id', 'in', allowed.map((r) => r.id))
         .execute();
 
+      const tid = (c.get('tenant') as any)?.id ?? null;
       for (const record of allowed) {
-        afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id }).catch((err: Error) => {
+        afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id, tenantId: tid }).catch((err: Error) => {
           console.warn(`[data] afterWrite(delete, ${collection}/${record.id}) failed:`, err.message);
         });
       }
@@ -1254,7 +1277,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const result = await handlePgErrors(c, async () => {
       const record = await tracedQuery(`${tableName}.create`, () => dynamicInsert(effectiveDb, tableName, finalInsert));
-      await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id });
+      await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
       return c.json(await serializeRecord(record, collectionDef), 201);
     });
     return result as Response;
@@ -1334,7 +1357,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const result = await handlePgErrors(c, async () => {
       const record = await tracedQuery(`${tableName}.update`, () => dynamicUpdate(effectiveDb, tableName, id, finalPatch));
       if (!record) return c.json({ error: 'Record not found' }, 404);
-      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id });
+      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
       return c.json(await serializeRecord(record, collectionDef));
     });
     return result as Response;
@@ -1414,7 +1437,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const result = await handlePgErrors(c, async () => {
       const record = await dynamicUpdate(effectiveDb, tableName, id, finalPatch);
       if (!record) return c.json({ error: 'Record not found' }, 404);
-      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id });
+      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
       return c.json(await serializeRecord(record, collectionDef));
     });
     return result as Response;
@@ -1483,7 +1506,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const deleted = await tracedQuery(`${tableName}.delete`, () => dynamicDelete(effectiveDb, tableName, id));
     if (!deleted) return c.json({ error: 'Record not found' }, 404);
 
-    await afterWrite(effectiveDb, { collection, recordId: id, action: 'delete', data: existing, userId: user.id });
+    await afterWrite(effectiveDb, { collection, recordId: id, action: 'delete', data: existing, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
 
     return c.json({ success: true, id });
   });

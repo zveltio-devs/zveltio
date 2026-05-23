@@ -25,6 +25,14 @@ interface StreamSub {
   collections: string[];   // empty = all
   recordId?: string;       // filter to specific record ID
   filters: SubscriptionFilter[];  // field-level filters on the record payload
+  /**
+   * Tenant id at the time the subscription was opened. Required for
+   * cross-tenant isolation in `broadcastDataEvent`: without it a
+   * subscriber in tenant A would receive every write made to the
+   * same-named collection (e.g. `contacts`) in every other tenant.
+   * `null` for single-tenant deployments.
+   */
+  tenantId: string | null;
 }
 
 // Active SSE connections: userId → Set of subscriptions
@@ -105,8 +113,21 @@ function matchesSub(sub: StreamSub, collection: string, record: any): boolean {
   return true;
 }
 
-/** Broadcast a data event — applies per-subscription filtering before sending. */
-export function broadcastDataEvent(collection: string, event: string, record: any): void {
+/**
+ * Broadcast a data event — applies per-subscription filtering before
+ * sending. `tenantId` constrains delivery to subscribers that opened
+ * their stream under the same tenant; pass `null` only for legacy
+ * single-tenant deployments. Without this scoping, a subscriber to
+ * `contacts` in tenant A would receive every contact write made in
+ * every tenant (the SSE stream and the cache channel name both use
+ * just the collection slug).
+ */
+export function broadcastDataEvent(
+  collection: string,
+  event: string,
+  record: any,
+  tenantId: string | null = null,
+): void {
   const payload = JSON.stringify({
     channel: `zveltio:data:${collection}`,
     event,
@@ -117,6 +138,9 @@ export function broadcastDataEvent(collection: string, event: string, record: an
 
   for (const [, subs] of connections) {
     for (const sub of subs) {
+      // Strict tenant scoping. Cross-tenant delivery is a data leak,
+      // so we require equality (no NULL-matches-anything).
+      if ((sub.tenantId ?? null) !== (tenantId ?? null)) continue;
       if (!matchesSub(sub, collection, record)) continue;
       try {
         sub.stream.writeSSE({ data: payload, event: 'data' });
@@ -224,8 +248,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       }, 403);
     }
 
+    const tenantId = (c.get('tenant') as any)?.id ?? null;
     return streamSSE(c, async (stream) => {
-      const sub: StreamSub = { stream, collections, recordId, filters };
+      const sub: StreamSub = { stream, collections, recordId, filters, tenantId };
 
       if (!connections.has(userId)) connections.set(userId, new Set());
       const userSubs = connections.get(userId)!;

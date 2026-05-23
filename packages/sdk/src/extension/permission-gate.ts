@@ -76,11 +76,21 @@ export function permissionGate(
   opts: { actionOverrides?: Record<string, string> } = {},
 ) {
   return async (c: any, next: () => MaybePromise<unknown>) => {
+    // CORS preflight (OPTIONS) must never be authorization-gated —
+    // browsers send it without credentials and a 401/403 here breaks
+    // the actual cross-origin request that would follow. The global
+    // CORS middleware in the engine returns the preflight response;
+    // we just need to let it through.
+    if (c.req.method === 'OPTIONS') {
+      await next();
+      return;
+    }
     const user = c.get('user');
     if (!user?.id) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
-    const action = opts.actionOverrides?.[c.req.method] ?? methodToAction(c.req.method);
+    const methodKey = c.req.method.toUpperCase();
+    const action = opts.actionOverrides?.[methodKey] ?? methodToAction(methodKey);
     const allowed = await ctx.checkPermission(user.id, resource, action);
     if (!allowed) {
       if (rbacMode() === 'permissive') {
