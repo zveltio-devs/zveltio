@@ -91,6 +91,12 @@ gen_secret() { openssl rand -hex 32; }
 POSTGRES_PASSWORD=$(gen_secret)
 VALKEY_PASSWORD=$(gen_secret)
 BETTER_AUTH_SECRET=$(gen_secret)
+# Per-field AES-256-GCM key — encrypts collection fields marked
+# `encrypted: true`, plus LDAP bindPassword / SAML privateKey / webhook
+# signing secrets at rest. Without it those fall back to plaintext (with
+# a loud boot warning). Generate fresh per install — rotating later
+# invalidates existing ciphertext.
+FIELD_ENCRYPTION_KEY=$(gen_secret)
 MAIL_ENCRYPTION_KEY=$(gen_secret)
 AI_KEY_ENCRYPTION_KEY=$(gen_secret)
 S3_ACCESS_KEY=$(gen_secret | cut -c1-20)
@@ -184,6 +190,7 @@ S3_SECRET_KEY=${S3_SECRET_KEY}
 S3_PUBLIC_URL=http://localhost:8333
 
 # Encryption keys
+FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY}
 MAIL_ENCRYPTION_KEY=${MAIL_ENCRYPTION_KEY}
 AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
 
@@ -709,6 +716,7 @@ S3_SECRET_KEY=${S3_SECRET_KEY}
 S3_BUCKET=zveltio
 S3_PUBLIC_URL=http://localhost:8333
 
+FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY}
 MAIL_ENCRYPTION_KEY=${MAIL_ENCRYPTION_KEY}
 AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
 

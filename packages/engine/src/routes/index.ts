@@ -127,6 +127,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/ext/auth/ldap/login', authRateLimit);
   app.use('/ext/auth/ldap/test', authRateLimit);
   app.use('/ext/auth/saml/callback', authRateLimit);
+  // Stripe / payment webhooks: rate-limited so that forged signatures
+  // can't exhaust CPU on the HMAC verify (each verify is cheap, but a
+  // sustained flood is still wasteful). Real Stripe webhooks come from
+  // a small set of IPs and well below 10/min — anyone hitting this
+  // limit is almost certainly probing.
+  app.use('/ext/billing/webhook/*', authRateLimit);
   app.use('/api/ai/*', aiRateLimit);
   // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);
