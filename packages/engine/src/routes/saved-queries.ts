@@ -18,6 +18,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { DDLManager } from '../lib/ddl-manager.js';
+import { reqDb } from '../lib/route-db.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -254,7 +255,8 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     const data = c.req.valid('json');
 
     try {
-      const exists = await DDLManager.tableExists(db, data.collection);
+      const tdb = reqDb(c, db);
+      const exists = await DDLManager.tableExists(tdb, data.collection);
       if (!exists) return c.json({ error: 'Collection not found' }, 404);
 
       const tableName = DDLManager.getTableName(data.collection);
@@ -274,7 +276,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         page: data.config.page,
       };
 
-      const result = await executeQueryConfig(db, data.collection, config, user.id);
+      const result = await executeQueryConfig(tdb, data.collection, config, user.id);
       const apiUrl = generateApiUrl(data.collection, config);
       return c.json({ collection: data.collection, api_url: apiUrl, ...result });
     } catch (err) {
@@ -303,7 +305,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     const data = c.req.valid('json');
 
     try {
-      const exists = await DDLManager.tableExists(db, data.collection);
+      const exists = await DDLManager.tableExists(reqDb(c, db), data.collection);
       if (!exists) return c.json({ error: 'Collection not found' }, 404);
 
       let isShared = data.is_shared;
@@ -316,7 +318,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         INSERT INTO zv_saved_queries (name, description, collection, config, is_shared, created_by)
         VALUES (${data.name}, ${data.description || null}, ${data.collection}, ${JSON.stringify(data.config)}::jsonb, ${isShared}, ${user.id})
         RETURNING id
-      `.execute(db);
+      `.execute(reqDb(c, db));
 
       return c.json({ id: result.rows[0].id, success: true }, 201);
     } catch (err) {
@@ -330,7 +332,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     const collection = c.req.query('collection');
 
     try {
-      let query = (db as any)
+      let query = (reqDb(c, db) as any)
         .selectFrom('zv_saved_queries')
         .select(['id', 'name', 'description', 'collection', 'config',
                   'is_shared', 'created_by', 'created_at', 'updated_at'])
@@ -363,7 +365,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         SELECT id, name, description, collection, config, is_shared, created_by, created_at, updated_at
         FROM zv_saved_queries
         WHERE id = ${id} AND (created_by = ${user.id} OR is_shared = true)
-      `.execute(db);
+      `.execute(reqDb(c, db));
 
       if (result.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
       const q = result.rows[0];
@@ -382,7 +384,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     try {
       const existing = await sql<{ created_by: string }>`
         SELECT created_by FROM zv_saved_queries WHERE id = ${id}
-      `.execute(db);
+      `.execute(reqDb(c, db));
 
       if (existing.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
       if (existing.rows[0].created_by !== user.id) return c.json({ error: 'You can only edit your own queries' }, 403);
@@ -398,7 +400,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       if (data.config !== undefined) updates.config = JSON.stringify(data.config) as any;
       if (data.is_shared !== undefined) updates.is_shared = data.is_shared;
 
-      await (db as any).updateTable('zv_saved_queries').set(updates).where('id', '=', id).execute();
+      await (reqDb(c, db) as any).updateTable('zv_saved_queries').set(updates).where('id', '=', id).execute();
       return c.json({ success: true });
     } catch (err) {
       return c.json({ error: 'Failed to update saved query' }, 500);
@@ -413,7 +415,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     try {
       const existing = await sql<{ created_by: string }>`
         SELECT created_by FROM zv_saved_queries WHERE id = ${id}
-      `.execute(db);
+      `.execute(reqDb(c, db));
 
       if (existing.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
 
@@ -422,7 +424,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         return c.json({ error: 'You can only delete your own queries' }, 403);
       }
 
-      await sql`DELETE FROM zv_saved_queries WHERE id = ${id}`.execute(db);
+      await sql`DELETE FROM zv_saved_queries WHERE id = ${id}`.execute(reqDb(c, db));
       return c.json({ success: true });
     } catch (err) {
       return c.json({ error: 'Failed to delete saved query' }, 500);
@@ -439,7 +441,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         SELECT collection, config, is_shared, created_by
         FROM zv_saved_queries
         WHERE id = ${id} AND (created_by = ${user.id} OR is_shared = true)
-      `.execute(db);
+      `.execute(reqDb(c, db));
 
       if (result.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
       const saved = result.rows[0];
@@ -451,7 +453,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         limit: override.limit || saved.config.limit || 50,
       };
 
-      const queryResult = await executeQueryConfig(db, saved.collection, config, user.id);
+      const queryResult = await executeQueryConfig(reqDb(c, db), saved.collection, config, user.id);
       return c.json({ collection: saved.collection, ...queryResult });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Failed to run query' }, 500);

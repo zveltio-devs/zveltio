@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
+import { reqDb } from '../lib/route-db.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -24,7 +25,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // GET / — list functions
   app.get('/', async (c) => {
-    const fns = await (db as any)
+    const fns = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions')
       .select(['id', 'name', 'display_name', 'description', 'runtime', 'http_method', 'path', 'is_active', 'timeout_ms', 'created_at', 'updated_at'])
       .orderBy('created_at', 'desc')
@@ -47,12 +48,12 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     })),
     async (c) => {
       const body = c.req.valid('json');
-      const existing = await (db as any)
+      const existing = await (reqDb(c, db) as any)
         .selectFrom('zv_edge_functions').select('id')
         .where('name', '=', body.name).executeTakeFirst();
       if (existing) return c.json({ error: 'Function name already exists' }, 409);
 
-      const fn = await (db as any)
+      const fn = await (reqDb(c, db) as any)
         .insertInto('zv_edge_functions')
         .values({
           name:         body.name,
@@ -74,7 +75,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — get by ID
   app.get('/:id', async (c) => {
-    const fn = await (db as any)
+    const fn = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions').selectAll()
       .where('id', '=', c.req.param('id')).executeTakeFirst();
     if (!fn) return c.json({ error: 'Not found' }, 404);
@@ -104,7 +105,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       if (body.env_vars     !== undefined) updates.env_vars     = JSON.stringify(body.env_vars);
       if (body.is_active    !== undefined) updates.is_active    = body.is_active;
 
-      const fn = await (db as any)
+      const fn = await (reqDb(c, db) as any)
         .updateTable('zv_edge_functions').set(updates)
         .where('id', '=', c.req.param('id')).returningAll().executeTakeFirst();
       if (!fn) return c.json({ error: 'Not found' }, 404);
@@ -114,14 +115,14 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id
   app.delete('/:id', async (c) => {
-    await (db as any).deleteFrom('zv_edge_functions').where('id', '=', c.req.param('id')).execute();
+    await (reqDb(c, db) as any).deleteFrom('zv_edge_functions').where('id', '=', c.req.param('id')).execute();
     return c.json({ success: true });
   });
 
   // GET /:id/logs
   app.get('/:id/logs', async (c) => {
     const { limit = '50' } = c.req.query();
-    const logs = await (db as any)
+    const logs = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_function_logs').selectAll()
       .where('function_id', '=', c.req.param('id'))
       .orderBy('created_at', 'desc')
@@ -132,7 +133,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // POST /:id/invoke — test invocation from Studio (admin session)
   app.post('/:id/invoke', async (c) => {
-    const fn = await (db as any)
+    const fn = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions').selectAll()
       .where('id', '=', c.req.param('id')).executeTakeFirst();
     if (!fn) return c.json({ error: 'Not found' }, 404);
@@ -150,7 +151,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     const runResult = await runEdgeFunction(fn.code, request, envVars, fn.timeout_ms);
 
     // Persist log (fire-and-forget)
-    void (db as any).insertInto('zv_edge_function_logs').values({
+    void (reqDb(c, db) as any).insertInto('zv_edge_function_logs').values({
       function_id:   fn.id,
       status:        runResult.ok ? (runResult.response?.status ?? 200) : 500,
       duration_ms:   runResult.duration_ms,
@@ -190,7 +191,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       if (rawKey) {
         const { hashApiKey } = await import('../lib/api-key-hash.js');
         const keyHash = await hashApiKey(rawKey);
-        const apiKey = await (db as any)
+        const apiKey = await (reqDb(c, db) as any)
           .selectFrom('zv_api_keys').select(['id', 'is_active', 'expires_at'])
           .where('key_hash', '=', keyHash).where('is_active', '=', true).executeTakeFirst().catch(() => null);
         authed = !!(apiKey && (!apiKey.expires_at || new Date(apiKey.expires_at) > new Date()));
@@ -198,7 +199,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     }
     if (!authed) return c.json({ error: 'Unauthorized' }, 401);
 
-    const fn = await (db as any)
+    const fn = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions').selectAll()
       .where('name', '=', name).where('is_active', '=', true).executeTakeFirst();
     if (!fn) return c.json({ error: 'Function not found' }, 404);
@@ -225,7 +226,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     const envVars = typeof fn.env_vars === 'string' ? JSON.parse(fn.env_vars) : (fn.env_vars ?? {});
     const runResult = await runEdgeFunction(fn.code, request, envVars, fn.timeout_ms);
 
-    void (db as any).insertInto('zv_edge_function_logs').values({
+    void (reqDb(c, db) as any).insertInto('zv_edge_function_logs').values({
       function_id:   fn.id,
       status:        runResult.ok ? (runResult.response?.status ?? 200) : 500,
       duration_ms:   runResult.duration_ms,
