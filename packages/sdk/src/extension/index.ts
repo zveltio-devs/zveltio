@@ -1,6 +1,8 @@
 import type { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 
+export { permissionGate } from './permission-gate.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Zveltio Extension API — public types for extension authors
 //

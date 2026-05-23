@@ -140,9 +140,24 @@ executes:
   non-http(s) schemes.
 - Soft limits: 64 MB heap watchdog, default 5s wall-clock.
 
-Worker isolation is process-thread level, not OS-level. For untrusted
-multi-tenant arbitrary code, a subprocess-per-invocation sandbox would
-be the next step.
+Worker isolation is process-thread level. For UNTRUSTED multi-tenant
+arbitrary code, opt into the **subprocess-per-invocation** runner by
+setting `EDGE_SANDBOX_MODE=subprocess`. The engine then spawns a fresh
+Bun process per invocation (`Bun.spawn`) with:
+
+- a minimal env (only `PATH` + `TMPDIR` — no `DATABASE_URL`,
+  `BETTER_AUTH_SECRET`, or `FIELD_ENCRYPTION_KEY` leaks into the child);
+- piped stdin/stdout/stderr (the child can't read the parent's stdin
+  and can only return a single JSON line on stdout);
+- a hard `SIGKILL` wall-clock timer at `timeoutMs + 3s` (Worker.terminate
+  is best-effort; SIGKILL is enforced by the kernel);
+- the same `lockdownGlobals()` JS-level lockdown inside the child, so
+  even a successful escape from the sandbox only escapes into a
+  separate process address space.
+
+Trade-off: ~30 ms per-spawn vs. ~1 ms for Worker. Use Worker (the
+default) for admin-authored edge functions, subprocess for marketplace
+/ end-user-authored code.
 
 ---
 

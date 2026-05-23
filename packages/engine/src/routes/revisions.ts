@@ -6,6 +6,7 @@ import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { dynamicUpdate } from '../db/dynamic.js';
 import { DDLManager } from '../lib/ddl-manager.js';
+import { reqDb } from '../lib/route-db.js';
 
 export function revisionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -43,7 +44,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
         ${action ? sql`AND r.action = ${action}` : sql``}
       ORDER BY r.created_at DESC
       LIMIT ${lim} OFFSET ${offset}
-    `.execute(db);
+    `.execute(reqDb(c, db));
 
     const total = await sql<{ count: string }>`
       SELECT COUNT(*)::int AS count FROM zv_revisions
@@ -52,7 +53,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
         ${record_id ? sql`AND record_id = ${record_id}` : sql``}
         ${user_id ? sql`AND user_id = ${user_id}` : sql``}
         ${action ? sql`AND action = ${action}` : sql``}
-    `.execute(db);
+    `.execute(reqDb(c, db));
 
     return c.json({
       revisions: rows.rows,
@@ -76,7 +77,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       FROM zv_revisions r
       LEFT JOIN "user" u ON u.id = r.user_id
       WHERE r.id = ${c.req.param('id')}
-    `.execute(db);
+    `.execute(reqDb(c, db));
 
     const revision = rows.rows[0];
     if (!revision) return c.json({ error: 'Revision not found' }, 404);
@@ -91,7 +92,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const revision = await (db as any)
+    const revision = await (reqDb(c, db) as any)
       .selectFrom('zv_revisions')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -112,7 +113,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       if (!REVERT_PROTECTED.has(k)) revertData[k] = v;
     }
 
-    const reverted = await dynamicUpdate(db, tableName, revision.record_id, {
+    const reverted = await dynamicUpdate(reqDb(c, db), tableName, revision.record_id, {
       ...revertData,
       updated_by: user.id,
     });
@@ -120,7 +121,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     if (!reverted) return c.json({ error: 'Record not found — may have been deleted' }, 404);
 
     // Log the revert as a new revision
-    await (db as any)
+    await (reqDb(c, db) as any)
       .insertInto('zv_revisions')
       .values({
         collection: revision.collection,
@@ -160,7 +161,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       LEFT JOIN "user" u ON u.id = rc.user_id
       WHERE rc.collection = ${collection} AND rc.record_id = ${recordId}
       ORDER BY rc.created_at ASC
-    `.execute(db);
+    `.execute(reqDb(c, db));
 
     return c.json({ comments: comments.rows });
   });
@@ -180,7 +181,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
           INSERT INTO zv_record_comments (collection, record_id, comment, user_id)
           VALUES (${collection}, ${recordId}, ${comment}, ${user.id})
           RETURNING *
-        `.execute(db);
+        `.execute(reqDb(c, db));
 
         return c.json({ comment: row.rows[0] }, 201);
       } catch (err: any) {
@@ -201,12 +202,12 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     // Replaced `OR TRUE` idiom (confusing, hard to audit) with explicit branch.
     // Admins can delete any comment; non-admins can only delete their own.
     if (isAdmin) {
-      await sql`DELETE FROM zv_record_comments WHERE id = ${commentId}`.execute(db);
+      await sql`DELETE FROM zv_record_comments WHERE id = ${commentId}`.execute(reqDb(c, db));
     } else {
       await sql`
         DELETE FROM zv_record_comments
         WHERE id = ${commentId} AND user_id = ${user.id}
-      `.execute(db);
+      `.execute(reqDb(c, db));
     }
 
     return c.json({ success: true });

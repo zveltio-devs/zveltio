@@ -12,6 +12,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { DDLManager } from '../lib/ddl-manager.js';
+import { reqDb } from '../lib/route-db.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ export function exportRoutes(db: Database, _auth: any) {
 
   /** GET /api/export/:collection */
   app.get('/:collection', async (c) => {
+    const tdb = reqDb(c, db);
     const user = c.get('user');
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
@@ -76,7 +78,7 @@ export function exportRoutes(db: Database, _auth: any) {
       : null;
 
     // Fetch the collection schema to know which columns exist
-    const schemaRow = await db
+    const schemaRow = await tdb
       .selectFrom('zvd_collections')
       .select(['name', 'fields'])
       .where('name', '=', collection)
@@ -104,7 +106,7 @@ export function exportRoutes(db: Database, _auth: any) {
     // table regardless of the logical collection name passed in the URL.
     const tableName = DDLManager.getTableName(collection);
     const colList = selectCols.map(c => sql.id(c));
-    const records = await db
+    const records = await tdb
       .selectFrom(tableName as any)
       .select(colList as any)
       .orderBy('created_at asc')

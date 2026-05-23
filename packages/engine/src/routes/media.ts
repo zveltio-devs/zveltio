@@ -9,6 +9,7 @@ import { checkPermission } from '../lib/permissions.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
+import { reqDb } from '../lib/route-db.js';
 
 // Lazy aws4fetch client — initialized on first use so startup is not blocked
 // when S3_ENDPOINT is not configured.
@@ -48,7 +49,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   // ==========================================
 
   router.get('/folders', async (c) => {
-    const folders = await (db as any)
+    const folders = await (reqDb(c, db) as any)
       .selectFrom('zv_media_folders')
       .selectAll()
       .where('deleted_at', 'is', null)
@@ -77,7 +78,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         description: data.description || null,
         created_by: user.id,
       };
-      await (db as any).insertInto('zv_media_folders').values(folder).execute();
+      await (reqDb(c, db) as any).insertInto('zv_media_folders').values(folder).execute();
       return c.json({ folder }, 201);
     },
   );
@@ -96,7 +97,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const data = c.req.valid('json');
 
-      const folder = await (db as any)
+      const folder = await (reqDb(c, db) as any)
         .selectFrom('zv_media_folders')
         .select(['id', 'created_by'])
         .where('id', '=', id)
@@ -110,7 +111,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
-      await (db as any)
+      await (reqDb(c, db) as any)
         .updateTable('zv_media_folders')
         .set({ ...data, updated_at: new Date() })
         .where('id', '=', id)
@@ -122,7 +123,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   router.delete('/folders/:id', async (c) => {
     const id = c.req.param('id');
 
-    const folder = await (db as any)
+    const folder = await (reqDb(c, db) as any)
       .selectFrom('zv_media_folders')
       .select(['id', 'created_by'])
       .where('id', '=', id)
@@ -136,7 +137,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const subfolders = await (db as any)
+    const subfolders = await (reqDb(c, db) as any)
       .selectFrom('zv_media_folders')
       .select((eb: any) => eb.fn.count('id').as('count'))
       .where('parent_id', '=', id)
@@ -149,7 +150,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       );
     }
 
-    const fileCount = await (db as any)
+    const fileCount = await (reqDb(c, db) as any)
       .selectFrom('zv_media_files')
       .select((eb: any) => eb.fn.count('id').as('count'))
       .where('folder_id', '=', id)
@@ -162,7 +163,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       );
     }
 
-    await (db as any)
+    await (reqDb(c, db) as any)
       .deleteFrom('zv_media_folders')
       .where('id', '=', id)
       .execute();
@@ -183,7 +184,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       mime_type,
     } = c.req.query();
 
-    let query = (db as any)
+    let query = (reqDb(c, db) as any)
       .selectFrom('zv_media_files')
       .selectAll()
       .where('deleted_at', 'is', null)
@@ -227,7 +228,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     // P1: batch-load all tags in a single query instead of N+1 per-file queries
     if (files.length > 0) {
       const fileIds = files.map((f: any) => f.id);
-      const allTags = await (db as any)
+      const allTags = await (reqDb(c, db) as any)
         .selectFrom('zv_media_file_tags')
         .innerJoin(
           'zv_media_tags',
@@ -253,7 +254,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    let countQuery = (db as any)
+    let countQuery = (reqDb(c, db) as any)
       .selectFrom('zv_media_files')
       .select(({ fn }: any) => fn.count('id').as('count'))
       .where('deleted_at', 'is', null);
@@ -285,7 +286,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   router.get('/files/:id', async (c) => {
     const id = c.req.param('id');
 
-    const file = await (db as any)
+    const file = await (reqDb(c, db) as any)
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', id)
@@ -294,7 +295,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
     if (!file) return c.json({ error: 'File not found' }, 404);
 
-    file.tags = await (db as any)
+    file.tags = await (reqDb(c, db) as any)
       .selectFrom('zv_media_file_tags')
       .innerJoin(
         'zv_media_tags',
@@ -320,13 +321,13 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'No file provided' }, 400);
 
     // Check storage quota
-    const usageResult = await (db as any)
+    const usageResult = await (reqDb(c, db) as any)
       .selectFrom('zv_media_files')
       .select(({ fn }: any) => fn.sum('size_bytes').as('total'))
       .where('uploaded_by', '=', user.id)
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
-    const quotaRecord = await (db as any)
+    const quotaRecord = await (reqDb(c, db) as any)
       .selectFrom('zv_storage_quotas')
       .selectAll()
       .where('user_id', '=', user.id)
@@ -552,10 +553,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       alt_text: altText || null,
     };
 
-    await (db as any).insertInto('zv_media_files').values(fileRecord).execute();
+    await (reqDb(c, db) as any).insertInto('zv_media_files').values(fileRecord).execute();
 
     // AI document indexing — fire-and-forget
-    scheduleFileIndexing(db, fileId, buffer, file.type);
+    scheduleFileIndexing(reqDb(c, db), fileId, buffer, file.type);
 
     return c.json({ file: fileRecord }, 201);
   });
@@ -575,7 +576,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const data = c.req.valid('json');
 
-      const file = await (db as any)
+      const file = await (reqDb(c, db) as any)
         .selectFrom('zv_media_files')
         .select(['id', 'uploaded_by'])
         .where('id', '=', id)
@@ -589,7 +590,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
-      await (db as any)
+      await (reqDb(c, db) as any)
         .updateTable('zv_media_files')
         .set({ ...data, updated_at: new Date() })
         .where('id', '=', id)
@@ -603,7 +604,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const id = c.req.param('id');
 
     try {
-      await moveToTrash(db, id, user.id);
+      await moveToTrash(reqDb(c, db), id, user.id);
       return c.json({ success: true });
     } catch (err: any) {
       return c.json({ error: err.message }, 404);
@@ -619,7 +620,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const { ids } = c.req.valid('json');
 
       const results = await Promise.allSettled(
-        ids.map((id) => moveToTrash(db, id, user.id)),
+        ids.map((id) => moveToTrash(reqDb(c, db), id, user.id)),
       );
       const moved = results.filter((r) => r.status === 'fulfilled').length;
 
@@ -632,7 +633,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   // ==========================================
 
   router.get('/tags', async (c) => {
-    const tags = await (db as any)
+    const tags = await (reqDb(c, db) as any)
       .selectFrom('zv_media_tags')
       .selectAll()
       .orderBy('name', 'asc')
@@ -657,7 +658,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         color: data.color || null,
       };
       try {
-        await (db as any).insertInto('zv_media_tags').values(tag).execute();
+        await (reqDb(c, db) as any).insertInto('zv_media_tags').values(tag).execute();
         return c.json({ tag }, 201);
       } catch {
         return c.json({ error: 'Tag already exists' }, 400);
@@ -677,7 +678,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
-      await (db as any)
+      await (reqDb(c, db) as any)
         .updateTable('zv_media_tags')
         .set(data)
         .where('id', '=', id)
@@ -687,7 +688,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   );
 
   router.delete('/tags/:id', async (c) => {
-    await (db as any)
+    await (reqDb(c, db) as any)
       .deleteFrom('zv_media_tags')
       .where('id', '=', c.req.param('id'))
       .execute();
@@ -701,7 +702,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const fileId = c.req.param('id');
       const { tag_id } = c.req.valid('json');
       try {
-        await (db as any)
+        await (reqDb(c, db) as any)
           .insertInto('zv_media_file_tags')
           .values({ file_id: fileId, tag_id })
           .onConflict((oc: any) => oc.doNothing())
@@ -714,7 +715,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   );
 
   router.delete('/files/:id/tags/:tagId', async (c) => {
-    await (db as any)
+    await (reqDb(c, db) as any)
       .deleteFrom('zv_media_file_tags')
       .where('file_id', '=', c.req.param('id'))
       .where('tag_id', '=', c.req.param('tagId'))
@@ -729,17 +730,17 @@ export function mediaRoutes(db: Database, auth: any): Hono {
   router.get('/stats', async (c) => {
     const [totalFiles, totalSize, filesByType, totalFolders, totalTags] =
       await Promise.all([
-        (db as any)
+        (reqDb(c, db) as any)
           .selectFrom('zv_media_files')
           .select(({ fn }: any) => fn.count('id').as('count'))
           .where('deleted_at', 'is', null)
           .executeTakeFirst(),
-        (db as any)
+        (reqDb(c, db) as any)
           .selectFrom('zv_media_files')
           .select(({ fn }: any) => fn.sum('size_bytes').as('total'))
           .where('deleted_at', 'is', null)
           .executeTakeFirst(),
-        (db as any)
+        (reqDb(c, db) as any)
           .selectFrom('zv_media_files')
           .select(['mime_type', (eb: any) => eb.fn.count('id').as('count')])
           .where('deleted_at', 'is', null)
@@ -747,12 +748,12 @@ export function mediaRoutes(db: Database, auth: any): Hono {
           .orderBy('count', 'desc')
           .limit(10)
           .execute(),
-        (db as any)
+        (reqDb(c, db) as any)
           .selectFrom('zv_media_folders')
           .select(({ fn }: any) => fn.count('id').as('count'))
           .where('deleted_at', 'is', null)
           .executeTakeFirst(),
-        (db as any)
+        (reqDb(c, db) as any)
           .selectFrom('zv_media_tags')
           .select(({ fn }: any) => fn.count('id').as('count'))
           .executeTakeFirst(),

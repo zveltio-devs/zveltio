@@ -520,7 +520,10 @@ export class DDLManager {
       ]))
       .where('type', '=', 'm2m')
       .execute()
-      .catch(() => []);
+      .catch((err: Error) => {
+        console.warn(`[ddl-manager] m2m relations lookup failed for ${name}: ${err.message}`);
+        return [];
+      });
 
     for (const rel of m2mRelations) {
       // Use stored junction_table name if available; fall back to legacy naming
@@ -529,7 +532,9 @@ export class DDLManager {
       if (/^zvd_[a-z][a-z0-9_]*$/.test(junctionName)) {
         await withLockTimeout(db, async (trx) => {
           await sql.raw(`DROP TABLE IF EXISTS "${junctionName}" CASCADE`).execute(trx);
-        }).catch(() => {});
+        }).catch((err: Error) => {
+          console.warn(`[ddl-manager] DROP TABLE ${junctionName} failed: ${err.message}`);
+        });
       }
     }
 
@@ -547,7 +552,9 @@ export class DDLManager {
         eb('target_collection', '=', name),
       ]))
       .execute()
-      .catch(() => {});
+      .catch((err: Error) => {
+        console.warn(`[ddl-manager] relation metadata cleanup for ${name} failed: ${err.message}`);
+      });
 
     await db.deleteFrom('zvd_collections').where('name', '=', name).execute();
 
