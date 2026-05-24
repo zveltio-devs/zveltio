@@ -8,6 +8,7 @@
    */
   import { fade, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
+  import { m } from '$lib/i18n.svelte.js';
 
   interface Props {
     open: boolean;
@@ -20,7 +21,7 @@
   }
   let {
     open, title, message,
-    confirmLabel = 'Confirm',
+    confirmLabel = m['common.confirm'](),
     confirmClass = 'btn-error',
     onconfirm, oncancel,
   }: Props = $props();
@@ -42,7 +43,7 @@
       <h3 class="font-bold text-lg tracking-tight">{title}</h3>
       <p class="py-4 text-sm text-base-content/65 leading-relaxed">{message}</p>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={oncancel}>Cancel</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick={oncancel}>{m['common.cancel']()}</button>
         <button class="btn {confirmClass} btn-sm shadow-z1" onclick={onconfirm}>{confirmLabel}</button>
       </div>
     </div>

@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+      import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { FolderKanban, Plus, X, List, KanbanSquare, LoaderCircle } from '@lucide/svelte';
@@ -29,13 +32,13 @@
       const r = await api.get<{ data: any[] }>('/ext/projects/management');
       projects = r.data ?? [];
       if (!activeProject && projects[0]) activeProject = projects[0];
-    } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
   async function loadTasks() {
     if (!activeProject) { tasks = []; return; }
     try { const r = await api.get<{ data: any[] }>(`/ext/projects/management/${activeProject.id}/tasks`); tasks = r.data ?? []; }
-    catch (e: any) { toast.error(e?.message ?? 'Error'); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
   async function createProject() {
     saving = true;
@@ -44,8 +47,8 @@
       showProjectForm = false;
       projectForm = { name: '', description: '', start_date: '', end_date: '' };
       await loadProjects();
-      toast.success('Project created.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['ext.created']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
     finally { saving = false; }
   }
   async function createTask() {
@@ -56,15 +59,15 @@
       showTaskForm = false;
       taskForm = { title: '', description: '', status: 'todo', priority: 'medium', assignee_id: '', due_date: '' };
       await loadTasks();
-      toast.success('Task created.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['ext.created']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
     finally { saving = false; }
   }
   async function moveTask(taskId: string, status: string) {
     try {
       await api.patch(`/ext/projects/management/tasks/${taskId}`, { status });
       await loadTasks();
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
 
   onMount(loadProjects);
@@ -73,34 +76,25 @@
   function tasksByStatus(s: string) { return tasks.filter((t) => t.status === s); }
 </script>
 
-<div class="space-y-4">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-xl font-semibold flex items-center gap-2"><FolderKanban size={20} /> Projects</h1>
-      <p class="text-sm text-base-content/50">Kanban board and task management</p>
-    </div>
-    <div class="flex gap-2">
-      <div class="join">
-        <button class="btn btn-sm join-item {view === 'board' ? 'btn-active' : ''}" onclick={() => (view = 'board')}><KanbanSquare size={14} /></button>
-        <button class="btn btn-sm join-item {view === 'list' ? 'btn-active' : ''}" onclick={() => (view = 'list')}><List size={14} /></button>
-      </div>
-      <button class="btn btn-primary btn-sm gap-1" onclick={() => (showProjectForm = true)}><Plus size={14} /> New project</button>
-    </div>
-  </div>
+<ExtensionPageShell title={m['projects.management.title']()} subtitle={m['projects.management.subtitle']()}>
+  {#snippet actions()}
+    <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showProjectForm = true)}><Plus size={14} /> {m['projects.management.btn.newProject']()}</button>
+  {/snippet}
 
-  {#if loading}
+  {#snippet children()}
+{#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if projects.length === 0}
-    <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">No projects yet.</div></div>
+    <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{m['projects.management.empty.projects']()}</div></div>
   {:else}
     <div class="flex gap-3 items-center">
       <select class="select select-sm" value={activeProject?.id ?? ''} onchange={(e) => { activeProject = projects.find((p) => p.id === (e.target as HTMLSelectElement).value) ?? null; }}>
         {#each projects as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
       </select>
-      {#if activeProject}<button class="btn btn-sm gap-1" onclick={() => (showTaskForm = true)}><Plus size={13} /> New task</button>{/if}
-    </div>
+      {#if activeProject}<button class="btn btn-sm gap-1" onclick={() => (showTaskForm = true)}><Plus size={13} /> {m['projects.management.btn.newTask']()}</button>{/if}
+</div>
 
-    {#if view === 'board'}
+{#if view === 'board'}
       <div class="grid grid-cols-4 gap-3">
         {#each STATUSES as s (s.id)}
           <div class="bg-base-200 rounded-lg p-3">
@@ -129,9 +123,100 @@
     {:else}
       <div class="overflow-x-auto">
         <table class="table table-sm">
-          <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Due date</th><th>Assignee</th></tr></thead>
+          <thead><tr><th>{m['common.col.title']()}</th><th>{m['common.col.status']()}</th><th>{m['common.col.priority']()}</th><th>{m['projects.management.col.dueDate']()}</th><th>{m['projects.management.col.assignee']()}</th></tr></thead>
           <tbody>
-            {#if tasks.length === 0}<tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">No tasks.</td></tr>
+            {#if tasks.length === 0}<tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">{m['projects.management.ui.no_tasks']()}</td></tr>
+            {:else}{#each tasks as t (t.id)}
+              <tr class="hover"><td class="text-sm">{t.title}</td><td><span class="badge badge-sm badge-ghost">{t.status}</span></td><td><span class="badge badge-sm">{t.priority}</span></td><td class="text-xs">{t.due_date ?? '—'}</td><td class="text-sm">{t.assignee_name ?? '—'}</td></tr>
+            {/each}{/if}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  {/if}
+  {/snippet}
+</ExtensionPageShell>
+
+{#if showProjectForm}
+  <div class="modal modal-open">
+    <div class="modal-box max-w-md">
+      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_project']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showProjectForm = false)}><X size={14} /></button></div>
+      <div class="space-y-3">
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['content.document-templates.ui.name']()}</span></label><input class="input input-sm" bind:value={projectForm.name} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={projectForm.description}></textarea></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.start_date']()}</span></label><input type="date" class="input input-sm" bind:value={projectForm.start_date} /></div>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.end_date']()}</span></label><input type="date" class="input input-sm" bind:value={projectForm.end_date} /></div>
+        </div>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost btn-sm" onclick={() => (showProjectForm = false)}>{m['common.cancel']()}</button>
+        <button class="btn btn-primary btn-sm" disabled={saving || !projectForm.name} onclick={createProject}>
+          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['common.create']()}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showTaskForm}
+  <div class="modal modal-open">
+    <div class="modal-box max-w-md">
+      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_task']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showTaskForm = false)}><X size={14} /></button></div>
+      <div class="space-y-3">
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['developer.api-docs.ui.title']()}</span></label><input class="input input-sm" bind:value={taskForm.title} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={taskForm.description}></textarea></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.status']()}</span></label>
+            <select class="select select-sm" bind:value={taskForm.status}>{#each STATUSES as s (s.id)}<option value={s.id}>{s.label}</option>{/each}</select>
+          </div>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.helpdesk.ui.priority']()}</span></label>
+            <select class="select select-sm" bind:value={taskForm.priority}><option value="low">{m['communications.mail.ui.low']()}</option><option value="medium">{m['projects.helpdesk.ui.medium']()}</option><option value="high">{m['communications.mail.ui.high']()}</option><option value="urgent">{m['projects.helpdesk.ui.urgent']()}</option></select>
+          </div>
+        </div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['invoicing.col.dueDate']()}</span></label><input type="date" class="input input-sm" bind:value={taskForm.due_date} /></div>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost btn-sm" onclick={() => (showTaskForm = false)}>{m['common.cancel']()}</button>
+        <button class="btn btn-primary btn-sm" disabled={saving || !taskForm.title} onclick={createTask}>
+          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['common.create']()}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+{#if view === 'board'}
+      <div class="grid grid-cols-4 gap-3">
+        {#each STATUSES as s (s.id)}
+          <div class="bg-base-200 rounded-lg p-3">
+            <div class="font-medium text-sm mb-3 flex items-center justify-between">
+              <span>{s.label}</span>
+              <span class="badge badge-sm badge-ghost">{tasksByStatus(s.id).length}</span>
+            </div>
+            <div class="space-y-2 min-h-24">
+              {#each tasksByStatus(s.id) as t (t.id)}
+                <div class="card bg-base-100 shadow-sm">
+                  <div class="card-body p-3">
+                    <div class="font-medium text-sm">{t.title}</div>
+                    {#if t.description}<div class="text-xs text-base-content/60 mt-0.5 line-clamp-2">{t.description}</div>{/if}
+                    <div class="flex flex-wrap gap-1 mt-1">
+                      {#each STATUSES.filter((x) => x.id !== s.id) as target (target.id)}
+                        <button class="btn btn-ghost btn-xs text-xs" onclick={() => moveTask(t.id, target.id)}>→ {target.label}</button>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead><tr><th>{m['common.col.title']()}</th><th>{m['common.col.status']()}</th><th>{m['common.col.priority']()}</th><th>{m['projects.management.col.dueDate']()}</th><th>{m['projects.management.col.assignee']()}</th></tr></thead>
+          <tbody>
+            {#if tasks.length === 0}<tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">{m['projects.management.ui.no_tasks']()}</td></tr>
             {:else}{#each tasks as t (t.id)}
               <tr class="hover"><td class="text-sm">{t.title}</td><td><span class="badge badge-sm badge-ghost">{t.status}</span></td><td><span class="badge badge-sm">{t.priority}</span></td><td class="text-xs">{t.due_date ?? '—'}</td><td class="text-sm">{t.assignee_name ?? '—'}</td></tr>
             {/each}{/if}
@@ -145,19 +230,19 @@
 {#if showProjectForm}
   <div class="modal modal-open">
     <div class="modal-box max-w-md">
-      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">New project</h3><button class="btn btn-ghost btn-xs" onclick={() => (showProjectForm = false)}><X size={14} /></button></div>
+      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_project']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showProjectForm = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Name *</span></label><input class="input input-sm" bind:value={projectForm.name} /></div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Description</span></label><textarea class="textarea textarea-sm" bind:value={projectForm.description}></textarea></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.form.name']()}</span></label><input class="input input-sm" bind:value={projectForm.name} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={projectForm.description}></textarea></div>
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Start date</span></label><input type="date" class="input input-sm" bind:value={projectForm.start_date} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">End date</span></label><input type="date" class="input input-sm" bind:value={projectForm.end_date} /></div>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.start_date']()}</span></label><input type="date" class="input input-sm" bind:value={projectForm.start_date} /></div>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.end_date']()}</span></label><input type="date" class="input input-sm" bind:value={projectForm.end_date} /></div>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showProjectForm = false)}>Cancel</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => (showProjectForm = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary btn-sm" disabled={saving || !projectForm.name} onclick={createProject}>
-          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} Create
+          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['common.create']()}
         </button>
       </div>
     </div>
@@ -167,24 +252,24 @@
 {#if showTaskForm}
   <div class="modal modal-open">
     <div class="modal-box max-w-md">
-      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">New task</h3><button class="btn btn-ghost btn-xs" onclick={() => (showTaskForm = false)}><X size={14} /></button></div>
+      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_task']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showTaskForm = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Title *</span></label><input class="input input-sm" bind:value={taskForm.title} /></div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Description</span></label><textarea class="textarea textarea-sm" bind:value={taskForm.description}></textarea></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.form.title']()}</span></label><input class="input input-sm" bind:value={taskForm.title} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={taskForm.description}></textarea></div>
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Status</span></label>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.status']()}</span></label>
             <select class="select select-sm" bind:value={taskForm.status}>{#each STATUSES as s (s.id)}<option value={s.id}>{s.label}</option>{/each}</select>
           </div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Priority</span></label>
-            <select class="select select-sm" bind:value={taskForm.priority}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select>
+          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.priority']()}</span></label>
+            <select class="select select-sm" bind:value={taskForm.priority}><option value="low">{m['projects.management.priority.low']()}</option><option value="medium">{m['projects.management.priority.medium']()}</option><option value="high">{m['projects.management.priority.high']()}</option><option value="urgent">{m['projects.management.priority.urgent']()}</option></select>
           </div>
         </div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Due date</span></label><input type="date" class="input input-sm" bind:value={taskForm.due_date} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.dueDate']()}</span></label><input type="date" class="input input-sm" bind:value={taskForm.due_date} /></div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showTaskForm = false)}>Cancel</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => (showTaskForm = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary btn-sm" disabled={saving || !taskForm.title} onclick={createTask}>
-          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} Create
+          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['common.create']()}
         </button>
       </div>
     </div>

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
@@ -6,6 +10,8 @@
     Plus, Trash2, Save, LoaderCircle, ChevronRight,
     CheckSquare, BarChart2, ClipboardList,
   } from '@lucide/svelte';
+
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   type ChecklistItem = { id: string; text: string; required?: boolean };
   type Checklist = { id: string; name: string; description: string | null; items: ChecklistItem[]; is_active: boolean; created_at: string };
@@ -85,7 +91,7 @@
       });
       selected = res.checklist;
       checklists = checklists.map(c => c.id === res.checklist.id ? res.checklist : c);
-      toast.success('Checklist saved.');
+      toast.success(m['workflow.checklists.toast.saved']());
     } catch (e) {
       toast.error(extractError(e));
     } finally {
@@ -94,7 +100,9 @@
   }
 
   async function deleteChecklist(id: string) {
-    if (!confirm('Delete this checklist?')) return;
+        askConfirm(m['workflow.checklists.confirmDelete'](), () => deleteChecklistConfirmed(id));
+  }
+  async function deleteChecklistConfirmed(id: string) {
     try {
       await api.delete(`/ext/workflow/checklists/${id}`);
       checklists = checklists.filter(c => c.id !== id);
@@ -103,6 +111,7 @@
       toast.error(extractError(e));
     }
   }
+
 
   async function openResponses(c: Checklist) {
     selected = c;
@@ -129,54 +138,49 @@
   }
 </script>
 
-<div class="space-y-5">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-2">
-      {#if view !== 'list'}
-        <button class="btn btn-ghost btn-sm" onclick={() => { view = 'list'; selected = null; }}>← Back</button>
-        <span class="text-base-content/30">/</span>
-      {/if}
-      <div>
-        <h1 class="text-xl font-semibold">Checklists</h1>
-        {#if selected && view !== 'list'}
-          <p class="text-sm text-base-content/50">{selected.name}</p>
-        {/if}
-      </div>
-    </div>
+<ExtensionPageShell
+  title={selected && view !== 'list' ? selected.name : m['workflow.checklists.title']()}
+  subtitle={selected && view !== 'list' ? (selected.description ?? '') : undefined}
+>
+  {#snippet actions()}
+    {#if view !== 'list'}
+      <button class="btn btn-ghost btn-sm" onclick={() => { view = 'list'; selected = null; }}>{m['workflow.checklists.btn.back']()}</button>
+    {/if}
     {#if view === 'list'}
       <button class="btn btn-primary btn-sm gap-1" onclick={() => (showNew = !showNew)}>
-        <Plus size={14}/> New Checklist
+        <Plus size={14}/> {m['workflow.checklists.btn.new']()}
       </button>
     {:else if view === 'edit'}
       <button class="btn btn-primary btn-sm gap-1" onclick={saveChecklist} disabled={saving}>
         {#if saving}<LoaderCircle size={14} class="animate-spin"/>{:else}<Save size={14}/>{/if}
-        Save
+        {m['workflow.checklists.btn.save']()}
       </button>
     {/if}
-  </div>
+  {/snippet}
+  {#snippet children()}
+  <div class="space-y-5">
 
   <!-- Create form -->
   {#if showNew && view === 'list'}
     <div class="card bg-base-200 border border-primary/30">
       <div class="card-body p-4 gap-3">
-        <h4 class="font-semibold text-sm">New Checklist</h4>
+        <h4 class="font-semibold text-sm">{m['workflow.checklists.section.new']()}</h4>
         <div class="grid sm:grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Name *</span></label>
-            <input type="text" class="input input-sm" placeholder="e.g. Onboarding Checklist" bind:value={form.name}/>
+            <label class="label py-0"><span class="label-text text-xs">{m['content.document-templates.ui.name']()}</span></label>
+            <input type="text" class="input input-sm" placeholder={m['workflow.checklists.ui.e_g_onboarding_checklist']()} bind:value={form.name}/>
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Description</span></label>
+            <label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label>
             <input type="text" class="input input-sm" bind:value={form.description}/>
           </div>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-primary btn-sm gap-1" onclick={createChecklist} disabled={!form.name.trim() || saving}>
             {#if saving}<LoaderCircle size={13} class="animate-spin"/>{:else}<Plus size={13}/>{/if}
-            Create
+            {m['workflow.checklists.btn.create']()}
           </button>
-          <button class="btn btn-ghost btn-sm" onclick={() => (showNew = false)}>Cancel</button>
+          <button class="btn btn-ghost btn-sm" onclick={() => (showNew = false)}>{m['common.cancel']()}</button>
         </div>
       </div>
     </div>
@@ -190,8 +194,8 @@
       <div class="card bg-base-200">
         <div class="card-body items-center text-center py-16 gap-3">
           <ClipboardList size={36} class="text-base-content/20"/>
-          <p class="font-medium text-sm text-base-content/50">No checklists yet</p>
-          <p class="text-xs text-base-content/40">Create your first checklist to get started.</p>
+          <p class="font-medium text-sm text-base-content/50">{m['workflow.checklists.empty.list']()}</p>
+          <p class="text-xs text-base-content/40">{m['workflow.checklists.empty.listHint']()}</p>
         </div>
       </div>
     {:else}
@@ -202,14 +206,14 @@
               <CheckSquare size={16} class="text-primary shrink-0"/>
               <div class="flex-1 min-w-0">
                 <p class="font-medium text-sm truncate">{c.name}</p>
-                <p class="text-xs text-base-content/40">{(c.items ?? []).length} item{(c.items ?? []).length !== 1 ? 's' : ''}</p>
+                <p class="text-xs text-base-content/40">{m['workflow.checklists.itemsCount']({ n: String((c.items ?? []).length) })</p>
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button class="btn btn-ghost btn-xs gap-1" onclick={() => openResponses(c)}>
-                  <BarChart2 size={13}/> Responses
+                  <BarChart2 size={13}/> {m['workflow.checklists.tab.responses']()}
                 </button>
                 <button class="btn btn-ghost btn-xs gap-1" onclick={() => openEdit(c)}>
-                  Edit <ChevronRight size={13}/>
+                  {m['workflow.checklists.btn.edit']()} <ChevronRight size={13}/>
                 </button>
                 <button class="btn btn-ghost btn-xs text-error" onclick={() => deleteChecklist(c.id)}>
                   <Trash2 size={13}/>
@@ -227,17 +231,17 @@
       <div class="card-body gap-4">
         <div class="grid sm:grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs font-medium">Name</span></label>
+            <label class="label py-0"><span class="label-text text-xs font-medium">{m['common.col.name']()}</span></label>
             <input type="text" class="input input-sm" bind:value={selected.name}/>
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs font-medium">Description</span></label>
+            <label class="label py-0"><span class="label-text text-xs font-medium">{m['common.col.description']()}</span></label>
             <input type="text" class="input input-sm" bind:value={selected.description}/>
           </div>
         </div>
 
         <div>
-          <p class="text-xs font-medium text-base-content/70 mb-2">Items</p>
+          <p class="text-xs font-medium text-base-content/70 mb-2">{m['workflow.checklists.col.items']()}</p>
           <div class="space-y-1.5 mb-3">
             {#each editItems as item (item.id)}
               <div class="flex items-center gap-2 bg-base-100 rounded-lg px-3 py-2">
@@ -245,22 +249,22 @@
                 <span class="flex-1 text-sm">{item.text}</span>
                 <label class="flex items-center gap-1 text-xs text-base-content/50">
                   <input type="checkbox" class="checkbox checkbox-xs" bind:checked={item.required}/>
-                  Required
+                  {m['workflow.checklists.col.required']()}
                 </label>
                 <button class="btn btn-ghost btn-xs text-error" onclick={() => removeItem(item.id)}>
                   <Trash2 size={12}/>
                 </button>
               </div>
             {:else}
-              <p class="text-xs text-base-content/40 py-2">No items yet. Add some below.</p>
+              <p class="text-xs text-base-content/40 py-2">{m['workflow.checklists.empty.items']()}</p>
             {/each}
           </div>
           <div class="flex gap-2">
-            <input type="text" class="input input-sm flex-1" placeholder="New item text…"
+            <input type="text" class="input input-sm flex-1" placeholder={m['workflow.checklists.ui.new_item_text']()}
               bind:value={newItemText}
               onkeydown={(e) => e.key === 'Enter' && addItem()}/>
             <button class="btn btn-outline btn-sm gap-1" onclick={addItem} disabled={!newItemText.trim()}>
-              <Plus size={13}/> Add
+              <Plus size={13}/> {m['workflow.checklists.btn.add']()}
             </button>
           </div>
         </div>
@@ -275,7 +279,7 @@
       <div class="card bg-base-200">
         <div class="card-body items-center text-center py-16 gap-3">
           <BarChart2 size={36} class="text-base-content/20"/>
-          <p class="font-medium text-sm text-base-content/50">No responses yet</p>
+          <p class="font-medium text-sm text-base-content/50">{m['workflow.checklists.empty.responses']()}</p>
         </div>
       </div>
     {:else}
@@ -283,10 +287,10 @@
         <table class="table table-sm">
           <thead>
             <tr>
-              <th>Submitted by</th>
-              <th>Date</th>
-              <th>Notes</th>
-              <th>Answers</th>
+              <th>{m['workflow.checklists.col.submittedBy']()}</th>
+              <th>{m['common.col.date']()}</th>
+              <th>{m['common.col.notes']()}</th>
+              <th>{m['workflow.checklists.col.answers']()}</th>
             </tr>
           </thead>
           <tbody>
@@ -309,4 +313,17 @@
       </div>
     {/if}
   {/if}
-</div>
+  </div>
+  {/snippet}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel}
+  confirmClass={confirmState.confirmClass}
+  onconfirm={runConfirmAction}
+  oncancel={cancelConfirm}
+/>
+
+</ExtensionPageShell>

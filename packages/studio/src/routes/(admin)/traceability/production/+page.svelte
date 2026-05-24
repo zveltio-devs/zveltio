@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import { m } from '$lib/i18n.svelte.js';
   import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
@@ -140,31 +142,31 @@
   }
 </script>
 
-<div class="p-6 space-y-4">
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold">Ordine de producție</h1>
-    <button class="btn btn-primary btn-sm" onclick={() => showNewForm = true}>+ Ordin nou</button>
-  </div>
-
-  {#if error}
+<ExtensionPageShell title={m['operations.traceability.production.title']()}>
+  {#snippet actions()}
+    <button class="btn btn-primary btn-sm" onclick={() => (showNewForm = true)}>{m['operations.traceability.production.newOrder']()}</button>
+  {/snippet}
+  {#snippet children()}
+  <div class="p-6 space-y-4 pt-0">
+{#if error}
     <div class="alert alert-error">{error}</div>
   {/if}
 
   {#if showNewForm}
     <div class="card bg-base-200 p-4">
-      <h3 class="font-bold mb-3">Ordin nou de producție</h3>
+      <h3 class="font-bold mb-3">{m['operations.traceability.ui.ordin_nou_de_produc_ie']()}</h3>
       <form onsubmit={createOrder} class="grid grid-cols-2 gap-3">
         <div class="col-span-2">
-          <label class="label-text font-medium">Produs finit *</label>
+          <label class="label-text font-medium">{m['operations.traceability.production.finishedProduct']()}</label>
           <select class="select select-bordered w-full" bind:value={newOrder.output_item_id} required>
-            <option value="">Selectați produsul...</option>
+            <option value="">{m['operations.traceability.ui.selecta_i_produsul']()}</option>
             {#each items as item}
               <option value={item.id}>{item.name}</option>
             {/each}
           </select>
         </div>
         <div>
-          <label class="label-text">Rețetă (opțional)</label>
+          <label class="label-text">{m['operations.traceability.production.recipe']()}</label>
           <select class="select select-bordered w-full" bind:value={newOrder.recipe_id}>
             <option value="">—</option>
             {#each recipes as r}
@@ -173,7 +175,7 @@
           </select>
         </div>
         <div>
-          <label class="label-text">Cantitate planificată *</label>
+          <label class="label-text">{m['operations.traceability.production.plannedQty']()}</label>
           <div class="flex gap-2">
             <input type="number" class="input input-bordered flex-1" min="0.001" step="0.001" bind:value={newOrder.planned_quantity} required />
             <select class="select select-bordered w-24" bind:value={newOrder.unit}>
@@ -184,8 +186,8 @@
           </div>
         </div>
         <div class="col-span-2 flex justify-end gap-2">
-          <button type="button" class="btn btn-ghost btn-sm" onclick={() => showNewForm = false}>Anulează</button>
-          <button type="submit" class="btn btn-primary btn-sm" disabled={processing}>Creează</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={() => (showNewForm = false)}>{m['common.cancel']()}</button>
+          <button type="submit" class="btn btn-primary btn-sm" disabled={processing}>{m['operations.traceability.ui.creeaz']()}</button>
         </div>
       </form>
     </div>
@@ -193,17 +195,17 @@
 
   <div class="flex gap-3">
     <select class="select select-bordered select-sm" bind:value={statusFilter}>
-      <option value="">Toate</option>
-      <option value="draft">Draft</option>
-      <option value="in_progress">În execuție</option>
-      <option value="completed">Finalizat</option>
+      <option value="">{m['operations.traceability.ui.toate']()}</option>
+      <option value="draft">{m['common.status.draft']()}</option>
+      <option value="in_progress">{m['operations.traceability.ui.n_execu_ie']()}</option>
+      <option value="completed">{m['operations.traceability.ui.finalizat']()}</option>
     </select>
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
     <div class="overflow-x-auto">
       <table class="table table-sm w-full">
-        <thead><tr><th>Număr</th><th>Produs finit</th><th>Status</th><th>Cant.</th><th></th></tr></thead>
+        <thead><tr><th>{m['operations.traceability.production.col.number']()}</th><th>{m['operations.traceability.production.col.finished']()}</th><th>{m['common.col.status']()}</th><th>{m['operations.traceability.production.col.qty']()}</th><th></th></tr></thead>
         <tbody>
           {#each orders as order}
             <tr class={selectedOrder?.id === order.id ? 'bg-primary/10' : ''}>
@@ -212,12 +214,12 @@
               <td><span class="badge badge-sm {statusBadge(order.status)}">{order.status}</span></td>
               <td class="text-sm">{order.planned_quantity} {order.unit}</td>
               <td>
-                <button class="btn btn-ghost btn-xs" onclick={() => loadOrder(order.id)}>Deschide</button>
+                <button class="btn btn-ghost btn-xs" onclick={() => loadOrder(order.id)}>{m['common.open']()}</button>
               </td>
             </tr>
           {/each}
           {#if orders.length === 0 && !loading}
-            <tr><td colspan="5" class="text-center opacity-50 py-4">Niciun ordin</td></tr>
+            <tr><td colspan="5" class="text-center opacity-50 py-4">{m['operations.traceability.ui.niciun_ordin']()}</td></tr>
           {/if}
         </tbody>
       </table>
@@ -231,43 +233,43 @@
             <span class="badge {statusBadge(selectedOrder.status)}">{selectedOrder.status}</span>
           </div>
           {#if selectedOrder.status === 'draft'}
-            <button class="btn btn-warning btn-sm w-full" onclick={() => startOrder(selectedOrder.id)}>▶ Pornește producția</button>
+            <button class="btn btn-warning btn-sm w-full" onclick={() => startOrder(selectedOrder!.id)}>{m['operations.traceability.production.start']()}</button>
           {/if}
         </div>
 
         {#if selectedOrder.status === 'in_progress'}
           <!-- Consumption entry -->
           <div class="card bg-base-200 p-4">
-            <h4 class="font-semibold mb-2">Înregistrare consum materie primă</h4>
+            <h4 class="font-semibold mb-2">{m['operations.traceability.production.consume']()}</h4>
             <form onsubmit={addConsumption} class="flex gap-2">
               <select class="select select-bordered select-sm flex-1" bind:value={consumeForm.lot_id} required>
-                <option value="">Selectați lot...</option>
+                <option value="">{m['operations.traceability.ui.selecta_i_lot']()}</option>
                 {#each lots as lot}
                   <option value={lot.id}>{lot.lot_number} — {lot.item_name} ({lot.quantity_remaining} {lot.unit})</option>
                 {/each}
               </select>
-              <input type="number" class="input input-bordered input-sm w-24" placeholder="Cant." min="0.001" step="0.001" bind:value={consumeForm.quantity_used} required />
+              <input type="number" class="input input-bordered input-sm w-24" placeholder={m['operations.traceability.ui.cant']()} min="0.001" step="0.001" bind:value={consumeForm.quantity_used} required />
               <button type="submit" class="btn btn-primary btn-sm" disabled={processing}>+</button>
             </form>
           </div>
 
           <!-- HACCP inline -->
           <div class="card bg-base-200 p-4">
-            <h4 class="font-semibold mb-2">Verificare CCP (HACCP)</h4>
+            <h4 class="font-semibold mb-2">{m['operations.traceability.production.haccp']()}</h4>
             <form onsubmit={addHACCP} class="grid grid-cols-2 gap-2">
-              <input type="text" class="input input-bordered input-sm col-span-2" placeholder="Punct CCP (ex: Temperatura coacere)" bind:value={haccpForm.ccp} required />
+              <input type="text" class="input input-bordered input-sm col-span-2" placeholder={m['operations.traceability.ui.punct_ccp_ex_temperatura_coacere']()} bind:value={haccpForm.ccp} required />
               <div class="flex gap-1">
-                <input type="number" class="input input-bordered input-sm flex-1" placeholder="Valoare" step="0.1" bind:value={haccpForm.value} required />
-                <input type="text" class="input input-bordered input-sm w-16" placeholder="UM" bind:value={haccpForm.unit} />
+                <input type="number" class="input input-bordered input-sm flex-1" placeholder={m['operations.traceability.ui.valoare']()} step="0.1" bind:value={haccpForm.value} required />
+                <input type="text" class="input input-bordered input-sm w-16" placeholder={m['operations.traceability.dispatches.um']()} bind:value={haccpForm.unit} />
               </div>
               <div class="flex items-center gap-2">
-                <input type="number" class="input input-bordered input-sm w-24" placeholder="Limită min" step="0.1" bind:value={haccpForm.limit_min} />
+                <input type="number" class="input input-bordered input-sm w-24" placeholder={m['operations.traceability.ui.limit_min']()} step="0.1" bind:value={haccpForm.limit_min} />
                 <label class="flex items-center gap-1 cursor-pointer">
                   <input type="checkbox" class="checkbox checkbox-success checkbox-sm" bind:checked={haccpForm.ok} />
                   <span class="text-sm">OK</span>
                 </label>
               </div>
-              <button type="submit" class="btn btn-sm btn-success col-span-2" disabled={processing}>Înregistrează CCP</button>
+              <button type="submit" class="btn btn-sm btn-success col-span-2" disabled={processing}>{m['operations.traceability.ui.nregistreaz_ccp']()}</button>
             </form>
           </div>
         {/if}
@@ -304,4 +306,6 @@
       </div>
     {/if}
   </div>
-</div>
+  </div>
+  {/snippet}
+</ExtensionPageShell>

@@ -1,8 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+        import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { CheckSquare, Workflow, LoaderCircle } from '@lucide/svelte';
+
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   let tab = $state<'approvals' | 'workflows'>('approvals');
   let requests = $state<any[]>([]);
@@ -16,7 +23,7 @@
       const qs = filter !== 'all' ? `?status=${filter}` : '';
       const data = await api.get<{ requests: any[] }>(`/api/approvals${qs}`);
       requests = data.requests ?? [];
-    } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
 
@@ -25,7 +32,7 @@
     try {
       const data = await api.get<{ workflows: any[] }>('/ext/workflow/approvals/workflows');
       workflows = data.workflows ?? [];
-    } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
 
@@ -35,17 +42,20 @@
       await api.post(`/ext/workflow/approvals/${requestId}/decide`, { decision, comment });
       await loadRequests();
       toast.success(decision === 'approved' ? 'Approved.' : 'Rejected.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
 
   async function cancel(requestId: string) {
-    if (!confirm('Cancel this approval request?')) return;
+        askConfirm(m['workflow.approvals.confirmCancel'](), () => cancelConfirmed(requestId));
+  }
+  async function cancelConfirmed(requestId: string) {
     try {
       await api.post(`/ext/workflow/approvals/${requestId}/cancel`, {});
       await loadRequests();
-      toast.success('Cancelled.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['workflow.approvals.toast.cancelled']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
+
 
   $effect(() => {
     if (tab === 'approvals') loadRequests();
@@ -58,22 +68,18 @@
   }
 </script>
 
-<div class="space-y-4">
-  <div>
-    <h1 class="text-xl font-semibold">Approvals</h1>
-    <p class="text-sm text-base-content/50">Manage approval requests and workflow definitions</p>
-  </div>
-
-  <div class="tabs tabs-boxed bg-base-200 w-fit">
+<ExtensionPageShell title={m['workflow.approvals.title']()} subtitle={m['workflow.approvals.subtitle']()}>
+  {#snippet children()}
+<div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'approvals' ? 'tab-active' : ''}" onclick={() => (tab = 'approvals')}>
-      <CheckSquare size={13} class="mr-1.5" /> Requests
+      <CheckSquare size={13} class="mr-1.5" aria-hidden="true" /> {m['workflow.approvals.tab.requests']()}
     </button>
     <button class="tab {tab === 'workflows' ? 'tab-active' : ''}" onclick={() => (tab = 'workflows')}>
-      <Workflow size={13} class="mr-1.5" /> Workflows
+      <Workflow size={13} class="mr-1.5" /> {m['workflow.approvals.tab.workflowsLabel']()}
     </button>
-  </div>
+</div>
 
-  {#if loading}
+{#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if tab === 'approvals'}
     <div class="flex gap-2">
@@ -86,7 +92,7 @@
 
     {#if requests.length === 0}
       <div class="card bg-base-200">
-        <div class="card-body items-center py-12 text-base-content/50 text-sm">No approval requests found.</div>
+        <div class="card-body items-center py-12 text-base-content/50 text-sm">{m['workflow.approvals.empty.requests']()}</div>
       </div>
     {:else}
       <div class="space-y-3">
@@ -106,9 +112,9 @@
                 </div>
                 {#if r.status === 'pending'}
                   <div class="flex gap-2 shrink-0">
-                    <button class="btn btn-success btn-sm" onclick={() => decide(r.id, 'approved')}>Approve</button>
-                    <button class="btn btn-error btn-sm btn-outline" onclick={() => decide(r.id, 'rejected')}>Reject</button>
-                    <button class="btn btn-ghost btn-sm" onclick={() => cancel(r.id)}>Cancel</button>
+                    <button class="btn btn-success btn-sm" onclick={() => decide(r.id, 'approved')}>{m['common.approve']()}</button>
+                    <button class="btn btn-error btn-sm btn-outline" onclick={() => decide(r.id, 'rejected')}>{m['common.reject']()}</button>
+                    <button class="btn btn-ghost btn-sm" onclick={() => cancel(r.id)}>{m['common.cancel']()}</button>
                   </div>
                 {/if}
               </div>
@@ -120,7 +126,7 @@
   {:else}
     {#if workflows.length === 0}
       <div class="card bg-base-200">
-        <div class="card-body items-center py-12 text-base-content/50 text-sm">No workflows configured.</div>
+        <div class="card-body items-center py-12 text-base-content/50 text-sm">{m['workflow.approvals.empty.workflows']()}</div>
       </div>
     {:else}
       <div class="space-y-2">
@@ -132,11 +138,23 @@
                 <p class="font-medium text-sm">{w.name}</p>
                 <p class="text-xs text-base-content/50">{w.collection} · {w.steps?.length ?? 0} step(s)</p>
               </div>
-              <span class="badge badge-sm {w.is_active ? 'badge-success' : 'badge-ghost'}">{w.is_active ? 'Active' : 'Inactive'}</span>
+              <span class="badge badge-sm {w.is_active ? 'badge-success' : 'badge-ghost'}">{w.is_active ? m['common.col.active']() : 'Inactive'}</span>
             </div>
           </div>
         {/each}
       </div>
     {/if}
   {/if}
-</div>
+  {/snippet}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel}
+  confirmClass={confirmState.confirmClass}
+  onconfirm={runConfirmAction}
+  oncancel={cancelConfirm}
+/>
+
+</ExtensionPageShell>

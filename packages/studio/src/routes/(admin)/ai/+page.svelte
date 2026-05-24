@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search, Code2, Wand2, MessageSquare, FileText } from '@lucide/svelte';
@@ -10,13 +12,13 @@
   let activeChat = $state<any>(null);
   let activeTab = $state<'chat' | 'templates' | 'settings' | 'search' | 'query' | 'schema'>('chat');
 
-  const AI_TABS: Array<{ id: typeof activeTab; label: string; icon: any }> = [
-    { id: 'chat', label: 'Chat', icon: MessageSquare },
-    { id: 'search', label: 'Semantic Search', icon: Search },
-    { id: 'query', label: 'NL → SQL', icon: Code2 },
-    { id: 'schema', label: 'Schema Gen', icon: Wand2 },
-    { id: 'templates', label: 'Templates', icon: BookTemplate },
-    { id: 'settings', label: 'Settings', icon: Settings2 },
+  const AI_TABS: Array<{ id: typeof activeTab; labelKey: string; icon: any }> = [
+    { id: 'chat', labelKey: 'ai.tab.chat', icon: MessageSquare },
+    { id: 'search', labelKey: 'ai.tab.search', icon: Search },
+    { id: 'query', labelKey: 'ai.tab.query', icon: Code2 },
+    { id: 'schema', labelKey: 'ai.tab.schema', icon: Wand2 },
+    { id: 'templates', labelKey: 'ai.tab.templates', icon: BookTemplate },
+    { id: 'settings', labelKey: 'ai.tab.settings', icon: Settings2 },
   ];
 
   let input = $state('');
@@ -78,7 +80,7 @@
       chats = chats.map((c) => c.id === activeChat.id ? { ...c, title: userMsg.slice(0, 60) } : c);
     } catch (err: any) {
       messages = messages.slice(0, -1);
-      toast.error('Error: ' + err.message);
+      toast.error(m['ext.errorPrefix']() + err.message);
     } finally {
       sending = false;
     }
@@ -109,7 +111,7 @@
         collection: searchCollection.trim(), query: searchQuery.trim(), limit: 10,
       });
       searchResults = res.results || [];
-    } catch (err: any) { searchError = err.message || 'Search failed'; }
+    } catch (err: any) { searchError = err.message || m['ai.error.searchFailed'](); }
     finally { searching = false; }
   }
 
@@ -137,7 +139,7 @@
     if (!schemaResult) return;
     try {
       await api.post('/api/collections', schemaResult);
-      toast.success(`Collection "${schemaResult.name}" created!`);
+      toast.success(m['ext.saved']());
       schemaResult = null; schemaDescription = '';
     } catch (err: any) { toast.error(err.message ?? 'Failed to create collection'); }
   }
@@ -160,7 +162,9 @@
   }
 </script>
 
-<div class="flex h-full -m-6">
+<ExtensionPageShell title={m['ai.title']()} subtitle={m['ai.subtitle']()}>
+  {#snippet children()}
+<div class="flex h-[calc(100vh-10rem)] -mx-4 -mb-4">
   <aside class="w-64 border-r border-base-300 bg-base-200 flex flex-col shrink-0">
     <div class="px-2 pt-3 pb-2 space-y-0.5">
       {#each AI_TABS as tab}
@@ -170,7 +174,7 @@
           onclick={() => (activeTab = tab.id)}
         >
           <tab.icon size={14} class="shrink-0" />
-          {tab.label}
+          {m[tab.labelKey]()}
         </button>
       {/each}
     </div>
@@ -178,7 +182,7 @@
 
     {#if activeTab === 'chat'}
       <div class="p-2">
-        <button class="btn btn-primary btn-sm w-full gap-1" onclick={newChat}><Plus size={14} /> New Chat</button>
+        <button class="btn btn-primary btn-sm w-full gap-1" onclick={newChat}><Plus size={14} /> {m['ai.action.newChat']()}</button>
       </div>
       <div class="flex-1 overflow-y-auto p-2 space-y-1">
         {#each chats as chat}
@@ -189,7 +193,7 @@
             onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && openChat(chat)}
           >
             <Bot size={14} class="shrink-0 text-base-content/50" />
-            <span class="flex-1 text-xs truncate">{chat.title || 'New Chat'}</span>
+            <span class="flex-1 text-xs truncate">{chat.title || m['ai.chat.newChat']()}</span>
             <button
               class="btn btn-ghost btn-xs text-error opacity-0 hover:opacity-100"
               onclick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
@@ -197,7 +201,7 @@
           </div>
         {/each}
         {#if chats.length === 0}
-          <p class="text-xs text-center text-base-content/40 py-4">No chats yet</p>
+          <p class="text-xs text-center text-base-content/40 py-4">{m['ai.chat.emptyChats']()}</p>
         {/if}
       </div>
 
@@ -216,79 +220,79 @@
                 <span class="badge badge-xs badge-outline">{template.category}</span>
               </div>
               <button class="btn btn-xs btn-primary mt-1" onclick={() => runTemplate(template)}>
-                <Sparkles size={10} /> Run
+                <Sparkles size={10} /> {m['ai.templates.run']()}
               </button>
             </div>
           </div>
         {/each}
         {#if templates.length === 0}
-          <p class="text-xs text-center text-base-content/40 py-4">No templates</p>
+          <p class="text-xs text-center text-base-content/40 py-4">{m['ai.templates.empty']()}</p>
         {/if}
       </div>
 
     {:else if activeTab === 'search'}
       <div class="flex-1 p-3 space-y-3">
-        <p class="text-xs text-base-content/60">Caută semantic în colecțiile cu AI Search activat.</p>
+        <p class="text-xs text-base-content/60">{m['ai.search.hint']()}</p>
         <div class="form-control">
-          <label class="label py-1" for="ai-search-col"><span class="label-text text-xs">Colecție</span></label>
-          <input id="ai-search-col" type="text" class="input input-xs" placeholder="ex: articles" bind:value={searchCollection} />
+          <label class="label py-1" for="ai-search-col"><span class="label-text text-xs">{m['ai.search.collection']()}</span></label>
+          <input id="ai-search-col" type="text" class="input input-xs" placeholder={m['ai.search.placeholder']()} bind:value={searchCollection} />
         </div>
         <div class="form-control">
-          <label class="label py-1" for="ai-search-q"><span class="label-text text-xs">Query semantic</span></label>
+          <label class="label py-1" for="ai-search-q"><span class="label-text text-xs">{m['ai.search.queryLabel']()}</span></label>
           <textarea id="ai-search-q" class="textarea textarea-xs resize-none" rows={3}
-            placeholder="ex: articole despre machine learning" bind:value={searchQuery}></textarea>
+            placeholder={m['ai.search.queryPlaceholder']()} bind:value={searchQuery}></textarea>
         </div>
         <button class="btn btn-primary btn-sm w-full" onclick={semanticSearch}
           disabled={searching || !searchCollection || !searchQuery}>
-          {#if searching}<span class="loading loading-spinner loading-xs"></span>{:else}<Search size={12} />{/if} Caută
+          {#if searching}<span class="loading loading-spinner loading-xs"></span>{:else}<Search size={12} />{/if}{m['ai.search.btn']()}
         </button>
       </div>
 
     {:else if activeTab === 'settings'}
       <div class="flex-1 overflow-y-auto p-3 space-y-3">
-        <p class="text-xs font-semibold text-base-content/60 uppercase mb-2">AI Providers</p>
+        <p class="text-xs font-semibold text-base-content/60 uppercase mb-2">{m['ai.providers.title']()}</p>
         {#each providers as provider}
           <div class="card bg-base-100 shadow-sm mb-2">
             <div class="card-body p-3 gap-1">
               <div class="flex items-center gap-2">
                 <span class="font-semibold text-xs">{provider.label}</span>
-                {#if provider.isDefault}<span class="badge badge-xs badge-primary">default</span>{/if}
+                {#if provider.isDefault}<span class="badge badge-xs badge-primary">{m['ai.providers.default']()}</span>{/if}
               </div>
               <p class="text-xs font-mono text-base-content/50">{provider.name}</p>
             </div>
           </div>
         {/each}
         <button class="btn btn-sm btn-outline w-full" onclick={() => (showProviderForm = !showProviderForm)}>
-          <Plus size={14} /> Add Provider
+          <Plus size={14} /> {m['ai.providers.add']()}
         </button>
         {#if showProviderForm}
           <div class="card bg-base-100 shadow-sm">
             <div class="card-body p-3 gap-2">
               <select bind:value={providerForm.name} class="select select-xs">
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="ollama">Ollama (local)</option>
-                <option value="custom">Custom</option>
+                <option value="openai">{m['ai.provider.openai']()}</option>
+                <option value="anthropic">{m['ai.provider.anthropic']()}</option>
+                <option value="ollama">{m['ai.provider.ollama']()}</option>
+                <option value="custom">{m['ai.provider.custom']()}</option>
               </select>
               {#if providerForm.name === 'custom'}
-                <input type="text" bind:value={providerForm.label} placeholder="Label" class="input input-xs" />
+                <input type="text" bind:value={providerForm.label} placeholder={m['ai.provider.label']()} class="input input-xs" />
               {/if}
               {#if providerForm.name !== 'ollama'}
-                <input type="password" bind:value={providerForm.api_key} placeholder="API Key" class="input input-xs" />
+                <input type="password" bind:value={providerForm.api_key} placeholder={m['ai.provider.apiKey']()} class="input input-xs" />
               {/if}
               {#if providerForm.name === 'ollama' || providerForm.name === 'custom'}
-                <input type="text" bind:value={providerForm.base_url} placeholder="Base URL" class="input input-xs" />
+                <input type="text" bind:value={providerForm.base_url} placeholder={m['ai.provider.baseUrl']()} class="input input-xs" />
               {/if}
-              <input type="text" bind:value={providerForm.default_model} placeholder="Default model" class="input input-xs" />
+              <input type="text" bind:value={providerForm.default_model} placeholder={m['ai.provider.defaultModel']()} class="input input-xs" />
               <label class="flex items-center gap-2 text-xs cursor-pointer">
                 <input type="checkbox" bind:checked={providerForm.is_default} class="checkbox checkbox-xs" />
-                Set as default
+                {m['ai.providers.setDefault']()}
               </label>
               <div class="flex gap-1">
                 <button class="btn btn-primary btn-xs flex-1" onclick={saveProvider} disabled={savingProvider}>
-                  {savingProvider ? 'Saving…' : 'Save'}
+                  {savingProvider ? m['ai.providers.saving']() : m['common.save']()}}
                 </button>
-                <button class="btn btn-ghost btn-xs" onclick={() => (showProviderForm = false)}>Cancel</button>
+                <button class="btn btn-ghost btn-xs" onclick={() => (showProviderForm = false)}>{m['common.cancel']()}</button>
               </div>
             </div>
           </div>
@@ -297,26 +301,26 @@
 
     {:else if activeTab === 'query'}
       <div class="flex-1 p-3 space-y-3">
-        <p class="text-xs text-base-content/60">Ask in natural language — get SQL + results.</p>
+        <p class="text-xs text-base-content/60">{m['ai.query.hint']()}</p>
         <textarea class="textarea textarea-xs w-full resize-none" rows={4}
-          placeholder="ex: Show me the 10 most recent users who signed up this month"
+          placeholder={m['ai.query.placeholder']()}
           bind:value={queryPrompt}
           onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runAiQuery(); }}
         ></textarea>
         <button class="btn btn-primary btn-sm w-full" onclick={runAiQuery} disabled={queryRunning || !queryPrompt.trim()}>
-          {#if queryRunning}<span class="loading loading-spinner loading-xs"></span>{:else}<Code2 size={12} />{/if} Run Query
+          {#if queryRunning}<span class="loading loading-spinner loading-xs"></span>{:else}<Code2 size={12} />{/if}{m['ai.action.runQuery']()}
         </button>
       </div>
 
     {:else if activeTab === 'schema'}
       <div class="flex-1 p-3 space-y-3">
-        <p class="text-xs text-base-content/60">Describe your data model — AI generates the schema.</p>
+        <p class="text-xs text-base-content/60">{m['ai.schema.hint']()}</p>
         <textarea class="textarea textarea-xs w-full resize-none" rows={5}
-          placeholder="ex: A blog with posts (title, content, status), authors (name, bio), and tags"
+          placeholder={m['ai.schema.placeholder']()}
           bind:value={schemaDescription}
         ></textarea>
         <button class="btn btn-primary btn-sm w-full" onclick={generateSchema} disabled={schemaGenerating || !schemaDescription.trim()}>
-          {#if schemaGenerating}<span class="loading loading-spinner loading-xs"></span>{:else}<Wand2 size={12} />{/if} Generate Schema
+          {#if schemaGenerating}<span class="loading loading-spinner loading-xs"></span>{:else}<Wand2 size={12} />{/if}{m['ai.action.generateSchema']()}
         </button>
       </div>
     {/if}
@@ -327,20 +331,20 @@
       <div class="flex-1 flex flex-col items-center justify-center gap-6 p-8">
         <div class="p-4 rounded-2xl bg-primary/5"><Bot size={40} class="text-primary/60" /></div>
         <div class="text-center max-w-sm">
-          <h2 class="font-semibold text-lg">AI Studio</h2>
-          <p class="text-sm text-base-content/50 mt-1">Chat with your data, generate schemas, run SQL queries, and search semantically.</p>
+          <h2 class="font-semibold text-lg">{m['ai.studio.title']()}</h2>
+          <p class="text-sm text-base-content/50 mt-1">{m['ai.studio.subtitle']()}</p>
           {#if providers.length === 0}
-            <p class="text-sm text-warning mt-2">No AI provider configured.
-              <button class="underline" onclick={() => activeTab = 'settings'}>Add one here →</button>
+            <p class="text-sm text-warning mt-2">{m['ai.studio.noProvider']()}
+              <button class="underline" onclick={() => activeTab = 'settings'}>{m['ai.studio.addProvider']()}</button>
             </p>
           {/if}
         </div>
         <div class="grid grid-cols-2 gap-2 w-full max-w-md">
           {#each [
-            'Show me all collections with their record counts',
-            'Generate a schema for an e-commerce product catalog',
-            'Find records where status is pending from the last 7 days',
-            'What are the most active collections this week?'
+            m['ai.prompt.collectionsCounts'](),
+            m['ai.prompt.ecommerceSchema'](),
+            m['ai.prompt.pendingRecords'](),
+            m['ai.prompt.activeCollections']()
           ] as prompt}
             <button
               class="text-left p-3 rounded-lg border border-base-300 text-xs text-base-content/60 hover:border-primary/40 hover:text-base-content transition-all"
@@ -349,7 +353,7 @@
           {/each}
         </div>
         {#if !activeChat}
-          <button class="btn btn-primary btn-sm" onclick={newChat}><Plus size={14} /> New Chat</button>
+          <button class="btn btn-primary btn-sm" onclick={newChat}><Plus size={14} /> {m['ai.action.newChat']()}</button>
         {/if}
       </div>
 
@@ -358,7 +362,7 @@
         {#if messages.length === 0}
           <div class="text-center text-base-content/40 py-8">
             <Sparkles size={32} class="mx-auto mb-2 opacity-30" />
-            <p>Send a message to start the conversation</p>
+            <p>{m['ai.chat.startConversation']()}</p>
           </div>
         {/if}
         {#each messages as msg}
@@ -392,7 +396,7 @@
             <textarea
               bind:value={input}
               onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+              placeholder={m['ai.chat.messagePlaceholder']()}
               class="textarea flex-1 resize-none min-h-11 max-h-32 text-sm" rows={1}
             ></textarea>
             <button class="btn btn-primary btn-sm h-11" onclick={sendMessage} disabled={!input.trim() || sending}>
@@ -411,7 +415,7 @@
           <div class="flex justify-center py-12"><span class="loading loading-spinner loading-lg text-primary"></span></div>
         {:else if searchResults.length > 0}
           <div class="space-y-3">
-            <p class="text-sm text-base-content/60">{searchResults.length} rezultate pentru <strong>"{searchQuery}"</strong> în <code class="text-primary">{searchCollection}</code></p>
+            <p class="text-sm text-base-content/60">{m['ai.search.resultsCount']().replace('{count}', String(searchResults.length))} <strong>"{searchQuery}"</strong> {m['ai.search.inCollection']()} <code class="text-primary">{searchCollection}</code></p>
             {#each searchResults as result}
               <div class="card bg-base-200 hover:bg-base-300 transition-colors">
                 <div class="card-body p-4">
@@ -438,8 +442,8 @@
         {:else}
           <div class="flex flex-col items-center justify-center py-16 text-base-content/40 gap-3">
             <Search size={48} class="opacity-20" />
-            <p class="text-lg font-semibold">Semantic Search</p>
-            <p class="text-sm text-center max-w-sm">Introdu o colecție și un query în sidebar pentru a căuta semantic în recorduri.</p>
+            <p class="text-lg font-semibold">{m['ai.tab.search']()}</p>
+            <p class="text-sm text-center max-w-sm">{m['ai.search.emptyHint']()}</p>
           </div>
         {/if}
       </div>
@@ -451,7 +455,7 @@
         {:else if queryResult}
           <div class="space-y-4">
             <div class="rounded-lg bg-base-200 p-4">
-              <p class="text-xs font-semibold text-base-content/50 uppercase mb-2">Generated SQL</p>
+              <p class="text-xs font-semibold text-base-content/50 uppercase mb-2">{m['ai.query.generatedSql']()}</p>
               <pre class="text-xs font-mono whitespace-pre-wrap text-primary">{queryResult.sql}</pre>
             </div>
             {#if queryResult.data.length > 0}
@@ -465,16 +469,16 @@
                   </tbody>
                 </table>
               </div>
-              <p class="text-xs text-base-content/40">{queryResult.data.length} row(s) returned</p>
+              <p class="text-xs text-base-content/40">{queryResult.data.length} {m['ai.query.rowsReturned']()}</p>
             {:else}
-              <p class="text-sm text-base-content/40 text-center py-4">No rows returned</p>
+              <p class="text-sm text-base-content/40 text-center py-4">{m['ai.query.noRows']()}</p>
             {/if}
           </div>
         {:else}
           <div class="flex flex-col items-center justify-center h-full text-base-content/40 gap-3">
             <Code2 size={48} class="opacity-20" />
-            <p class="text-lg font-semibold">AI Query Builder</p>
-            <p class="text-sm text-center max-w-sm">Type a question in plain language — AI generates and runs the SQL read-only query.</p>
+            <p class="text-lg font-semibold">{m['ai.query.title']()}</p>
+            <p class="text-sm text-center max-w-sm">{m['ai.query.emptyHint']()}</p>
           </div>
         {/if}
       </div>
@@ -486,15 +490,15 @@
         {:else if schemaResult}
           <div class="space-y-4">
             <div class="flex items-center justify-between">
-              <h2 class="font-bold text-lg">Generated: <code class="text-primary">{schemaResult.name}</code></h2>
+              <h2 class="font-bold text-lg">{m['ai.schema.generated']()}: <code class="text-primary">{schemaResult.name}</code></h2>
               <div class="flex gap-2">
-                <button class="btn btn-ghost btn-sm" onclick={() => (schemaResult = null)}>Discard</button>
-                <button class="btn btn-primary btn-sm" onclick={applySchema}><Plus size={14} /> Create Collection</button>
+                <button class="btn btn-ghost btn-sm" onclick={() => (schemaResult = null)}>{m['common.discard']()}</button>
+                <button class="btn btn-primary btn-sm" onclick={applySchema}><Plus size={14} /> {m['ai.action.createCollection']()}</button>
               </div>
             </div>
             <div class="overflow-x-auto rounded-lg border border-base-300">
               <table class="table table-sm">
-                <thead><tr><th>Field</th><th>Type</th><th>Label</th><th>Required</th><th>Unique</th></tr></thead>
+                <thead><tr><th>{m['common.col.field']()}</th><th>{m['common.col.type']()}</th><th>{m['common.col.label']()}</th><th>{m['common.col.required']()}</th><th>{m['common.col.unique']()}</th></tr></thead>
                 <tbody>
                   {#each (schemaResult.fields || []) as field}
                     <tr>
@@ -509,18 +513,20 @@
               </table>
             </div>
             <details class="collapse collapse-arrow border border-base-300 rounded-lg">
-              <summary class="collapse-title text-xs font-semibold">Raw JSON</summary>
+              <summary class="collapse-title text-xs font-semibold">{m['ai.schema.rawJson']()}</summary>
               <div class="collapse-content"><pre class="text-xs font-mono whitespace-pre-wrap">{JSON.stringify(schemaResult, null, 2)}</pre></div>
             </details>
           </div>
         {:else}
           <div class="flex flex-col items-center justify-center h-full text-base-content/40 gap-3">
             <Wand2 size={48} class="opacity-20" />
-            <p class="text-lg font-semibold">Schema Generator</p>
-            <p class="text-sm text-center max-w-sm">Describe your data model in plain language — AI generates the collection schema ready to apply.</p>
+            <p class="text-lg font-semibold">{m['ai.schema.title']()}</p>
+            <p class="text-sm text-center max-w-sm">{m['ai.schema.emptyHint']()}</p>
           </div>
         {/if}
       </div>
     {/if}
   </div>
 </div>
+  {/snippet}
+</ExtensionPageShell>

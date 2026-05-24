@@ -1,8 +1,14 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { Search, Plus, X, RefreshCw, Trash2, LoaderCircle } from '@lucide/svelte';
+
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   let query = $state('');
   let selectedCollection = $state('');
@@ -40,7 +46,7 @@
     try {
       const res = await api.get(`/extensions/search/search?q=${encodeURIComponent(query)}&collection=${encodeURIComponent(selectedCollection)}&limit=50`);
       results = [res.results];
-    } catch (e: any) { searchError = e.message ?? 'Search failed'; results = []; }
+    } catch (e: any) { searchError = e.message ?? m['ai.error.searchFailed'](); results = []; }
     finally { loading = false; }
   }
 
@@ -48,21 +54,24 @@
     syncing = collection;
     try {
       await api.post(`/extensions/search/indexes/${encodeURIComponent(collection)}/sync`, {});
-      toast.success(`Sync started for "${collection}".`);
-    } catch (e: any) { toast.error('Sync failed: ' + (e.message ?? '')); }
+      toast.success(m['ext.saved']());
+    } catch (e: any) { toast.error(m['search.error.syncPrefix']() + (e.message ?? '')); }
     finally { syncing = null; }
   }
 
   async function removeIndex(collection: string) {
-    if (!confirm(`Remove search index for "${collection}"?`)) return;
+        askConfirm(m['ext.confirm.removeSearchIndex']({ collection }), () => removeIndexConfirmed(collection));
+  }
+  async function removeIndexConfirmed(collection: string) {
     try {
       await api.delete(`/extensions/search/indexes/${encodeURIComponent(collection)}`);
       indexes = indexes.map((idx) => idx.collection === collection ? { ...idx, status: 'inactive' } : idx);
-    } catch (e: any) { toast.error('Failed: ' + (e.message ?? '')); }
+    } catch (e: any) { toast.error(m['ext.errorPrefix']() + (e.message ?? '')); }
   }
 
+
   async function saveConfig() {
-    if (!configCollection || !configIndexName) { toast.error('Collection and index name are required'); return; }
+    if (!configCollection || !configIndexName) { toast.error(m['search.error.indexRequired']()); return; }
     configSaving = true;
     try {
       await api.post('/extensions/search/indexes', {
@@ -75,8 +84,8 @@
       });
       showConfigModal = false;
       await loadIndexes();
-      toast.success('Index configured.');
-    } catch (e: any) { toast.error('Failed: ' + (e.message ?? '')); }
+      toast.success(m['search.toast.indexConfigured']());
+    } catch (e: any) { toast.error(m['ext.errorPrefix']() + (e.message ?? '')); }
     finally { configSaving = false; }
   }
 
@@ -107,21 +116,18 @@
   function statusBadge(s: string) { return s === 'active' ? 'badge-success' : 'badge-ghost'; }
 </script>
 
-<div class="space-y-6">
-  <div>
-    <h1 class="text-xl font-semibold flex items-center gap-2"><Search size={20} /> Search Adapter</h1>
-    <p class="text-sm text-base-content/50">Configure indexes and run searches</p>
-  </div>
-
+<ExtensionPageShell title={m['search.title']()} subtitle={m['search.subtitle']()}>
+  {#snippet children()}
+  <div class="space-y-6">
   <div class="card bg-base-200 border border-base-300">
     <div class="card-body p-4 gap-3">
-      <h2 class="font-medium text-sm">Search</h2>
+      <h2 class="font-medium text-sm">{m['search.ui.search']()}</h2>
       <div class="flex gap-2">
         <select bind:value={selectedCollection} class="select select-sm min-w-40">
-          <option value="">Select collection</option>
+          <option value="">{m['search.ui.select_collection']()}</option>
           {#each collections as col}<option value={col}>{col}</option>{/each}
         </select>
-        <input type="search" class="input input-sm flex-1" bind:value={query} placeholder="Search…" onkeydown={(e) => e.key === 'Enter' && search()} />
+        <input type="search" class="input input-sm flex-1" bind:value={query} placeholder={m['common.search']()} onkeydown={(e) => e.key === 'Enter' && search()} />
         <button class="btn btn-primary btn-sm" onclick={search} disabled={loading || !selectedCollection || !query.trim()}>
           {#if loading}<LoaderCircle size={14} class="animate-spin" />{:else}<Search size={14} />{/if}
         </button>
@@ -129,7 +135,7 @@
       {#if searchError}<div class="text-error text-sm">{searchError}</div>{/if}
       {#if getResultRows().length > 0}
         <div>
-          <p class="text-xs text-base-content/60 mb-2">{getResultRows().length} results</p>
+          <p class="text-xs text-base-content/60 mb-2">{m['search.resultsCount']({ n: String(getResultRows().length) })}</p>
           <div class="overflow-x-auto">
             <table class="table table-xs">
               <thead><tr>{#each resultColumns as col}<th>{col}</th>{/each}</tr></thead>
@@ -142,15 +148,15 @@
           </div>
         </div>
       {:else if !loading && query && selectedCollection}
-        <p class="text-sm text-base-content/50">No results found.</p>
+        <p class="text-sm text-base-content/50">{m['search.noResults']()}</p>
       {/if}
     </div>
   </div>
 
   <div>
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-medium text-sm">Search Indexes</h2>
-      <button class="btn btn-primary btn-sm gap-1" onclick={() => openConfigModal()}><Plus size={14} /> Configure Index</button>
+      <h2 class="font-medium text-sm">{m['search.ui.search_indexes']()}</h2>
+      <button class="btn btn-primary btn-sm gap-1" onclick={() => openConfigModal()}><Plus size={14} /> {m['search.configureIndex']()}</button>
     </div>
 
     {#if indexesLoading}
@@ -158,14 +164,14 @@
     {:else if indexes.length === 0}
       <div class="card bg-base-200">
         <div class="card-body items-center py-10 text-base-content/50 text-sm">
-          No search indexes configured.
-          <button class="btn btn-primary btn-sm mt-3" onclick={() => openConfigModal()}>Configure your first index</button>
+          {m['search.empty.indexes']()}
+          <button class="btn btn-primary btn-sm mt-3" onclick={() => openConfigModal('')}>{m['search.configureIndex']()}</button>
         </div>
       </div>
     {:else}
       <div class="overflow-x-auto">
         <table class="table table-sm">
-          <thead><tr><th>Collection</th><th>Provider</th><th>Index Name</th><th>Status</th><th>Records</th><th>Last Synced</th><th></th></tr></thead>
+          <thead><tr><th>{m['common.col.collection']()}</th><th>{m['common.col.provider']()}</th><th>{m['search.col.indexName']()}</th><th>{m['common.col.status']()}</th><th>{m['search.col.records']()}</th><th>{m['search.col.lastSynced']()}</th><th></th></tr></thead>
           <tbody>
             {#each indexes as idx}
               <tr class="hover">
@@ -180,7 +186,7 @@
                     <button class="btn btn-ghost btn-xs gap-1" onclick={() => syncIndex(idx.collection)} disabled={syncing === idx.collection}>
                       {#if syncing === idx.collection}<LoaderCircle size={12} class="animate-spin" />{:else}<RefreshCw size={12} />{/if}
                     </button>
-                    <button class="btn btn-ghost btn-xs" onclick={() => openConfigModal(idx.collection)}>Edit</button>
+                    <button class="btn btn-ghost btn-xs" onclick={() => openConfigModal(idx.collection)}>{m['common.edit']()}</button>
                     <button class="btn btn-ghost btn-xs text-error" onclick={() => removeIndex(idx.collection)}><Trash2 size={12} /></button>
                   </div>
                 </td>
@@ -191,34 +197,47 @@
       </div>
     {/if}
   </div>
-</div>
+  </div>
+  {/snippet}
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel}
+  confirmClass={confirmState.confirmClass}
+  onconfirm={runConfirmAction}
+  oncancel={cancelConfirm}
+/>
+
+</ExtensionPageShell>
 
 {#if showConfigModal}
   <div class="modal modal-open">
     <div class="modal-box max-w-md">
-      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">Configure Search Index</h3><button class="btn btn-ghost btn-xs" onclick={() => (showConfigModal = false)}><X size={14} /></button></div>
+      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['search.ui.configure_search_index']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showConfigModal = false)}><X size={14} /></button></div>
       <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Collection</span></label>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['analytics.quality.ui.collection']()}</span></label>
           <select class="select select-sm" bind:value={configCollection}>
-            <option value="">Select collection</option>
+            <option value="">{m['search.ui.select_collection']()}</option>
             {#each collections as col}<option value={col}>{col}</option>{/each}
           </select>
         </div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Provider</span></label>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['search.ui.provider']()}</span></label>
           <select class="select select-sm" bind:value={configProvider}>
-            <option value="meilisearch">MeiliSearch</option>
-            <option value="typesense">Typesense</option>
+            <option value="meilisearch">{m['search.ui.meilisearch']()}</option>
+            <option value="typesense">{m['search.ui.typesense']()}</option>
           </select>
         </div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Index Name</span></label><input class="input input-sm font-mono" bind:value={configIndexName} placeholder="my_collection" /></div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Searchable Fields (comma-separated)</span></label><input class="input input-sm" bind:value={configSearchable} placeholder="name, description, title" /></div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Filterable Fields</span></label><input class="input input-sm" bind:value={configFilterable} placeholder="status, category" /></div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Sortable Fields</span></label><input class="input input-sm" bind:value={configSortable} placeholder="created_at, name" /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['search.ui.index_name']()}</span></label><input class="input input-sm font-mono" bind:value={configIndexName} placeholder={m['search.ui.my_collection']()} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['search.ui.searchable_fields_comma_separated']()}</span></label><input class="input input-sm" bind:value={configSearchable} placeholder={m['search.ui.name_description_title']()} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['search.ui.filterable_fields']()}</span></label><input class="input input-sm" bind:value={configFilterable} placeholder={m['search.ui.status_category']()} /></div>
+        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['search.ui.sortable_fields']()}</span></label><input class="input input-sm" bind:value={configSortable} placeholder={m['search.ui.created_at_name']()} /></div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showConfigModal = false)}>Cancel</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => (showConfigModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary btn-sm" onclick={saveConfig} disabled={configSaving}>
-          {#if configSaving}<LoaderCircle size={13} class="animate-spin" />{/if} Save
+          {#if configSaving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['search.btn.save']()}
         </button>
       </div>
     </div>
