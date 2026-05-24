@@ -175,10 +175,21 @@ export async function initTelemetry(): Promise<void> {
       propagation.setGlobalPropagator(new W3CTraceCtx());
     }
 
+    // `traceExporter` type cast is intentional: depending on which version
+    // of `@opentelemetry/sdk-trace-base` ends up in node_modules (the
+    // exporter and sdk-node CAN resolve different ones if a fresh
+    // `bun install` on CI picks up a newer transitive minor), the
+    // `SpanExporter` interface uses either `instrumentationLibrary` (v1)
+    // or `instrumentationScope` (v2) on `ReadableSpan`. Runtime behaviour
+    // is identical — only the static `ReadableSpan` shape differs across
+    // the two installed copies — so we cast through `any` to keep
+    // typecheck independent of which version the install resolved.
+    // The runtime contract OpenTelemetry guarantees (export(spans, cb))
+    // is unchanged.
     const sdk = new NodeSDK({
       traceExporter: new OTLPTraceExporter({
         url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-      }),
+      }) as any,
       serviceName: process.env.OTEL_SERVICE_NAME || 'zveltio-engine',
     });
 
