@@ -117,7 +117,6 @@
 </script>
 
 <ExtensionPageShell title={m['search.title']()} subtitle={m['search.subtitle']()}>
-  {#snippet children()}
   <div class="space-y-6">
   <div class="card bg-base-200 border border-base-300">
     <div class="card-body p-4 gap-3">
@@ -198,7 +197,6 @@
     {/if}
   </div>
   </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

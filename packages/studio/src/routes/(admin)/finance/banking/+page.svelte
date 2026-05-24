@@ -90,7 +90,6 @@
     </button>
   {/snippet}
 
-  {#snippet children()}
     <div class="tabs tabs-boxed bg-base-200 w-fit">
       <button class="tab {tab === 'accounts' ? 'tab-active' : ''}" onclick={() => (tab = 'accounts')}>
         <Landmark size={13} class="mr-1.5" aria-hidden="true" />
@@ -220,7 +219,6 @@
         {/if}
       {/snippet}
     </ExtensionDataPanel>
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showForm}

@@ -52,7 +52,6 @@
 </script>
 
 <ExtensionPageShell title={m['data.export.title']()} subtitle={m['data.export.subtitle']()}>
-  {#snippet children()}
 {#if error}<div class="alert alert-error">{error}</div>{/if}
 
   <div class="overflow-x-auto bg-base-100 rounded-lg shadow">
@@ -66,7 +65,6 @@
       </tbody>
     </table>
   </div>
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showForm}

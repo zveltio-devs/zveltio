@@ -110,7 +110,6 @@
       </button>
   {/snippet}
 
-  {#snippet children()}
 {#if stats}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div class="stat bg-base-200 rounded-xl py-3">
@@ -202,7 +201,6 @@
       </div>
     {/if}
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

@@ -80,7 +80,6 @@
     <button type="button" class="btn btn-primary btn-sm gap-1" onclick={generateToken}><Plus size={14} /> {m['developer.api-docs.btn.generateToken']()}</button>
   {/snippet}
 
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'changelog' ? 'tab-active' : ''}" onclick={() => (tab = 'changelog')}>{m['developer.api-docs.tab.changelog']()}</button>
     <button class="tab {tab === 'custom' ? 'tab-active' : ''}" onclick={() => (tab = 'custom')}><FileCode size={13} class="mr-1.5" /> {m['developer.api-docs.tab.customPages']()}</button>
@@ -133,7 +132,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

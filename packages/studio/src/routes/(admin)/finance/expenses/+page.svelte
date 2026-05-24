@@ -112,7 +112,6 @@
     </button>
   {/snippet}
 
-  {#snippet children()}
     <ExtensionDataPanel
       {loading}
       empty={!loading && expenses.length === 0}
@@ -153,7 +152,6 @@
         </table>
       {/snippet}
     </ExtensionDataPanel>
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showForm}

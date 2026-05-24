@@ -68,7 +68,6 @@
 </script>
 
 <ExtensionPageShell title={m['geospatial.postgis.title']()} subtitle={m['geospatial.postgis.subtitle']()}>
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {activeTab === 'proximity' ? 'tab-active' : ''}" onclick={() => (activeTab = 'proximity')}>{m['geospatial.postgis.tab.proximity']()}</button>
     <button class="tab {activeTab === 'geofences' ? 'tab-active' : ''}" onclick={() => (activeTab = 'geofences')}>{m['geospatial.postgis.tab.geofencesCount']({ n: String(geofences.length) })}</button>
@@ -149,7 +148,6 @@
       </div>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

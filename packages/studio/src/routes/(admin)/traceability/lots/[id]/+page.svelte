@@ -87,7 +87,6 @@
   {#snippet headerExtras()}
     {#if lot}<span class="badge {statusClass(lot.status)}">{lot.status}</span>{/if}
   {/snippet}
-  {#snippet children()}
   <div class="p-6 space-y-4 pt-0">
   <div class="flex items-center gap-3 mb-2">
     <a href="/admin/trace/lots" class="btn btn-ghost btn-sm">{m['workflow.checklists.btn.back']()}</a>
@@ -203,7 +202,6 @@
     {/if}
   {/if}
   </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

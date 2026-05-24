@@ -69,7 +69,6 @@
 </script>
 
 <ExtensionPageShell title={m['data.import.title']()} subtitle={m['data.import.subtitle']()}>
-  {#snippet children()}
 {#if error}<div class="alert alert-error"><AlertCircle class="h-4 w-4" /> {error}</div>{/if}
 
   <div class="overflow-x-auto bg-base-100 rounded-lg shadow">
@@ -90,7 +89,6 @@
       </tbody>
     </table>
   </div>
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showForm}

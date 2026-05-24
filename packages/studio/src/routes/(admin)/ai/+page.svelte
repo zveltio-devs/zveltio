@@ -163,7 +163,6 @@
 </script>
 
 <ExtensionPageShell title={m['ai.title']()} subtitle={m['ai.subtitle']()}>
-  {#snippet children()}
 <div class="flex h-[calc(100vh-10rem)] -mx-4 -mb-4">
   <aside class="w-64 border-r border-base-300 bg-base-200 flex flex-col shrink-0">
     <div class="px-2 pt-3 pb-2 space-y-0.5">
@@ -528,5 +527,4 @@
     {/if}
   </div>
 </div>
-  {/snippet}
 </ExtensionPageShell>

@@ -143,7 +143,6 @@ function transportStatusLabel(s: string): string {
     <button type="button" class="btn btn-primary btn-sm gap-1" onclick={openCreate}><Plus size={14} /> {m['compliance.ro.etransport.btn.newDeclaration']()}</button>
   {/snippet}
 
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     {#each STATUSES as s}
       <button class="tab {filter === s ? 'tab-active' : ''}" onclick={() => (filter = s)}>
@@ -200,7 +199,6 @@ function transportStatusLabel(s: string): string {
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

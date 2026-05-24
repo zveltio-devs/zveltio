@@ -159,11 +159,9 @@
 </script>
 
 <PageHeader title="Column Permissions" subtitle="Control which columns each role can read or write per collection.">
-  {#snippet children()}
     <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
       <Plus class="h-4 w-4" /> New Rule
     </button>
-  {/snippet}
 </PageHeader>
 
 <!-- Info banner: DaisyUI alert adapts to light/dark themes. -->
