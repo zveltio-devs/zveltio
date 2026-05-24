@@ -1,5 +1,11 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { api } from '$lib/api.js';
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+
   const API = '/ext/operations/traceability';
 
   type Tab = 'pending' | 'confirmed' | 'direct';
@@ -100,11 +106,14 @@
   }
 
   async function cancelDispatch(id: string) {
-    if (!confirm('Anulați expedierea?')) return;
+        askConfirm(m['operations.traceability.confirmCancelDispatch'](), () => cancelDispatchConfirmed(id));
+  }
+  async function cancelDispatchConfirmed(id: string) {
     await api.fetch(`${API}/dispatches/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     selected = null;
     await loadDispatches();
   }
+
 
   async function submitDirect(e: Event) {
     e.preventDefault();
@@ -135,9 +144,8 @@
   }
 </script>
 
-<div class="p-6 space-y-4">
-  <h1 class="text-2xl font-bold">Expedieri</h1>
-
+<ExtensionPageShell title={m['operations.traceability.dispatches.title']()}>
+  <div class="p-6 space-y-4 pt-0">
   <div class="tabs tabs-bordered">
     <button class="tab {activeTab === 'pending' ? 'tab-active' : ''}" onclick={() => { activeTab = 'pending'; selected = null; }}>
       În așteptare
@@ -161,15 +169,15 @@
     <div class="max-w-lg">
       {#if directDone}
         <div class="alert alert-success mb-4">
-          Expediere înregistrată cu succes pentru <strong>{directDone.customer_name}</strong>.
-          <button class="btn btn-sm btn-ghost ml-2" onclick={() => directDone = null}>+ Alta</button>
+          {m['operations.traceability.dispatches.directSuccess']()} <strong>{directDone.customer_name}</strong>.
+          <button class="btn btn-sm btn-ghost ml-2" onclick={() => directDone = null}>{m['operations.traceability.dispatches.another']()}</button>
         </div>
       {/if}
       <form onsubmit={submitDirect} class="space-y-3">
         <div>
-          <label class="label-text font-medium">Lot *</label>
+          <label class="label-text font-medium">{m['operations.traceability.dispatches.lot']()}</label>
           <select class="select select-bordered w-full" bind:value={directForm.lot_id} required>
-            <option value="">Selectați lot disponibil...</option>
+            <option value="">{m['operations.traceability.ui.selecta_i_lot_disponibil']()}</option>
             {#each lots as lot}
               <option value={lot.id}>
                 {lot.lot_number} — {lot.item_name} ({lot.quantity_remaining} {lot.unit})
@@ -180,11 +188,11 @@
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="label-text font-medium">Cantitate *</label>
+            <label class="label-text font-medium">{m['operations.traceability.dispatches.qty']()}</label>
             <input type="number" class="input input-bordered w-full" min="0.001" step="0.001" bind:value={directForm.quantity_dispatched} required />
           </div>
           <div>
-            <label class="label-text font-medium">UM</label>
+            <label class="label-text font-medium">{m['operations.traceability.dispatches.um']()}</label>
             <select class="select select-bordered w-full" bind:value={directForm.unit}>
               {#each ['kg','g','l','ml','buc','cutie','sac','palet'] as u}
                 <option value={u}>{u}</option>
@@ -193,15 +201,15 @@
           </div>
         </div>
         <div>
-          <label class="label-text font-medium">Client *</label>
-          <input type="text" class="input input-bordered w-full" bind:value={directForm.customer_name} required placeholder="Denumire client" />
+          <label class="label-text font-medium">{m['operations.traceability.dispatches.client']()}</label>
+          <input type="text" class="input input-bordered w-full" bind:value={directForm.customer_name} required placeholder={m['operations.traceability.ui.denumire_client']()} />
         </div>
         <div>
-          <label class="label-text font-medium">Nr. factură / aviz (opțional)</label>
-          <input type="text" class="input input-bordered w-full" bind:value={directForm.invoice_number} placeholder="ex: INV-00123" />
+          <label class="label-text font-medium">{m['operations.traceability.dispatches.invoice']()}</label>
+          <input type="text" class="input input-bordered w-full" bind:value={directForm.invoice_number} placeholder={m['operations.traceability.ui.ex_inv_00123']()} />
         </div>
         <div>
-          <label class="label-text font-medium">Note</label>
+          <label class="label-text font-medium">{m['operations.traceability.form.notes']()}</label>
           <textarea class="textarea textarea-bordered w-full" rows="2" bind:value={directForm.notes}></textarea>
         </div>
         <button type="submit" class="btn btn-primary w-full" disabled={directSaving}>
@@ -219,10 +227,10 @@
           <table class="table table-sm w-full">
             <thead>
               <tr>
-                <th>Client</th>
-                <th>Produs / Lot</th>
-                <th>Cant. facturată</th>
-                <th>Factură</th>
+                <th>{m['operations.traceability.dispatches.col.client']()}</th>
+                <th>{m['operations.traceability.dispatches.col.productLot']()}</th>
+                <th>{m['operations.traceability.dispatches.col.invoicedQty']()}</th>
+                <th>{m['operations.traceability.dispatches.col.invoice']()}</th>
                 <th></th>
               </tr>
             </thead>
@@ -262,7 +270,7 @@
 
           <div class="space-y-1 text-sm">
             <div class="flex justify-between">
-              <span class="opacity-60">Produs (facturat)</span>
+              <span class="opacity-60">{m['operations.traceability.dispatches.billedProduct']()}</span>
               <span>{selected.item_name_from_invoice ?? '?'}</span>
             </div>
             <div class="flex justify-between">
@@ -271,21 +279,21 @@
             </div>
             {#if selected.best_before_date}
               <div class="flex justify-between">
-                <span class="opacity-60">Valabilitate</span>
+                <span class="opacity-60">{m['operations.traceability.dispatches.expiry']()}</span>
                 <span class="font-medium">{selected.best_before_date}</span>
               </div>
             {/if}
             <div class="flex justify-between">
-              <span class="opacity-60">Disponibil în lot</span>
+              <span class="opacity-60">{m['operations.traceability.dispatches.availableInLot']()}</span>
               <span class="font-bold">{selected.lot_qty_remaining} {selected.unit}</span>
             </div>
             <div class="flex justify-between">
-              <span class="opacity-60">Cantitate facturată</span>
+              <span class="opacity-60">{m['operations.traceability.dispatches.invoicedQtyLabel']()}</span>
               <span>{selected.quantity_invoiced} {selected.unit}</span>
             </div>
             {#if selected.invoice_number}
               <div class="flex justify-between">
-                <span class="opacity-60">Factură</span>
+                <span class="opacity-60">{m['operations.traceability.dispatches.col.invoice']()}</span>
                 <span class="font-mono">{selected.invoice_number}</span>
               </div>
             {/if}
@@ -299,12 +307,12 @@
               </div>
               <div class="flex gap-2">
                 <select class="select select-bordered select-sm flex-1" bind:value={assignLotId}>
-                  <option value="">Selectați lot...</option>
+                  <option value="">{m['operations.traceability.ui.selecta_i_lot']()}</option>
                   {#each lots as lot}
                     <option value={lot.id}>{lot.lot_number} — {lot.item_name} ({lot.quantity_remaining} {lot.unit})</option>
                   {/each}
                 </select>
-                <button class="btn btn-sm btn-warning" onclick={assignLot}>Asignează</button>
+                <button class="btn btn-sm btn-warning" onclick={assignLot}>{m['common.assign']()}</button>
               </div>
             {/if}
 
@@ -327,7 +335,7 @@
                   />
                 </div>
                 <div>
-                  <label class="label-text text-sm">Note</label>
+                  <label class="label-text text-sm">{m['operations.traceability.form.notes']()}</label>
                   <textarea class="textarea textarea-bordered w-full" rows="2" bind:value={confirmForm.notes}></textarea>
                 </div>
                 <div class="flex gap-2">
@@ -344,19 +352,31 @@
             <!-- Confirmed view -->
             <div class="text-sm space-y-1">
               <div class="flex justify-between">
-                <span class="opacity-60">Cantitate expediată</span>
+                <span class="opacity-60">{m['operations.traceability.dispatches.dispatchedQty']()}</span>
                 <span class="font-bold text-success">{selected.quantity_dispatched} {selected.unit}</span>
               </div>
               <div class="flex justify-between">
-                <span class="opacity-60">Confirmat la</span>
+                <span class="opacity-60">{m['operations.traceability.dispatches.confirmedAt']()}</span>
                 <span>{selected.confirmed_at ? new Date(selected.confirmed_at).toLocaleString('ro-RO') : '—'}</span>
               </div>
             </div>
           {/if}
 
-          <button class="btn btn-ghost btn-sm w-full" onclick={() => selected = null}>Închide</button>
+          <button class="btn btn-ghost btn-sm w-full" onclick={() => (selected = null)}>{m['common.close']()}</button>
         </div>
       {/if}
     </div>
   {/if}
-</div>
+  </div>
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel}
+  confirmClass={confirmState.confirmClass}
+  onconfirm={runConfirmAction}
+  oncancel={cancelConfirm}
+/>
+
+</ExtensionPageShell>

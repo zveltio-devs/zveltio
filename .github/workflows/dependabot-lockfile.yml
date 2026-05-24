@@ -1,0 +1,77 @@
+name: Dependabot lockfile sync
+
+# Dependabot only updates `package.json` for the npm ecosystem; it does
+# NOT touch `bun.lock` (Bun isn't on its supported lockfile list yet).
+# Combined with our CI using `bun install --frozen-lockfile` (added to
+# catch transitive drift on the OpenTelemetry tree), every Dependabot
+# npm PR fails out of the gate with "lockfile had changes, but lockfile
+# is frozen" — useless until a human reruns `bun install` on the branch.
+#
+# This workflow regenerates `bun.lock` automatically on any Dependabot
+# PR whose changes touch a `package.json` file, then commits + pushes
+# the updated lockfile back to the PR branch.
+#
+# Trigger: `pull_request_target` runs in the BASE branch's context, so
+# the `GITHUB_TOKEN` has write access to the repository — required to
+# push back to the PR branch. We narrow the trigger to:
+#   - dependabot[bot] author only (guards against an arbitrary PR
+#     piggy-backing on the elevated permissions)
+#   - paths matching package.json (avoids no-op runs on GHA-config PRs)
+#
+# Security note: we deliberately do NOT run user-controlled scripts on
+# the PR head (no `bun run`, no test execution). The only command that
+# touches the network is `bun install`, which Bun resolves against the
+# npm registry using the PR's package.json. The output is a lockfile —
+# inspecting and re-installing that lockfile would happen on the next
+# regular CI run, which has narrower permissions.
+#
+# Caveat: pushes made by `GITHUB_TOKEN` do NOT re-trigger workflows by
+# GitHub policy (avoids infinite loops). The pushed bun.lock therefore
+# does not auto-rerun the main CI; a maintainer must "Update branch" or
+# re-request the checks. If we want auto-rerun, we'd need a PAT — out
+# of scope for this fix.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**/package.json'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          # `pull_request_target` defaults to checking out the BASE.
+          # We need the PR head so `bun install` sees the bumped
+          # package.json, not the pre-bump baseline.
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Resolve lockfile against bumped package.json
+        run: bun install
+
+      - name: Commit + push if bun.lock changed
+        run: |
+          if [ -z "$(git status --porcelain bun.lock)" ]; then
+            echo "bun.lock unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bun.lock
+          git commit -m 'chore(deps): sync bun.lock (Dependabot doesn'"'"'t update it)'
+          git push

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
@@ -42,7 +45,7 @@
       orders = ord.orders ?? [];
       suppliers = sup.suppliers ?? [];
       budgetLines = bud.budget_lines ?? [];
-    } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
 
@@ -60,8 +63,8 @@
       await api.post('/ext/compliance/ro/procurement/orders', orderForm);
       showOrderModal = false;
       await loadAll();
-      toast.success('Comanda creata.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['compliance.ro.procurement.toast.orderCreated']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
     finally { creating = false; }
   }
 
@@ -73,19 +76,19 @@
       showSupplierModal = false;
       supplierForm = { name: '', cui: '', county: '', category: '', contact_email: '' };
       await loadAll();
-      toast.success('Furnizor inregistrat.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['compliance.ro.procurement.toast.vendorRegistered']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
     finally { creating = false; }
   }
 
   async function approveOrder(id: string) {
     try { await api.post(`/ext/compliance/ro/procurement/orders/${id}/approve`, {}); await loadAll(); }
-    catch (e: any) { toast.error(e?.message ?? 'Error'); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
 
   async function receiveOrder(id: string) {
     try { await api.post(`/ext/compliance/ro/procurement/orders/${id}/receive`, {}); await loadAll(); }
-    catch (e: any) { toast.error(e?.message ?? 'Error'); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
 
   function statusBadge(status: string): string {
@@ -98,28 +101,24 @@
   }
 </script>
 
-<div class="space-y-4">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-xl font-semibold">Achizitii Publice RO</h1>
-      <p class="text-sm text-base-content/50">Comenzi de achizitie, furnizori, executie bugetara</p>
-    </div>
+<ExtensionPageShell title={m['compliance.ro.procurement.title']()} subtitle={m['compliance.ro.procurement.subtitle']()}>
+    {#snippet actions()}
     {#if activeTab === 'orders'}
-      <button class="btn btn-primary btn-sm gap-1" onclick={() => (showOrderModal = true)}><Plus size={14} /> Comanda noua</button>
+      <button class="btn btn-primary btn-sm gap-1" onclick={() => (showOrderModal = true)}><Plus size={14} /> {m['compliance.ro.procurement.btn.newOrder']()}</button>
     {:else if activeTab === 'suppliers'}
-      <button class="btn btn-primary btn-sm gap-1" onclick={() => (showSupplierModal = true)}><Plus size={14} /> Furnizor nou</button>
+      <button class="btn btn-primary btn-sm gap-1" onclick={() => (showSupplierModal = true)}><Plus size={14} /> {m['compliance.ro.procurement.btn.newSupplier']()}</button>
     {/if}
-  </div>
+  {/snippet}
 
   <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab gap-2 {activeTab === 'orders' ? 'tab-active' : ''}" onclick={() => (activeTab = 'orders')}>
-      <Package size={14} /> Comenzi
+      <Package size={14} /> {m['compliance.ro.procurement.tab.orders']()}
     </button>
     <button class="tab gap-2 {activeTab === 'suppliers' ? 'tab-active' : ''}" onclick={() => (activeTab = 'suppliers')}>
-      <Users size={14} /> Furnizori
+      <Users size={14} /> {m['compliance.ro.procurement.tab.suppliers']()}
     </button>
     <button class="tab gap-2 {activeTab === 'budget' ? 'tab-active' : ''}" onclick={() => (activeTab = 'budget')}>
-      <BarChart3 size={14} /> Buget
+      <BarChart3 size={14} /> {m['compliance.ro.procurement.tab.budget']()}
     </button>
   </div>
 
@@ -127,11 +126,11 @@
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if activeTab === 'orders'}
     {#if orders.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">Nu există comenzi de achizitie.</div></div>
+      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{m['compliance.ro.procurement.empty.orders']()}</div></div>
     {:else}
       <div class="overflow-x-auto">
         <table class="table table-sm">
-          <thead><tr><th>Număr</th><th>Data</th><th>Furnizor</th><th>Descriere</th><th>Total</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>{m['compliance.ro.procurement.col.number']()}</th><th>{m['compliance.ro.procurement.col.date']()}</th><th>{m['compliance.ro.procurement.col.supplier']()}</th><th>{m['compliance.ro.procurement.col.description']()}</th><th>{m['common.col.total']()}</th><th>{m['common.col.status']()}</th><th></th></tr></thead>
           <tbody>
             {#each orders as o (o.id)}
               <tr class="hover">
@@ -143,10 +142,10 @@
                 <td><span class="badge badge-sm {statusBadge(o.status)}">{o.status}</span></td>
                 <td>
                   {#if o.status === 'draft'}
-                    <button class="btn btn-ghost btn-xs" onclick={() => approveOrder(o.id)}>Aprobare</button>
+                    <button class="btn btn-ghost btn-xs" onclick={() => approveOrder(o.id)}>{m['compliance.ro.procurement.btn.approve']()}</button>
                   {:else if o.status === 'approved'}
                     <button class="btn btn-ghost btn-xs gap-1" onclick={() => receiveOrder(o.id)}>
-                      <CheckCircle size={12} /> Receptie
+                      <CheckCircle size={12} /> {m['compliance.ro.procurement.col.reception']()}
                     </button>
                   {/if}
                 </td>
@@ -159,7 +158,7 @@
 
   {:else if activeTab === 'suppliers'}
     {#if suppliers.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">Nu există furnizori inregistrati.</div></div>
+      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{m['compliance.ro.procurement.empty.suppliers']()}</div></div>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         {#each suppliers as s (s.id)}
@@ -177,7 +176,7 @@
 
   {:else}
     {#if budgetLines.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">Nu există linii bugetare.</div></div>
+      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{m['compliance.ro.procurement.empty.budget']()}</div></div>
     {:else}
       <div class="space-y-3">
         {#each budgetLines as line (line.id)}
@@ -207,38 +206,38 @@
       </div>
     {/if}
   {/if}
-</div>
+</ExtensionPageShell>
 
 {#if showOrderModal}
   <dialog class="modal modal-open">
     <div class="modal-box w-11/12 max-w-3xl">
-      <h3 class="font-bold text-lg mb-4">Comanda noua de achizitie</h3>
+      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.procurement.ui.comanda_noua_de_achizitie']()}</h3>
       <div class="grid grid-cols-2 gap-3 mb-4">
         <div class="form-control">
-          <label class="label" for="order-number"><span class="label-text">Număr comanda</span></label>
-          <input id="order-number" type="text" bind:value={orderForm.number} placeholder="CA-2026-001" class="input input-sm font-mono" />
+          <label class="label" for="order-number"><span class="label-text">{m['compliance.ro.procurement.ui.num_r_comanda']()}</span></label>
+          <input id="order-number" type="text" bind:value={orderForm.number} placeholder={m['compliance.ro.procurement.ui.ca_2026_001']()} class="input input-sm font-mono" />
         </div>
         <div class="form-control">
-          <label class="label" for="order-date"><span class="label-text">Data</span></label>
+          <label class="label" for="order-date"><span class="label-text">{m['compliance.ro.documents.ui.data']()}</span></label>
           <input id="order-date" type="date" bind:value={orderForm.date} class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label" for="order-supplier"><span class="label-text">Furnizor</span></label>
+          <label class="label" for="order-supplier"><span class="label-text">{m['compliance.ro.procurement.ui.furnizor']()}</span></label>
           <input id="order-supplier" type="text" bind:value={orderForm.supplier_name} class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label" for="order-supplier-cui"><span class="label-text">CUI Furnizor</span></label>
+          <label class="label" for="order-supplier-cui"><span class="label-text">{m['compliance.ro.procurement.ui.cui_furnizor']()}</span></label>
           <input id="order-supplier-cui" type="text" bind:value={orderForm.supplier_cui} class="input input-sm font-mono" />
         </div>
         <div class="form-control col-span-2">
-          <label class="label" for="order-description"><span class="label-text">Descriere obiect achizitie</span></label>
+          <label class="label" for="order-description"><span class="label-text">{m['compliance.ro.procurement.ui.descriere_obiect_achizitie']()}</span></label>
           <input id="order-description" type="text" bind:value={orderForm.description} class="input input-sm" />
         </div>
       </div>
 
       <div class="overflow-x-auto mb-4">
         <table class="table table-xs">
-          <thead><tr><th>Articol</th><th>Cant.</th><th>UM</th><th>Pret unitar</th><th>Total</th></tr></thead>
+          <thead><tr><th>{m['compliance.ro.procurement.col.article']()}</th><th>{m['compliance.ro.procurement.col.qty']()}</th><th>UM</th><th>{m['compliance.ro.procurement.col.unitPrice']()}</th><th>{m['common.col.total']()}</th></tr></thead>
           <tbody>
             {#each orderForm.items as item}
               <tr>
@@ -261,9 +260,9 @@
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showOrderModal = false)}>Anulare</button>
+        <button class="btn btn-ghost" onclick={() => (showOrderModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={createOrder} disabled={creating || !orderForm.number || !orderForm.supplier_name}>
-          {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if} Creare comanda
+          {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}{m['compliance.ro.procurement.btn.createOrderModal']()}
         </button>
       </div>
     </div>
@@ -274,35 +273,35 @@
 {#if showSupplierModal}
   <dialog class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">Furnizor nou</h3>
+      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.procurement.ui.furnizor_nou']()}</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label" for="supplier-name"><span class="label-text">Denumire</span></label>
+          <label class="label" for="supplier-name"><span class="label-text">{m['compliance.ro.documents.ui.denumire']()}</span></label>
           <input id="supplier-name" type="text" bind:value={supplierForm.name} class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label" for="supplier-cui"><span class="label-text">CUI</span></label>
+          <label class="label" for="supplier-cui"><span class="label-text">{m['compliance.ro.documents.ui.cui']()}</span></label>
           <input id="supplier-cui" type="text" bind:value={supplierForm.cui} class="input input-sm font-mono" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label" for="supplier-county"><span class="label-text">Judet</span></label>
+            <label class="label" for="supplier-county"><span class="label-text">{m['compliance.ro.procurement.ui.judet']()}</span></label>
             <input id="supplier-county" type="text" bind:value={supplierForm.county} class="input input-sm" />
           </div>
           <div class="form-control">
-            <label class="label" for="supplier-category"><span class="label-text">Categorie</span></label>
+            <label class="label" for="supplier-category"><span class="label-text">{m['compliance.ro.procurement.ui.categorie']()}</span></label>
             <input id="supplier-category" type="text" bind:value={supplierForm.category} class="input input-sm" />
           </div>
         </div>
         <div class="form-control">
-          <label class="label" for="supplier-email"><span class="label-text">Email contact</span></label>
+          <label class="label" for="supplier-email"><span class="label-text">{m['compliance.ro.procurement.ui.email_contact']()}</span></label>
           <input id="supplier-email" type="email" bind:value={supplierForm.contact_email} class="input input-sm" />
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showSupplierModal = false)}>Anulare</button>
+        <button class="btn btn-ghost" onclick={() => (showSupplierModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={createSupplier} disabled={creating || !supplierForm.name || !supplierForm.cui}>
-          {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if} Inregistrare
+          {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}{m['compliance.ro.procurement.btn.recordReception']()}
         </button>
       </div>
     </div>

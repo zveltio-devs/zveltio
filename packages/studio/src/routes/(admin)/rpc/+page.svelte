@@ -101,11 +101,9 @@
 </script>
 
 <PageHeader title="RPC Functions" subtitle="Whitelist PostgreSQL functions callable via POST /api/rpc/:function.">
-  {#snippet children()}
     <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
       <Plus class="h-4 w-4" /> Register Function
     </button>
-  {/snippet}
 </PageHeader>
 
 <!-- Info banner: DaisyUI alert adapts to light/dark themes. -->

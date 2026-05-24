@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+    import { onMount } from 'svelte';
   import { Download, Plus, X } from '@lucide/svelte';
   import { api as zApi } from '$lib/api.js';
   import { ENGINE_URL } from '$lib/config.js';
@@ -48,48 +51,69 @@
   }
 </script>
 
-<div class="p-6 space-y-4">
-  <header class="flex items-center justify-between">
-    <h1 class="text-2xl font-semibold flex items-center gap-2"><Download class="h-6 w-6" /> Data Export</h1>
-    <button class="btn btn-primary btn-sm gap-2" onclick={() => (showForm = true)}><Plus class="h-4 w-4" /> New export</button>
-  </header>
-  {#if error}<div class="alert alert-error">{error}</div>{/if}
+<ExtensionPageShell title={m['data.export.title']()} subtitle={m['data.export.subtitle']()}>
+{#if error}<div class="alert alert-error">{error}</div>{/if}
 
   <div class="overflow-x-auto bg-base-100 rounded-lg shadow">
     <table class="table table-sm">
-      <thead><tr><th>Time</th><th>Collection</th><th>Format</th><th>Rows</th><th>Size</th><th>User</th></tr></thead>
+      <thead><tr><th>{m['data.export.col.time']()}</th><th>{m['common.col.collection']()}</th><th>{m['data.export.col.format']()}</th><th>{m['data.export.col.rows']()}</th><th>{m['data.export.col.size']()}</th><th>{m['data.export.col.user']()}</th></tr></thead>
       <tbody>
-        {#if jobs.length === 0}<tr><td colspan="6" class="text-center py-6 text-base-content/60">No exports recorded.</td></tr>
+        {#if jobs.length === 0}<tr><td colspan="6" class="text-center py-6 text-base-content/60">{m['data.export.ui.no_exports_recorded']()}</td></tr>
         {:else}{#each jobs as j (j.id)}
           <tr><td>{j.created_at?.slice(0, 16).replace('T', ' ')}</td><td>{j.collection}</td><td><span class="badge badge-ghost badge-sm">{j.format}</span></td><td>{j.row_count?.toLocaleString() ?? '—'}</td><td>{fmtBytes(Number(j.size_bytes ?? 0))}</td><td>{j.user_id}</td></tr>
         {/each}{/if}
       </tbody>
     </table>
   </div>
-</div>
+</ExtensionPageShell>
 
 {#if showForm}
   <div class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showForm = false)}>
     <div class="bg-base-100 rounded-xl p-6 w-full max-w-md">
-      <div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Export collection</h2><button class="btn btn-ghost btn-sm btn-square" onclick={() => (showForm = false)}><X class="h-4 w-4" /></button></div>
+      <div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">{m['data.export.ui.export_collection']()}</h2><button class="btn btn-ghost btn-sm btn-square" onclick={() => (showForm = false)}><X class="h-4 w-4" /></button></div>
       <div class="space-y-3">
         <div>
-          <label class="label label-text">Collection</label>
+          <label class="label label-text">{m['data.export.col.collection']()}</label>
           <select class="select select-bordered w-full" bind:value={form.collection}>
-            <option value="">— Select —</option>
+            <option value="">{m['data.export.ui.select']()}</option>
             {#each collections as c (c.name)}<option value={c.name}>{c.display_name ?? c.name}</option>{/each}
           </select>
         </div>
         <div>
-          <label class="label label-text">Format</label>
+          <label class="label label-text">{m['data.export.col.format']()}</label>
           <select class="select select-bordered w-full" bind:value={form.format}>
-            <option value="csv">CSV</option><option value="json">JSON</option><option value="ndjson">NDJSON</option><option value="xlsx">Excel (xlsx)</option>
+            <option value="csv">CSV</option><option value="json">JSON</option><option value="ndjson">NDJSON</option><option value="xlsx">{m['data.export.ui.excel_xlsx']()}</option>
           </select>
         </div>
-        <div><label class="label label-text">Filter (Zveltio query, optional)</label><input class="input input-bordered w-full font-mono text-xs" bind:value={form.filter} placeholder='status=active' /></div>
+        <div><label class="label label-text">{m['data.export.filterHint']()}</label><input class="input input-bordered w-full font-mono text-xs" bind:value={form.filter} placeholder='status=active' /></div>
         <div><label class="label label-text">Row limit (0 = all)</label><input type="number" class="input input-bordered w-full" bind:value={form.limit} /></div>
       </div>
-      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick={() => (showForm = false)}>Cancel</button><button class="btn btn-primary gap-2" disabled={!form.collection} onclick={startExport}><Download class="h-4 w-4" /> Download</button></div>
+      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick={() => (showForm = false)}>{m['common.cancel']()}</button><button class="btn btn-primary gap-2" disabled={!form.collection} onclick={startExport}><Download class="h-4 w-4" /> {m['data.export.btn.download']()}</button></div>
+    </div>
+  </div>
+{/if}
+{#if showForm}
+  <div class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showForm = false)}>
+    <div class="bg-base-100 rounded-xl p-6 w-full max-w-md">
+      <div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">{m['data.export.ui.export_collection']()}</h2><button class="btn btn-ghost btn-sm btn-square" onclick={() => (showForm = false)}><X class="h-4 w-4" /></button></div>
+      <div class="space-y-3">
+        <div>
+          <label class="label label-text">{m['data.export.col.collection']()}</label>
+          <select class="select select-bordered w-full" bind:value={form.collection}>
+            <option value="">{m['data.export.ui.select']()}</option>
+            {#each collections as c (c.name)}<option value={c.name}>{c.display_name ?? c.name}</option>{/each}
+          </select>
+        </div>
+        <div>
+          <label class="label label-text">{m['data.export.col.format']()}</label>
+          <select class="select select-bordered w-full" bind:value={form.format}>
+            <option value="csv">CSV</option><option value="json">JSON</option><option value="ndjson">NDJSON</option><option value="xlsx">{m['data.export.ui.excel_xlsx']()}</option>
+          </select>
+        </div>
+        <div><label class="label label-text">{m['data.export.filterHint']()}</label><input class="input input-bordered w-full font-mono text-xs" bind:value={form.filter} placeholder='status=active' /></div>
+        <div><label class="label label-text">Row limit (0 = all)</label><input type="number" class="input input-bordered w-full" bind:value={form.limit} /></div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick={() => (showForm = false)}>{m['common.cancel']()}</button><button class="btn btn-primary gap-2" disabled={!form.collection} onclick={startExport}><Download class="h-4 w-4" /> {m['data.export.btn.download']()}</button></div>
     </div>
   </div>
 {/if}
