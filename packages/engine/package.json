@@ -28,8 +28,8 @@
     "@better-auth/passkey": "^1.6.11",
     "@hono/zod-validator": "^0.7.6",
     "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.52.0",
-    "@opentelemetry/sdk-node": "^0.52.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/sdk-node": "^0.218.0",
     "@types/pg": "^8.11.0",
     "aws4fetch": "^1.0.20",
     "better-auth": "1.6.11",
@@ -44,7 +44,7 @@
     "pg": "^8.11.0",
     "pg-boss": "^12.18.2",
     "reflect-metadata": "^0.2.2",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@zveltio/sdk": "workspace:*",
