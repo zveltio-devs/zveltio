@@ -217,6 +217,121 @@ rows get `tenant_id = NULL`, and the policy treats NULL as "not equal"
 warning with the orphan count + UPDATE statement. Operators must
 backfill BEFORE the table is considered multi-tenant-safe.
 
+### Per-extension tenant isolation status
+
+Tenant isolation is rolling out per extension (see [AUDIT-2026-05-24.md
+§6.1](AUDIT-2026-05-24.md#61-systemic-multi-tenant-gap-in-extensions-other-than-ai)
+for the full backlog). An extension is "tenant-safe" when ALL of the
+following are true:
+
+  1. Every table has a `tenant_id UUID` column with
+     `DEFAULT NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid`.
+  2. ENABLE + FORCE ROW LEVEL SECURITY on each table.
+  3. A `tenant_isolation_<table>` policy that compares `tenant_id` to
+     the GUC (with the NULL-or-match arm for single-tenant fallback).
+  4. Every route in the extension's `engine/routes.ts` resolves DB
+     access via `reqDb(c)` (returns `c.get('tenantTrx') ?? db`) — not
+     the bare `db` parameter.
+
+| Extension | Status | Migration |
+|---|---|---|
+| `ai` | ✅ tenant-safe | `001_initial.sql` (folded `009_embeddings_tenant_isolation.sql`) |
+| `crm` | ✅ tenant-safe | `002_tenant_rls.sql` |
+| `finance/invoicing` | ✅ tenant-safe | `002_tenant_rls.sql` |
+| `hr/payroll` | ✅ tenant-safe | `002_tenant_rls.sql` |
+| `compliance/ro/efactura` | ✅ tenant-safe | `002_tenant_rls.sql` |
+| All other extensions | ⏳ pending — see §6.1 backlog | — |
+
+Operators running in multi-tenant mode must NOT enable an extension
+marked "pending" against shared production data. Single-tenant
+deployments (no `tenantMiddleware`, no `X-Tenant-Slug` header) are
+unaffected — the policy's NULL-or-match arm passes when the GUC is
+empty.
+
+---
+
+## RBAC (per-extension authorization)
+
+Three layers, applied in order, each one strictly stronger than the
+last. Operators turn the knob that matches their threat model.
+
+### 1. Authentication guard
+
+Every extension's `app.use('*', async (c, next) => …)` first calls
+`auth.api.getSession({ headers })`. No session → 401, no further
+checks run. This is the minimum bar; bare auth without any role check
+is what the platform shipped with through alpha.66 and is what every
+extension had at the start of pass 6.
+
+### 2. `permissionGate(ctx, '<resource>')`
+
+The SDK's `permissionGate` middleware (declared in
+[`packages/sdk/src/extension/permission-gate.ts`](../packages/sdk/src/extension/permission-gate.ts))
+is layered AFTER the auth guard and gates the entire extension on a
+single Casbin resource string. HTTP method → action mapping is
+standard CRUD (`GET → read`, `POST → create`, `PATCH/PUT → update`,
+`DELETE → delete`). OPTIONS preflight bypasses (browsers send no
+credentials on preflight).
+
+Currently applied to (added in pass 6 + PR #3):
+
+  - `crm`, `hr/{employees,leave,payroll,time-tracking}`,
+    `finance/{accounting,banking,expenses,invoicing,quotes,subscriptions}`,
+    `operations/{assets,inventory,pos}`, `projects/{helpdesk,management}`,
+    `content/media`, `integrations/api-connector`,
+    `workflow/checklists`, `data/{import,export}`,
+    `compliance/ro/{documents,efactura,etransport,procurement,saft}`,
+    `ecommerce/store` (admin namespace only — public storefront stays open).
+
+NOT applied to (intentional — finer-grained protection in place):
+
+| Extension | Why no broad gate |
+|---|---|
+| `ai` | Each `/embed` and `/search` route does `checkPermission(user.id, body.collection, 'read'/'update')` — finer than a single resource gate. AI touches arbitrary user collections, so per-collection authorization is the correct shape. |
+| `developer/graphql` | Per-resolver RBAC (~21 inline checkPermission calls). Mirrors AI's per-collection pattern at the resolver level. |
+| `geospatial/postgis` | Per-collection `checkPermission(userId, 'data:${shortName}', 'read')` for each PostGIS-backed collection. |
+| `content/{drafts,documents}`, `workflow/approvals`, `developer/{api-docs,validation}`, `analytics/quality` | Rich per-route checkPermission already in place (8-13 calls per file). |
+| `auth/{ldap,saml}` | Routes are IdP callbacks; the caller is not an end user with a session. |
+| `developer/edge-functions` | Engine-level admin gate on `/api/edge-functions` already covers it. |
+| `compliance/gdpr`, `billing`, `developer/{byod,database}`, `content/document-templates`, `forms`, `search` | Admin-only via inline `checkPermission(user.id, 'admin', '*')` or a `requireAdmin` helper. Adding `permissionGate` on top would only allow operators to grant access to non-admin roles via Casbin — useful but not security-critical; deferred. |
+| `communications/mail` | Mailbox routes are identity-scoped (operate on the calling user's own mailbox). Broad resource gate would change semantics. |
+| `content/page-builder`, `i18n/translations`, `sms`, `storage/cloud` | Per-handler or prefix-scoped guards that would require surgical insertion, not a single `app.use`. Deferred to a structural follow-up. |
+
+### 3. Casbin `g` row (user → role mapping)
+
+`permissionGate` and inline `checkPermission` both delegate to
+Casbin's enforcer with the matcher:
+
+```
+g(r.sub, p.sub) && (r.obj == p.obj || p.obj == '*') && (r.act == p.act || p.act == '*')
+```
+
+For a user to match a `p` policy row (e.g. `('p', 'employee', 'crm', 'read')`),
+they must FIRST be mapped to that role via a `g` row:
+
+```sql
+INSERT INTO zvd_permissions (ptype, v0, v1, v2)
+VALUES ('g', '<user-id>', 'employee', NULL);
+```
+
+Migration `077_extension_rbac_defaults.sql` (now folded into the
+engine's `001_initial.sql`) seeds `p` rows for the built-in
+`employee` and `manager` roles but does NOT map any users to those
+roles. **The seed rows have NO effect until operators issue at least
+one `g` row.** The Studio Roles UI exposes this mapping. The god role
+bypasses all checks (no `g` row needed).
+
+This is the most common operator-side misconfiguration: gate is
+strict, policies are seeded, but every non-god user gets 403 because
+no `g` rows exist. Surface this in the operator-onboarding flow.
+
+### Mode knob: `EXTENSION_RBAC=strict|permissive`
+
+`strict` (default) — gate denies if no policy matches.
+`permissive` — gate becomes audit-mode: it logs every `WOULD DENY`
+attempt but lets the request through. Use ONLY during a backfill
+pass; flip back to `strict` for production.
+
 ---
 
 ## Retention
