@@ -1,8 +1,15 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { Plus, X, LoaderCircle, FileText, Send, Check, RotateCcw, Trash2, ExternalLink } from '@lucide/svelte';
+
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   type Quote = {
     id: string; quote_number: string; client_name: string; client_email: string | null;
@@ -30,7 +37,7 @@
       const r = await api.get<{ data: Quote[] }>('/ext/finance/quotes');
       quotes = r.data ?? [];
     } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to load quotes');
+      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
     } finally {
       loading = false;
     }
@@ -50,9 +57,9 @@
       const r = await api.post<{ data: Quote }>('/ext/finance/quotes', form);
       quotes = [r.data, ...quotes];
       showModal = false;
-      toast.success('Quote created.');
+      toast.success(m['finance.quotes.toast.created']());
     } catch (e: any) {
-      toast.error(e?.message ?? 'Error');
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
     } finally {
       saving = false;
     }
@@ -63,27 +70,30 @@
     try {
       await api.post(`/ext/finance/quotes/${id}/${action}`, {});
       await load();
-      toast.success(`Quote ${action.replace('-', ' ')}.`);
+      toast.success(m['ext.saved']());
     } catch (e: any) {
-      toast.error(e?.message ?? 'Error');
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
     } finally {
       actionId = null;
     }
   }
 
   async function deleteQuote(id: string) {
-    if (!confirm('Delete this quote?')) return;
+        askConfirm(m['finance.quotes.deleteConfirm'](), () => deleteQuoteConfirmed(id));
+  }
+  async function deleteQuoteConfirmed(id: string) {
     actionId = id;
     try {
       await api.delete(`/ext/finance/quotes/${id}`);
       quotes = quotes.filter(q => q.id !== id);
-      toast.success('Deleted.');
+      toast.success(m['ext.deleted']());
     } catch (e: any) {
-      toast.error(e?.message ?? 'Error');
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
     } finally {
       actionId = null;
     }
   }
+
 
   const statusColor: Record<string, string> = {
     draft: 'badge-ghost', sent: 'badge-info', accepted: 'badge-success',
@@ -91,16 +101,12 @@
   };
 </script>
 
-<div class="space-y-4">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-xl font-semibold">Quotes & Proposals</h1>
-      <p class="text-sm text-base-content/50">Manage client quotes and proposals</p>
-    </div>
+<ExtensionPageShell title={m['finance.quotes.title']()} subtitle={m['finance.quotes.subtitle']()}>
+  {#snippet actions()}
     <button class="btn btn-primary btn-sm gap-1" onclick={() => (showModal = true)}>
-      <Plus size={14} /> New Quote
+      <Plus size={14} /> {m['finance.quotes.btn.new']()}
     </button>
-  </div>
+  {/snippet}
 
   {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
@@ -108,14 +114,14 @@
     <div class="card bg-base-200">
       <div class="card-body items-center py-16 gap-3">
         <FileText size={36} class="text-base-content/20" />
-        <p class="text-sm text-base-content/50">No quotes yet. Create your first quote.</p>
+        <p class="text-sm text-base-content/50">{m['finance.quotes.empty']()}</p>
       </div>
     </div>
   {:else}
     <div class="overflow-x-auto">
       <table class="table table-sm">
         <thead>
-          <tr><th>Number</th><th>Client</th><th>Total</th><th>Status</th><th>Valid Until</th><th>Created</th><th>Actions</th></tr>
+          <tr><th>{m['common.col.number']()}</th><th>{m['common.col.client']()}</th><th>{m['common.col.total']()}</th><th>{m['common.col.status']()}</th><th>{m['common.col.validUntil']()}</th><th>{m['common.col.created']()}</th><th>{m['common.actions']()}</th></tr>
         </thead>
         <tbody>
           {#each quotes as q (q.id)}
@@ -132,18 +138,18 @@
               <td>
                 <div class="flex items-center gap-1">
                   {#if q.status === 'draft'}
-                    <button class="btn btn-xs btn-ghost gap-1" title="Send" disabled={actionId === q.id}
+                    <button class="btn btn-xs btn-ghost gap-1" title={m['finance.quotes.btn.send']()} disabled={actionId === q.id}
                       onclick={() => doAction(q.id, 'send')}>
                       <Send size={11} />
                     </button>
                   {/if}
                   {#if q.status === 'sent'}
-                    <button class="btn btn-xs btn-success btn-ghost gap-1" title="Mark accepted" disabled={actionId === q.id}
+                    <button class="btn btn-xs btn-success btn-ghost gap-1" title={m['finance.quotes.btn.accept']()} disabled={actionId === q.id}
                       onclick={() => doAction(q.id, 'accept')}>
                       <Check size={11} />
                     </button>
                   {/if}
-                  <button class="btn btn-xs btn-ghost text-error" title="Delete" disabled={actionId === q.id}
+                  <button class="btn btn-xs btn-ghost text-error" title={m['common.delete']()} disabled={actionId === q.id}
                     onclick={() => deleteQuote(q.id)}>
                     {#if actionId === q.id}<LoaderCircle size={11} class="animate-spin" />{:else}<Trash2 size={11} />{/if}
                   </button>
@@ -155,65 +161,76 @@
       </table>
     </div>
   {/if}
-</div>
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel}
+  confirmClass={confirmState.confirmClass}
+  onconfirm={runConfirmAction}
+  oncancel={cancelConfirm}
+/>
+
+</ExtensionPageShell>
 
 <!-- Create Modal -->
 {#if showModal}
   <div class="modal modal-open">
     <div class="modal-box max-w-2xl">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold">New Quote</h3>
+        <h3 class="font-semibold">{m['quotes.new']()}</h3>
         <button class="btn btn-ghost btn-xs" onclick={() => (showModal = false)}><X size={14} /></button>
       </div>
 
       <div class="space-y-4">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control col-span-2 sm:col-span-1">
-            <label class="label py-0"><span class="label-text text-xs">Client Name *</span></label>
+            <label class="label py-0"><span class="label-text text-xs">{m['finance.quotes.ui.client_name']()}</span></label>
             <input class="input input-sm" bind:value={form.client_name} />
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Client Email</span></label>
+            <label class="label py-0"><span class="label-text text-xs">{m['finance.quotes.ui.client_email']()}</span></label>
             <input class="input input-sm" type="email" bind:value={form.client_email} />
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Currency</span></label>
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.form.currency']()}</span></label>
             <select class="select select-sm" bind:value={form.currency}>
               <option>RON</option><option>EUR</option><option>USD</option>
             </select>
           </div>
           <div class="form-control">
-            <label class="label py-0"><span class="label-text text-xs">Valid Days</span></label>
+            <label class="label py-0"><span class="label-text text-xs">{m['finance.quotes.ui.valid_days']()}</span></label>
             <input class="input input-sm" type="number" bind:value={form.valid_days} />
           </div>
         </div>
 
         <div>
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-medium text-base-content/70">Lines</span>
-            <button class="btn btn-xs btn-ghost gap-1" onclick={addLine}><Plus size={11} /> Add line</button>
+            <span class="text-xs font-medium text-base-content/70">{m['finance.quotes.section.lines']()}</span>
+            <button class="btn btn-xs btn-ghost gap-1" onclick={addLine}><Plus size={11} /> {m['finance.quotes.btn.addLine']()}</button>
           </div>
           <div class="space-y-2">
             {#each form.lines as line, i (i)}
               <div class="grid grid-cols-12 gap-1.5 items-end">
                 <div class="col-span-5 form-control">
-                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">Description</span></label>{/if}
-                  <input class="input input-xs" placeholder="Service or product" bind:value={line.description} />
+                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label>{/if}
+                  <input class="input input-xs" placeholder={m['finance.quotes.ui.service_or_product']()} bind:value={line.description} />
                 </div>
                 <div class="col-span-1 form-control">
-                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">Qty</span></label>{/if}
+                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">{m['invoicing.form.qty']()}</span></label>{/if}
                   <input class="input input-xs" type="number" bind:value={line.quantity} />
                 </div>
                 <div class="col-span-2 form-control">
-                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">Unit Price</span></label>{/if}
+                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">{m['finance.quotes.ui.unit_price']()}</span></label>{/if}
                   <input class="input input-xs" type="number" bind:value={line.unit_price} />
                 </div>
                 <div class="col-span-2 form-control">
-                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">Tax %</span></label>{/if}
+                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">{m['invoicing.form.taxPercent']()}</span></label>{/if}
                   <input class="input input-xs" type="number" bind:value={line.tax_rate} />
                 </div>
                 <div class="col-span-1 form-control">
-                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">Disc %</span></label>{/if}
+                  {#if i === 0}<label class="label py-0"><span class="label-text text-xs">{m['finance.quotes.ui.disc']()}</span></label>{/if}
                   <input class="input input-xs" type="number" bind:value={line.discount} />
                 </div>
                 <div class="col-span-1 flex items-end pb-0.5">
@@ -227,15 +244,15 @@
         </div>
 
         <div class="form-control">
-          <label class="label py-0"><span class="label-text text-xs">Notes</span></label>
+          <label class="label py-0"><span class="label-text text-xs">{m['common.col.notes']()}</span></label>
           <textarea class="textarea textarea-sm" rows={2} bind:value={form.notes}></textarea>
         </div>
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>Cancel</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary btn-sm gap-1" onclick={create} disabled={!form.client_name.trim() || saving}>
-          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} Create Quote
+          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['finance.quotes.btn.create']()}
         </button>
       </div>
     </div>

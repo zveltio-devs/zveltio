@@ -1,5 +1,11 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { api } from '$lib/api.js';
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+
   const API = '/ext/operations/traceability';
 
   type Tab = 'simulate' | 'active';
@@ -50,7 +56,9 @@
 
   async function initiateRecall(e: Event) {
     e.preventDefault();
-    if (!confirm(`Confirmați declanșarea unui recall REAL (${initiateForm.scope})?`)) return;
+        askConfirm(m['operations.traceability.recalls.confirm']({ scope: initiateForm.scope }), () => initiateRecallConfirmed(e));
+  }
+  async function initiateRecallConfirmed(e: Event) {
     initiating = true;
     simError = '';
     try {
@@ -69,6 +77,7 @@
       initiating = false;
     }
   }
+
 
   async function resolveRecall(e: Event) {
     e.preventDefault();
@@ -92,9 +101,8 @@
   }
 </script>
 
-<div class="p-6 space-y-4">
-  <h1 class="text-2xl font-bold">Recall / Retragere produs</h1>
-
+<ExtensionPageShell title={m['operations.traceability.recalls.title']()}>
+  <div class="p-6 space-y-4 pt-0">
   <div class="tabs tabs-bordered">
     <button class="tab {activeTab === 'simulate' ? 'tab-active' : ''}" onclick={() => activeTab = 'simulate'}>
       Simulator recall
@@ -107,12 +115,12 @@
   {#if activeTab === 'simulate'}
     <div class="max-w-xl space-y-4">
       <div class="card bg-base-200 p-4">
-        <h3 class="font-semibold mb-3">Pasul 1 — Identificați lotul suspect</h3>
+        <h3 class="font-semibold mb-3">{m['operations.traceability.ui.pasul_1_identifica_i_lotul_suspect']()}</h3>
         <div class="flex gap-2">
           <input
             type="text"
             class="input input-bordered flex-1"
-            placeholder="UUID lot sau scanați QR-ul..."
+            placeholder={m['operations.traceability.ui.uuid_lot_sau_scana_i_qr_ul']()}
             bind:value={lotId}
           />
           <button class="btn btn-primary" onclick={simulate} disabled={simulating || !lotId.trim()}>
@@ -134,15 +142,15 @@
             <div class="mt-2 grid grid-cols-3 gap-4 text-center">
               <div>
                 <div class="text-3xl font-bold">{simulation.total_lots_affected}</div>
-                <div class="text-sm">Loturi afectate</div>
+                <div class="text-sm">{m['operations.traceability.recalls.affectedLots']()}</div>
               </div>
               <div>
                 <div class="text-3xl font-bold">{simulation.total_customers_affected}</div>
-                <div class="text-sm">Clienți afectați</div>
+                <div class="text-sm">{m['operations.traceability.recalls.affectedClients']()}</div>
               </div>
               <div>
                 <div class="text-3xl font-bold">{simulation.affected_customers.length}</div>
-                <div class="text-sm">Livrări afectate</div>
+                <div class="text-sm">{m['operations.traceability.recalls.affectedDeliveries']()}</div>
               </div>
             </div>
           </div>
@@ -150,7 +158,7 @@
 
         {#if simulation.affected_lots.length > 0}
           <div class="card bg-base-200 p-4">
-            <h4 class="font-semibold mb-2">Loturi finite afectate</h4>
+            <h4 class="font-semibold mb-2">{m['operations.traceability.recalls.finishedLots']()}</h4>
             <div class="space-y-1">
               {#each simulation.affected_lots as lot}
                 <div class="text-sm flex justify-between py-1 border-b border-base-300">
@@ -165,24 +173,24 @@
         {/if}
 
         <div class="card bg-base-200 p-4">
-          <h3 class="font-bold text-error mb-3">⚠ Pasul 2 — Declanșare recall REAL</h3>
-          <p class="text-sm mb-3 opacity-70">Aceasta va marca toate loturile afectate ca "recalled" și va crea un dosar oficial.</p>
+          <h3 class="font-bold text-error mb-3">{m['operations.traceability.ui.pasul_2_declan_are_recall_real']()}</h3>
+          <p class="text-sm mb-3 opacity-70">{m['operations.traceability.recalls.warning']()}</p>
           <form onsubmit={initiateRecall} class="space-y-3">
             <div>
-              <label class="label-text font-medium">Motiv recall *</label>
+              <label class="label-text font-medium">{m['operations.traceability.recalls.reason']()}</label>
               <textarea class="textarea textarea-bordered w-full" rows="2"
-                placeholder="Descrieți motivul retragerii (min 10 caractere)..."
+                placeholder={m['operations.traceability.ui.descrie_i_motivul_retragerii_min_10_caractere']()}
                 bind:value={initiateForm.reason}
                 required
                 minlength={10}
               ></textarea>
             </div>
             <div>
-              <label class="label-text font-medium">Tip recall</label>
+              <label class="label-text font-medium">{m['operations.traceability.recalls.type']()}</label>
               <select class="select select-bordered w-full" bind:value={initiateForm.scope}>
-                <option value="internal">Internal (fără distribuție externă)</option>
-                <option value="market_withdrawal">Retragere de pe piață</option>
-                <option value="consumer_recall">Recall consumatori</option>
+                <option value="internal">{m['operations.traceability.ui.internal_f_r_distribu_ie_extern']()}</option>
+                <option value="market_withdrawal">{m['operations.traceability.ui.retragere_de_pe_pia']()}</option>
+                <option value="consumer_recall">{m['operations.traceability.ui.recall_consumatori']()}</option>
               </select>
             </div>
             <button type="submit" class="btn btn-error w-full" disabled={initiating || !initiateForm.reason.trim()}>
@@ -204,7 +212,7 @@
     {#if loadingRecalls}
       <div class="flex justify-center py-8"><span class="loading loading-spinner"></span></div>
     {:else if recalls.length === 0}
-      <div class="text-center opacity-50 py-12">Niciun recall activ</div>
+      <div class="text-center opacity-50 py-12">{m['operations.traceability.recalls.noneActive']()}</div>
     {:else}
       <div class="space-y-3">
         {#each recalls as recall}
@@ -223,9 +231,9 @@
 
             {#if resolveForm.recallId === recall.id}
               <form onsubmit={resolveRecall} class="mt-3 flex gap-2">
-                <input type="text" class="input input-bordered input-sm flex-1" placeholder="Note rezolvare (min 5 caractere)..." bind:value={resolveForm.resolution_notes} required minlength={5} />
-                <button type="submit" class="btn btn-sm btn-success" disabled={resolving}>Confirmă</button>
-                <button type="button" class="btn btn-sm btn-ghost" onclick={() => resolveForm = { recallId: '', resolution_notes: '' }}>Anulează</button>
+                <input type="text" class="input input-bordered input-sm flex-1" placeholder={m['operations.traceability.ui.note_rezolvare_min_5_caractere']()} bind:value={resolveForm.resolution_notes} required minlength={5} />
+                <button type="submit" class="btn btn-sm btn-success" disabled={resolving}>{m['operations.traceability.ui.confirm']()}</button>
+                <button type="button" class="btn btn-sm btn-ghost" onclick={() => resolveForm = { recallId: '', resolution_notes: '' }}>{m['common.cancel']()}</button>
               </form>
             {/if}
           </div>
@@ -233,4 +241,16 @@
       </div>
     {/if}
   {/if}
-</div>
+  </div>
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel}
+  confirmClass={confirmState.confirmClass}
+  onconfirm={runConfirmAction}
+  oncancel={cancelConfirm}
+/>
+
+</ExtensionPageShell>
