@@ -146,7 +146,6 @@
   {#snippet actions()}
     <button class="btn btn-primary btn-sm" onclick={() => (showNewForm = true)}>{m['operations.traceability.production.newOrder']()}</button>
   {/snippet}
-  {#snippet children()}
   <div class="p-6 space-y-4 pt-0">
 {#if error}
     <div class="alert alert-error">{error}</div>
@@ -307,5 +306,4 @@
     {/if}
   </div>
   </div>
-  {/snippet}
 </ExtensionPageShell>

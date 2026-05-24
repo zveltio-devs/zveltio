@@ -91,7 +91,6 @@ let rules = $state<any[]>([]);
   {#snippet actions()}
     <button class="btn btn-primary btn-sm gap-1" onclick={() => (showForm = true)}><Plus size={14} /> {m['developer.validation.newRule']()}</button>
   {/snippet}
-  {#snippet children()}
   <div class="space-y-4">
   <div class="flex gap-3">
     <select class="select select-sm" bind:value={selectedCollection}>
@@ -116,7 +115,6 @@ let rules = $state<any[]>([]);
     </div>
   {/if}
   </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

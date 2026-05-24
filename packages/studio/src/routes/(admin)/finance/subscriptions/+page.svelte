@@ -57,7 +57,6 @@
     {/if}
   {/snippet}
 
-  {#snippet children()}
   <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'subscribers' ? 'tab-active' : ''}" onclick={() => (tab = 'subscribers')}>{m['finance.subscriptions.tab.subscribers']()}</button>
     <button class="tab {tab === 'plans' ? 'tab-active' : ''}" onclick={() => (tab = 'plans')}>{m['finance.subscriptions.tab.plans']()}</button>
@@ -105,7 +104,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showPlanForm}

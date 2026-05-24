@@ -58,7 +58,6 @@
 </script>
 
 <ExtensionPageShell title={m['auth.ldap.title']()} subtitle={m['auth.ldap.subtitle']()}>
-  {#snippet children()}
     <div class="max-w-2xl space-y-6">
 {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
@@ -136,5 +135,4 @@
     </div>
   {/if}
     </div>
-  {/snippet}
 </ExtensionPageShell>

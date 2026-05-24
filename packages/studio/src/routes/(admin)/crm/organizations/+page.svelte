@@ -87,7 +87,6 @@
   {#snippet actions()}
     <button class="btn btn-primary" onclick={openCreate}>{m['crm.ui.new_organization']()}</button>
   {/snippet}
-  {#snippet children()}
     <div class="space-y-6">
       <input
         type="search"
@@ -144,7 +143,6 @@
         </div>
       {/if}
     </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

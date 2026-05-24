@@ -121,7 +121,6 @@
 </script>
 
 <ExtensionPageShell title={m['hr.time-tracking.title']()} subtitle={m['hr.time-tracking.subtitle']()}>
-  {#snippet children()}
 <div class="flex gap-2">
       {#if timer}
         <button type="button" class="btn btn-error btn-sm gap-1" onclick={stopTimer} disabled={saving}>
@@ -136,7 +135,6 @@
         <Plus size={14} /> {m['hr.time-tracking.ui.newProjectBtn']()}
       </button>
     </div>
-  </div>
 
 {#if timer}
     <div class="alert alert-info">
@@ -209,7 +207,6 @@
       </div>
     {/if}
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

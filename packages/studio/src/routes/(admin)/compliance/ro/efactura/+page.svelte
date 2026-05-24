@@ -142,7 +142,6 @@ function invoiceStatusLabel(s: string): string {
     </button>
   {/snippet}
 
-  {#snippet children()}
   <div class="tabs tabs-boxed bg-base-200 w-fit">
     {#each ['all', 'draft', 'xml_generated', 'submitted', 'accepted', 'rejected'] as s}
       <button class="tab {filter === s ? 'tab-active' : ''}" onclick={() => (filter = s)}>
@@ -200,7 +199,6 @@ function invoiceStatusLabel(s: string): string {
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

@@ -53,7 +53,6 @@
 </script>
 
 <ExtensionPageShell title={m['analytics.quality.title']()} subtitle={m['analytics.quality.subtitle']()}>
-  {#snippet children()}
 {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else}
@@ -123,5 +122,4 @@
       </div>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>

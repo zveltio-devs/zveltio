@@ -52,7 +52,6 @@
 </script>
 
 <ExtensionPageShell title={m['developer.graphql.title']()} subtitle={m['developer.graphql.subtitle']()}>
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'playground' ? 'tab-active' : ''}" onclick={() => (tab = 'playground')}><Play size={13} class="mr-1.5" /> {m['developer.graphql.tab.playground']()}</button>
     <button class="tab {tab === 'logs' ? 'tab-active' : ''}" onclick={() => (tab = 'logs')}>{m['developer.graphql.tab.logs']()}</button>
@@ -115,5 +114,4 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>

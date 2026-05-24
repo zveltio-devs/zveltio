@@ -101,7 +101,6 @@
       type="button"
       onclick={onToggleCollapse}
       class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content shrink-0 {collapsed ? 'mx-auto' : ''}"
-      type="button"
       aria-label={collapsed ? m['shell.expandSidebar']() : m['shell.collapseSidebar']()}
       title={collapsed ? m['shell.expandSidebar']() : m['shell.collapseSidebar']()}
     >

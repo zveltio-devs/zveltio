@@ -53,7 +53,6 @@
 </script>
 
 <ExtensionPageShell title={m['billing.title']()} subtitle={m['billing.subtitle']()}>
-  {#snippet children()}
     <div class="space-y-4">
       <div class="tabs tabs-boxed bg-base-200 w-fit">
         <button class="tab {tab === 'billing' ? 'tab-active' : ''}" onclick={() => (tab = 'billing')}>
@@ -142,5 +141,4 @@
         </div>
       {/if}
     </div>
-  {/snippet}
 </ExtensionPageShell>

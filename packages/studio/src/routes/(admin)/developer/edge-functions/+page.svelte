@@ -106,7 +106,6 @@ export default async function handler(ctx) {
 </script>
 
 <ExtensionPageShell title={m['developer.edge-functions.shell.title']()} subtitle={m['developer.edge-functions.shell.subtitle']()}>
-  {#snippet children()}
 <div class="flex h-[calc(100vh-12rem)] gap-0 border border-base-300 rounded-lg overflow-hidden -mx-1">
   <div class="w-56 border-r border-base-300 flex flex-col bg-base-100 shrink-0">
     <div class="p-3 border-b border-base-300 flex items-center justify-between">
@@ -200,7 +199,6 @@ export default async function handler(ctx) {
     </div>
   {/if}
 </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

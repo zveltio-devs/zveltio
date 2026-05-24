@@ -69,7 +69,6 @@
 </script>
 
 <ExtensionPageShell title={m['workflow.approvals.title']()} subtitle={m['workflow.approvals.subtitle']()}>
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'approvals' ? 'tab-active' : ''}" onclick={() => (tab = 'approvals')}>
       <CheckSquare size={13} class="mr-1.5" aria-hidden="true" /> {m['workflow.approvals.tab.requests']()}
@@ -145,7 +144,6 @@
       </div>
     {/if}
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

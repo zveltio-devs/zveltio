@@ -79,7 +79,6 @@
 </script>
 
 <ExtensionPageShell title={m['developer.byod.title']()} subtitle={m['developer.byod.subtitle']()}>
-  {#snippet children()}
 {#if error}<div class="alert alert-error">{error}</div>{/if}
   <p class="text-sm text-base-content/70">{m['developer.byod.intro']()}</p>
 
@@ -123,7 +122,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

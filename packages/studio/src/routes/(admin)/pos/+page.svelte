@@ -52,7 +52,6 @@
 </script>
 
 <ExtensionPageShell title={m['operations.pos.title']()} subtitle={m['operations.pos.subtitle']()}>
-  {#snippet children()}
 {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else}
@@ -118,5 +117,4 @@
       </div>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>

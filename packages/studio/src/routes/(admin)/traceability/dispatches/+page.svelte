@@ -145,7 +145,6 @@
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.dispatches.title']()}>
-  {#snippet children()}
   <div class="p-6 space-y-4 pt-0">
   <div class="tabs tabs-bordered">
     <button class="tab {activeTab === 'pending' ? 'tab-active' : ''}" onclick={() => { activeTab = 'pending'; selected = null; }}>
@@ -369,7 +368,6 @@
     </div>
   {/if}
   </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

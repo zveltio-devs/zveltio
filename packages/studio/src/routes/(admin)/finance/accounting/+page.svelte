@@ -79,12 +79,10 @@
 </script>
 
 <ExtensionPageShell title={m['finance.accounting.title']()} subtitle={m['finance.accounting.subtitle']()}>
-  {#snippet children()}
 <div class="flex gap-2">
       <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showEntryForm = true)}><Plus size={14} /> {m['finance.accounting.newEntry']()}</button>
       <button type="button" class="btn btn-outline btn-sm gap-1" onclick={() => (showAccountForm = true)}><Plus size={14} /> {m['finance.banking.newAccount']()}</button>
     </div>
-  </div>
 
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'entries' ? 'tab-active' : ''}" onclick={() => (tab = 'entries')}><BookOpen size={13} class="mr-1.5" /> {m['finance.accounting.tab.entries']()}</button>
@@ -131,7 +129,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showEntryForm}

@@ -60,7 +60,6 @@
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.title']()} subtitle={m['operations.traceability.subtitle']()}>
-  {#snippet children()}
 <div class="flex gap-3 flex-wrap">
     <select class="select select-bordered select-sm" bind:value={statusFilter}>
       <option value="">{m['operations.traceability.ui.toate_statusurile']()}</option>
@@ -138,5 +137,4 @@
       </div>
     {/if}
   {/if}
-  {/snippet}
 </ExtensionPageShell>

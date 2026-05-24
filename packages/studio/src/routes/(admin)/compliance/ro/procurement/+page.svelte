@@ -110,7 +110,6 @@
     {/if}
   {/snippet}
 
-  {#snippet children()}
   <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab gap-2 {activeTab === 'orders' ? 'tab-active' : ''}" onclick={() => (activeTab = 'orders')}>
       <Package size={14} /> {m['compliance.ro.procurement.tab.orders']()}
@@ -207,7 +206,6 @@
       </div>
     {/if}
   {/if}
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showOrderModal}

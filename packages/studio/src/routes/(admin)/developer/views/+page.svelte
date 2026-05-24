@@ -68,7 +68,6 @@
     <button class="btn btn-primary btn-sm gap-1" onclick={() => (showForm = true)}><Plus size={14} /> {m['developer.views.btn.newView']()}</button>
   {/snippet}
 
-  {#snippet children()}
   {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else}
@@ -95,7 +94,6 @@
       {/if}
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

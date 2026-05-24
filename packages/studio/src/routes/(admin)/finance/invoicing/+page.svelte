@@ -143,7 +143,6 @@
     </button>
   {/snippet}
 
-  {#snippet children()}
     {#if stats}
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div class="stat bg-base-200 rounded-xl py-3">
@@ -239,7 +238,6 @@
         </table>
       {/snippet}
     </ExtensionDataPanel>
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showModal}

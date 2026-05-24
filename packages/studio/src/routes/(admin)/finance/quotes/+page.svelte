@@ -108,7 +108,6 @@
     </button>
   {/snippet}
 
-  {#snippet children()}
   {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if quotes.length === 0}
@@ -150,7 +149,7 @@
                       <Check size={11} />
                     </button>
                   {/if}
-                  <button class="btn btn-xs btn-ghost text-error" title=m['common.delete']() disabled={actionId === q.id}
+                  <button class="btn btn-xs btn-ghost text-error" title={m['common.delete']()} disabled={actionId === q.id}
                     onclick={() => deleteQuote(q.id)}>
                     {#if actionId === q.id}<LoaderCircle size={11} class="animate-spin" />{:else}<Trash2 size={11} />{/if}
                   </button>
@@ -162,7 +161,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}
