@@ -49,6 +49,17 @@ import {
   SignatureMissingError,
   SignatureInvalidError,
 } from './signature-verify.js';
+// Utilities moved to extension-utils.ts (PR #5). Imported here for
+// the loader's own internal use; also re-exported below so external
+// import sites that still reach into extension-loader keep working.
+import {
+  inMemoryMutex,
+  withExtensionLock,
+  fetchWithRetry,
+  isPathInsideBase,
+  parseMigrationSql,
+  directorySizeBytes,
+} from './extension-utils.js';
 
 export { serviceRegistry } from './service-registry.js';
 
@@ -98,54 +109,12 @@ const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
 //      against concurrent requests from other engine replicas. The lock is
 //      transaction-scoped, so it auto-releases on commit/rollback.
 //
-// Trade-off: when a wrapped operation runs an external long task (download,
-// npm install) the advisory-lock transaction stays open for that duration,
-// holding one DB connection. Lifecycle ops are infrequent admin actions so
-// this is acceptable. The pool default of 10 connections has plenty of headroom.
-const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
-
-/**
- * Pure same-process mutex keyed by string. Concurrent calls with the same key
- * are serialized; different keys run in parallel. The map self-cleans when no
- * call is in flight for a key.
- *
- * Exported for tests; production callers should prefer withExtensionLock which
- * layers on the Postgres advisory lock for cross-replica safety.
- */
-export async function inMemoryMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prior = extensionLifecycleLocks.get(key);
-  if (prior) {
-    await prior.catch(() => { /* swallow — not our concern */ });
-  }
-  const current = fn();
-  extensionLifecycleLocks.set(key, current);
-  try {
-    return await current;
-  } finally {
-    if (extensionLifecycleLocks.get(key) === current) {
-      extensionLifecycleLocks.delete(key);
-    }
-  }
-}
-
-export async function withExtensionLock<T>(
-  db: Database,
-  name: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const key = `ext:${name}`;
-  return inMemoryMutex(key, async () =>
-    // Cross-process: acquire a Postgres advisory lock for the duration.
-    // hashtext returns int4; pg_advisory_xact_lock accepts int8 — Postgres
-    // implicitly widens. Different extension names hash to different keys
-    // (collisions are theoretically possible but harmless — at worst two
-    // unrelated extensions would serialize each other).
-    db.transaction().execute(async (trx) => {
-      await _sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`.execute(trx);
-      return fn();
-    }),
-  );
-}
+// Lifecycle mutex + advisory-lock implementation moved to
+// extension-utils.ts (PR #5). Re-exported below so existing import
+// sites (which do `import { withExtensionLock } from './extension-loader.js'`)
+// keep working — touching every call site would have made the split
+// a much bigger PR.
+export { inMemoryMutex, withExtensionLock } from './extension-utils.js';
 
 async function buildAllowedTables(migrationPaths: string[]): Promise<Set<string>> {
   const tables = new Set<string>();
@@ -300,33 +269,8 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
  *
  * Delays: 500ms, 2s, 5s between the 3 attempts.
  */
-export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
-  const delays = [500, 2000, 5000];
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt < delays.length; attempt++) {
-    try {
-      const res = await fetch(url, init);
-      // 4xx (except 429) — client error, retry won't help.
-      if (!res.ok && res.status >= 400 && res.status < 500 && res.status !== 429) {
-        return res;
-      }
-      // 5xx or 429 — transient, retry unless this was the last attempt.
-      if (!res.ok && attempt < delays.length - 1) {
-        await Bun.sleep(delays[attempt]);
-        continue;
-      }
-      return res;
-    } catch (err) {
-      lastError = err as Error;
-      if (attempt < delays.length - 1) {
-        await Bun.sleep(delays[attempt]);
-        continue;
-      }
-    }
-  }
-  // Exhausted retries on network errors — surface the last one.
-  throw lastError ?? new Error(`fetchWithRetry exhausted retries for ${url}`);
-}
+// Moved to extension-utils.ts (PR #5); re-exported for compat.
+export { fetchWithRetry } from './extension-utils.js';
 
 /**
  * Fetch `<download_url>.sig` and verify the archive's Ed25519 signature.
@@ -735,72 +679,13 @@ export class DownMissingError extends Error {
  * the case where they resolve to the exact same path (you should not delete
  * the base directory itself).
  */
-export async function isPathInsideBase(base: string, target: string): Promise<boolean> {
-  const { resolve, sep } = await import('path');
-  const safeBase = resolve(base);
-  const safeTarget = resolve(target);
-  if (safeTarget === safeBase) return false;
-  // Ensure base ends with a separator before the prefix check so
-  // resolve('/foo') vs resolve('/foobar') is not a false match.
-  const baseWithSep = safeBase.endsWith(sep) ? safeBase : safeBase + sep;
-  return safeTarget.startsWith(baseWithSep);
-}
-
-/**
- * Parsed SQL migration with separated UP / DOWN sections.
- *
- * The DOWN section starts at the first line that matches `-- DOWN` (case
- * insensitive). Everything before the marker is UP; everything after the
- * marker line is DOWN. If the marker is absent, the whole file is UP and
- * DOWN is null.
- */
-export interface ParsedMigration {
-  up: string;
-  down: string | null;
-}
-
-export function parseMigrationSql(raw: string): ParsedMigration {
-  const downIdx = raw.search(/^--\s*DOWN\b/im);
-  if (downIdx < 0) {
-    return { up: raw.trim(), down: null };
-  }
-  const up = raw.slice(0, downIdx).trim();
-  // Skip the marker line itself, keep everything after the next newline.
-  const downSection = raw.slice(downIdx);
-  const firstNewline = downSection.indexOf('\n');
-  const downBody = firstNewline >= 0 ? downSection.slice(firstNewline + 1).trim() : '';
-  return { up, down: downBody.length > 0 ? downBody : null };
-}
-
-/**
- * Compute the total size of a directory recursively, in bytes.
- * Returns 0 if the directory does not exist or any traversal fails.
- */
-export async function directorySizeBytes(dir: string): Promise<number> {
-  if (!existsSync(dir)) return 0;
-  let total = 0;
-  try {
-    const { readdir, stat } = await import('fs/promises');
-    const stack: string[] = [dir];
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-      const entries = await readdir(current, { withFileTypes: true });
-      for (const entry of entries) {
-        const full = join(current, entry.name);
-        if (entry.isDirectory()) {
-          stack.push(full);
-        } else if (entry.isFile()) {
-          const st = await stat(full);
-          total += st.size;
-        }
-      }
-    }
-  } catch {
-    // Permission or transient FS errors — be lenient. A check that can't read
-    // the directory shouldn't block install; better than false-positive quotas.
-  }
-  return total;
-}
+// Moved to extension-utils.ts (PR #5); re-exported for compat.
+export {
+  isPathInsideBase,
+  parseMigrationSql,
+  directorySizeBytes,
+  type ParsedMigration,
+} from './extension-utils.js';
 
 // ZveltioExtension is imported from @zveltio/sdk/extension — single source of truth.
 // Re-export so other engine modules can import from here without depending on the SDK directly.
