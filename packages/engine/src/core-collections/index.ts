@@ -17,15 +17,55 @@
  * exists (upgraded installs), so it's safe to run on every boot.
  */
 import type { Database } from '../db/index.js';
-import { DDLManager, CollectionSchema, type CollectionDefinition } from '../lib/ddl-manager.js';
+import { DDLManager, type CollectionDefinition } from '../lib/ddl-manager.js';
 import { sql } from 'kysely';
-import { z } from 'zod';
 
 /**
- * Input shape — omits fields that Zod fills in via `.default()` so call sites
- * aren't forced to spell them out. CollectionSchema.parse() adds them at runtime.
+ * Pre-default shape used by the inline core-collection literals below.
+ *
+ * Original implementation used `z.input<typeof CollectionSchema>` so the
+ * literals could omit fields with `.default(...)` (FieldSchema's
+ * `unique`, `defaultValue`, `encrypted`, etc.). That worked under
+ * zod ≤4.3, but zod 4.4 narrowed `z.input` on `z.preprocess` schemas to
+ * `unknown` — the wrapping preprocess function's input is `any` in the
+ * declaration, and 4.4 propagates the strict `unknown` upward,
+ * breaking `def.name` / `def.fields` access in the for-loop below
+ * (TS18046).
+ *
+ * Hand-written interface preserves the original ergonomic of "optional
+ * fields stay optional at the definition site" without depending on
+ * zod's input-vs-output type derivation. CollectionSchema.parse()
+ * inside DDLManager.createCollection() still materialises every
+ * default at runtime, so behaviour is unchanged.
  */
-type CoreCollectionInput = z.input<typeof CollectionSchema>;
+interface CoreCollectionField {
+  name: string;
+  type: string;
+  required?: boolean;
+  label?: string;
+  defaultValue?: unknown;
+  unique?: boolean;
+  encrypted?: boolean;
+  indexed?: boolean;
+  relation?: unknown;
+  options?: unknown;
+}
+interface CoreCollectionInput {
+  name: string;
+  displayName?: string;
+  icon?: string;
+  routeGroup?: 'public' | 'partners' | 'private' | 'admin';
+  isPermissioned?: boolean;
+  sort?: number;
+  fields: CoreCollectionField[];
+  description?: string;
+  singularName?: string;
+  aiSearchEnabled?: boolean;
+  aiSearchField?: string | null;
+  isManaged?: boolean;
+  isSystem?: boolean;
+  schemaLocked?: boolean;
+}
 
 /**
  * Definition for `contacts` — individual people (CRM primitive).
