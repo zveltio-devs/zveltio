@@ -12,15 +12,17 @@
 
 import {
   CompiledQuery,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+} from 'kysely';
+import type {
   DatabaseConnection,
   DatabaseIntrospector,
   Dialect,
   DialectAdapter,
   Driver,
-  Kysely,
-  PostgresAdapter,
-  PostgresIntrospector,
-  PostgresQueryCompiler,
   QueryCompiler,
   QueryResult,
   TransactionSettings,
@@ -140,8 +142,11 @@ class BunSqlDriver implements Driver {
       cleanUrl = u.toString();
     } catch { /* URL parsing failed — use as-is */ }
 
-    // @ts-expect-error — Bun.SQL not in standard Kysely types
-    this.#pool = new Bun.SQL(cleanUrl, {
+    // Bun.SQL not in standard Kysely types — typed `any` for both engine
+    // and extensions repo (the latter exposes Bun as `any` per its
+    // types/bun-globals.d.ts, so the previous `@ts-expect-error` was
+    // unused when typecheck ran cross-repo).
+    this.#pool = new (Bun as any).SQL(cleanUrl, {
       max: this.#config.max ?? 20,
       idleTimeout: Math.ceil((this.#config.idleTimeoutMs ?? 30_000) / 1000),
       ...(sslEnabled ? {} : { ssl: false, tls: false }),
