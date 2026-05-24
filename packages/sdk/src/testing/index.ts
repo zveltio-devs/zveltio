@@ -289,6 +289,7 @@ export function createTestContext(opts: CreateTestContextOptions = {}): Extensio
       get: () => undefined,
       has: () => false,
       list: () => [],
+      getAll: () => [],
       deserialize: (_t, v) => v,
       serialize: (_t, v) => v,
     },

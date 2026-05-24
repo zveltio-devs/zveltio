@@ -22,6 +22,13 @@ export interface FieldTypeRegistryAPI {
   get(type: string): any;
   has(type: string): boolean;
   list(): string[];
+  /**
+   * Full list of registered field type definitions. Distinct from
+   * `list()` which returns just the type names — `getAll()` returns
+   * the registered metadata records (label, validators, default
+   * value, etc.). Used by AI/schema-generation tooling.
+   */
+  getAll(): Array<{ type: string; [key: string]: any }>;
   /** Coerce a value FROM the database representation INTO its TS shape. */
   deserialize(type: string, value: any): any;
   /** Coerce a value FROM its TS shape INTO the database representation. */
