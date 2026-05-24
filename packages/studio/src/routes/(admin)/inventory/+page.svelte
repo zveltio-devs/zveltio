@@ -132,7 +132,6 @@
     {/if}
   {/snippet}
 
-  {#snippet children()}
     <ExtensionDataPanel {loading} empty={!loading && (
       tab === 'products' ? products.length === 0
         : tab === 'warehouses' ? warehouses.length === 0
@@ -203,7 +202,6 @@
         {/if}
       {/snippet}
     </ExtensionDataPanel>
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showProductForm}

@@ -58,7 +58,6 @@
     <button class="btn btn-primary btn-sm gap-1" onclick={openCreate}><Plus size={14} /> {m['content.document-templates.btn.new']()}</button>
   {/snippet}
 
-  {#snippet children()}
   {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else}
@@ -82,7 +81,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showForm}

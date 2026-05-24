@@ -85,7 +85,6 @@
     {#if tab === 'connections'}<button class="btn btn-primary btn-sm gap-1" onclick={() => (showForm = true)}><Plus size={14} /> {m['integrations.api-connector.btn.new']()}</button>{/if}
   {/snippet}
 
-  {#snippet children()}
   <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'connections' ? 'tab-active' : ''}" onclick={() => (tab = 'connections')}><Plug size={13} class="mr-1.5" /> {m['integrations.api-connector.tab.connections']()}</button>
     <button class="tab {tab === 'webhooks' ? 'tab-active' : ''}" onclick={() => (tab = 'webhooks')}><Webhook size={13} class="mr-1.5" /> {m['integrations.api-connector.tab.webhooks']()}</button>
@@ -145,7 +144,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

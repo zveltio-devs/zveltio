@@ -220,7 +220,6 @@
 </script>
 
 <ExtensionPageShell title={m['content.media.title']()} subtitle={m['content.media.subtitle']()}>
-  {#snippet children()}
 <div class="h-[calc(100vh-8rem)] flex">
  <!-- Sidebar -->
  <div class="w-64 bg-base-200 border-r border-base-300 p-4 overflow-y-auto flex flex-col shrink-0">
@@ -323,7 +322,7 @@
 
  {#if selectedFiles.size > 0}
  <button class="btn btn-sm btn-error gap-1" onclick={deleteSelectedFiles}>
- <Trash2 size={14} /> {m['content.media.btn.deleteSelected']({ n: String(selectedFiles.size) })
+ <Trash2 size={14} /> {m['content.media.btn.deleteSelected']({ n: String(selectedFiles.size) })}
  </button>
  {/if}
 
@@ -387,7 +386,7 @@
  else { selectedFiles = new Set(files.map(f => f.id)); }
  }}
  />
- <span class="text-sm">{m['content.media.btn.selectAll']() ({files.length})</span>
+ <span class="text-sm">{m['content.media.btn.selectAll']()} ({files.length})</span>
  </div>
 
  {#each files as file}
@@ -450,7 +449,6 @@
  </div>
  </div>
 </div>
-  {/snippet}
 </ExtensionPageShell>
 
 <!-- Upload Modal -->
@@ -481,7 +479,7 @@
  </div>
  </div>
  <button class="modal-backdrop" onclick={() => !uploading && (showUploadModal = false)}
- onkeydown={(e) => e.key === 'Escape' && !uploading && (showUploadModal = false)} tabindex="0" aria-label=m['common.close']()></button>
+ onkeydown={(e) => e.key === 'Escape' && !uploading && (showUploadModal = false)} tabindex="0" aria-label={m['common.close']()}></button>
  </div>
 {/if}
 
@@ -500,7 +498,7 @@
  </div>
  </div>
  <button class="modal-backdrop" onclick={() => (showFolderModal = false)}
- onkeydown={(e) => e.key === 'Escape' && (showFolderModal = false)} tabindex="0" aria-label=m['common.close']()></button>
+ onkeydown={(e) => e.key === 'Escape' && (showFolderModal = false)} tabindex="0" aria-label={m['common.close']()}></button>
  </div>
 {/if}
 
@@ -523,7 +521,7 @@
  </div>
  </div>
  <button class="modal-backdrop" onclick={() => (showTagModal = false)}
- onkeydown={(e) => e.key === 'Escape' && (showTagModal = false)} tabindex="0" aria-label=m['common.close']()></button>
+ onkeydown={(e) => e.key === 'Escape' && (showTagModal = false)} tabindex="0" aria-label={m['common.close']()}></button>
  </div>
 {/if}
 
@@ -533,7 +531,7 @@
  <div class="modal-box max-w-2xl">
  <div class="flex items-start justify-between mb-4">
  <h3 class="font-bold text-lg truncate flex-1">{showFileDetails.original_filename}</h3>
- <button class="btn btn-sm btn-ghost btn-square" aria-label=m['common.close']() onclick={() => (showFileDetails = null)}>
+ <button class="btn btn-sm btn-ghost btn-square" aria-label={m['common.close']()} onclick={() => (showFileDetails = null)}>
  <X size={16} />
  </button>
  </div>
@@ -608,7 +606,7 @@
  </div>
  </div>
  <button class="modal-backdrop" onclick={() => (showFileDetails = null)}
- onkeydown={(e) => e.key === 'Escape' && (showFileDetails = null)} tabindex="0" aria-label=m['common.close']()></button>
+ onkeydown={(e) => e.key === 'Escape' && (showFileDetails = null)} tabindex="0" aria-label={m['common.close']()}></button>
  </div>
 {/if}
 

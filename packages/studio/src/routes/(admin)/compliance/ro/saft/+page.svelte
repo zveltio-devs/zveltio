@@ -168,7 +168,6 @@
     <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showEntryModal = true)}><Plus size={14} /> {m['compliance.ro.saft.btn.addEntry']()}</button>
   {/snippet}
 
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     {#each [['exports', m['compliance.ro.saft.tab.exports']()], ['accounts', m['compliance.ro.saft.tab.accounts']()], ['entries', m['compliance.ro.saft.tab.entries']()]] as [tab, label]}
       <button class="tab {activeTab === tab ? 'tab-active' : ''}" onclick={() => (activeTab = tab as any)}>{label}</button>
@@ -265,7 +264,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

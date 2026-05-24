@@ -79,13 +79,11 @@
 </script>
 
 <ExtensionPageShell title={m['storage.cloud.title']()} subtitle={m['storage.cloud.subtitle']()}>
-  {#snippet children()}
 <label class="btn btn-primary btn-sm gap-1">
       {#if uploading}<LoaderCircle size={14} class="animate-spin" />{:else}<Upload size={14} />{/if}
       {uploading ? m['common.uploading']() : 'Upload'}
       <input type="file" multiple class="hidden" onchange={(e) => uploadFiles((e.target as HTMLInputElement).files)} />
     </label>
-  </div>
 
   <div class="flex items-center gap-1 text-sm flex-wrap">
     {#if path !== '/'}<button class="btn btn-ghost btn-xs btn-square" onclick={up}><ArrowLeft size={14} /></button>{/if}
@@ -137,7 +135,6 @@
       </div>
     {/if}
   </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

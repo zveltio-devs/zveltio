@@ -57,7 +57,6 @@
 </script>
 
 <ExtensionPageShell title={m['forms.title']()} subtitle={m['forms.subtitle']()}>
-  {#snippet children()}
 {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if forms.length === 0}
@@ -96,7 +95,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

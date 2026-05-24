@@ -102,7 +102,6 @@
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.recalls.title']()}>
-  {#snippet children()}
   <div class="p-6 space-y-4 pt-0">
   <div class="tabs tabs-bordered">
     <button class="tab {activeTab === 'simulate' ? 'tab-active' : ''}" onclick={() => activeTab = 'simulate'}>
@@ -243,7 +242,6 @@
     {/if}
   {/if}
   </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

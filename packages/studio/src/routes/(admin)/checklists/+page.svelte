@@ -157,7 +157,6 @@
       </button>
     {/if}
   {/snippet}
-  {#snippet children()}
   <div class="space-y-5">
 
   <!-- Create form -->
@@ -206,7 +205,7 @@
               <CheckSquare size={16} class="text-primary shrink-0"/>
               <div class="flex-1 min-w-0">
                 <p class="font-medium text-sm truncate">{c.name}</p>
-                <p class="text-xs text-base-content/40">{m['workflow.checklists.itemsCount']({ n: String((c.items ?? []).length) })</p>
+                <p class="text-xs text-base-content/40">{m['workflow.checklists.itemsCount']({ n: String((c.items ?? []).length) })}</p>
               </div>
               <div class="flex items-center gap-1 shrink-0">
                 <button class="btn btn-ghost btn-xs gap-1" onclick={() => openResponses(c)}>
@@ -314,7 +313,6 @@
     {/if}
   {/if}
   </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

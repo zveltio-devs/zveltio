@@ -47,7 +47,6 @@
 </script>
 
 <ExtensionPageShell title={m['compliance.gdpr.title']()} subtitle={m['compliance.gdpr.subtitle']()}>
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'requests' ? 'tab-active' : ''}" onclick={() => (tab = 'requests')}>
       <Users size={13} class="mr-1.5" />{m['compliance.gdpr.tab.requests']()}
@@ -151,5 +150,4 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>

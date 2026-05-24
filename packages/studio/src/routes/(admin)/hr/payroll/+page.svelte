@@ -71,7 +71,6 @@
     <button class="btn btn-primary btn-sm gap-1" onclick={() => (showCreatePeriod = true)}><Plus size={14} /> {m['hr.payroll.btn.newPeriod']()}</button>
   {/snippet}
 
-  {#snippet children()}
   {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else}
@@ -149,7 +148,6 @@
       </main>
     </div>
   {/if}
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showCreatePeriod}

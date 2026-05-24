@@ -81,7 +81,6 @@
     <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showProjectForm = true)}><Plus size={14} /> {m['projects.management.btn.newProject']()}</button>
   {/snippet}
 
-  {#snippet children()}
 {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if projects.length === 0}
@@ -134,7 +133,6 @@
       </div>
     {/if}
   {/if}
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showProjectForm}
@@ -175,96 +173,6 @@
           </div>
         </div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['invoicing.col.dueDate']()}</span></label><input type="date" class="input input-sm" bind:value={taskForm.due_date} /></div>
-      </div>
-      <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showTaskForm = false)}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary btn-sm" disabled={saving || !taskForm.title} onclick={createTask}>
-          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['common.create']()}
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
-{#if view === 'board'}
-      <div class="grid grid-cols-4 gap-3">
-        {#each STATUSES as s (s.id)}
-          <div class="bg-base-200 rounded-lg p-3">
-            <div class="font-medium text-sm mb-3 flex items-center justify-between">
-              <span>{s.label}</span>
-              <span class="badge badge-sm badge-ghost">{tasksByStatus(s.id).length}</span>
-            </div>
-            <div class="space-y-2 min-h-24">
-              {#each tasksByStatus(s.id) as t (t.id)}
-                <div class="card bg-base-100 shadow-sm">
-                  <div class="card-body p-3">
-                    <div class="font-medium text-sm">{t.title}</div>
-                    {#if t.description}<div class="text-xs text-base-content/60 mt-0.5 line-clamp-2">{t.description}</div>{/if}
-                    <div class="flex flex-wrap gap-1 mt-1">
-                      {#each STATUSES.filter((x) => x.id !== s.id) as target (target.id)}
-                        <button class="btn btn-ghost btn-xs text-xs" onclick={() => moveTask(t.id, target.id)}>→ {target.label}</button>
-                      {/each}
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead><tr><th>{m['common.col.title']()}</th><th>{m['common.col.status']()}</th><th>{m['common.col.priority']()}</th><th>{m['projects.management.col.dueDate']()}</th><th>{m['projects.management.col.assignee']()}</th></tr></thead>
-          <tbody>
-            {#if tasks.length === 0}<tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">{m['projects.management.ui.no_tasks']()}</td></tr>
-            {:else}{#each tasks as t (t.id)}
-              <tr class="hover"><td class="text-sm">{t.title}</td><td><span class="badge badge-sm badge-ghost">{t.status}</span></td><td><span class="badge badge-sm">{t.priority}</span></td><td class="text-xs">{t.due_date ?? '—'}</td><td class="text-sm">{t.assignee_name ?? '—'}</td></tr>
-            {/each}{/if}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-  {/if}
-</div>
-
-{#if showProjectForm}
-  <div class="modal modal-open">
-    <div class="modal-box max-w-md">
-      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_project']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showProjectForm = false)}><X size={14} /></button></div>
-      <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.form.name']()}</span></label><input class="input input-sm" bind:value={projectForm.name} /></div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={projectForm.description}></textarea></div>
-        <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.start_date']()}</span></label><input type="date" class="input input-sm" bind:value={projectForm.start_date} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.ui.end_date']()}</span></label><input type="date" class="input input-sm" bind:value={projectForm.end_date} /></div>
-        </div>
-      </div>
-      <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showProjectForm = false)}>{m['common.cancel']()}</button>
-        <button class="btn btn-primary btn-sm" disabled={saving || !projectForm.name} onclick={createProject}>
-          {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} {m['common.create']()}
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if showTaskForm}
-  <div class="modal modal-open">
-    <div class="modal-box max-w-md">
-      <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">{m['projects.management.ui.new_task']()}</h3><button class="btn btn-ghost btn-xs" onclick={() => (showTaskForm = false)}><X size={14} /></button></div>
-      <div class="space-y-3">
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.form.title']()}</span></label><input class="input input-sm" bind:value={taskForm.title} /></div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></label><textarea class="textarea textarea-sm" bind:value={taskForm.description}></textarea></div>
-        <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.status']()}</span></label>
-            <select class="select select-sm" bind:value={taskForm.status}>{#each STATUSES as s (s.id)}<option value={s.id}>{s.label}</option>{/each}</select>
-          </div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.priority']()}</span></label>
-            <select class="select select-sm" bind:value={taskForm.priority}><option value="low">{m['projects.management.priority.low']()}</option><option value="medium">{m['projects.management.priority.medium']()}</option><option value="high">{m['projects.management.priority.high']()}</option><option value="urgent">{m['projects.management.priority.urgent']()}</option></select>
-          </div>
-        </div>
-        <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['projects.management.col.dueDate']()}</span></label><input type="date" class="input input-sm" bind:value={taskForm.due_date} /></div>
       </div>
       <div class="modal-action">
         <button class="btn btn-ghost btn-sm" onclick={() => (showTaskForm = false)}>{m['common.cancel']()}</button>

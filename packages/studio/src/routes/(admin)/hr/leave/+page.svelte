@@ -93,7 +93,6 @@
     </button>
   {/snippet}
 
-  {#snippet children()}
     <ExtensionDataPanel {loading} empty={!loading && requests.length === 0} emptyTitle={m['hr.leave.emptyRequests']()}>
       {#snippet table()}
         <table class="table table-sm">
@@ -131,7 +130,6 @@
         </table>
       {/snippet}
     </ExtensionDataPanel>
-  {/snippet}
 </ExtensionPageShell>
 
 {#if showForm}

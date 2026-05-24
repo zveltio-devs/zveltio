@@ -91,7 +91,6 @@
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.reception.title']()}>
-  {#snippet children()}
   <div class="p-6 max-w-2xl pt-0">
   {#if saved}
     <div class="alert alert-success mb-4">
@@ -205,5 +204,4 @@
     </div>
   </form>
   </div>
-  {/snippet}
 </ExtensionPageShell>

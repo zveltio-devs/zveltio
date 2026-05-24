@@ -53,7 +53,6 @@
 </script>
 
 <ExtensionPageShell title={m['auth.saml.title']()} subtitle={m['auth.saml.subtitle']()}>
-  {#snippet children()}
     <div class="max-w-2xl space-y-6">
 {#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
@@ -140,5 +139,4 @@
     </button>
   {/if}
     </div>
-  {/snippet}
 </ExtensionPageShell>

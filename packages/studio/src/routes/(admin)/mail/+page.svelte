@@ -362,7 +362,6 @@
 </script>
 
 <ExtensionPageShell title={m['communications.mail.title']()} subtitle={m['communications.mail.subtitle']()}>
-  {#snippet children()}
 <div class="flex h-[calc(100vh-11rem)] -mx-4 border-t border-base-200 overflow-hidden">
 
   <!-- SIDEBAR -->
@@ -742,7 +741,6 @@
     {/if}
   </div>
 </div>
-  {/snippet}
 </ExtensionPageShell>
 
 <!-- COMPOSE MODAL -->
