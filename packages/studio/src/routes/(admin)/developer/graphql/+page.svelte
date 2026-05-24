@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { api } from '$lib/api.js';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+      import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { Network, Play, Save, LoaderCircle } from '@lucide/svelte';
 
@@ -18,26 +21,26 @@
     try {
       const res = await api.post<object>('/ext/developer/graphql', { query: queryText });
       queryResult = JSON.stringify(res, null, 2);
-    } catch (e: any) { toast.error(e?.message ?? 'Query failed'); queryResult = ''; }
+    } catch (e: any) { toast.error(e?.message ?? m['developer.graphql.error.queryFailed']()); queryResult = ''; }
     finally { running = false; }
   }
 
   async function loadLogs() {
     loading = true;
     try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/operations?limit=100'); logs = r.data ?? []; }
-    catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
   async function loadPersisted() {
     loading = true;
     try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/persisted'); persisted = r.data ?? []; }
-    catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
   async function loadPolicies() {
     loading = true;
     try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/field-policies'); policies = r.data ?? []; }
-    catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
 
@@ -48,33 +51,28 @@
   });
 </script>
 
-<div class="space-y-4">
-  <div>
-    <h1 class="text-xl font-semibold flex items-center gap-2"><Network size={20} /> GraphQL</h1>
-    <p class="text-sm text-base-content/50">Playground, operation logs, and field policies</p>
-  </div>
+<ExtensionPageShell title={m['developer.graphql.title']()} subtitle={m['developer.graphql.subtitle']()}>
+<div class="tabs tabs-boxed bg-base-200 w-fit">
+    <button class="tab {tab === 'playground' ? 'tab-active' : ''}" onclick={() => (tab = 'playground')}><Play size={13} class="mr-1.5" /> {m['developer.graphql.tab.playground']()}</button>
+    <button class="tab {tab === 'logs' ? 'tab-active' : ''}" onclick={() => (tab = 'logs')}>{m['developer.graphql.tab.logs']()}</button>
+    <button class="tab {tab === 'persisted' ? 'tab-active' : ''}" onclick={() => (tab = 'persisted')}><Save size={13} class="mr-1.5" /> {m['developer.graphql.tab.persisted']()}</button>
+    <button class="tab {tab === 'policies' ? 'tab-active' : ''}" onclick={() => (tab = 'policies')}>{m['developer.graphql.tab.policies']()}</button>
+</div>
 
-  <div class="tabs tabs-boxed bg-base-200 w-fit">
-    <button class="tab {tab === 'playground' ? 'tab-active' : ''}" onclick={() => (tab = 'playground')}><Play size={13} class="mr-1.5" /> Playground</button>
-    <button class="tab {tab === 'logs' ? 'tab-active' : ''}" onclick={() => (tab = 'logs')}>Operation logs</button>
-    <button class="tab {tab === 'persisted' ? 'tab-active' : ''}" onclick={() => (tab = 'persisted')}><Save size={13} class="mr-1.5" /> Persisted queries</button>
-    <button class="tab {tab === 'policies' ? 'tab-active' : ''}" onclick={() => (tab = 'policies')}>Field policies</button>
-  </div>
-
-  {#if tab === 'playground'}
+{#if tab === 'playground'}
     <div class="grid grid-cols-2 gap-4 h-[60vh]">
       <div class="card bg-base-200 border border-base-300 flex flex-col">
         <div class="p-3 border-b border-base-300 flex items-center justify-between">
-          <span class="font-medium text-sm">Query</span>
+          <span class="font-medium text-sm">{m['developer.graphql.panel.query']()}</span>
           <button class="btn btn-primary btn-sm gap-1" disabled={running} onclick={runQuery}>
-            {#if running}<LoaderCircle size={13} class="animate-spin" />{:else}<Play size={13} />{/if} Run
+            {#if running}<LoaderCircle size={13} class="animate-spin" />{:else}<Play size={13} />{/if}{m['developer.graphql.btn.run']()}
           </button>
         </div>
         <textarea class="flex-1 font-mono text-sm p-3 resize-none bg-transparent border-0 outline-none" bind:value={queryText}></textarea>
       </div>
       <div class="card bg-base-200 border border-base-300 flex flex-col">
-        <div class="p-3 border-b border-base-300 font-medium text-sm">Response</div>
-        <pre class="flex-1 p-3 overflow-auto font-mono text-xs">{queryResult || '(run a query to see output)'}</pre>
+        <div class="p-3 border-b border-base-300 font-medium text-sm">{m['developer.graphql.panel.response']()}</div>
+        <pre class="flex-1 p-3 overflow-auto font-mono text-xs">{queryResult || m['developer.graphql.placeholder.output']()}</pre>
       </div>
     </div>
   {:else if loading}
@@ -82,11 +80,11 @@
   {:else if tab === 'logs'}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Time</th><th>Operation</th><th>User</th><th>Duration</th><th>Status</th></tr></thead>
+        <thead><tr><th>{m['developer.graphql.col.time']()}</th><th>{m['developer.graphql.col.operation']()}</th><th>{m['developer.graphql.col.user']()}</th><th>{m['common.col.duration']()}</th><th>{m['common.col.status']()}</th></tr></thead>
         <tbody>
-          {#if logs.length === 0}<tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">No operations logged.</td></tr>
+          {#if logs.length === 0}<tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">{m['developer.graphql.ui.no_operations_logged']()}</td></tr>
           {:else}{#each logs as l (l.id)}
-            <tr class="hover"><td class="text-xs">{l.created_at?.slice(0, 19).replace('T', ' ')}</td><td class="font-mono text-xs max-w-xs truncate">{l.operation_name ?? l.query_preview}</td><td class="text-sm">{l.user_id ?? 'anon'}</td><td class="text-sm">{l.duration_ms ?? '—'} ms</td><td><span class="badge badge-sm {l.error ? 'badge-error' : 'badge-success'}">{l.error ? 'error' : 'ok'}</span></td></tr>
+            <tr class="hover"><td class="text-xs">{l.created_at?.slice(0, 19).replace('T', ' ')}</td><td class="font-mono text-xs max-w-xs truncate">{l.operation_name ?? l.query_preview}</td><td class="text-sm">{l.user_id ?? 'anon'}</td><td class="text-sm">{l.duration_ms ?? '—'} ms</td><td><span class="badge badge-sm {l.error ? 'badge-error' : 'badge-success'}">{l.error ? m['developer.graphql.status.error']() : m['developer.graphql.status.ok']()}</span></td></tr>
           {/each}{/if}
         </tbody>
       </table>
@@ -94,9 +92,9 @@
   {:else if tab === 'persisted'}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>ID</th><th>Operation</th><th>Created</th></tr></thead>
+        <thead><tr><th>ID</th><th>{m['developer.graphql.col.operation']()}</th><th>{m['common.col.created']()}</th></tr></thead>
         <tbody>
-          {#if persisted.length === 0}<tr><td colspan="3" class="text-center py-6 text-base-content/50 text-sm">No persisted queries.</td></tr>
+          {#if persisted.length === 0}<tr><td colspan="3" class="text-center py-6 text-base-content/50 text-sm">{m['developer.graphql.ui.no_persisted_queries']()}</td></tr>
           {:else}{#each persisted as p (p.id)}
             <tr class="hover"><td class="font-mono text-xs">{p.id?.slice(0, 16)}…</td><td class="font-mono text-xs max-w-md truncate">{p.operation_name ?? p.query_preview}</td><td class="text-xs">{p.created_at?.slice(0, 10)}</td></tr>
           {/each}{/if}
@@ -106,9 +104,9 @@
   {:else}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Type</th><th>Field</th><th>Roles</th><th>Mode</th></tr></thead>
+        <thead><tr><th>{m['common.col.type']()}</th><th>{m['common.col.field']()}</th><th>{m['developer.graphql.col.roles']()}</th><th>{m['developer.graphql.col.mode']()}</th></tr></thead>
         <tbody>
-          {#if policies.length === 0}<tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">No field policies — all fields readable.</td></tr>
+          {#if policies.length === 0}<tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">{m['developer.graphql.ui.no_field_policies_all_fields_readable']()}</td></tr>
           {:else}{#each policies as p (p.id)}
             <tr class="hover"><td class="font-mono text-sm">{p.type_name}</td><td class="font-mono text-sm">{p.field_name}</td><td class="text-xs">{(p.allowed_roles ?? []).join(', ') || '—'}</td><td><span class="badge badge-sm">{p.mode ?? 'allow'}</span></td></tr>
           {/each}{/if}
@@ -116,4 +114,4 @@
       </table>
     </div>
   {/if}
-</div>
+</ExtensionPageShell>

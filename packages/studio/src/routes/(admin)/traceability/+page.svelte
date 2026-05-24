@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { api } from '$lib/api.js';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+    import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
   let lots = $state<any[]>([]);
@@ -56,25 +59,18 @@
   }
 </script>
 
-<div class="p-6 space-y-4">
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold">Loturi</h1>
-    <a href="/admin/trace/reception" class="btn btn-primary btn-sm">
-      + Recepție nouă
-    </a>
-  </div>
-
-  <div class="flex gap-3 flex-wrap">
+<ExtensionPageShell title={m['operations.traceability.title']()} subtitle={m['operations.traceability.subtitle']()}>
+<div class="flex gap-3 flex-wrap">
     <select class="select select-bordered select-sm" bind:value={statusFilter}>
-      <option value="">Toate statusurile</option>
-      <option value="quarantine">Carantină</option>
-      <option value="available">Disponibil</option>
-      <option value="exhausted">Epuizat</option>
-      <option value="recalled">Retras</option>
+      <option value="">{m['operations.traceability.ui.toate_statusurile']()}</option>
+      <option value="quarantine">{m['operations.traceability.ui.carantin']()}</option>
+      <option value="available">{m['operations.traceability.ui.disponibil']()}</option>
+      <option value="exhausted">{m['operations.traceability.ui.epuizat']()}</option>
+      <option value="recalled">{m['operations.traceability.ui.retras']()}</option>
     </select>
-  </div>
+</div>
 
-  {#if error}
+{#if error}
     <div class="alert alert-error">{error}</div>
   {/if}
 
@@ -87,13 +83,13 @@
       <table class="table table-zebra w-full">
         <thead>
           <tr>
-            <th>Număr lot</th>
-            <th>Produs</th>
-            <th>Furnizor</th>
-            <th>Status</th>
-            <th>Cant. rămasă</th>
-            <th>Valabilitate</th>
-            <th>Locație</th>
+            <th>{m['operations.traceability.col.lotNumber']()}</th>
+            <th>{m['operations.traceability.col.product']()}</th>
+            <th>{m['operations.traceability.col.supplier']()}</th>
+            <th>{m['common.col.status']()}</th>
+            <th>{m['operations.traceability.col.qtyRemaining']()}</th>
+            <th>{m['operations.traceability.col.expiry']()}</th>
+            <th>{m['operations.traceability.col.location']()}</th>
             <th></th>
           </tr>
         </thead>
@@ -122,12 +118,12 @@
               </td>
               <td class="text-xs">{[lot.warehouse, lot.row, lot.shelf].filter(Boolean).join(' / ') || '—'}</td>
               <td>
-                <a href="/admin/trace/lots/{lot.id}" class="btn btn-ghost btn-xs">Detalii</a>
+                <a href="/admin/trace/lots/{lot.id}" class="btn btn-ghost btn-xs">{m['operations.traceability.action.details']()}</a>
               </td>
             </tr>
           {/each}
           {#if lots.length === 0}
-            <tr><td colspan="8" class="text-center text-base-content/50 py-8">Niciun lot găsit</td></tr>
+            <tr><td colspan="8" class="text-center text-base-content/50 py-8">{m['operations.traceability.ui.niciun_lot_g_sit']()}</td></tr>
           {/if}
         </tbody>
       </table>
@@ -136,9 +132,9 @@
     {#if totalPages > 1}
       <div class="flex justify-center gap-2">
         <button class="btn btn-sm" onclick={() => page--} disabled={page === 1}>‹</button>
-        <span class="flex items-center px-3 text-sm">Pagina {page} din {totalPages}</span>
+        <span class="flex items-center px-3 text-sm">{m['operations.traceability.pageOf']({ page: String(page), total: String(totalPages) })}</span>
         <button class="btn btn-sm" onclick={() => page++} disabled={page === totalPages}>›</button>
       </div>
     {/if}
   {/if}
-</div>
+</ExtensionPageShell>

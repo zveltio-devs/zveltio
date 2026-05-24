@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+      import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { Shield, FileWarning, Users, Database, LoaderCircle } from '@lucide/svelte';
@@ -18,7 +21,7 @@
       else if (tab === 'breaches') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/breach-incidents'); breaches = r.data ?? []; }
       else if (tab === 'consents') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/consents'); consents = r.data ?? []; }
       else { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/processing-records'); records = r.data ?? []; }
-    } catch (e: any) { toast.error(e?.message ?? 'Failed to load'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
     finally { loading = false; }
   }
 
@@ -27,8 +30,8 @@
       await api.post(`/ext/compliance/gdpr/access-requests/${id}/fulfill`, {});
       const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
       requests = r.data ?? [];
-      toast.success('Request fulfilled.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['compliance.gdpr.toast.fulfilled']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
 
   async function reject(id: string) {
@@ -36,41 +39,36 @@
       await api.post(`/ext/compliance/gdpr/access-requests/${id}/reject`, {});
       const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
       requests = r.data ?? [];
-      toast.success('Request rejected.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['compliance.gdpr.toast.rejected']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
 
   $effect(() => { tab; loadTab(); });
 </script>
 
-<div class="space-y-4">
-  <div>
-    <h1 class="text-xl font-semibold flex items-center gap-2"><Shield size={20} /> GDPR Compliance</h1>
-    <p class="text-sm text-base-content/50">Manage data subject requests, breaches, consents, and processing records</p>
-  </div>
-
-  <div class="tabs tabs-boxed bg-base-200 w-fit">
+<ExtensionPageShell title={m['compliance.gdpr.title']()} subtitle={m['compliance.gdpr.subtitle']()}>
+<div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'requests' ? 'tab-active' : ''}" onclick={() => (tab = 'requests')}>
-      <Users size={13} class="mr-1.5" /> Access requests
+      <Users size={13} class="mr-1.5" />{m['compliance.gdpr.tab.requests']()}
     </button>
     <button class="tab {tab === 'breaches' ? 'tab-active' : ''}" onclick={() => (tab = 'breaches')}>
-      <FileWarning size={13} class="mr-1.5" /> Breaches
+      <FileWarning size={13} class="mr-1.5" />{m['compliance.gdpr.tab.breaches']()}
     </button>
-    <button class="tab {tab === 'consents' ? 'tab-active' : ''}" onclick={() => (tab = 'consents')}>Consents</button>
+    <button class="tab {tab === 'consents' ? 'tab-active' : ''}" onclick={() => (tab = 'consents')}>{m['compliance.gdpr.tab.consents']()}</button>
     <button class="tab {tab === 'records' ? 'tab-active' : ''}" onclick={() => (tab = 'records')}>
-      <Database size={13} class="mr-1.5" /> Processing records
+      <Database size={13} class="mr-1.5" />{m['compliance.gdpr.tab.records']()}
     </button>
-  </div>
+</div>
 
-  {#if loading}
+{#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if tab === 'requests'}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Type</th><th>Subject</th><th>Requested</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>{m['common.col.type']()}</th><th>{m['common.col.subject']()}</th><th>{m['compliance.gdpr.col.requested']()}</th><th>{m['common.col.status']()}</th><th></th></tr></thead>
         <tbody>
           {#if requests.length === 0}
-            <tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">No requests.</td></tr>
+            <tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">{m['hr.leave.emptyRequests']()}</td></tr>
           {:else}
             {#each requests as r (r.id)}
               <tr class="hover">
@@ -80,8 +78,8 @@
                 <td><span class="badge badge-sm">{r.status}</span></td>
                 <td>
                   {#if r.status === 'pending'}
-                    <button class="btn btn-ghost btn-xs" onclick={() => fulfill(r.id)}>Fulfill</button>
-                    <button class="btn btn-ghost btn-xs" onclick={() => reject(r.id)}>Reject</button>
+                    <button class="btn btn-ghost btn-xs" onclick={() => fulfill(r.id)}>{m['compliance.gdpr.btn.fulfill']()}</button>
+                    <button class="btn btn-ghost btn-xs" onclick={() => reject(r.id)}>{m['common.reject']()}</button>
                   {/if}
                 </td>
               </tr>
@@ -93,10 +91,10 @@
   {:else if tab === 'breaches'}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Date</th><th>Description</th><th>Severity</th><th>Affected</th><th>Notified DPA</th></tr></thead>
+        <thead><tr><th>{m['common.col.date']()}</th><th>{m['common.col.description']()}</th><th>{m['compliance.gdpr.col.severity']()}</th><th>{m['compliance.gdpr.col.affected']()}</th><th>{m['compliance.gdpr.col.notifiedDpa']()}</th></tr></thead>
         <tbody>
           {#if breaches.length === 0}
-            <tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">No breach incidents recorded.</td></tr>
+            <tr><td colspan="5" class="text-center py-6 text-base-content/50 text-sm">{m['compliance.gdpr.ui.no_breach_incidents_recorded']()}</td></tr>
           {:else}
             {#each breaches as b (b.id)}
               <tr class="hover">
@@ -114,10 +112,10 @@
   {:else if tab === 'consents'}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Subject</th><th>Purpose</th><th>Granted</th><th>Withdrawn</th></tr></thead>
+        <thead><tr><th>{m['common.col.subject']()}</th><th>{m['compliance.gdpr.col.purpose']()}</th><th>{m['compliance.gdpr.col.granted']()}</th><th>{m['compliance.gdpr.col.withdrawn']()}</th></tr></thead>
         <tbody>
           {#if consents.length === 0}
-            <tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">No consents recorded.</td></tr>
+            <tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">{m['compliance.gdpr.ui.no_consents_recorded']()}</td></tr>
           {:else}
             {#each consents as c (c.id)}
               <tr class="hover">
@@ -134,10 +132,10 @@
   {:else}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Activity</th><th>Lawful basis</th><th>Categories</th><th>Retention</th></tr></thead>
+        <thead><tr><th>{m['compliance.gdpr.col.activity']()}</th><th>{m['compliance.gdpr.col.lawfulBasis']()}</th><th>{m['compliance.gdpr.col.categories']()}</th><th>{m['compliance.gdpr.col.retention']()}</th></tr></thead>
         <tbody>
           {#if records.length === 0}
-            <tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">No records of processing yet.</td></tr>
+            <tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">{m['compliance.gdpr.ui.no_records_of_processing_yet']()}</td></tr>
           {:else}
             {#each records as r (r.id)}
               <tr class="hover">
@@ -152,4 +150,4 @@
       </table>
     </div>
   {/if}
-</div>
+</ExtensionPageShell>
