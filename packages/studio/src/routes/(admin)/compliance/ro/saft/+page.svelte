@@ -1,9 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+        import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { ENGINE_URL } from '$lib/config.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import { Plus, Download, Send, Trash2, FileSpreadsheet, RefreshCw, LoaderCircle } from '@lucide/svelte';
+
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   let activeTab = $state<'exports' | 'accounts' | 'entries'>('exports');
   let exports_ = $state<any[]>([]);
@@ -57,23 +64,23 @@
       showCreateModal = false;
       const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
       exports_ = r.exports ?? [];
-      toast.success('Export creat.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['compliance.ro.saft.toast.exportCreated']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
     finally { creating = false; }
   }
 
   async function generateXML(id: string) {
     try {
       await api.post(`/ext/compliance/ro/saft/${id}/generate`, {});
-      toast.success('SAF-T XML generat!');
+      toast.success(m['compliance.ro.saft.toast.xmlGenerated']());
       const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
       exports_ = r.exports ?? [];
-    } catch (e: any) { toast.error(e?.message ?? 'Failed to generate XML'); }
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
   }
 
   async function downloadXML(id: string, start: string, end: string) {
     const res = await api.fetch(`/ext/compliance/ro/saft/${id}/xml`);
-    if (!res.ok) { toast.error('Genereaza XML mai intai'); return; }
+    if (!res.ok) { toast.error(m['compliance.ro.saft.error.generateXmlFirst']()); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -82,20 +89,26 @@
   }
 
   async function submitToANAF(id: string) {
-    if (!confirm('Trimite SAF-T la ANAF?')) return;
+        askConfirm(m['compliance.ro.saft.confirmSend'](), () => submitToANAFConfirmed(id));
+  }
+  async function submitToANAFConfirmed(id: string) {
     try {
       await api.post(`/ext/compliance/ro/saft/${id}/submit`, {});
-      toast.success('Trimis la ANAF!');
+      toast.success(m['compliance.ro.saft.toast.sentAnaf']());
       const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
       exports_ = r.exports ?? [];
-    } catch (e: any) { toast.error(e?.message ?? 'Submission failed'); }
+    } catch (e: any) { toast.error(e?.message ?? m['compliance.ro.saft.toast.submissionFailed']()); }
   }
 
+
   async function deleteExport(id: string) {
-    if (!confirm('Sterge exportul?')) return;
-    try { await api.delete(`/ext/compliance/ro/saft/${id}`); exports_ = exports_.filter((e) => e.id !== id); }
-    catch (e: any) { toast.error(e?.message ?? 'Error'); }
+        askConfirm(m['compliance.ro.saft.confirmDeleteExport'](), () => deleteExportConfirmed(id));
   }
+  async function deleteExportConfirmed(id: string) {
+    try { await api.delete(`/ext/compliance/ro/saft/${id}`); exports_ = exports_.filter((e) => e.id !== id); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+  }
+
 
   async function createAccount() {
     if (!accountForm.code || !accountForm.description) return;
@@ -106,16 +119,19 @@
       accountForm = { code: '', description: '', account_type: 'balance' };
       const r = await api.get<{ accounts: any[] }>('/ext/compliance/ro/saft/accounts');
       accounts = r.accounts ?? [];
-      toast.success('Cont adaugat.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['compliance.ro.saft.toast.accountAdded']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
     finally { creating = false; }
   }
 
   async function deleteAccount(id: string) {
-    if (!confirm('Sterge contul?')) return;
-    try { await api.delete(`/ext/compliance/ro/saft/accounts/${id}`); accounts = accounts.filter((a) => a.id !== id); }
-    catch (e: any) { toast.error(e?.message ?? 'Error'); }
+        askConfirm(m['compliance.ro.saft.confirmDeleteAccount'](), () => deleteAccountConfirmed(id));
   }
+  async function deleteAccountConfirmed(id: string) {
+    try { await api.delete(`/ext/compliance/ro/saft/accounts/${id}`); accounts = accounts.filter((a) => a.id !== id); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+  }
+
 
   async function createEntry() {
     if (!entryForm.account_code || !entryForm.description) return;
@@ -126,55 +142,47 @@
       entryForm = { account_code: '', entry_date: new Date().toISOString().split('T')[0], description: '', debit: 0, credit: 0, document_number: '' };
       const r = await api.get<{ entries: any[] }>('/ext/compliance/ro/saft/entries');
       entries = r.entries ?? [];
-      toast.success('Inregistrare adaugata.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
+      toast.success(m['compliance.ro.saft.toast.entryAdded']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
     finally { creating = false; }
   }
 
   async function deleteEntry(id: string) {
-    if (!confirm('Sterge inregistrarea?')) return;
-    try { await api.delete(`/ext/compliance/ro/saft/entries/${id}`); entries = entries.filter((e) => e.id !== id); }
-    catch (e: any) { toast.error(e?.message ?? 'Error'); }
+        askConfirm(m['compliance.ro.saft.confirmDeleteEntry'](), () => deleteEntryConfirmed(id));
   }
+  async function deleteEntryConfirmed(id: string) {
+    try { await api.delete(`/ext/compliance/ro/saft/entries/${id}`); entries = entries.filter((e) => e.id !== id); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+  }
+
 
   function statusBadge(status: string): string {
     return ({ draft: 'badge-warning', generated: 'badge-info', submitted: 'badge-success' } as Record<string, string>)[status] ?? 'badge-ghost';
   }
 </script>
 
-<div class="space-y-4">
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-xl font-semibold flex items-center gap-2"><FileSpreadsheet size={20} /> SAF-T RO</h1>
-      <p class="text-sm text-base-content/50">Standard Audit File for Tax — generare D.394 XML pentru ANAF</p>
-    </div>
-    <div class="flex gap-2">
-      <button class="btn btn-ghost btn-sm" onclick={loadAll}><RefreshCw size={14} /></button>
-      {#if activeTab === 'exports'}
-        <button class="btn btn-primary btn-sm gap-1" onclick={() => (showCreateModal = true)}><Plus size={14} /> New Export</button>
-      {:else if activeTab === 'accounts'}
-        <button class="btn btn-primary btn-sm gap-1" onclick={() => (showAccountModal = true)}><Plus size={14} /> Add Account</button>
-      {:else}
-        <button class="btn btn-primary btn-sm gap-1" onclick={() => (showEntryModal = true)}><Plus size={14} /> Add Entry</button>
-      {/if}
-    </div>
-  </div>
+<ExtensionPageShell title={m['compliance.ro.saft.title']()} subtitle={m['compliance.ro.saft.subtitle']()}>
+  {#snippet actions()}
+    <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showCreateModal = true)}><Plus size={14} /> {m['compliance.ro.saft.btn.newExport']()}</button>
+    <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showAccountModal = true)}><Plus size={14} /> {m['compliance.ro.saft.btn.addAccount']()}</button>
+    <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showEntryModal = true)}><Plus size={14} /> {m['compliance.ro.saft.btn.addEntry']()}</button>
+  {/snippet}
 
-  <div class="tabs tabs-boxed bg-base-200 w-fit">
-    {#each [['exports', 'Exports'], ['accounts', 'Accounts'], ['entries', 'Journal Entries']] as [tab, label]}
+<div class="tabs tabs-boxed bg-base-200 w-fit">
+    {#each [['exports', m['compliance.ro.saft.tab.exports']()], ['accounts', m['compliance.ro.saft.tab.accounts']()], ['entries', m['compliance.ro.saft.tab.entries']()]] as [tab, label]}
       <button class="tab {activeTab === tab ? 'tab-active' : ''}" onclick={() => (activeTab = tab as any)}>{label}</button>
     {/each}
-  </div>
+</div>
 
-  {#if loading}
+{#if loading}
     <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
   {:else if activeTab === 'exports'}
     {#if exports_.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">No SAF-T exports yet.</div></div>
+      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{m['compliance.ro.saft.emptyExports']()}</div></div>
     {:else}
       <div class="overflow-x-auto">
         <table class="table table-sm">
-          <thead><tr><th>Period</th><th>Company</th><th>CUI</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>{m['compliance.ro.saft.col.period']()}</th><th>{m['compliance.ro.saft.col.company']()}</th><th>{m['compliance.ro.saft.col.cui']()}</th><th>{m['common.col.status']()}</th><th></th></tr></thead>
           <tbody>
             {#each exports_ as exp (exp.id)}
               <tr class="hover">
@@ -185,7 +193,7 @@
                 <td>
                   <div class="flex gap-1">
                     {#if exp.status === 'draft'}
-                      <button class="btn btn-ghost btn-xs" onclick={() => generateXML(exp.id)}>XML</button>
+                      <button class="btn btn-ghost btn-xs" onclick={() => generateXML(exp.id)}>{m['compliance.ro.saft.btn.generateXml']()}</button>
                     {/if}
                     {#if exp.status !== 'draft'}
                       <button class="btn btn-ghost btn-xs" onclick={() => downloadXML(exp.id, exp.period_start, exp.period_end)}>
@@ -214,10 +222,10 @@
   {:else if activeTab === 'accounts'}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Code</th><th>Description</th><th>Type</th><th></th></tr></thead>
+        <thead><tr><th>{m['common.col.code']()}</th><th>{m['common.col.description']()}</th><th>{m['common.col.type']()}</th><th></th></tr></thead>
         <tbody>
           {#if accounts.length === 0}
-            <tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">No accounts defined.</td></tr>
+            <tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">{m['compliance.ro.saft.ui.no_accounts_defined']()}</td></tr>
           {:else}
             {#each accounts as acc (acc.id)}
               <tr class="hover">
@@ -235,10 +243,10 @@
   {:else}
     <div class="overflow-x-auto">
       <table class="table table-sm">
-        <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Document</th><th class="text-right">Debit</th><th class="text-right">Credit</th><th></th></tr></thead>
+        <thead><tr><th>{m['common.col.date']()}</th><th>{m['common.col.account']()}</th><th>{m['common.col.description']()}</th><th>{m['compliance.ro.saft.col.document']()}</th><th class="text-right">{m['common.col.debit']()}</th><th class="text-right">{m['common.col.credit']()}</th><th></th></tr></thead>
         <tbody>
           {#if entries.length === 0}
-            <tr><td colspan="7" class="text-center py-6 text-base-content/50 text-sm">No journal entries.</td></tr>
+            <tr><td colspan="7" class="text-center py-6 text-base-content/50 text-sm">{m['compliance.ro.saft.ui.no_journal_entries']()}</td></tr>
           {:else}
             {#each entries as entry (entry.id)}
               <tr class="hover">
@@ -256,40 +264,51 @@
       </table>
     </div>
   {/if}
-</div>
+
+<ConfirmModal
+  open={confirmState.open}
+  title={confirmState.title}
+  message={confirmState.message}
+  confirmLabel={confirmState.confirmLabel}
+  confirmClass={confirmState.confirmClass}
+  onconfirm={runConfirmAction}
+  oncancel={cancelConfirm}
+/>
+
+</ExtensionPageShell>
 
 {#if showCreateModal}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">New SAF-T Export</h3>
+      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.saft.ui.new_saf_t_export']()}</h3>
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label" for="saft-start"><span class="label-text text-xs">Period start</span></label>
+            <label class="label" for="saft-start"><span class="label-text text-xs">{m['compliance.ro.saft.ui.period_start']()}</span></label>
             <input id="saft-start" type="date" bind:value={exportForm.period_start} class="input input-sm" />
           </div>
           <div class="form-control">
-            <label class="label" for="saft-end"><span class="label-text text-xs">Period end</span></label>
+            <label class="label" for="saft-end"><span class="label-text text-xs">{m['compliance.ro.saft.ui.period_end']()}</span></label>
             <input id="saft-end" type="date" bind:value={exportForm.period_end} class="input input-sm" />
           </div>
         </div>
         <div class="form-control">
-          <label class="label" for="saft-company"><span class="label-text text-xs">Company name</span></label>
-          <input id="saft-company" type="text" bind:value={exportForm.company_name} placeholder="SC Example SRL" class="input input-sm" />
+          <label class="label" for="saft-company"><span class="label-text text-xs">{m['compliance.ro.efactura.ui.company_name']()}</span></label>
+          <input id="saft-company" type="text" bind:value={exportForm.company_name} placeholder={m['compliance.ro.saft.ui.sc_example_srl']()} class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label" for="saft-cui"><span class="label-text text-xs">CUI/CIF</span></label>
-          <input id="saft-cui" type="text" bind:value={exportForm.company_cui} placeholder="RO12345678" class="input input-sm font-mono" />
+          <label class="label" for="saft-cui"><span class="label-text text-xs">{m['compliance.ro.efactura.ui.cui_cif']()}</span></label>
+          <input id="saft-cui" type="text" bind:value={exportForm.company_cui} placeholder={m['compliance.ro.saft.ui.ro12345678']()} class="input input-sm font-mono" />
         </div>
         <div class="form-control">
-          <label class="label" for="saft-address"><span class="label-text text-xs">Address (optional)</span></label>
-          <input id="saft-address" type="text" bind:value={exportForm.company_address} placeholder="Str. Exemplu nr. 1, București" class="input input-sm" />
+          <label class="label" for="saft-address"><span class="label-text text-xs">{m['compliance.ro.saft.ui.address_optional']()}</span></label>
+          <input id="saft-address" type="text" bind:value={exportForm.company_address} placeholder={m['compliance.ro.saft.ui.str_exemplu_nr_1_bucure_ti']()} class="input input-sm" />
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={createExport} disabled={creating || !exportForm.company_name || !exportForm.company_cui}>
-          {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if} Create Export
+          {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if} {m['compliance.ro.saft.btn.createExport']()}
         </button>
       </div>
     </div>
@@ -300,28 +319,28 @@
 {#if showAccountModal}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-sm">
-      <h3 class="font-bold text-lg mb-4">Add Account</h3>
+      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.saft.ui.add_account']()}</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label" for="acc-code"><span class="label-text text-xs">Account code</span></label>
+          <label class="label" for="acc-code"><span class="label-text text-xs">{m['compliance.ro.saft.ui.account_code']()}</span></label>
           <input id="acc-code" type="text" bind:value={accountForm.code} placeholder="101" class="input input-sm font-mono" />
         </div>
         <div class="form-control">
-          <label class="label" for="acc-desc"><span class="label-text text-xs">Description</span></label>
-          <input id="acc-desc" type="text" bind:value={accountForm.description} placeholder="Capital social" class="input input-sm" />
+          <label class="label" for="acc-desc"><span class="label-text text-xs">{m['common.col.description']()}</span></label>
+          <input id="acc-desc" type="text" bind:value={accountForm.description} placeholder={m['compliance.ro.saft.ui.capital_social']()} class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label" for="acc-type"><span class="label-text text-xs">Type</span></label>
+          <label class="label" for="acc-type"><span class="label-text text-xs">{m['common.col.type']()}</span></label>
           <select id="acc-type" bind:value={accountForm.account_type} class="select select-sm">
-            <option value="balance">Balance</option>
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
+            <option value="balance">{m['common.col.balance']()}</option>
+            <option value="income">{m['compliance.ro.saft.ui.income']()}</option>
+            <option value="expense">{m['compliance.ro.saft.ui.expense']()}</option>
           </select>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showAccountModal = false)}>Cancel</button>
-        <button class="btn btn-primary" onclick={createAccount} disabled={creating || !accountForm.code || !accountForm.description}>Add</button>
+        <button class="btn btn-ghost" onclick={() => (showAccountModal = false)}>{m['common.cancel']()}</button>
+        <button class="btn btn-primary" onclick={createAccount} disabled={creating || !accountForm.code || !accountForm.description}>{m['compliance.ro.saft.ui.add']()}</button>
       </div>
     </div>
     <button class="modal-backdrop" onclick={() => (showAccountModal = false)}></button>
@@ -331,40 +350,40 @@
 {#if showEntryModal}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">Add Journal Entry</h3>
+      <h3 class="font-bold text-lg mb-4">{m['compliance.ro.saft.ui.add_journal_entry']()}</h3>
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label" for="entry-date"><span class="label-text text-xs">Date</span></label>
+            <label class="label" for="entry-date"><span class="label-text text-xs">{m['common.col.date']()}</span></label>
             <input id="entry-date" type="date" bind:value={entryForm.entry_date} class="input input-sm" />
           </div>
           <div class="form-control">
-            <label class="label" for="entry-account"><span class="label-text text-xs">Account code</span></label>
+            <label class="label" for="entry-account"><span class="label-text text-xs">{m['compliance.ro.saft.ui.account_code']()}</span></label>
             <input id="entry-account" type="text" bind:value={entryForm.account_code} placeholder="101" class="input input-sm font-mono" />
           </div>
         </div>
         <div class="form-control">
-          <label class="label" for="entry-desc"><span class="label-text text-xs">Description</span></label>
-          <input id="entry-desc" type="text" bind:value={entryForm.description} placeholder="Entry description" class="input input-sm" />
+          <label class="label" for="entry-desc"><span class="label-text text-xs">{m['common.col.description']()}</span></label>
+          <input id="entry-desc" type="text" bind:value={entryForm.description} placeholder={m['compliance.ro.saft.ui.entry_description']()} class="input input-sm" />
         </div>
         <div class="form-control">
-          <label class="label" for="entry-doc"><span class="label-text text-xs">Document number (optional)</span></label>
-          <input id="entry-doc" type="text" bind:value={entryForm.document_number} placeholder="FAC-2026-001" class="input input-sm font-mono" />
+          <label class="label" for="entry-doc"><span class="label-text text-xs">{m['compliance.ro.saft.ui.document_number_optional']()}</span></label>
+          <input id="entry-doc" type="text" bind:value={entryForm.document_number} placeholder={m['compliance.ro.efactura.ui.fac_2026_001']()} class="input input-sm font-mono" />
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label" for="entry-debit"><span class="label-text text-xs">Debit (RON)</span></label>
+            <label class="label" for="entry-debit"><span class="label-text text-xs">{m['compliance.ro.saft.ui.debit_ron']()}</span></label>
             <input id="entry-debit" type="number" step="0.01" bind:value={entryForm.debit} class="input input-sm font-mono" />
           </div>
           <div class="form-control">
-            <label class="label" for="entry-credit"><span class="label-text text-xs">Credit (RON)</span></label>
+            <label class="label" for="entry-credit"><span class="label-text text-xs">{m['compliance.ro.saft.ui.credit_ron']()}</span></label>
             <input id="entry-credit" type="number" step="0.01" bind:value={entryForm.credit} class="input input-sm font-mono" />
           </div>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showEntryModal = false)}>Cancel</button>
-        <button class="btn btn-primary" onclick={createEntry} disabled={creating || !entryForm.account_code || !entryForm.description}>Add Entry</button>
+        <button class="btn btn-ghost" onclick={() => (showEntryModal = false)}>{m['common.cancel']()}</button>
+        <button class="btn btn-primary" onclick={createEntry} disabled={creating || !entryForm.account_code || !entryForm.description}>{m['compliance.ro.saft.ui.add_entry']()}</button>
       </div>
     </div>
     <button class="modal-backdrop" onclick={() => (showEntryModal = false)}></button>

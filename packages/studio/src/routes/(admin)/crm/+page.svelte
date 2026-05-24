@@ -2,10 +2,11 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
   import { toast } from '$lib/stores/toast.svelte.js';
-  import {
-    Plus, Trash2, X, LoaderCircle, Users, Building2,
-    TrendingUp, Phone, Mail, Search,
-  } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { Plus, Trash2, X, LoaderCircle, Users, Building2, TrendingUp } from '@lucide/svelte';
 
   type Contact = {
     id: string; first_name: string; last_name: string; email: string | null;
@@ -22,7 +23,9 @@
     created_at: string;
   };
 
-  let tab = $state<'contacts' | 'organizations' | 'deals'>('contacts');
+  type TabId = 'contacts' | 'organizations' | 'deals';
+
+  let tab = $state<TabId>('contacts');
   let contacts = $state<Contact[]>([]);
   let orgs = $state<Organization[]>([]);
   let deals = $state<Deal[]>([]);
@@ -36,9 +39,27 @@
   let orgForm = $state({ name: '', industry: '', website: '', email: '', phone: '', city: '' });
   let dealForm = $state({ title: '', stage: 'prospecting', value: '', currency: 'RON', expected_close_date: '' });
 
-  const DEAL_STAGES = ['prospecting', 'qualification', 'proposal', 'negotiation', 'closed_won', 'closed_lost'];
+  const DEAL_STAGES = ['prospecting', 'qualification', 'proposal', 'negotiation', 'closed_won', 'closed_lost'] as const;
+
+  const tabs = $derived([
+    { id: 'contacts' as const, label: m['crm.tab.contacts'](), icon: Users },
+    { id: 'organizations' as const, label: m['crm.tab.organizations'](), icon: Building2 },
+    { id: 'deals' as const, label: m['crm.tab.deals'](), icon: TrendingUp },
+  ]);
+
+  let confirmDelete = $state<{ open: boolean; id: string; endpoint: string }>({
+    open: false, id: '', endpoint: '',
+  });
+
+  const dash = $derived(m['common.emptyDash']());
 
   onMount(() => loadTab());
+
+  function stageLabel(stage: string): string {
+    const key = `crm.stage.${stage}` as 'crm.stage.prospecting';
+    const msg = (m as Record<string, (() => string) | undefined>)[key];
+    return msg?.() ?? stage.replace(/_/g, ' ');
+  }
 
   async function loadTab() {
     loading = true;
@@ -53,8 +74,8 @@
         const r = await api.get<{ data: Deal[] }>('/ext/crm/transactions');
         deals = r.data ?? [];
       }
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to load');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
     } finally {
       loading = false;
     }
@@ -63,15 +84,33 @@
   $effect(() => { tab; loadTab(); });
 
   const filteredContacts = $derived(
-    contacts.filter(c =>
-      !search || `${c.first_name} ${c.last_name} ${c.email ?? ''} ${c.company ?? ''}`.toLowerCase().includes(search.toLowerCase())
-    )
+    contacts.filter((c) =>
+      !search || `${c.first_name} ${c.last_name} ${c.email ?? ''} ${c.company ?? ''}`.toLowerCase().includes(search.toLowerCase()),
+    ),
   );
   const filteredOrgs = $derived(
-    orgs.filter(o => !search || o.name.toLowerCase().includes(search.toLowerCase()))
+    orgs.filter((o) => !search || o.name.toLowerCase().includes(search.toLowerCase())),
   );
   const filteredDeals = $derived(
-    deals.filter(d => !search || d.title.toLowerCase().includes(search.toLowerCase()))
+    deals.filter((d) => !search || d.title.toLowerCase().includes(search.toLowerCase())),
+  );
+
+  const listEmpty = $derived(
+    tab === 'contacts' ? filteredContacts.length === 0
+      : tab === 'organizations' ? filteredOrgs.length === 0
+        : filteredDeals.length === 0,
+  );
+
+  const emptyCopy = $derived(
+    tab === 'contacts' ? { title: m['crm.empty.contacts'](), description: '' }
+      : tab === 'organizations' ? { title: m['crm.empty.organizations'](), description: '' }
+        : { title: m['crm.empty.deals'](), description: '' },
+  );
+
+  const modalTitle = $derived(
+    tab === 'contacts' ? m['crm.form.newContact']()
+      : tab === 'organizations' ? m['crm.form.newOrganization']()
+        : m['crm.form.newDeal'](),
   );
 
   async function createContact() {
@@ -82,9 +121,12 @@
       contacts = [r.data, ...contacts];
       contactForm = { first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '' };
       showModal = false;
-      toast.success('Contact created.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
-    finally { saving = false; }
+      toast.success(m['crm.toast.contactCreated']());
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    } finally {
+      saving = false;
+    }
   }
 
   async function createOrg() {
@@ -95,9 +137,12 @@
       orgs = [r.data, ...orgs];
       orgForm = { name: '', industry: '', website: '', email: '', phone: '', city: '' };
       showModal = false;
-      toast.success('Organization created.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
-    finally { saving = false; }
+      toast.success(m['crm.toast.orgCreated']());
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    } finally {
+      saving = false;
+    }
   }
 
   async function createDeal() {
@@ -111,230 +156,309 @@
       deals = [r.data, ...deals];
       dealForm = { title: '', stage: 'prospecting', value: '', currency: 'RON', expected_close_date: '' };
       showModal = false;
-      toast.success('Deal created.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
-    finally { saving = false; }
+      toast.success(m['crm.toast.dealCreated']());
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    } finally {
+      saving = false;
+    }
   }
 
-  async function deleteItem(id: string, endpoint: string) {
-    if (!confirm('Delete this item?')) return;
+  function requestDelete(id: string, endpoint: string) {
+    confirmDelete = { open: true, id, endpoint };
+  }
+
+  async function confirmDeleteItem() {
+    const { id, endpoint } = confirmDelete;
+    confirmDelete = { open: false, id: '', endpoint: '' };
     deleting = id;
     try {
       await api.delete(`${endpoint}/${id}`);
-      if (tab === 'contacts') contacts = contacts.filter(c => c.id !== id);
-      else if (tab === 'organizations') orgs = orgs.filter(o => o.id !== id);
-      else deals = deals.filter(d => d.id !== id);
-      toast.success('Deleted.');
-    } catch (e: any) { toast.error(e?.message ?? 'Error'); }
-    finally { deleting = null; }
+      if (tab === 'contacts') contacts = contacts.filter((c) => c.id !== id);
+      else if (tab === 'organizations') orgs = orgs.filter((o) => o.id !== id);
+      else deals = deals.filter((d) => d.id !== id);
+      toast.success(m['ext.deleted']());
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    } finally {
+      deleting = null;
+    }
   }
 
   const stageColor: Record<string, string> = {
-    prospecting: 'badge-ghost', qualification: 'badge-info', proposal: 'badge-warning',
-    negotiation: 'badge-warning', closed_won: 'badge-success', closed_lost: 'badge-error',
+    prospecting: 'badge-ghost',
+    qualification: 'badge-info',
+    proposal: 'badge-warning',
+    negotiation: 'badge-warning',
+    closed_won: 'badge-success',
+    closed_lost: 'badge-error',
   };
+
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString();
+  }
 </script>
 
-<div class="space-y-4">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-xl font-semibold">CRM</h1>
-      <p class="text-sm text-base-content/50">Contacts, organizations and deals</p>
-    </div>
-    <button class="btn btn-primary btn-sm gap-1" onclick={() => (showModal = true)}>
-      <Plus size={14} /> New
+<ExtensionPageShell
+  title={m['crm.title']()}
+  subtitle={m['crm.subtitle']()}
+  {tabs}
+  activeTab={tab}
+  onTabChange={(id) => (tab = id as TabId)}
+  {search}
+  onSearchChange={(v) => (search = v)}
+  searchPlaceholder={m['common.search']()}
+>
+  {#snippet actions()}
+    <button type="button" class="btn btn-primary btn-sm gap-1" onclick={() => (showModal = true)}>
+      <Plus size={14} aria-hidden="true" />
+      {m['common.new']()}
     </button>
-  </div>
+  {/snippet}
 
-  <!-- Tabs -->
-  <div class="tabs tabs-boxed bg-base-200 w-fit">
-    <button class="tab {tab === 'contacts' ? 'tab-active' : ''}" onclick={() => (tab = 'contacts')}>
-      <Users size={13} class="mr-1.5" /> Contacts
-    </button>
-    <button class="tab {tab === 'organizations' ? 'tab-active' : ''}" onclick={() => (tab = 'organizations')}>
-      <Building2 size={13} class="mr-1.5" /> Organizations
-    </button>
-    <button class="tab {tab === 'deals' ? 'tab-active' : ''}" onclick={() => (tab = 'deals')}>
-      <TrendingUp size={13} class="mr-1.5" /> Deals
-    </button>
-  </div>
-
-  <!-- Search -->
-  <div class="relative max-w-xs">
-    <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/30" />
-    <input class="input input-sm pl-8 w-full" placeholder="Search…" bind:value={search} />
-  </div>
-
-  <!-- Content -->
-  {#if loading}
-    <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
-  {:else if tab === 'contacts'}
-    {#if filteredContacts.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-16 text-base-content/40 text-sm">No contacts found</div></div>
-    {:else}
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Added</th><th></th></tr></thead>
-          <tbody>
-            {#each filteredContacts as c (c.id)}
-              <tr class="hover">
-                <td class="font-medium">{c.first_name} {c.last_name}</td>
-                <td class="text-base-content/60">{c.email ?? '—'}</td>
-                <td class="text-base-content/60">{c.phone ?? '—'}</td>
-                <td class="text-base-content/60">{c.company ?? '—'}</td>
-                <td class="text-xs text-base-content/40">{new Date(c.created_at).toLocaleDateString()}</td>
-                <td>
-                  <button class="btn btn-ghost btn-xs text-error" disabled={deleting === c.id}
-                    onclick={() => deleteItem(c.id, '/ext/crm/contacts')}>
-                    {#if deleting === c.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
-                  </button>
-                </td>
+    <ExtensionDataPanel
+      {loading}
+      empty={!loading && listEmpty}
+      emptyTitle={emptyCopy.title}
+      emptyDescription={emptyCopy.description}
+    >
+      {#snippet table()}
+        {#if tab === 'contacts'}
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>{m['crm.col.name']()}</th>
+                <th>{m['crm.col.email']()}</th>
+                <th>{m['crm.col.phone']()}</th>
+                <th>{m['crm.col.company']()}</th>
+                <th>{m['common.added']()}</th>
+                <th><span class="sr-only">{m['common.actions']()}</span></th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-
-  {:else if tab === 'organizations'}
-    {#if filteredOrgs.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-16 text-base-content/40 text-sm">No organizations found</div></div>
-    {:else}
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead><tr><th>Name</th><th>Industry</th><th>Email</th><th>City</th><th>Added</th><th></th></tr></thead>
-          <tbody>
-            {#each filteredOrgs as o (o.id)}
-              <tr class="hover">
-                <td class="font-medium">{o.name}</td>
-                <td class="text-base-content/60">{o.industry ?? '—'}</td>
-                <td class="text-base-content/60">{o.email ?? '—'}</td>
-                <td class="text-base-content/60">{o.city ?? '—'}</td>
-                <td class="text-xs text-base-content/40">{new Date(o.created_at).toLocaleDateString()}</td>
-                <td>
-                  <button class="btn btn-ghost btn-xs text-error" disabled={deleting === o.id}
-                    onclick={() => deleteItem(o.id, '/ext/crm/organizations')}>
-                    {#if deleting === o.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
-                  </button>
-                </td>
+            </thead>
+            <tbody>
+              {#each filteredContacts as c (c.id)}
+                <tr class="hover">
+                  <td class="font-medium">{c.first_name} {c.last_name}</td>
+                  <td class="text-base-content/60">{c.email ?? dash}</td>
+                  <td class="text-base-content/60">{c.phone ?? dash}</td>
+                  <td class="text-base-content/60">{c.company ?? dash}</td>
+                  <td class="text-xs text-base-content/40">{formatDate(c.created_at)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs text-error"
+                      disabled={deleting === c.id}
+                      aria-label={m['common.delete']()}
+                      onclick={() => requestDelete(c.id, '/ext/crm/contacts')}
+                    >
+                      {#if deleting === c.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else if tab === 'organizations'}
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>{m['crm.col.name']()}</th>
+                <th>{m['crm.col.industry']()}</th>
+                <th>{m['crm.col.email']()}</th>
+                <th>{m['crm.col.city']()}</th>
+                <th>{m['common.added']()}</th>
+                <th><span class="sr-only">{m['common.actions']()}</span></th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-
-  {:else}
-    {#if filteredDeals.length === 0}
-      <div class="card bg-base-200"><div class="card-body items-center py-16 text-base-content/40 text-sm">No deals found</div></div>
-    {:else}
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead><tr><th>Title</th><th>Stage</th><th>Value</th><th>Close Date</th><th>Added</th><th></th></tr></thead>
-          <tbody>
-            {#each filteredDeals as d (d.id)}
-              <tr class="hover">
-                <td class="font-medium">{d.title}</td>
-                <td><span class="badge badge-sm {stageColor[d.stage] ?? 'badge-ghost'}">{d.stage.replace('_', ' ')}</span></td>
-                <td class="text-base-content/70">{d.value != null ? `${d.value.toLocaleString()} ${d.currency}` : '—'}</td>
-                <td class="text-xs text-base-content/50">{d.expected_close_date ? new Date(d.expected_close_date).toLocaleDateString() : '—'}</td>
-                <td class="text-xs text-base-content/40">{new Date(d.created_at).toLocaleDateString()}</td>
-                <td>
-                  <button class="btn btn-ghost btn-xs text-error" disabled={deleting === d.id}
-                    onclick={() => deleteItem(d.id, '/ext/crm/transactions')}>
-                    {#if deleting === d.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
-                  </button>
-                </td>
+            </thead>
+            <tbody>
+              {#each filteredOrgs as o (o.id)}
+                <tr class="hover">
+                  <td class="font-medium">{o.name}</td>
+                  <td class="text-base-content/60">{o.industry ?? dash}</td>
+                  <td class="text-base-content/60">{o.email ?? dash}</td>
+                  <td class="text-base-content/60">{o.city ?? dash}</td>
+                  <td class="text-xs text-base-content/40">{formatDate(o.created_at)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs text-error"
+                      disabled={deleting === o.id}
+                      aria-label={m['common.delete']()}
+                      onclick={() => requestDelete(o.id, '/ext/crm/organizations')}
+                    >
+                      {#if deleting === o.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>{m['crm.col.title']()}</th>
+                <th>{m['crm.col.stage']()}</th>
+                <th>{m['crm.col.value']()}</th>
+                <th>{m['crm.col.closeDate']()}</th>
+                <th>{m['common.added']()}</th>
+                <th><span class="sr-only">{m['common.actions']()}</span></th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-  {/if}
-</div>
+            </thead>
+            <tbody>
+              {#each filteredDeals as d (d.id)}
+                <tr class="hover">
+                  <td class="font-medium">{d.title}</td>
+                  <td><span class="badge badge-sm {stageColor[d.stage] ?? 'badge-ghost'}">{stageLabel(d.stage)}</span></td>
+                  <td class="text-base-content/70">{d.value != null ? `${d.value.toLocaleString()} ${d.currency}` : dash}</td>
+                  <td class="text-xs text-base-content/50">{d.expected_close_date ? formatDate(d.expected_close_date) : dash}</td>
+                  <td class="text-xs text-base-content/40">{formatDate(d.created_at)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs text-error"
+                      disabled={deleting === d.id}
+                      aria-label={m['common.delete']()}
+                      onclick={() => requestDelete(d.id, '/ext/crm/transactions')}
+                    >
+                      {#if deleting === d.id}<LoaderCircle size={12} class="animate-spin" />{:else}<Trash2 size={12} />{/if}
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      {/snippet}
+    </ExtensionDataPanel>
+</ExtensionPageShell>
 
-<!-- Create Modal -->
+<ConfirmModal
+  open={confirmDelete.open}
+  title={m['common.delete']()}
+  message={m['ext.confirmDelete']()}
+  confirmLabel={m['common.delete']()}
+  onconfirm={confirmDeleteItem}
+  oncancel={() => (confirmDelete = { open: false, id: '', endpoint: '' })}
+/>
+
 {#if showModal}
-  <div class="modal modal-open">
+  <dialog class="modal modal-open" aria-labelledby="crm-create-title">
     <div class="modal-box max-w-md">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold">
-          {tab === 'contacts' ? 'New Contact' : tab === 'organizations' ? 'New Organization' : 'New Deal'}
-        </h3>
-        <button class="btn btn-ghost btn-xs" onclick={() => (showModal = false)}><X size={14} /></button>
+        <h3 id="crm-create-title" class="font-semibold">{modalTitle}</h3>
+        <button type="button" class="btn btn-ghost btn-xs" aria-label={m['common.cancel']()} onclick={() => (showModal = false)}>
+          <X size={14} />
+        </button>
       </div>
 
       {#if tab === 'contacts'}
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">First Name *</span></label>
-            <input class="input input-sm" bind:value={contactForm.first_name} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Last Name</span></label>
-            <input class="input input-sm" bind:value={contactForm.last_name} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Email</span></label>
-            <input class="input input-sm" type="email" bind:value={contactForm.email} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Phone</span></label>
-            <input class="input input-sm" bind:value={contactForm.phone} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Company</span></label>
-            <input class="input input-sm" bind:value={contactForm.company} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Job Title</span></label>
-            <input class="input input-sm" bind:value={contactForm.job_title} /></div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.form.firstName']()} *</span></label>
+            <input class="input input-sm" bind:value={contactForm.first_name} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.form.lastName']()}</span></label>
+            <input class="input input-sm" bind:value={contactForm.last_name} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.email']()}</span></label>
+            <input class="input input-sm" type="email" bind:value={contactForm.email} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.phone']()}</span></label>
+            <input class="input input-sm" bind:value={contactForm.phone} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.company']()}</span></label>
+            <input class="input input-sm" bind:value={contactForm.company} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.form.jobTitle']()}</span></label>
+            <input class="input input-sm" bind:value={contactForm.job_title} />
+          </div>
         </div>
         <div class="modal-action mt-4">
-          <button class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>Cancel</button>
-          <button class="btn btn-primary btn-sm gap-1" onclick={createContact} disabled={!contactForm.first_name.trim() || saving}>
-            {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} Create
+          <button type="button" class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
+          <button type="button" class="btn btn-primary btn-sm gap-1" onclick={createContact} disabled={!contactForm.first_name.trim() || saving}>
+            {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if}
+            {m['common.create']()}
           </button>
         </div>
 
       {:else if tab === 'organizations'}
         <div class="grid grid-cols-2 gap-3">
-          <div class="form-control col-span-2"><label class="label py-0"><span class="label-text text-xs">Name *</span></label>
-            <input class="input input-sm" bind:value={orgForm.name} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Industry</span></label>
-            <input class="input input-sm" bind:value={orgForm.industry} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">City</span></label>
-            <input class="input input-sm" bind:value={orgForm.city} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Email</span></label>
-            <input class="input input-sm" type="email" bind:value={orgForm.email} /></div>
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Phone</span></label>
-            <input class="input input-sm" bind:value={orgForm.phone} /></div>
-          <div class="form-control col-span-2"><label class="label py-0"><span class="label-text text-xs">Website</span></label>
-            <input class="input input-sm" bind:value={orgForm.website} /></div>
+          <div class="form-control col-span-2">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.name']()} *</span></label>
+            <input class="input input-sm" bind:value={orgForm.name} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.industry']()}</span></label>
+            <input class="input input-sm" bind:value={orgForm.industry} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.city']()}</span></label>
+            <input class="input input-sm" bind:value={orgForm.city} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.email']()}</span></label>
+            <input class="input input-sm" type="email" bind:value={orgForm.email} />
+          </div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.phone']()}</span></label>
+            <input class="input input-sm" bind:value={orgForm.phone} />
+          </div>
+          <div class="form-control col-span-2">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.form.website']()}</span></label>
+            <input class="input input-sm" bind:value={orgForm.website} />
+          </div>
         </div>
         <div class="modal-action mt-4">
-          <button class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>Cancel</button>
-          <button class="btn btn-primary btn-sm gap-1" onclick={createOrg} disabled={!orgForm.name.trim() || saving}>
-            {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} Create
+          <button type="button" class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
+          <button type="button" class="btn btn-primary btn-sm gap-1" onclick={createOrg} disabled={!orgForm.name.trim() || saving}>
+            {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if}
+            {m['common.create']()}
           </button>
         </div>
 
       {:else}
         <div class="space-y-3">
-          <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Title *</span></label>
-            <input class="input input-sm" bind:value={dealForm.title} /></div>
+          <div class="form-control">
+            <label class="label py-0"><span class="label-text text-xs">{m['crm.col.title']()} *</span></label>
+            <input class="input input-sm" bind:value={dealForm.title} />
+          </div>
           <div class="grid grid-cols-2 gap-3">
-            <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Stage</span></label>
+            <div class="form-control">
+              <label class="label py-0"><span class="label-text text-xs">{m['crm.form.stage']()}</span></label>
               <select class="select select-sm" bind:value={dealForm.stage}>
-                {#each DEAL_STAGES as s}<option value={s}>{s.replace('_', ' ')}</option>{/each}
+                {#each DEAL_STAGES as s}
+                  <option value={s}>{stageLabel(s)}</option>
+                {/each}
               </select>
             </div>
-            <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Value</span></label>
-              <input class="input input-sm" type="number" bind:value={dealForm.value} /></div>
-            <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Currency</span></label>
-              <input class="input input-sm" bind:value={dealForm.currency} /></div>
-            <div class="form-control"><label class="label py-0"><span class="label-text text-xs">Close Date</span></label>
-              <input class="input input-sm" type="date" bind:value={dealForm.expected_close_date} /></div>
+            <div class="form-control">
+              <label class="label py-0"><span class="label-text text-xs">{m['crm.col.value']()}</span></label>
+              <input class="input input-sm" type="number" bind:value={dealForm.value} />
+            </div>
+            <div class="form-control">
+              <label class="label py-0"><span class="label-text text-xs">{m['crm.form.currency']()}</span></label>
+              <input class="input input-sm" bind:value={dealForm.currency} />
+            </div>
+            <div class="form-control">
+              <label class="label py-0"><span class="label-text text-xs">{m['crm.col.closeDate']()}</span></label>
+              <input class="input input-sm" type="date" bind:value={dealForm.expected_close_date} />
+            </div>
           </div>
         </div>
         <div class="modal-action mt-4">
-          <button class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>Cancel</button>
-          <button class="btn btn-primary btn-sm gap-1" onclick={createDeal} disabled={!dealForm.title.trim() || saving}>
-            {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if} Create
+          <button type="button" class="btn btn-ghost btn-sm" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
+          <button type="button" class="btn btn-primary btn-sm gap-1" onclick={createDeal} disabled={!dealForm.title.trim() || saving}>
+            {#if saving}<LoaderCircle size={13} class="animate-spin" />{/if}
+            {m['common.create']()}
           </button>
         </div>
       {/if}
     </div>
-  </div>
+  </dialog>
 {/if}

@@ -784,6 +784,27 @@ Hot-reload:
 
 ## 10. Studio: pages, field types, form alters, slots
 
+### Synced extension pages (v2) + i18n
+
+Many extensions ship `studio/pages/+page.svelte` under the extension repo.
+At install/sync time these are copied into Studio's route tree
+(`packages/studio/src/routes/(admin)/…`). In page code, import Studio libs
+via `$lib/…` (same as core pages).
+
+**All user-visible strings must use Paraglide** — add keys under
+`<your-extension>/studio/messages/{en,ro,fr,de}.json` (one file per locale).
+Studio merges extension messages with `messages/core/` at build time.
+Run `bun run i18n:compile` in `packages/studio`. Use `import { m } from '$lib/i18n.svelte.js'`
+and `m['your.namespace.key']()` in templates (namespace = extension id with dots, e.g. `finance.quotes`).
+
+**Layout:** use `ExtensionPageShell`, `ExtensionDataPanel`, and `ConfirmModal`
+instead of ad-hoc headers / `confirm()`. See
+`packages/studio/src/lib/components/extension/README.md`.
+
+**Sidebar grouping:** set `studio.navGroup` in `manifest.json` (`business`,
+`finance`, `hr`, …). Extension labels in the nav come from the manifest
+`displayName` / page `label` (not translated).
+
 ### Pages
 
 ```typescript
