@@ -42,7 +42,6 @@
 </script>
 
 <ExtensionPageShell title={m['developer.database.title']()} subtitle={m['developer.database.subtitle']()}>
-  {#snippet children()}
 <div class="grid grid-cols-12 gap-4">
     <aside class="col-span-3">
       <div class="card bg-base-200 border border-base-300">
@@ -130,13 +129,4 @@
       {/if}
     </main>
   </div>
-  {/snippet}
 </ExtensionPageShell>
-{#if rows.length > 50}<div class="text-xs text-base-content/50 mt-2">{m['developer.database.showingRows']({ n: String(rowCount) })}.</div>{/if}
-            </div>
-          </div>
-        </div>
-      {/if}
-    </main>
-  </div>
-</div>

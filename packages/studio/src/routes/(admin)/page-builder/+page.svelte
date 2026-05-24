@@ -152,7 +152,6 @@
 </script>
 
 <ExtensionPageShell title={m['content.page-builder.title']()} subtitle={m['content.page-builder.subtitle']()}>
-  {#snippet children()}
 <div class="card bg-base-200 border border-base-300">
           <div class="card-body p-4 gap-3">
             <p class="text-xs font-medium text-base-content/70 uppercase tracking-wider">{m['content.page-builder.section.settings']()}</p>
@@ -178,7 +177,6 @@
             </div>
           </div>
         </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}
@@ -191,7 +189,4 @@
 />
 
 </ExtensionPageShell>
-    </div>
-  {/if}
-</div>
 

@@ -58,7 +58,6 @@
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.reports.title']()}>
-  {#snippet children()}
   <div class="p-6 space-y-4 pt-0">
   <div class="flex flex-wrap gap-3 items-end">
     <div>
@@ -139,5 +138,4 @@
     </div>
   {/if}
   </div>
-  {/snippet}
 </ExtensionPageShell>

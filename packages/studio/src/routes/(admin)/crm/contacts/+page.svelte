@@ -83,7 +83,6 @@
   {#snippet actions()}
     <button class="btn btn-primary" onclick={openCreate}>{m['crm.ui.new_contact']()}</button>
   {/snippet}
-  {#snippet children()}
     <div class="space-y-6">
       <div class="form-control w-full max-w-sm">
         <input
@@ -136,7 +135,6 @@
         </div>
       {/if}
     </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

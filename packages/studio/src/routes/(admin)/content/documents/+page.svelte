@@ -97,7 +97,6 @@
 </script>
 
 <ExtensionPageShell title={m['content.documents.title']()} subtitle={m['content.documents.subtitle']()}>
-  {#snippet children()}
 <div class="tabs tabs-boxed bg-base-200 w-fit">
     <button class="tab {tab === 'documents' ? 'tab-active' : ''}" onclick={() => (tab = 'documents')}>
       <FileText size={13} class="mr-1.5" /> {m['content.documents.tab.generated']()}
@@ -181,7 +180,6 @@
       </div>
     {/if}
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

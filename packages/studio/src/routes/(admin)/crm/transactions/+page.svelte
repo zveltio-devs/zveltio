@@ -107,7 +107,6 @@
   {#snippet actions()}
     <button class="btn btn-primary" onclick={openCreate}>{m['crm.ui.new_transaction']()}</button>
   {/snippet}
-  {#snippet children()}
     <div class="space-y-6">
       <div class="flex gap-3">
         <select class="select select-bordered select-sm" bind:value={filterType} onchange={() => { page = 1; loadTransactions(); }}>
@@ -163,7 +162,6 @@
         </div>
       {/if}
     </div>
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}

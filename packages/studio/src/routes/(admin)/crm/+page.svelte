@@ -216,7 +216,6 @@
     </button>
   {/snippet}
 
-  {#snippet children()}
     <ExtensionDataPanel
       {loading}
       empty={!loading && listEmpty}
@@ -332,7 +331,6 @@
         {/if}
       {/snippet}
     </ExtensionDataPanel>
-  {/snippet}
 </ExtensionPageShell>
 
 <ConfirmModal

@@ -88,7 +88,6 @@
     <button class="btn btn-primary btn-sm gap-1" onclick={() => (showCreateModal = true)}><Plus size={14} /> {m['compliance.ro.documents.btn.new']()}</button>
   {/snippet}
 
-  {#snippet children()}
   <div class="flex flex-wrap gap-2">
     <button class="btn btn-sm {filter === 'all' ? 'btn-primary' : 'btn-ghost'}" onclick={() => (filter = 'all')}>{m['common.filter.all']()}</button>
     {#each DOC_TYPES as t}
@@ -130,7 +129,6 @@
       </table>
     </div>
   {/if}
-  {/snippet}
 
 <ConfirmModal
   open={confirmState.open}
