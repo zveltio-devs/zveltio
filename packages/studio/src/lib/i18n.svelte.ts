@@ -15,9 +15,9 @@
  *   <button onclick={() => i18n.setLocale('ro')}>Română</button>
  *
  * Adding a new string:
- *   1. Edit messages/en.json + messages/ro.json (every locale must
- *      have the key, or paraglide-js compile fails).
- *   2. Run `bun run i18n:compile` to regenerate src/lib/paraglide.
+ *   1. Edit messages/core/{locale}.json and/or extension studio/messages/{locale}.json.
+ *   2. Run `bun run i18n:compile` (merge + compile). Locales: en, ro, fr, de.
+ *   See packages/studio/messages/README.md.
  *
  * `paraglide-js` is invoked via the package.json script — wire into CI
  * once we want to fail builds when messages are missing translations.

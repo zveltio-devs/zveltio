@@ -13,18 +13,30 @@
   import { base } from '$app/paths';
   import { page } from '$app/state';
   import Slot from '$lib/components/common/Slot.svelte';
+  import LocaleSwitcher from '$lib/components/common/LocaleSwitcher.svelte';
+  import { m, i18n } from '$lib/i18n.svelte.js';
+  import { navLabel } from '$lib/nav-i18n.js';
+  import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
   import {
-    LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Puzzle, Rows3, Rows2,
+    LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Rows3, Rows2,
   } from '@lucide/svelte';
-  import type { Component } from 'svelte';
-
-  export type NavItem = { href: string; icon: Component; label: string; ext?: string };
-  export type NavGroup = { label?: string; items: NavItem[] };
+  const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
+    business: () => m['nav.group.business'](),
+    finance: () => m['nav.group.finance'](),
+    hr: () => m['nav.group.hr'](),
+    operations: () => m['nav.group.operations'](),
+    compliance: () => m['nav.group.compliance'](),
+    content: () => m['nav.group.content'](),
+    communications: () => m['nav.group.communications'](),
+    developer: () => m['nav.group.developer'](),
+    projects: () => m['nav.group.projects'](),
+    other: () => m['nav.group.other'](),
+  };
 
   interface Props {
     nav: NavGroup[];
-    /** Auto-injected by the extension loader; rendered under an "Extensions" heading. */
-    allExtNav: NavItem[];
+    /** Extension pages grouped by manifest `studio.navGroup` / category. */
+    extNavGroups: ExtensionNavGroup[];
     collapsed: boolean;
     dark: boolean;
     density: 'comfortable' | 'compact';
@@ -36,9 +48,26 @@
   }
 
   let {
-    nav, allExtNav, collapsed, dark, density, user,
+    nav, extNavGroups, collapsed, dark, density, user,
     onToggleCollapse, onToggleDark, onToggleDensity, onSignOut,
   }: Props = $props();
+
+  // Re-run group labels when locale changes.
+  const _locale = $derived(i18n.locale);
+  const groupLabel = (id: ExtensionNavGroupId) => {
+    void _locale;
+    return extGroupLabels[id]();
+  };
+
+  const coreGroupLabel = (key: string | undefined) => {
+    void _locale;
+    return key ? navLabel(key) : undefined;
+  };
+
+  const coreItemLabel = (key: string) => {
+    void _locale;
+    return navLabel(key);
+  };
 
   function isActive(href: string): boolean {
     const cur = page.url.pathname;
@@ -69,10 +98,12 @@
       </a>
     {/if}
     <button
+      type="button"
       onclick={onToggleCollapse}
       class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content shrink-0 {collapsed ? 'mx-auto' : ''}"
-      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      type="button"
+      aria-label={collapsed ? m['shell.expandSidebar']() : m['shell.collapseSidebar']()}
+      title={collapsed ? m['shell.expandSidebar']() : m['shell.collapseSidebar']()}
     >
       {#if collapsed}<PanelLeftOpen size={15} />{:else}<PanelLeftClose size={15} />{/if}
     </button>
@@ -81,11 +112,11 @@
   <!-- Navigation -->
   <nav class="flex-1 overflow-y-auto overflow-x-hidden py-2" aria-label="Primary">
     {#each nav as group, gi}
-      {#if group.label}
+      {#if group.labelKey}
         {#if !collapsed}
           <div class="px-4 {gi > 0 ? 'pt-5' : 'pt-3'} pb-1">
             <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
-              {group.label}
+              {coreGroupLabel(group.labelKey)}
             </span>
           </div>
         {:else}
@@ -98,7 +129,7 @@
         <div class="px-2 py-0.5">
           <a
             href={item.href}
-            title={collapsed ? item.label : undefined}
+            title={collapsed ? coreItemLabel(item.labelKey) : undefined}
             aria-current={active ? 'page' : undefined}
             class="
               flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
@@ -112,25 +143,25 @@
           >
             <item.icon size={16} class="shrink-0" />
             {#if !collapsed}
-              <span class="truncate leading-none">{item.label}</span>
+              <span class="truncate leading-none">{coreItemLabel(item.labelKey)}</span>
             {/if}
           </a>
         </div>
       {/each}
     {/each}
 
-    <!-- Extension routes (manifest-driven) -->
-    {#if allExtNav.length > 0}
+    <!-- Extension routes (manifest-driven, grouped) -->
+    {#each extNavGroups as group (group.id)}
       {#if !collapsed}
         <div class="px-4 pt-5 pb-1">
-          <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/30 flex items-center gap-1 select-none">
-            <Puzzle size={10} /> Extensions
+          <span class="text-[9px] font-medium uppercase tracking-[.12em] text-base-content/25 select-none">
+            {groupLabel(group.id)}
           </span>
         </div>
       {:else}
         <div class="mx-3 my-2.5 h-px bg-base-content/8"></div>
       {/if}
-      {#each allExtNav as item}
+      {#each group.items as item (item.href)}
         {@const active = isActive(item.href)}
         <div class="px-2 py-0.5">
           <a
@@ -150,7 +181,7 @@
           </a>
         </div>
       {/each}
-    {/if}
+    {/each}
   </nav>
 
   <!-- Extension slot — above the footer -->
@@ -160,9 +191,11 @@
 
   <!-- Footer -->
   <div class="shrink-0 px-2 py-2 space-y-0.5 bg-base-200/40">
+    <LocaleSwitcher {collapsed} />
+
     <a
       href="{base}/intranet"
-      title={collapsed ? 'Employee Intranet' : undefined}
+      title={collapsed ? m['shell.intranet']() : undefined}
       class="
         flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
         text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
@@ -171,13 +204,14 @@
       "
     >
       <Users2 size={16} class="shrink-0" />
-      {#if !collapsed}<span class="leading-none">Employee Intranet</span>{/if}
+      {#if !collapsed}<span class="leading-none">{m['shell.intranet']()}</span>{/if}
     </a>
 
     <button
+      type="button"
       onclick={onToggleDark}
-      title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={dark ? m['shell.lightMode']() : m['shell.darkMode']()}
+      aria-label={dark ? m['shell.lightMode']() : m['shell.darkMode']()}
       class="
         w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
         text-base-content/60 hover:bg-base-300 hover:text-base-content transition-colors
@@ -187,17 +221,18 @@
     >
       {#if dark}
         <Sun size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">Light Mode</span>{/if}
+        {#if !collapsed}<span class="leading-none">{m['shell.lightMode']()}</span>{/if}
       {:else}
         <Moon size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">Dark Mode</span>{/if}
+        {#if !collapsed}<span class="leading-none">{m['shell.darkMode']()}</span>{/if}
       {/if}
     </button>
 
     <button
+      type="button"
       onclick={onToggleDensity}
-      title={density === 'compact' ? 'Switch to comfortable density' : 'Switch to compact density'}
-      aria-label={density === 'compact' ? 'Switch to comfortable density' : 'Switch to compact density'}
+      title={density === 'compact' ? m['shell.densityComfortable']() : m['shell.densityCompact']()}
+      aria-label={density === 'compact' ? m['shell.densityComfortable']() : m['shell.densityCompact']()}
       aria-pressed={density === 'compact'}
       class="
         w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
@@ -208,10 +243,10 @@
     >
       {#if density === 'compact'}
         <Rows3 size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">Comfortable</span>{/if}
+        {#if !collapsed}<span class="leading-none">{m['shell.densityComfortable']()}</span>{/if}
       {:else}
         <Rows2 size={16} class="shrink-0" />
-        {#if !collapsed}<span class="leading-none">Compact</span>{/if}
+        {#if !collapsed}<span class="leading-none">{m['shell.densityCompact']()}</span>{/if}
       {/if}
     </button>
 
@@ -240,9 +275,10 @@
         {/if}
       </a>
       <button
+        type="button"
         onclick={onSignOut}
-        title="Sign out"
-        aria-label="Sign out"
+        title={m['nav.signOut']()}
+        aria-label={m['nav.signOut']()}
         class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content shrink-0"
       >
         <LogOut size={13} />

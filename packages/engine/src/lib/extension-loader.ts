@@ -817,8 +817,12 @@ interface LoadedExtension {
 interface ManifestMeta {
   displayName?: string;
   description?: string;
+  category?: string;
   contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
-  studio?: { pages?: Array<{ path: string; label: string; icon?: string }> };
+  studio?: {
+    navGroup?: string;
+    pages?: Array<{ path: string; label: string; icon?: string }>;
+  };
 }
 
 class ExtensionLoader {
@@ -1064,6 +1068,7 @@ class ExtensionLoader {
         this.manifestMeta.set(extName, {
           displayName: (manifest as any).displayName,
           description: (manifest as any).description,
+          category: (manifest as any).category,
           contributes: manifest.contributes as ManifestMeta['contributes'],
           studio: (manifest as any).studio,
         });

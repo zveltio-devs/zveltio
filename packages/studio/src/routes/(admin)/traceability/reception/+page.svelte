@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { api } from '$lib/api.js';
   const API = '/ext/operations/traceability';
 
@@ -88,17 +90,17 @@
   }
 </script>
 
-<div class="p-6 max-w-2xl">
-  <h1 class="text-2xl font-bold mb-6">Recepție materie primă</h1>
-
+<ExtensionPageShell title={m['operations.traceability.reception.title']()}>
+  {#snippet children()}
+  <div class="p-6 max-w-2xl pt-0">
   {#if saved}
     <div class="alert alert-success mb-4">
       <div>
-        <div class="font-bold">Lot creat cu succes: <span class="font-mono">{saved.lot_number}</span></div>
-        <div class="text-sm">Statusul inițial: carantină. Eliberați lotul după verificare.</div>
+        <div class="font-bold">{m['operations.traceability.reception.success']()} <span class="font-mono">{saved.lot_number}</span></div>
+        <div class="text-sm">{m['operations.traceability.reception.quarantineHint']()}</div>
         <div class="mt-2 flex gap-2">
-          <a href="/admin/trace/lots/{saved.id}" class="btn btn-sm btn-success">Detalii lot</a>
-          <a href="/ext/operations/traceability/labels/{saved.id}" target="_blank" class="btn btn-sm btn-outline">🖨 Printează etichetă</a>
+          <a href="/admin/trace/lots/{saved.id}" class="btn btn-sm btn-success">{m['operations.traceability.reception.lotDetails']()}</a>
+          <a href="/ext/operations/traceability/labels/{saved.id}" target="_blank" class="btn btn-sm btn-outline">{m['operations.traceability.reception.printLabel']()}</a>
         </div>
       </div>
     </div>
@@ -111,24 +113,24 @@
   <form onsubmit={submit} class="space-y-4">
     <!-- GS1 scanner input -->
     <div class="card bg-base-200 p-4">
-      <h3 class="font-semibold mb-2">Scanare GS1 (opțional)</h3>
+      <h3 class="font-semibold mb-2">{m['operations.traceability.ui.scanare_gs1_op_ional']()}</h3>
       <div class="flex gap-2">
         <input
           type="text"
           class="input input-bordered flex-1"
-          placeholder="Scanați codul GS1-128 de pe eticheta furnizorului..."
+          placeholder={m['operations.traceability.ui.scana_i_codul_gs1_128_de_pe_eticheta_furnizorulu']()}
           bind:value={form.gs1_raw}
           onchange={parseGS1}
         />
-        <button type="button" class="btn btn-outline btn-sm" onclick={parseGS1}>Parsează</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick={parseGS1}>{m['operations.traceability.ui.parseaz']()}</button>
       </div>
     </div>
 
     <div class="grid grid-cols-2 gap-4">
       <div class="col-span-2">
-        <label class="label"><span class="label-text font-medium">Produs *</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.product']()}</span></label>
         <select class="select select-bordered w-full" bind:value={form.item_id} required>
-          <option value="">Selectați produsul...</option>
+          <option value="">{m['operations.traceability.ui.selecta_i_produsul']()}</option>
           {#each items as item}
             <option value={item.id}>{item.name} ({item.code})</option>
           {/each}
@@ -136,12 +138,12 @@
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Cantitate *</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.quantity']()}</span></label>
         <input type="number" class="input input-bordered w-full" min="0.001" step="0.001" bind:value={form.quantity_initial} required />
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Unitate *</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.unit']()}</span></label>
         <select class="select select-bordered w-full" bind:value={form.unit}>
           {#each ['kg','g','l','ml','buc','cutie','sac','palet'] as u}
             <option value={u}>{u}</option>
@@ -150,7 +152,7 @@
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Furnizor</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.supplier']()}</span></label>
         <select class="select select-bordered w-full" bind:value={form.supplier_id}>
           <option value="">—</option>
           {#each suppliers as s}
@@ -160,27 +162,27 @@
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Lot furnizor</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.supplierLot']()}</span></label>
         <input type="text" class="input input-bordered w-full" bind:value={form.supplier_lot_ref} />
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Data valabilitate (BBD)</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.bbd']()}</span></label>
         <input type="date" class="input input-bordered w-full" bind:value={form.best_before_date} />
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Data recepție *</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.receptionDate']()}</span></label>
         <input type="date" class="input input-bordered w-full" bind:value={form.reception_date} required />
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Factură / Aviz</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.invoice']()}</span></label>
         <input type="text" class="input input-bordered w-full" bind:value={form.invoice_ref} />
       </div>
 
       <div>
-        <label class="label"><span class="label-text font-medium">Locație</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.location']()}</span></label>
         <select class="select select-bordered w-full" bind:value={form.location_id}>
           <option value="">—</option>
           {#each locations as loc}
@@ -190,16 +192,18 @@
       </div>
 
       <div class="col-span-2">
-        <label class="label"><span class="label-text font-medium">Note</span></label>
+        <label class="label"><span class="label-text font-medium">{m['operations.traceability.form.notes']()}</span></label>
         <textarea class="textarea textarea-bordered w-full" rows="2" bind:value={form.notes}></textarea>
       </div>
     </div>
 
     <div class="flex justify-end gap-3">
-      <a href="/admin/trace/lots" class="btn btn-ghost">Anulează</a>
+      <a href="/admin/trace/lots" class="btn btn-ghost">{m['common.cancel']()}</a>
       <button type="submit" class="btn btn-primary" disabled={saving}>
-        {saving ? 'Se salvează...' : 'Salvează și creează lot'}
+        {saving ? m['operations.traceability.form.saving']() : m['operations.traceability.form.submit']()}
       </button>
     </div>
   </form>
-</div>
+  </div>
+  {/snippet}
+</ExtensionPageShell>

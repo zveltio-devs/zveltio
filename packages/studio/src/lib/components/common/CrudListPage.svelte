@@ -19,6 +19,7 @@
   import PageHeader from './PageHeader.svelte';
   import EmptyState from './EmptyState.svelte';
   import SearchBar from './SearchBar.svelte';
+  import { m } from '$lib/i18n.svelte.js';
 
   type IllustrationVariant = 'list' | 'table' | 'cloud' | 'target' | 'spark';
 
@@ -63,7 +64,7 @@
   let {
     title, subtitle, count,
     loading = false,
-    search, onSearchChange, searchPlaceholder = 'Search...',
+    search, onSearchChange, searchPlaceholder,
     searchThreshold = 4,
     actionLabel, actionHref, onAction, actionIcon,
     empty,
@@ -117,7 +118,7 @@
   {#if headerExtras}{@render headerExtras()}{/if}
 
   {#if showSearch && onSearchChange}
-    <SearchBar value={search ?? ''} onchange={onSearchChange} placeholder={searchPlaceholder} />
+    <SearchBar value={search ?? ''} onchange={onSearchChange} placeholder={searchPlaceholder ?? m['common.search']()} />
   {/if}
 
   {#if loading}

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
   import { ENGINE_URL } from '$lib/config.js';
   import { api } from '$lib/api.js';
   import {
@@ -79,7 +81,7 @@
         await selectAccount(accounts.find((a: any) => a.is_default) ?? accounts[0]);
       }
       await loadStats();
-    } catch (e: any) { toast.error(e.message ?? 'Failed to load'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.load']()); }
     finally { loading = false; }
   }
 
@@ -96,7 +98,7 @@
       folders = r.folders ?? [];
       const inbox = folders.find((f: any) => f.type === 'inbox') ?? folders[0];
       if (inbox) await selectFolder(inbox);
-    } catch (e: any) { toast.error(e.message ?? 'Failed to load folders'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.folders']()); }
     finally { loading = false; }
   }
 
@@ -106,7 +108,7 @@
     try {
       const r = await api.get<{ messages: any[] }>(`/ext/communications/mail/folders/${folder.id}/messages?limit=50`);
       messages = r.messages ?? [];
-    } catch (e: any) { toast.error(e.message ?? 'Failed to load messages'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.messages']()); }
     finally { loading = false; }
   }
 
@@ -116,7 +118,7 @@
       const r = await api.get<{ message: any }>(`/ext/communications/mail/messages/${msg.id}`);
       selectedMessage = r.message;
       messages = messages.map((m: any) => m.id === msg.id ? { ...m, is_read: true } : m);
-    } catch (e: any) { toast.error(e.message ?? 'Failed to load message'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.message']()); }
     finally { loading = false; }
   }
 
@@ -127,7 +129,7 @@
       await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/sync`, {});
       if (selectedFolder) await selectFolder(selectedFolder);
       await loadStats();
-    } catch (e: any) { toast.error(e.message ?? 'Sync failed'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.sync']()); }
     finally { syncing = false; }
   }
 
@@ -186,7 +188,7 @@
       composeCc = (ctx.cc ?? []).map((a: any) => a.address).join(', ');
       composeSubject = ctx.subject ?? ''; composeBody = ctx.bodyText ?? '';
       replyToMessageId = selectedMessage.id; draftId = null; showCompose = true;
-    } catch (e: any) { toast.error(e.message ?? 'Failed'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.failed']()); }
   }
 
   async function autoSaveDraft() {
@@ -232,7 +234,7 @@
       showCompose = false;
       if (selectedFolder?.type === 'sent') await selectFolder(selectedFolder);
       await loadStats();
-    } catch (e: any) { toast.error(e.message ?? 'Failed to send'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.send']()); }
     finally { sendingMail = false; }
   }
 
@@ -257,7 +259,7 @@
     try {
       const r = await api.post<{ summary: string }>(`/ext/communications/mail/messages/${selectedMessage.id}/summarize`, {});
       summary = r.summary ?? '';
-    } catch (e: any) { toast.error(e.message ?? 'Failed'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.failed']()); }
     finally { summarizing = false; }
   }
 
@@ -267,7 +269,7 @@
     try {
       const r = await api.post<{ draft: string }>(`/ext/communications/mail/messages/${selectedMessage.id}/reply-draft`, {});
       if (r.draft) openReplyContext('reply').then(() => { composeBody = r.draft; });
-    } catch (e: any) { toast.error(e.message ?? 'Failed'); }
+    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.failed']()); }
     finally { aiDraftLoading = false; }
   }
 
@@ -359,29 +361,24 @@
   const hasSelection = $derived(selectedIds.size > 0);
 </script>
 
-<div class="space-y-0 -mt-4">
-  <div class="mb-3">
-    <h1 class="text-xl font-semibold flex items-center gap-2"><Mail size={20} /> Mail</h1>
-    <p class="text-sm text-base-content/50">Integrated IMAP/SMTP email client</p>
-  </div>
-</div>
-
-<div class="flex h-[calc(100vh-100px)] -mx-6 border-t border-base-200 overflow-hidden">
+<ExtensionPageShell title={m['communications.mail.title']()} subtitle={m['communications.mail.subtitle']()}>
+  {#snippet children()}
+<div class="flex h-[calc(100vh-11rem)] -mx-4 border-t border-base-200 overflow-hidden">
 
   <!-- SIDEBAR -->
   <div class="w-48 shrink-0 border-r border-base-200 bg-base-200 flex flex-col">
     <div class="p-3 border-b border-base-300 flex items-center justify-between">
       <span class="font-semibold text-sm flex items-center gap-1">
-        <Mail class="w-4 h-4" /> Mail
+        <Mail class="w-4 h-4" /> {m['communications.mail.tab.mail']()}
         {#if stats.unread_inbox > 0}
           <span class="badge badge-primary badge-xs">{stats.unread_inbox}</span>
         {/if}
       </span>
       <div class="flex gap-1">
-        <button class="btn btn-xs btn-ghost" onclick={syncAccount} disabled={syncing || !selectedAccount} title="Sync">
+        <button class="btn btn-xs btn-ghost" onclick={syncAccount} disabled={syncing || !selectedAccount} title={m['communications.mail.ui.sync']()}>
           <RefreshCw class="w-3 h-3 {syncing ? 'animate-spin' : ''}" />
         </button>
-        <button class="btn btn-xs btn-ghost" onclick={() => showAddAccount = true} title="Add Account">
+        <button class="btn btn-xs btn-ghost" onclick={() => showAddAccount = true} title={m['communications.mail.ui.addAccount']()}>
           <Plus class="w-3 h-3" />
         </button>
       </div>
@@ -420,11 +417,11 @@
 
     <div class="border-t border-base-300 py-1">
       {#each [
-        { id: 'mail', icon: Inbox, label: 'Mail' },
-        { id: 'drafts', icon: FileText, label: 'Drafts', badge: stats.drafts },
-        { id: 'contacts', icon: Users, label: 'Contacts' },
-        { id: 'signatures', icon: Settings, label: 'Signatures' },
-        { id: 'filters', icon: Filter, label: 'Filters' },
+        { id: 'mail', icon: Inbox, label: m['communications.mail.tab.mail']() },
+        { id: 'drafts', icon: FileText, label: m['communications.mail.tab.drafts'](), badge: stats.drafts },
+        { id: 'contacts', icon: Users, label: m['communications.mail.tab.contacts']() },
+        { id: 'signatures', icon: Settings, label: m['communications.mail.tab.signatures']() },
+        { id: 'filters', icon: Filter, label: m['communications.mail.tab.filters']() },
       ] as tab}
         <button
           class="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-base-300 rounded-lg mx-1 transition-colors {activeTab === tab.id ? 'text-primary font-semibold' : 'text-base-content/60'}"
@@ -445,7 +442,7 @@
 
     <div class="p-2 border-t border-base-300">
       <button class="btn btn-primary btn-sm w-full gap-1" onclick={() => openCompose()}>
-        <Send class="w-3 h-3" /> Compose
+        <Send class="w-3 h-3" /> {m['communications.mail.compose']()}
       </button>
     </div>
   </div>
@@ -458,7 +455,7 @@
       <div class="w-72 shrink-0 border-r border-base-200 flex flex-col bg-base-100">
         <div class="p-2 border-b border-base-300 space-y-1">
           <div class="join w-full">
-            <input class="input input-bordered input-sm join-item flex-1" placeholder="Search..." bind:value={searchQuery}
+            <input class="input input-bordered input-sm join-item flex-1" placeholder={m['communications.mail.ui.search']()} bind:value={searchQuery}
               onkeydown={async (e) => { if (e.key === 'Enter') { const r = await api.get<any>(`/ext/communications/mail/search?q=${encodeURIComponent(searchQuery)}`); messages = r.messages ?? []; } }} />
             <button class="btn btn-sm join-item" onclick={async () => { const r = await api.get<any>(`/ext/communications/mail/search?q=${encodeURIComponent(searchQuery)}`); messages = r.messages ?? []; }}>
               <Search class="w-3 h-3" />
@@ -466,18 +463,18 @@
           </div>
           {#if hasSelection}
             <div class="flex items-center gap-1">
-              <span class="text-xs text-base-content/60">{selectedIds.size} selected</span>
+              <span class="text-xs text-base-content/60">{m['communications.mail.ui.selectedCount']({ count: selectedIds.size })}</span>
               <div class="dropdown dropdown-bottom ml-auto">
                 <button class="btn btn-xs btn-ghost gap-1" onclick={() => showBulkMenu = !showBulkMenu}>
-                  Actions <ChevronDown class="w-3 h-3" />
+                  {m['common.actions']()} <ChevronDown class="w-3 h-3" />
                 </button>
                 {#if showBulkMenu}
                   <ul class="dropdown-content menu menu-xs bg-base-100 shadow-lg rounded-lg z-50 w-36">
-                    <li><button onclick={() => bulkAction('mark_read')}>Mark read</button></li>
-                    <li><button onclick={() => bulkAction('mark_unread')}>Mark unread</button></li>
-                    <li><button onclick={() => bulkAction('star')}>Star</button></li>
-                    <li><button onclick={() => bulkAction('delete')}>Delete</button></li>
-                    <li><button onclick={() => bulkAction('spam')}>Spam</button></li>
+                    <li><button onclick={() => bulkAction('mark_read')}>{m['communications.mail.ui.markRead']()}</button></li>
+                    <li><button onclick={() => bulkAction('mark_unread')}>{m['communications.mail.ui.markUnread']()}</button></li>
+                    <li><button onclick={() => bulkAction('star')}>{m['communications.mail.ui.star']()}</button></li>
+                    <li><button onclick={() => bulkAction('delete')}>{m['common.delete']()}</button></li>
+                    <li><button onclick={() => bulkAction('spam')}>{m['communications.mail.ui.spam']()}</button></li>
                   </ul>
                 {/if}
               </div>
@@ -491,7 +488,7 @@
             <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
           {:else if messages.length === 0}
             <div class="flex flex-col items-center justify-center py-12 text-base-content/40 gap-2">
-              <Inbox class="w-8 h-8" /><p class="text-sm">No messages</p>
+              <Inbox class="w-8 h-8" /><p class="text-sm">{m['communications.mail.ui.noMessages']()}</p>
             </div>
           {:else}
             {#each messages as msg}
@@ -505,7 +502,7 @@
                     </span>
                     <span class="text-xs text-base-content/40 shrink-0">{formatDate(msg.received_at)}</span>
                   </div>
-                  <p class="text-xs font-medium truncate {!msg.is_read ? '' : 'text-base-content/60'}">{msg.subject || '(no subject)'}</p>
+                  <p class="text-xs font-medium truncate {!msg.is_read ? '' : 'text-base-content/60'}">{msg.subject || m['communications.mail.ui.noSubject']()}</p>
                   <p class="text-xs text-base-content/40 truncate">{msg.snippet || ''}</p>
                 </button>
                 <div class="flex flex-col items-center gap-1 p-1 shrink-0">
@@ -526,32 +523,32 @@
           <div class="p-4 border-b border-base-300 bg-base-100">
             <div class="flex items-start justify-between gap-3">
               <div class="flex-1 min-w-0">
-                <h2 class="text-lg font-semibold">{selectedMessage.subject || '(no subject)'}</h2>
+                <h2 class="text-lg font-semibold">{selectedMessage.subject || m['communications.mail.ui.noSubject']()}</h2>
                 <div class="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-sm text-base-content/60">
-                  <span>From: <strong>{selectedMessage.from_name || selectedMessage.from_address}</strong></span>
+                  <span>{m['communications.mail.ui.fromLabel']()} <strong>{selectedMessage.from_name || selectedMessage.from_address}</strong></span>
                   {#if selectedMessage.to_addresses?.length}
-                    <span>To: {selectedMessage.to_addresses.map((t: any) => t.name || t.address).join(', ')}</span>
+                    <span>{m['communications.mail.ui.toLabel']()} {selectedMessage.to_addresses.map((t: any) => t.name || t.address).join(', ')}</span>
                   {/if}
                   <span>{new Date(selectedMessage.received_at).toLocaleString()}</span>
                   {#if selectedMessage.priority === 'high'}
-                    <span class="badge badge-xs badge-error">High priority</span>
+                    <span class="badge badge-xs badge-error">{m['communications.mail.ui.highPriority']()}</span>
                   {/if}
                 </div>
               </div>
               <div class="flex gap-1 shrink-0 flex-wrap justify-end">
-                <button class="btn btn-xs btn-ghost" onclick={() => openReplyContext('reply')} title="Reply"><Reply class="w-3.5 h-3.5" /></button>
-                <button class="btn btn-xs btn-ghost" onclick={() => openReplyContext('reply_all')} title="Reply All"><ReplyAll class="w-3.5 h-3.5" /></button>
-                <button class="btn btn-xs btn-ghost" onclick={() => openReplyContext('forward')} title="Forward"><Forward class="w-3.5 h-3.5" /></button>
-                <button class="btn btn-xs btn-ghost" onclick={downloadEml} title="Download .eml"><Paperclip class="w-3.5 h-3.5" /></button>
+                <button class="btn btn-xs btn-ghost" onclick={() => openReplyContext('reply')} title={m['communications.mail.ui.reply']()}><Reply class="w-3.5 h-3.5" /></button>
+                <button class="btn btn-xs btn-ghost" onclick={() => openReplyContext('reply_all')} title={m['communications.mail.ui.replyAll']()}><ReplyAll class="w-3.5 h-3.5" /></button>
+                <button class="btn btn-xs btn-ghost" onclick={() => openReplyContext('forward')} title={m['communications.mail.ui.forward']()}><Forward class="w-3.5 h-3.5" /></button>
+                <button class="btn btn-xs btn-ghost" onclick={downloadEml} title={m['communications.mail.ui.downloadEml']()}><Paperclip class="w-3.5 h-3.5" /></button>
                 <button class="btn btn-xs btn-ghost text-error" onclick={() => deleteMessage(selectedMessage)}><Trash2 class="w-3.5 h-3.5" /></button>
               </div>
             </div>
             <div class="flex gap-2 mt-3 flex-wrap">
               <button class="btn btn-xs btn-outline gap-1" onclick={summarizeMessage} disabled={summarizing}>
-                {#if summarizing}<span class="loading loading-spinner loading-xs"></span>{:else}<Wand2 class="w-3 h-3" />{/if} Summarize
+                {#if summarizing}<span class="loading loading-spinner loading-xs"></span>{:else}<Wand2 class="w-3 h-3" />{/if} {m['communications.mail.ui.summarize']()}
               </button>
               <button class="btn btn-xs btn-outline gap-1" onclick={generateAiDraft} disabled={aiDraftLoading}>
-                {#if aiDraftLoading}<span class="loading loading-spinner loading-xs"></span>{:else}<Wand2 class="w-3 h-3" />{/if} AI Reply
+                {#if aiDraftLoading}<span class="loading loading-spinner loading-xs"></span>{:else}<Wand2 class="w-3 h-3" />{/if} {m['communications.mail.ui.aiReply']()}
               </button>
             </div>
             {#if summary}
@@ -562,17 +559,17 @@
           <div class="flex-1 overflow-y-auto p-4">
             {#if selectedMessage.body_html}
               <iframe srcdoc={selectedMessage.body_html} class="w-full min-h-96 border-0 bg-white rounded-lg"
-                title="Email body" sandbox="allow-same-origin"></iframe>
+                title={m['communications.mail.ui.emailBody']()} sandbox="allow-same-origin"></iframe>
             {:else if selectedMessage.body_text}
               <pre class="whitespace-pre-wrap text-sm font-sans">{selectedMessage.body_text}</pre>
             {:else}
               <div class="flex items-center justify-center h-32 text-base-content/40 text-sm">
-                <span class="loading loading-spinner loading-sm mr-2"></span> Loading...
+                <span class="loading loading-spinner loading-sm mr-2"></span> {m['communications.mail.ui.loading']()}
               </div>
             {/if}
             {#if selectedMessage.attachments?.length > 0}
               <div class="mt-4 border-t border-base-200 pt-4">
-                <p class="text-sm font-semibold mb-2 flex items-center gap-1"><Paperclip class="w-3.5 h-3.5" /> Attachments</p>
+                <p class="text-sm font-semibold mb-2 flex items-center gap-1"><Paperclip class="w-3.5 h-3.5" /> {m['communications.mail.ui.attachments']()}</p>
                 <div class="flex flex-wrap gap-2">
                   {#each selectedMessage.attachments as att}
                     <div class="badge badge-outline gap-1 p-3 text-xs">
@@ -589,38 +586,38 @@
           <div class="flex-1 flex flex-col items-center justify-center gap-4 text-base-content/40">
             <Mail class="w-16 h-16" />
             <div class="text-center">
-              <p class="text-lg font-semibold">No mail accounts</p>
-              <p class="text-sm">Add an IMAP/SMTP account to get started.</p>
+              <p class="text-lg font-semibold">{m['communications.mail.ui.no_mail_accounts']()}</p>
+              <p class="text-sm">{m['communications.mail.ui.addImapHint']()}</p>
             </div>
-            <button class="btn btn-primary gap-2" onclick={() => showAddAccount = true}><Plus class="w-4 h-4" /> Add Account</button>
+            <button class="btn btn-primary gap-2" onclick={() => showAddAccount = true}><Plus class="w-4 h-4" /> {m['communications.mail.ui.addAccount']()}</button>
           </div>
         {:else}
-          <div class="flex-1 flex items-center justify-center text-base-content/30"><p>Select a message</p></div>
+          <div class="flex-1 flex items-center justify-center text-base-content/30"><p>{m['communications.mail.ui.selectMessage']()}</p></div>
         {/if}
       </div>
 
     {:else if activeTab === 'drafts'}
       <div class="flex-1 p-6 overflow-y-auto">
-        <h2 class="text-lg font-bold mb-4">Drafts</h2>
+        <h2 class="text-lg font-bold mb-4">{m['invoicing.stat.drafts']()}</h2>
         <div class="space-y-2">
           {#each drafts as d}
             <div class="card bg-base-200 shadow-sm">
               <div class="card-body p-4 flex-row items-center justify-between gap-3">
                 <div class="min-w-0 flex-1">
-                  <p class="font-medium truncate">{d.subject || '(no subject)'}</p>
+                  <p class="font-medium truncate">{d.subject || m['communications.mail.ui.noSubject']()}</p>
                   <p class="text-xs text-base-content/50">
-                    To: {Array.isArray(d.to_addresses) ? d.to_addresses.map((a: any) => a.address).join(', ') : '—'}
+                    {m['communications.mail.draft.to']} {Array.isArray(d.to_addresses) ? d.to_addresses.map((a: any) => a.address).join(', ') : '—'}
                   </p>
                 </div>
                 <div class="flex gap-2 shrink-0">
-                  <button class="btn btn-xs btn-ghost" onclick={() => openDraft(d)}>Edit</button>
+                  <button class="btn btn-xs btn-ghost" onclick={() => openDraft(d)}>{m['common.edit']()}</button>
                   <button class="btn btn-xs btn-ghost text-error" onclick={() => deleteDraft(d.id)}><Trash2 class="w-3 h-3" /></button>
                 </div>
               </div>
             </div>
           {:else}
             <div class="text-center py-12 text-base-content/40">
-              <FileText class="w-8 h-8 mx-auto mb-2" /> No drafts saved.
+              <FileText class="w-8 h-8 mx-auto mb-2" /> {m['communications.mail.ui.noDrafts']()}
             </div>
           {/each}
         </div>
@@ -629,13 +626,13 @@
     {:else if activeTab === 'contacts'}
       <div class="flex-1 p-6 overflow-y-auto">
         <div class="flex items-center justify-between mb-4 gap-3">
-          <h2 class="text-lg font-bold">Address Book</h2>
-          <input class="input input-sm input-bordered w-56" placeholder="Search contacts..."
+          <h2 class="text-lg font-bold">{m['communications.mail.ui.address_book']()}</h2>
+          <input class="input input-sm input-bordered w-56" placeholder={m['communications.mail.ui.search_contacts']()}
             bind:value={contactSearch} onkeydown={(e) => e.key === 'Enter' && loadContacts()} />
         </div>
         <div class="overflow-x-auto">
           <table class="table table-sm">
-            <thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Frequency</th></tr></thead>
+            <thead><tr><th>{m['common.col.email']()}</th><th>{m['common.col.name']()}</th><th>{m['communications.mail.ui.company']()}</th><th>{m['communications.mail.ui.frequency']()}</th></tr></thead>
             <tbody>
               {#each contacts as c}
                 <tr>
@@ -645,7 +642,7 @@
                   <td><span class="badge badge-xs">{c.frequency}x</span></td>
                 </tr>
               {:else}
-                <tr><td colspan="4" class="text-center text-base-content/40 py-8">No contacts yet. They're collected automatically when you send emails.</td></tr>
+                <tr><td colspan="4" class="text-center text-base-content/40 py-8">{m['communications.mail.ui.no_contacts_yet_they_re_collected_automatically_']()}</td></tr>
               {/each}
             </tbody>
           </table>
@@ -655,30 +652,30 @@
     {:else if activeTab === 'signatures'}
       <div class="flex-1 p-6 overflow-y-auto max-w-2xl">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-lg font-bold">Signatures</h2>
+          <h2 class="text-lg font-bold">{m['communications.mail.ui.signatures']()}</h2>
           <button class="btn btn-sm btn-primary gap-1" onclick={() => { editSig = null; sigName = ''; sigHtml = ''; sigDefault = false; }}>
-            <Plus class="w-3 h-3" /> New
+            <Plus class="w-3 h-3" /> {m['common.new']()}
           </button>
         </div>
         {#if editSig !== undefined}
           <div class="card bg-base-200 mb-4">
             <div class="card-body gap-3">
-              <h3 class="font-semibold text-sm">{editSig ? 'Edit Signature' : 'New Signature'}</h3>
+              <h3 class="font-semibold text-sm">{editSig ? m['communications.mail.ui.editSignature']() : m['communications.mail.ui.newSignature']()}</h3>
               <div class="form-control">
-                <div class="label py-1"><span class="label-text text-sm">Name</span></div>
-                <input class="input input-sm input-bordered" bind:value={sigName} placeholder="Work, Personal..." />
+                <div class="label py-1"><span class="label-text text-sm">{m['common.col.name']()}</span></div>
+                <input class="input input-sm input-bordered" bind:value={sigName} placeholder={m['communications.mail.ui.work_personal']()} />
               </div>
               <div class="form-control">
-                <div class="label py-1"><span class="label-text text-sm">Signature HTML</span></div>
-                <textarea class="textarea textarea-bordered min-h-24 font-mono text-xs" bind:value={sigHtml} placeholder="<p>Your signature here...</p>"></textarea>
+                <div class="label py-1"><span class="label-text text-sm">{m['communications.mail.label.signatureHtml']()}</span></div>
+                <textarea class="textarea textarea-bordered min-h-24 font-mono text-xs" bind:value={sigHtml} placeholder={m['communications.mail.ui.p_your_signature_here_p']()}></textarea>
               </div>
               <label class="label cursor-pointer justify-start gap-2">
                 <input type="checkbox" class="checkbox checkbox-sm" bind:checked={sigDefault} />
-                <span class="label-text text-sm">Set as default</span>
+                <span class="label-text text-sm">{m['communications.mail.label.setDefault']()}</span>
               </label>
               <div class="flex gap-2">
-                <button class="btn btn-sm btn-primary" onclick={saveSignature} disabled={!sigName.trim()}>Save</button>
-                <button class="btn btn-sm btn-ghost" onclick={() => (editSig = undefined as any)}>Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick={saveSignature} disabled={!sigName.trim()}>{m['common.save']()}</button>
+                <button class="btn btn-sm btn-ghost" onclick={() => (editSig = undefined as any)}>{m['common.cancel']()}</button>
               </div>
             </div>
           </div>
@@ -688,17 +685,17 @@
             <div class="card bg-base-200 shadow-sm">
               <div class="card-body p-4 flex-row items-center justify-between">
                 <div>
-                  <p class="font-medium">{sig.name} {#if sig.is_default}<span class="badge badge-xs badge-primary ml-1">Default</span>{/if}</p>
+                  <p class="font-medium">{sig.name} {#if sig.is_default}<span class="badge badge-xs badge-primary ml-1">{m['communications.mail.ui.defaultBadge']()}</span>{/if}</p>
                   <p class="text-xs text-base-content/50 mt-0.5">{sig.body_html.replace(/<[^>]*>/g, '').slice(0, 80)}...</p>
                 </div>
                 <div class="flex gap-2 shrink-0">
-                  <button class="btn btn-xs btn-ghost" onclick={() => { editSig = sig; sigName = sig.name; sigHtml = sig.body_html; sigDefault = sig.is_default; }}>Edit</button>
+                  <button class="btn btn-xs btn-ghost" onclick={() => { editSig = sig; sigName = sig.name; sigHtml = sig.body_html; sigDefault = sig.is_default; }}>{m['common.edit']()}</button>
                   <button class="btn btn-xs btn-ghost text-error" onclick={() => deleteSignature(sig.id)}><Trash2 class="w-3 h-3" /></button>
                 </div>
               </div>
             </div>
           {:else}
-            <div class="text-center py-12 text-base-content/40">No signatures yet.</div>
+            <div class="text-center py-12 text-base-content/40">{m['communications.mail.ui.noSignatures']()}</div>
           {/each}
         </div>
       </div>
@@ -706,13 +703,13 @@
     {:else if activeTab === 'filters'}
       <div class="flex-1 p-6 overflow-y-auto max-w-3xl">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-lg font-bold">Mail Filters</h2>
+          <h2 class="text-lg font-bold">{m['communications.mail.ui.mail_filters']()}</h2>
           <button class="btn btn-sm btn-primary gap-1" onclick={() => showFilterModal = true} disabled={!selectedAccount}>
-            <Plus class="w-3 h-3" /> New Filter
+            <Plus class="w-3 h-3" /> {m['communications.mail.ui.newFilterBtn']()}
           </button>
         </div>
         {#if !selectedAccount}
-          <div class="alert alert-warning text-sm">Select a mail account first to manage filters.</div>
+          <div class="alert alert-warning text-sm">{m['communications.mail.ui.selectAccountFilters']()}</div>
         {:else}
           <div class="space-y-2">
             {#each filters as f}
@@ -721,7 +718,7 @@
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                       <p class="font-medium">{f.name}</p>
-                      {#if !f.is_active}<span class="badge badge-xs badge-neutral">Disabled</span>{/if}
+                      {#if !f.is_active}<span class="badge badge-xs badge-neutral">{m['communications.mail.ui.disabled']()}</span>{/if}
                     </div>
                     <p class="text-xs text-base-content/50 mt-0.5">
                       {(typeof f.conditions === 'string' ? JSON.parse(f.conditions) : f.conditions).length} condition(s) →
@@ -736,7 +733,7 @@
               </div>
             {:else}
               <div class="text-center py-12 text-base-content/40">
-                <Filter class="w-8 h-8 mx-auto mb-2" /> No filters configured.
+                <Filter class="w-8 h-8 mx-auto mb-2" /> {m['communications.mail.ui.noFilters']()}
               </div>
             {/each}
           </div>
@@ -745,25 +742,27 @@
     {/if}
   </div>
 </div>
+  {/snippet}
+</ExtensionPageShell>
 
 <!-- COMPOSE MODAL -->
 {#if showCompose}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-2xl">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-bold text-lg">{replyToMessageId ? 'Reply' : draftId ? 'Draft' : 'New Message'}</h3>
+        <h3 class="font-bold text-lg">{replyToMessageId ? m['communications.mail.ui.reply']() : draftId ? m['common.status.draft']() : m['communications.mail.ui.newMessage']()}</h3>
         <div class="flex gap-2 items-center">
-          {#if draftId}<span class="text-xs text-base-content/40">Draft saved</span>{/if}
+          {#if draftId}<span class="text-xs text-base-content/40">{m['communications.mail.ui.draftSaved']()}</span>{/if}
           <button class="btn btn-sm btn-ghost" onclick={() => showCompose = false}><X class="w-4 h-4" /></button>
         </div>
       </div>
       <div class="space-y-2">
         <div class="form-control relative">
-          <div class="label py-1"><span class="label-text text-sm">To</span></div>
+          <div class="label py-1"><span class="label-text text-sm">{m['common.col.to']()}</span></div>
           <input class="input input-bordered input-sm" bind:value={composeTo}
             oninput={(e) => { fetchSuggestions((e.target as HTMLInputElement).value.split(',').pop()?.trim() ?? ''); showToSuggestions = true; }}
             onblur={() => setTimeout(() => showToSuggestions = false, 200)}
-            placeholder="email@example.com, ..." />
+            placeholder={m['communications.mail.ui.email_example_com']()} />
           {#if showToSuggestions && toSuggestions.length > 0}
             <ul class="absolute top-full left-0 right-0 bg-base-100 shadow-lg border border-base-300 rounded-lg z-50 max-h-40 overflow-y-auto">
               {#each toSuggestions as c}
@@ -778,43 +777,43 @@
           {/if}
         </div>
         <div class="form-control">
-          <div class="label py-1"><span class="label-text text-sm">Cc</span></div>
-          <input class="input input-bordered input-sm" bind:value={composeCc} placeholder="Optional" />
+          <div class="label py-1"><span class="label-text text-sm">{m['common.col.cc']()}</span></div>
+          <input class="input input-bordered input-sm" bind:value={composeCc} placeholder={m['communications.mail.ui.optional']()} />
         </div>
         <div class="form-control">
-          <div class="label py-1"><span class="label-text text-sm">Bcc</span></div>
-          <input class="input input-bordered input-sm" bind:value={composeBcc} placeholder="Optional" />
+          <div class="label py-1"><span class="label-text text-sm">{m['common.col.bcc']()}</span></div>
+          <input class="input input-bordered input-sm" bind:value={composeBcc} placeholder={m['communications.mail.ui.optional']()} />
         </div>
         <div class="form-control">
-          <div class="label py-1"><span class="label-text text-sm">Subject</span></div>
-          <input class="input input-bordered input-sm" bind:value={composeSubject} placeholder="Subject" />
+          <div class="label py-1"><span class="label-text text-sm">{m['communications.mail.ui.subject']()}</span></div>
+          <input class="input input-bordered input-sm" bind:value={composeSubject} placeholder={m['communications.mail.ui.subject']()} />
         </div>
         <div class="flex gap-4 items-center text-xs text-base-content/60">
           <label class="flex items-center gap-1">
-            Priority:
+            {m['communications.mail.ui.priority']()}
             <select class="select select-xs select-bordered" bind:value={composePriority}>
-              <option value="normal">Normal</option><option value="high">High</option><option value="low">Low</option>
+              <option value="normal">{m['communications.mail.ui.normal']()}</option><option value="high">{m['communications.mail.ui.high']()}</option><option value="low">{m['communications.mail.ui.low']()}</option>
             </select>
           </label>
           <label class="flex items-center gap-1 cursor-pointer">
-            <input type="checkbox" class="checkbox checkbox-xs" bind:checked={composeRequestReceipt} /> Read receipt
+            <input type="checkbox" class="checkbox checkbox-xs" bind:checked={composeRequestReceipt} /> {m['communications.mail.ui.readReceipt']()}
           </label>
         </div>
         <div class="form-control">
-          <div class="label py-1"><span class="label-text text-sm">Message</span></div>
-          <textarea class="textarea textarea-bordered min-h-48" bind:value={composeBody} placeholder="Write your message..."></textarea>
+          <div class="label py-1"><span class="label-text text-sm">{m['common.col.message']()}</span></div>
+          <textarea class="textarea textarea-bordered min-h-48" bind:value={composeBody} placeholder={m['communications.mail.ui.write_your_message']()}></textarea>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={autoSaveDraft}>Save Draft</button>
-        <button class="btn btn-ghost" onclick={() => showCompose = false}>Discard</button>
+        <button class="btn btn-ghost btn-sm" onclick={autoSaveDraft}>{m['communications.mail.ui.save_draft']()}</button>
+        <button class="btn btn-ghost" onclick={() => showCompose = false}>{m['common.discard']()}</button>
         <button class="btn btn-primary gap-2" onclick={sendEmail}
           disabled={sendingMail || !composeTo.trim() || !composeSubject.trim()}>
-          {#if sendingMail}<span class="loading loading-spinner loading-sm"></span>{:else}<Send class="w-4 h-4" />{/if} Send
+          {#if sendingMail}<span class="loading loading-spinner loading-sm"></span>{:else}<Send class="w-4 h-4" />{/if} {m['common.send']()}
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => showCompose = false}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => showCompose = false}></button>
   </dialog>
 {/if}
 
@@ -822,65 +821,65 @@
 {#if showAddAccount}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-xl max-h-[90vh] overflow-y-auto">
-      <h3 class="font-bold text-lg mb-4">Add Mail Account</h3>
+      <h3 class="font-bold text-lg mb-4">{m['communications.mail.ui.add_mail_account']()}</h3>
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <div class="label py-1"><span class="label-text text-sm">Account Name</span></div>
-            <input class="input input-bordered input-sm" bind:value={newAccount.name} placeholder="Work, Personal..." />
+            <div class="label py-1"><span class="label-text text-sm">{m['communications.mail.label.accountName']()}</span></div>
+            <input class="input input-bordered input-sm" bind:value={newAccount.name} placeholder={m['communications.mail.ui.work_personal']()} />
           </div>
           <div class="form-control">
-            <div class="label py-1"><span class="label-text text-sm">Email Address</span></div>
+            <div class="label py-1"><span class="label-text text-sm">{m['common.col.email']()}</span></div>
             <input class="input input-bordered input-sm" type="email" bind:value={newAccount.email_address} />
           </div>
         </div>
         <div class="form-control">
-          <div class="label py-1"><span class="label-text text-sm">Display Name</span></div>
-          <input class="input input-bordered input-sm" bind:value={newAccount.display_name} placeholder="Optional" />
+          <div class="label py-1"><span class="label-text text-sm">{m['communications.mail.label.displayName']()}</span></div>
+          <input class="input input-bordered input-sm" bind:value={newAccount.display_name} placeholder={m['communications.mail.ui.optional']()} />
         </div>
-        <div class="divider text-xs">IMAP (Incoming)</div>
+        <div class="divider text-xs">{m['communications.mail.ui.imapIncoming']()}</div>
         <div class="grid grid-cols-3 gap-2">
           <div class="form-control col-span-2">
-            <div class="label py-1"><span class="label-text text-sm">Host</span></div>
-            <input class="input input-bordered input-sm" bind:value={newAccount.imap_host} placeholder="imap.gmail.com" />
+            <div class="label py-1"><span class="label-text text-sm">{m['common.col.host']()}</span></div>
+            <input class="input input-bordered input-sm" bind:value={newAccount.imap_host} placeholder={m['communications.mail.ui.imap_gmail_com']()} />
           </div>
           <div class="form-control">
-            <div class="label py-1"><span class="label-text text-sm">Port</span></div>
+            <div class="label py-1"><span class="label-text text-sm">{m['common.col.port']()}</span></div>
             <input class="input input-bordered input-sm" type="number" bind:value={newAccount.imap_port} />
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div class="form-control">
-            <div class="label py-1"><span class="label-text text-sm">Username</span></div>
+            <div class="label py-1"><span class="label-text text-sm">{m['common.col.username']()}</span></div>
             <input class="input input-bordered input-sm" bind:value={newAccount.imap_user} />
           </div>
           <div class="form-control">
-            <div class="label py-1"><span class="label-text text-sm">Password</span></div>
+            <div class="label py-1"><span class="label-text text-sm">{m['common.col.password']()}</span></div>
             <input class="input input-bordered input-sm" type="password" bind:value={newAccount.imap_password} />
           </div>
         </div>
         <label class="label cursor-pointer justify-start gap-2">
           <input type="checkbox" class="checkbox checkbox-sm" bind:checked={newAccount.imap_secure} />
-          <span class="label-text text-sm">Use SSL/TLS</span>
+          <span class="label-text text-sm">{m['communications.mail.label.useSsl']()}</span>
         </label>
-        <div class="divider text-xs">SMTP (Outgoing)</div>
+        <div class="divider text-xs">{m['communications.mail.ui.smtpOutgoing']()}</div>
         <div class="grid grid-cols-3 gap-2">
           <div class="form-control col-span-2">
-            <div class="label py-1"><span class="label-text text-sm">Host</span></div>
-            <input class="input input-bordered input-sm" bind:value={newAccount.smtp_host} placeholder="smtp.gmail.com" />
+            <div class="label py-1"><span class="label-text text-sm">{m['common.col.host']()}</span></div>
+            <input class="input input-bordered input-sm" bind:value={newAccount.smtp_host} placeholder={m['communications.mail.ui.smtp_gmail_com']()} />
           </div>
           <div class="form-control">
-            <div class="label py-1"><span class="label-text text-sm">Port</span></div>
+            <div class="label py-1"><span class="label-text text-sm">{m['common.col.port']()}</span></div>
             <input class="input input-bordered input-sm" type="number" bind:value={newAccount.smtp_port} />
           </div>
         </div>
         <label class="label cursor-pointer justify-start gap-2">
           <input type="checkbox" class="checkbox checkbox-sm" bind:checked={newAccount.is_default} />
-          <span class="label-text text-sm">Set as default account</span>
+          <span class="label-text text-sm">{m['communications.mail.label.setDefaultAccount']()}</span>
         </label>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => showAddAccount = false}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => showAddAccount = false}>{m['common.cancel']()}</button>
         <button class="btn btn-primary gap-2"
           onclick={async () => {
             addingAccount = true;
@@ -889,7 +888,7 @@
               showAddAccount = false;
               newAccount = { name: '', email_address: '', display_name: '', imap_host: '', imap_port: 993, imap_secure: true, imap_user: '', imap_password: '', smtp_host: '', smtp_port: 587, smtp_secure: true, smtp_user: '', smtp_password: '', is_default: false };
               await loadAll();
-            } catch (e: any) { toast.error(e.message ?? 'Failed to add account'); }
+            } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.addAccount']()); }
             finally { addingAccount = false; }
           }}
           disabled={addingAccount || !newAccount.email_address || !newAccount.imap_host}>
@@ -897,7 +896,7 @@
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => showAddAccount = false}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => showAddAccount = false}></button>
   </dialog>
 {/if}
 
@@ -905,50 +904,51 @@
 {#if showFilterModal}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">New Mail Filter</h3>
+      <h3 class="font-bold text-lg mb-4">{m['communications.mail.ui.new_mail_filter']()}</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <div class="label py-1"><span class="label-text text-sm">Filter Name</span></div>
-          <input class="input input-bordered input-sm" bind:value={newFilter.name} placeholder="Block newsletters..." />
+          <div class="label py-1"><span class="label-text text-sm">{m['communications.mail.label.filterName']()}</span></div>
+          <input class="input input-bordered input-sm" bind:value={newFilter.name} placeholder={m['communications.mail.ui.block_newsletters']()} />
         </div>
         <div>
-          <p class="text-sm font-semibold mb-2">Conditions (all must match)</p>
+          <p class="text-sm font-semibold mb-2">{m['communications.mail.ui.conditionsAll']()}</p>
           {#each newFilter.conditions as cond, i}
             <div class="flex gap-2 mb-2 items-center">
               <select class="select select-xs select-bordered" bind:value={cond.field}>
-                <option value="from">From</option><option value="to">To</option>
-                <option value="subject">Subject</option><option value="body">Body</option>
+                <option value="from">{m['common.col.from']()}</option><option value="to">{m['common.col.to']()}</option>
+                <option value="subject">{m['communications.mail.ui.subject']()}</option><option value="body">{m['communications.mail.ui.body']()}</option>
               </select>
               <select class="select select-xs select-bordered" bind:value={cond.operator}>
-                <option value="contains">contains</option><option value="is">is exactly</option>
-                <option value="begins_with">starts with</option><option value="ends_with">ends with</option>
+                <option value="contains">{m['communications.mail.ui.contains']()}</option>
+                <option value="is">{m['communications.mail.ui.is_exactly']()}</option>
+                <option value="begins_with">{m['communications.mail.ui.starts_with']()}</option><option value="ends_with">{m['communications.mail.ui.ends_with']()}</option>
               </select>
-              <input class="input input-xs input-bordered flex-1" bind:value={cond.value} placeholder="value..." />
+              <input class="input input-xs input-bordered flex-1" bind:value={cond.value} placeholder={m['communications.mail.ui.value']()} />
               <button class="btn btn-xs btn-ghost text-error" onclick={() => newFilter.conditions = newFilter.conditions.filter((_: any, j: number) => j !== i)}>
                 <X class="w-3 h-3" />
               </button>
             </div>
           {/each}
           <button class="btn btn-xs btn-ghost gap-1" onclick={() => newFilter.conditions = [...newFilter.conditions, { field: 'from', operator: 'contains', value: '' }]}>
-            <Plus class="w-3 h-3" /> Add Condition
+            <Plus class="w-3 h-3" /> {m['communications.mail.ui.addCondition']()}
           </button>
         </div>
         <div>
-          <p class="text-sm font-semibold mb-2">Actions</p>
+          <p class="text-sm font-semibold mb-2">{m['common.actions']()}</p>
           {#each newFilter.actions as action, i}
             <div class="flex gap-2 mb-2 items-center">
               <select class="select select-xs select-bordered" bind:value={action.type}>
-                <option value="mark_read">Mark as read</option>
-                <option value="mark_starred">Star</option>
-                <option value="move">Move to folder</option>
-                <option value="delete">Delete</option>
-                <option value="forward">Forward to</option>
-                <option value="stop">Stop processing</option>
+                <option value="mark_read">{m['communications.mail.ui.mark_as_read']()}</option>
+                <option value="mark_starred">{m['communications.mail.ui.star']()}</option>
+                <option value="move">{m['communications.mail.ui.move_to_folder']()}</option>
+                <option value="delete">{m['common.delete']()}</option>
+                <option value="forward">{m['communications.mail.ui.forward_to']()}</option>
+                <option value="stop">{m['communications.mail.ui.stop_processing']()}</option>
               </select>
               {#if action.type === 'move'}
-                <input class="input input-xs input-bordered flex-1" bind:value={(action as any).folder} placeholder="INBOX.Newsletter" />
+                <input class="input input-xs input-bordered flex-1" bind:value={(action as any).folder} placeholder={m['communications.mail.ui.inbox_newsletter']()} />
               {:else if action.type === 'forward'}
-                <input class="input input-xs input-bordered flex-1" bind:value={(action as any).address} placeholder="forward@example.com" type="email" />
+                <input class="input input-xs input-bordered flex-1" bind:value={(action as any).address} placeholder={m['communications.mail.ui.forward_example_com']()} type="email" />
               {/if}
               <button class="btn btn-xs btn-ghost text-error" onclick={() => newFilter.actions = newFilter.actions.filter((_: any, j: number) => j !== i)}>
                 <X class="w-3 h-3" />
@@ -956,17 +956,17 @@
             </div>
           {/each}
           <button class="btn btn-xs btn-ghost gap-1" onclick={() => newFilter.actions = [...newFilter.actions, { type: 'mark_read' }]}>
-            <Plus class="w-3 h-3" /> Add Action
+            <Plus class="w-3 h-3" /> {m['communications.mail.ui.addAction']()}
           </button>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => showFilterModal = false}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => showFilterModal = false}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={saveFilter} disabled={!newFilter.name || !newFilter.conditions.length}>
-          Save Filter
+          {m['communications.mail.ui.save_filter']()}
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => showFilterModal = false}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => showFilterModal = false}></button>
   </dialog>
 {/if}
