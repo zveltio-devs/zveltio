@@ -34,7 +34,14 @@
   // window.__zveltio contribution API for any extension that wants to
   // contribute slot items or topbar widgets at runtime.
   import { installGlobalApi as installExtensionApi } from '$lib/extension-api.svelte.js';
-  import { buildNavModel, buildExtensionNav } from '$lib/nav-model.js';
+  import {
+    buildNavModel,
+    buildExtensionNavGroups,
+    buildPaletteNavItems,
+    type ExtensionNavGroupId,
+  } from '$lib/nav-model.js';
+  import { navLabel } from '$lib/nav-i18n.js';
+  import { m, i18n } from '$lib/i18n.svelte.js';
   import { studioApi } from '$lib/extension-api.svelte.js';
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
   import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
@@ -135,7 +142,30 @@
   });
 
   const nav = $derived(buildNavModel(extensions));
-  const allExtNav = $derived(buildExtensionNav(extensions));
+  const extNavGroups = $derived(buildExtensionNavGroups(extensions));
+
+  const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
+    business: () => m['nav.group.business'](),
+    finance: () => m['nav.group.finance'](),
+    hr: () => m['nav.group.hr'](),
+    operations: () => m['nav.group.operations'](),
+    compliance: () => m['nav.group.compliance'](),
+    content: () => m['nav.group.content'](),
+    communications: () => m['nav.group.communications'](),
+    developer: () => m['nav.group.developer'](),
+    projects: () => m['nav.group.projects'](),
+    other: () => m['nav.group.other'](),
+  };
+
+  const paletteNavItems = $derived.by(() => {
+    void i18n.locale;
+    return buildPaletteNavItems(
+      extensions,
+      navLabel,
+      (id) => extGroupLabels[id](),
+      m['palette.group.navigation'](),
+    );
+  });
 
   // Conditional desktop top-bar — only renders if an extension contributed
   // to topbar.center or topbar.right (e.g. AI extension's global prompt
@@ -166,7 +196,7 @@
 
 {:else if auth.isAuthenticated}
   <!-- Skip-to-content link for keyboard users. Hidden until focused. -->
-  <a href="#admin-main" class="skip-link">Skip to main content</a>
+  <a href="#admin-main" class="skip-link">{m['shell.skipToContent']()}</a>
 
   <DemoBanner />
 
@@ -174,7 +204,7 @@
 
     <Sidebar
       {nav}
-      {allExtNav}
+      {extNavGroups}
       {collapsed}
       {dark}
       {density}
@@ -188,7 +218,7 @@
     <MobileSidebar
       open={mobileOpen}
       {nav}
-      {allExtNav}
+      {extNavGroups}
       onClose={() => (mobileOpen = false)}
     />
 
@@ -197,7 +227,7 @@
 
       <!-- Mobile header -->
       <header class="lg:hidden flex items-center gap-3 px-4 h-14 bg-base-100/80 backdrop-blur-xl shadow-z1 shrink-0">
-        <button onclick={() => (mobileOpen = true)} aria-label="Open menu" class="btn btn-ghost btn-sm">
+        <button type="button" onclick={() => (mobileOpen = true)} aria-label={m['shell.openMenu']()} class="btn btn-ghost btn-sm">
           <Menu size={18} />
         </button>
         <div class="w-7 h-7 rounded-lg bg-linear-to-br from-primary to-secondary flex items-center justify-center shadow-z1">
@@ -210,7 +240,7 @@
         </div>
         <div class="ml-auto flex items-center gap-1">
           <Slot name="topbar.right" ctx={{ user: auth.user, viewport: 'mobile' }} />
-          <button onclick={() => (cmdOpen = true)} aria-label="Search (⌘K)" class="btn btn-ghost btn-sm" title="Search (⌘K)">
+          <button onclick={() => (cmdOpen = true)} aria-label={m['shell.search']()} class="btn btn-ghost btn-sm" title={m['shell.search']()}>
             <Search size={16} />
           </button>
           <button onclick={() => (dark = !dark)} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} class="btn btn-ghost btn-sm">
@@ -249,4 +279,4 @@
 
 <ToastContainer />
 <UpdateBanner />
-<CommandPalette open={cmdOpen} onclose={() => (cmdOpen = false)} />
+<CommandPalette open={cmdOpen} onclose={() => (cmdOpen = false)} navItems={paletteNavItems} />

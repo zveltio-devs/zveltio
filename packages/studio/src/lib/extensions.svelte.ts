@@ -1,12 +1,7 @@
 import { api } from './api.js';
+import type { ExtensionMeta } from './nav-model.js';
 
-export type ExtensionMeta = {
-  name: string;
-  displayName?: string;
-  description?: string;
-  contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
-  studio?: { pages?: Array<{ path: string; label: string; icon?: string }> };
-};
+export type { ExtensionMeta } from './nav-model.js';
 
 let activeExtensions = $state<string[]>([]);
 let extensionMetaList = $state<ExtensionMeta[]>([]);

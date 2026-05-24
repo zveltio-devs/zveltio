@@ -1,13 +1,6 @@
 /**
  * Nav model — the source of truth for the admin sidebar's grouped items.
- *
- * Kept out of `+layout.svelte` so:
- *   - The structure has a single edit point.
- *   - Cmd+K palette + future "navigate to" extension hooks can reuse it.
- *   - Restructuring groups is a one-file change.
- *
- * Items with an `ext` key are visible only when that extension is active.
- * Items without `ext` are always visible.
+ * Labels are Paraglide keys resolved at render time in Sidebar / MobileSidebar.
  */
 import { base } from '$app/paths';
 import {
@@ -20,103 +13,117 @@ import {
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
-export type NavItem = { href: string; icon: Component; label: string; ext?: string };
-export type NavGroup = { label?: string; items: NavItem[] };
+/** Paraglide message key under `nav.*` or `nav.group.*`. */
+export type NavLabelKey = string;
 
-/** Active extensions, shape passed by `$lib/extensions.svelte.js`. */
+/** Core Studio route — label via Paraglide `labelKey`. */
+export type CoreNavItem = { href: string; icon: Component; labelKey: NavLabelKey; ext?: string };
+/** Extension route — label from manifest (product name). */
+export type ExtensionNavItem = { href: string; icon: Component; label: string };
+export type NavGroup = { labelKey?: NavLabelKey; items: CoreNavItem[] };
+
+export const EXT_NAV_GROUP_ORDER = [
+  'business',
+  'finance',
+  'hr',
+  'operations',
+  'compliance',
+  'content',
+  'communications',
+  'projects',
+  'developer',
+  'other',
+] as const;
+
+export type ExtensionNavGroupId = (typeof EXT_NAV_GROUP_ORDER)[number];
+
+export type ExtensionNavGroup = { id: ExtensionNavGroupId; items: ExtensionNavItem[] };
+
+export type ExtensionMeta = {
+  name: string;
+  displayName?: string;
+  description?: string;
+  category?: string;
+  contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
+  studio?: {
+    navGroup?: string;
+    pages?: Array<{ path: string; label: string; icon?: string }>;
+  };
+};
+
 interface ExtensionState {
   initialized: boolean;
-  meta: Array<{
-    name: string;
-    displayName?: string;
-    studio?: { pages?: Array<{ path?: string; label?: string }> };
-    contributes?: { studio?: boolean };
-  }>;
+  meta: ExtensionMeta[];
   isActive(name: string): boolean;
 }
 
-/**
- * Static nav skeleton. Filtered at call-time by extension activation.
- *
- * Taxonomy redesigned in the UX refactor (wave 40) from 8 → 6 groups,
- * organized around user *intent* rather than feature category:
- *
- *   Build      — define the data + how it's presented
- *   Security   — control who can see / do what
- *   Workflows  — wire events into actions
- *   Insights   — see what's happening
- *   Developer  — low-level escape hatches
- *   System     — admin chores (storage, backup, settings)
- *
- * Restructure groups here, not in the layout component.
- */
 const RAW_NAV: NavGroup[] = [
   {
     items: [
-      { href: `${base}/`,           icon: LayoutDashboard, label: 'Dashboard'   },
-      { href: `${base}/onboarding`, icon: Zap,             label: 'Quick Setup' },
+      { href: `${base}/`,           icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+      { href: `${base}/onboarding`, icon: Zap,             labelKey: 'nav.quickSetup' },
     ],
   },
   {
-    label: 'Build',
+    labelKey: 'nav.group.build',
     items: [
-      { href: `${base}/collections`, icon: Database,   label: 'Collections' },
-      { href: `${base}/templates`,   icon: Sparkles,   label: 'Templates'   },
-      { href: `${base}/views`,       icon: Layout,     label: 'Views'       },
-      { href: `${base}/zones`,       icon: LayoutGrid, label: 'Zones'       },
-      { href: `${base}/media`,       icon: Images,     label: 'Media',      ext: 'content/media' },
+      { href: `${base}/collections`, icon: Database,   labelKey: 'nav.collections' },
+      { href: `${base}/templates`,   icon: Sparkles,   labelKey: 'nav.templates' },
+      { href: `${base}/views`,       icon: Layout,     labelKey: 'nav.views' },
+      { href: `${base}/zones`,       icon: LayoutGrid, labelKey: 'nav.zones' },
+      { href: `${base}/media`,       icon: Images,     labelKey: 'nav.media',      ext: 'content/media' },
     ],
   },
   {
-    label: 'Security',
+    labelKey: 'nav.group.security',
     items: [
-      { href: `${base}/users`,              icon: Users,     label: 'Users'           },
-      { href: `${base}/permissions`,        icon: Shield,    label: 'Permissions'     },
-      { href: `${base}/rls`,                icon: Shield,    label: 'Row Security'    },
-      { href: `${base}/column-permissions`, icon: Shield,    label: 'Column Security' },
-      { href: `${base}/api-keys`,           icon: Key,       label: 'API Keys'        },
-      { href: `${base}/tenants`,            icon: Building2, label: 'Tenants'         },
+      { href: `${base}/users`,              icon: Users,     labelKey: 'nav.users' },
+      { href: `${base}/permissions`,        icon: Shield,    labelKey: 'nav.permissions' },
+      { href: `${base}/rls`,                icon: Shield,    labelKey: 'nav.rowSecurity' },
+      { href: `${base}/column-permissions`, icon: Shield,    labelKey: 'nav.columnSecurity' },
+      { href: `${base}/api-keys`,           icon: Key,       labelKey: 'nav.apiKeys' },
+      { href: `${base}/tenants`,            icon: Building2, labelKey: 'nav.tenants' },
     ],
   },
   {
-    label: 'Workflows',
+    labelKey: 'nav.group.workflows',
     items: [
-      { href: `${base}/flows`,         icon: Workflow,    label: 'Flows'         },
-      { href: `${base}/webhooks`,      icon: Webhook,     label: 'Webhooks'      },
-      { href: `${base}/notifications`, icon: Bell,        label: 'Notifications' },
-      { href: `${base}/approvals`,     icon: CheckSquare, label: 'Approvals'     },
+      { href: `${base}/flows`,         icon: Workflow,    labelKey: 'nav.flows' },
+      { href: `${base}/webhooks`,      icon: Webhook,     labelKey: 'nav.webhooks' },
+      { href: `${base}/notifications`, icon: Bell,        labelKey: 'nav.notifications' },
+      { href: `${base}/approvals`,     icon: CheckSquare, labelKey: 'nav.approvals' },
     ],
   },
   {
-    label: 'Insights',
+    labelKey: 'nav.group.insights',
     items: [
-      { href: `${base}/insights`,     icon: BarChart2,     label: 'Analytics'     },
-      { href: `${base}/audit`,        icon: ClipboardList, label: 'Audit Log'     },
-      { href: `${base}/request-logs`, icon: Activity,      label: 'Request Logs'  },
+      { href: `${base}/insights`,     icon: BarChart2,     labelKey: 'nav.analytics' },
+      { href: `${base}/audit`,        icon: ClipboardList, labelKey: 'nav.auditLog' },
+      { href: `${base}/request-logs`, icon: Activity,      labelKey: 'nav.requestLogs' },
     ],
   },
   {
-    label: 'Developer',
+    labelKey: 'nav.group.developer',
     items: [
-      { href: `${base}/edge-functions`,      icon: Code,       label: 'Edge Functions'      },
-      { href: `${base}/rpc`,                 icon: Zap,        label: 'RPC Functions'       },
-      { href: `${base}/schema-branches`,     icon: GitBranch,  label: 'Schema Branches'     },
-      { href: `${base}/virtual-collections`, icon: Plug,       label: 'Virtual Collections' },
-      { href: `${base}/saved-queries`,       icon: Bookmark,   label: 'Saved Queries'       },
-      { href: `${base}/sql`,                 icon: Terminal,   label: 'SQL Editor'          },
-      { href: `${base}/introspect`,          icon: ScanSearch, label: 'BYOD Import',        ext: 'developer/byod' },
+      { href: `${base}/edge-functions`,      icon: Code,       labelKey: 'nav.edgeFunctions' },
+      { href: `${base}/rpc`,                 icon: Zap,        labelKey: 'nav.rpcFunctions' },
+      { href: `${base}/schema-branches`,     icon: GitBranch,  labelKey: 'nav.schemaBranches' },
+      { href: `${base}/virtual-collections`, icon: Plug,       labelKey: 'nav.virtualCollections' },
+      { href: `${base}/saved-queries`,       icon: Bookmark,   labelKey: 'nav.savedQueries' },
+      { href: `${base}/sql`,                 icon: Terminal,   labelKey: 'nav.sqlEditor' },
+      { href: `${base}/introspect`,          icon: ScanSearch, labelKey: 'nav.byodImport',        ext: 'developer/byod' },
     ],
   },
   {
-    label: 'System',
+    labelKey: 'nav.group.system',
     items: [
-      { href: `${base}/storage`,      icon: HardDrive,      label: 'Storage'      },
-      { href: `${base}/backup`,       icon: DatabaseBackup, label: 'Backup'       },
-      { href: `${base}/import`,       icon: Upload,         label: 'Import',      ext: 'data/import' },
-      { href: `${base}/export`,       icon: Download,       label: 'Export',      ext: 'data/export' },
-      { href: `${base}/translations`, icon: Languages,      label: 'Translations', ext: 'i18n/translations' },
-      { href: `${base}/marketplace`,  icon: Package,        label: 'Marketplace'  },
-      { href: `${base}/settings`,     icon: Settings,       label: 'Settings'     },
+      { href: `${base}/storage`,      icon: HardDrive,      labelKey: 'nav.storage' },
+      { href: `${base}/backup`,       icon: DatabaseBackup, labelKey: 'nav.backup' },
+      { href: `${base}/import`,       icon: Upload,         labelKey: 'nav.import',      ext: 'data/import' },
+      { href: `${base}/export`,       icon: Download,       labelKey: 'nav.export',      ext: 'data/export' },
+      { href: `${base}/translations`, icon: Languages,      labelKey: 'nav.translations', ext: 'i18n/translations' },
+      { href: `${base}/marketplace`,  icon: Package,        labelKey: 'nav.marketplace' },
+      { href: `${base}/settings`,     icon: Settings,       labelKey: 'nav.settings' },
     ],
   },
 ];
@@ -125,7 +132,56 @@ const RAW_NAV_EXT_NAMES: Set<string> = new Set(
   RAW_NAV.flatMap((g) => g.items).filter((i) => i.ext).map((i) => i.ext!),
 );
 
-/** Filtered nav for the current set of active extensions. */
+const CATEGORY_TO_GROUP: Record<string, ExtensionNavGroupId> = {
+  business: 'business',
+  finance: 'finance',
+  hr: 'hr',
+  operations: 'operations',
+  compliance: 'compliance',
+  content: 'content',
+  communications: 'communications',
+  projects: 'projects',
+  developer: 'developer',
+  analytics: 'developer',
+  auth: 'other',
+  geospatial: 'developer',
+  integrations: 'developer',
+  workflow: 'other',
+  billing: 'finance',
+  ecommerce: 'business',
+  data: 'developer',
+  storage: 'other',
+  search: 'developer',
+  sms: 'communications',
+  ai: 'developer',
+  forms: 'content',
+  i18n: 'other',
+};
+
+function resolveExtensionNavGroup(meta: ExtensionMeta): ExtensionNavGroupId {
+  const explicit = meta.studio?.navGroup;
+  if (explicit && (EXT_NAV_GROUP_ORDER as readonly string[]).includes(explicit)) {
+    return explicit as ExtensionNavGroupId;
+  }
+  const cat = meta.category?.toLowerCase();
+  if (cat && CATEGORY_TO_GROUP[cat]) return CATEGORY_TO_GROUP[cat];
+  const prefix = meta.name.split('/')[0]?.toLowerCase();
+  if (prefix && CATEGORY_TO_GROUP[prefix]) return CATEGORY_TO_GROUP[prefix];
+  return 'other';
+}
+
+function metaToNavItem(meta: ExtensionMeta): ExtensionNavItem {
+  const firstPage = meta.studio?.pages?.[0];
+  const slug = firstPage?.path
+    ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
+    : meta.name;
+  return {
+    href: `${base}/${slug}`,
+    icon: Puzzle,
+    label: firstPage?.label || meta.displayName || meta.name,
+  };
+}
+
 export function buildNavModel(extensions: ExtensionState): NavGroup[] {
   return RAW_NAV
     .map((g) => ({
@@ -135,33 +191,62 @@ export function buildNavModel(extensions: ExtensionState): NavGroup[] {
     .filter((g) => g.items.length > 0);
 }
 
-/**
- * Auto-injected nav items from active extensions whose Studio pages aren't
- * already wired into RAW_NAV. Renders under an "Extensions" heading.
- */
-export function buildExtensionNav(extensions: ExtensionState): NavItem[] {
+export function buildExtensionNavGroups(extensions: ExtensionState): ExtensionNavGroup[] {
   if (!extensions.initialized) return [];
-  return extensions.meta
-    .filter((m) => extensions.isActive(m.name))
-    .filter((m) => !RAW_NAV_EXT_NAMES.has(m.name))
-    .filter((m) => (m.studio?.pages && m.studio.pages.length > 0) || m.contributes?.studio)
-    .map((m) => {
-      const firstPage = m.studio?.pages?.[0];
-      const slug = firstPage?.path
-        ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
-        : m.name;
-      return {
-        href: `${base}/${slug}`,
-        icon: Puzzle,
-        label: firstPage?.label || m.displayName || m.name,
-      };
-    });
+
+  const buckets = new Map<ExtensionNavGroupId, ExtensionNavItem[]>();
+  for (const id of EXT_NAV_GROUP_ORDER) buckets.set(id, []);
+
+  for (const m of extensions.meta) {
+    if (!extensions.isActive(m.name)) continue;
+    if (RAW_NAV_EXT_NAMES.has(m.name)) continue;
+    if (!((m.studio?.pages && m.studio.pages.length > 0) || m.contributes?.studio)) continue;
+    const groupId = resolveExtensionNavGroup(m);
+    buckets.get(groupId)!.push(metaToNavItem(m));
+  }
+
+  return EXT_NAV_GROUP_ORDER
+    .map((id) => ({ id, items: buckets.get(id)! }))
+    .filter((g) => g.items.length > 0);
 }
 
-/**
- * Flat list of every nav item — used by the Cmd+K command palette to surface
- * direct-jump options.
- */
-export function flattenNav(nav: NavGroup[], allExtNav: NavItem[]): NavItem[] {
-  return [...nav.flatMap((g) => g.items), ...allExtNav];
+/** Flat extension nav (manifest labels). */
+export function buildExtensionNav(extensions: ExtensionState): ExtensionNavItem[] {
+  return buildExtensionNavGroups(extensions).flatMap((g) => g.items);
+}
+
+/** Cmd+K palette row — labels resolved by caller (Paraglide / manifest). */
+export type PaletteNavItem = {
+  label: string;
+  href: string;
+  icon: Component;
+  group: string;
+  sub?: string;
+};
+
+export function buildPaletteNavItems(
+  extensions: ExtensionState,
+  resolveCoreLabel: (key: NavLabelKey) => string,
+  resolveExtGroupLabel: (id: ExtensionNavGroupId) => string,
+  navigationGroupLabel: string,
+): PaletteNavItem[] {
+  const out: PaletteNavItem[] = [];
+  for (const g of buildNavModel(extensions)) {
+    const group = g.labelKey ? resolveCoreLabel(g.labelKey) : navigationGroupLabel;
+    for (const it of g.items) {
+      out.push({
+        label: resolveCoreLabel(it.labelKey),
+        href: it.href,
+        icon: it.icon,
+        group,
+      });
+    }
+  }
+  for (const g of buildExtensionNavGroups(extensions)) {
+    const group = resolveExtGroupLabel(g.id);
+    for (const it of g.items) {
+      out.push({ label: it.label, href: it.href, icon: it.icon, group });
+    }
+  }
+  return out;
 }

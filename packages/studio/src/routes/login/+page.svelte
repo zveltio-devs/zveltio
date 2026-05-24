@@ -7,6 +7,7 @@
  import { api } from '$lib/api.js';
  import { Fingerprint, AlertCircle, Sparkles } from '@lucide/svelte';
  import { startAuthentication } from '@simplewebauthn/browser';
+ import { m } from '$lib/i18n.svelte.js';
 
  let email = $state('');
  let password = $state('');
@@ -39,9 +40,9 @@
  const redirectTo = $derived(page.url.searchParams.get('redirect') ?? `${base}/`);
  const reasonMessage = $derived.by(() => {
   switch (reason) {
-   case 'session_required': return 'Sign in to continue.';
-   case 'session_expired':  return 'Your session expired — sign in again to continue.';
-   case 'signed_out':       return 'You have been signed out.';
+   case 'session_required': return m['auth.reason.session_required']();
+   case 'session_expired':  return m['auth.reason.session_expired']();
+   case 'signed_out':       return m['auth.reason.signed_out']();
    default: return null;
   }
  });
@@ -53,7 +54,7 @@
    await auth.signIn(email, password);
    goto(redirectTo);
   } catch (err) {
-   error = err instanceof Error ? err.message : 'Sign in failed';
+   error = err instanceof Error ? err.message : m['auth.signInFailed']();
   } finally {
    loading = false;
   }
@@ -72,7 +73,7 @@
   */
  async function signInWithPasskey() {
   if (!browserSupportsPasskey()) {
-   error = 'This browser does not support passkeys';
+   error = m['auth.passkeyUnsupported']();
    return;
   }
   error = '';
@@ -119,8 +120,8 @@
         style="background: linear-gradient(135deg, #6366f1, #8b5cf6)">
     <span class="text-white font-bold text-xl">Z</span>
    </div>
-   <h1 class="text-2xl font-semibold">Zveltio Studio</h1>
-   <p class="text-base-content/50 text-sm mt-1">Sign in to your account</p>
+   <h1 class="text-2xl font-semibold">{m['auth.studioTitle']()}</h1>
+   <p class="text-base-content/50 text-sm mt-1">{m['auth.studioSubtitle']()}</p>
   </div>
 
   {#if reasonMessage}
@@ -133,16 +134,16 @@
   {#if demoCreds}
    <div class="alert alert-warning py-3 mb-4 text-sm flex-col items-start gap-2">
     <div class="flex items-center gap-2 font-semibold w-full">
-     <Sparkles size={14} /> Demo instance
+     <Sparkles size={14} /> {m['auth.demoInstance']()}
     </div>
     <p class="text-xs opacity-90">
-     This is a shared demo. Data resets periodically. Use these credentials:
+     {m['auth.demoHint']()}
     </p>
     <div class="text-xs font-mono bg-base-100 text-base-content p-2 rounded w-full">
      {demoCreds.email} / {demoCreds.password}
     </div>
     <button type="button" class="btn btn-xs btn-warning self-end" onclick={useDemoCreds}>
-     Fill in
+     {m['auth.demoFillIn']()}
     </button>
    </div>
   {/if}
@@ -151,12 +152,12 @@
   <div class="card bg-base-100 shadow-lg">
    <div class="card-body gap-4">
     <div class="form-control">
-     <label class="label py-1" for="login-email"><span class="label-text text-sm">Email</span></label>
+     <label class="label py-1" for="login-email"><span class="label-text text-sm">{m['auth.email']()}</span></label>
      <input id="login-email" type="email" class="input" placeholder="admin@example.com" bind:value={email} />
     </div>
     <div class="form-control">
      <label class="label py-1" for="login-password">
-      <span class="label-text text-sm">Password</span>
+      <span class="label-text text-sm">{m['auth.password']()}</span>
      </label>
      <input id="login-password" type="password" class="input" bind:value={password}
             onkeydown={(e) => e.key === 'Enter' && login()} />
@@ -164,14 +165,15 @@
     {#if error}
      <div class="alert alert-error py-2 text-sm">{error}</div>
     {/if}
-    <button class="btn btn-primary w-full" onclick={login} disabled={loading}>
+    <button type="button" class="btn btn-primary w-full" onclick={login} disabled={loading}>
      {#if loading}<span class="loading loading-spinner loading-sm"></span>{/if}
-     Sign In
+     {m['auth.signIn']()}
     </button>
 
     {#if browserSupportsPasskey()}
-     <div class="divider text-xs text-base-content/40 my-1">or</div>
+     <div class="divider text-xs text-base-content/40 my-1">{m['auth.orDivider']()}</div>
      <button
+      type="button"
       class="btn btn-outline w-full gap-2"
       onclick={signInWithPasskey}
       disabled={passkeyLoading}
@@ -181,7 +183,7 @@
       {:else}
        <Fingerprint size={16} />
       {/if}
-      Sign in with passkey
+      {m['auth.signInWithPasskey']()}
      </button>
     {/if}
    </div>

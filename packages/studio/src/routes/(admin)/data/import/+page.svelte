@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+    import { onMount } from 'svelte';
   import { Upload, X, AlertCircle, CheckCircle } from '@lucide/svelte';
   import { api as zApi } from '$lib/api.js';
 
@@ -65,18 +68,15 @@
   function fmtBytes(n: number) { if (!n) return '—'; const u = ['B', 'KB', 'MB', 'GB']; let i = 0; while (n > 1024 && i < u.length - 1) { n /= 1024; i++; } return `${n.toFixed(1)} ${u[i]}`; }
 </script>
 
-<div class="p-6 space-y-4">
-  <header class="flex items-center justify-between">
-    <h1 class="text-2xl font-semibold flex items-center gap-2"><Upload class="h-6 w-6" /> Data Import</h1>
-    <button class="btn btn-primary btn-sm gap-2" onclick={() => { showForm = true; result = null; }}><Upload class="h-4 w-4" /> New import</button>
-  </header>
-  {#if error}<div class="alert alert-error"><AlertCircle class="h-4 w-4" /> {error}</div>{/if}
+<ExtensionPageShell title={m['data.import.title']()} subtitle={m['data.import.subtitle']()}>
+  {#snippet children()}
+{#if error}<div class="alert alert-error"><AlertCircle class="h-4 w-4" /> {error}</div>{/if}
 
   <div class="overflow-x-auto bg-base-100 rounded-lg shadow">
     <table class="table table-sm">
-      <thead><tr><th>Time</th><th>Collection</th><th>Format</th><th>Rows</th><th>Errors</th><th>Status</th></tr></thead>
+      <thead><tr><th>{m['data.import.col.time']()}</th><th>{m['common.col.collection']()}</th><th>{m['data.import.col.format']()}</th><th>{m['data.import.col.rows']()}</th><th>{m['data.import.col.errors']()}</th><th>{m['common.col.status']()}</th></tr></thead>
       <tbody>
-        {#if jobs.length === 0}<tr><td colspan="6" class="text-center py-6 text-base-content/60">No imports yet.</td></tr>
+        {#if jobs.length === 0}<tr><td colspan="6" class="text-center py-6 text-base-content/60">{m['data.import.empty']()}</td></tr>
         {:else}{#each jobs as j (j.id)}
           <tr>
             <td>{j.created_at?.slice(0, 16).replace('T', ' ')}</td>
@@ -90,17 +90,18 @@
       </tbody>
     </table>
   </div>
-</div>
+  {/snippet}
+</ExtensionPageShell>
 
 {#if showForm}
   <div class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onclick={(e) => e.target === e.currentTarget && (showForm = false)}>
     <div class="bg-base-100 rounded-xl p-6 w-full max-w-lg">
-      <div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Import data</h2><button class="btn btn-ghost btn-sm btn-square" onclick={() => (showForm = false)}><X class="h-4 w-4" /></button></div>
+      <div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">{m['data.import.form.title']()}</h2><button class="btn btn-ghost btn-sm btn-square" onclick={() => (showForm = false)}><X class="h-4 w-4" /></button></div>
       <div class="space-y-3">
         <div>
-          <label class="label label-text">Target collection</label>
+          <label class="label label-text">{m['data.import.form.collection']()}</label>
           <select class="select select-bordered w-full" bind:value={form.collection}>
-            <option value="">— Select —</option>
+            <option value="">{m['data.export.ui.select']()}</option>
             {#each collections as c (c.name)}<option value={c.name}>{c.display_name ?? c.name}</option>{/each}
           </select>
         </div>
@@ -118,29 +119,29 @@
               <div class="text-xs text-base-content/60">{fmtBytes(form.file.size)}</div>
             {:else}
               <Upload class="h-8 w-8 mx-auto mb-2 text-base-content/40" />
-              <div class="text-sm text-base-content/60">Drag a CSV / JSON / NDJSON file, or click to browse</div>
+              <div class="text-sm text-base-content/60">{m['data.import.dropHint']()}</div>
             {/if}
           </label>
         </div>
         <div>
-          <label class="label label-text">Format</label>
+          <label class="label label-text">{m['data.import.label.format']()}</label>
           <select class="select select-bordered w-full" bind:value={form.format}><option value="csv">CSV</option><option value="json">JSON</option><option value="ndjson">NDJSON</option></select>
         </div>
-        <div><label class="label label-text">Upsert on field (optional, e.g. <code class="text-xs">email</code>)</label><input class="input input-bordered w-full font-mono" bind:value={form.upsert_on} /></div>
-        <label class="label cursor-pointer gap-2"><input type="checkbox" class="checkbox checkbox-sm" bind:checked={form.create_missing_columns} /><span class="label-text">Create missing columns automatically</span></label>
+        <div><label class="label label-text">{m['data.import.label.upsertHtml']()}</label><input class="input input-bordered w-full font-mono" bind:value={form.upsert_on} /></div>
+        <label class="label cursor-pointer gap-2"><input type="checkbox" class="checkbox checkbox-sm" bind:checked={form.create_missing_columns} /><span class="label-text">{m['data.import.ui.create_missing_columns_automatically']()}</span></label>
       </div>
 
       {#if result}
         <div class="alert alert-success mt-3 text-sm">
           <CheckCircle class="h-4 w-4" />
           <div>
-            <div class="font-medium">Imported {result.rows_imported ?? '?'} rows</div>
-            {#if result.errors?.length}<div class="text-xs">{result.errors.length} errors — see job log</div>{/if}
+            <div class="font-medium">{m['data.import.toast.imported']({ n: String(result.rows_imported ?? '?') })}</div>
+            {#if result.errors?.length}<div class="text-xs">{m['data.import.errorsHint']({ n: String(result.errors.length) })}</div>{/if}
           </div>
         </div>
       {/if}
 
-      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick={() => (showForm = false)}>Close</button><button class="btn btn-primary gap-2" disabled={uploading || !form.file || !form.collection} onclick={startImport}><Upload class="h-4 w-4" /> {uploading ? 'Uploading…' : 'Import'}</button></div>
+      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick={() => (showForm = false)}>{m['common.close']()}</button><button class="btn btn-primary gap-2" disabled={uploading || !form.file || !form.collection} onclick={startImport}><Upload class="h-4 w-4" /> {uploading ? m['common.uploading']() : m['data.import.action.import']()}</button></div>
     </div>
   </div>
 {/if}
