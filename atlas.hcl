@@ -9,14 +9,27 @@
 
 env "engine" {
   # Directory the migration files live in. Atlas expects `.sql` files
-  # with monotonic numbering — our existing 001_*..073_* convention works.
+  # with monotonic numbering — our 001_initial.sql / 002_*.sql
+  # convention works.
   migration {
     dir = "file://packages/engine/src/db/migrations/sql"
-    # Atlas's default `up.sql / down.sql` convention doesn't match ours;
-    # we use a single file per migration with an optional `-- DOWN` marker
-    # (parsed by `parseMigrationSql`). Atlas treats each file as a single
-    # statement set — destructive analyzers still fire correctly.
-    format = "up.sql"
+    # `goose` format: one file per version, named `<seq>_<name>.sql`.
+    # That matches our convention exactly.
+    #
+    # Atlas's "atlas" default expects 14-digit timestamps
+    # (20240101120000_init.sql) — we don't use those. `golang-migrate`
+    # wants paired `.up.sql` + `.down.sql` files; we use one file with
+    # a `-- DOWN` marker parsed by our own `parseMigrationSql`. `goose`
+    # is the closest match: Atlas reads the UP block and runs its
+    # destructive / lock / data-depend analyzers on it. Our `-- DOWN`
+    # doesn't match goose's `-- +goose Down` syntax, so Atlas treats
+    # each file as UP-only — exactly what we want for lint purposes.
+    #
+    # Value MUST be a bare identifier (not a quoted string). Atlas
+    # rejected the previous `format = "up.sql"` with
+    # `unknown dir format "up.sql"` precisely because of both: not a
+    # valid format name AND quoted.
+    format = goose
   }
 
   # We don't run Atlas against a live database — only lint the SQL files
