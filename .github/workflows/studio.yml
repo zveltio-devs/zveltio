@@ -46,6 +46,13 @@ jobs:
       - name: Merge per-extension i18n messages + compile Paraglide
         run: cd packages/studio && bun run i18n:compile
 
+      - name: SvelteKit sync
+        # Generates .svelte-kit/tsconfig.json (which the studio's
+        # tsconfig.json extends) + $app/* type aliases. Without this,
+        # tsc --noEmit can't resolve $app/paths, $lib/*.svelte.js, vite
+        # config types, etc.
+        run: cd packages/studio && bunx svelte-kit sync
+
       - name: Typecheck
         run: cd packages/studio && bun run typecheck
 
