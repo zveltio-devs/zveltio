@@ -7,7 +7,7 @@
 # Bun + PostgreSQL 18 + pgvector + Valkey + SeaweedFS + systemd services.
 #
 # Usage:
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/zveltio/zveltio/main/install/proxmox-lxc.sh)"
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/zveltio-devs/zveltio/main/install/proxmox-lxc.sh)"
 #
 # Or locally:
 #   bash install/proxmox-lxc.sh
@@ -331,13 +331,13 @@ mkdir -p /opt/zveltio
 
 ZVELTIO_VERSION='${ZVELTIO_VERSION}'
 if [[ "\$ZVELTIO_VERSION" == 'latest' ]]; then
-  ZVELTIO_VERSION=\$(curl -fsSL https://api.github.com/repos/zveltio/zveltio/releases/latest \
+  ZVELTIO_VERSION=\$(curl -fsSL https://api.github.com/repos/zveltio-devs/zveltio/releases/latest \
     | grep '"tag_name"' | cut -d'"' -f4 || echo '')
 fi
 
 BINARY_INSTALLED=false
 if [[ -n "\$ZVELTIO_VERSION" && "\$ZVELTIO_VERSION" != 'main' ]]; then
-  BINARY_URL="https://github.com/zveltio/zveltio/releases/download/\${ZVELTIO_VERSION}/zveltio-linux-\$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
+  BINARY_URL="https://github.com/zveltio-devs/zveltio/releases/download/\${ZVELTIO_VERSION}/zveltio-linux-\$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
   if curl -fsSL --head "\$BINARY_URL" &>/dev/null; then
     wget -q "\$BINARY_URL" -O /opt/zveltio/zveltio
     chmod +x /opt/zveltio/zveltio
@@ -350,7 +350,7 @@ if [[ "\$BINARY_INSTALLED" == 'false' ]]; then
   echo 'No pre-built binary — building from source (takes a few minutes)'
   BRANCH="\${ZVELTIO_VERSION:-main}"
   [[ -z "\$BRANCH" ]] && BRANCH='main'
-  git clone --depth=1 --branch "\$BRANCH" https://github.com/zveltio/zveltio.git /tmp/zveltio-src
+  git clone --depth=1 --branch "\$BRANCH" https://github.com/zveltio-devs/zveltio.git /tmp/zveltio-src
   cd /tmp/zveltio-src
   BUN_MEMORY_LIMIT=2048 bun install --frozen-lockfile
   cd packages/engine

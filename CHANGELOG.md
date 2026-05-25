@@ -2,6 +2,38 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.101] - 2026-05-25
+
+### Installer fixes (audit follow-up)
+
+  - **GitHub URLs corrected** in `install/install.sh`,
+    `install/update.sh`, and `install/proxmox-lxc.sh`: all references
+    to `github.com/zveltio/zveltio`,
+    `raw.githubusercontent.com/zveltio/zveltio`, and
+    `api.github.com/repos/zveltio/zveltio` rewritten to point at the
+    real `zveltio-devs/zveltio` repo. Prior alpha installers were
+    silently downloading from a nonexistent repo for the Docker mode
+    (compose file), helper scripts (update.sh, uninstall.sh,
+    wrapper), the `update` command, and the Proxmox LXC variant.
+  - **Auto-detect: WSL / no-systemd hosts now pick Docker.** The old
+    logic preferred native whenever Bun was present, which on WSL
+    without `systemd=true` made the install die at
+    `systemctl daemon-reload`. New behaviour: probe `/run/systemd/system`
+    and fall back to Docker if absent; emit a clear error if neither
+    Docker nor systemd is available.
+  - **Header comment** updated to match the actual decision tree
+    (native preferred where systemd + Bun are both present; Docker
+    elsewhere).
+
+### Studio CI fix
+
+  - Added `@types/node` to `packages/studio/devDependencies`. A
+    fresh `svelte-kit sync` now writes `types: ["node"]` into the
+    generated tsconfig (older `@sveltejs/kit` versions didn't), so
+    typecheck fails with "Cannot find type definition file for 'node'"
+    on hosts without `@types/node` transitively hoisted. Locks the
+    dep down so CI is reproducible regardless of npm resolution.
+
 ## [1.0.0-alpha.100] - 2026-05-25
 
 ### Tenant RLS rollout — closed §6.1 backlog

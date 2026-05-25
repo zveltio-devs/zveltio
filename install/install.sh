@@ -3,8 +3,12 @@
 # Zveltio — One-command Installer
 # =============================================================================
 # Auto-detects the best installation mode:
-#   1. Docker   — preferred when Docker is available (WSL, VPS, any Linux)
-#   2. Native   — direct install via Bun + systemd (bare-metal VPS/LXC)
+#   1. Native   — Bun + systemd. Picked when Bun is present OR the host
+#                 looks like a fresh systemd VPS. Less RAM, better for
+#                 production where you can manage Postgres/Valkey yourself.
+#   2. Docker   — compose stack with Postgres + Valkey bundled. Picked
+#                 when systemd isn't available (e.g. WSL without
+#                 systemd=true, containers) or only Docker is installed.
 #
 # Usage:
 #   curl -fsSL https://get.zveltio.com | bash
@@ -67,17 +71,47 @@ esac
 info "Detected OS: ${OS_ID} ${OS_VERSION}"
 
 # ── Auto-detect mode ──────────────────────────────────────────────────────────
+# Native mode needs systemd to run the engine as a managed service.
+# WSL without `systemd=true` in /etc/wsl.conf has no systemd → native
+# install dies at `systemctl daemon-reload`. Containers (LXC without
+# systemd, Docker) hit the same wall.
+has_systemd() {
+  [[ -d /run/systemd/system ]] && command -v systemctl &>/dev/null
+}
+
+is_wsl() {
+  grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null
+}
+
 if [[ "$INSTALL_MODE" == "auto" ]]; then
-  if command -v bun &>/dev/null; then
-    # Bun already present — use native (lower overhead, better for production)
+  HAS_DOCKER=0
+  command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1 && HAS_DOCKER=1
+
+  if ! has_systemd; then
+    # No systemd — native can't manage the service. Fall back to Docker.
+    if [[ $HAS_DOCKER -eq 1 ]]; then
+      INSTALL_MODE="docker"
+      if is_wsl; then
+        info "WSL without systemd detected — using Docker mode"
+      else
+        info "systemd not available — using Docker mode"
+      fi
+    else
+      error "Native mode needs systemd and Docker isn't installed either."
+      error "On WSL: enable systemd via /etc/wsl.conf (systemd=true), then re-run."
+      error "Otherwise install Docker first, or set INSTALL_MODE=native explicitly."
+      exit 1
+    fi
+  elif command -v bun &>/dev/null; then
+    # Bun + systemd present → native is the lowest-overhead path.
     INSTALL_MODE="native"
-    info "Bun detected — using native mode"
-  elif command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
-    # Docker present but no Bun — respect the user's existing setup
+    info "Bun + systemd detected — using native mode"
+  elif [[ $HAS_DOCKER -eq 1 ]]; then
+    # Docker present but no Bun — respect the user's existing setup.
     INSTALL_MODE="docker"
     info "Docker detected (no Bun) — using Docker mode"
   else
-    # Fresh server: install Bun and go native (less RAM, better systemd integration)
+    # Fresh server with systemd: install Bun and go native.
     INSTALL_MODE="native"
     info "No runtime detected — will install Bun (native mode)"
   fi
@@ -149,9 +183,9 @@ install_docker_mode() {
   # ── Download docker-compose.yml ───────────────────────────────────────────
   local COMPOSE_URL
   if [[ "$ZVELTIO_VERSION" == "latest" || "$ZVELTIO_VERSION" == "main" ]]; then
-    COMPOSE_URL="https://raw.githubusercontent.com/zveltio/zveltio/main/docker-compose.yml"
+    COMPOSE_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/main/docker-compose.yml"
   else
-    COMPOSE_URL="https://raw.githubusercontent.com/zveltio/zveltio/${ZVELTIO_VERSION}/docker-compose.yml"
+    COMPOSE_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/${ZVELTIO_VERSION}/docker-compose.yml"
   fi
 
   info "Downloading docker-compose.yml from ${COMPOSE_URL}"
@@ -205,7 +239,7 @@ EOF
   success "Configuration written to ${ZVELTIO_DIR}/.env"
 
   # ── Copy helper scripts ───────────────────────────────────────────────────
-  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio/zveltio/main/install"
+  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/main/install"
   for script in update.sh uninstall.sh; do
     curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
       cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
@@ -732,7 +766,7 @@ EOF
   chmod 600 "${ZVELTIO_DIR}/.env"
 
   # ── Copy helper scripts ───────────────────────────────────────────────────────
-  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio/zveltio/main/install"
+  local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/main/install"
   for script in update.sh uninstall.sh; do
     curl -fsSL "${SCRIPTS_BASE}/${script}" -o "${ZVELTIO_DIR}/${script}" 2>/dev/null || \
       cp "$(dirname "$0")/${script}" "${ZVELTIO_DIR}/${script}" 2>/dev/null || true
