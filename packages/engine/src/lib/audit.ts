@@ -13,6 +13,8 @@ export type AuditEventType =
   | 'api_key.created'
   | 'api_key.revoked'
   | 'user.role_changed'
+  | 'user.invited'
+  | 'user.deleted'
   | 'settings.changed'
   | 'god_mode.used'
   | 'extension.loaded'
@@ -29,6 +31,10 @@ export type AuditEventType =
   | 'pitr.restored'
   | 'approval.workflow_changed'
   | 'approval.decided'
+  | 'approval.submitted'
+  | 'approval.cancelled'
+  | 'api_key.rate_limit_set'
+  | 'api_key.rate_limit_removed'
   | 'export.executed';
 
 export interface AuditEvent {
