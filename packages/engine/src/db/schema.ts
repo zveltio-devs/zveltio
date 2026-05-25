@@ -209,10 +209,9 @@ export interface ZvFlowsTable {
   id: Generated<string>;
   name: string;
   description: string | null;
-  trigger_type: 'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook';
-  trigger_config: unknown; // JSONB
-  trigger: unknown; // JSONB — alias used in some routes
-  is_active: boolean;
+  trigger_type: Generated<'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook'>;
+  trigger_config: Generated<unknown>; // JSONB DEFAULT '{}'
+  is_active: Generated<boolean>;      // DEFAULT true
   last_run_at: Date | null;
   next_run_at: Date | null;
   created_by: string | null;
@@ -223,20 +222,20 @@ export interface ZvFlowsTable {
 export interface ZvFlowStepsTable {
   id: Generated<string>;
   flow_id: string;
-  step_order: number;
+  step_order: Generated<number>; // DEFAULT 0
   name: string;
   type: 'run_script' | 'send_email' | 'webhook' | 'query_db' | 'condition' | 'transform' | 'delay' | 'send_notification' | 'export_collection' | 'ai_decision';
-  config: unknown; // JSONB
-  on_error: 'stop' | 'continue' | 'retry';
+  config: Generated<unknown>;     // JSONB DEFAULT '{}'
+  on_error: Generated<'stop' | 'continue' | 'retry'>; // DEFAULT 'stop'
   created_at: Generated<Date>;
 }
 
 export interface ZvFlowRunsTable {
   id: Generated<string>;
   flow_id: string;
-  status: 'running' | 'success' | 'failed' | 'cancelled';
-  trigger_data: unknown; // JSONB
-  output: unknown; // JSONB
+  status: Generated<'running' | 'success' | 'failed' | 'cancelled'>; // DEFAULT 'running'
+  trigger_data: unknown; // JSONB (nullable)
+  output: unknown;       // JSONB (nullable)
   error: string | null;
   started_at: Generated<Date>;
   finished_at: Date | null;
@@ -1202,29 +1201,94 @@ export interface ZvQualityIssuesTable {
 }
 
 export interface ZvDashboardsTable {
+  // Schema reconciled across 026/067/069 migrations — both sets of columns
+  // physically exist on the table. Routes use the 067+ columns (layout,
+  // is_public, tags); 026 columns (icon, is_default) are legacy.
   id: Generated<string>;
   name: string;
   description: string | null;
-  icon: string | null;
-  is_default: boolean;
+  icon: Generated<string | null>;            // legacy from 026, default 'BarChart'
+  is_default: Generated<boolean>;            // legacy from 026
+  layout: Generated<unknown>;                // JSONB, from 067
+  is_public: Generated<boolean>;             // from 067
+  tags: Generated<unknown>;                  // TEXT[] from 069
+  last_viewed_at: Date | null;               // from 068
+  view_count: Generated<number>;             // from 068
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
 
 export interface ZvPanelsTable {
+  // Same 026/067 split: 026 has (name, position_x/y, width, height),
+  // 067 has (title, position JSONB, refresh_interval). 069+002 reconcile
+  // adds the missing pieces. Routes use the 067 column names (title,
+  // position). `name` is kept as a legacy nullable column for instances
+  // upgraded from the pre-067 schema.
   id: Generated<string>;
   dashboard_id: string;
-  name: string;
-  type: string;
-  query: unknown; // JSONB
-  config: unknown; // JSONB
-  position_x: number;
-  position_y: number;
-  width: number;
-  height: number;
+  name: string | null;                       // legacy from 026, no longer NOT NULL after 002
+  title: string | null;                      // from 067 + 002 backfill
+  type: Generated<string>;                   // DEFAULT 'table'
+  query: string;                             // TEXT, not JSONB
+  config: Generated<unknown>;                // JSONB DEFAULT '{}'
+  position: Generated<unknown>;              // JSONB DEFAULT '{}', from 067
+  position_x: Generated<number>;             // legacy from 026, DEFAULT 0
+  position_y: Generated<number>;             // legacy from 026, DEFAULT 0
+  width: Generated<number>;                  // legacy from 026, DEFAULT 6
+  height: Generated<number>;                 // legacy from 026, DEFAULT 4
+  refresh_interval: number | null;           // from 067
+  last_executed_at: Date | null;             // from 068
+  avg_execution_ms: number | null;           // from 068
+  error_count: Generated<number>;            // from 068
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+}
+
+export interface ZvdDashboardSharesTable {
+  id: Generated<string>;
+  dashboard_id: string;
+  shared_with_user_id: string | null;
+  shared_with_role: string | null;
+  permission: Generated<'view' | 'edit'>;
+  created_by: string;
+  created_at: Generated<Date>;
+}
+
+export interface ZvdPanelCacheTable {
+  id: Generated<string>;
+  panel_id: string;
+  result: Generated<unknown>;
+  row_count: Generated<number>;
+  executed_at: Generated<Date>;
+  expires_at: Generated<Date>;
+  execution_ms: Generated<number>;
+}
+
+export interface ZvdInsightSavedQueriesTable {
+  id: Generated<string>;
+  name: string;
+  description: string | null;
+  query: string;
+  tags: Generated<unknown>;
+  is_public: Generated<boolean>;
+  use_count: Generated<number>;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface ZvdDashboardSubscriptionsTable {
+  id: Generated<string>;
+  dashboard_id: string;
+  user_id: string;
+  email: string;
+  frequency: Generated<'daily' | 'weekly' | 'monthly'>;
+  day_of_week: number | null;
+  hour_of_day: Generated<number>;
+  last_sent_at: Date | null;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
 }
 
 export interface ZvDocumentTemplatesTable {
@@ -1582,6 +1646,10 @@ export interface DbSchema {
   zvd_relations: ZvdRelationsTable;
   zvd_permissions: ZvdPermissionsTable;
   zvd_column_permissions: ZvdColumnPermissionsTable;
+  zvd_dashboard_shares: ZvdDashboardSharesTable;
+  zvd_panel_cache: ZvdPanelCacheTable;
+  zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
+  zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
   zvd_audit_log: ZvdAuditLogTable;
   zvd_webhooks: ZvdWebhooksTable;
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;

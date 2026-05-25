@@ -2049,7 +2049,15 @@ ALTER TABLE zv_dashboards
 ALTER TABLE zv_panels
   ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS position JSONB NOT NULL DEFAULT '{}',
-  ADD COLUMN IF NOT EXISTS refresh_interval INT;
+  ADD COLUMN IF NOT EXISTS refresh_interval INT,
+  ADD COLUMN IF NOT EXISTS title TEXT;
+
+-- 069 originally only reconciled dashboards. Routes use `title`, but the
+-- 026 schema only had `name` (NOT NULL). Backfill title from name where
+-- needed, then drop the NOT NULL on `name` so new INSERTs that only
+-- provide title don't fail.
+UPDATE zv_panels SET title = name WHERE title IS NULL;
+ALTER TABLE zv_panels ALTER COLUMN name DROP NOT NULL;
 
 -- ── from 070_extension_registry_tenant.sql ──
 -- Extension registry: per-tenant activation support
