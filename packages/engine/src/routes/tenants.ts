@@ -43,7 +43,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const tenants = await (db as any)
+    const tenants = await db
       .selectFrom('zv_tenants')
       .selectAll()
       .orderBy('created_at', 'desc')
@@ -68,7 +68,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     const data = c.req.valid('json');
 
-    const tenant = await (db as any)
+    const tenant = await db
       .insertInto('zv_tenants')
       .values({
         slug: data.slug,
@@ -86,14 +86,14 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     await provisionEnvironment(tenant.id, data.slug, 'prod', 'Production', true);
     await provisionEnvironment(tenant.id, data.slug, 'dev', 'Development', false);
 
-    const adminUser = await (db as any)
+    const adminUser = await db
       .selectFrom('user')
       .select('id')
       .where('email', '=', data.admin_user_email)
       .executeTakeFirst();
 
     if (adminUser) {
-      await (db as any)
+      await db
         .insertInto('zv_tenant_users')
         .values({ tenant_id: tenant.id, user_id: adminUser.id, role: 'owner' })
         .execute();
@@ -123,7 +123,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       if (body[key] !== undefined) updateData[key] = body[key];
     }
 
-    const updated = await (db as any)
+    const updated = await db
       .updateTable('zv_tenants')
       .set(updateData)
       .where('id', '=', id)
@@ -144,7 +144,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const usage = await (db as any)
+    const usage = await db
       .selectFrom('zv_tenant_usage')
       .selectAll()
       .where('tenant_id', '=', id)
@@ -162,7 +162,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     const isSuperAdmin = await checkPermission(user.id, 'tenants', 'manage');
 
     if (!isSuperAdmin) {
-      const membership = await (db as any)
+      const membership = await db
         .selectFrom('zv_tenant_users')
         .select('role')
         .where('tenant_id', '=', id)
@@ -203,7 +203,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     const { slug, name } = c.req.valid('json');
 
-    const tenant = await (db as any)
+    const tenant = await db
       .selectFrom('zv_tenants')
       .select(['id', 'slug'])
       .where('id', '=', id)

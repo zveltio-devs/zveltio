@@ -134,7 +134,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       }
 
       // Reject duplicate names immediately
-      const existing = await (db as any)
+      const existing = await db
         .selectFrom('zvd_collections')
         .select('name')
         .where('name', '=', data.name)
@@ -175,7 +175,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         if (metadataRegistered) {
           // Rollback the metadata row so we don't leave a ghost collection
           // visible to GET /api/collections while no physical table exists.
-          await (db as any)
+          await db
             .deleteFrom('zvd_collections')
             .where('name', '=', data.name)
             .execute()
@@ -297,7 +297,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     collectionName: string,
     op: 'add' | 'remove' | 'drop',
   ): Promise<string | null> {
-    const meta = await (db as any)
+    const meta = await db
       .selectFrom('zvd_collections')
       .select(['is_managed', 'schema_locked'])
       .where('name', '=', collectionName)
@@ -436,7 +436,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         // Row-lock the collection (FOR UPDATE) inside a transaction so
         // two concurrent add-field calls can't both observe the same
         // pre-mutation fields[] and overwrite each other's writes.
-        await (db as any).transaction().execute(async (trx: any) => {
+        await db.transaction().execute(async (trx: any) => {
           const locked = await (trx as any)
             .selectFrom('zvd_collections')
             .select(['fields'])
@@ -605,7 +605,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             if (fieldDef.type === 'm2o' || fieldDef.type === 'reference') {
               await dynamicRenameColumn(db, tableName, fieldName, newName);
             }
-            await (db as any)
+            await db
               .updateTable('zvd_relations')
               .set({ source_field: newName })
               .where('source_collection', '=', name)
@@ -615,7 +615,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             await dynamicRenameColumn(db, tableName, fieldName, newName);
             // Also sync any zvd_relations rows where this is the target_field
             // (i.e. another collection has an o2m pointing at this column).
-            await (db as any)
+            await db
               .updateTable('zvd_relations')
               .set({ target_field: newName })
               .where('target_collection', '=', name)
@@ -682,7 +682,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
       if (fieldDef?.type === 'o2m') {
         // o2m: FK column lives in TARGET table — look up and drop it there
-        const relation = await (db as any)
+        const relation = await db
           .selectFrom('zvd_relations')
           .select(['target_collection', 'target_field'])
           .where('source_collection', '=', name)
@@ -694,7 +694,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         }
       } else if (fieldDef?.type === 'm2m') {
         // m2m: drop the junction table (no column in source table)
-        const relation = await (db as any)
+        const relation = await db
           .selectFrom('zvd_relations')
           .select(['junction_table'])
           .where('source_collection', '=', name)
@@ -708,7 +708,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       }
 
       // Drop the relation row (dangling metadata causes re-add to hit UNIQUE constraint)
-      await (db as any)
+      await db
         .deleteFrom('zvd_relations')
         .where('source_collection', '=', name)
         .where('source_field', '=', fieldName)

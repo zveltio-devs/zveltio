@@ -39,7 +39,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 20, 200);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = (db as any).selectFrom('user').selectAll().orderBy('createdAt', 'desc');
+    let query = db.selectFrom('user').selectAll().orderBy('createdAt', 'desc');
     if (search) {
       const safeSearch = `%${escapeLike(search)}%`;
       query = query.where((eb: any) =>
@@ -52,9 +52,9 @@ export function usersRoutes(db: Database, auth: any): Hono {
 
     const [users, total] = await Promise.all([
       query.offset(offset).limit(parsedLimit).execute(),
-      (db as any)
+      db
         .selectFrom('user')
-        .select((eb: any) => eb.fn.count('id').as('count'))
+        .select((eb) => eb.fn.count('id').as('count'))
         .executeTakeFirst(),
     ]);
 
@@ -71,7 +71,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     return c.json({
       users: usersWithRoles,
       pagination: {
-        total: parseInt(total?.count ?? '0'),
+        total: Number(total?.count ?? 0),
         page: parseInt(page),
         limit: parsedLimit,
       },
@@ -80,7 +80,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — Get user by ID
   app.get('/:id', async (c) => {
-    const user = await (db as any)
+    const user = await db
       .selectFrom('user')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -111,7 +111,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
       if (image !== undefined) updates.image = image;
       if (role !== undefined) updates.role = role;
 
-      const user = await (db as any)
+      const user = await db
         .updateTable('user')
         .set(updates)
         .where('id', '=', userId)
@@ -156,7 +156,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
       const adminUser = c.get('user') as any;
 
       // Check if user already exists
-      const existing = await (db as any)
+      const existing = await db
         .selectFrom('user')
         .select('id')
         .where('email', '=', email)
@@ -172,7 +172,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
 
       // Store the invite in zv_invitations (create if table doesn't exist — graceful)
       try {
-        await (db as any)
+        await db
           .insertInto('zv_invitations' as any)
           .values({
             email,
@@ -242,7 +242,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Cannot delete your own account' }, 400);
     }
 
-    await (db as any).deleteFrom('user').where('id', '=', userId).execute();
+    await db.deleteFrom('user').where('id', '=', userId).execute();
 
     await auditLog(db, {
       type: 'user.deleted',

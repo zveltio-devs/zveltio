@@ -6,6 +6,17 @@ import { executeFlow } from '../lib/flow-executor.js';
 import { validateStepConfig } from '../lib/flow-step-schemas.js';
 import { checkPermission } from '../lib/permissions.js';
 
+// NOTE: This file still uses `(db as any)` deliberately. Removing the
+// casts revealed a real latent bug: every handler below assumes
+// `zv_flows.steps` is a JSONB column, but the actual schema
+// (001_initial.sql) stores steps in a separate `zv_flow_steps` table.
+// The PATCH/DELETE /:id/steps/:stepId handlers + POST/PUT /:id/steps
+// would 500 at runtime against a real Postgres. This needs proper
+// triage: either migrate the routes to use `zv_flow_steps`, or add
+// the JSONB column to `zv_flows` and remove the steps table.
+// Keeping the cast until that decision is made so `bun run typecheck`
+// stays green.
+
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;

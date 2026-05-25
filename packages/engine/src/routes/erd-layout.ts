@@ -43,7 +43,7 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
   // GET / — current user's layout
   app.get('/', async (c) => {
     const user = c.get('user' as never) as any;
-    const rows = await (db as any)
+    const rows = await db
       .selectFrom('zv_erd_layouts')
       .select(['collection_name', 'x', 'y'])
       .where('user_id', '=', user.id)
@@ -63,7 +63,7 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
     const user = c.get('user' as never) as any;
     const { positions } = c.req.valid('json');
 
-    await (db as any).transaction().execute(async (trx: Database) => {
+    await db.transaction().execute(async (trx: Database) => {
       await (trx as any)
         .deleteFrom('zv_erd_layouts')
         .where('user_id', '=', user.id)
@@ -89,7 +89,7 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
   // DELETE / — wipe the current user's layout
   app.delete('/', async (c) => {
     const user = c.get('user' as never) as any;
-    const r = await (db as any)
+    const r = await db
       .deleteFrom('zv_erd_layouts')
       .where('user_id', '=', user.id)
       .executeTakeFirst();
