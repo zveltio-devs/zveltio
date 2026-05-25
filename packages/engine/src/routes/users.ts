@@ -217,6 +217,14 @@ export function usersRoutes(db: Database, auth: any): Hono {
         }
       }
 
+      await auditLog(db, {
+        type: 'user.invited',
+        userId: adminUser.id,
+        resourceId: token,
+        resourceType: 'invitation',
+        metadata: { email, role },
+      });
+
       return c.json({
         message: 'Invitation sent',
         invite_url: inviteUrl,
@@ -235,6 +243,13 @@ export function usersRoutes(db: Database, auth: any): Hono {
     }
 
     await (db as any).deleteFrom('user').where('id', '=', userId).execute();
+
+    await auditLog(db, {
+      type: 'user.deleted',
+      userId: adminUser.id,
+      resourceId: userId,
+      resourceType: 'user',
+    });
     return c.json({ success: true });
   });
 
