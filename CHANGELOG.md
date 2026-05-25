@@ -2,6 +2,90 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.100] - 2026-05-25
+
+### Tenant RLS rollout — closed §6.1 backlog
+
+The historical `AUDIT-2026-05-24 §6.1` backlog ("systemic multi-tenant
+gap in extensions other than ai") is now closed. Both halves of the
+gap are fixed:
+
+  - **Migration template applied** to 51 DB-bearing official
+    extensions (`002_tenant_rls.sql` adds `tenant_id` with the
+    GUC-default, indexes it, enables FORCE RLS with a per-table
+    isolation policy, warns on legacy NULL rows). `ai` had its
+    isolation folded into `001_initial.sql`. The three stateless
+    extensions (`content/pdf-viewer`, `developer/edge-functions`,
+    `developer/views`) need no DB migration.
+
+  - **`getMigrations() ↔ disk` reconciled.** The engine's extension
+    loader silently skips paths that don't exist on disk — a pre-fix
+    audit found 50 `002_tenant_rls.sql` files on disk that were never
+    referenced by any extension's `getMigrations()`, plus several
+    extensions still listing pre-squash filenames (e.g. CRM's
+    `001_init.sql + 002_enterprise.sql + 003_missing_columns.sql`
+    when only `001_initial.sql + 002_tenant_rls.sql` actually exist).
+    Net effect before this release: every fresh `install + enable
+    extension` was leaving RLS un-applied without raising any error.
+
+  - **Defensive tooling** added to prevent recurrence:
+    `scripts/validate-migration-paths.ts` in `zveltio-extensions`
+    diffs declared paths against on-disk SQL files; the new
+    `.github/workflows/ci.yml` runs it on every PR.
+
+### Audit log — privileged-action coverage
+
+Added `auditLog` calls on routes that mutate sensitive state but
+previously emitted no event: `users.invited`, `users.deleted`,
+`approval.submitted`, `approval.cancelled`, `api_key.rate_limit_set`,
+`api_key.rate_limit_removed`. `AuditEventType` union extended
+accordingly.
+
+### CI
+
+  - **Studio CI** added (`.github/workflows/studio.yml`) — Svelte 5
+    + Paraglide regressions now caught on every PR + push, scoped via
+    `paths:` so engine-only PRs don't pay the cost. Runs
+    `svelte-kit sync` before `tsc` so the generated tsconfig
+    (`include` list, `$app/*` paths, `moduleResolution: bundler`)
+    is available.
+  - **Dependabot lockfile auto-sync** (`dependabot-lockfile.yml`) —
+    `pull_request_target` workflow rewrites `bun.lock` after each
+    Dependabot npm bump so `bun install --frozen-lockfile` in main
+    CI stays green.
+  - **`--frozen-lockfile`** now enforced in every CI `bun install`
+    step; Atlas migrate-safety lint fixed (`format = goose` bare
+    identifier, not the invalid quoted `"up.sql"`).
+  - **Studio embed path** corrected to `packages/studio/dist`
+    (was `packages/studio/build` — the binary embed silently
+    captured nothing).
+
+### Ops docs
+
+  - **`docs/DEPLOYMENT-K8S.md`** — Probes section expanded with a
+    3-endpoint table (`/api/health`, `/api/health/ready`,
+    `/api/health/deep`) and concrete `livenessProbe` /
+    `readinessProbe` / `startupProbe` YAML matching the engine's
+    measured boot profile.
+  - **`docs/BENCHMARKS.md`** (new) — single source of truth for
+    published throughput / latency numbers, the hardware baseline
+    they're measured on, the reproduction recipe (`bench/scenarios/`
+    + `bench/ci-check.ts`), and the multi-tenant overhead delta.
+  - **`docs/SECURITY.md`** + **`docs/SESSION-PRs-2026-05-24.md`** —
+    updated to reflect the closed §6.1 backlog (was previously
+    listing it as "pending").
+
+### Dependencies
+
+  - **OpenTelemetry** — overrides pin `@opentelemetry/sdk-trace-base`
+    to `2.7.1`. Transitive resolution still drags in v1 copies, so
+    `telemetry.ts` keeps a narrow `as any` on `traceExporter` (the
+    v1 ↔ v2 `ReadableSpan` interface drift is type-only; runtime
+    contract is unchanged) — documented inline.
+  - **zod** bumped to `^4.4.3`; the regression on `z.input<>` for
+    `z.preprocess`-using schemas worked around with a hand-written
+    `CoreCollectionInput` interface.
+
 ## [1.0.0-alpha.99] - 2026-05-22
 
 ### Fixed — race-guard workflow bug introduced in alpha.97
