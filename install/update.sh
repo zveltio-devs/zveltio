@@ -35,7 +35,7 @@ header "Zveltio — Update"
 # ── Resolve target version ────────────────────────────────────────────────────
 if [[ "$ZVELTIO_VERSION" == "latest" ]]; then
   info "Checking latest release..."
-  ZVELTIO_VERSION=$(curl -fsSL https://api.github.com/repos/zveltio/zveltio/releases/latest \
+  ZVELTIO_VERSION=$(curl -fsSL https://api.github.com/repos/zveltio-devs/zveltio/releases/latest \
     | grep '"tag_name"' | cut -d'"' -f4 || echo "")
   if [[ -z "$ZVELTIO_VERSION" ]]; then
     warn "No release found — will build from main branch"
@@ -111,7 +111,7 @@ info "Backed up to ${BACKUP_DIR}"
 BINARY_INSTALLED=false
 
 if [[ "$ZVELTIO_VERSION" != "main" ]]; then
-  BINARY_URL="https://github.com/zveltio/zveltio/releases/download/${ZVELTIO_VERSION}/zveltio-linux-$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
+  BINARY_URL="https://github.com/zveltio-devs/zveltio/releases/download/${ZVELTIO_VERSION}/zveltio-linux-$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
   if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
     info "Downloading binary ${ZVELTIO_VERSION}..."
     wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio.new"
@@ -128,7 +128,7 @@ if [[ "$BINARY_INSTALLED" == "false" ]]; then
   [[ -z "$BRANCH" || "$BRANCH" == "latest" ]] && BRANCH="main"
 
   git clone --depth=1 --branch "$BRANCH" \
-    https://github.com/zveltio/zveltio.git /tmp/zveltio-update
+    https://github.com/zveltio-devs/zveltio.git /tmp/zveltio-update
   cd /tmp/zveltio-update
   BUN_MEMORY_LIMIT=2048 bun install --frozen-lockfile
   cd packages/engine
