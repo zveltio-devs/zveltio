@@ -242,10 +242,14 @@ Documented in PR #1's and PR #2's commit messages.
 
 From `AUDIT-2026-05-24.md` §6, after this session:
 
-- **§6.1 backlog** — `hr/leave`, `hr/time-tracking`, and the rest of the
-  ~45 extensions with `zvd_*`/`zv_<feature>_*` tables still need the
-  PR #1 template applied. Pattern is fixed; each remaining extension
-  is a copy-paste change.
+- ~~**§6.1 backlog**~~ — **CLOSED** (zveltio-extensions `14b0dd0`).
+  `002_tenant_rls.sql` rolled out to all 51 DB-bearing extensions;
+  every route handler now resolves DB access via `reqDb(c)`; a CI
+  validator (`scripts/validate-migration-paths.ts`) prevents
+  `getMigrations()` drift from the SQL files on disk going forward.
+  The three remaining extensions without RLS migrations
+  (`content/pdf-viewer`, `developer/edge-functions`, `developer/views`)
+  have no DB tables by design.
 - **§6.3** — outstanding `.catch(() => {})` swallows. Pass 6+7
   addressed the security-relevant ones; the next agent should focus
   on writes that affect external state (Stripe webhook delivery
@@ -301,4 +305,8 @@ c3ac83d security: stripe webhook hardening, GraphQL RBAC, AI search perms, GDPR
 
 ---
 
-*End of session log. The next agent should start with [AUDIT-2026-05-24.md §6.1](AUDIT-2026-05-24.md#61-systemic-multi-tenant-gap-in-extensions-other-than-ai) — pick any remaining extension, copy PR #1's pattern.*
+*End of session log. §6.1 rollout completed in zveltio-extensions
+commit `14b0dd0` (2026-05-25): RLS template applied to 51
+extensions, `getMigrations()` paths reconciled with disk in commit
+`fix(extensions): reconcile getMigrations() with actual SQL files`,
+CI validator added.*

@@ -219,10 +219,11 @@ backfill BEFORE the table is considered multi-tenant-safe.
 
 ### Per-extension tenant isolation status
 
-Tenant isolation is rolling out per extension (see [AUDIT-2026-05-24.md
-§6.1](AUDIT-2026-05-24.md#61-systemic-multi-tenant-gap-in-extensions-other-than-ai)
-for the full backlog). An extension is "tenant-safe" when ALL of the
-following are true:
+Tenant isolation rollout is **complete** across the extension catalog
+as of zveltio-extensions commit `14b0dd0` — the historical backlog
+in [AUDIT-2026-05-24.md §6.1](AUDIT-2026-05-24.md#61-systemic-multi-tenant-gap-in-extensions-other-than-ai)
+is closed. An extension is "tenant-safe" when ALL of the following
+are true:
 
   1. Every table has a `tenant_id UUID` column with
      `DEFAULT NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid`.
@@ -236,17 +237,24 @@ following are true:
 | Extension | Status | Migration |
 |---|---|---|
 | `ai` | ✅ tenant-safe | `001_initial.sql` (folded `009_embeddings_tenant_isolation.sql`) |
-| `crm` | ✅ tenant-safe | `002_tenant_rls.sql` |
-| `finance/invoicing` | ✅ tenant-safe | `002_tenant_rls.sql` |
-| `hr/payroll` | ✅ tenant-safe | `002_tenant_rls.sql` |
-| `compliance/ro/efactura` | ✅ tenant-safe | `002_tenant_rls.sql` |
-| All other extensions | ⏳ pending — see §6.1 backlog | — |
+| All other DB-bearing extensions (51 total) | ✅ tenant-safe | `002_tenant_rls.sql` |
+| `content/pdf-viewer`, `developer/edge-functions`, `developer/views` | n/a — no DB tables | — |
 
-Operators running in multi-tenant mode must NOT enable an extension
-marked "pending" against shared production data. Single-tenant
-deployments (no `tenantMiddleware`, no `X-Tenant-Slug` header) are
-unaffected — the policy's NULL-or-match arm passes when the GUC is
-empty.
+Rollout completed in zveltio-extensions commit `14b0dd0`; the
+`002_tenant_rls.sql` template adds `tenant_id` to every public table
+in the extension (DEFAULT `NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid`),
+backfills with a `RAISE WARNING` on legacy NULL rows, indexes
+`tenant_id`, and enables FORCE RLS with a `tenant_isolation_<table>`
+policy. Every route handler in these extensions now resolves DB
+access via `reqDb(c)`, returning the tenant-scoped transaction when
+`tenantMiddleware` is active and the bare pool otherwise. A CI guard
+(`scripts/validate-migration-paths.ts` in zveltio-extensions) blocks
+regressions where `getMigrations()` drifts from the actual SQL files
+on disk.
+
+Single-tenant deployments (no `tenantMiddleware`, no `X-Tenant-Slug`
+header) are unaffected — the policy's NULL-or-match arm passes when
+the GUC is empty.
 
 ---
 
