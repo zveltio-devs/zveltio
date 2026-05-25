@@ -155,10 +155,57 @@ For fully stateless deployments (S3 for uploads + read-only extension marketplac
 
 ## Probes
 
-- Liveness: `GET /health` — fails after 3 consecutive timeouts (60s); kubelet restarts the pod.
-- Readiness: `GET /health` — fails after 3 consecutive failures (15s); pod stops receiving traffic.
+Three health endpoints, each with a specific role:
 
-The `/health` endpoint deliberately returns minimal info (no engine version, no schema version) per the security-sprint policy. Use `/api/version` (auth-gated) for richer details.
+| Endpoint | Auth | Use for | Behaviour |
+|---|---|---|---|
+| `GET /api/health` | none | liveness | Returns 200 only if the engine process is responsive. No DB, no cache. ~0.5 ms typical. |
+| `GET /api/health/ready` | none | readiness | Returns 200 if the engine has finished boot (migrations applied, extensions loaded). 503 during startup. |
+| `GET /api/health/deep` | auth | manual checks + alarms | Probes DB, cache, backup dir, storage dir. Returns 503 if any check fails. ~10-50 ms typical. NOT for kubelet probes — auth-gated. |
+
+Recommended Kubernetes probes:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 30
+  # On a healthy engine /health returns in <1 ms; 5 s gives
+  # plenty of room before kubelet declares the pod stuck.
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3      # restart after 30 s of failures
+  successThreshold: 1
+
+readinessProbe:
+  httpGet:
+    path: /api/health/ready
+    port: 3000
+  # Engine boot includes pending migrations + extension loading;
+  # cold start is 2-3 s, slow on first deploy with many extensions.
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3      # 15 s before traffic is removed
+  successThreshold: 1
+
+startupProbe:
+  # Optional but recommended for slow-starting deployments
+  # (lots of extensions, slow DB during migration). Once it
+  # passes, liveness+readiness take over.
+  httpGet:
+    path: /api/health/ready
+    port: 3000
+  periodSeconds: 5
+  failureThreshold: 30     # tolerate up to 150 s for first boot
+```
+
+`/api/health` deliberately returns minimal info (no engine version,
+no schema version) per the security-sprint policy. Use
+`/api/version` (auth-gated) for richer details, and
+`/api/health/deep` (also auth-gated) for production alarms on
+downstream-dependency failures.
 
 ## Observability
 

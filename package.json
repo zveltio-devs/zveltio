@@ -20,7 +20,7 @@
     "check": "biome check",
     "check:fix": "biome check --write",
     "studio:build": "cd packages/studio && bun run build",
-    "studio:embed": "cp -r packages/studio/build packages/engine/src/studio-dist",
+    "studio:embed": "cp -r packages/studio/dist packages/engine/src/studio-dist",
     "changeset": "changeset",
     "version-packages": "changeset version && bun run scripts/sync-engine-version.ts",
     "tag": "changeset tag"
@@ -39,5 +39,8 @@
   "dependencies": {
     "@auth/kysely-adapter": "^1.11.1",
     "kysely": "0.27.6"
+  },
+  "overrides": {
+    "@opentelemetry/sdk-trace-base": "2.7.1"
   }
 }

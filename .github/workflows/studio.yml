@@ -1,0 +1,60 @@
+name: Studio
+
+# Studio isn't currently part of the main CI workflow — it only gets
+# built indirectly via the Build Check on push-to-master. That means
+# Svelte 5 / Paraglide regressions can land in feature PRs without
+# being caught until they hit master. This workflow runs the studio
+# specifically on every PR + push, with the per-extension i18n merge
+# and the same SvelteKit build the production binary embeds.
+#
+# Scoped via `paths` so PRs that only touch engine code don't pay the
+# Studio CI cost.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    paths:
+      - 'packages/studio/**'
+      - 'packages/sdk/**'
+      - 'bun.lock'
+      - 'package.json'
+      - '.github/workflows/studio.yml'
+
+concurrency:
+  group: studio-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  studio:
+    name: Studio typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build SDK
+        # Studio imports from `@zveltio/sdk` (dist), so the SDK has to
+        # be compiled before the studio's tsc / vite picks it up.
+        run: cd packages/sdk && bun run build
+
+      - name: Merge per-extension i18n messages + compile Paraglide
+        run: cd packages/studio && bun run i18n:compile
+
+      - name: Typecheck
+        run: cd packages/studio && bun run typecheck
+
+      - name: Build
+        # `bun run build` for the studio runs:
+        #   - prebuild: sync-extensions + i18n:merge + paraglide compile
+        #   - vite build (SvelteKit + adapter-static → dist/)
+        # On a PR runner without zveltio-extensions checked out
+        # alongside, sync-extensions logs "No extension directory
+        # found — skipping" and proceeds with the routes that are
+        # already committed under packages/studio/src/routes/(admin)/.
+        run: cd packages/studio && bun run build
