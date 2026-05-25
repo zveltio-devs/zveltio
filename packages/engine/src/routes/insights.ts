@@ -16,14 +16,14 @@ import { checkPermission, getUserRoles, listAllRoles } from '../lib/permissions.
  */
 async function canReadDashboard(
   db: Database,
-  dash: { id: string; created_by: string; is_public: boolean },
+  dash: { id: string; created_by: string | null; is_public: boolean },
   userId: string,
 ): Promise<boolean> {
   if (dash.is_public) return true;
   if (dash.created_by === userId) return true;
 
   // Direct user share
-  const userShare = await (db as any)
+  const userShare = await db
     .selectFrom('zvd_dashboard_shares')
     .select(['id'])
     .where('dashboard_id', '=', dash.id)
@@ -37,7 +37,7 @@ async function canReadDashboard(
   // them appears on the share row.
   const roles = await getUserRoles(userId).catch(() => [] as string[]);
   if (roles.length > 0) {
-    const roleShare = await (db as any)
+    const roleShare = await db
       .selectFrom('zvd_dashboard_shares')
       .select(['id'])
       .where('dashboard_id', '=', dash.id)
@@ -83,7 +83,7 @@ async function runReadOnlySql(
   query: string,
   timeoutSec = 10,
 ): Promise<{ rows: any[] }> {
-  return (db as any).transaction().execute(async (trx: Database) => {
+  return db.transaction().execute(async (trx: Database) => {
     await sql.raw(`SET TRANSACTION READ ONLY`).execute(trx);
     await sql.raw(`SET LOCAL statement_timeout = '${timeoutSec}s'`).execute(trx);
     const result = await sql.raw(query).execute(trx);
@@ -175,7 +175,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const user = c.get('user') as any;
       const body = c.req.valid('json');
 
-      const dashboard = await (db as any)
+      const dashboard = await db
         .insertInto('zv_dashboards')
         .values({
           name: body.name,
@@ -197,7 +197,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
-    const dash = await (db as any)
+    const dash = await db
       .selectFrom('zv_dashboards')
       .selectAll()
       .where('id', '=', id)
@@ -209,7 +209,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const panels = await (db as any)
+    const panels = await db
       .selectFrom('zv_panels')
       .selectAll()
       .where('dashboard_id', '=', id)
@@ -217,7 +217,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       .execute();
 
     // Update last_viewed_at + view_count
-    await (db as any)
+    await db
       .updateTable('zv_dashboards')
       .set({
         last_viewed_at: new Date(),
@@ -240,7 +240,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
-    const dash = await (db as any)
+    const dash = await db
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by'])
       .where('id', '=', id)
@@ -253,7 +253,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    await (db as any).deleteFrom('zv_dashboards').where('id', '=', id).execute();
+    await db.deleteFrom('zv_dashboards').where('id', '=', id).execute();
     return c.json({ success: true });
   });
 
@@ -262,7 +262,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
-    const dash = await (db as any)
+    const dash = await db
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by'])
       .where('id', '=', id)
@@ -275,7 +275,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const shares = await (db as any)
+    const shares = await db
       .selectFrom('zvd_dashboard_shares')
       .selectAll()
       .where('dashboard_id', '=', id)
@@ -302,7 +302,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
-      const dash = await (db as any)
+      const dash = await db
         .selectFrom('zv_dashboards')
         .select(['id', 'created_by'])
         .where('id', '=', id)
@@ -329,7 +329,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         }
       }
 
-      const share = await (db as any)
+      const share = await db
         .insertInto('zvd_dashboard_shares')
         .values({
           dashboard_id: id,
@@ -351,7 +351,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const { id, shareId } = c.req.param();
 
-    const dash = await (db as any)
+    const dash = await db
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by'])
       .where('id', '=', id)
@@ -364,7 +364,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const deleted = await (db as any)
+    const deleted = await db
       .deleteFrom('zvd_dashboard_shares')
       .where('id', '=', shareId)
       .where('dashboard_id', '=', id)
@@ -401,7 +401,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const dashboardId = c.req.param('id');
       const body = c.req.valid('json');
 
-      const dash = await (db as any)
+      const dash = await db
         .selectFrom('zv_dashboards')
         .select(['id'])
         .where('id', '=', dashboardId)
@@ -409,7 +409,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
       if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
 
-      const panel = await (db as any)
+      const panel = await db
         .insertInto('zv_panels')
         .values({
           dashboard_id: dashboardId,
@@ -457,7 +457,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (body.position !== undefined) updates.position = JSON.stringify(body.position);
       if (body.refresh_interval !== undefined) updates.refresh_interval = body.refresh_interval;
 
-      const panel = await (db as any)
+      const panel = await db
         .updateTable('zv_panels')
         .set(updates)
         .where('id', '=', id)
@@ -475,7 +475,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
-    const deleted = await (db as any)
+    const deleted = await db
       .deleteFrom('zv_panels')
       .where('id', '=', c.req.param('id'))
       .returningAll()
@@ -490,7 +490,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
-    const panel = await (db as any)
+    const panel = await db
       .selectFrom('zv_panels')
       .selectAll()
       .where('id', '=', id)
@@ -503,7 +503,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     // is enough to execute its raw SQL — a privilege escalation since
     // any admin can attach a `SELECT * FROM account` panel and the link
     // would then leak password hashes to everyone who happens to GET it.
-    const dash = await (db as any)
+    const dash = await db
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by', 'is_public'])
       .where('id', '=', panel.dashboard_id)
@@ -515,7 +515,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     }
 
     // Check cache first
-    const cached = await (db as any)
+    const cached = await db
       .selectFrom('zvd_panel_cache')
       .selectAll()
       .where('panel_id', '=', id)
@@ -549,7 +549,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const rows = result.rows ?? [];
 
       // Update/insert cache
-      await (db as any)
+      await db
         .insertInto('zvd_panel_cache')
         .values({
           panel_id: id,
@@ -583,7 +583,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       // permanently marks the panel as "broken".
       const currentAvg = panel.avg_execution_ms ?? executionMs;
       const newAvg = Math.round((currentAvg + executionMs) / 2);
-      await (db as any)
+      await db
         .updateTable('zv_panels')
         .set({
           last_executed_at: new Date(),
@@ -599,7 +599,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       return c.json({ data: rows, type: panel.type, row_count: rows.length, cached: false, execution_ms: executionMs });
     } catch (err: any) {
       // Increment error count
-      await (db as any)
+      await db
         .updateTable('zv_panels')
         .set({ error_count: sql`error_count + 1` })
         .where('id', '=', id)
@@ -650,7 +650,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
   app.get('/saved-queries', async (c) => {
     const user = c.get('user') as any;
 
-    const queries = await (db as any)
+    const queries = await db
       .selectFrom('zvd_insight_saved_queries')
       .selectAll()
       .where((eb: any) =>
@@ -685,7 +685,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
       const body = c.req.valid('json');
 
-      const savedQuery = await (db as any)
+      const savedQuery = await db
         .insertInto('zvd_insight_saved_queries')
         .values({
           name: body.name,
@@ -720,7 +720,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
-      const existing = await (db as any)
+      const existing = await db
         .selectFrom('zvd_insight_saved_queries')
         .select(['id', 'created_by'])
         .where('id', '=', id)
@@ -740,7 +740,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (body.tags !== undefined) updates.tags = body.tags;
       if (body.is_public !== undefined) updates.is_public = body.is_public;
 
-      const savedQuery = await (db as any)
+      const savedQuery = await db
         .updateTable('zvd_insight_saved_queries')
         .set(updates)
         .where('id', '=', id)
@@ -756,7 +756,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
-    const existing = await (db as any)
+    const existing = await db
       .selectFrom('zvd_insight_saved_queries')
       .select(['id', 'created_by'])
       .where('id', '=', id)
@@ -769,7 +769,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
-    await (db as any).deleteFrom('zvd_insight_saved_queries').where('id', '=', id).execute();
+    await db.deleteFrom('zvd_insight_saved_queries').where('id', '=', id).execute();
     return c.json({ success: true });
   });
 
@@ -778,7 +778,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
-    const savedQuery = await (db as any)
+    const savedQuery = await db
       .selectFrom('zvd_insight_saved_queries')
       .selectAll()
       .where('id', '=', id)
@@ -806,7 +806,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const result = await runReadOnlySql(db, queryText, 10);
 
       // Increment use_count
-      await (db as any)
+      await db
         .updateTable('zvd_insight_saved_queries')
         .set({ use_count: sql`use_count + 1` })
         .where('id', '=', id)
@@ -825,7 +825,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
   app.get('/subscriptions', async (c) => {
     const user = c.get('user') as any;
 
-    const subscriptions = await (db as any)
+    const subscriptions = await db
       .selectFrom('zvd_dashboard_subscriptions')
       .selectAll()
       .where('user_id', '=', user.id)
@@ -852,7 +852,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const user = c.get('user') as any;
       const body = c.req.valid('json');
 
-      const dash = await (db as any)
+      const dash = await db
         .selectFrom('zv_dashboards')
         .select(['id'])
         .where('id', '=', body.dashboard_id)
@@ -860,7 +860,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
       if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
 
-      const subscription = await (db as any)
+      const subscription = await db
         .insertInto('zvd_dashboard_subscriptions')
         .values({
           dashboard_id: body.dashboard_id,
@@ -892,7 +892,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
-    const deleted = await (db as any)
+    const deleted = await db
       .deleteFrom('zvd_dashboard_subscriptions')
       .where('id', '=', id)
       .where('user_id', '=', user.id)
