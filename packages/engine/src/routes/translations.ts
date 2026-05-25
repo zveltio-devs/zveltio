@@ -68,7 +68,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
   });
 
   app.get('/locales', async (c) => {
-    const locales = await (db as any)
+    const locales = await db
       .selectFrom('zvd_locales').selectAll()
       .orderBy('is_default', 'desc').orderBy('name', 'asc').execute();
     return c.json({ locales });
@@ -80,15 +80,15 @@ export function translationsRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const { code, name, is_default } = c.req.valid('json');
       if (is_default) {
-        await (db as any).updateTable('zvd_locales').set({ is_default: false }).where('is_default', '=', true).execute();
+        await db.updateTable('zvd_locales').set({ is_default: false }).where('is_default', '=', true).execute();
       }
-      const locale = await (db as any).insertInto('zvd_locales').values({ code, name, is_default }).returningAll().executeTakeFirst();
+      const locale = await db.insertInto('zvd_locales').values({ code, name, is_default }).returningAll().executeTakeFirst();
       return c.json({ locale }, 201);
     },
   );
 
   app.delete('/locales/:code', async (c) => {
-    await (db as any).deleteFrom('zvd_locales').where('code', '=', c.req.param('code')).execute();
+    await db.deleteFrom('zvd_locales').where('code', '=', c.req.param('code')).execute();
     invalidateCache();
     return c.json({ success: true });
   });
@@ -152,9 +152,9 @@ export function translationsRoutes(db: Database, auth: any): Hono {
     })),
     async (c) => {
       const data = c.req.valid('json');
-      const existing = await (db as any).selectFrom('zvd_translation_keys').where('key', '=', data.key).executeTakeFirst();
+      const existing = await db.selectFrom('zvd_translation_keys').where('key', '=', data.key).executeTakeFirst();
       if (existing) return c.json({ error: `Key '${data.key}' already exists` }, 409);
-      const key = await (db as any).insertInto('zvd_translation_keys').values(data).returningAll().executeTakeFirst();
+      const key = await db.insertInto('zvd_translation_keys').values(data).returningAll().executeTakeFirst();
       return c.json({ key }, 201);
     },
   );
@@ -173,7 +173,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
   });
 
   app.delete('/:keyId', async (c) => {
-    await (db as any).deleteFrom('zvd_translation_keys').where('id', '=', c.req.param('keyId')).execute();
+    await db.deleteFrom('zvd_translation_keys').where('id', '=', c.req.param('keyId')).execute();
     invalidateCache();
     return c.json({ success: true });
   });
@@ -190,7 +190,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       const { keyId, locale } = c.req.param();
       const data = c.req.valid('json');
 
-      const key = await (db as any).selectFrom('zvd_translation_keys').where('id', '=', keyId).executeTakeFirst();
+      const key = await db.selectFrom('zvd_translation_keys').where('id', '=', keyId).executeTakeFirst();
       if (!key) return c.json({ error: 'Translation key not found' }, 404);
 
       const translation = await sql`
@@ -224,7 +224,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
   });
 
   app.delete('/:keyId/:locale', async (c) => {
-    await (db as any).deleteFrom('zvd_translations').where('key_id', '=', c.req.param('keyId')).where('locale', '=', c.req.param('locale')).execute();
+    await db.deleteFrom('zvd_translations').where('key_id', '=', c.req.param('keyId')).where('locale', '=', c.req.param('locale')).execute();
     invalidateCache();
     return c.json({ success: true });
   });
@@ -269,6 +269,8 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
   app.get('/glossary', async (c) => {
     const { locale } = c.req.query();
+    // `zvd_translation_glossary` isn't (yet) in DbSchema — keep the cast.
+    // TODO: add the migration + schema entry; the table is already referenced by raw SQL below.
     let query = (db as any).selectFrom('zvd_translation_glossary').selectAll().orderBy('term', 'asc');
     if (locale) query = query.where('locale', '=', locale);
     return c.json({ glossary: await query.execute() });

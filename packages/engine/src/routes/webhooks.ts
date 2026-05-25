@@ -60,7 +60,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // GET / — List all webhooks
   app.get('/', async (c) => {
-    const webhooks = await (db as any)
+    const webhooks = await db
       .selectFrom('zvd_webhooks')
       .selectAll()
       .orderBy('created_at', 'desc')
@@ -70,7 +70,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — Get webhook
   app.get('/:id', async (c) => {
-    const webhook = await (db as any)
+    const webhook = await db
       .selectFrom('zvd_webhooks')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -101,7 +101,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // decrypts in memory just before each delivery.
     const encryptedSecret = (await maybeEncrypt(secret, true)) as string;
 
-    const webhook = await (db as any)
+    const webhook = await db
       .insertInto('zvd_webhooks')
       .values({ ...data, secret: encryptedSecret, created_by: user.id })
       .returningAll()
@@ -129,7 +129,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     if (typeof data.secret === 'string' && data.secret.length > 0) {
       toSet.secret = (await maybeEncrypt(data.secret, true)) as string;
     }
-    const webhook = await (db as any)
+    const webhook = await db
       .updateTable('zvd_webhooks')
       .set(toSet)
       .where('id', '=', c.req.param('id'))
@@ -142,7 +142,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id — Delete webhook
   app.delete('/:id', async (c) => {
-    const result = await (db as any)
+    const result = await db
       .deleteFrom('zvd_webhooks')
       .where('id', '=', c.req.param('id'))
       .executeTakeFirst();
@@ -153,7 +153,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   // GET /:id/deliveries — Delivery logs
   app.get('/:id/deliveries', async (c) => {
     const { limit = '50' } = c.req.query();
-    const deliveries = await (db as any)
+    const deliveries = await db
       .selectFrom('zvd_webhook_deliveries')
       .selectAll()
       .where('webhook_id', '=', c.req.param('id'))
@@ -167,7 +167,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   app.post('/:id/rotate-secret', async (c) => {
     const newSecret = generateWebhookSecret();
     const encryptedNew = (await maybeEncrypt(newSecret, true)) as string;
-    const webhook = await (db as any)
+    const webhook = await db
       .updateTable('zvd_webhooks')
       .set({ secret: encryptedNew, updated_at: new Date() })
       .where('id', '=', c.req.param('id'))
@@ -179,7 +179,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // POST /:id/test — Test webhook
   app.post('/:id/test', async (c) => {
-    const webhook = await (db as any)
+    const webhook = await db
       .selectFrom('zvd_webhooks')
       .selectAll()
       .where('id', '=', c.req.param('id'))

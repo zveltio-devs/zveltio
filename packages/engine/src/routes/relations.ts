@@ -41,7 +41,7 @@ async function addFieldToCollection(
   collectionName: string,
   field: { name: string; type: string; options?: Record<string, any> },
 ): Promise<void> {
-  await (db as any).transaction().execute(async (trx: any) => {
+  await db.transaction().execute(async (trx: any) => {
     const locked = await (trx as any)
       .selectFrom('zvd_collections')
       .select(['fields'])
@@ -74,7 +74,7 @@ async function removeFieldFromCollection(
   collectionName: string,
   fieldName: string,
 ): Promise<void> {
-  await (db as any).transaction().execute(async (trx: any) => {
+  await db.transaction().execute(async (trx: any) => {
     const locked = await (trx as any)
       .selectFrom('zvd_collections')
       .select(['fields'])
@@ -130,7 +130,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     const { collection } = c.req.query();
 
-    let query = (db as any)
+    let query = db
       .selectFrom('zvd_relations')
       .selectAll()
       .orderBy('created_at', 'desc');
@@ -150,7 +150,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — Get single relation
   app.get('/:id', async (c) => {
-    const relation = await (db as any)
+    const relation = await db
       .selectFrom('zvd_relations')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -177,7 +177,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
     }
 
     // Check for duplicate
-    const existing = await (db as any)
+    const existing = await db
       .selectFrom('zvd_relations')
       .select(['id'])
       .where('source_collection', '=', data.source_collection)
@@ -265,7 +265,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       }
       // m2a: virtual — no DDL needed, just metadata
 
-      const relRow = await (db as any)
+      const relRow = await db
         .insertInto('zvd_relations')
         .values({
           name: data.name,
@@ -307,7 +307,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const updates = c.req.valid('json');
 
-      const existing = await (db as any)
+      const existing = await db
         .selectFrom('zvd_relations')
         .selectAll()
         .where('id', '=', id)
@@ -321,7 +321,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       if (updates.on_update !== undefined) toUpdate.on_update = updates.on_update;
       if (updates.metadata !== undefined) toUpdate.metadata = updates.metadata;
 
-      const relation = await (db as any)
+      const relation = await db
         .updateTable('zvd_relations')
         .set(toUpdate)
         .where('id', '=', id)
@@ -334,7 +334,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id — Remove relation + DDL cleanup + metadata
   app.delete('/:id', async (c) => {
-    const relation = await (db as any)
+    const relation = await db
       .selectFrom('zvd_relations')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -360,7 +360,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       }
       // m2a: no DDL to undo
 
-      await (db as any)
+      await db
         .deleteFrom('zvd_relations')
         .where('id', '=', relation.id)
         .execute();

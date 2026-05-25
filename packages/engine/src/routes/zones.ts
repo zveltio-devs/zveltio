@@ -129,7 +129,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       if (session?.user) {
         // Better-Auth session user doesn't include `role` by default — hydrate from DB
-        const row = await (db as any)
+        const row = await db
           .selectFrom('user')
           .select(['role'])
           .where('id', '=', session.user.id)
@@ -672,7 +672,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       if (session?.user) {
-        const row = await (db as any)
+        const row = await db
           .selectFrom('user')
           .select(['role'])
           .where('id', '=', session.user.id)

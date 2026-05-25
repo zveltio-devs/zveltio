@@ -51,7 +51,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
   ]);
 
   app.get('/public', async (c) => {
-    const settings = await (db as any)
+    const settings = await db
       .selectFrom('zv_settings')
       .selectAll()
       .where('is_public', '=', true)
@@ -83,7 +83,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
   // GET / — All settings
   app.get('/', async (c) => {
-    const settings = await (db as any)
+    const settings = await db
       .selectFrom('zv_settings')
       .selectAll()
       .orderBy('key')
@@ -103,7 +103,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
   // GET /:key — Get a single setting
   app.get('/:key', async (c) => {
-    const setting = await (db as any)
+    const setting = await db
       .selectFrom('zv_settings')
       .selectAll()
       .where('key', '=', c.req.param('key'))
@@ -143,7 +143,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: 'Value is not JSON-serializable' }, 400);
       }
 
-      await (db as any)
+      await db
         .insertInto('zv_settings')
         .values({
           key,
@@ -183,7 +183,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       } catch {
         return c.json({ error: `Value for key "${key}" is not JSON-serializable` }, 400);
       }
-      await (db as any)
+      await db
         .insertInto('zv_settings')
         .values({ key, value: serialized, updated_at: new Date() })
         .onConflict((oc: any) =>
