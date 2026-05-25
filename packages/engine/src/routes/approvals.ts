@@ -363,6 +363,14 @@ export function approvalsRoutes(db: Database, auth: any) {
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    await auditLog(db, {
+      type: 'approval.submitted',
+      userId: user.id,
+      resourceId: (request as any).id,
+      resourceType: 'approval_request',
+      metadata: { workflow_id, collection, record_id },
+    });
+
     return c.json({ request }, 201);
   });
 
@@ -555,6 +563,14 @@ export function approvalsRoutes(db: Database, auth: any) {
       .set({ status: 'cancelled', completed_at: new Date() })
       .where('id', '=', id)
       .execute();
+
+    await auditLog(db, {
+      type: 'approval.cancelled',
+      userId: user.id,
+      resourceId: id,
+      resourceType: 'approval_request',
+      metadata: { by: admin ? 'admin' : 'owner' },
+    });
 
     return c.json({ success: true });
   });

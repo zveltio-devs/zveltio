@@ -1148,6 +1148,15 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         .execute();
 
       invalidateRateLimitCache(keyPrefix);
+
+      const user = c.get('user') as RequestUser;
+      await auditLog(db, {
+        type: 'api_key.rate_limit_set',
+        userId: user?.id,
+        resourceId: id,
+        resourceType: 'api_key',
+        metadata: { window_ms, max_requests },
+      });
       return c.json({ success: true, key_prefix: keyPrefix, window_ms, max_requests });
     },
   );
@@ -1157,6 +1166,14 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     const keyPrefix = `apikey:${c.req.param('id')}`;
     await (db as any).deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', keyPrefix).execute();
     invalidateRateLimitCache(keyPrefix);
+
+    const user = c.get('user') as RequestUser;
+    await auditLog(db, {
+      type: 'api_key.rate_limit_removed',
+      userId: user?.id,
+      resourceId: c.req.param('id'),
+      resourceType: 'api_key',
+    });
     return c.json({ success: true });
   });
 
