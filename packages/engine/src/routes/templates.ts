@@ -200,7 +200,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       const created: { name: string; job_id: string | null; status: 'queued' | 'skipped' }[] = [];
 
       for (const coll of ordered) {
-        const existing = await (db as any)
+        const existing = await db
           .selectFrom('zvd_collections')
           .select('name')
           .where('name', '=', coll.name)

@@ -41,7 +41,7 @@ export async function sendNotification(
   // Promise.allSettled ensures all valid entries are delivered even if some fail.
   const results = await Promise.allSettled(
     values.map((v) =>
-      (db as any).insertInto('zv_notifications').values(v).execute(),
+      db.insertInto('zv_notifications').values(v).execute(),
     ),
   );
   const failed = results.filter((r) => r.status === 'rejected');

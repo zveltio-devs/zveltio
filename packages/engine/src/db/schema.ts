@@ -97,7 +97,7 @@ export interface ZvSettingsTable {
   key: string;
   value: unknown; // JSONB
   description: string | null;
-  is_public: boolean;
+  is_public: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -159,15 +159,17 @@ export interface ZvTenantsTable {
   id: Generated<string>;
   slug: string;
   name: string;
-  plan: 'free' | 'pro' | 'enterprise' | 'custom';
-  status: 'active' | 'suspended' | 'deleted';
-  max_records: number;
-  max_storage_gb: number;
-  max_api_calls_day: number;
-  max_users: number;
+  // All quota/status columns have DEFAULTs in the migration so callers can
+  // INSERT a tenant with just slug+name.
+  plan: Generated<'free' | 'pro' | 'enterprise' | 'custom'>;
+  status: Generated<'active' | 'suspended' | 'deleted'>;
+  max_records: Generated<number>;
+  max_storage_gb: Generated<number>;
+  max_api_calls_day: Generated<number>;
+  max_users: Generated<number>;
   billing_email: string | null;
   trial_ends_at: Date | null;
-  settings: unknown; // JSONB
+  settings: Generated<unknown>; // JSONB DEFAULT '{}'
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -286,11 +288,11 @@ export interface ZvNotificationsTable {
   user_id: string;
   title: string;
   message: string;
-  type: string;
+  type: Generated<string>;     // DEFAULT 'info'
   action_url: string | null;
-  is_read: boolean;
+  is_read: Generated<boolean>; // DEFAULT false
   source: string | null;
-  metadata: unknown; // JSONB
+  metadata: Generated<unknown>; // JSONB DEFAULT '{}'
   created_at: Generated<Date>;
 }
 
@@ -599,6 +601,29 @@ export interface ZvSlowQueriesTable {
   created_at: Generated<Date>;
 }
 
+export interface ZvRateLimitConfigsTable {
+  id: Generated<string>;
+  key_prefix: string;
+  // Defaults are seeded in the migration so callers can INSERT just key_prefix.
+  window_ms: Generated<number>;
+  max_requests: Generated<number>;
+  is_active: Generated<boolean>;
+  description: string | null;
+  updated_by: string | null;
+  updated_at: Generated<Date>;
+}
+
+export interface ZvdColumnPermissionsTable {
+  id: Generated<string>;
+  collection_name: string;
+  column_name: string; // '*' for all columns
+  role: string;        // '*' for all roles
+  can_read: boolean;
+  can_write: boolean;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvPitrConfigTable {
   id: Generated<string>;
   is_enabled: boolean;
@@ -745,7 +770,7 @@ export interface ZvdTranslationKeysTable {
   context: string | null;
   default_value: string | null;
   description: string | null;
-  tags: unknown; // JSONB
+  tags: Generated<unknown>; // tags TEXT[] DEFAULT '{}'
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -755,8 +780,8 @@ export interface ZvdTranslationsTable {
   key_id: string;
   locale: string;
   value: string;
-  is_machine_translated: boolean;
-  reviewed: boolean;
+  is_machine_translated: Generated<boolean>;
+  reviewed: Generated<boolean>;
   updated_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -765,8 +790,8 @@ export interface ZvdTranslationsTable {
 export interface ZvdLocalesTable {
   code: string;
   name: string;
-  is_default: boolean;
-  is_active: boolean;
+  is_default: Generated<boolean>;
+  is_active: Generated<boolean>;
   created_at: Generated<Date>;
 }
 
@@ -1517,6 +1542,7 @@ export interface DbSchema {
   zv_revisions: ZvRevisionsTable;
   zv_slow_queries: ZvSlowQueriesTable;
   zv_request_logs: ZvRequestLogsTable;
+  zv_rate_limit_configs: ZvRateLimitConfigsTable;
   zv_pitr_config: ZvPitrConfigTable;
   zv_pitr_restore_points: ZvPitrRestorePointsTable;
   zv_pages: ZvPagesTable;
@@ -1555,6 +1581,7 @@ export interface DbSchema {
   zvd_collections: ZvdCollectionsTable;
   zvd_relations: ZvdRelationsTable;
   zvd_permissions: ZvdPermissionsTable;
+  zvd_column_permissions: ZvdColumnPermissionsTable;
   zvd_audit_log: ZvdAuditLogTable;
   zvd_webhooks: ZvdWebhooksTable;
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;

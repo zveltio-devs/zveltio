@@ -54,7 +54,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
   app.get('/', async (c) => {
     let databaseOk = true;
     try {
-      await (db as any).selectFrom('user').select('id').limit(1).execute();
+      await db.selectFrom('user').select('id').limit(1).execute();
     } catch {
       databaseOk = false;
     }
@@ -111,7 +111,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     const checks: Record<string, CheckResult> = {};
 
     checks.database = await timed(async () => {
-      await (db as any).selectFrom('user').select('id').limit(1).execute();
+      await db.selectFrom('user').select('id').limit(1).execute();
     });
 
     checks.migrations = await timed(async () => {
@@ -142,7 +142,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     const checks: Record<string, CheckResult> = {};
 
     checks.database = await timed(async () => {
-      await (db as any).selectFrom('user').select('id').limit(1).execute();
+      await db.selectFrom('user').select('id').limit(1).execute();
     });
 
     checks.migrations = await timed(async () => {

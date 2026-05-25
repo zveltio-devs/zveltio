@@ -485,7 +485,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 100, 1000);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = (db as any)
+    let query = db
       .selectFrom('zv_request_logs')
       .selectAll()
       .orderBy('created_at', 'desc')
@@ -499,8 +499,8 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
     const [logs, total] = await Promise.all([
       query.execute(),
-      (db as any).selectFrom('zv_request_logs')
-        .select((eb: any) => eb.fn.count('id').as('count'))
+      db.selectFrom('zv_request_logs')
+        .select((eb) => eb.fn.count('id').as('count'))
         .executeTakeFirst(),
     ]);
 
@@ -773,7 +773,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // GET /rate-limits — list all configurable tiers
   app.get('/rate-limits', async (c) => {
-    const rows = await (db as any)
+    const rows = await db
       .selectFrom('zv_rate_limit_configs')
       .selectAll()
       .orderBy('key_prefix')
@@ -801,7 +801,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       if (body.is_active    !== undefined) updates.is_active    = body.is_active;
       if (body.description  !== undefined) updates.description  = body.description;
 
-      const row = await (db as any)
+      const row = await db
         .updateTable('zv_rate_limit_configs')
         .set(updates)
         .where('key_prefix', '=', keyPrefix)
@@ -833,7 +833,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       { key_prefix: 'destructive', window_ms: 60000, max_requests: 10  },
     ];
     for (const d of defaults) {
-      await (db as any)
+      await db
         .updateTable('zv_rate_limit_configs')
         .set({ window_ms: d.window_ms, max_requests: d.max_requests, updated_at: new Date() })
         .where('key_prefix', '=', d.key_prefix)
@@ -862,7 +862,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // GET /column-permissions?collection=xxx
   app.get('/column-permissions', async (c) => {
     const { collection } = c.req.query();
-    let query = (db as any)
+    let query = db
       .selectFrom('zvd_column_permissions')
       .selectAll()
       .orderBy('collection_name').orderBy('column_name');
@@ -874,7 +874,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // POST /column-permissions
   app.post('/column-permissions', zValidator('json', ColumnPermSchema), async (c) => {
     const data = c.req.valid('json');
-    const row = await (db as any)
+    const row = await db
       .insertInto('zvd_column_permissions')
       .values(data)
       .onConflict((oc: any) =>
@@ -897,7 +897,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // PUT /column-permissions/:id
   app.put('/column-permissions/:id', zValidator('json', ColumnPermSchema.partial()), async (c) => {
     const data = c.req.valid('json');
-    const row = await (db as any)
+    const row = await db
       .updateTable('zvd_column_permissions')
       .set({ ...data, updated_at: new Date() })
       .where('id', '=', c.req.param('id'))
@@ -917,7 +917,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // DELETE /column-permissions/:id
   app.delete('/column-permissions/:id', async (c) => {
-    await (db as any)
+    await db
       .deleteFrom('zvd_column_permissions')
       .where('id', '=', c.req.param('id'))
       .execute();
@@ -963,7 +963,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
         // the same connection that runs the user query — without this the
         // pool can route them to different sessions and the timeout is a
         // no-op. Caller-supplied timeout_ms is clamped by the zod schema.
-        const result = await (db as any).transaction().execute(async (trx: any) => {
+        const result = await db.transaction().execute(async (trx: any) => {
           const seconds = Math.max(1, Math.ceil(_timeout_ms / 1000));
           await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
           return sql.raw(query).execute(trx);
@@ -1141,7 +1141,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       if (!key) return c.json({ error: 'API key not found' }, 404);
 
       const keyPrefix = `apikey:${id}`;
-      await (db as any)
+      await db
         .insertInto('zv_rate_limit_configs')
         .values({ key_prefix: keyPrefix, window_ms, max_requests, description: `Per-key override for ${id}` })
         .onConflict((oc: any) => oc.column('key_prefix').doUpdateSet({ window_ms, max_requests, updated_at: new Date() }))
@@ -1164,7 +1164,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   // DELETE /:id/rate-limit — Remove per-key rate limit override (falls back to tier default)
   app.delete('/:id/rate-limit', async (c) => {
     const keyPrefix = `apikey:${c.req.param('id')}`;
-    await (db as any).deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', keyPrefix).execute();
+    await db.deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', keyPrefix).execute();
     invalidateRateLimitCache(keyPrefix);
 
     const user = c.get('user') as RequestUser;
