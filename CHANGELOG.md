@@ -2,6 +2,96 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.102] - 2026-05-26
+
+### TypeScript types — eliminated 199 of 204 `(db as any)` casts (97.5%)
+
+The engine had 204 `(db as any)` casts in routes/lib/middleware that
+silently bypassed type-checking on tables already declared in
+`DbSchema`. Cleaning them up surfaced multiple latent bugs that
+would crash at runtime against Postgres. The 5 remaining casts are
+all legitimately dynamic (user-supplied table names, raw transaction
+wrappers).
+
+**P1 bugs fixed (would crash on a real DB):**
+
+  - `routes/flows.ts`: the entire `/api/flows` surface was dead. Routes
+    INSERTed/SELECTed columns `trigger` and `steps` on `zv_flows`,
+    neither of which exists in the schema. Steps actually live in
+    a separate `zv_flow_steps` table (which `flow-executor.ts`
+    already reads from). `GET /:id/runs` selected `completed_at`
+    but `zv_flow_runs` has `finished_at`. Rewrote all handlers to
+    use the real schema, persisting steps as rows with `step_order`
+    and re-compacting on delete. `triggerDataFlows()` now reads
+    `trigger_config.collection` instead of parsing the non-existent
+    `trigger` column.
+
+  - `routes/insights.ts`: every `INSERT/UPDATE` on `zv_panels` would
+    500 with "column title does not exist". Root cause: 001_initial.sql
+    is a squash of 70 migrations, and 026_insights + 067_insights
+    both `CREATE TABLE IF NOT EXISTS zv_panels` with different
+    columns — 067's body was silently skipped (table existed),
+    and the 069 reconcile migration only patched dashboards, not
+    panels. Fixed both for fresh installs (in 001_initial.sql) and
+    for existing instances via a new `002_insights_panels_title.sql`
+    that adds `title`, backfills from `name`, and drops the NOT NULL
+    on `name`. Added 4 missing dashboard-related table interfaces.
+
+  - `routes/translations.ts`: the `/api/translations/glossary`
+    GET/POST routes referenced `zvd_translation_glossary` but no
+    migration ever created it. New `003_translation_glossary.sql`
+    adds the table.
+
+  - `validation-engine.ts`: `zv_validation_rules.error_message` was
+    nullable in the migration but the in-code `ValidationRule`
+    interface declared it as `string`. Fixed both sides.
+
+  - `data-quality.ts`: `runQualityScan()` never null-checked the
+    INSERT result before reading `.id` — would NPE on partial
+    failure.
+
+  - `users.ts` + `admin.ts`: `parseInt(count(...))` on a
+    `bigint | number | string` count result. On tables larger than
+    2^31 rows, the bigint path would have produced `Infinity`.
+    Switched to `Number(...)`.
+
+**Schema fixes (latent INSERT failures that the casts masked):**
+
+  - Added missing tables to `DbSchema`: `zv_rate_limit_configs`,
+    `zv_backup_schedules`, `zvd_column_permissions`, `zvd_push_tokens`,
+    `zvd_dashboard_shares`, `zvd_panel_cache`,
+    `zvd_insight_saved_queries`, `zvd_dashboard_subscriptions`,
+    `zvd_translation_glossary`.
+  - `Generated<>` on every column with a DEFAULT in the migration
+    (across ~15 interfaces) — callers can now INSERT without
+    specifying the column.
+  - Added `has_trgm` column to `ZvdCollectionsTable` (added by
+    migration 059_pg_trgm).
+  - `zv_api_keys.allowed_ips` typed as `unknown`; callers narrow
+    via `Array.isArray()` at the read site.
+
+**Installer fixes (alpha.101 follow-ups still applied here):**
+
+  - All `install/*.sh` scripts continue to point at
+    `zveltio-devs/zveltio` (the actual GitHub namespace).
+  - WSL / no-systemd hosts auto-detect to Docker mode.
+
+### Schema migrations
+
+Two new migrations land in this release:
+  - `002_insights_panels_title.sql` — backfill `title` from `name`
+    on `zv_panels`, drop NOT NULL on `name`.
+  - `003_translation_glossary.sql` — create the missing
+    `zvd_translation_glossary` table with `(term, locale)` unique.
+
+Both are idempotent. Fresh installs get the same fixes baked into
+`001_initial.sql`.
+
+### Tests
+
+  - 377/377 unit tests pass.
+  - Engine typecheck clean. Studio typecheck clean. SDK typecheck clean.
+
 ## [1.0.0-alpha.101] - 2026-05-25
 
 ### Installer fixes (audit follow-up)
