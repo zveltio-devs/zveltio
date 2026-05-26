@@ -2,6 +2,92 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.103] - 2026-05-26
+
+### Schema / runtime bug pass (continued)
+
+Continuing the (db as any) cleanup that produced alpha.102, this
+release surfaces and fixes several more crash-or-silently-broken
+sites that the casts were hiding.
+
+**Engine-side (this repo):**
+
+  - `routes/media.ts` (and the parallel content/media extension)
+    was completely broken: every `/api/media/upload` and stats
+    endpoint wrote/read columns named `mime_type`, `size_bytes`,
+    `original_filename`, `uploaded_by` on `zv_media_files`. The
+    real columns are `mimetype`, `size`, `original_name`,
+    `created_by`. Net effect: zero uploads went through, every
+    media stats handler returned an empty rollup. Fixed at all
+    sites. Also `zv_media_folders` UPDATE was setting an
+    `updated_at` column that doesn't exist — removed.
+
+  - `lib/storage/cloud/file-versions.ts`: `createFileVersion()`
+    read `currentFile.size_bytes`, `currentFile.mime_type`,
+    `currentFile.uploaded_by` from a `zv_media_files` row, but
+    those properties are undefined on the real schema. The
+    `zv_media_versions` table legitimately has those columns
+    (legacy naming), so the INSERT lined up wrong. Now translates
+    explicitly.
+
+  - `routes/users.ts` + new `routes/auth.ts` invitationRoutes:
+    POST `/api/users/invite` INSERTed into a `zv_invitations`
+    table that no migration created, with a graceful try/catch
+    that made every invite silently fall through to an
+    in-response fallback. The invite link pointed at
+    `/accept-invite?token=...`, a URL no route handled. New
+    migration `004_invitations.sql` creates the table; the
+    catch is removed; new public routes at `/api/invitations`
+    serve the metadata + accept flow.
+
+  - Schema interfaces fattened (mostly `Generated<>` on DEFAULT
+    columns + missing columns added): zv_media_files
+    (`deleted_at`/`deleted_by`/`restore_folder_id`), zv_media_folders
+    (`deleted_at`), zv_invitations (new), zv_approval_*
+    (Generated<> on booleans + status), zvd_collections
+    (`has_trgm`), zv_collection_publish_settings,
+    zv_publish_schedule, zv_quality_scans, zv_quality_issues,
+    zv_backup_schedules (new interface), zvd_push_tokens (new).
+
+  - Audit log coverage bumped from 25% to 31%: added auditLog
+    on PITR restore-point create/delete, backup schedule manual
+    trigger, collections sync-schema, flows create/update/delete/run,
+    edge functions create/update/delete.
+
+  - `validation-engine.ts`: `error_message` is nullable in the
+    migration but the `ValidationRule` interface declared it
+    string. Fixed both sides.
+
+  - `data-quality.ts`: `runQualityScan()` never null-checked the
+    INSERT result before reading `.id`.
+
+**Extensions-side (`zveltio-extensions`, commit `c8c7a71`):**
+
+  - `content/media`: same column-name bug as the engine.
+
+  - `ai/engine/lib/zveltio-ai`: two queries hit `zv_audit_logs`
+    (plural). Real table is `zv_audit_log`. Both queries silently
+    returned zero rows. Fixed.
+
+### CI
+
+  - New `format:check` step on the Lint job; repo-wide `bun run
+    format` pass applied as a preceding commit so the gate starts
+    green.
+
+  - New `dr-smoke` workflow runs weekly: fresh Postgres → all
+    migrations → seed → `pg_dump -Fc` → restore → verify row
+    counts and table queryability. Catches dump/restore drift.
+
+### Migrations
+
+  - `004_invitations.sql` (new).
+
+### Tests
+
+  - 377/377 unit tests pass.
+  - Engine + studio + sdk + extensions all typecheck clean.
+
 ## [1.0.0-alpha.102] - 2026-05-26
 
 ### TypeScript types — eliminated 199 of 204 `(db as any)` casts (97.5%)
