@@ -174,33 +174,19 @@ export function usersRoutes(db: Database, auth: any): Hono {
         .join('');
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-      // Store the invite in zv_invitations (create if table doesn't exist — graceful)
-      try {
-        await db
-          .insertInto('zv_invitations' as any)
-          .values({
-            email,
-            name: name || email.split('@')[0],
-            role,
-            token,
-            expires_at: expiresAt,
-            invited_by: adminUser.id,
-          } as any)
-          .execute();
-      } catch {
-        // Table may not exist yet — fall back to returning the token directly
-        // so the admin can manually share the link
-        const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
-        return c.json(
-          {
-            message: 'Invite created (email sending not configured)',
-            invite_url: `${siteUrl}/accept-invite?token=${token}`,
-            token,
-            expires_at: expiresAt,
-          },
-          201,
-        );
-      }
+      // Persist invite. Migration 004 guarantees the table exists; any
+      // INSERT failure here is a real DB error worth surfacing.
+      await db
+        .insertInto('zv_invitations')
+        .values({
+          email,
+          name: name || email.split('@')[0],
+          role,
+          token,
+          expires_at: expiresAt,
+          invited_by: adminUser.id,
+        })
+        .execute();
 
       // Send invite email if SMTP is configured
       const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
