@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { collectionsRoutes } from './collections.js';
 import { dataRoutes } from './data.js';
-import { authRoutes } from './auth.js';
+import { authRoutes, invitationRoutes } from './auth.js';
 import { usersRoutes } from './users.js';
 import { permissionsRoutes } from './permissions.js';
 import { rlsRoutes } from './rls.js';
@@ -174,6 +174,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Profile convenience routes
   app.route('/api/me', authRoutes(db, auth));
+
+  // Public invitation accept flow (no session required)
+  app.route('/api/invitations', invitationRoutes(db, auth));
 
   // Collections schema management (admin)
   app.route('/api/collections', collectionsRoutes(db, auth));

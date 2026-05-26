@@ -151,6 +151,19 @@ export interface ZvApiKeyAccessLogTable {
   created_at: Generated<Date>;
 }
 
+export interface ZvInvitationsTable {
+  id: Generated<string>;
+  email: string;
+  name: string | null;
+  role: Generated<string>; // DEFAULT 'member'
+  token: string;
+  expires_at: Date;
+  accepted_at: Date | null;
+  accepted_by: string | null;
+  invited_by: string | null;
+  created_at: Generated<Date>;
+}
+
 export interface ZvRolesTable {
   id: Generated<string>;
   name: string;
@@ -1629,6 +1642,7 @@ export interface DbSchema {
   zv_api_keys: ZvApiKeysTable;
   zv_api_key_access_log: ZvApiKeyAccessLogTable;
   zv_roles: ZvRolesTable;
+  zv_invitations: ZvInvitationsTable;
   zv_tenants: ZvTenantsTable;
   zv_tenant_users: ZvTenantUsersTable;
   zv_tenant_usage: ZvTenantUsageTable;
