@@ -142,11 +142,7 @@ export function invitationRoutes(db: Database, auth: any): Hono {
       // Apply the invited role and mark the invitation consumed in one
       // transaction so a partial failure leaves no half-state.
       await db.transaction().execute(async (trx) => {
-        await trx
-          .updateTable('user')
-          .set({ role: invite.role })
-          .where('id', '=', userId)
-          .execute();
+        await trx.updateTable('user').set({ role: invite.role }).where('id', '=', userId).execute();
         await trx
           .updateTable('zv_invitations')
           .set({ accepted_at: new Date(), accepted_by: userId })
