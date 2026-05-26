@@ -13,7 +13,7 @@ async function loadConfig(db: Database | undefined, keyPrefix: string): Promise<
   const cached = configCache.get(keyPrefix);
   if (cached && now - cached.ts < CONFIG_TTL) return { windowMs: cached.windowMs, max: cached.max };
   try {
-    const row = await (db as any)
+    const row = await db
       .selectFrom('zv_rate_limit_configs')
       .select(['window_ms', 'max_requests'])
       .where('key_prefix', '=', keyPrefix)

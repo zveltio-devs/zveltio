@@ -21,7 +21,7 @@ async function withLockTimeout(
       `Invalid lock_timeout format: "${timeout}". Expected format: "2s", "500ms", "1min".`,
     );
   }
-  await (db as any).transaction().execute(async (trx: Database) => {
+  await db.transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
     await fn(trx);
   });
@@ -198,7 +198,7 @@ export class DDLManager {
       junction_table?: string;
     },
   ): Promise<void> {
-    await (db as any)
+    await db
       .insertInto('zvd_relations')
       .values(rel)
       .onConflict((oc: any) => oc.doNothing())
@@ -399,7 +399,7 @@ export class DDLManager {
     await this.registerMetadata(db, validated);
 
     if (textFields.length > 0) {
-      await (db as any)
+      await db
         .updateTable('zvd_collections')
         .set({ has_trgm: true })
         .where('name', '=', validated.name)
@@ -511,7 +511,7 @@ export class DDLManager {
     }
 
     // Drop m2m junction tables before dropping the main table
-    const m2mRelations: any[] = await (db as any)
+    const m2mRelations: any[] = await db
       .selectFrom('zvd_relations')
       .select(['source_collection', 'target_collection', 'junction_table'])
       .where((eb: any) => eb.or([
@@ -545,7 +545,7 @@ export class DDLManager {
     // Clean up relation metadata for both sides — the FK constraint is
     // already gone (DROP TABLE CASCADE handled it), but the zvd_relations
     // rows persist and would re-emerge as ghost relations in the schema view.
-    await (db as any)
+    await db
       .deleteFrom('zvd_relations')
       .where((eb: any) => eb.or([
         eb('source_collection', '=', name),

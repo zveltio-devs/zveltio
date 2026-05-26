@@ -1514,7 +1514,7 @@ class ExtensionLoader {
 
   async loadFromDB(db: Database, app: Hono): Promise<void> {
     try {
-      const rows = await (db as any)
+      const rows = await db
         .selectFrom('zv_extension_registry')
         .select(['name'])
         .where('is_enabled' as any, '=', true)
@@ -1600,7 +1600,7 @@ class ExtensionLoader {
         return c.json({ error: err?.message || 'Invalid license key' }, 400);
       }
 
-      await (db as any)
+      await db
         .insertInto('zv_settings')
         .values({ key: `ext_license:${name}`, value: key.trim(), is_public: false })
         .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: key.trim() }))
@@ -1665,7 +1665,7 @@ class ExtensionLoader {
         ? await fingerprintToken(oldRow.value as string)
         : null;
 
-      await (db as any)
+      await db
         .insertInto('zv_settings')
         .values({ key: 'marketplace_auth_token', value: newToken, is_public: false })
         .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: newToken }))
@@ -1705,8 +1705,8 @@ class ExtensionLoader {
 
       const [catalog, rows, licenseRows] = await Promise.all([
         fetchRegistryCatalog(),
-        (db as any).selectFrom('zv_extension_registry').selectAll().execute().catch(() => []),
-        (db as any).selectFrom('zv_settings').select(['key']).where('key' as any, 'like', 'ext_license:%').execute().catch(() => []),
+        db.selectFrom('zv_extension_registry').selectAll().execute().catch(() => []),
+        db.selectFrom('zv_settings').select(['key']).where('key' as any, 'like', 'ext_license:%').execute().catch(() => []),
       ]);
 
       // When a tenant is specified: prefer tenant-scoped row, fall back to global (tenant_id IS NULL).
@@ -1807,7 +1807,7 @@ class ExtensionLoader {
 
         const tenantId = getTenantId(c);
 
-        await (db as any)
+        await db
           .insertInto('zv_extension_registry')
           .values({
             name:         entry.name,
@@ -1864,7 +1864,7 @@ class ExtensionLoader {
 
         const tenantId = getTenantId(c);
 
-        await (db as any)
+        await db
           .insertInto('zv_extension_registry')
           .values({
             name:         entry.name,
@@ -1900,7 +1900,7 @@ class ExtensionLoader {
             console.warn(`Hot-load failed for ${name}:`, loadError);
             // Revert: roll back is_enabled so the DB stays consistent with reality.
             // Without this, every server restart tries to load a broken extension.
-            await (db as any)
+            await db
               .updateTable('zv_extension_registry')
               .set({ is_enabled: false })
               .where('name' as any, '=', name)
@@ -1988,7 +1988,7 @@ class ExtensionLoader {
 
       const name = c.req.param('name');
       return withExtensionLock(db, name, async () => {
-        await (db as any)
+        await db
           .insertInto('zv_extension_registry')
           .values({
             name,
@@ -2068,7 +2068,7 @@ class ExtensionLoader {
       const name = c.req.param('name');
       const config = await c.req.json();
 
-      await (db as any)
+      await db
         .insertInto('zv_extension_registry')
         .values({
           name,
@@ -2114,7 +2114,7 @@ class ExtensionLoader {
 
         if (!purgeData) {
           // Soft path: keep tables + migrations + files, just deactivate.
-          await (db as any)
+          await db
             .updateTable('zv_extension_registry')
             .set({ is_installed: false, is_enabled: false })
             .where('name' as any, '=', name)
@@ -2159,7 +2159,7 @@ class ExtensionLoader {
           console.warn(`[marketplace] refusing to remove "${extDir}" — not inside extensions base`);
         }
 
-        await (db as any)
+        await db
           .deleteFrom('zv_extension_registry')
           .where('name' as any, '=', name)
           .execute();

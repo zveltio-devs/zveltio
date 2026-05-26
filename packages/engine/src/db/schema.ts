@@ -121,29 +121,32 @@ export interface ZvApiKeysTable {
   name: string;
   key_hash: string;
   key_prefix: string;
-  scopes: unknown; // JSONB — Array<{ collection: string; actions: string[] }>
-  rate_limit: number;
+  // JSONB columns: stored as plain unknown because the Bun.SQL dialect
+  // expects callers to pass JSON.stringify(...) values (see admin route
+  // INSERTs). Callers that need to READ them should cast at the use site.
+  scopes: Generated<unknown>;            // JSONB DEFAULT '[]'
+  rate_limit: Generated<number>;        // DEFAULT 1000
   expires_at: Date | null;
   last_used_at: Date | null;
-  is_active: boolean;
+  is_active: Generated<boolean>;        // DEFAULT true
   created_by: string | null;
   created_at: Generated<Date>;
-  allowed_ips: unknown; // JSONB
+  allowed_ips: unknown;                  // JSONB array — cast to string[] at the read site
   organization: string | null;
   description: string | null;
   permissions_mode: string | null;
   casbin_subject: string | null;
-  request_count: number;
+  request_count: Generated<number>;      // DEFAULT 0
   last_ip: string | null;
 }
 
 export interface ZvApiKeyAccessLogTable {
   id: Generated<string>;
   api_key_id: string;
-  ip_address: string | null;
+  ip_address: string;
   method: string;
   path: string;
-  status_code: number;
+  status_code: number | null;            // nullable in migration
   duration_ms: number | null;
   created_at: Generated<Date>;
 }
@@ -186,10 +189,10 @@ export interface ZvTenantUsersTable {
 export interface ZvTenantUsageTable {
   id: Generated<string>;
   tenant_id: string;
-  date: Date;
-  api_calls: number;
-  storage_bytes: number;
-  record_count: number;
+  date: Generated<Date>;                  // DEFAULT CURRENT_DATE
+  api_calls: Generated<number>;           // DEFAULT 0
+  storage_bytes: Generated<number>;       // DEFAULT 0
+  record_count: Generated<number>;        // DEFAULT 0
 }
 
 export interface ZvEnvironmentsTable {
@@ -305,6 +308,16 @@ export interface ZvPushSubscriptionsTable {
   created_at: Generated<Date>;
 }
 
+export interface ZvdPushTokensTable {
+  id: Generated<string>;
+  user_id: string;
+  token: string;
+  platform: 'fcm' | 'apns' | 'web';
+  device_name: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvMediaFoldersTable {
   id: Generated<string>;
   name: string;
@@ -414,6 +427,25 @@ export interface ZvBackupsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   completed_at: Date | null;
+}
+
+export interface ZvBackupSchedulesTable {
+  id: Generated<string>;
+  name: string;
+  cron_expression: Generated<string>;          // DEFAULT '0 2 * * *'
+  retention_count: Generated<number>;          // DEFAULT 7
+  storage_destination: Generated<'local' | 's3' | 'both'>; // DEFAULT 'local'
+  s3_bucket: string | null;
+  s3_prefix: string | null;
+  notify_on_failure: Generated<boolean>;       // DEFAULT true
+  notify_emails: Generated<string[]>;          // TEXT[] DEFAULT '{}'
+  is_active: Generated<boolean>;               // DEFAULT true
+  last_run_at: Date | null;
+  last_run_status: string | null;
+  next_run_at: Date | null;
+  created_by: string;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface ZvErdLayoutsTable {
@@ -651,20 +683,21 @@ export interface ZvdCollectionsTable {
   id: Generated<string>;
   name: string;
   display_name: string | null;
-  icon: string | null;
-  route_group: string | null;
-  is_permissioned: boolean;
-  sort: number | null;
+  icon: Generated<string | null>;                    // DEFAULT 'Table'
+  route_group: Generated<string | null>;             // DEFAULT 'private'
+  is_permissioned: Generated<boolean>;               // DEFAULT true
+  sort: Generated<number | null>;                    // DEFAULT 99
   singular_name: string | null;
   description: string | null;
-  fields: unknown; // JSONB
+  fields: Generated<unknown>;                        // JSONB DEFAULT '[]'
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-  source_type: string | null;
-  virtual_config: unknown; // JSONB
-  is_managed: boolean;
-  is_system: boolean;
-  schema_locked: boolean;
+  source_type: Generated<string>;                    // 031: NOT NULL DEFAULT 'collection'
+  virtual_config: unknown;                           // JSONB nullable
+  is_managed: Generated<boolean>;                    // DEFAULT true
+  is_system: Generated<boolean>;                     // DEFAULT false
+  schema_locked: Generated<boolean>;                 // DEFAULT false
+  has_trgm: Generated<boolean>;                      // 059: DEFAULT false (pg_trgm full-text)
 }
 
 export interface ZvdRelationsTable {
@@ -792,6 +825,18 @@ export interface ZvdLocalesTable {
   is_default: Generated<boolean>;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
+}
+
+export interface ZvdTranslationGlossaryTable {
+  id: Generated<string>;
+  term: string;
+  locale: string;
+  translation: string;
+  definition: string | null;
+  forbidden: Generated<boolean>;       // DEFAULT false
+  created_by: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface ZvdContactsTable {
@@ -1176,10 +1221,10 @@ export interface ZvValidationRulesTable {
 export interface ZvQualityScansTable {
   id: Generated<string>;
   collection: string;
-  scan_type: string;
-  status: string;
-  records_scanned: number;
-  issues_found: number;
+  scan_type: Generated<string>;       // DEFAULT 'full'
+  status: Generated<string>;          // DEFAULT 'running'
+  records_scanned: Generated<number>; // DEFAULT 0
+  issues_found: Generated<number>;    // DEFAULT 0
   triggered_by: string | null;
   started_at: Generated<Date>;
   completed_at: Date | null;
@@ -1190,13 +1235,13 @@ export interface ZvQualityIssuesTable {
   scan_id: string;
   collection: string;
   issue_type: string;
-  severity: string;
-  record_ids: unknown; // JSONB
+  severity: Generated<string>;        // DEFAULT 'warning'
+  record_ids: Generated<string[]>;    // TEXT[] DEFAULT '{}'
   field_name: string | null;
   description: string;
   suggestion: string | null;
-  auto_fixable: boolean;
-  dismissed: boolean;
+  auto_fixable: Generated<boolean>;   // DEFAULT false
+  dismissed: Generated<boolean>;      // DEFAULT false
   created_at: Generated<Date>;
 }
 
@@ -1582,6 +1627,7 @@ export interface DbSchema {
   zv_webhook_deliveries: ZvWebhookDeliveriesTable;
   zv_notifications: ZvNotificationsTable;
   zv_push_subscriptions: ZvPushSubscriptionsTable;
+  zvd_push_tokens: ZvdPushTokensTable;
   zv_media_folders: ZvMediaFoldersTable;
   zv_media_files: ZvMediaFilesTable;
   zv_media_tags: ZvMediaTagsTable;
@@ -1592,6 +1638,7 @@ export interface DbSchema {
   zv_storage_quotas: ZvStorageQuotasTable;
   zv_import_logs: ZvImportLogsTable;
   zv_backups: ZvBackupsTable;
+  zv_backup_schedules: ZvBackupSchedulesTable;
   zv_erd_layouts: ZvErdLayoutsTable;
   zv_ai_providers: ZvAiProvidersTable;
   zv_prompt_templates: ZvPromptTemplatesTable;
@@ -1657,6 +1704,7 @@ export interface DbSchema {
   zvd_ai_search_config: ZvdAiSearchConfigTable;
   zvd_translation_keys: ZvdTranslationKeysTable;
   zvd_translations: ZvdTranslationsTable;
+  zvd_translation_glossary: ZvdTranslationGlossaryTable;
   zvd_locales: ZvdLocalesTable;
   zvd_contacts: ZvdContactsTable;
   zvd_organizations: ZvdOrganizationsTable;

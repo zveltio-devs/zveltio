@@ -45,7 +45,7 @@ export async function checkExtensionDependencies(
   const missing: string[] = [];
 
   for (const dep of dependencies) {
-    const installed = await (db as any)
+    const installed = await db
       .selectFrom('zv_extension_registry')
       .select(['version', 'is_enabled'])
       .where('name', '=', dep.name)

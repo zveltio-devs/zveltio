@@ -337,7 +337,7 @@ export class GhostDDL {
   ): Promise<void> {
     // BYOD Guard: don't run Ghost DDL on unmanaged tables
     const collectionName = tableName.replace(/^zvd_/, '');
-    const meta = await (db as any)
+    const meta = await db
       .selectFrom('zvd_collections')
       .select('is_managed')
       .where('name', '=', collectionName)
