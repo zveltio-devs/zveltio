@@ -52,7 +52,8 @@ async function addFieldToCollection(
 
     let current: any[];
     try {
-      current = typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
+      current =
+        typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
     } catch {
       current = [];
     }
@@ -85,7 +86,8 @@ async function removeFieldFromCollection(
 
     let current: any[];
     try {
-      current = typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
+      current =
+        typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
     } catch {
       current = [];
     }
@@ -118,8 +120,11 @@ export function relationsRoutes(db: Database, auth: any): Hono {
   function normalize(rel: any): any {
     if (!rel) return rel;
     if (typeof rel.metadata === 'string') {
-      try { rel.metadata = JSON.parse(rel.metadata); }
-      catch { rel.metadata = {}; }
+      try {
+        rel.metadata = JSON.parse(rel.metadata);
+      } catch {
+        rel.metadata = {};
+      }
     } else if (rel.metadata == null) {
       rel.metadata = {};
     }
@@ -130,17 +135,11 @@ export function relationsRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     const { collection } = c.req.query();
 
-    let query = db
-      .selectFrom('zvd_relations')
-      .selectAll()
-      .orderBy('created_at', 'desc');
+    let query = db.selectFrom('zvd_relations').selectAll().orderBy('created_at', 'desc');
 
     if (collection) {
       query = query.where((eb: any) =>
-        eb.or([
-          eb('source_collection', '=', collection),
-          eb('target_collection', '=', collection),
-        ]),
+        eb.or([eb('source_collection', '=', collection), eb('target_collection', '=', collection)]),
       );
     }
 
@@ -224,8 +223,8 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         if (fkInTarget === data.source_field) {
           throw new Error(
             `target_field ("${fkInTarget}") cannot equal source_field ("${data.source_field}"). ` +
-            `source_field is the virtual alias on "${data.source_collection}"; ` +
-            `target_field is the physical FK column in "${data.target_collection}".`
+              `source_field is the virtual alias on "${data.source_collection}"; ` +
+              `target_field is the physical FK column in "${data.target_collection}".`,
           );
         }
         resolvedTargetField = fkInTarget;
@@ -360,10 +359,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       }
       // m2a: no DDL to undo
 
-      await db
-        .deleteFrom('zvd_relations')
-        .where('id', '=', relation.id)
-        .execute();
+      await db.deleteFrom('zvd_relations').where('id', '=', relation.id).execute();
 
       return c.json({ success: true });
     } catch (error: any) {

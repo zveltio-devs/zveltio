@@ -19,8 +19,16 @@ function add(k: string, e: string, r: string) {
 const NEW_KEYS: [string, string, string][] = [
   ['crm.organizations.count', '{count} organizations', '{count} organizații'],
   ['crm.transactions.count', '{count} transactions', '{count} tranzacții'],
-  ['compliance.ro.procurement.empty.orders', 'No purchase orders yet.', 'Nu există comenzi de achiziție.'],
-  ['compliance.ro.procurement.empty.suppliers', 'No suppliers registered yet.', 'Nu există furnizori înregistrați.'],
+  [
+    'compliance.ro.procurement.empty.orders',
+    'No purchase orders yet.',
+    'Nu există comenzi de achiziție.',
+  ],
+  [
+    'compliance.ro.procurement.empty.suppliers',
+    'No suppliers registered yet.',
+    'Nu există furnizori înregistrați.',
+  ],
   ['compliance.ro.procurement.empty.budget', 'No budget lines yet.', 'Nu există linii bugetare.'],
   ['compliance.ro.documents.ui.parties', 'Parties involved', 'Părți implicate'],
   ['compliance.ro.documents.btn.create', 'Create', 'Creare'],
@@ -53,12 +61,15 @@ function patch(rel: string, reps: [string, string][]) {
 
 function ensureImports(c: string): string {
   if (!c.includes("from '$lib/i18n")) {
-    c = c.replace(/<script lang="ts">\n/, "<script lang=\"ts\">\n  import { m } from '$lib/i18n.svelte.js';\n");
+    c = c.replace(
+      /<script lang="ts">\n/,
+      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+    );
   }
   if (!c.includes('ExtensionPageShell')) {
     c = c.replace(
       /<script lang="ts">\n/,
-      "<script lang=\"ts\">\n  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';\n",
+      '<script lang="ts">\n  import ExtensionPageShell from \'$lib/components/extension/ExtensionPageShell.svelte\';\n',
     );
   }
   return c;
@@ -85,7 +96,10 @@ function wrapCrmSub(rel: string, titleKey: string, subtitleExpr: string, actionH
   {#snippet children()}
   <div class="space-y-6">`,
   );
-  c = c.replace(/\n<\/div>\s*\n<!-- Modal -->/, '\n  </div>\n  {/snippet}\n</ExtensionPageShell>\n\n<!-- Modal -->');
+  c = c.replace(
+    /\n<\/div>\s*\n<!-- Modal -->/,
+    '\n  </div>\n  {/snippet}\n</ExtensionPageShell>\n\n<!-- Modal -->',
+  );
   if (!c.includes('</ExtensionPageShell>')) {
     c = c.replace(/\n<\/div>\s*$/, '\n  </div>\n  {/snippet}\n</ExtensionPageShell>\n');
   }
@@ -124,7 +138,10 @@ function wrapTraceSub(rel: string, titleKey: string, actionBtn?: string) {
 const PATCHES: Record<string, [string, string][]> = {
   'content/documents/studio/pages/+page.svelte': [
     ['Generated Documents', "{m['content.documents.tab.generated']()}"],
-    ['<Plus size={13} class="mr-1.5" /> Templates', "<Plus size={13} class=\"mr-1.5\" /> {m['content.documents.tab.templates']()}"],
+    [
+      '<Plus size={13} class="mr-1.5" /> Templates',
+      '<Plus size={13} class="mr-1.5" /> {m[\'content.documents.tab.templates\']()}',
+    ],
     [
       "{t.variables.length} variable{t.variables.length !== 1 ? 's' : ''}",
       "{m['content.documents.variablesCount']({ n: String(t.variables.length) })}",
@@ -141,7 +158,10 @@ const PATCHES: Record<string, [string, string][]> = {
     ['<th>Data</th>', "<th>{m['compliance.ro.procurement.col.date']()}</th>"],
     ['<th>Furnizor</th>', "<th>{m['compliance.ro.procurement.col.supplier']()}</th>"],
     ['<th>Descriere</th>', "<th>{m['compliance.ro.procurement.col.description']()}</th>"],
-    ['<CheckCircle size={12} /> Receptie', "<CheckCircle size={12} /> {m['compliance.ro.procurement.col.reception']()}"],
+    [
+      '<CheckCircle size={12} /> Receptie',
+      "<CheckCircle size={12} /> {m['compliance.ro.procurement.col.reception']()}",
+    ],
     ['Nu există furnizori inregistrati.', "{m['compliance.ro.procurement.empty.suppliers']()}"],
     ['Nu există linii bugetare.', "{m['compliance.ro.procurement.empty.budget']()}"],
     ['>Creare comanda\n', ">{m['compliance.ro.procurement.btn.createOrderModal']()}\n"],
@@ -156,11 +176,14 @@ const PATCHES: Record<string, [string, string][]> = {
   ],
   'content/document-templates/studio/pages/+page.svelte': [
     ['<th>Format</th>', "<th>{m['content.document-templates.col.format']()}</th>"],
-    ['placeholder="template"', "placeholder={m['content.document-templates.placeholder.template']()}"],
+    [
+      'placeholder="template"',
+      "placeholder={m['content.document-templates.placeholder.template']()}",
+    ],
     ['>DOCX</option>', ">{m['content.document-templates.format.docx']()}</option>"],
     ['<th>Description</th>', "<th>{m['content.document-templates.col.description']()}</th>"],
     ['Body — use {{var}} for substitution', "{m['content.document-templates.bodyHint']()}"],
-    ['{#if saving}<LoaderCircle', "{#if saving}<LoaderCircle"],
+    ['{#if saving}<LoaderCircle', '{#if saving}<LoaderCircle'],
     ['{/if} Save', "{/if}{m['common.save']()}"],
   ],
   'content/drafts/studio/pages/+page.svelte': [
@@ -177,8 +200,14 @@ const PATCHES: Record<string, [string, string][]> = {
   'data/import/studio/pages/+page.svelte': [
     ['<th>Format</th>', "<th>{m['data.import.col.format']()}</th>"],
     ['Upsert on field (optional, e.g. email)', "{m['data.import.upsertHint']()}"],
-    ['toast.success(`Imported ${res.imported} rows`)', "toast.success(m['data.import.toast.imported']({ n: String(res.imported) }))"],
-    [' · ${res.errors} errors — see job log', " + m['data.import.errorsHint']({ n: String(res.errors) })"],
+    [
+      'toast.success(`Imported ${res.imported} rows`)',
+      "toast.success(m['data.import.toast.imported']({ n: String(res.imported) }))",
+    ],
+    [
+      ' · ${res.errors} errors — see job log',
+      " + m['data.import.errorsHint']({ n: String(res.errors) })",
+    ],
   ],
   'developer/api-docs/studio/pages/+page.svelte': [
     ['>New page\n', ">{m['developer.api-docs.btn.newPage']()}\n"],
@@ -294,22 +323,34 @@ for (const [rel, reps] of Object.entries(PATCHES)) patch(rel, reps);
     if (!c.includes('ExtensionPageShell')) {
       c = c.replace(
         /<script lang="ts">\n/,
-        "<script lang=\"ts\">\n  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';\n",
+        '<script lang="ts">\n  import ExtensionPageShell from \'$lib/components/extension/ExtensionPageShell.svelte\';\n',
       );
     }
     c = c.replace(
-      '<PageHeader title={m[\'content.media.title\']()} subtitle={m[\'content.media.subtitle\']()} />',
+      "<PageHeader title={m['content.media.title']()} subtitle={m['content.media.subtitle']()} />",
       "<ExtensionPageShell title={m['content.media.title']()} subtitle={m['content.media.subtitle']()}>\n  {#snippet children()}",
     );
     if (!c.includes('</ExtensionPageShell>')) {
-      c = c.replace(/\n<\/div>\s*\n<!-- modals/i, '\n  </div>\n  {/snippet}\n</ExtensionPageShell>\n\n<!-- modals');
+      c = c.replace(
+        /\n<\/div>\s*\n<!-- modals/i,
+        '\n  </div>\n  {/snippet}\n</ExtensionPageShell>\n\n<!-- modals',
+      );
       if (!c.includes('</ExtensionPageShell>')) {
         c = c.replace(/\n<\/div>\s*$/, '\n  </div>\n  {/snippet}\n</ExtensionPageShell>\n');
       }
     }
-    c = c.replace("selectFolder(null, name = 'All Files')", "selectFolder(null, name = m['content.media.allFiles']())");
-    c = c.replace("title: 'Delete Folder'", "title: m['content.media.confirm.deleteFolderTitle']()");
-    c = c.replace("message: 'Delete this folder?'", "message: m['content.media.confirm.deleteFolderMsg']()");
+    c = c.replace(
+      "selectFolder(null, name = 'All Files')",
+      "selectFolder(null, name = m['content.media.allFiles']())",
+    );
+    c = c.replace(
+      "title: 'Delete Folder'",
+      "title: m['content.media.confirm.deleteFolderTitle']()",
+    );
+    c = c.replace(
+      "message: 'Delete this folder?'",
+      "message: m['content.media.confirm.deleteFolderMsg']()",
+    );
     const mediaPatches: [string, string][] = [
       ['>All Files<', ">{m['content.media.allFiles']()}<"],
       ['{files.length} files', "{m['content.media.filesCount']({ n: String(files.length) })"],
@@ -332,10 +373,22 @@ wrapTraceSub(
   'operations.traceability.production.title',
   '<button class="btn btn-primary btn-sm" onclick={() => (showNewForm = true)}>{m[\'operations.traceability.production.newOrder\']()}</button>',
 );
-wrapTraceSub('operations/traceability/studio/pages/dispatches/+page.svelte', 'operations.traceability.dispatches.title');
-wrapTraceSub('operations/traceability/studio/pages/reception/+page.svelte', 'operations.traceability.reception.title');
-wrapTraceSub('operations/traceability/studio/pages/reports/+page.svelte', 'operations.traceability.reports.title');
-wrapTraceSub('operations/traceability/studio/pages/recalls/+page.svelte', 'operations.traceability.recalls.title');
+wrapTraceSub(
+  'operations/traceability/studio/pages/dispatches/+page.svelte',
+  'operations.traceability.dispatches.title',
+);
+wrapTraceSub(
+  'operations/traceability/studio/pages/reception/+page.svelte',
+  'operations.traceability.reception.title',
+);
+wrapTraceSub(
+  'operations/traceability/studio/pages/reports/+page.svelte',
+  'operations.traceability.reports.title',
+);
+wrapTraceSub(
+  'operations/traceability/studio/pages/recalls/+page.svelte',
+  'operations.traceability.recalls.title',
+);
 
 // lots/[id] - different structure
 {
@@ -345,7 +398,10 @@ wrapTraceSub('operations/traceability/studio/pages/recalls/+page.svelte', 'opera
     let c = ensureImports(readFileSync(p, 'utf8'));
     const re = /<div class="p-6[^"]*">\s*<h1 class="text-2xl font-bold">([\s\S]*?)<\/h1>/;
     if (re.test(c)) {
-      c = c.replace(re, `<ExtensionPageShell title={m['operations.traceability.lots.title']()}>\n  {#snippet children()}\n  <div class="p-6 space-y-4 pt-0">`);
+      c = c.replace(
+        re,
+        `<ExtensionPageShell title={m['operations.traceability.lots.title']()}>\n  {#snippet children()}\n  <div class="p-6 space-y-4 pt-0">`,
+      );
       c = c.replace(/\n<\/div>\s*$/, '\n  </div>\n  {/snippet}\n</ExtensionPageShell>\n');
       writeFileSync(p, c);
       console.log('wrapped trace lots');

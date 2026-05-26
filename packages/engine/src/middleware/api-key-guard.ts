@@ -36,14 +36,17 @@ export function apiKeyGuard(db: Database) {
     // and bypass the IP allowlist entirely. Only trust proxy headers when the engine
     // is deployed behind a known, trusted reverse proxy (e.g. nginx, Caddy, AWS ALB).
     const trustedProxy = process.env.TRUSTED_PROXY === 'true';
-    const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+    const IPV4_RE =
+      /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
     const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
     const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
     const forwardedIp =
-      trustedProxy && rawForwardedFor && (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
+      trustedProxy &&
+      rawForwardedFor &&
+      (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
         ? rawForwardedFor
         : null;
-    const realIp = trustedProxy ? c.req.header('x-real-ip') ?? null : null;
+    const realIp = trustedProxy ? (c.req.header('x-real-ip') ?? null) : null;
     const clientIp = forwardedIp || realIp || 'unknown';
 
     // allowed_ips is JSONB on disk — typed as unknown so we narrow here.
@@ -54,7 +57,10 @@ export function apiKeyGuard(db: Database) {
       );
       if (!allowed) {
         logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch((err) => {
-          console.warn('[api-key-guard] audit log write failed (denied request):', (err as Error).message);
+          console.warn(
+            '[api-key-guard] audit log write failed (denied request):',
+            (err as Error).message,
+          );
         });
         return c.json({ error: `IP ${clientIp} not allowed for this API key` }, 403);
       }
@@ -70,16 +76,21 @@ export function apiKeyGuard(db: Database) {
       const allowed = await checkPermission(apiKey.casbin_subject, collection, action);
       if (!allowed) {
         logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch((err) => {
-          console.warn('[api-key-guard] audit log write failed (denied request):', (err as Error).message);
+          console.warn(
+            '[api-key-guard] audit log write failed (denied request):',
+            (err as Error).message,
+          );
         });
         return c.json({ error: 'Insufficient permissions' }, 403);
       }
     } else {
-      const scopes =
-        typeof apiKey.scopes === 'string' ? JSON.parse(apiKey.scopes) : apiKey.scopes;
+      const scopes = typeof apiKey.scopes === 'string' ? JSON.parse(apiKey.scopes) : apiKey.scopes;
       if (!checkScopes(scopes, collection, action)) {
         logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, 403).catch((err) => {
-          console.warn('[api-key-guard] audit log write failed (denied request):', (err as Error).message);
+          console.warn(
+            '[api-key-guard] audit log write failed (denied request):',
+            (err as Error).message,
+          );
         });
         return c.json({ error: 'API key does not have access to this resource' }, 403);
       }
@@ -104,7 +115,15 @@ export function apiKeyGuard(db: Database) {
     const start = Date.now();
     await next();
 
-    logAccess(db, apiKey.id, clientIp, c.req.method, c.req.path, c.res.status, Date.now() - start).catch((err) => {
+    logAccess(
+      db,
+      apiKey.id,
+      clientIp,
+      c.req.method,
+      c.req.path,
+      c.res.status,
+      Date.now() - start,
+    ).catch((err) => {
       console.warn('[api-key-guard] audit log write failed:', (err as Error).message);
     });
   };

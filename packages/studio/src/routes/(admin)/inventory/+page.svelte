@@ -1,111 +1,153 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { Boxes, Plus, X, Warehouse, Package, LoaderCircle } from '@lucide/svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { Boxes, Plus, X, Warehouse, Package, LoaderCircle } from '@lucide/svelte';
 
-  type TabId = 'products' | 'warehouses' | 'stock';
+type TabId = 'products' | 'warehouses' | 'stock';
 
-  let tab = $state<TabId>('products');
-  let products = $state<{ id: string; sku: string; name: string; price: number; currency: string; tax_rate: number; is_active: boolean }[]>([]);
-  let warehouses = $state<{ id: string; code: string; name: string; address?: string | null }[]>([]);
-  let stock = $state<{ id: string; product_name?: string; product_id: string; warehouse_name?: string; warehouse_id: string; quantity: number }[]>([]);
-  let loading = $state(true);
-  let search = $state('');
-  let showProductForm = $state(false);
-  let showWarehouseForm = $state(false);
-  let saving = $state(false);
-  let productForm = $state({ sku: '', name: '', description: '', price: 0, currency: 'RON', tax_rate: 19, is_active: true });
-  let warehouseForm = $state({ name: '', code: '', address: '' });
+let tab = $state<TabId>('products');
+let products = $state<
+  {
+    id: string;
+    sku: string;
+    name: string;
+    price: number;
+    currency: string;
+    tax_rate: number;
+    is_active: boolean;
+  }[]
+>([]);
+let warehouses = $state<{ id: string; code: string; name: string; address?: string | null }[]>([]);
+let stock = $state<
+  {
+    id: string;
+    product_name?: string;
+    product_id: string;
+    warehouse_name?: string;
+    warehouse_id: string;
+    quantity: number;
+  }[]
+>([]);
+let loading = $state(true);
+let search = $state('');
+let showProductForm = $state(false);
+let showWarehouseForm = $state(false);
+let saving = $state(false);
+let productForm = $state({
+  sku: '',
+  name: '',
+  description: '',
+  price: 0,
+  currency: 'RON',
+  tax_rate: 19,
+  is_active: true,
+});
+let warehouseForm = $state({ name: '', code: '', address: '' });
 
-  const dash = $derived(m['common.emptyDash']());
-  const yesMark = '✓';
+const dash = $derived(m['common.emptyDash']());
+const yesMark = '✓';
 
-  const tabs = $derived([
-    { id: 'products' as const, label: m['inventory.tab.products'](), icon: Package },
-    { id: 'warehouses' as const, label: m['inventory.tab.warehouses'](), icon: Warehouse },
-    { id: 'stock' as const, label: m['inventory.tab.stock'](), icon: Boxes },
-  ]);
+const tabs = $derived([
+  { id: 'products' as const, label: m['inventory.tab.products'](), icon: Package },
+  { id: 'warehouses' as const, label: m['inventory.tab.warehouses'](), icon: Warehouse },
+  { id: 'stock' as const, label: m['inventory.tab.stock'](), icon: Boxes },
+]);
 
-  const emptyCopy = $derived(
-    tab === 'products' ? m['inventory.empty.products']()
-      : tab === 'warehouses' ? m['inventory.empty.warehouses']()
-        : m['inventory.empty.stock'](),
+const emptyCopy = $derived(
+  tab === 'products'
+    ? m['inventory.empty.products']()
+    : tab === 'warehouses'
+      ? m['inventory.empty.warehouses']()
+      : m['inventory.empty.stock'](),
+);
+
+async function loadProducts() {
+  const params = new URLSearchParams();
+  if (search.trim()) params.set('q', search.trim());
+  const res = await api.get<{ data: typeof products }>(
+    `/ext/operations/inventory/products?${params}`,
   );
+  products = res.data ?? [];
+}
 
-  async function loadProducts() {
-    const params = new URLSearchParams();
-    if (search.trim()) params.set('q', search.trim());
-    const res = await api.get<{ data: typeof products }>(`/ext/operations/inventory/products?${params}`);
-    products = res.data ?? [];
+async function loadWarehouses() {
+  const res = await api.get<{ data: typeof warehouses }>('/ext/operations/inventory/warehouses');
+  warehouses = res.data ?? [];
+}
+
+async function loadStock() {
+  const res = await api.get<{ data: typeof stock }>('/ext/operations/inventory/stock-levels');
+  stock = res.data ?? [];
+}
+
+async function loadTab() {
+  loading = true;
+  try {
+    if (tab === 'products') await loadProducts();
+    else if (tab === 'warehouses') await loadWarehouses();
+    else await loadStock();
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function loadWarehouses() {
-    const res = await api.get<{ data: typeof warehouses }>('/ext/operations/inventory/warehouses');
-    warehouses = res.data ?? [];
+async function createProduct() {
+  saving = true;
+  try {
+    await api.post('/ext/operations/inventory/products', productForm);
+    showProductForm = false;
+    productForm = {
+      sku: '',
+      name: '',
+      description: '',
+      price: 0,
+      currency: 'RON',
+      tax_rate: 19,
+      is_active: true,
+    };
+    await loadProducts();
+    toast.success(m['inventory.toast.productCreated']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function loadStock() {
-    const res = await api.get<{ data: typeof stock }>('/ext/operations/inventory/stock-levels');
-    stock = res.data ?? [];
+async function createWarehouse() {
+  saving = true;
+  try {
+    await api.post('/ext/operations/inventory/warehouses', warehouseForm);
+    showWarehouseForm = false;
+    warehouseForm = { name: '', code: '', address: '' };
+    await loadWarehouses();
+    toast.success(m['inventory.toast.warehouseCreated']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function loadTab() {
-    loading = true;
-    try {
-      if (tab === 'products') await loadProducts();
-      else if (tab === 'warehouses') await loadWarehouses();
-      else await loadStock();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
-  }
+$effect(() => {
+  tab;
+  loadTab();
+});
 
-  async function createProduct() {
-    saving = true;
-    try {
-      await api.post('/ext/operations/inventory/products', productForm);
-      showProductForm = false;
-      productForm = { sku: '', name: '', description: '', price: 0, currency: 'RON', tax_rate: 19, is_active: true };
-      await loadProducts();
-      toast.success(m['inventory.toast.productCreated']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
-  }
+onMount(() => {
+  loadProducts();
+  loadWarehouses();
+});
 
-  async function createWarehouse() {
-    saving = true;
-    try {
-      await api.post('/ext/operations/inventory/warehouses', warehouseForm);
-      showWarehouseForm = false;
-      warehouseForm = { name: '', code: '', address: '' };
-      await loadWarehouses();
-      toast.success(m['inventory.toast.warehouseCreated']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
-  }
-
-  $effect(() => { tab; loadTab(); });
-
-  onMount(() => {
-    loadProducts();
-    loadWarehouses();
-  });
-
-  function fmt(n: number, c = 'RON') {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).format(n);
-  }
+function fmt(n: number, c = 'RON') {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).format(n);
+}
 </script>
 
 <ExtensionPageShell

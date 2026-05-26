@@ -140,10 +140,18 @@ export function templatesRoutes(db: Database, auth: any): Hono {
   // POST /:id/install — apply the manifest
   app.post(
     '/:id/install',
-    zValidator('json', z.object({
-      prefix: z.string().regex(/^[a-z][a-z0-9_]*$/).optional(),
-      skip_existing: z.boolean().default(true),
-    }).optional()),
+    zValidator(
+      'json',
+      z
+        .object({
+          prefix: z
+            .string()
+            .regex(/^[a-z][a-z0-9_]*$/)
+            .optional(),
+          skip_existing: z.boolean().default(true),
+        })
+        .optional(),
+    ),
     async (c) => {
       const t = BUILTIN.find((x) => x.id === c.req.param('id'));
       if (!t) return c.json({ error: 'Template not found' }, 404);
@@ -179,18 +187,29 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       // project templates used "status" as a user field name — that
       // column already exists as a system column added by DDLManager).
       const SYSTEM_FIELDS = new Set([
-        'id', 'created_at', 'updated_at', 'status', 'created_by',
-        'updated_by', 'search_vector',
+        'id',
+        'created_at',
+        'updated_at',
+        'status',
+        'created_by',
+        'updated_by',
+        'search_vector',
       ]);
       for (const coll of renamed) {
         for (const f of coll.fields) {
           if (!fieldTypeRegistry.has(f.type)) {
-            return c.json({ error: `Unknown field type '${f.type}' in collection '${coll.name}'` }, 400);
+            return c.json(
+              { error: `Unknown field type '${f.type}' in collection '${coll.name}'` },
+              400,
+            );
           }
           if (SYSTEM_FIELDS.has(f.name)) {
-            return c.json({
-              error: `Field name '${f.name}' in collection '${coll.name}' conflicts with a reserved system column. Rename the field in the template manifest.`,
-            }, 400);
+            return c.json(
+              {
+                error: `Field name '${f.name}' in collection '${coll.name}' conflicts with a reserved system column. Rename the field in the template manifest.`,
+              },
+              400,
+            );
           }
         }
       }

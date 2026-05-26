@@ -1,143 +1,151 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { Key, Trash2, Copy, Check, LoaderCircle, Plus } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import Pagination from '$lib/components/common/Pagination.svelte';
-  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { Key, Trash2, Copy, Check, LoaderCircle, Plus } from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Pagination from '$lib/components/common/Pagination.svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  interface ApiKey {
-    id: string;
-    name: string;
-    key_prefix: string;
-    scopes: Array<{ collection: string; actions: string[] }>;
-    created_at: string;
-    last_used_at: string | null;
-    expires_at: string | null;
-    is_active: boolean;
-    rate_limit: number;
+interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  scopes: Array<{ collection: string; actions: string[] }>;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  is_active: boolean;
+  rate_limit: number;
+}
+
+let apiKeys = $state<ApiKey[]>([]);
+let loading = $state(true);
+let currentPage = $state(1);
+let total = $state(0);
+const LIMIT = 20;
+let showCreateModal = $state(false);
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+let creating = $state(false);
+let newlyCreatedKey = $state<string | null>(null);
+let copied = $state(false);
+
+const ALL_ACTIONS = ['read', 'write', 'delete'];
+
+const emptyForm = () => ({
+  name: '',
+  rate_limit: 1000,
+  expires_at: '',
+  scopes: [{ collection: '*', actions: ['read', 'write', 'delete'] as string[] }],
+});
+let form = $state(emptyForm());
+
+onMount(() => loadKeys());
+
+async function loadKeys() {
+  loading = true;
+  try {
+    const res = await api.get<{ api_keys: ApiKey[]; total?: number }>(
+      `/api/api-keys?limit=${LIMIT}&offset=${(currentPage - 1) * LIMIT}`,
+    );
+    apiKeys = res.api_keys || [];
+    total = res.total ?? apiKeys.length;
+  } catch (e: any) {
+    toast.error(e.message ?? 'Something went wrong');
+  } finally {
+    loading = false;
   }
+}
 
-  let apiKeys = $state<ApiKey[]>([]);
-  let loading = $state(true);
-  let currentPage = $state(1);
-  let total = $state(0);
-  const LIMIT = 20;
-  let showCreateModal = $state(false);
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
-  let creating = $state(false);
-  let newlyCreatedKey = $state<string | null>(null);
-  let copied = $state(false);
-
-  const ALL_ACTIONS = ['read', 'write', 'delete'];
-
-  const emptyForm = () => ({
-    name: '',
-    rate_limit: 1000,
-    expires_at: '',
-    scopes: [{ collection: '*', actions: ['read', 'write', 'delete'] as string[] }],
-  });
-  let form = $state(emptyForm());
-
-  onMount(() => loadKeys());
-
-  async function loadKeys() {
-    loading = true;
-    try {
-      const res = await api.get<{ api_keys: ApiKey[]; total?: number }>(`/api/api-keys?limit=${LIMIT}&offset=${(currentPage - 1) * LIMIT}`);
-      apiKeys = res.api_keys || [];
-      total = res.total ?? apiKeys.length;
-    } catch (e: any) {
-      toast.error(e.message ?? 'Something went wrong');
-    } finally {
-      loading = false;
-    }
+async function createKey() {
+  if (!form.name.trim()) return;
+  creating = true;
+  try {
+    const res = await api.post<{ id: string; key: string; key_prefix: string }>('/api/api-keys', {
+      name: form.name.trim(),
+      rate_limit: form.rate_limit,
+      expires_at: form.expires_at || undefined,
+      scopes: form.scopes,
+    });
+    newlyCreatedKey = res.key || null;
+    showCreateModal = false;
+    form = emptyForm();
+    await loadKeys();
+  } catch (e: any) {
+    toast.error(e.message || 'Failed to create key');
+  } finally {
+    creating = false;
   }
+}
 
-  async function createKey() {
-    if (!form.name.trim()) return;
-    creating = true;
-    try {
-      const res = await api.post<{ id: string; key: string; key_prefix: string }>('/api/api-keys', {
-        name: form.name.trim(),
-        rate_limit: form.rate_limit,
-        expires_at: form.expires_at || undefined,
-        scopes: form.scopes,
-      });
-      newlyCreatedKey = res.key || null;
-      showCreateModal = false;
-      form = emptyForm();
-      await loadKeys();
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to create key');
-    } finally {
-      creating = false;
-    }
-  }
+async function revokeKey(id: string) {
+  confirmState = {
+    open: true,
+    title: 'Revoke API Key',
+    message: 'Revoke this API key? This cannot be undone.',
+    confirmLabel: 'Revoke',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/api-keys/${id}`);
+        await loadKeys();
+      } catch (e: any) {
+        toast.error(e.message || 'Failed to revoke key');
+      }
+    },
+  };
+}
 
-  async function revokeKey(id: string) {
-    confirmState = {
-      open: true,
-      title: 'Revoke API Key',
-      message: 'Revoke this API key? This cannot be undone.',
-      confirmLabel: 'Revoke',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await api.delete(`/api/api-keys/${id}`);
-          await loadKeys();
-        } catch (e: any) {
-          toast.error(e.message || 'Failed to revoke key');
-        }
-      },
-    };
-  }
+async function copyKey() {
+  if (!newlyCreatedKey) return;
+  await navigator.clipboard.writeText(newlyCreatedKey);
+  copied = true;
+  setTimeout(() => (copied = false), 2000);
+}
 
-  async function copyKey() {
-    if (!newlyCreatedKey) return;
-    await navigator.clipboard.writeText(newlyCreatedKey);
-    copied = true;
-    setTimeout(() => (copied = false), 2000);
-  }
+function formatExpiry(date: string | null): string {
+  if (!date) return 'Never';
+  const d = new Date(date);
+  return d < new Date() ? `Expired ${d.toLocaleDateString()}` : d.toLocaleDateString();
+}
 
-  function formatExpiry(date: string | null): string {
-    if (!date) return 'Never';
-    const d = new Date(date);
-    return d < new Date() ? `Expired ${d.toLocaleDateString()}` : d.toLocaleDateString();
-  }
+function addScope() {
+  form.scopes = [...form.scopes, { collection: '', actions: ['read'] }];
+}
 
-  function addScope() {
-    form.scopes = [...form.scopes, { collection: '', actions: ['read'] }];
-  }
+function removeScope(i: number) {
+  form.scopes = form.scopes.filter((_, idx) => idx !== i);
+}
 
-  function removeScope(i: number) {
-    form.scopes = form.scopes.filter((_, idx) => idx !== i);
-  }
+function toggleAction(scopeIdx: number, action: string) {
+  const scope = form.scopes[scopeIdx];
+  const actions = scope.actions.includes(action)
+    ? scope.actions.filter((a) => a !== action)
+    : [...scope.actions, action];
+  form.scopes = form.scopes.map((s, i) => (i === scopeIdx ? { ...s, actions } : s));
+}
 
-  function toggleAction(scopeIdx: number, action: string) {
-    const scope = form.scopes[scopeIdx];
-    const actions = scope.actions.includes(action)
-      ? scope.actions.filter(a => a !== action)
-      : [...scope.actions, action];
-    form.scopes = form.scopes.map((s, i) => i === scopeIdx ? { ...s, actions } : s);
-  }
+function scopesSummary(scopes: Array<{ collection: string; actions: string[] }>): string {
+  if (!scopes || scopes.length === 0) return 'No scopes';
+  if (scopes.length === 1 && scopes[0].collection === '*') return 'All collections';
+  return scopes.map((s) => s.collection || '?').join(', ');
+}
 
-  function scopesSummary(scopes: Array<{ collection: string; actions: string[] }>): string {
-    if (!scopes || scopes.length === 0) return 'No scopes';
-    if (scopes.length === 1 && scopes[0].collection === '*') return 'All collections';
-    return scopes.map(s => s.collection || '?').join(', ');
-  }
-
-  function formatRelative(dateStr: string): string {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60_000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  }
+function formatRelative(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 </script>
 
 <CrudListPage

@@ -1,80 +1,90 @@
 <script lang="ts">
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { Plus, X, Check, LoaderCircle } from '@lucide/svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { Plus, X, Check, LoaderCircle } from '@lucide/svelte';
 
-  let requests = $state<any[]>([]);
-  let employees = $state<any[]>([]);
-  let leaveTypes = $state<any[]>([]);
-  let loading = $state(true);
-  let statusFilter = $state<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({ employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '' });
+let requests = $state<any[]>([]);
+let employees = $state<any[]>([]);
+let leaveTypes = $state<any[]>([]);
+let loading = $state(true);
+let statusFilter = $state<'all' | 'pending' | 'approved' | 'rejected'>('all');
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({ employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '' });
 
-  const dash = $derived(m['common.emptyDash']());
-  const statusOptions = $derived([
-    { value: 'all' as const, label: m['common.filter.all']() },
-    { value: 'pending' as const, label: m['common.status.pending']() },
-    { value: 'approved' as const, label: m['common.status.approved']() },
-    { value: 'rejected' as const, label: m['common.status.rejected']() },
-  ]);
+const dash = $derived(m['common.emptyDash']());
+const statusOptions = $derived([
+  { value: 'all' as const, label: m['common.filter.all']() },
+  { value: 'pending' as const, label: m['common.status.pending']() },
+  { value: 'approved' as const, label: m['common.status.approved']() },
+  { value: 'rejected' as const, label: m['common.status.rejected']() },
+]);
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      const [reqs, emps, types] = await Promise.all([
-        api.get<{ data: any[] }>(`/ext/hr/leave/requests?${params}`),
-        api.get<{ data: any[] }>('/ext/hr/employees?limit=200'),
-        api.get<{ data: any[] }>('/ext/hr/leave/types'),
-      ]);
-      requests = reqs.data ?? [];
-      employees = emps.data ?? [];
-      leaveTypes = types.data ?? [];
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
+async function loadAll() {
+  loading = true;
+  try {
+    const params = new URLSearchParams();
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    const [reqs, emps, types] = await Promise.all([
+      api.get<{ data: any[] }>(`/ext/hr/leave/requests?${params}`),
+      api.get<{ data: any[] }>('/ext/hr/employees?limit=200'),
+      api.get<{ data: any[] }>('/ext/hr/leave/types'),
+    ]);
+    requests = reqs.data ?? [];
+    employees = emps.data ?? [];
+    leaveTypes = types.data ?? [];
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function createRequest() {
-    saving = true;
-    try {
-      await api.post('/ext/hr/leave/requests', form);
-      showForm = false;
-      form = { employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '' };
-      await loadAll();
-      toast.success(m['ext.submitted']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function createRequest() {
+  saving = true;
+  try {
+    await api.post('/ext/hr/leave/requests', form);
+    showForm = false;
+    form = { employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '' };
+    await loadAll();
+    toast.success(m['ext.submitted']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function decide(id: string, approved: boolean) {
-    try {
-      await api.post(`/ext/hr/leave/requests/${id}/${approved ? 'approve' : 'reject'}`, {});
-      await loadAll();
-      toast.success(approved ? m['ext.approved']() : m['ext.rejected']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    }
+async function decide(id: string, approved: boolean) {
+  try {
+    await api.post(`/ext/hr/leave/requests/${id}/${approved ? 'approve' : 'reject'}`, {});
+    await loadAll();
+    toast.success(approved ? m['ext.approved']() : m['ext.rejected']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  $effect(() => { statusFilter; loadAll(); });
+$effect(() => {
+  statusFilter;
+  loadAll();
+});
 
-  function statusBadge(s: string) {
-    return ({
-      pending: 'badge-warning', approved: 'badge-success', rejected: 'badge-error', cancelled: 'badge-ghost',
-    } as Record<string, string>)[s] ?? 'badge-ghost';
-  }
+function statusBadge(s: string) {
+  return (
+    (
+      {
+        pending: 'badge-warning',
+        approved: 'badge-success',
+        rejected: 'badge-error',
+        cancelled: 'badge-ghost',
+      } as Record<string, string>
+    )[s] ?? 'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['hr.leave.title']()} subtitle={m['hr.leave.subtitle']()}>

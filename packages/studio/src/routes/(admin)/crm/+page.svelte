@@ -1,202 +1,268 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { Plus, Trash2, X, LoaderCircle, Users, Building2, TrendingUp } from '@lucide/svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { Plus, Trash2, X, LoaderCircle, Users, Building2, TrendingUp } from '@lucide/svelte';
 
-  type Contact = {
-    id: string; first_name: string; last_name: string; email: string | null;
-    phone: string | null; company: string | null; job_title: string | null;
-    source: string | null; tags: string[]; created_at: string;
-  };
-  type Organization = {
-    id: string; name: string; industry: string | null; website: string | null;
-    email: string | null; phone: string | null; city: string | null; created_at: string;
-  };
-  type Deal = {
-    id: string; title: string; stage: string; value: number | null;
-    currency: string; contact_id: string | null; expected_close_date: string | null;
-    created_at: string;
-  };
+type Contact = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  job_title: string | null;
+  source: string | null;
+  tags: string[];
+  created_at: string;
+};
+type Organization = {
+  id: string;
+  name: string;
+  industry: string | null;
+  website: string | null;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  created_at: string;
+};
+type Deal = {
+  id: string;
+  title: string;
+  stage: string;
+  value: number | null;
+  currency: string;
+  contact_id: string | null;
+  expected_close_date: string | null;
+  created_at: string;
+};
 
-  type TabId = 'contacts' | 'organizations' | 'deals';
+type TabId = 'contacts' | 'organizations' | 'deals';
 
-  let tab = $state<TabId>('contacts');
-  let contacts = $state<Contact[]>([]);
-  let orgs = $state<Organization[]>([]);
-  let deals = $state<Deal[]>([]);
-  let loading = $state(false);
-  let search = $state('');
-  let showModal = $state(false);
-  let saving = $state(false);
-  let deleting = $state<string | null>(null);
+let tab = $state<TabId>('contacts');
+let contacts = $state<Contact[]>([]);
+let orgs = $state<Organization[]>([]);
+let deals = $state<Deal[]>([]);
+let loading = $state(false);
+let search = $state('');
+let showModal = $state(false);
+let saving = $state(false);
+let deleting = $state<string | null>(null);
 
-  let contactForm = $state({ first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '' });
-  let orgForm = $state({ name: '', industry: '', website: '', email: '', phone: '', city: '' });
-  let dealForm = $state({ title: '', stage: 'prospecting', value: '', currency: 'RON', expected_close_date: '' });
+let contactForm = $state({
+  first_name: '',
+  last_name: '',
+  email: '',
+  phone: '',
+  company: '',
+  job_title: '',
+});
+let orgForm = $state({ name: '', industry: '', website: '', email: '', phone: '', city: '' });
+let dealForm = $state({
+  title: '',
+  stage: 'prospecting',
+  value: '',
+  currency: 'RON',
+  expected_close_date: '',
+});
 
-  const DEAL_STAGES = ['prospecting', 'qualification', 'proposal', 'negotiation', 'closed_won', 'closed_lost'] as const;
+const DEAL_STAGES = [
+  'prospecting',
+  'qualification',
+  'proposal',
+  'negotiation',
+  'closed_won',
+  'closed_lost',
+] as const;
 
-  const tabs = $derived([
-    { id: 'contacts' as const, label: m['crm.tab.contacts'](), icon: Users },
-    { id: 'organizations' as const, label: m['crm.tab.organizations'](), icon: Building2 },
-    { id: 'deals' as const, label: m['crm.tab.deals'](), icon: TrendingUp },
-  ]);
+const tabs = $derived([
+  { id: 'contacts' as const, label: m['crm.tab.contacts'](), icon: Users },
+  { id: 'organizations' as const, label: m['crm.tab.organizations'](), icon: Building2 },
+  { id: 'deals' as const, label: m['crm.tab.deals'](), icon: TrendingUp },
+]);
 
-  let confirmDelete = $state<{ open: boolean; id: string; endpoint: string }>({
-    open: false, id: '', endpoint: '',
-  });
+let confirmDelete = $state<{ open: boolean; id: string; endpoint: string }>({
+  open: false,
+  id: '',
+  endpoint: '',
+});
 
-  const dash = $derived(m['common.emptyDash']());
+const dash = $derived(m['common.emptyDash']());
 
-  onMount(() => loadTab());
+onMount(() => loadTab());
 
-  function stageLabel(stage: string): string {
-    const key = `crm.stage.${stage}` as 'crm.stage.prospecting';
-    const msg = (m as Record<string, (() => string) | undefined>)[key];
-    return msg?.() ?? stage.replace(/_/g, ' ');
-  }
+function stageLabel(stage: string): string {
+  const key = `crm.stage.${stage}` as 'crm.stage.prospecting';
+  const msg = (m as Record<string, (() => string) | undefined>)[key];
+  return msg?.() ?? stage.replace(/_/g, ' ');
+}
 
-  async function loadTab() {
-    loading = true;
-    try {
-      if (tab === 'contacts') {
-        const r = await api.get<{ data: Contact[] }>('/ext/crm/contacts');
-        contacts = r.data ?? [];
-      } else if (tab === 'organizations') {
-        const r = await api.get<{ data: Organization[] }>('/ext/crm/organizations');
-        orgs = r.data ?? [];
-      } else {
-        const r = await api.get<{ data: Deal[] }>('/ext/crm/transactions');
-        deals = r.data ?? [];
-      }
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
+async function loadTab() {
+  loading = true;
+  try {
+    if (tab === 'contacts') {
+      const r = await api.get<{ data: Contact[] }>('/ext/crm/contacts');
+      contacts = r.data ?? [];
+    } else if (tab === 'organizations') {
+      const r = await api.get<{ data: Organization[] }>('/ext/crm/organizations');
+      orgs = r.data ?? [];
+    } else {
+      const r = await api.get<{ data: Deal[] }>('/ext/crm/transactions');
+      deals = r.data ?? [];
     }
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  $effect(() => { tab; loadTab(); });
+$effect(() => {
+  tab;
+  loadTab();
+});
 
-  const filteredContacts = $derived(
-    contacts.filter((c) =>
-      !search || `${c.first_name} ${c.last_name} ${c.email ?? ''} ${c.company ?? ''}`.toLowerCase().includes(search.toLowerCase()),
-    ),
-  );
-  const filteredOrgs = $derived(
-    orgs.filter((o) => !search || o.name.toLowerCase().includes(search.toLowerCase())),
-  );
-  const filteredDeals = $derived(
-    deals.filter((d) => !search || d.title.toLowerCase().includes(search.toLowerCase())),
-  );
+const filteredContacts = $derived(
+  contacts.filter(
+    (c) =>
+      !search ||
+      `${c.first_name} ${c.last_name} ${c.email ?? ''} ${c.company ?? ''}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  ),
+);
+const filteredOrgs = $derived(
+  orgs.filter((o) => !search || o.name.toLowerCase().includes(search.toLowerCase())),
+);
+const filteredDeals = $derived(
+  deals.filter((d) => !search || d.title.toLowerCase().includes(search.toLowerCase())),
+);
 
-  const listEmpty = $derived(
-    tab === 'contacts' ? filteredContacts.length === 0
-      : tab === 'organizations' ? filteredOrgs.length === 0
-        : filteredDeals.length === 0,
-  );
+const listEmpty = $derived(
+  tab === 'contacts'
+    ? filteredContacts.length === 0
+    : tab === 'organizations'
+      ? filteredOrgs.length === 0
+      : filteredDeals.length === 0,
+);
 
-  const emptyCopy = $derived(
-    tab === 'contacts' ? { title: m['crm.empty.contacts'](), description: '' }
-      : tab === 'organizations' ? { title: m['crm.empty.organizations'](), description: '' }
-        : { title: m['crm.empty.deals'](), description: '' },
-  );
+const emptyCopy = $derived(
+  tab === 'contacts'
+    ? { title: m['crm.empty.contacts'](), description: '' }
+    : tab === 'organizations'
+      ? { title: m['crm.empty.organizations'](), description: '' }
+      : { title: m['crm.empty.deals'](), description: '' },
+);
 
-  const modalTitle = $derived(
-    tab === 'contacts' ? m['crm.form.newContact']()
-      : tab === 'organizations' ? m['crm.form.newOrganization']()
-        : m['crm.form.newDeal'](),
-  );
+const modalTitle = $derived(
+  tab === 'contacts'
+    ? m['crm.form.newContact']()
+    : tab === 'organizations'
+      ? m['crm.form.newOrganization']()
+      : m['crm.form.newDeal'](),
+);
 
-  async function createContact() {
-    if (!contactForm.first_name.trim()) return;
-    saving = true;
-    try {
-      const r = await api.post<{ data: Contact }>('/ext/crm/contacts', contactForm);
-      contacts = [r.data, ...contacts];
-      contactForm = { first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '' };
-      showModal = false;
-      toast.success(m['crm.toast.contactCreated']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function createContact() {
+  if (!contactForm.first_name.trim()) return;
+  saving = true;
+  try {
+    const r = await api.post<{ data: Contact }>('/ext/crm/contacts', contactForm);
+    contacts = [r.data, ...contacts];
+    contactForm = {
+      first_name: '',
+      last_name: '',
+      email: '',
+      phone: '',
+      company: '',
+      job_title: '',
+    };
+    showModal = false;
+    toast.success(m['crm.toast.contactCreated']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function createOrg() {
-    if (!orgForm.name.trim()) return;
-    saving = true;
-    try {
-      const r = await api.post<{ data: Organization }>('/ext/crm/organizations', orgForm);
-      orgs = [r.data, ...orgs];
-      orgForm = { name: '', industry: '', website: '', email: '', phone: '', city: '' };
-      showModal = false;
-      toast.success(m['crm.toast.orgCreated']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function createOrg() {
+  if (!orgForm.name.trim()) return;
+  saving = true;
+  try {
+    const r = await api.post<{ data: Organization }>('/ext/crm/organizations', orgForm);
+    orgs = [r.data, ...orgs];
+    orgForm = { name: '', industry: '', website: '', email: '', phone: '', city: '' };
+    showModal = false;
+    toast.success(m['crm.toast.orgCreated']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function createDeal() {
-    if (!dealForm.title.trim()) return;
-    saving = true;
-    try {
-      const r = await api.post<{ data: Deal }>('/ext/crm/transactions', {
-        ...dealForm,
-        value: dealForm.value ? parseFloat(dealForm.value) : null,
-      });
-      deals = [r.data, ...deals];
-      dealForm = { title: '', stage: 'prospecting', value: '', currency: 'RON', expected_close_date: '' };
-      showModal = false;
-      toast.success(m['crm.toast.dealCreated']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function createDeal() {
+  if (!dealForm.title.trim()) return;
+  saving = true;
+  try {
+    const r = await api.post<{ data: Deal }>('/ext/crm/transactions', {
+      ...dealForm,
+      value: dealForm.value ? parseFloat(dealForm.value) : null,
+    });
+    deals = [r.data, ...deals];
+    dealForm = {
+      title: '',
+      stage: 'prospecting',
+      value: '',
+      currency: 'RON',
+      expected_close_date: '',
+    };
+    showModal = false;
+    toast.success(m['crm.toast.dealCreated']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  function requestDelete(id: string, endpoint: string) {
-    confirmDelete = { open: true, id, endpoint };
+function requestDelete(id: string, endpoint: string) {
+  confirmDelete = { open: true, id, endpoint };
+}
+
+async function confirmDeleteItem() {
+  const { id, endpoint } = confirmDelete;
+  confirmDelete = { open: false, id: '', endpoint: '' };
+  deleting = id;
+  try {
+    await api.delete(`${endpoint}/${id}`);
+    if (tab === 'contacts') contacts = contacts.filter((c) => c.id !== id);
+    else if (tab === 'organizations') orgs = orgs.filter((o) => o.id !== id);
+    else deals = deals.filter((d) => d.id !== id);
+    toast.success(m['ext.deleted']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    deleting = null;
   }
+}
 
-  async function confirmDeleteItem() {
-    const { id, endpoint } = confirmDelete;
-    confirmDelete = { open: false, id: '', endpoint: '' };
-    deleting = id;
-    try {
-      await api.delete(`${endpoint}/${id}`);
-      if (tab === 'contacts') contacts = contacts.filter((c) => c.id !== id);
-      else if (tab === 'organizations') orgs = orgs.filter((o) => o.id !== id);
-      else deals = deals.filter((d) => d.id !== id);
-      toast.success(m['ext.deleted']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      deleting = null;
-    }
-  }
+const stageColor: Record<string, string> = {
+  prospecting: 'badge-ghost',
+  qualification: 'badge-info',
+  proposal: 'badge-warning',
+  negotiation: 'badge-warning',
+  closed_won: 'badge-success',
+  closed_lost: 'badge-error',
+};
 
-  const stageColor: Record<string, string> = {
-    prospecting: 'badge-ghost',
-    qualification: 'badge-info',
-    proposal: 'badge-warning',
-    negotiation: 'badge-warning',
-    closed_won: 'badge-success',
-    closed_lost: 'badge-error',
-  };
-
-  function formatDate(iso: string) {
-    return new Date(iso).toLocaleDateString();
-  }
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString();
+}
 </script>
 
 <ExtensionPageShell

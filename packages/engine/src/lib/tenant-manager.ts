@@ -39,7 +39,9 @@ const TENANT_CACHE_TTL = 300; // 5 min
 function _tenantHmac(key: string, value: string): string {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret) {
-    throw new Error('BETTER_AUTH_SECRET is not set — tenant cache HMAC would use an empty key, providing no integrity protection. Set this environment variable before starting the server.');
+    throw new Error(
+      'BETTER_AUTH_SECRET is not set — tenant cache HMAC would use an empty key, providing no integrity protection. Set this environment variable before starting the server.',
+    );
   }
   return createHmac('sha256', secret).update(`tenant:${key}:${value}`).digest('hex');
 }
@@ -56,7 +58,7 @@ function _decodeTenantCache(key: string, raw: string): object | null {
   const json = raw.slice(sep + 1);
   try {
     const expected = Buffer.from(_tenantHmac(key, json), 'hex');
-    const stored   = Buffer.from(storedHmac, 'hex');
+    const stored = Buffer.from(storedHmac, 'hex');
     if (stored.length !== expected.length) return null;
     if (!timingSafeEqual(stored, expected)) return null;
     return JSON.parse(json);
@@ -127,9 +129,7 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
   return tenant || null;
 }
 
-export async function getUserTenants(
-  userId: string,
-): Promise<(Tenant & { role: string })[]> {
+export async function getUserTenants(userId: string): Promise<(Tenant & { role: string })[]> {
   const cache = getCache();
   const cacheKey = `user:tenants:${userId}`;
 
@@ -151,7 +151,9 @@ export async function getUserTenants(
     .execute();
 
   if (cache) {
-    await cache.setex(cacheKey, TENANT_CACHE_TTL, _encodeTenantCache(cacheKey, tenants)).catch(() => {});
+    await cache
+      .setex(cacheKey, TENANT_CACHE_TTL, _encodeTenantCache(cacheKey, tenants))
+      .catch(() => {});
   }
 
   return tenants;
@@ -245,14 +247,10 @@ export async function provisionEnvironment(
     .onConflict((oc: any) => oc.columns(['tenant_id', 'slug']).doNothing())
     .execute();
 
-  console.log(
-    `✅ Environment '${envSlug}' provisioned for tenant ${tenantSlug} → ${schemaName}`,
-  );
+  console.log(`✅ Environment '${envSlug}' provisioned for tenant ${tenantSlug} → ${schemaName}`);
 }
 
-export async function getTenantEnvironments(
-  tenantId: string,
-): Promise<Environment[]> {
+export async function getTenantEnvironments(tenantId: string): Promise<Environment[]> {
   return (_db as any)
     .selectFrom('zv_environments')
     .selectAll()
@@ -366,7 +364,7 @@ export async function withTenantIsolation<T>(
 export async function setCurrentTenant(_tenantId: string): Promise<void> {
   throw new Error(
     'setCurrentTenant() is deprecated and non-functional. ' +
-    'SET LOCAL requires an active transaction. Use withTenantIsolation() instead.',
+      'SET LOCAL requires an active transaction. Use withTenantIsolation() instead.',
   );
 }
 
@@ -407,9 +405,7 @@ export async function enableRLS(tableName: string): Promise<void> {
 
   // 4. Isolation policy — uses SET LOCAL value from middleware
   //    DROP + CREATE so this function is safe to call multiple times (idempotent)
-  await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(tableName)}`.execute(
-    _db,
-  );
+  await sql`DROP POLICY IF EXISTS tenant_isolation ON ${sql.id(tableName)}`.execute(_db);
   await sql`
     CREATE POLICY tenant_isolation ON ${sql.id(tableName)}
     USING (tenant_id::text = current_setting('zveltio.current_tenant', true))
@@ -430,13 +426,15 @@ export async function enableRLS(tableName: string): Promise<void> {
   //    before considering the table multi-tenant-safe.
   const orphans = await sql<{ orphan_count: number }>`
     SELECT COUNT(*)::int AS orphan_count FROM ${sql.id(tableName)} WHERE tenant_id IS NULL
-  `.execute(_db).catch(() => ({ rows: [{ orphan_count: 0 }] }));
+  `
+    .execute(_db)
+    .catch(() => ({ rows: [{ orphan_count: 0 }] }));
   const orphanCount = orphans.rows[0]?.orphan_count ?? 0;
   if (orphanCount > 0) {
     console.warn(
       `[tenant-manager] enableRLS(${tableName}): ${orphanCount} row(s) ` +
-      `have tenant_id IS NULL and are now invisible to every tenant. ` +
-      `Backfill with: UPDATE ${tableName} SET tenant_id = '<default-tenant-id>' WHERE tenant_id IS NULL`,
+        `have tenant_id IS NULL and are now invisible to every tenant. ` +
+        `Backfill with: UPDATE ${tableName} SET tenant_id = '<default-tenant-id>' WHERE tenant_id IS NULL`,
     );
   }
 }

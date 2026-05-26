@@ -23,22 +23,37 @@ import { reqDb } from '../lib/route-db.js';
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
 const QueryConfigSchema = z.object({
-  filters: z.array(z.object({
-    field: z.string(),
-    operator: z.string(),
-    value: z.any().optional(),
-    group: z.string().optional(),
-  })).optional().default([]),
+  filters: z
+    .array(
+      z.object({
+        field: z.string(),
+        operator: z.string(),
+        value: z.any().optional(),
+        group: z.string().optional(),
+      }),
+    )
+    .optional()
+    .default([]),
   filter_mode: z.enum(['AND', 'OR']).optional().default('AND'),
-  filter_groups: z.array(z.object({
-    id: z.string(),
-    mode: z.enum(['AND', 'OR']),
-  })).optional().default([]),
+  filter_groups: z
+    .array(
+      z.object({
+        id: z.string(),
+        mode: z.enum(['AND', 'OR']),
+      }),
+    )
+    .optional()
+    .default([]),
   columns: z.array(z.string()).optional().default([]),
-  sorts: z.array(z.object({
-    field: z.string(),
-    direction: z.enum(['asc', 'desc']).optional().default('asc'),
-  })).optional().default([]),
+  sorts: z
+    .array(
+      z.object({
+        field: z.string(),
+        direction: z.enum(['asc', 'desc']).optional().default('asc'),
+      }),
+    )
+    .optional()
+    .default([]),
   limit: z.number().min(1).max(1000).optional().default(50),
   page: z.number().min(1).optional().default(1),
 });
@@ -81,30 +96,53 @@ function applyFilter(query: any, filter: { field: string; operator: string; valu
   }
 
   switch (operator) {
-    case 'equals':       return query.where(field, '=', value);
-    case 'not_equals':   return query.where(field, '!=', value);
-    case 'contains':     return query.where(field, 'like', `%${value}%`);
-    case 'not_contains': return query.where(field, 'not like', `%${value}%`);
-    case 'starts_with':  return query.where(field, 'like', `${value}%`);
-    case 'ends_with':    return query.where(field, 'like', `%${value}`);
-    case 'gt':           return query.where(field, '>', value);
-    case 'lt':           return query.where(field, '<', value);
-    case 'gte':          return query.where(field, '>=', value);
-    case 'lte':          return query.where(field, '<=', value);
+    case 'equals':
+      return query.where(field, '=', value);
+    case 'not_equals':
+      return query.where(field, '!=', value);
+    case 'contains':
+      return query.where(field, 'like', `%${value}%`);
+    case 'not_contains':
+      return query.where(field, 'not like', `%${value}%`);
+    case 'starts_with':
+      return query.where(field, 'like', `${value}%`);
+    case 'ends_with':
+      return query.where(field, 'like', `%${value}`);
+    case 'gt':
+      return query.where(field, '>', value);
+    case 'lt':
+      return query.where(field, '<', value);
+    case 'gte':
+      return query.where(field, '>=', value);
+    case 'lte':
+      return query.where(field, '<=', value);
     case 'between':
-      if (Array.isArray(value) && value.length === 2) return query.where(field, 'between', [value[0], value[1]]);
+      if (Array.isArray(value) && value.length === 2)
+        return query.where(field, 'between', [value[0], value[1]]);
       return query;
-    case 'is_empty': case 'is_null':         return query.where(field, 'is', null);
-    case 'is_not_empty': case 'is_not_null': return query.where(field, 'is not', null);
-    case 'is_true':  return query.where(field, '=', true);
-    case 'is_false': return query.where(field, '=', false);
-    case 'in':  return Array.isArray(value) ? query.where(field, 'in', value) : query;
-    case 'not_in': return Array.isArray(value) ? query.where(field, 'not in', value) : query;
-    default: return query;
+    case 'is_empty':
+    case 'is_null':
+      return query.where(field, 'is', null);
+    case 'is_not_empty':
+    case 'is_not_null':
+      return query.where(field, 'is not', null);
+    case 'is_true':
+      return query.where(field, '=', true);
+    case 'is_false':
+      return query.where(field, '=', false);
+    case 'in':
+      return Array.isArray(value) ? query.where(field, 'in', value) : query;
+    case 'not_in':
+      return Array.isArray(value) ? query.where(field, 'not in', value) : query;
+    default:
+      return query;
   }
 }
 
-function buildFilterCondition(eb: any, filter: { field: string; operator: string; value?: any }): any {
+function buildFilterCondition(
+  eb: any,
+  filter: { field: string; operator: string; value?: any },
+): any {
   const { field, operator, value } = filter;
 
   if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(field) || field.length > 63) {
@@ -112,47 +150,88 @@ function buildFilterCondition(eb: any, filter: { field: string; operator: string
   }
 
   switch (operator) {
-    case 'equals':       return eb(field, '=', value);
-    case 'not_equals':   return eb(field, '!=', value);
-    case 'contains':     return eb(field, 'like', `%${value}%`);
-    case 'not_contains': return eb(field, 'not like', `%${value}%`);
-    case 'starts_with':  return eb(field, 'like', `${value}%`);
-    case 'ends_with':    return eb(field, 'like', `%${value}`);
-    case 'gt':  return eb(field, '>', value);
-    case 'lt':  return eb(field, '<', value);
-    case 'gte': return eb(field, '>=', value);
-    case 'lte': return eb(field, '<=', value);
+    case 'equals':
+      return eb(field, '=', value);
+    case 'not_equals':
+      return eb(field, '!=', value);
+    case 'contains':
+      return eb(field, 'like', `%${value}%`);
+    case 'not_contains':
+      return eb(field, 'not like', `%${value}%`);
+    case 'starts_with':
+      return eb(field, 'like', `${value}%`);
+    case 'ends_with':
+      return eb(field, 'like', `%${value}`);
+    case 'gt':
+      return eb(field, '>', value);
+    case 'lt':
+      return eb(field, '<', value);
+    case 'gte':
+      return eb(field, '>=', value);
+    case 'lte':
+      return eb(field, '<=', value);
     case 'between':
-      if (Array.isArray(value) && value.length === 2) return eb.and([eb(field, '>=', value[0]), eb(field, '<=', value[1])]);
+      if (Array.isArray(value) && value.length === 2)
+        return eb.and([eb(field, '>=', value[0]), eb(field, '<=', value[1])]);
       return eb(field, '=', field);
-    case 'is_empty': case 'is_null':         return eb(field, 'is', null);
-    case 'is_not_empty': case 'is_not_null': return eb(field, 'is not', null);
-    case 'is_true':  return eb(field, '=', true);
-    case 'is_false': return eb(field, '=', false);
-    case 'in':     return Array.isArray(value) ? eb(field, 'in', value) : eb(field, '=', field);
-    case 'not_in': return Array.isArray(value) ? eb(field, 'not in', value) : eb(field, '=', field);
-    default: return eb(field, '=', value);
+    case 'is_empty':
+    case 'is_null':
+      return eb(field, 'is', null);
+    case 'is_not_empty':
+    case 'is_not_null':
+      return eb(field, 'is not', null);
+    case 'is_true':
+      return eb(field, '=', true);
+    case 'is_false':
+      return eb(field, '=', false);
+    case 'in':
+      return Array.isArray(value) ? eb(field, 'in', value) : eb(field, '=', field);
+    case 'not_in':
+      return Array.isArray(value) ? eb(field, 'not in', value) : eb(field, '=', field);
+    default:
+      return eb(field, '=', value);
   }
 }
 
 function generateApiUrl(collection: string, config: QueryConfig): string {
   const params = new URLSearchParams();
-  for (const filter of (config.filters || [])) {
+  for (const filter of config.filters || []) {
     if (filter.group) continue;
     switch (filter.operator) {
-      case 'equals':     params.append(`filter[${filter.field}]`, String(filter.value)); break;
-      case 'not_equals': params.append(`filter[${filter.field}][ne]`, String(filter.value)); break;
-      case 'contains':   params.append(`filter[${filter.field}][like]`, `%${filter.value}%`); break;
-      case 'gt': params.append(`filter[${filter.field}][gt]`, String(filter.value)); break;
-      case 'lt': params.append(`filter[${filter.field}][lt]`, String(filter.value)); break;
-      case 'gte': params.append(`filter[${filter.field}][gte]`, String(filter.value)); break;
-      case 'lte': params.append(`filter[${filter.field}][lte]`, String(filter.value)); break;
-      case 'is_null': params.append(`filter[${filter.field}][is]`, 'null'); break;
-      case 'is_not_null': params.append(`filter[${filter.field}][not]`, 'null'); break;
+      case 'equals':
+        params.append(`filter[${filter.field}]`, String(filter.value));
+        break;
+      case 'not_equals':
+        params.append(`filter[${filter.field}][ne]`, String(filter.value));
+        break;
+      case 'contains':
+        params.append(`filter[${filter.field}][like]`, `%${filter.value}%`);
+        break;
+      case 'gt':
+        params.append(`filter[${filter.field}][gt]`, String(filter.value));
+        break;
+      case 'lt':
+        params.append(`filter[${filter.field}][lt]`, String(filter.value));
+        break;
+      case 'gte':
+        params.append(`filter[${filter.field}][gte]`, String(filter.value));
+        break;
+      case 'lte':
+        params.append(`filter[${filter.field}][lte]`, String(filter.value));
+        break;
+      case 'is_null':
+        params.append(`filter[${filter.field}][is]`, 'null');
+        break;
+      case 'is_not_null':
+        params.append(`filter[${filter.field}][not]`, 'null');
+        break;
     }
   }
   if (config.sorts?.length) {
-    params.append('sort', config.sorts.map((s) => s.direction === 'desc' ? `-${s.field}` : s.field).join(','));
+    params.append(
+      'sort',
+      config.sorts.map((s) => (s.direction === 'desc' ? `-${s.field}` : s.field)).join(','),
+    );
   }
   params.append('limit', String(config.limit || 50));
   if (config.page && config.page > 1) params.append('page', String(config.page));
@@ -167,7 +246,10 @@ async function executeQueryConfig(
   collection: string,
   config: QueryConfig,
   userId: string,
-): Promise<{ records: any[]; pagination: { page: number; limit: number; total: number; totalPages: number } }> {
+): Promise<{
+  records: any[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+}> {
   const tableName = DDLManager.getTableName(collection);
   const exists = await DDLManager.tableExists(db, collection);
   if (!exists) throw new Error('Collection not found');
@@ -204,7 +286,9 @@ async function executeQueryConfig(
       if (config.filter_mode === 'AND') {
         for (const f of ungrouped) baseQuery = applyFilter(baseQuery, f);
       } else {
-        baseQuery = baseQuery.where((eb: any) => eb.or(ungrouped.map((f) => buildFilterCondition(eb, f))));
+        baseQuery = baseQuery.where((eb: any) =>
+          eb.or(ungrouped.map((f) => buildFilterCondition(eb, f))),
+        );
       }
     }
 
@@ -225,7 +309,8 @@ async function executeQueryConfig(
   const total = parseInt(countResult[0]?.count || '0');
 
   if (config.sorts?.length > 0) {
-    for (const sort of config.sorts) baseQuery = baseQuery.orderBy(sort.field, sort.direction || 'asc');
+    for (const sort of config.sorts)
+      baseQuery = baseQuery.orderBy(sort.field, sort.direction || 'asc');
   } else {
     baseQuery = baseQuery.orderBy('created_at', 'desc');
   }
@@ -233,7 +318,12 @@ async function executeQueryConfig(
   const records = await baseQuery.limit(config.limit).offset(offset).execute();
   return {
     records,
-    pagination: { page: config.page, limit: config.limit, total, totalPages: Math.ceil(total / config.limit) },
+    pagination: {
+      page: config.page,
+      limit: config.limit,
+      total,
+      totalPages: Math.ceil(total / config.limit),
+    },
   };
 }
 
@@ -250,22 +340,54 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
   });
 
   // POST /execute — execute without saving (before /:id routes)
-  app.post('/execute', zValidator('json', z.object({ collection: z.string(), config: QueryConfigSchema })), async (c) => {
-    const user = c.get('user');
-    const data = c.req.valid('json');
+  app.post(
+    '/execute',
+    zValidator('json', z.object({ collection: z.string(), config: QueryConfigSchema })),
+    async (c) => {
+      const user = c.get('user');
+      const data = c.req.valid('json');
 
-    try {
-      const tdb = reqDb(c, db);
-      const exists = await DDLManager.tableExists(tdb, data.collection);
-      if (!exists) return c.json({ error: 'Collection not found' }, 404);
+      try {
+        const tdb = reqDb(c, db);
+        const exists = await DDLManager.tableExists(tdb, data.collection);
+        if (!exists) return c.json({ error: 'Collection not found' }, 404);
 
-      const tableName = DDLManager.getTableName(data.collection);
-      const isSystem = tableName.startsWith('zv_') && !tableName.startsWith('zvd_');
-      if (isSystem) {
-        const hasAdmin = await checkPermission(user.id, 'admin', '*');
-        if (!hasAdmin) return c.json({ error: 'Query Builder only works on user-defined collections' }, 403);
+        const tableName = DDLManager.getTableName(data.collection);
+        const isSystem = tableName.startsWith('zv_') && !tableName.startsWith('zvd_');
+        if (isSystem) {
+          const hasAdmin = await checkPermission(user.id, 'admin', '*');
+          if (!hasAdmin)
+            return c.json({ error: 'Query Builder only works on user-defined collections' }, 403);
+        }
+
+        const config: QueryConfig = {
+          filters: data.config.filters,
+          filter_mode: data.config.filter_mode,
+          filter_groups: data.config.filter_groups,
+          columns: data.config.columns,
+          sorts: data.config.sorts,
+          limit: data.config.limit,
+          page: data.config.page,
+        };
+
+        const result = await executeQueryConfig(tdb, data.collection, config, user.id);
+        const apiUrl = generateApiUrl(data.collection, config);
+        return c.json({ collection: data.collection, api_url: apiUrl, ...result });
+      } catch (err) {
+        return c.json(
+          { error: err instanceof Error ? err.message : 'Failed to execute query' },
+          500,
+        );
       }
+    },
+  );
 
+  // POST /preview-url
+  app.post(
+    '/preview-url',
+    zValidator('json', z.object({ collection: z.string(), config: QueryConfigSchema })),
+    async (c) => {
+      const data = c.req.valid('json');
       const config: QueryConfig = {
         filters: data.config.filters,
         filter_mode: data.config.filter_mode,
@@ -275,29 +397,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         limit: data.config.limit,
         page: data.config.page,
       };
-
-      const result = await executeQueryConfig(tdb, data.collection, config, user.id);
-      const apiUrl = generateApiUrl(data.collection, config);
-      return c.json({ collection: data.collection, api_url: apiUrl, ...result });
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : 'Failed to execute query' }, 500);
-    }
-  });
-
-  // POST /preview-url
-  app.post('/preview-url', zValidator('json', z.object({ collection: z.string(), config: QueryConfigSchema })), async (c) => {
-    const data = c.req.valid('json');
-    const config: QueryConfig = {
-      filters: data.config.filters,
-      filter_mode: data.config.filter_mode,
-      filter_groups: data.config.filter_groups,
-      columns: data.config.columns,
-      sorts: data.config.sorts,
-      limit: data.config.limit,
-      page: data.config.page,
-    };
-    return c.json({ api_url: generateApiUrl(data.collection, config) });
-  });
+      return c.json({ api_url: generateApiUrl(data.collection, config) });
+    },
+  );
 
   // POST / — save query
   app.post('/', zValidator('json', SaveQuerySchema), async (c) => {
@@ -334,12 +436,18 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     try {
       let query = (reqDb(c, db) as any)
         .selectFrom('zv_saved_queries')
-        .select(['id', 'name', 'description', 'collection', 'config',
-                  'is_shared', 'created_by', 'created_at', 'updated_at'])
-        .where((eb: any) => eb.or([
-          eb('created_by', '=', user.id),
-          eb('is_shared', '=', true),
-        ]))
+        .select([
+          'id',
+          'name',
+          'description',
+          'collection',
+          'config',
+          'is_shared',
+          'created_by',
+          'created_at',
+          'updated_at',
+        ])
+        .where((eb: any) => eb.or([eb('created_by', '=', user.id), eb('is_shared', '=', true)]))
         .orderBy('created_at', 'desc');
 
       if (collection) {
@@ -347,7 +455,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       }
 
       const rows = await query.execute();
-      const ownedIds = new Set(rows.filter((r: any) => r.created_by === user.id).map((r: any) => r.id));
+      const ownedIds = new Set(
+        rows.filter((r: any) => r.created_by === user.id).map((r: any) => r.id),
+      );
       const queries = rows.map((q: any) => ({ ...q, is_owner: ownedIds.has(q.id) }));
       return c.json({ queries });
     } catch (err) {
@@ -387,7 +497,8 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       `.execute(reqDb(c, db));
 
       if (existing.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
-      if (existing.rows[0].created_by !== user.id) return c.json({ error: 'You can only edit your own queries' }, 403);
+      if (existing.rows[0].created_by !== user.id)
+        return c.json({ error: 'You can only edit your own queries' }, 403);
 
       if (data.is_shared) {
         const hasAdmin = await checkPermission(user.id, 'admin', '*');
@@ -400,7 +511,11 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       if (data.config !== undefined) updates.config = JSON.stringify(data.config) as any;
       if (data.is_shared !== undefined) updates.is_shared = data.is_shared;
 
-      await (reqDb(c, db) as any).updateTable('zv_saved_queries').set(updates).where('id', '=', id).execute();
+      await (reqDb(c, db) as any)
+        .updateTable('zv_saved_queries')
+        .set(updates)
+        .where('id', '=', id)
+        .execute();
       return c.json({ success: true });
     } catch (err) {
       return c.json({ error: 'Failed to update saved query' }, 500);
@@ -446,7 +561,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       if (result.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
       const saved = result.rows[0];
 
-      const override = await c.req.json().catch(() => ({})) as { page?: number; limit?: number };
+      const override = (await c.req.json().catch(() => ({}))) as { page?: number; limit?: number };
       const config: QueryConfig = {
         ...saved.config,
         page: override.page || saved.config.page || 1,

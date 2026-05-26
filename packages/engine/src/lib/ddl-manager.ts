@@ -6,8 +6,8 @@ import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
 // ─── Relation type sets ───────────────────────────────────────────────────────
 /** FK column lives in the SOURCE table (the collection being modified). */
 const RELATION_FK_TYPES = new Set(['m2o', 'reference']);
-const ON_DELETE_SAFE    = new Set(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']);
-const SAFE_NAME_RE      = /^[a-z][a-z0-9_]*$/;
+const ON_DELETE_SAFE = new Set(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']);
+const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
 // ─── Safe DDL helpers ─────────────────────────────────────────────────────────
 
@@ -51,13 +51,7 @@ export const FieldSchema = z.object({
   options: z
     .record(
       z.string().max(100),
-      z.union([
-        z.string().max(10_000),
-        z.number(),
-        z.boolean(),
-        z.null(),
-        z.array(z.any()),
-      ]),
+      z.union([z.string().max(10_000), z.number(), z.boolean(), z.null(), z.array(z.any())]),
     )
     .optional(),
   label: z.string().max(200).optional(),
@@ -73,15 +67,16 @@ export const CollectionSchema = z.preprocess(
     if (!raw || typeof raw !== 'object') return raw;
     const o: any = { ...raw };
     // snake → camel aliasing
-    if (o.display_name != null && o.displayName == null)         o.displayName = o.display_name;
-    if (o.route_group != null && o.routeGroup == null)            o.routeGroup = o.route_group;
-    if (o.is_permissioned != null && o.isPermissioned == null)    o.isPermissioned = o.is_permissioned;
-    if (o.singular_name != null && o.singularName == null)        o.singularName = o.singular_name;
-    if (o.ai_search_enabled != null && o.aiSearchEnabled == null) o.aiSearchEnabled = o.ai_search_enabled;
-    if (o.ai_search_field != null && o.aiSearchField == null)     o.aiSearchField = o.ai_search_field;
-    if (o.is_managed != null && o.isManaged == null)              o.isManaged = o.is_managed;
-    if (o.is_system != null && o.isSystem == null)                o.isSystem = o.is_system;
-    if (o.schema_locked != null && o.schemaLocked == null)        o.schemaLocked = o.schema_locked;
+    if (o.display_name != null && o.displayName == null) o.displayName = o.display_name;
+    if (o.route_group != null && o.routeGroup == null) o.routeGroup = o.route_group;
+    if (o.is_permissioned != null && o.isPermissioned == null) o.isPermissioned = o.is_permissioned;
+    if (o.singular_name != null && o.singularName == null) o.singularName = o.singular_name;
+    if (o.ai_search_enabled != null && o.aiSearchEnabled == null)
+      o.aiSearchEnabled = o.ai_search_enabled;
+    if (o.ai_search_field != null && o.aiSearchField == null) o.aiSearchField = o.ai_search_field;
+    if (o.is_managed != null && o.isManaged == null) o.isManaged = o.is_managed;
+    if (o.is_system != null && o.isSystem == null) o.isSystem = o.is_system;
+    if (o.schema_locked != null && o.schemaLocked == null) o.schemaLocked = o.schema_locked;
     return o;
   },
   z.object({
@@ -163,7 +158,7 @@ export class DDLManager {
     fieldName: string,
     targetTable: string,
     onDelete = 'SET NULL',
-    onUpdate  = 'CASCADE',
+    onUpdate = 'CASCADE',
   ): Promise<void> {
     const od = onDelete.toUpperCase();
     const ou = onUpdate.toUpperCase();
@@ -171,16 +166,20 @@ export class DDLManager {
       throw new Error(`Invalid on_delete/on_update value: ${od}/${ou}`);
     }
     await withLockTimeout(db, async (trx) => {
-      await sql.raw(
-        `ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS "${fieldName}" UUID ` +
-        `REFERENCES "${targetTable}"(id) ON DELETE ${od} ON UPDATE ${ou}`,
-      ).execute(trx);
+      await sql
+        .raw(
+          `ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS "${fieldName}" UUID ` +
+            `REFERENCES "${targetTable}"(id) ON DELETE ${od} ON UPDATE ${ou}`,
+        )
+        .execute(trx);
     });
     // Index the FK column for join performance
-    await sql.raw(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${fieldName} ` +
-      `ON "${tableName}"("${fieldName}")`,
-    ).execute(db);
+    await sql
+      .raw(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${fieldName} ` +
+          `ON "${tableName}"("${fieldName}")`,
+      )
+      .execute(db);
   }
 
   /** Inserts a row into zvd_relations. Idempotent via ON CONFLICT DO NOTHING. */
@@ -228,24 +227,30 @@ export class DDLManager {
     targetName: string,
   ): Promise<string> {
     const sourceTable = this.getTableName(sourceName);
-    const targetTable  = this.getTableName(targetName);
+    const targetTable = this.getTableName(targetName);
     const junctionTable = `zvd_jnc_${sourceName}_${targetName}`;
-    await sql.raw(
-      `CREATE TABLE IF NOT EXISTS "${junctionTable}" (` +
-      `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
-      `"${sourceName}_id" UUID REFERENCES "${sourceTable}"(id) ON DELETE CASCADE, ` +
-      `"${targetName}_id" UUID REFERENCES "${targetTable}"(id) ON DELETE CASCADE, ` +
-      `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` +
-      `)`,
-    ).execute(db);
-    await sql.raw(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_src ` +
-      `ON "${junctionTable}"("${sourceName}_id")`,
-    ).execute(db);
-    await sql.raw(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_tgt ` +
-      `ON "${junctionTable}"("${targetName}_id")`,
-    ).execute(db);
+    await sql
+      .raw(
+        `CREATE TABLE IF NOT EXISTS "${junctionTable}" (` +
+          `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
+          `"${sourceName}_id" UUID REFERENCES "${sourceTable}"(id) ON DELETE CASCADE, ` +
+          `"${targetName}_id" UUID REFERENCES "${targetTable}"(id) ON DELETE CASCADE, ` +
+          `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` +
+          `)`,
+      )
+      .execute(db);
+    await sql
+      .raw(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_src ` +
+          `ON "${junctionTable}"("${sourceName}_id")`,
+      )
+      .execute(db);
+    await sql
+      .raw(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${junctionTable}_tgt ` +
+          `ON "${junctionTable}"("${targetName}_id")`,
+      )
+      .execute(db);
     return junctionTable;
   }
 
@@ -302,14 +307,28 @@ export class DDLManager {
     ];
 
     const ALLOWED_PG_EXTENSIONS = new Set([
-      'pgvector', 'postgis', 'postgis_topology', 'uuid-ossp', 'pg_trgm',
-      'unaccent', 'btree_gist', 'btree_gin', 'hstore', 'citext', 'intarray', 'fuzzystrmatch',
+      'pgvector',
+      'postgis',
+      'postgis_topology',
+      'uuid-ossp',
+      'pg_trgm',
+      'unaccent',
+      'btree_gist',
+      'btree_gin',
+      'hstore',
+      'citext',
+      'intarray',
+      'fuzzystrmatch',
     ]);
 
-    const requiredExtensions = fieldTypeRegistry.getRequiredExtensions(regularFields as FieldConfig[]);
+    const requiredExtensions = fieldTypeRegistry.getRequiredExtensions(
+      regularFields as FieldConfig[],
+    );
     for (const ext of requiredExtensions) {
       if (!ALLOWED_PG_EXTENSIONS.has(ext)) {
-        throw new Error(`PostgreSQL extension "${ext}" is not in the allowed extensions whitelist.`);
+        throw new Error(
+          `PostgreSQL extension "${ext}" is not in the allowed extensions whitelist.`,
+        );
       }
       await sql`CREATE EXTENSION IF NOT EXISTS ${sql.id(ext)}`.execute(db);
     }
@@ -334,11 +353,15 @@ export class DDLManager {
       .map((f) => f.name);
 
     await withLockTimeout(db, async (trx) => {
-      await sql.raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector`).execute(trx);
+      await sql
+        .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector`)
+        .execute(trx);
     });
-    await sql.raw(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector)`,
-    ).execute(db);
+    await sql
+      .raw(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector)`,
+      )
+      .execute(db);
 
     if (textFields.length > 0) {
       const weightsClause = textFields
@@ -348,19 +371,25 @@ export class DDLManager {
         })
         .join(' || ');
 
-      const searchTextConcat = textFields.length === 1
-        ? `coalesce(NEW."${textFields[0]}", '')`
-        : `concat_ws(' ', ${textFields.map((f) => `coalesce(NEW."${f}", '')`).join(', ')})`;
+      const searchTextConcat =
+        textFields.length === 1
+          ? `coalesce(NEW."${textFields[0]}", '')`
+          : `concat_ws(' ', ${textFields.map((f) => `coalesce(NEW."${f}", '')`).join(', ')})`;
 
       await withLockTimeout(db, async (trx) => {
-        await sql.raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_text text`).execute(trx);
+        await sql
+          .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_text text`)
+          .execute(trx);
       });
-      await sql.raw(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_trgm ON ${tableName} USING GIN(search_text gin_trgm_ops)`,
-      ).execute(db);
+      await sql
+        .raw(
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_trgm ON ${tableName} USING GIN(search_text gin_trgm_ops)`,
+        )
+        .execute(db);
 
       await withLockTimeout(db, async (trx) => {
-        await sql.raw(`
+        await sql
+          .raw(`
           CREATE OR REPLACE FUNCTION ${tableName}_search_trigger() RETURNS trigger AS $$
           BEGIN
             NEW.search_vector := ${weightsClause};
@@ -368,17 +397,21 @@ export class DDLManager {
             RETURN NEW;
           END
           $$ LANGUAGE plpgsql
-        `).execute(trx);
-        await sql.raw(`
+        `)
+          .execute(trx);
+        await sql
+          .raw(`
           CREATE TRIGGER ${tableName}_search_update
           BEFORE INSERT OR UPDATE ON ${tableName}
           FOR EACH ROW EXECUTE FUNCTION ${tableName}_search_trigger()
-        `).execute(trx);
+        `)
+          .execute(trx);
       });
     }
 
     await withLockTimeout(db, async (trx) => {
-      await sql.raw(`
+      await sql
+        .raw(`
         CREATE OR REPLACE FUNCTION ${tableName}_touch_updated_at()
         RETURNS TRIGGER AS $$
         BEGIN
@@ -386,13 +419,16 @@ export class DDLManager {
           RETURN NEW;
         END;
         $$ LANGUAGE plpgsql
-      `).execute(trx);
-      await sql.raw(`
+      `)
+        .execute(trx);
+      await sql
+        .raw(`
         CREATE TRIGGER update_${tableName}_updated_at
           BEFORE UPDATE ON ${tableName}
           FOR EACH ROW
           EXECUTE FUNCTION ${tableName}_touch_updated_at()
-      `).execute(trx);
+      `)
+        .execute(trx);
     });
 
     // Register metadata first so relation inserts can reference valid collection names
@@ -410,11 +446,15 @@ export class DDLManager {
     for (const field of relationFields) {
       const target = String(field.options!.related_collection);
       if (!SAFE_NAME_RE.test(target)) {
-        console.warn(`[createCollection] Invalid target name '${target}' for field '${field.name}' — skipping`);
+        console.warn(
+          `[createCollection] Invalid target name '${target}' for field '${field.name}' — skipping`,
+        );
         continue;
       }
       if (!(await this.tableExists(db, target))) {
-        console.warn(`[createCollection] Target '${target}' for field '${field.name}' not found — skipping FK`);
+        console.warn(
+          `[createCollection] Target '${target}' for field '${field.name}' not found — skipping FK`,
+        );
         continue;
       }
       const targetTable = this.getTableName(target);
@@ -445,7 +485,9 @@ export class DDLManager {
         continue;
       }
       if (!(await this.tableExists(db, target))) {
-        console.warn(`[createCollection] m2m target '${target}' not found — skipping junction table`);
+        console.warn(
+          `[createCollection] m2m target '${target}' not found — skipping junction table`,
+        );
         continue;
       }
       const junctionTable = await this.createJunctionTable(db, validated.name, target);
@@ -503,10 +545,12 @@ export class DDLManager {
 
     const deps = await this.getTableDependents(db, name);
     if (deps.length > 0 && !opts.force) {
-      const list = deps.map((d) => `${d.table}.${d.column} (constraint ${d.constraint})`).join(', ');
+      const list = deps
+        .map((d) => `${d.table}.${d.column} (constraint ${d.constraint})`)
+        .join(', ');
       throw new Error(
         `Cannot drop collection '${name}': ${deps.length} foreign key(s) reference it: ${list}. ` +
-        `Retry with force=true to DROP ... CASCADE.`,
+          `Retry with force=true to DROP ... CASCADE.`,
       );
     }
 
@@ -514,10 +558,9 @@ export class DDLManager {
     const m2mRelations: any[] = await db
       .selectFrom('zvd_relations')
       .select(['source_collection', 'target_collection', 'junction_table'])
-      .where((eb: any) => eb.or([
-        eb('source_collection', '=', name),
-        eb('target_collection', '=', name),
-      ]))
+      .where((eb: any) =>
+        eb.or([eb('source_collection', '=', name), eb('target_collection', '=', name)]),
+      )
       .where('type', '=', 'm2m')
       .execute()
       .catch((err: Error) => {
@@ -527,8 +570,8 @@ export class DDLManager {
 
     for (const rel of m2mRelations) {
       // Use stored junction_table name if available; fall back to legacy naming
-      const junctionName: string = rel.junction_table
-        || `zvd_jnc_${rel.source_collection}_${rel.target_collection}`;
+      const junctionName: string =
+        rel.junction_table || `zvd_jnc_${rel.source_collection}_${rel.target_collection}`;
       if (/^zvd_[a-z][a-z0-9_]*$/.test(junctionName)) {
         await withLockTimeout(db, async (trx) => {
           await sql.raw(`DROP TABLE IF EXISTS "${junctionName}" CASCADE`).execute(trx);
@@ -547,10 +590,9 @@ export class DDLManager {
     // rows persist and would re-emerge as ghost relations in the schema view.
     await db
       .deleteFrom('zvd_relations')
-      .where((eb: any) => eb.or([
-        eb('source_collection', '=', name),
-        eb('target_collection', '=', name),
-      ]))
+      .where((eb: any) =>
+        eb.or([eb('source_collection', '=', name), eb('target_collection', '=', name)]),
+      )
       .execute()
       .catch((err: Error) => {
         console.warn(`[ddl-manager] relation metadata cleanup for ${name} failed: ${err.message}`);
@@ -569,7 +611,12 @@ export class DDLManager {
       return _collectionsListCache.data;
     }
     const genBefore = _cacheGen;
-    const rows = await db.selectFrom('zvd_collections').selectAll().orderBy('sort').orderBy('name').execute();
+    const rows = await db
+      .selectFrom('zvd_collections')
+      .selectAll()
+      .orderBy('sort')
+      .orderBy('name')
+      .execute();
     const normalized = (rows as any[]).map((row) => ({
       ...row,
       fields: typeof row.fields === 'string' ? JSON.parse(row.fields) : (row.fields ?? []),
@@ -585,13 +632,18 @@ export class DDLManager {
     const cached = collectionCache.get(name);
     if (cached && now - cached.ts < METADATA_CACHE_TTL_MS) return cached.data;
     const genBefore = _cacheGen;
-    const row = await db.selectFrom('zvd_collections').selectAll().where('name', '=', name).executeTakeFirst();
+    const row = await db
+      .selectFrom('zvd_collections')
+      .selectAll()
+      .where('name', '=', name)
+      .executeTakeFirst();
     const result = row
       ? {
           ...row,
-          fields: typeof (row as any).fields === 'string'
-            ? JSON.parse((row as any).fields)
-            : ((row as any).fields ?? []),
+          fields:
+            typeof (row as any).fields === 'string'
+              ? JSON.parse((row as any).fields)
+              : ((row as any).fields ?? []),
         }
       : null;
     if (_cacheGen === genBefore) {
@@ -637,7 +689,9 @@ export class DDLManager {
     const colDDL = fieldTypeRegistry.getColumnDDL(validated as FieldConfig);
     if (colDDL) {
       await withLockTimeout(db, async (trx) => {
-        await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.raw(colDDL)}`.execute(trx);
+        await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.raw(colDDL)}`.execute(
+          trx,
+        );
       });
     }
     const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, validated as FieldConfig);
@@ -646,9 +700,8 @@ export class DDLManager {
     }
     const existing = await this.getCollection(db, collectionName);
     if (existing) {
-      const fields: any[] = typeof existing.fields === 'string'
-        ? JSON.parse(existing.fields)
-        : (existing.fields ?? []);
+      const fields: any[] =
+        typeof existing.fields === 'string' ? JSON.parse(existing.fields) : (existing.fields ?? []);
       if (!fields.some((f: any) => f.name === validated.name)) {
         fields.push(validated);
         await this.updateCollectionMetadata(db, collectionName, { fields });
@@ -668,13 +721,14 @@ export class DDLManager {
       throw new Error(`Collection '${collectionName}' not found`);
     }
     await withLockTimeout(db, async (trx) => {
-      await sql`ALTER TABLE ${sql.id(tableName)} DROP COLUMN IF EXISTS ${sql.id(fieldName)}`.execute(trx);
+      await sql`ALTER TABLE ${sql.id(tableName)} DROP COLUMN IF EXISTS ${sql.id(fieldName)}`.execute(
+        trx,
+      );
     });
     const existing = await this.getCollection(db, collectionName);
     if (existing) {
-      const fields: any[] = typeof existing.fields === 'string'
-        ? JSON.parse(existing.fields)
-        : (existing.fields ?? []);
+      const fields: any[] =
+        typeof existing.fields === 'string' ? JSON.parse(existing.fields) : (existing.fields ?? []);
       const updated = fields.filter((f: any) => f.name !== fieldName);
       await this.updateCollectionMetadata(db, collectionName, { fields: updated });
     }
@@ -685,7 +739,9 @@ export class DDLManager {
 
   /** Returns the exact SQL that `createCollection` would run, including
    *  FK constraints for relation fields — used by the Studio "Preview" dialog. */
-  static async previewCollection(schema: z.infer<typeof CollectionSchema>): Promise<{ sql: string[] }> {
+  static async previewCollection(
+    schema: z.infer<typeof CollectionSchema>,
+  ): Promise<{ sql: string[] }> {
     const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
     if (!SAFE_NAME.test(schema.name)) throw new Error(`Invalid collection name: "${schema.name}"`);
     const tableName = `zvd_${schema.name}`;
@@ -712,9 +768,10 @@ export class DDLManager {
         if (def?.db.virtual) return null;
         const colType = def?.db.columnType ?? 'TEXT';
         const nullable = f.required ? 'NOT NULL' : 'NULL';
-        const defaultVal = def?.db.defaultValue !== undefined && def?.db.defaultValue !== null
-          ? ` DEFAULT ${def.db.defaultValue}`
-          : '';
+        const defaultVal =
+          def?.db.defaultValue !== undefined && def?.db.defaultValue !== null
+            ? ` DEFAULT ${def.db.defaultValue}`
+            : '';
         return `  "${f.name}" ${colType} ${nullable}${defaultVal}`;
       })
       .filter((s): s is string => s !== null);
@@ -723,36 +780,54 @@ export class DDLManager {
       `CREATE TABLE IF NOT EXISTS ${tableName} (\n${[...systemCols.map((c) => `  ${c}`), ...userCols].join(',\n')}\n);`,
     );
 
-    statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC);`);
-    statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status);`);
+    statements.push(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC);`,
+    );
+    statements.push(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status);`,
+    );
 
     for (const field of schema.fields) {
       if (RELATION_FK_TYPES.has(field.type)) {
-        statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`);
+        statements.push(
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`,
+        );
         continue;
       }
       if (field.indexed) {
-        statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`);
+        statements.push(
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_${field.name} ON ${tableName}("${field.name}");`,
+        );
       }
       if (field.unique) {
-        statements.push(`ALTER TABLE ${tableName} ADD CONSTRAINT uq_${tableName}_${field.name} UNIQUE ("${field.name}");`);
+        statements.push(
+          `ALTER TABLE ${tableName} ADD CONSTRAINT uq_${tableName}_${field.name} UNIQUE ("${field.name}");`,
+        );
       }
     }
 
     statements.push(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector;`);
-    statements.push(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector);`);
+    statements.push(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_search ON ${tableName} USING GIN(search_vector);`,
+    );
     statements.push(`-- Per-table updated_at trigger`);
-    statements.push(`CREATE OR REPLACE FUNCTION ${tableName}_touch_updated_at() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;`);
-    statements.push(`CREATE TRIGGER update_${tableName}_updated_at BEFORE UPDATE ON ${tableName} FOR EACH ROW EXECUTE FUNCTION ${tableName}_touch_updated_at();`);
+    statements.push(
+      `CREATE OR REPLACE FUNCTION ${tableName}_touch_updated_at() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;`,
+    );
+    statements.push(
+      `CREATE TRIGGER update_${tableName}_updated_at BEFORE UPDATE ON ${tableName} FOR EACH ROW EXECUTE FUNCTION ${tableName}_touch_updated_at();`,
+    );
 
     // Show relation registrations in preview
-    const relFields = schema.fields.filter((f) => RELATION_FK_TYPES.has(f.type) && f.options?.related_collection);
+    const relFields = schema.fields.filter(
+      (f) => RELATION_FK_TYPES.has(f.type) && f.options?.related_collection,
+    );
     if (relFields.length > 0) {
       statements.push(`-- Relation metadata`);
       for (const f of relFields) {
         statements.push(
           `INSERT INTO zvd_relations (name, type, source_collection, source_field, target_collection, target_field) ` +
-          `VALUES ('${schema.name}_${f.name}', 'm2o', '${schema.name}', '${f.name}', '${f.options!.related_collection}', 'id');`,
+            `VALUES ('${schema.name}_${f.name}', 'm2o', '${schema.name}', '${f.name}', '${f.options!.related_collection}', 'id');`,
         );
       }
     }
@@ -785,8 +860,14 @@ export class DDLManager {
   static async introspectTable(db: Database, collectionName: string): Promise<FieldConfig[]> {
     const tableName = this.getTableName(collectionName);
     const SYSTEM_COLS = new Set([
-      'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by',
-      'search_vector', 'search_text',
+      'id',
+      'created_at',
+      'updated_at',
+      'status',
+      'created_by',
+      'updated_by',
+      'search_vector',
+      'search_text',
     ]);
 
     // Fetch column info

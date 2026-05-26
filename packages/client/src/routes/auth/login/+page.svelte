@@ -1,6 +1,6 @@
 <script lang="ts">
-  import LoginForm from '$components/auth/LoginForm.svelte';
-  import { page } from '$app/stores';
+import LoginForm from '$components/auth/LoginForm.svelte';
+import { page } from '$app/stores';
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-base-200 p-4">

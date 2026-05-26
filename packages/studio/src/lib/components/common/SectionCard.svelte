@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+import type { Snippet } from 'svelte';
 
-  interface Props {
-    title?: string;
-    padding?: boolean;
-    children: Snippet;
-    action?: Snippet;
-  }
-  let { title, padding = true, children, action }: Props = $props();
+interface Props {
+  title?: string;
+  padding?: boolean;
+  children: Snippet;
+  action?: Snippet;
+}
+let { title, padding = true, children, action }: Props = $props();
 </script>
 
 <div class="border border-base-200 rounded-xl bg-base-100 overflow-hidden">

@@ -117,8 +117,8 @@ export async function instantiateWasmExtension(
   if (typeof registerFn !== 'function') {
     throw new Error(
       `WASM extension "${opts.extName}" does not export a register() function. ` +
-      `Every Zveltio WASM extension must export at least register(). ` +
-      `See docs/EXTENSION-DEVELOPER-GUIDE.md §16 (WASM extensions).`,
+        `Every Zveltio WASM extension must export at least register(). ` +
+        `See docs/EXTENSION-DEVELOPER-GUIDE.md §16 (WASM extensions).`,
     );
   }
   const shutdownFn = exports.shutdown as (() => void | Promise<void>) | undefined;
@@ -130,7 +130,7 @@ export async function instantiateWasmExtension(
   if (typeof requiredAbi === 'number' && requiredAbi > WASM_HOST_ABI_VERSION) {
     throw new Error(
       `WASM extension "${opts.extName}" requires host ABI v${requiredAbi}, ` +
-      `engine ships v${WASM_HOST_ABI_VERSION}. Update the engine or rebuild the extension.`,
+        `engine ships v${WASM_HOST_ABI_VERSION}. Update the engine or rebuild the extension.`,
     );
   }
 
@@ -147,7 +147,9 @@ export async function instantiateWasmExtension(
     },
     async shutdown() {
       if (shutdownFn) {
-        try { await shutdownFn(); } catch (err) {
+        try {
+          await shutdownFn();
+        } catch (err) {
           console.warn(`[wasm-host] ${opts.extName} shutdown threw:`, (err as Error).message);
         }
       }
@@ -156,14 +158,20 @@ export async function instantiateWasmExtension(
 }
 
 /** Race a handler against a CPU budget. Throws on timeout. */
-async function withCpuBudget(p: Promise<unknown>, budgetMs: number, extName: string): Promise<void> {
+async function withCpuBudget(
+  p: Promise<unknown>,
+  budgetMs: number,
+  extName: string,
+): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      reject(new Error(
-        `WASM extension "${extName}" exceeded ${budgetMs}ms CPU budget. ` +
-        `Adjust EXTENSION_POLICIES_JSON or split the work into background jobs.`,
-      ));
+      reject(
+        new Error(
+          `WASM extension "${extName}" exceeded ${budgetMs}ms CPU budget. ` +
+            `Adjust EXTENSION_POLICIES_JSON or split the work into background jobs.`,
+        ),
+      );
     }, budgetMs);
   });
   try {
@@ -278,7 +286,12 @@ function buildHostImports(
         guard('fs.read');
         return 0;
       },
-      fs_write: (_ptrPath: number, _lenPath: number, _ptrData: number, _lenData: number): number => {
+      fs_write: (
+        _ptrPath: number,
+        _lenPath: number,
+        _ptrData: number,
+        _lenData: number,
+      ): number => {
         guard('fs.write');
         return 0;
       },

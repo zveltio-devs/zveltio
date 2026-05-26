@@ -1,82 +1,81 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let contacts = $state<any[]>([]);
-  let total = $state(0);
-  let page = $state(1);
-  let search = $state('');
-  let loading = $state(false);
-  let showModal = $state(false);
-  let editingContact = $state<any>(null);
+let contacts = $state<any[]>([]);
+let total = $state(0);
+let page = $state(1);
+let search = $state('');
+let loading = $state(false);
+let showModal = $state(false);
+let editingContact = $state<any>(null);
 
-  let form = $state({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone: '',
-    company: '',
-    job_title: '',
-  });
+let form = $state({
+  first_name: '',
+  last_name: '',
+  email: '',
+  phone: '',
+  company: '',
+  job_title: '',
+});
 
-  async function loadContacts() {
-    loading = true;
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' });
-      if (search) params.set('search', search);
-      const res = await api.get(`/contacts?${params}`);
-      contacts = res.data;
-      total = res.meta.total;
-    } finally {
-      loading = false;
-    }
+async function loadContacts() {
+  loading = true;
+  try {
+    const params = new URLSearchParams({ page: String(page), limit: '20' });
+    if (search) params.set('search', search);
+    const res = await api.get(`/contacts?${params}`);
+    contacts = res.data;
+    total = res.meta.total;
+  } finally {
+    loading = false;
   }
+}
 
-  function openCreate() {
-    editingContact = null;
-    form = { first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '' };
-    showModal = true;
+function openCreate() {
+  editingContact = null;
+  form = { first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '' };
+  showModal = true;
+}
+
+function openEdit(contact: any) {
+  editingContact = contact;
+  form = {
+    first_name: contact.first_name ?? '',
+    last_name: contact.last_name ?? '',
+    email: contact.email ?? '',
+    phone: contact.phone ?? '',
+    company: contact.company ?? '',
+    job_title: contact.job_title ?? '',
+  };
+  showModal = true;
+}
+
+async function save() {
+  if (editingContact) {
+    await api.patch(`/contacts/${editingContact.id}`, form);
+  } else {
+    await api.post('/contacts', form);
   }
+  showModal = false;
+  await loadContacts();
+}
 
-  function openEdit(contact: any) {
-    editingContact = contact;
-    form = {
-      first_name: contact.first_name ?? '',
-      last_name: contact.last_name ?? '',
-      email: contact.email ?? '',
-      phone: contact.phone ?? '',
-      company: contact.company ?? '',
-      job_title: contact.job_title ?? '',
-    };
-    showModal = true;
-  }
+async function deleteContact(id: string) {
+  askConfirm(m['crm.contacts.confirmDelete'](), () => deleteContactConfirmed(id));
+}
+async function deleteContactConfirmed(id: string) {
+  await api.delete(`/contacts/${id}`);
+  await loadContacts();
+}
 
-  async function save() {
-    if (editingContact) {
-      await api.patch(`/contacts/${editingContact.id}`, form);
-    } else {
-      await api.post('/contacts', form);
-    }
-    showModal = false;
-    await loadContacts();
-  }
-
-  async function deleteContact(id: string) {
-        askConfirm(m['crm.contacts.confirmDelete'](), () => deleteContactConfirmed(id));
-  }
-  async function deleteContactConfirmed(id: string) {
-    await api.delete(`/contacts/${id}`);
-    await loadContacts();
-  }
-
-
-  onMount(loadContacts);
+onMount(loadContacts);
 </script>
 
 <ExtensionPageShell title={m['crm.tab.contacts']()} subtitle={m['crm.contacts.count']({ count: total })}>

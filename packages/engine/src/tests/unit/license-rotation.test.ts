@@ -70,10 +70,12 @@ describe('S3-04 license rotation: clientIp', () => {
   });
 
   it('x-forwarded-for wins over x-real-ip', () => {
-    expect(clientIp({
-      'x-forwarded-for': '203.0.113.1',
-      'x-real-ip': '10.0.0.5',
-    })).toBe('203.0.113.1');
+    expect(
+      clientIp({
+        'x-forwarded-for': '203.0.113.1',
+        'x-real-ip': '10.0.0.5',
+      }),
+    ).toBe('203.0.113.1');
   });
 
   it('trims whitespace around the first hop', () => {

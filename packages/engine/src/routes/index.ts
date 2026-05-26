@@ -46,7 +46,14 @@ import { templatesRoutes } from './templates.js';
 import { erdLayoutRoutes } from './erd-layout.js';
 import { initDDLQueue } from '../lib/ddl-queue.js';
 import { ensureCoreCollections } from '../core-collections/index.js';
-import { authRateLimit, apiRateLimit, aiRateLimit, writeRateLimit, destructiveRateLimit, initRateLimitDb } from '../middleware/rate-limit.js';
+import {
+  authRateLimit,
+  apiRateLimit,
+  aiRateLimit,
+  writeRateLimit,
+  destructiveRateLimit,
+  initRateLimitDb,
+} from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
 import { slowQueryMiddleware } from '../middleware/slow-query.js';
 import { godAuditMiddleware } from '../middleware/god-audit.js';
@@ -314,7 +321,12 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // P2: XML-escape helper to prevent injection via SITE_URL or page slugs
   function xmlEscape(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
   }
 
   // Sitemap (public)
@@ -323,14 +335,18 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     try {
       const pages = await sql<{ slug: string; updated_at: Date }>`
         SELECT slug, updated_at FROM zv_pages WHERE is_active = true ORDER BY slug
-      `.execute(db).catch(() => ({ rows: [] }));
+      `
+        .execute(db)
+        .catch(() => ({ rows: [] }));
 
       const urls = pages.rows
-        .map((p) => `  <url>
+        .map(
+          (p) => `  <url>
     <loc>${siteUrl}/${xmlEscape(p.slug)}</loc>
     <lastmod>${new Date(p.updated_at).toISOString().split('T')[0]}</lastmod>
     <changefreq>weekly</changefreq>
-  </url>`)
+  </url>`,
+        )
         .join('\n');
 
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -345,7 +361,11 @@ ${urls}
 
       return c.text(xml, 200, { 'Content-Type': 'application/xml; charset=utf-8' });
     } catch {
-      return c.text('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>', 200, { 'Content-Type': 'application/xml; charset=utf-8' });
+      return c.text(
+        '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>',
+        200,
+        { 'Content-Type': 'application/xml; charset=utf-8' },
+      );
     }
   });
 

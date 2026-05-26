@@ -1,44 +1,49 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Database, Table2, Search, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Database, Table2, Search, LoaderCircle } from '@lucide/svelte';
 
-  let tables = $state<any[]>([]);
-  let q = $state('');
-  let activeTable = $state<any | null>(null);
-  let columns = $state<any[]>([]);
-  let rows = $state<any[]>([]);
-  let rowCount = $state(0);
-  let loading = $state(true);
+let tables = $state<any[]>([]);
+let q = $state('');
+let activeTable = $state<any | null>(null);
+let columns = $state<any[]>([]);
+let rows = $state<any[]>([]);
+let rowCount = $state(0);
+let loading = $state(true);
 
-  async function loadTables() {
-    loading = true;
-    try {
-      const r = await api.get<{ data?: any[]; tables?: any[] }>('/ext/developer/database/tables');
-      tables = (r.data ?? r.tables ?? []).filter((t: any) => !t.name?.startsWith('zv_') || t.is_data);
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadTables() {
+  loading = true;
+  try {
+    const r = await api.get<{ data?: any[]; tables?: any[] }>('/ext/developer/database/tables');
+    tables = (r.data ?? r.tables ?? []).filter((t: any) => !t.name?.startsWith('zv_') || t.is_data);
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function openTable(t: any) {
-    activeTable = t;
-    try {
-      const r = await api.get<any>(`/ext/developer/database/tables/${encodeURIComponent(t.name)}`);
-      columns = r.columns ?? r.data?.columns ?? [];
-      rows = r.rows ?? r.data?.rows ?? [];
-      rowCount = r.row_count ?? r.data?.row_count ?? rows.length;
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function openTable(t: any) {
+  activeTable = t;
+  try {
+    const r = await api.get<any>(`/ext/developer/database/tables/${encodeURIComponent(t.name)}`);
+    columns = r.columns ?? r.data?.columns ?? [];
+    rows = r.rows ?? r.data?.rows ?? [];
+    rowCount = r.row_count ?? r.data?.row_count ?? rows.length;
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  let filteredTables = $derived(
-    q ? tables.filter((t) => (t.name as string).toLowerCase().includes(q.toLowerCase())) : tables,
-  );
+let filteredTables = $derived(
+  q ? tables.filter((t) => (t.name as string).toLowerCase().includes(q.toLowerCase())) : tables,
+);
 
-  onMount(loadTables);
+onMount(loadTables);
 </script>
 
 <ExtensionPageShell title={m['developer.database.title']()} subtitle={m['developer.database.subtitle']()}>

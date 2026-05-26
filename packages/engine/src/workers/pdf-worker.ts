@@ -35,10 +35,7 @@ self.onmessage = async (event: MessageEvent) => {
   }
 };
 
-async function generatePDF(
-  html: string,
-  options: Record<string, any>,
-): Promise<Buffer> {
+async function generatePDF(html: string, options: Record<string, any>): Promise<Buffer> {
   const text = html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -176,12 +173,7 @@ async function generatePDF(
  * Uses pdf-lib's font.widthOfTextAtSize() for accurate per-character measurement
  * instead of the previous character-count approximation.
  */
-function wrapText(
-  text: string,
-  maxWidth: number,
-  fontSize: number,
-  font: PDFFont,
-): string[] {
+function wrapText(text: string, maxWidth: number, fontSize: number, font: PDFFont): string[] {
   const words = text.split(' ');
   const lines: string[] = [];
   let currentLine = '';

@@ -88,44 +88,71 @@ export interface ExtensionPolicy {
 // ── Defaults ────────────────────────────────────────────────────────────────
 
 const FIRST_PARTY_CAPABILITIES: ReadonlySet<ExtensionCapability> = new Set([
-  'db.read', 'db.write', 'fetch.http', 'fetch.https',
-  'crypto.subtle', 'env.read', 'fs.read', 'fs.write',
+  'db.read',
+  'db.write',
+  'fetch.http',
+  'fetch.https',
+  'crypto.subtle',
+  'env.read',
+  'fs.read',
+  'fs.write',
   // process.spawn intentionally OFF even for first-party — too
   // dangerous; if an extension needs it, audit + add explicitly.
 ]);
 
 const THIRD_PARTY_CAPABILITIES: ReadonlySet<ExtensionCapability> = new Set([
-  'db.read', 'db.write', 'fetch.https', 'crypto.subtle',
+  'db.read',
+  'db.write',
+  'fetch.https',
+  'crypto.subtle',
   // No env.read (would leak secrets), no fs, no http (only https).
 ]);
 
 const FIRST_PARTY_QUOTAS: ExtensionPolicy['quotas'] = {
-  bundleSizeKbMax: 5 * 1024,        // 5 MB
-  nodeModulesSizeKbMax: 50 * 1024,  // 50 MB
+  bundleSizeKbMax: 5 * 1024, // 5 MB
+  nodeModulesSizeKbMax: 50 * 1024, // 50 MB
   migrationsMax: 50,
   routesMax: -1,
   cpuMsPerRequest: -1,
-  memoryKbMax: 512 * 1024,          // 512 MB
+  memoryKbMax: 512 * 1024, // 512 MB
 };
 
 const THIRD_PARTY_QUOTAS: ExtensionPolicy['quotas'] = {
-  bundleSizeKbMax: 2 * 1024,        // 2 MB
-  nodeModulesSizeKbMax: 10 * 1024,  // 10 MB
+  bundleSizeKbMax: 2 * 1024, // 2 MB
+  nodeModulesSizeKbMax: 10 * 1024, // 10 MB
   migrationsMax: 20,
   routesMax: 50,
-  cpuMsPerRequest: 5_000,           // 5 s
-  memoryKbMax: 128 * 1024,          // 128 MB
+  cpuMsPerRequest: 5_000, // 5 s
+  memoryKbMax: 128 * 1024, // 128 MB
 };
 
 // First-party extensions are recognized by name prefix. We could also
 // detect via manifest.is_official from S3-04 but the prefix is a stable
 // signal that doesn't require a DB lookup on the hot path.
 const FIRST_PARTY_PREFIXES = [
-  'ai', 'analytics/', 'auth/', 'billing', 'communications/',
-  'compliance/', 'content/', 'crm', 'data/', 'developer/',
-  'ecommerce/', 'finance/', 'forms', 'geospatial/', 'hr/',
-  'i18n/', 'integrations/', 'operations/', 'projects/',
-  'search', 'sms', 'storage/', 'workflow/',
+  'ai',
+  'analytics/',
+  'auth/',
+  'billing',
+  'communications/',
+  'compliance/',
+  'content/',
+  'crm',
+  'data/',
+  'developer/',
+  'ecommerce/',
+  'finance/',
+  'forms',
+  'geospatial/',
+  'hr/',
+  'i18n/',
+  'integrations/',
+  'operations/',
+  'projects/',
+  'search',
+  'sms',
+  'storage/',
+  'workflow/',
 ];
 
 function isFirstParty(name: string): boolean {
@@ -154,9 +181,13 @@ interface PolicyOverride {
 function loadOverrides(): Record<string, PolicyOverride> {
   const raw = process.env.EXTENSION_POLICIES_JSON;
   if (!raw) return {};
-  try { return JSON.parse(raw) as Record<string, PolicyOverride>; }
-  catch (err) {
-    console.warn('[extension-sandbox] EXTENSION_POLICIES_JSON invalid JSON:', (err as Error).message);
+  try {
+    return JSON.parse(raw) as Record<string, PolicyOverride>;
+  } catch (err) {
+    console.warn(
+      '[extension-sandbox] EXTENSION_POLICIES_JSON invalid JSON:',
+      (err as Error).message,
+    );
     return {};
   }
 }
@@ -183,7 +214,7 @@ export function policyFor(extName: string): ExtensionPolicy {
     name: extName,
     firstParty,
     capabilities: override?.capabilities
-      ? new Set(override.capabilities) as ReadonlySet<ExtensionCapability>
+      ? (new Set(override.capabilities) as ReadonlySet<ExtensionCapability>)
       : baseCaps,
     quotas: { ...baseQuotas, ...(override?.quotas ?? {}) },
   };
@@ -222,7 +253,9 @@ function observePolicyDecision(
   // Best-effort event emit — never throws.
   try {
     (engineEvents as any).emit?.('extension.policy.decision', { extName, cap, decision });
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 }
 
 // ── Internal helpers exposed for tests ─────────────────────────────────────

@@ -1,47 +1,47 @@
 <script lang="ts">
-  /**
-   * Empty state — refreshed for 2026.
-   *
-   * Three rendering modes, picked in this order:
-   *   1. `illustration` prop set → abstract SVG via <EmptyIllustration>.
-   *   2. `icon` prop set        → Lucide icon in soft-tinted circle.
-   *   3. Fallback                → built-in folder-plus SVG.
-   *
-   * Microcopy convention: lead with a positive next-step (not "Nothing
-   * here yet"), the description should suggest one concrete next action.
-   * The action button stays visually consistent with PageHeader's
-   * primary action.
-   */
-  import type { Component, Snippet } from 'svelte';
-  import EmptyIllustration from './EmptyIllustration.svelte';
+/**
+ * Empty state — refreshed for 2026.
+ *
+ * Three rendering modes, picked in this order:
+ *   1. `illustration` prop set → abstract SVG via <EmptyIllustration>.
+ *   2. `icon` prop set        → Lucide icon in soft-tinted circle.
+ *   3. Fallback                → built-in folder-plus SVG.
+ *
+ * Microcopy convention: lead with a positive next-step (not "Nothing
+ * here yet"), the description should suggest one concrete next action.
+ * The action button stays visually consistent with PageHeader's
+ * primary action.
+ */
+import type { Component, Snippet } from 'svelte';
+import EmptyIllustration from './EmptyIllustration.svelte';
 
-  type IllustrationVariant = 'list' | 'table' | 'cloud' | 'target' | 'spark';
+type IllustrationVariant = 'list' | 'table' | 'cloud' | 'target' | 'spark';
 
-  let {
-    title = 'Nothing here yet',
-    description = 'Get started by creating your first item.',
-    icon: Icon,
-    illustration,
-    illustrationColor = 'text-primary',
-    actionLabel,
-    actionHref,
-    onaction,
-    action,
-    className,
-  }: {
-    title?: string;
-    description?: string;
-    icon?: Component<any>;
-    /** Abstract SVG variant (mutually exclusive with `icon`). */
-    illustration?: IllustrationVariant;
-    illustrationColor?: string;
-    actionLabel?: string;
-    /** When set, the primary action renders as an anchor instead of a button. */
-    actionHref?: string;
-    onaction?: () => void;
-    action?: Snippet;
-    className?: string;
-  } = $props();
+let {
+  title = 'Nothing here yet',
+  description = 'Get started by creating your first item.',
+  icon: Icon,
+  illustration,
+  illustrationColor = 'text-primary',
+  actionLabel,
+  actionHref,
+  onaction,
+  action,
+  className,
+}: {
+  title?: string;
+  description?: string;
+  icon?: Component<any>;
+  /** Abstract SVG variant (mutually exclusive with `icon`). */
+  illustration?: IllustrationVariant;
+  illustrationColor?: string;
+  actionLabel?: string;
+  /** When set, the primary action renders as an anchor instead of a button. */
+  actionHref?: string;
+  onaction?: () => void;
+  action?: Snippet;
+  className?: string;
+} = $props();
 </script>
 
 <div class="text-center py-12 px-4 {className ?? ''}">

@@ -106,16 +106,27 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
     return res.json();
   }
 
-  get<T = any>(path: string): Promise<T> { return this.request<T>('GET', path); }
-  post<T = any>(path: string, body?: unknown): Promise<T> { return this.request<T>('POST', path, body); }
-  patch<T = any>(path: string, body?: unknown): Promise<T> { return this.request<T>('PATCH', path, body); }
-  delete<T = any>(path: string): Promise<T> { return this.request<T>('DELETE', path); }
+  get<T = any>(path: string): Promise<T> {
+    return this.request<T>('GET', path);
+  }
+  post<T = any>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>('POST', path, body);
+  }
+  patch<T = any>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>('PATCH', path, body);
+  }
+  delete<T = any>(path: string): Promise<T> {
+    return this.request<T>('DELETE', path);
+  }
 
   async upload<T = any>(path: string, formData: FormData): Promise<T> {
     const headers = { ...this.headers };
     delete headers['Content-Type'];
     const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST', headers, credentials: 'include', body: formData,
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: formData,
     });
     if (!res.ok) throw new Error(`Upload ${path} failed: ${res.status}`);
     return res.json();

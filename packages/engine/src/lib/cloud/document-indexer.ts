@@ -3,8 +3,12 @@ import type { Database } from '../../db/index.js';
 import { serviceRegistry } from '../service-registry.js';
 
 const INDEXABLE_MIMES = [
-  'text/plain', 'text/markdown', 'text/csv', 'text/html',
-  'application/json', 'application/xml',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/html',
+  'application/json',
+  'application/xml',
   'application/pdf',
 ];
 
@@ -61,7 +65,11 @@ export async function extractTextFromFile(
   buffer: Buffer,
   mimeType: string,
 ): Promise<string | null> {
-  if (mimeType.startsWith('text/') || mimeType === 'application/json' || mimeType === 'application/xml') {
+  if (
+    mimeType.startsWith('text/') ||
+    mimeType === 'application/json' ||
+    mimeType === 'application/xml'
+  ) {
     return buffer.toString('utf-8');
   }
 
@@ -90,11 +98,13 @@ export async function scheduleFileIndexing(
   buffer: Buffer,
   mimeType: string,
 ): Promise<void> {
-  if (!INDEXABLE_MIMES.some(m => mimeType.startsWith(m.split('/')[0]) || mimeType === m)) return;
+  if (!INDEXABLE_MIMES.some((m) => mimeType.startsWith(m.split('/')[0]) || mimeType === m)) return;
 
-  extractTextFromFile(buffer, mimeType).then(async (text) => {
-    if (text) await indexFileContent(db, fileId, text);
-  }).catch(err => {
-    console.error(`File indexing schedule failed [${fileId}]:`, err);
-  });
+  extractTextFromFile(buffer, mimeType)
+    .then(async (text) => {
+      if (text) await indexFileContent(db, fileId, text);
+    })
+    .catch((err) => {
+      console.error(`File indexing schedule failed [${fileId}]:`, err);
+    });
 }

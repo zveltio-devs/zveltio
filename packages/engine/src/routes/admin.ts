@@ -34,14 +34,26 @@ export function adminRoutes(db: Database, auth: any): Hono {
   app.get('/status', async (c) => {
     const cache = getCache();
     const [dbStatus, pgVersion, tableCount, cacheStatus] = await Promise.all([
-      sql`SELECT 1`.execute(db).then(() => 'connected').catch(() => 'disconnected'),
-      sql<{ version: string }>`SELECT version()`.execute(db).then((r) => r.rows[0]?.version).catch(() => 'unknown'),
+      sql`SELECT 1`
+        .execute(db)
+        .then(() => 'connected')
+        .catch(() => 'disconnected'),
+      sql<{ version: string }>`SELECT version()`
+        .execute(db)
+        .then((r) => r.rows[0]?.version)
+        .catch(() => 'unknown'),
       sql<{ count: string }>`
         SELECT COUNT(*) as count FROM information_schema.tables
         WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-      `.execute(db).then((r) => r.rows[0]?.count ?? '0').catch(() => '0'),
+      `
+        .execute(db)
+        .then((r) => r.rows[0]?.count ?? '0')
+        .catch(() => '0'),
       cache
-        ? cache.ping().then(() => 'connected').catch(() => 'disconnected')
+        ? cache
+            .ping()
+            .then(() => 'connected')
+            .catch(() => 'disconnected')
         : Promise.resolve('not_configured'),
     ]);
 
@@ -63,7 +75,17 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const offset = (parseInt(page) - 1) * parsedLimit;
     const keys = await db
       .selectFrom('zv_api_keys')
-      .select(['id', 'name', 'key_prefix', 'scopes', 'rate_limit', 'expires_at', 'last_used_at', 'is_active', 'created_at'])
+      .select([
+        'id',
+        'name',
+        'key_prefix',
+        'scopes',
+        'rate_limit',
+        'expires_at',
+        'last_used_at',
+        'is_active',
+        'created_at',
+      ])
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset)
@@ -78,10 +100,14 @@ export function adminRoutes(db: Database, auth: any): Hono {
       'json',
       z.object({
         name: z.string().min(1),
-        scopes: z.array(z.object({
-          collection: z.string(),
-          actions: z.array(z.string()),
-        })).default([]),
+        scopes: z
+          .array(
+            z.object({
+              collection: z.string(),
+              actions: z.array(z.string()),
+            }),
+          )
+          .default([]),
         rate_limit: z.number().int().default(1000),
         expires_at: z.string().optional(),
       }),
@@ -103,8 +129,11 @@ export function adminRoutes(db: Database, auth: any): Hono {
       }
       const encoder = new TextEncoder();
       const keyMaterial = await crypto.subtle.importKey(
-        'raw', encoder.encode(authSecret),
-        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+        'raw',
+        encoder.encode(authSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
       );
       const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(rawKey));
       const keyHash = Array.from(new Uint8Array(hashBuffer))
@@ -143,11 +172,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // DELETE /api-keys/:id — Revoke API key
   app.delete('/api-keys/:id', async (c) => {
     const keyId = c.req.param('id');
-    await db
-      .updateTable('zv_api_keys')
-      .set({ is_active: false })
-      .where('id', '=', keyId)
-      .execute();
+    await db.updateTable('zv_api_keys').set({ is_active: false }).where('id', '=', keyId).execute();
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
@@ -165,7 +190,9 @@ export function adminRoutes(db: Database, auth: any): Hono {
       'json',
       z.object({
         name: z.string().optional(),
-        scopes: z.array(z.object({ collection: z.string(), actions: z.array(z.string()) })).optional(),
+        scopes: z
+          .array(z.object({ collection: z.string(), actions: z.array(z.string()) }))
+          .optional(),
         allowed_ips: z.array(z.string()).nullable().optional(),
         organization: z.string().nullable().optional(),
         description: z.string().nullable().optional(),
@@ -311,9 +338,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   app.post('/migrate', async (c) => {
     const user = c.get('user' as never) as any;
     try {
-      const { runMigrations, getLastAppliedMigration } = await import(
-        '../db/migrations/index.js'
-      );
+      const { runMigrations, getLastAppliedMigration } = await import('../db/migrations/index.js');
       const before = await getLastAppliedMigration(db);
       await runMigrations(db);
       const after = await getLastAppliedMigration(db);
@@ -360,14 +385,19 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // GET /onboarding/status
   app.get('/onboarding/status', async (c) => {
     const [users, collections, branding] = await Promise.all([
-      db.selectFrom('user').select((eb) => eb.fn.count('id').as('count')).executeTakeFirst(),
+      db
+        .selectFrom('user')
+        .select((eb) => eb.fn.count('id').as('count'))
+        .executeTakeFirst(),
       DDLManager.getCollections(db),
       db.selectFrom('zv_settings').selectAll().where('key', '=', 'branding').executeTakeFirst(),
     ]);
 
     const userCount = Number(users?.count ?? 0);
     const brandingVal = branding
-      ? (typeof branding.value === 'string' ? JSON.parse(branding.value) : branding.value)
+      ? typeof branding.value === 'string'
+        ? JSON.parse(branding.value)
+        : branding.value
       : {};
 
     return c.json({
@@ -455,18 +485,30 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const [collectionsCount, webhooksCount, slowCount, apiCallsToday] = await Promise.all([
       sql<{ count: string }>`
         SELECT COUNT(*) AS count FROM zv_collections
-      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+      `
+        .execute(db)
+        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
+        .catch(() => 0),
       sql<{ count: string }>`
         SELECT COUNT(*) AS count FROM zv_webhooks WHERE active = TRUE
-      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+      `
+        .execute(db)
+        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
+        .catch(() => 0),
       sql<{ count: string }>`
         SELECT COUNT(*) AS count FROM zv_slow_queries
         WHERE created_at >= NOW() - INTERVAL '24 hours'
-      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+      `
+        .execute(db)
+        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
+        .catch(() => 0),
       sql<{ count: string }>`
         SELECT COALESCE(SUM(api_calls), 0) AS count FROM zv_tenant_quota
         WHERE date = CURRENT_DATE
-      `.execute(db).then((r) => parseInt(r.rows[0]?.count ?? '0')).catch(() => 0),
+      `
+        .execute(db)
+        .then((r) => parseInt(r.rows[0]?.count ?? '0'))
+        .catch(() => 0),
     ]);
 
     return c.json({
@@ -499,7 +541,8 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
     const [logs, total] = await Promise.all([
       query.execute(),
-      db.selectFrom('zv_request_logs')
+      db
+        .selectFrom('zv_request_logs')
         .select((eb) => eb.fn.count('id').as('count'))
         .executeTakeFirst(),
     ]);
@@ -558,21 +601,23 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // GET /roles — List custom roles
   app.get('/roles', async (c) => {
-    const roles = await db
-      .selectFrom('zv_roles')
-      .selectAll()
-      .orderBy('name', 'asc')
-      .execute();
+    const roles = await db.selectFrom('zv_roles').selectAll().orderBy('name', 'asc').execute();
     return c.json({ roles });
   });
 
   // POST /roles — Create a custom role
   app.post(
     '/roles',
-    zValidator('json', z.object({
-      name: z.string().min(1).regex(/^[a-z][a-z0-9_-]*$/, 'Role name must be lowercase letters, digits, _ or -'),
-      description: z.string().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        name: z
+          .string()
+          .min(1)
+          .regex(/^[a-z][a-z0-9_-]*$/, 'Role name must be lowercase letters, digits, _ or -'),
+        description: z.string().optional(),
+      }),
+    ),
     async (c) => {
       const { name, description } = c.req.valid('json');
       const existing = await db
@@ -651,13 +696,18 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // POST /permissions/bulk — Replace all custom-role permissions atomically
   app.post(
     '/permissions/bulk',
-    zValidator('json', z.object({
-      permissions: z.array(z.object({
-        role_id: z.string().uuid(),
-        resource: z.string().min(1),
-        action: z.enum(['view', 'create', 'update', 'delete', 'read', 'write', '*']),
-      })),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        permissions: z.array(
+          z.object({
+            role_id: z.string().uuid(),
+            resource: z.string().min(1),
+            action: z.enum(['view', 'create', 'update', 'delete', 'read', 'write', '*']),
+          }),
+        ),
+      }),
+    ),
     async (c) => {
       const { permissions } = c.req.valid('json');
       const roles = await db.selectFrom('zv_roles').selectAll().execute();
@@ -719,10 +769,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // POST /roles/hierarchy — Add inheritance: child_role inherits parent_role
   app.post(
     '/roles/hierarchy',
-    zValidator('json', z.object({
-      child: z.string().min(1),
-      parent: z.string().min(1),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        child: z.string().min(1),
+        parent: z.string().min(1),
+      }),
+    ),
     async (c) => {
       const { child, parent } = c.req.valid('json');
       if (child === parent) return c.json({ error: 'A role cannot inherit from itself' }, 400);
@@ -731,7 +784,10 @@ export function adminRoutes(db: Database, auth: any): Hono {
       // Check for circular inheritance
       const parentRoles = await e.getRolesForUser(parent);
       if (parentRoles.includes(child)) {
-        return c.json({ error: `Circular inheritance: "${parent}" already inherits from "${child}"` }, 409);
+        return c.json(
+          { error: `Circular inheritance: "${parent}" already inherits from "${child}"` },
+          409,
+        );
       }
       await e.addRoleForUser(child, parent);
       await invalidatePermissionCache();
@@ -749,10 +805,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // DELETE /roles/hierarchy — Remove inheritance
   app.delete(
     '/roles/hierarchy',
-    zValidator('json', z.object({
-      child: z.string().min(1),
-      parent: z.string().min(1),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        child: z.string().min(1),
+        parent: z.string().min(1),
+      }),
+    ),
     async (c) => {
       const { child, parent } = c.req.valid('json');
       const e = await getEnforcer();
@@ -784,22 +843,25 @@ export function adminRoutes(db: Database, auth: any): Hono {
   // PATCH /rate-limits/:keyPrefix — update a tier
   app.patch(
     '/rate-limits/:keyPrefix',
-    zValidator('json', z.object({
-      window_ms:    z.number().int().min(1000).max(3_600_000).optional(),
-      max_requests: z.number().int().min(1).max(100_000).optional(),
-      is_active:    z.boolean().optional(),
-      description:  z.string().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        window_ms: z.number().int().min(1000).max(3_600_000).optional(),
+        max_requests: z.number().int().min(1).max(100_000).optional(),
+        is_active: z.boolean().optional(),
+        description: z.string().optional(),
+      }),
+    ),
     async (c) => {
       const user = c.get('user') as RequestUser;
       const { keyPrefix } = c.req.param() as { keyPrefix: string };
       const body = c.req.valid('json');
 
       const updates: any = { updated_at: new Date(), updated_by: user.id };
-      if (body.window_ms    !== undefined) updates.window_ms    = body.window_ms;
+      if (body.window_ms !== undefined) updates.window_ms = body.window_ms;
       if (body.max_requests !== undefined) updates.max_requests = body.max_requests;
-      if (body.is_active    !== undefined) updates.is_active    = body.is_active;
-      if (body.description  !== undefined) updates.description  = body.description;
+      if (body.is_active !== undefined) updates.is_active = body.is_active;
+      if (body.description !== undefined) updates.description = body.description;
 
       const row = await db
         .updateTable('zv_rate_limit_configs')
@@ -825,12 +887,12 @@ export function adminRoutes(db: Database, auth: any): Hono {
   app.post('/rate-limits/reset', async (c) => {
     const user = c.get('user' as never) as any;
     const defaults = [
-      { key_prefix: 'auth',        window_ms: 60000, max_requests: 10  },
-      { key_prefix: 'api',         window_ms: 60000, max_requests: 200 },
-      { key_prefix: 'ai',          window_ms: 60000, max_requests: 20  },
-      { key_prefix: 'write',       window_ms: 60000, max_requests: 60  },
-      { key_prefix: 'ddl',         window_ms: 60000, max_requests: 10  },
-      { key_prefix: 'destructive', window_ms: 60000, max_requests: 10  },
+      { key_prefix: 'auth', window_ms: 60000, max_requests: 10 },
+      { key_prefix: 'api', window_ms: 60000, max_requests: 200 },
+      { key_prefix: 'ai', window_ms: 60000, max_requests: 20 },
+      { key_prefix: 'write', window_ms: 60000, max_requests: 60 },
+      { key_prefix: 'ddl', window_ms: 60000, max_requests: 10 },
+      { key_prefix: 'destructive', window_ms: 60000, max_requests: 10 },
     ];
     for (const d of defaults) {
       await db
@@ -865,7 +927,8 @@ export function adminRoutes(db: Database, auth: any): Hono {
     let query = db
       .selectFrom('zvd_column_permissions')
       .selectAll()
-      .orderBy('collection_name').orderBy('column_name');
+      .orderBy('collection_name')
+      .orderBy('column_name');
     if (collection) query = query.where('collection_name', '=', collection);
     const rows = await query.execute();
     return c.json({ column_permissions: rows });
@@ -878,8 +941,11 @@ export function adminRoutes(db: Database, auth: any): Hono {
       .insertInto('zvd_column_permissions')
       .values(data)
       .onConflict((oc: any) =>
-        oc.columns(['collection_name', 'column_name', 'role'])
-          .doUpdateSet({ can_read: data.can_read, can_write: data.can_write, updated_at: new Date() }),
+        oc.columns(['collection_name', 'column_name', 'role']).doUpdateSet({
+          can_read: data.can_read,
+          can_write: data.can_write,
+          updated_at: new Date(),
+        }),
       )
       .returningAll()
       .executeTakeFirst();
@@ -917,10 +983,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // DELETE /column-permissions/:id
   app.delete('/column-permissions/:id', async (c) => {
-    await db
-      .deleteFrom('zvd_column_permissions')
-      .where('id', '=', c.req.param('id'))
-      .execute();
+    await db.deleteFrom('zvd_column_permissions').where('id', '=', c.req.param('id')).execute();
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',
@@ -935,10 +998,13 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   app.post(
     '/sql',
-    zValidator('json', z.object({
-      query: z.string().min(1).max(50_000),
-      timeout_ms: z.number().int().min(100).max(30_000).optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        query: z.string().min(1).max(50_000),
+        timeout_ms: z.number().int().min(100).max(30_000).optional(),
+      }),
+    ),
     async (c) => {
       const { query, timeout_ms: _timeout_ms = 10_000 } = c.req.valid('json');
       const user = c.get('user' as never) as any;
@@ -963,11 +1029,11 @@ export function adminRoutes(db: Database, auth: any): Hono {
         // the same connection that runs the user query — without this the
         // pool can route them to different sessions and the timeout is a
         // no-op. Caller-supplied timeout_ms is clamped by the zod schema.
-        const result = await db.transaction().execute(async (trx: any) => {
+        const result = (await db.transaction().execute(async (trx: any) => {
           const seconds = Math.max(1, Math.ceil(_timeout_ms / 1000));
           await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
           return sql.raw(query).execute(trx);
-        }) as any;
+        })) as any;
         const rows = result.rows ?? [];
         await auditLog(db, {
           type: 'sql.executed',
@@ -1005,7 +1071,9 @@ async function invalidatePermissionCache() {
       } while (cursor !== '0');
     }
     if (allKeys.length > 0) await cache.del(...allKeys);
-  } catch { /* cache unavailable */ }
+  } catch {
+    /* cache unavailable */
+  }
 }
 
 /**
@@ -1035,7 +1103,17 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     const offset = (parseInt(page) - 1) * parsedLimit;
     const keys = await db
       .selectFrom('zv_api_keys')
-      .select(['id', 'name', 'key_prefix', 'scopes', 'rate_limit', 'expires_at', 'last_used_at', 'is_active', 'created_at'])
+      .select([
+        'id',
+        'name',
+        'key_prefix',
+        'scopes',
+        'rate_limit',
+        'expires_at',
+        'last_used_at',
+        'is_active',
+        'created_at',
+      ])
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset)
@@ -1050,10 +1128,14 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       'json',
       z.object({
         name: z.string().min(1),
-        scopes: z.array(z.object({
-          collection: z.string(),
-          actions: z.array(z.string()),
-        })).default([]),
+        scopes: z
+          .array(
+            z.object({
+              collection: z.string(),
+              actions: z.array(z.string()),
+            }),
+          )
+          .default([]),
         rate_limit: z.number().int().default(1000),
         expires_at: z.string().optional(),
       }),
@@ -1071,8 +1153,11 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       }
       const encoder = new TextEncoder();
       const keyMaterial = await crypto.subtle.importKey(
-        'raw', encoder.encode(authSecret),
-        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+        'raw',
+        encoder.encode(authSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
       );
       const hashBuffer = await crypto.subtle.sign('HMAC', keyMaterial, encoder.encode(rawKey));
       const keyHash = Array.from(new Uint8Array(hashBuffer))
@@ -1110,11 +1195,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Revoke API key
   app.delete('/:id', async (c) => {
     const keyId = c.req.param('id');
-    await db
-      .updateTable('zv_api_keys')
-      .set({ is_active: false })
-      .where('id', '=', keyId)
-      .execute();
+    await db.updateTable('zv_api_keys').set({ is_active: false }).where('id', '=', keyId).execute();
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
@@ -1128,23 +1209,37 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   // PUT /:id/rate-limit — Set per-key rate limit override
   app.put(
     '/:id/rate-limit',
-    zValidator('json', z.object({
-      window_ms:    z.number().int().min(1000).max(3_600_000),
-      max_requests: z.number().int().min(1).max(100_000),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        window_ms: z.number().int().min(1000).max(3_600_000),
+        max_requests: z.number().int().min(1).max(100_000),
+      }),
+    ),
     async (c) => {
       const { id } = c.req.param();
       const { window_ms, max_requests } = c.req.valid('json');
 
       // Verify API key exists
-      const key = await db.selectFrom('zv_api_keys').select('id').where('id', '=', id).executeTakeFirst();
+      const key = await db
+        .selectFrom('zv_api_keys')
+        .select('id')
+        .where('id', '=', id)
+        .executeTakeFirst();
       if (!key) return c.json({ error: 'API key not found' }, 404);
 
       const keyPrefix = `apikey:${id}`;
       await db
         .insertInto('zv_rate_limit_configs')
-        .values({ key_prefix: keyPrefix, window_ms, max_requests, description: `Per-key override for ${id}` })
-        .onConflict((oc: any) => oc.column('key_prefix').doUpdateSet({ window_ms, max_requests, updated_at: new Date() }))
+        .values({
+          key_prefix: keyPrefix,
+          window_ms,
+          max_requests,
+          description: `Per-key override for ${id}`,
+        })
+        .onConflict((oc: any) =>
+          oc.column('key_prefix').doUpdateSet({ window_ms, max_requests, updated_at: new Date() }),
+        )
         .execute();
 
       invalidateRateLimitCache(keyPrefix);

@@ -1,119 +1,136 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api, collectionsApi } from '$lib/api.js';
-  import { base } from '$app/paths';
-  import {
-    Trash2, Layout, LayoutGrid, Table2, Columns3, CalendarDays,
-    GalleryHorizontal, BarChart2, Map, List, Clock,
-    LoaderCircle, Database,
-  } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api, collectionsApi } from '$lib/api.js';
+import { base } from '$app/paths';
+import {
+  Trash2,
+  Layout,
+  LayoutGrid,
+  Table2,
+  Columns3,
+  CalendarDays,
+  GalleryHorizontal,
+  BarChart2,
+  Map,
+  List,
+  Clock,
+  LoaderCircle,
+  Database,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  let views = $state<any[]>([]);
-  let collections = $state<any[]>([]);
-  let loading = $state(true);
-  let showModal = $state(false);
-  let creating = $state(false);
-  let searchQuery = $state('');
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let views = $state<any[]>([]);
+let collections = $state<any[]>([]);
+let loading = $state(true);
+let showModal = $state(false);
+let creating = $state(false);
+let searchQuery = $state('');
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-  let form = $state({
-    name: '',
-    description: '',
-    collection: '',
-    view_type: 'table',
-    page_size: 20,
-  });
+let form = $state({
+  name: '',
+  description: '',
+  collection: '',
+  view_type: 'table',
+  page_size: 20,
+});
 
-  const VIEW_TYPES = [
-    { value: 'table',    label: 'Table',    icon: Table2 },
-    { value: 'kanban',   label: 'Kanban',   icon: Columns3 },
-    { value: 'calendar', label: 'Calendar', icon: CalendarDays },
-    { value: 'gallery',  label: 'Gallery',  icon: GalleryHorizontal },
-    { value: 'stats',    label: 'Stats',    icon: BarChart2 },
-    { value: 'chart',    label: 'Chart',    icon: BarChart2 },
-    { value: 'list',     label: 'List',     icon: List },
-    { value: 'timeline', label: 'Timeline', icon: Clock },
-  ];
+const VIEW_TYPES = [
+  { value: 'table', label: 'Table', icon: Table2 },
+  { value: 'kanban', label: 'Kanban', icon: Columns3 },
+  { value: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { value: 'gallery', label: 'Gallery', icon: GalleryHorizontal },
+  { value: 'stats', label: 'Stats', icon: BarChart2 },
+  { value: 'chart', label: 'Chart', icon: BarChart2 },
+  { value: 'list', label: 'List', icon: List },
+  { value: 'timeline', label: 'Timeline', icon: Clock },
+];
 
-  const filtered = $derived(
-    searchQuery.trim()
-      ? views.filter(v =>
+const filtered = $derived(
+  searchQuery.trim()
+    ? views.filter(
+        (v) =>
           v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          v.collection.toLowerCase().includes(searchQuery.toLowerCase())
-        )
-      : views
-  );
+          v.collection.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : views,
+);
 
-  onMount(async () => {
-    await Promise.all([loadViews(), loadCollections()]);
-  });
+onMount(async () => {
+  await Promise.all([loadViews(), loadCollections()]);
+});
 
-  async function loadViews() {
-    loading = true;
-    try {
-      const res = await api.get<{ views: any[]; total: number }>('/api/views?limit=200');
-      views = res.views ?? [];
-    } catch {
-      views = [];
-    } finally {
-      loading = false;
-    }
+async function loadViews() {
+  loading = true;
+  try {
+    const res = await api.get<{ views: any[]; total: number }>('/api/views?limit=200');
+    views = res.views ?? [];
+  } catch {
+    views = [];
+  } finally {
+    loading = false;
   }
+}
 
-  async function loadCollections() {
-    try {
-      const res = await collectionsApi.list();
-      collections = (res.collections ?? []).filter((c: any) => !c.is_system);
-    } catch {
-      collections = [];
-    }
+async function loadCollections() {
+  try {
+    const res = await collectionsApi.list();
+    collections = (res.collections ?? []).filter((c: any) => !c.is_system);
+  } catch {
+    collections = [];
   }
+}
 
-  async function createView() {
-    if (!form.name.trim() || !form.collection) return;
-    creating = true;
-    try {
-      await api.post('/api/views', {
-        name: form.name.trim(),
-        description: form.description || undefined,
-        collection: form.collection,
-        view_type: form.view_type,
-        page_size: form.page_size,
-      });
-      showModal = false;
-      form = { name: '', description: '', collection: '', view_type: 'table', page_size: 20 };
-      await loadViews();
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to create view');
-    } finally {
-      creating = false;
-    }
+async function createView() {
+  if (!form.name.trim() || !form.collection) return;
+  creating = true;
+  try {
+    await api.post('/api/views', {
+      name: form.name.trim(),
+      description: form.description || undefined,
+      collection: form.collection,
+      view_type: form.view_type,
+      page_size: form.page_size,
+    });
+    showModal = false;
+    form = { name: '', description: '', collection: '', view_type: 'table', page_size: 20 };
+    await loadViews();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to create view');
+  } finally {
+    creating = false;
   }
+}
 
-  async function deleteView(id: string, name: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete View',
-      message: `Delete view "${name}"? It will be removed from all pages.`,
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await api.delete(`/api/views/${id}`);
-          views = views.filter(v => v.id !== id);
-        } catch (e: any) {
-          toast.error(e.message ?? 'Failed to delete view');
-        }
-      },
-    };
-  }
+async function deleteView(id: string, name: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete View',
+    message: `Delete view "${name}"? It will be removed from all pages.`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/views/${id}`);
+        views = views.filter((v) => v.id !== id);
+      } catch (e: any) {
+        toast.error(e.message ?? 'Failed to delete view');
+      }
+    },
+  };
+}
 
-  function viewTypeIcon(type: string) {
-    return VIEW_TYPES.find(t => t.value === type)?.icon ?? Layout;
-  }
+function viewTypeIcon(type: string) {
+  return VIEW_TYPES.find((t) => t.value === type)?.icon ?? Layout;
+}
 </script>
 
 <CrudListPage

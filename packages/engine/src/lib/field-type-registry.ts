@@ -15,7 +15,15 @@ export interface FieldTypeDefinition {
   label: string;
   description?: string;
   icon?: string;
-  category?: 'text' | 'number' | 'date' | 'media' | 'relation' | 'location' | 'special' | 'advanced';
+  category?:
+    | 'text'
+    | 'number'
+    | 'date'
+    | 'media'
+    | 'relation'
+    | 'location'
+    | 'special'
+    | 'advanced';
 
   // ── DB Layer ──────────────────────────────────────────────
   db: {
@@ -55,11 +63,23 @@ export interface FieldTypeDefinition {
 }
 
 export type FilterOperator =
-  | 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte'
-  | 'in' | 'not_in'
-  | 'contains' | 'not_contains' | 'starts_with' | 'ends_with'
-  | 'is_null' | 'is_not_null'
-  | 'near' | 'within' | 'intersects'; // geospatial
+  | 'eq'
+  | 'neq'
+  | 'lt'
+  | 'lte'
+  | 'gt'
+  | 'gte'
+  | 'in'
+  | 'not_in'
+  | 'contains'
+  | 'not_contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'is_null'
+  | 'is_not_null'
+  | 'near'
+  | 'within'
+  | 'intersects'; // geospatial
 
 export interface FieldConfig {
   name: string;
@@ -103,10 +123,7 @@ export class FieldTypeRegistry {
     if (!typeDef) throw new Error(`Unknown field type: ${field.type}`);
     if (typeDef.db.virtual) return null; // computed — no real column
 
-    const parts = [
-      `"${field.name}"`,
-      typeDef.db.columnType,
-    ];
+    const parts = [`"${field.name}"`, typeDef.db.columnType];
 
     if (field.required) parts.push('NOT NULL');
     if (field.unique) parts.push('UNIQUE');
@@ -114,9 +131,12 @@ export class FieldTypeRegistry {
     // Default value — field-specific overrides type default
     const defaultVal = field.defaultValue ?? typeDef.db.defaultValue;
     if (defaultVal !== undefined && defaultVal !== null) {
-      const val = typeof defaultVal === 'string' && !defaultVal.startsWith('gen_') && !defaultVal.startsWith('NOW')
-        ? `'${defaultVal}'`
-        : String(defaultVal);
+      const val =
+        typeof defaultVal === 'string' &&
+        !defaultVal.startsWith('gen_') &&
+        !defaultVal.startsWith('NOW')
+          ? `'${defaultVal}'`
+          : String(defaultVal);
       parts.push(`DEFAULT ${val}`);
     }
 

@@ -31,13 +31,7 @@ export const webhookWorker = {
     // Fallback to LPOP in loop if server doesn't support LMPOP (Redis < 7.0)
     let items: string[] = [];
     try {
-      const result = await (cache as any).lmpop(
-        1,
-        'webhook:queue',
-        'LEFT',
-        'COUNT',
-        10,
-      );
+      const result = await (cache as any).lmpop(1, 'webhook:queue', 'LEFT', 'COUNT', 10);
       // LMPOP returns [key, [item1, item2, ...]] or null
       if (result && Array.isArray(result[1])) {
         items = result[1];
@@ -81,24 +75,13 @@ export const webhookWorker = {
           const retryPayload = { ...payload, attempt: payload.attempt + 1 };
           // Exponential backoff: 1s → 2s → 4s
           const delayMs = Math.pow(2, payload.attempt) * 1000;
-          await cache.zadd(
-            'webhook:retry',
-            Date.now() + delayMs,
-            JSON.stringify(retryPayload),
-          );
+          await cache.zadd('webhook:retry', Date.now() + delayMs, JSON.stringify(retryPayload));
         }
       }),
     );
 
     // Re-enqueue retries that are now due
-    const due = await cache.zrangebyscore(
-      'webhook:retry',
-      '-inf',
-      Date.now(),
-      'LIMIT',
-      0,
-      10,
-    );
+    const due = await cache.zrangebyscore('webhook:retry', '-inf', Date.now(), 'LIMIT', 0, 10);
     for (const item of due) {
       await cache.zrem('webhook:retry', item);
       await cache.rpush('webhook:queue', item);

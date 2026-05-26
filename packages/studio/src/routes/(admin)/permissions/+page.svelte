@@ -1,158 +1,209 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { Shield, Save, Plus, Trash2, LoaderCircle, GitBranch, ChevronRight, ArrowRight, Database, Globe } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-  import SearchBar from '$lib/components/common/SearchBar.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  Shield,
+  Save,
+  Plus,
+  Trash2,
+  LoaderCircle,
+  GitBranch,
+  ChevronRight,
+  ArrowRight,
+  Database,
+  Globe,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+import SearchBar from '$lib/components/common/SearchBar.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  type Resource = { name: string; display_name: string; type: 'collection' | 'zone'; actions: string[] };
+type Resource = {
+  name: string;
+  display_name: string;
+  type: 'collection' | 'zone';
+  actions: string[];
+};
 
-  let resources  = $state<Resource[]>([]);
-  let roles      = $state<any[]>([]);
-  let permissions = $state(new Map<string, Set<string>>());
-  let loading    = $state(true);
-  let saving     = $state(false);
-  let saved      = $state(false);
-  let tab        = $state<'matrix' | 'roles' | 'hierarchy'>('matrix');
-  let selectedRoleId = $state<string>('');
+let resources = $state<Resource[]>([]);
+let roles = $state<any[]>([]);
+let permissions = $state(new Map<string, Set<string>>());
+let loading = $state(true);
+let saving = $state(false);
+let saved = $state(false);
+let tab = $state<'matrix' | 'roles' | 'hierarchy'>('matrix');
+let selectedRoleId = $state<string>('');
 
-  let newRoleName = $state('');
-  let newRoleDesc = $state('');
-  let creatingRole = $state(false);
+let newRoleName = $state('');
+let newRoleDesc = $state('');
+let creatingRole = $state(false);
 
-  let hierarchy  = $state<Array<{ child: string; parent: string }>>([]);
-  let hierChild  = $state('');
-  let hierParent = $state('');
-  let hierSaving = $state(false);
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let hierarchy = $state<Array<{ child: string; parent: string }>>([]);
+let hierChild = $state('');
+let hierParent = $state('');
+let hierSaving = $state(false);
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-  const roleNames = $derived(['god', 'admin', 'member', ...roles.map((r) => r.name)]);
+const roleNames = $derived(['god', 'admin', 'member', ...roles.map((r) => r.name)]);
 
-  let matrixFilter = $state('');
+let matrixFilter = $state('');
 
-  const collections = $derived(
-    resources
-      .filter((r) => r.type === 'collection')
-      .filter((r) => !matrixFilter || r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) || r.name.toLowerCase().includes(matrixFilter.toLowerCase()))
+const collections = $derived(
+  resources
+    .filter((r) => r.type === 'collection')
+    .filter(
+      (r) =>
+        !matrixFilter ||
+        r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) ||
+        r.name.toLowerCase().includes(matrixFilter.toLowerCase()),
+    ),
+);
+const zones = $derived(
+  resources
+    .filter((r) => r.type === 'zone')
+    .filter(
+      (r) =>
+        !matrixFilter ||
+        r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) ||
+        r.name.toLowerCase().includes(matrixFilter.toLowerCase()),
+    ),
+);
+const totalCollections = $derived(resources.filter((r) => r.type === 'collection').length);
+const totalZones = $derived(resources.filter((r) => r.type === 'zone').length);
+
+onMount(async () => {
+  await loadAll();
+  await loadHierarchy();
+});
+
+async function loadAll() {
+  loading = true;
+  try {
+    const [resRes, rolRes, permRes] = await Promise.all([
+      api.get<{ resources: Resource[] }>('/api/admin/resources'),
+      api.get<{ roles: any[] }>('/api/admin/roles'),
+      api.get<{ permissions: any[] }>('/api/admin/permissions'),
+    ]);
+    resources = resRes.resources || [];
+    roles = rolRes.roles || [];
+    if (!selectedRoleId && roles.length > 0) selectedRoleId = roles[0].id;
+
+    const map = new Map<string, Set<string>>();
+    for (const p of permRes.permissions || []) {
+      const key = `${p.role_id}:${p.resource}`;
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key)!.add(p.action);
+    }
+    permissions = map;
+  } finally {
+    loading = false;
+  }
+}
+
+async function loadHierarchy() {
+  const res = await api.get<{ hierarchy: Array<{ child: string; parent: string }> }>(
+    '/api/admin/roles/hierarchy',
   );
-  const zones = $derived(
-    resources
-      .filter((r) => r.type === 'zone')
-      .filter((r) => !matrixFilter || r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) || r.name.toLowerCase().includes(matrixFilter.toLowerCase()))
-  );
-  const totalCollections = $derived(resources.filter((r) => r.type === 'collection').length);
-  const totalZones = $derived(resources.filter((r) => r.type === 'zone').length);
+  hierarchy = res.hierarchy ?? [];
+}
 
-  onMount(async () => { await loadAll(); await loadHierarchy(); });
+function has(roleId: string, resource: string, action: string) {
+  return permissions.get(`${roleId}:${resource}`)?.has(action) ?? false;
+}
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const [resRes, rolRes, permRes] = await Promise.all([
-        api.get<{ resources: Resource[] }>('/api/admin/resources'),
-        api.get<{ roles: any[] }>('/api/admin/roles'),
-        api.get<{ permissions: any[] }>('/api/admin/permissions'),
-      ]);
-      resources = resRes.resources || [];
-      roles = rolRes.roles || [];
-      if (!selectedRoleId && roles.length > 0) selectedRoleId = roles[0].id;
+function toggle(roleId: string, resource: string, action: string) {
+  const key = `${roleId}:${resource}`;
+  if (!permissions.has(key)) permissions.set(key, new Set());
+  const s = permissions.get(key)!;
+  s.has(action) ? s.delete(action) : s.add(action);
+  permissions = new Map(permissions);
+}
 
-      const map = new Map<string, Set<string>>();
-      for (const p of permRes.permissions || []) {
-        const key = `${p.role_id}:${p.resource}`;
-        if (!map.has(key)) map.set(key, new Set());
-        map.get(key)!.add(p.action);
+async function saveMatrix() {
+  saving = true;
+  saved = false;
+  try {
+    const list: any[] = [];
+    for (const [key, acts] of permissions) {
+      const [role_id, resource] = key.split(':');
+      for (const action of acts) list.push({ role_id, resource, action, conditions: {} });
+    }
+    await api.post('/api/admin/permissions/bulk', { permissions: list });
+    saved = true;
+    toast.success('Permissions saved');
+    setTimeout(() => (saved = false), 3000);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Save failed');
+  } finally {
+    saving = false;
+  }
+}
+
+async function createRole() {
+  if (!newRoleName.trim()) return;
+  creatingRole = true;
+  try {
+    await api.post('/api/admin/roles', {
+      name: newRoleName.trim(),
+      description: newRoleDesc.trim(),
+    });
+    newRoleName = '';
+    newRoleDesc = '';
+    await loadAll();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to create role');
+  } finally {
+    creatingRole = false;
+  }
+}
+
+async function deleteRole(id: string, name: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Role',
+    message: `Delete role "${name}"? All permissions for this role will be removed.`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/admin/roles/${id}`);
+        if (selectedRoleId === id) selectedRoleId = roles.find((r) => r.id !== id)?.id ?? '';
+        await loadAll();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to delete role');
       }
-      permissions = map;
-    } finally { loading = false; }
-  }
+    },
+  };
+}
 
-  async function loadHierarchy() {
-    const res = await api.get<{ hierarchy: Array<{ child: string; parent: string }> }>('/api/admin/roles/hierarchy');
-    hierarchy = res.hierarchy ?? [];
-  }
-
-  function has(roleId: string, resource: string, action: string) {
-    return permissions.get(`${roleId}:${resource}`)?.has(action) ?? false;
-  }
-
-  function toggle(roleId: string, resource: string, action: string) {
-    const key = `${roleId}:${resource}`;
-    if (!permissions.has(key)) permissions.set(key, new Set());
-    const s = permissions.get(key)!;
-    s.has(action) ? s.delete(action) : s.add(action);
-    permissions = new Map(permissions);
-  }
-
-  async function saveMatrix() {
-    saving = true; saved = false;
-    try {
-      const list: any[] = [];
-      for (const [key, acts] of permissions) {
-        const [role_id, resource] = key.split(':');
-        for (const action of acts) list.push({ role_id, resource, action, conditions: {} });
-      }
-      await api.post('/api/admin/permissions/bulk', { permissions: list });
-      saved = true;
-      toast.success('Permissions saved');
-      setTimeout(() => (saved = false), 3000);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Save failed');
-    } finally { saving = false; }
-  }
-
-  async function createRole() {
-    if (!newRoleName.trim()) return;
-    creatingRole = true;
-    try {
-      await api.post('/api/admin/roles', { name: newRoleName.trim(), description: newRoleDesc.trim() });
-      newRoleName = ''; newRoleDesc = '';
-      await loadAll();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create role');
-    } finally { creatingRole = false; }
-  }
-
-  async function deleteRole(id: string, name: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Role',
-      message: `Delete role "${name}"? All permissions for this role will be removed.`,
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await api.delete(`/api/admin/roles/${id}`);
-          if (selectedRoleId === id) selectedRoleId = roles.find((r) => r.id !== id)?.id ?? '';
-          await loadAll();
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : 'Failed to delete role');
-        }
-      },
-    };
-  }
-
-  async function addInheritance() {
-    if (!hierChild || !hierParent) return;
-    hierSaving = true;
-    try {
-      await api.post('/api/admin/roles/hierarchy', { child: hierChild, parent: hierParent });
-      hierChild = ''; hierParent = '';
-      await loadHierarchy();
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to add inheritance');
-    } finally { hierSaving = false; }
-  }
-
-  async function removeInheritance(child: string, parent: string) {
-    await api.delete('/api/admin/roles/hierarchy', { child, parent });
+async function addInheritance() {
+  if (!hierChild || !hierParent) return;
+  hierSaving = true;
+  try {
+    await api.post('/api/admin/roles/hierarchy', { child: hierChild, parent: hierParent });
+    hierChild = '';
+    hierParent = '';
     await loadHierarchy();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to add inheritance');
+  } finally {
+    hierSaving = false;
   }
+}
 
-  const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
+async function removeInheritance(child: string, parent: string) {
+  await api.delete('/api/admin/roles/hierarchy', { child, parent });
+  await loadHierarchy();
+}
+
+const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 </script>
 
 <div class="space-y-6">

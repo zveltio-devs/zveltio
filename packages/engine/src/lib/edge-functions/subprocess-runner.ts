@@ -208,7 +208,12 @@ export async function runEdgeFunctionInSubprocess(
     const transpiler = new (Bun as any).Transpiler({ loader: 'ts' });
     jsCode = transpiler.transformSync(code);
   } catch (err: any) {
-    return { ok: false, error: `Transpile error: ${err.message}`, logs: [], duration_ms: Date.now() - start };
+    return {
+      ok: false,
+      error: `Transpile error: ${err.message}`,
+      logs: [],
+      duration_ms: Date.now() - start,
+    };
   }
 
   const proc = spawn({
@@ -235,7 +240,11 @@ export async function runEdgeFunctionInSubprocess(
 
   // Hard wall-clock kill: timeoutMs + 3s leeway for IPC/JSON encoding.
   const killTimer = setTimeout(() => {
-    try { proc.kill('SIGKILL'); } catch { /* already exited */ }
+    try {
+      proc.kill('SIGKILL');
+    } catch {
+      /* already exited */
+    }
   }, timeoutMs + 3000);
 
   let stdoutText = '';
@@ -248,7 +257,12 @@ export async function runEdgeFunctionInSubprocess(
     await proc.exited;
   } catch (err) {
     clearTimeout(killTimer);
-    return { ok: false, error: `Subprocess error: ${(err as Error).message}`, logs: [], duration_ms: Date.now() - start };
+    return {
+      ok: false,
+      error: `Subprocess error: ${(err as Error).message}`,
+      logs: [],
+      duration_ms: Date.now() - start,
+    };
   }
   clearTimeout(killTimer);
 
@@ -259,14 +273,21 @@ export async function runEdgeFunctionInSubprocess(
   // engine crashes, …) becomes logs. We grab the LAST JSON line as the
   // envelope so stray output before it isn't mistaken for the result.
   const lines = stdoutText.split('\n').filter((l) => l.trim().length > 0);
-  let envelopeOut: { ok: boolean; response?: EdgeResponse; error?: string; logs?: string[] } | null = null;
+  let envelopeOut: {
+    ok: boolean;
+    response?: EdgeResponse;
+    error?: string;
+    logs?: string[];
+  } | null = null;
   const leftover: string[] = [];
   for (const line of lines) {
     if (envelopeOut == null && line.startsWith('{')) {
       try {
         envelopeOut = JSON.parse(line);
         continue;
-      } catch { /* not JSON, treat as log */ }
+      } catch {
+        /* not JSON, treat as log */
+      }
     }
     leftover.push(line);
   }
@@ -277,7 +298,10 @@ export async function runEdgeFunctionInSubprocess(
   if (!envelopeOut) {
     return {
       ok: false,
-      error: proc.exitCode === 0 ? 'Subprocess returned no envelope' : `Subprocess exited with code ${proc.exitCode}`,
+      error:
+        proc.exitCode === 0
+          ? 'Subprocess returned no envelope'
+          : `Subprocess exited with code ${proc.exitCode}`,
       logs: extraLogs,
       duration_ms,
     };

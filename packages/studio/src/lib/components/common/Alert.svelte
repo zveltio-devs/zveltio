@@ -1,14 +1,14 @@
 <script lang="ts">
 let {
-    type = 'info',
-    message = '',
-    dismissible = false,
-    onDismiss = null
+  type = 'info',
+  message = '',
+  dismissible = false,
+  onDismiss = null,
 }: {
-    type?: 'info' | 'success' | 'warning' | 'error';
-    message: string;
-    dismissible?: boolean;
-    onDismiss?: (() => void) | null;
+  type?: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+  dismissible?: boolean;
+  onDismiss?: (() => void) | null;
 } = $props();
 </script>
 

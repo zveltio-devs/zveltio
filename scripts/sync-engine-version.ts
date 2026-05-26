@@ -39,7 +39,7 @@ const sdkPkg = JSON.parse(readFileSync(sdkPkgPath, 'utf-8')) as { version: strin
 const newVersion = sdkPkg.version;
 
 const targets = [
-  { label: 'root',   path: join(root, 'package.json') },
+  { label: 'root', path: join(root, 'package.json') },
   { label: 'engine', path: join(root, 'packages/engine/package.json') },
   { label: 'studio', path: join(root, 'packages/studio/package.json') },
 ];

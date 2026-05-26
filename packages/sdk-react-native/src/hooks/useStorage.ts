@@ -12,9 +12,11 @@ export interface StorageFile {
 }
 
 // Declare FormData as a value — present in React Native runtime
-declare const FormData: { new(): {
-  append(name: string, value: any, filename?: string): void;
-} };
+declare const FormData: {
+  new (): {
+    append(name: string, value: any, filename?: string): void;
+  };
+};
 
 export function useStorage() {
   const client = useZveltioClient();
@@ -22,25 +24,32 @@ export function useStorage() {
   const [error, setError] = useState<Error | null>(null);
 
   // React Native: accepts { uri, name, type } from image picker / file picker
-  const upload = useCallback(async (
-    file: { uri: string; name: string; type: string },
-    folderId?: string,
-  ): Promise<StorageFile | null> => {
-    setUploading(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      // React Native fetch accepts { uri, name, type } as FormData file value
-      formData.append('file', { uri: file.uri, name: file.name, type: file.type } as any, file.name);
-      if (folderId) formData.append('folder_id', folderId);
-      return await (client as any).upload('/api/storage/upload', formData);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-      return null;
-    } finally {
-      setUploading(false);
-    }
-  }, [client]);
+  const upload = useCallback(
+    async (
+      file: { uri: string; name: string; type: string },
+      folderId?: string,
+    ): Promise<StorageFile | null> => {
+      setUploading(true);
+      setError(null);
+      try {
+        const formData = new FormData();
+        // React Native fetch accepts { uri, name, type } as FormData file value
+        formData.append(
+          'file',
+          { uri: file.uri, name: file.name, type: file.type } as any,
+          file.name,
+        );
+        if (folderId) formData.append('folder_id', folderId);
+        return await (client as any).upload('/api/storage/upload', formData);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+        return null;
+      } finally {
+        setUploading(false);
+      }
+    },
+    [client],
+  );
 
   const list = useCallback(
     (folderId?: string): Promise<{ files: StorageFile[] }> =>

@@ -1,292 +1,335 @@
 <script lang="ts">
-  /**
-   * Dashboard — the admin's landing page.
-   *
-   * UX-refactor goals (wave 40):
-   *   - Always-visible "Next steps" guidance, not just a one-shot setup
-   *     checklist that vanishes after first collection.
-   *   - Stat cards link to the most-relevant deep view, not just the list.
-   *   - System status surfaces problems prominently; healthy systems
-   *     stay quiet.
-   *   - No broken stats (the previous `slow_queries_24h` always-zero card).
-   */
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { api } from '$lib/api.js';
-  import {
-    Database, Webhook, Zap, CheckCircle,
-    XCircle, AlertCircle, Key, Activity,
-    RefreshCw, ExternalLink, Circle, UserPlus, Bot, Workflow, LayoutGrid,
-    ArrowRight, ArrowUp, ArrowDown, Shield, Sparkles,
-  } from '@lucide/svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import SectionCard from '$lib/components/common/SectionCard.svelte';
-  import EmptyState from '$lib/components/common/EmptyState.svelte';
-  import Slot from '$lib/components/common/Slot.svelte';
-  import Sparkline from '$lib/components/common/Sparkline.svelte';
-  import { auth } from '$lib/auth.svelte.js';
-  import { extensions } from '$lib/extensions.svelte.js';
+/**
+ * Dashboard — the admin's landing page.
+ *
+ * UX-refactor goals (wave 40):
+ *   - Always-visible "Next steps" guidance, not just a one-shot setup
+ *     checklist that vanishes after first collection.
+ *   - Stat cards link to the most-relevant deep view, not just the list.
+ *   - System status surfaces problems prominently; healthy systems
+ *     stay quiet.
+ *   - No broken stats (the previous `slow_queries_24h` always-zero card).
+ */
+import { onMount } from 'svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { api } from '$lib/api.js';
+import {
+  Database,
+  Webhook,
+  Zap,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Key,
+  Activity,
+  RefreshCw,
+  ExternalLink,
+  Circle,
+  UserPlus,
+  Bot,
+  Workflow,
+  LayoutGrid,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  Shield,
+  Sparkles,
+} from '@lucide/svelte';
+import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import SectionCard from '$lib/components/common/SectionCard.svelte';
+import EmptyState from '$lib/components/common/EmptyState.svelte';
+import Slot from '$lib/components/common/Slot.svelte';
+import Sparkline from '$lib/components/common/Sparkline.svelte';
+import { auth } from '$lib/auth.svelte.js';
+import { extensions } from '$lib/extensions.svelte.js';
 
-  interface AdminStats {
-    collections?: number;
-    active_webhooks?: number;
-    api_calls_today?: number;
-  }
-  interface SystemStatus {
-    database: { status: string; version?: string; tables?: number };
-    cache: { status: string };
-    uptime: number;
-  }
-  interface AuditEvent {
-    event_type: string;
-    user_id?: string | null;
-    resource_type?: string | null;
-    resource_id?: string | null;
-    created_at: string;
-  }
-  interface CollectionRow { name: string; label?: string; record_count: number; }
+interface AdminStats {
+  collections?: number;
+  active_webhooks?: number;
+  api_calls_today?: number;
+}
+interface SystemStatus {
+  database: { status: string; version?: string; tables?: number };
+  cache: { status: string };
+  uptime: number;
+}
+interface AuditEvent {
+  event_type: string;
+  user_id?: string | null;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  created_at: string;
+}
+interface CollectionRow {
+  name: string;
+  label?: string;
+  record_count: number;
+}
 
-  // ── State ───────────────────────────────────────────────────────────────
-  let statsLoading = $state(true);
-  let activityLoading = $state(true);
-  let systemLoading = $state(true);
-  let collectionsLoading = $state(true);
+// ── State ───────────────────────────────────────────────────────────────
+let statsLoading = $state(true);
+let activityLoading = $state(true);
+let systemLoading = $state(true);
+let collectionsLoading = $state(true);
 
-  let stats = $state({
-    collections: 0,
-    total_records: 0,
-    api_calls_today: 0,
-    active_webhooks: 0,
+let stats = $state({
+  collections: 0,
+  total_records: 0,
+  api_calls_today: 0,
+  active_webhooks: 0,
+});
+
+let activity = $state<AuditEvent[]>([]);
+let system = $state<SystemStatus | null>(null);
+let collections = $state<CollectionRow[]>([]);
+let apiKeys = $state<unknown[]>([]);
+let webhooks = $state<unknown[]>([]);
+let permissionsCount = $state(0);
+let flowsCount = $state(0);
+
+// ── Next steps — adaptive based on platform state ───────────────────────
+// Unlike a one-shot onboarding checklist, this is always visible. As the
+// operator completes earlier steps, new suggestions surface — keeping the
+// dashboard useful long past first-login.
+const nextSteps = $derived.by(() => {
+  const steps: Array<{ label: string; done: boolean; href: string; hint?: string }> = [];
+  steps.push({
+    label: 'Create a collection',
+    done: collections.length > 0,
+    href: `${base}/collections`,
+    hint: 'Schema-less tables that hold your data.',
   });
-
-  let activity = $state<AuditEvent[]>([]);
-  let system = $state<SystemStatus | null>(null);
-  let collections = $state<CollectionRow[]>([]);
-  let apiKeys = $state<unknown[]>([]);
-  let webhooks = $state<unknown[]>([]);
-  let permissionsCount = $state(0);
-  let flowsCount = $state(0);
-
-  // ── Next steps — adaptive based on platform state ───────────────────────
-  // Unlike a one-shot onboarding checklist, this is always visible. As the
-  // operator completes earlier steps, new suggestions surface — keeping the
-  // dashboard useful long past first-login.
-  const nextSteps = $derived.by(() => {
-    const steps: Array<{ label: string; done: boolean; href: string; hint?: string }> = [];
-    steps.push({ label: 'Create a collection', done: collections.length > 0, href: `${base}/collections`,
-                 hint: 'Schema-less tables that hold your data.' });
-    steps.push({ label: 'Add permissions', done: permissionsCount > 0, href: `${base}/permissions`,
-                 hint: 'Lock collections down by role before going to production.' });
-    steps.push({ label: 'Generate an API key', done: apiKeys.length > 0, href: `${base}/api-keys`,
-                 hint: 'For server-side / SDK access.' });
-    steps.push({ label: 'Set up a webhook', done: webhooks.length > 0, href: `${base}/webhooks`,
-                 hint: 'Notify external services on data changes.' });
-    if (collections.length > 0) {
-      steps.push({ label: 'Build a flow', done: flowsCount > 0, href: `${base}/flows`,
-                   hint: 'Wire triggers → actions without writing code.' });
-    }
-    if (extensions.isActive('ai')) {
-      steps.push({ label: 'Try the AI assistant', done: false, href: `${base}/ai`,
-                   hint: 'Generate schemas, queries, and insights from natural language.' });
-    }
-    return steps;
+  steps.push({
+    label: 'Add permissions',
+    done: permissionsCount > 0,
+    href: `${base}/permissions`,
+    hint: 'Lock collections down by role before going to production.',
   });
-  const pendingSteps = $derived(nextSteps.filter((s) => !s.done));
-
-  const largestCollection = $derived(
-    collections.slice().sort((a, b) => b.record_count - a.record_count)[0],
-  );
-
-  // ── Load ────────────────────────────────────────────────────────────────
-  onMount(() => {
-    refresh();
+  steps.push({
+    label: 'Generate an API key',
+    done: apiKeys.length > 0,
+    href: `${base}/api-keys`,
+    hint: 'For server-side / SDK access.',
   });
-
-  function refresh(): void {
-    loadStats();
-    loadActivity();
-    loadSystem();
-    loadCollections();
-    loadSidebarData();
+  steps.push({
+    label: 'Set up a webhook',
+    done: webhooks.length > 0,
+    href: `${base}/webhooks`,
+    hint: 'Notify external services on data changes.',
+  });
+  if (collections.length > 0) {
+    steps.push({
+      label: 'Build a flow',
+      done: flowsCount > 0,
+      href: `${base}/flows`,
+      hint: 'Wire triggers → actions without writing code.',
+    });
   }
+  if (extensions.isActive('ai')) {
+    steps.push({
+      label: 'Try the AI assistant',
+      done: false,
+      href: `${base}/ai`,
+      hint: 'Generate schemas, queries, and insights from natural language.',
+    });
+  }
+  return steps;
+});
+const pendingSteps = $derived(nextSteps.filter((s) => !s.done));
 
-  async function loadSidebarData() {
-    const [keysRes, hooksRes, permsRes, flowsRes] = await Promise.allSettled([
-      api.get<{ keys: unknown[] }>('/api/api-keys'),
-      api.get<{ webhooks: unknown[] }>('/api/webhooks'),
-      api.get<{ permissions?: unknown[]; rules?: unknown[] }>('/api/permissions'),
-      api.get<{ flows: unknown[] }>('/api/flows'),
+const largestCollection = $derived(
+  collections.slice().sort((a, b) => b.record_count - a.record_count)[0],
+);
+
+// ── Load ────────────────────────────────────────────────────────────────
+onMount(() => {
+  refresh();
+});
+
+function refresh(): void {
+  loadStats();
+  loadActivity();
+  loadSystem();
+  loadCollections();
+  loadSidebarData();
+}
+
+async function loadSidebarData() {
+  const [keysRes, hooksRes, permsRes, flowsRes] = await Promise.allSettled([
+    api.get<{ keys: unknown[] }>('/api/api-keys'),
+    api.get<{ webhooks: unknown[] }>('/api/webhooks'),
+    api.get<{ permissions?: unknown[]; rules?: unknown[] }>('/api/permissions'),
+    api.get<{ flows: unknown[] }>('/api/flows'),
+  ]);
+  if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.keys ?? [];
+  if (hooksRes.status === 'fulfilled') webhooks = hooksRes.value.webhooks ?? [];
+  if (permsRes.status === 'fulfilled')
+    permissionsCount = (permsRes.value.permissions ?? permsRes.value.rules ?? []).length;
+  if (flowsRes.status === 'fulfilled') flowsCount = flowsRes.value.flows?.length ?? 0;
+}
+
+async function loadStats() {
+  statsLoading = true;
+  try {
+    const [adminStats, collectionsData] = await Promise.allSettled([
+      api.get<AdminStats>('/api/admin/stats'),
+      api.get<{ collections: unknown[] }>('/api/collections'),
     ]);
-    if (keysRes.status === 'fulfilled') apiKeys = keysRes.value.keys ?? [];
-    if (hooksRes.status === 'fulfilled') webhooks = hooksRes.value.webhooks ?? [];
-    if (permsRes.status === 'fulfilled')
-      permissionsCount = (permsRes.value.permissions ?? permsRes.value.rules ?? []).length;
-    if (flowsRes.status === 'fulfilled') flowsCount = flowsRes.value.flows?.length ?? 0;
+    const s = adminStats.status === 'fulfilled' ? adminStats.value : null;
+    const c = collectionsData.status === 'fulfilled' ? collectionsData.value : null;
+    stats = {
+      collections: s?.collections ?? c?.collections?.length ?? 0,
+      total_records: 0,
+      api_calls_today: s?.api_calls_today ?? 0,
+      active_webhooks: s?.active_webhooks ?? 0,
+    };
+  } finally {
+    statsLoading = false;
   }
+}
 
-  async function loadStats() {
-    statsLoading = true;
-    try {
-      const [adminStats, collectionsData] = await Promise.allSettled([
-        api.get<AdminStats>('/api/admin/stats'),
-        api.get<{ collections: unknown[] }>('/api/collections'),
-      ]);
-      const s = adminStats.status === 'fulfilled' ? adminStats.value : null;
-      const c = collectionsData.status === 'fulfilled' ? collectionsData.value : null;
-      stats = {
-        collections: s?.collections ?? c?.collections?.length ?? 0,
-        total_records: 0,
-        api_calls_today: s?.api_calls_today ?? 0,
-        active_webhooks: s?.active_webhooks ?? 0,
-      };
-    } finally {
-      statsLoading = false;
-    }
+async function loadActivity() {
+  activityLoading = true;
+  try {
+    const res = await api.get<{ audit: AuditEvent[] }>('/api/admin/audit?limit=10');
+    activity = res.audit ?? [];
+  } catch {
+    activity = [];
+  } finally {
+    activityLoading = false;
   }
+}
 
-  async function loadActivity() {
-    activityLoading = true;
-    try {
-      const res = await api.get<{ audit: AuditEvent[] }>('/api/admin/audit?limit=10');
-      activity = res.audit ?? [];
-    } catch {
-      activity = [];
-    } finally {
-      activityLoading = false;
-    }
+async function loadSystem() {
+  systemLoading = true;
+  try {
+    system = await api.get<SystemStatus>('/api/admin/status');
+  } catch {
+    system = null;
+  } finally {
+    systemLoading = false;
   }
+}
 
-  async function loadSystem() {
-    systemLoading = true;
-    try {
-      system = await api.get<SystemStatus>('/api/admin/status');
-    } catch {
-      system = null;
-    } finally {
-      systemLoading = false;
-    }
-  }
-
-  async function loadCollections() {
-    collectionsLoading = true;
-    try {
-      const colRes = await api.get<{ collections: Array<{ name: string; label?: string }> }>('/api/collections');
-      const cols = colRes.collections ?? [];
-      const countResults = await Promise.allSettled(
-        cols.map((col) =>
-          api.get<{ total?: number; pagination?: { total: number } }>(`/api/data/${col.name}?limit=1`),
+async function loadCollections() {
+  collectionsLoading = true;
+  try {
+    const colRes = await api.get<{ collections: Array<{ name: string; label?: string }> }>(
+      '/api/collections',
+    );
+    const cols = colRes.collections ?? [];
+    const countResults = await Promise.allSettled(
+      cols.map((col) =>
+        api.get<{ total?: number; pagination?: { total: number } }>(
+          `/api/data/${col.name}?limit=1`,
         ),
-      );
-      let totalRecords = 0;
-      collections = cols.map((col, i) => {
-        const r = countResults[i];
-        const total = r.status === 'fulfilled'
-          ? (r.value.total ?? r.value.pagination?.total ?? 0)
-          : 0;
-        totalRecords += total;
-        return { name: col.name, label: col.label, record_count: total };
-      });
-      stats = { ...stats, collections: cols.length, total_records: totalRecords };
-    } catch {
-      collections = [];
-    } finally {
-      collectionsLoading = false;
-    }
+      ),
+    );
+    let totalRecords = 0;
+    collections = cols.map((col, i) => {
+      const r = countResults[i];
+      const total =
+        r.status === 'fulfilled' ? (r.value.total ?? r.value.pagination?.total ?? 0) : 0;
+      totalRecords += total;
+      return { name: col.name, label: col.label, record_count: total };
+    });
+    stats = { ...stats, collections: cols.length, total_records: totalRecords };
+  } catch {
+    collections = [];
+  } finally {
+    collectionsLoading = false;
   }
+}
 
-  // ── Helpers ─────────────────────────────────────────────────────────────
-  function formatUptime(seconds: number): string {
-    const d = Math.floor(seconds / 86400);
-    const h = Math.floor((seconds % 86400) / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (d > 0) return `${d}d ${h}h`;
-    return `${h}h ${m}m`;
+// ── Helpers ─────────────────────────────────────────────────────────────
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  return `${h}h ${m}m`;
+}
+
+function formatRelative(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function statusColor(status: string): string {
+  if (status === 'connected') return 'text-success';
+  if (status === 'not_configured') return 'text-warning';
+  return 'text-error';
+}
+
+function statusIcon(status: string) {
+  if (status === 'connected') return CheckCircle;
+  if (status === 'not_configured') return AlertCircle;
+  return XCircle;
+}
+
+function eventLabel(type: string): string {
+  return type.replace(/_/g, ' ').replace(/\./g, ' › ');
+}
+
+// System health flag — surfaces a banner when something's wrong.
+const systemUnhealthy = $derived(!!system && system.database.status !== 'connected');
+
+// Personal greeting based on time-of-day — gives the dashboard a human
+// touch without re-coupling the AI extension into core. AI extension
+// can still override the entire hero area via the `dashboard.hero` slot.
+function timeOfDayGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return 'Working late';
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  if (h < 22) return 'Good evening';
+  return 'Working late';
+}
+const firstName = $derived((auth.user?.name ?? '').split(' ')[0] || '');
+const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : timeOfDayGreeting());
+
+// Mock sparkline series — deterministic per metric so the dashboard
+// doesn't reshuffle on every refresh. Replace with real time-series
+// from a future /api/admin/stats?series=7d endpoint.
+function mockSeries(seed: number, target: number, points = 14): number[] {
+  const out: number[] = [];
+  let v = Math.max(0, target * 0.6);
+  for (let i = 0; i < points; i++) {
+    const r = Math.sin((i + 1) * (seed + 0.37)) * 0.5 + 0.5;
+    v = v + (target - v) * 0.2 + (r - 0.5) * Math.max(2, target * 0.08);
+    out.push(Math.max(0, Math.round(v)));
   }
+  out[out.length - 1] = target;
+  return out;
+}
+const collectionsSeries = $derived(mockSeries(1, stats.collections));
+const recordsSeries = $derived(mockSeries(2, stats.total_records));
+const apiCallsSeries = $derived(mockSeries(3, stats.api_calls_today));
+const webhooksSeries = $derived(mockSeries(4, stats.active_webhooks));
 
-  function formatRelative(dateStr: string): string {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60_000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  }
+const collectionsTrend = $derived(trend(collectionsSeries));
+const recordsTrend = $derived(trend(recordsSeries));
+const apiCallsTrend = $derived(trend(apiCallsSeries));
+const webhooksTrend = $derived(trend(webhooksSeries));
 
-  function statusColor(status: string): string {
-    if (status === 'connected') return 'text-success';
-    if (status === 'not_configured') return 'text-warning';
-    return 'text-error';
-  }
-
-  function statusIcon(status: string) {
-    if (status === 'connected') return CheckCircle;
-    if (status === 'not_configured') return AlertCircle;
-    return XCircle;
-  }
-
-  function eventLabel(type: string): string {
-    return type.replace(/_/g, ' ').replace(/\./g, ' › ');
-  }
-
-  // System health flag — surfaces a banner when something's wrong.
-  const systemUnhealthy = $derived(
-    !!system && (system.database.status !== 'connected'),
-  );
-
-  // Personal greeting based on time-of-day — gives the dashboard a human
-  // touch without re-coupling the AI extension into core. AI extension
-  // can still override the entire hero area via the `dashboard.hero` slot.
-  function timeOfDayGreeting(): string {
-    const h = new Date().getHours();
-    if (h < 5)  return 'Working late';
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    if (h < 22) return 'Good evening';
-    return 'Working late';
-  }
-  const firstName = $derived((auth.user?.name ?? '').split(' ')[0] || '');
-  const greeting = $derived(
-    firstName ? `${timeOfDayGreeting()}, ${firstName}` : timeOfDayGreeting(),
-  );
-
-  // Mock sparkline series — deterministic per metric so the dashboard
-  // doesn't reshuffle on every refresh. Replace with real time-series
-  // from a future /api/admin/stats?series=7d endpoint.
-  function mockSeries(seed: number, target: number, points = 14): number[] {
-    const out: number[] = [];
-    let v = Math.max(0, target * 0.6);
-    for (let i = 0; i < points; i++) {
-      const r = Math.sin((i + 1) * (seed + 0.37)) * 0.5 + 0.5;
-      v = v + (target - v) * 0.2 + (r - 0.5) * Math.max(2, target * 0.08);
-      out.push(Math.max(0, Math.round(v)));
-    }
-    out[out.length - 1] = target;
-    return out;
-  }
-  const collectionsSeries = $derived(mockSeries(1, stats.collections));
-  const recordsSeries     = $derived(mockSeries(2, stats.total_records));
-  const apiCallsSeries    = $derived(mockSeries(3, stats.api_calls_today));
-  const webhooksSeries    = $derived(mockSeries(4, stats.active_webhooks));
-
-  const collectionsTrend = $derived(trend(collectionsSeries));
-  const recordsTrend     = $derived(trend(recordsSeries));
-  const apiCallsTrend    = $derived(trend(apiCallsSeries));
-  const webhooksTrend    = $derived(trend(webhooksSeries));
-
-  // Trend delta — compares latest point to first point of the series.
-  function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
-    if (series.length < 2) return { pct: 0, dir: 'flat' };
-    const first = series[0];
-    const last = series[series.length - 1];
-    if (first === 0 && last === 0) return { pct: 0, dir: 'flat' };
-    if (first === 0) return { pct: 100, dir: 'up' };
-    const pct = Math.round(((last - first) / first) * 100);
-    if (Math.abs(pct) < 1) return { pct: 0, dir: 'flat' };
-    return { pct: Math.abs(pct), dir: pct > 0 ? 'up' : 'down' };
-  }
+// Trend delta — compares latest point to first point of the series.
+function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
+  if (series.length < 2) return { pct: 0, dir: 'flat' };
+  const first = series[0];
+  const last = series[series.length - 1];
+  if (first === 0 && last === 0) return { pct: 0, dir: 'flat' };
+  if (first === 0) return { pct: 100, dir: 'up' };
+  const pct = Math.round(((last - first) / first) * 100);
+  if (Math.abs(pct) < 1) return { pct: 0, dir: 'flat' };
+  return { pct: Math.abs(pct), dir: pct > 0 ? 'up' : 'down' };
+}
 </script>
 
 <div class="space-y-6">

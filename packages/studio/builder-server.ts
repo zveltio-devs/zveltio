@@ -14,14 +14,14 @@ import { join } from 'path';
 
 const app = new Hono();
 
-const STUDIO_ROOT  = import.meta.dir;
-const EXT_DIR      = process.env.EXTENSIONS_DIR ?? '/extensions';
-const ROUTES_EXT   = join(STUDIO_ROOT, 'src/routes/(admin)/extensions');
+const STUDIO_ROOT = import.meta.dir;
+const EXT_DIR = process.env.EXTENSIONS_DIR ?? '/extensions';
+const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)/extensions');
 
 app.get('/health', (c) => c.json({ ok: true }));
 
 app.post('/rebuild', async (c) => {
-  const body = await c.req.json().catch(() => ({})) as { extensions?: string[] };
+  const body = (await c.req.json().catch(() => ({}))) as { extensions?: string[] };
   const activeExtensions: string[] = body.extensions ?? [];
 
   // Sync extension pages into Studio route tree
@@ -41,7 +41,9 @@ app.post('/rebuild', async (c) => {
         if (firstPage?.path) {
           slug = firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '');
         }
-      } catch { /* use extName as slug */ }
+      } catch {
+        /* use extName as slug */
+      }
     }
 
     const dest = join(ROUTES_EXT, slug);

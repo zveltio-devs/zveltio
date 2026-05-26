@@ -289,13 +289,15 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     '/dashboards/:id/shares',
     zValidator(
       'json',
-      z.object({
-        shared_with_user_id: z.string().optional(),
-        shared_with_role: z.string().optional(),
-        permission: z.enum(['view', 'edit']).default('view'),
-      }).refine((d) => d.shared_with_user_id || d.shared_with_role, {
-        message: 'Either shared_with_user_id or shared_with_role is required',
-      }),
+      z
+        .object({
+          shared_with_user_id: z.string().optional(),
+          shared_with_role: z.string().optional(),
+          permission: z.enum(['view', 'edit']).default('view'),
+        })
+        .refine((d) => d.shared_with_user_id || d.shared_with_role, {
+          message: 'Either shared_with_user_id or shared_with_role is required',
+        }),
     ),
     async (c) => {
       const user = c.get('user') as any;
@@ -322,10 +324,13 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       if (body.shared_with_role) {
         const allRoles = await listAllRoles().catch(() => [] as string[]);
         if (!allRoles.includes(body.shared_with_role)) {
-          return c.json({
-            error: `Role "${body.shared_with_role}" does not exist`,
-            known_roles: allRoles,
-          }, 400);
+          return c.json(
+            {
+              error: `Role "${body.shared_with_role}" does not exist`,
+              known_roles: allRoles,
+            },
+            400,
+          );
         }
       }
 
@@ -596,7 +601,13 @@ export function insightsRoutes(db: Database, auth: any): Hono {
           console.warn(`[insights] panel metadata update failed for ${id}:`, err.message);
         });
 
-      return c.json({ data: rows, type: panel.type, row_count: rows.length, cached: false, execution_ms: executionMs });
+      return c.json({
+        data: rows,
+        type: panel.type,
+        row_count: rows.length,
+        cached: false,
+        execution_ms: executionMs,
+      });
     } catch (err: any) {
       // Increment error count
       await db
@@ -653,9 +664,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
     const queries = await db
       .selectFrom('zvd_insight_saved_queries')
       .selectAll()
-      .where((eb: any) =>
-        eb.or([eb('is_public', '=', true), eb('created_by', '=', user.id)]),
-      )
+      .where((eb: any) => eb.or([eb('is_public', '=', true), eb('created_by', '=', user.id)]))
       .orderBy('use_count', 'desc')
       .orderBy('created_at', 'desc')
       .execute();

@@ -4,8 +4,7 @@
  * @param size Number of characters (default 21, same as nanoid default)
  */
 export function generateId(size: number = 21): string {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let id = '';
   const randomValues = new Uint8Array(size);
   crypto.getRandomValues(randomValues);

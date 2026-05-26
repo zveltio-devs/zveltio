@@ -113,20 +113,20 @@ const BTN: Record<string, string> = {
   'Apply Schema': 'ai.action.applySchema',
   'Add Provider': 'ai.action.addProvider',
   'Send Message': 'ai.action.sendMessage',
-  'Compose': 'communications.mail.compose',
-  'Send': 'common.send',
-  'Sync': 'common.sync',
+  Compose: 'communications.mail.compose',
+  Send: 'common.send',
+  Sync: 'common.sync',
   'Test Connection': 'common.testConnection',
-  'Generate': 'common.generate',
-  'Download': 'common.download',
-  'Upload': 'common.upload',
-  'Revoke': 'common.revoke',
-  'Publish': 'common.publish',
-  'Discard': 'common.discard',
-  'Approve': 'common.approve',
-  'Reject': 'common.reject',
-  'Post': 'common.post',
-  'Open': 'common.open',
+  Generate: 'common.generate',
+  Download: 'common.download',
+  Upload: 'common.upload',
+  Revoke: 'common.revoke',
+  Publish: 'common.publish',
+  Discard: 'common.discard',
+  Approve: 'common.approve',
+  Reject: 'common.reject',
+  Post: 'common.post',
+  Open: 'common.open',
   'Close session': 'operations.pos.closeSession',
   'Open session': 'operations.pos.openSession',
 };
@@ -187,7 +187,8 @@ const BTN_RO: Record<string, string> = {
 
 Object.assign(en, TH_EN, BTN_EN);
 for (const [k, v] of Object.entries({ ...TH_EN, ...BTN_EN })) {
-  if (!ro[k]) ro[k] = (TH_RO as Record<string, string>)[k] ?? (BTN_RO as Record<string, string>)[k] ?? v;
+  if (!ro[k])
+    ro[k] = (TH_RO as Record<string, string>)[k] ?? (BTN_RO as Record<string, string>)[k] ?? v;
 }
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -205,7 +206,10 @@ for (const p of walk(EXT_ROOT)) {
   const o = c;
   for (const [text, key] of Object.entries(TH)) {
     c = c.replaceAll(`<th>${text}</th>`, `<th>{m['${key}']()}</th>`);
-    c = c.replaceAll(`<th class="text-right">${text}</th>`, `<th class="text-right">{m['${key}']()}</th>`);
+    c = c.replaceAll(
+      `<th class="text-right">${text}</th>`,
+      `<th class="text-right">{m['${key}']()}</th>`,
+    );
   }
   for (const [text, key] of Object.entries(BTN)) {
     const mCall = `m['${key}']()`;

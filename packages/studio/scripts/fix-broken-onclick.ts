@@ -84,8 +84,14 @@ const MSG: Record<string, { en: string; ro: string }> = {
 };
 
 const STUDIO = join(import.meta.dir, '..');
-const en = JSON.parse(readFileSync(join(STUDIO, 'messages/en.json'), 'utf8')) as Record<string, string>;
-const ro = JSON.parse(readFileSync(join(STUDIO, 'messages/ro.json'), 'utf8')) as Record<string, string>;
+const en = JSON.parse(readFileSync(join(STUDIO, 'messages/en.json'), 'utf8')) as Record<
+  string,
+  string
+>;
+const ro = JSON.parse(readFileSync(join(STUDIO, 'messages/ro.json'), 'utf8')) as Record<
+  string,
+  string
+>;
 for (const [k, v] of Object.entries(MSG)) {
   en[k] = v.en;
   ro[k] = v.ro;
@@ -114,7 +120,8 @@ for (const rel of [
   'workflow/approvals/studio/pages/+page.svelte',
   'geospatial/postgis/studio/pages/+page.svelte',
   'billing/studio/pages/+page.svelte',
-]) dedupeAtSecondLoading(rel);
+])
+  dedupeAtSecondLoading(rel);
 
 function walk(dir: string, out: string[] = []) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {

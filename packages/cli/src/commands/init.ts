@@ -4,12 +4,12 @@ import { createInterface } from 'readline';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
-  bold:  (s: string) => `\x1b[1m${s}\x1b[0m`,
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
   green: (s: string) => `\x1b[32m${s}\x1b[0m`,
-  cyan:  (s: string) => `\x1b[36m${s}\x1b[0m`,
-  dim:   (s: string) => `\x1b[2m${s}\x1b[0m`,
-  red:   (s: string) => `\x1b[31m${s}\x1b[0m`,
-  yellow:(s: string) => `\x1b[33m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
+  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
 };
 
 function rl(): ReturnType<typeof createInterface> {
@@ -17,15 +17,23 @@ function rl(): ReturnType<typeof createInterface> {
 }
 
 async function ask(iface: ReturnType<typeof createInterface>, question: string): Promise<string> {
-  return new Promise(resolve => iface.question(question, resolve));
+  return new Promise((resolve) => iface.question(question, resolve));
 }
 
-async function askWithDefault(iface: ReturnType<typeof createInterface>, question: string, defaultValue: string): Promise<string> {
+async function askWithDefault(
+  iface: ReturnType<typeof createInterface>,
+  question: string,
+  defaultValue: string,
+): Promise<string> {
   const answer = await ask(iface, question);
   return answer.trim() || defaultValue;
 }
 
-async function askYesNo(iface: ReturnType<typeof createInterface>, question: string, defaultYes = true): Promise<boolean> {
+async function askYesNo(
+  iface: ReturnType<typeof createInterface>,
+  question: string,
+  defaultYes = true,
+): Promise<boolean> {
   const hint = defaultYes ? 'Y/n' : 'y/N';
   const answer = await ask(iface, `${question} ${c.dim(`[${hint}]`)}: `);
   const trimmed = answer.trim().toLowerCase();
@@ -47,7 +55,7 @@ async function fetchOfficialExtensions(): Promise<OfficialExtension[]> {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
-    const data = await res.json() as { extensions: OfficialExtension[] };
+    const data = (await res.json()) as { extensions: OfficialExtension[] };
     return data.extensions ?? [];
   } catch {
     return [];
@@ -80,7 +88,9 @@ async function pickExtensions(
       const shortDesc = ext.description
         ? `  ${c.dim('— ' + ext.description.slice(0, 55) + (ext.description.length > 55 ? '…' : ''))}`
         : '';
-      console.log(`    ${c.dim(String(idx).padStart(2, ' ') + '.')} ${ext.name.split('/').pop()}${shortDesc}`);
+      console.log(
+        `    ${c.dim(String(idx).padStart(2, ' ') + '.')} ${ext.name.split('/').pop()}${shortDesc}`,
+      );
       indexed.push({ num: idx, name: ext.name });
       idx++;
     }
@@ -97,17 +107,14 @@ async function pickExtensions(
   const chosen = new Set<string>();
   for (const token of answer.trim().split(/\s+/)) {
     const n = parseInt(token, 10);
-    const found = indexed.find(e => e.num === n);
+    const found = indexed.find((e) => e.num === n);
     if (found) chosen.add(found.name);
   }
 
   return [...chosen];
 }
 
-export async function initCommand(
-  name: string = '.',
-  _opts: { template?: string } = {},
-) {
+export async function initCommand(name: string = '.', _opts: { template?: string } = {}) {
   console.log(`\n${c.bold(c.cyan('Zveltio Init'))}\n`);
 
   // Fetch official extensions early (non-blocking)
@@ -116,9 +123,10 @@ export async function initCommand(
   const iface = rl();
 
   // ── Interactive prompts ────────────────────────────────────────────────────
-  const defaultProjectName = name !== '.'
-    ? name.split(/[/\\]/).pop() || 'zveltio-app'
-    : process.cwd().split(/[/\\]/).pop() || 'zveltio-app';
+  const defaultProjectName =
+    name !== '.'
+      ? name.split(/[/\\]/).pop() || 'zveltio-app'
+      : process.cwd().split(/[/\\]/).pop() || 'zveltio-app';
 
   const projectName = await askWithDefault(
     iface,
@@ -134,18 +142,10 @@ export async function initCommand(
     defaultDbUrl,
   );
 
-  const portStr = await askWithDefault(
-    iface,
-    `Port ${c.dim('[3000]')}: `,
-    '3000',
-  );
+  const portStr = await askWithDefault(iface, `Port ${c.dim('[3000]')}: `, '3000');
   const port = parseInt(portStr, 10) || 3000;
 
-  const enableStudio = await askYesNo(
-    iface,
-    'Enable Studio (admin UI)?',
-    true,
-  );
+  const enableStudio = await askYesNo(iface, 'Enable Studio (admin UI)?', true);
 
   // ── Employee Intranet zone ─────────────────────────────────────────────────
   const enableIntranet = await askYesNo(
@@ -172,8 +172,14 @@ export async function initCommand(
     console.log('');
     const tmplAnswer = await ask(iface, `  Template ${c.dim('[1-4, default: 1]')}: `);
     const tmplMap: Record<string, string> = {
-      '1': 'generic', '2': 'saas', '3': 'services', '4': 'regulatory',
-      'generic': 'generic', 'saas': 'saas', 'services': 'services', 'regulatory': 'regulatory',
+      '1': 'generic',
+      '2': 'saas',
+      '3': 'services',
+      '4': 'regulatory',
+      generic: 'generic',
+      saas: 'saas',
+      services: 'services',
+      regulatory: 'regulatory',
     };
     clientPortalTemplate = tmplMap[tmplAnswer.trim()] ?? 'generic';
     console.log(`  ${c.green('✔')} Template: ${clientPortalTemplate}`);
@@ -186,7 +192,9 @@ export async function initCommand(
   if (officialExtensions.length > 0) {
     selectedExtensions = await pickExtensions(iface, officialExtensions);
   } else {
-    console.log(c.dim('\n  (Could not reach registry — extensions can be configured later in .env)\n'));
+    console.log(
+      c.dim('\n  (Could not reach registry — extensions can be configured later in .env)\n'),
+    );
   }
 
   iface.close();
@@ -204,7 +212,7 @@ export async function initCommand(
   // ── Generate remaining secrets ─────────────────────────────────────────────
   const s3AccessKey = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
   const s3SecretKey = crypto.randomUUID().replace(/-/g, '');
-  const authSecret  = crypto.randomUUID().replace(/-/g, '');
+  const authSecret = crypto.randomUUID().replace(/-/g, '');
 
   const extensionsValue = selectedExtensions.join(',');
 
@@ -325,27 +333,22 @@ volumes:
   // ── .gitignore ────────────────────────────────────────────────────────────
   await Bun.write(
     join(dir, '.gitignore'),
-    [
-      '.env',
-      'node_modules/',
-      'dist/',
-      '.DS_Store',
-      '*.local',
-      'types/',
-      '',
-    ].join('\n'),
+    ['.env', 'node_modules/', 'dist/', '.DS_Store', '*.local', 'types/', ''].join('\n'),
   );
 
   // ── Print next steps ──────────────────────────────────────────────────────
-  const extSummary = selectedExtensions.length > 0
-    ? `\n  ${c.green('✔')} Extensions: ${selectedExtensions.map(e => e.split('/').pop()).join(', ')}`
-    : '';
+  const extSummary =
+    selectedExtensions.length > 0
+      ? `\n  ${c.green('✔')} Extensions: ${selectedExtensions.map((e) => e.split('/').pop()).join(', ')}`
+      : '';
   const intranetSummary = enableIntranet ? `\n  ${c.green('✔')} Employee Intranet: enabled` : '';
   const portalSummary = enableClientPortal
     ? `\n  ${c.green('✔')} Client Portal: ${clientPortalTemplate} template`
     : '';
 
-  console.log(`\n${c.green(`✔ Project "${projectName}" initialized`)} at ${dir}${extSummary}${intranetSummary}${portalSummary}`);
+  console.log(
+    `\n${c.green(`✔ Project "${projectName}" initialized`)} at ${dir}${extSummary}${intranetSummary}${portalSummary}`,
+  );
 
   const portalNote = enableClientPortal
     ? `\n  ${c.cyan(`Client Portal:  http://localhost:${port}/portal-client/login`)}`

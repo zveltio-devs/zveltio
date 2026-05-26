@@ -41,7 +41,12 @@ export const WebhookManager = {
             .insertInto('zvd_webhook_deliveries')
             .values({
               webhook_id: wh.id,
-              payload: JSON.stringify({ event, collection, data, timestamp: new Date().toISOString() }),
+              payload: JSON.stringify({
+                event,
+                collection,
+                data,
+                timestamp: new Date().toISOString(),
+              }),
               url: wh.url,
               method: wh.method || 'POST',
               headers: JSON.stringify((wh.headers as Record<string, string>) || {}),
@@ -68,7 +73,10 @@ export const WebhookManager = {
             const decrypted = await maybeDecrypt(wh.secret, true);
             plaintextSecret = typeof decrypted === 'string' ? decrypted : null;
           } catch (err) {
-            console.warn(`[webhooks] failed to decrypt secret for webhook ${wh.id}:`, (err as Error).message);
+            console.warn(
+              `[webhooks] failed to decrypt secret for webhook ${wh.id}:`,
+              (err as Error).message,
+            );
             plaintextSecret = null;
           }
         }
@@ -168,9 +176,7 @@ export const WebhookManager = {
           ['sign'],
         );
         const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-        headers['X-Zveltio-Signature'] = `sha256=${Array.from(
-          new Uint8Array(sig),
-        )
+        headers['X-Zveltio-Signature'] = `sha256=${Array.from(new Uint8Array(sig))
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('')}`;
       }
@@ -182,9 +188,7 @@ export const WebhookManager = {
         body,
         // Clamp the timeout to [100 ms, 30 s] so a bad value in the DB
         // (compromised config, manual edit) can't produce 0/negative/infinite waits.
-        signal: AbortSignal.timeout(
-          Math.min(Math.max(payload.timeout || 5_000, 100), 30_000),
-        ),
+        signal: AbortSignal.timeout(Math.min(Math.max(payload.timeout || 5_000, 100), 30_000)),
       });
 
       httpStatus = response.status;

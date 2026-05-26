@@ -1,673 +1,748 @@
 <script lang="ts">
-  import { page } from '$app/state';
-  import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
-  import { collectionsApi, dataApi, api } from '$lib/api.js';
-  import {
-    Plus, Trash2, RefreshCw, X, Sparkles, Save, Code, Database,
-    Layers, ArrowRight, GitFork, Settings, GripVertical, Columns,
-  } from '@lucide/svelte';
-  import { base } from '$app/paths';
-  import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-  import AddFieldDrawer from '$lib/components/fields/AddFieldDrawer.svelte';
-  import Slot from '$lib/components/common/Slot.svelte';
-  import { auth } from '$lib/auth.svelte.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { withOptimistic } from '$lib/stores/optimistic.svelte.js';
-  import { realtime } from '$lib/stores/realtime.svelte.js';
-  import { onDestroy } from 'svelte';
+import { page } from '$app/state';
+import { goto } from '$app/navigation';
+import { onMount } from 'svelte';
+import { collectionsApi, dataApi, api } from '$lib/api.js';
+import {
+  Plus,
+  Trash2,
+  RefreshCw,
+  X,
+  Sparkles,
+  Save,
+  Code,
+  Database,
+  Layers,
+  ArrowRight,
+  GitFork,
+  Settings,
+  GripVertical,
+  Columns,
+} from '@lucide/svelte';
+import { base } from '$app/paths';
+import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+import AddFieldDrawer from '$lib/components/fields/AddFieldDrawer.svelte';
+import Slot from '$lib/components/common/Slot.svelte';
+import { auth } from '$lib/auth.svelte.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { withOptimistic } from '$lib/stores/optimistic.svelte.js';
+import { realtime } from '$lib/stores/realtime.svelte.js';
+import { onDestroy } from 'svelte';
 
-  const collectionName = $derived(page.params.name ?? '');
+const collectionName = $derived(page.params.name ?? '');
 
-  // ── Core data ──────────────────────────────────────────────────────────────
-  let collection = $state<any>(null);
-  let records    = $state<any[]>([]);
-  let relations  = $state<any[]>([]);
-  let pagination = $state<{ total: number; page: number; limit: number; pages?: number }>({ total: 0, page: 1, limit: 25 });
-  let loading    = $state(true);
-  let fieldTypes     = $state<any[]>([]);
-  let allCollections = $state<any[]>([]);
+// ── Core data ──────────────────────────────────────────────────────────────
+let collection = $state<any>(null);
+let records = $state<any[]>([]);
+let relations = $state<any[]>([]);
+let pagination = $state<{ total: number; page: number; limit: number; pages?: number }>({
+  total: 0,
+  page: 1,
+  limit: 25,
+});
+let loading = $state(true);
+let fieldTypes = $state<any[]>([]);
+let allCollections = $state<any[]>([]);
 
-  // ── Tabs ──────────────────────────────────────────────────────────────────
-  type Tab = 'data' | 'schema' | 'api' | 'settings';
-  const TABS: Tab[] = ['data', 'schema', 'api', 'settings'];
-  const activeTab = $derived<Tab>(
-    (TABS.includes(page.url.searchParams.get('tab') as Tab)
-      ? (page.url.searchParams.get('tab') as Tab)
-      : 'data')
+// ── Tabs ──────────────────────────────────────────────────────────────────
+type Tab = 'data' | 'schema' | 'api' | 'settings';
+const TABS: Tab[] = ['data', 'schema', 'api', 'settings'];
+const activeTab = $derived<Tab>(
+  TABS.includes(page.url.searchParams.get('tab') as Tab)
+    ? (page.url.searchParams.get('tab') as Tab)
+    : 'data',
+);
+function setTab(t: Tab) {
+  goto(
+    t === 'data'
+      ? `${base}/collections/${collectionName}`
+      : `${base}/collections/${collectionName}?tab=${t}`,
+    { noScroll: true, keepFocus: true },
   );
-  function setTab(t: Tab) {
-    goto(
-      t === 'data'
-        ? `${base}/collections/${collectionName}`
-        : `${base}/collections/${collectionName}?tab=${t}`,
-      { noScroll: true, keepFocus: true }
-    );
-  }
+}
 
-  // ── Derived fields ────────────────────────────────────────────────────────
-  const customFields = $derived.by(() => {
-    if (!collection) return [] as any[];
-    const f = collection.fields;
-    return (typeof f === 'string' ? JSON.parse(f) : f ?? []) as any[];
-  });
+// ── Derived fields ────────────────────────────────────────────────────────
+const customFields = $derived.by(() => {
+  if (!collection) return [] as any[];
+  const f = collection.fields;
+  return (typeof f === 'string' ? JSON.parse(f) : (f ?? [])) as any[];
+});
 
-  // Fields usable in the insert form: customFields + m2o relation FK fields merged
-  const insertableFields = $derived.by(() => {
-    const fields: any[] = customFields
-      .filter((f: any) => !f.is_system && f.type !== 'computed')
-      .map((f: any) => ({ ...f }));
-    const seen = new Set(fields.map((f: any) => f.name as string));
-    for (const rel of relations) {
-      if ((rel.type === 'm2o' || rel.type === 'reference') && rel.source_field) {
-        if (!seen.has(rel.source_field)) {
-          fields.push({
-            name:    rel.source_field,
-            label:   rel.name.replace(/_/g, ' '),
-            type:    'm2o',
-            options: { related_collection: rel.target_collection },
-          });
-          seen.add(rel.source_field);
-        } else {
-          // Enhance existing field with relation dropdown capability
-          const idx = fields.findIndex((f: any) => f.name === rel.source_field);
-          if (idx >= 0 && !fields[idx].options?.related_collection) {
-            fields[idx] = {
-              ...fields[idx],
-              type: 'm2o',
-              options: { ...(fields[idx].options ?? {}), related_collection: rel.target_collection },
-            };
-          }
+// Fields usable in the insert form: customFields + m2o relation FK fields merged
+const insertableFields = $derived.by(() => {
+  const fields: any[] = customFields
+    .filter((f: any) => !f.is_system && f.type !== 'computed')
+    .map((f: any) => ({ ...f }));
+  const seen = new Set(fields.map((f: any) => f.name as string));
+  for (const rel of relations) {
+    if ((rel.type === 'm2o' || rel.type === 'reference') && rel.source_field) {
+      if (!seen.has(rel.source_field)) {
+        fields.push({
+          name: rel.source_field,
+          label: rel.name.replace(/_/g, ' '),
+          type: 'm2o',
+          options: { related_collection: rel.target_collection },
+        });
+        seen.add(rel.source_field);
+      } else {
+        // Enhance existing field with relation dropdown capability
+        const idx = fields.findIndex((f: any) => f.name === rel.source_field);
+        if (idx >= 0 && !fields[idx].options?.related_collection) {
+          fields[idx] = {
+            ...fields[idx],
+            type: 'm2o',
+            options: { ...(fields[idx].options ?? {}), related_collection: rel.target_collection },
+          };
         }
       }
     }
-    return fields;
-  });
+  }
+  return fields;
+});
 
-  // Table columns capped at 8 to avoid horizontal overflow
-  const tableColumns = $derived(
-    customFields.filter((f: any) => f.type !== 'computed' && !f.is_system).slice(0, 8)
-  );
+// Table columns capped at 8 to avoid horizontal overflow
+const tableColumns = $derived(
+  customFields.filter((f: any) => f.type !== 'computed' && !f.is_system).slice(0, 8),
+);
 
-  // ── Load ──────────────────────────────────────────────────────────────────
-  $effect(() => {
-    const name = collectionName;
-    if (name) loadAll(name);
-  });
+// ── Load ──────────────────────────────────────────────────────────────────
+$effect(() => {
+  const name = collectionName;
+  if (name) loadAll(name);
+});
 
-  // ── Realtime live sync ───────────────────────────────────────────────────
-  // Subscribe to inserts/updates/deletes on the current collection.
-  // Each event triggers a debounced reload — the engine sends one event
-  // per row mutation, so a bulk update would otherwise hammer the API.
-  let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
-  let realtimeTeardown: (() => void) | null = null;
+// ── Realtime live sync ───────────────────────────────────────────────────
+// Subscribe to inserts/updates/deletes on the current collection.
+// Each event triggers a debounced reload — the engine sends one event
+// per row mutation, so a bulk update would otherwise hammer the API.
+let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
+let realtimeTeardown: (() => void) | null = null;
 
-  $effect(() => {
-    const name = collectionName;
-    if (!name) return;
-    realtimeTeardown?.();
-    realtimeTeardown = realtime.onCollection(name, () => {
-      if (reloadDebounce) clearTimeout(reloadDebounce);
-      reloadDebounce = setTimeout(() => {
-        // Skip the loading flicker for live sync — the user didn't ask
-        // for a reload, so we shouldn't break their scroll position.
-        reloadData().catch(() => { /* network blip — next event retries */ });
-      }, 250);
-    });
-    return () => {
-      if (reloadDebounce) { clearTimeout(reloadDebounce); reloadDebounce = null; }
-      realtimeTeardown?.();
-      realtimeTeardown = null;
-    };
-  });
-
-  onDestroy(() => {
+$effect(() => {
+  const name = collectionName;
+  if (!name) return;
+  realtimeTeardown?.();
+  realtimeTeardown = realtime.onCollection(name, () => {
     if (reloadDebounce) clearTimeout(reloadDebounce);
+    reloadDebounce = setTimeout(() => {
+      // Skip the loading flicker for live sync — the user didn't ask
+      // for a reload, so we shouldn't break their scroll position.
+      reloadData().catch(() => {
+        /* network blip — next event retries */
+      });
+    }, 250);
+  });
+  return () => {
+    if (reloadDebounce) {
+      clearTimeout(reloadDebounce);
+      reloadDebounce = null;
+    }
     realtimeTeardown?.();
-  });
+    realtimeTeardown = null;
+  };
+});
 
-  async function loadAll(name: string) {
-    loading = true;
-    try {
-      const [colRes, dataRes, relsRes, typesRes, colsRes] = await Promise.all([
-        collectionsApi.get(name),
-        dataApi.list(name, { limit: '25' }),
-        api.get<{ relations: any[] }>(`/api/relations?collection=${name}`),
-        collectionsApi.fieldTypes(),
-        collectionsApi.list(),
-      ]);
-      collection    = colRes.collection;
-      records       = dataRes.records;
-      pagination    = dataRes.pagination;
-      relations     = relsRes.relations ?? [];
-      fieldTypes    = typesRes.field_types ?? [];
-      allCollections = (colsRes.collections ?? []).filter((c: any) => c.name !== name);
-      aiSearchEnabled = collection?.ai_search_enabled ?? false;
-      aiSearchField   = collection?.ai_search_field   ?? '';
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to load collection');
-    } finally {
-      loading = false;
-    }
+onDestroy(() => {
+  if (reloadDebounce) clearTimeout(reloadDebounce);
+  realtimeTeardown?.();
+});
+
+async function loadAll(name: string) {
+  loading = true;
+  try {
+    const [colRes, dataRes, relsRes, typesRes, colsRes] = await Promise.all([
+      collectionsApi.get(name),
+      dataApi.list(name, { limit: '25' }),
+      api.get<{ relations: any[] }>(`/api/relations?collection=${name}`),
+      collectionsApi.fieldTypes(),
+      collectionsApi.list(),
+    ]);
+    collection = colRes.collection;
+    records = dataRes.records;
+    pagination = dataRes.pagination;
+    relations = relsRes.relations ?? [];
+    fieldTypes = typesRes.field_types ?? [];
+    allCollections = (colsRes.collections ?? []).filter((c: any) => c.name !== name);
+    aiSearchEnabled = collection?.ai_search_enabled ?? false;
+    aiSearchField = collection?.ai_search_field ?? '';
+  } catch (e: any) {
+    toast.error(e.message || 'Failed to load collection');
+  } finally {
+    loading = false;
   }
+}
 
-  /** Build URL params for the data list — includes ?expand= for every m2o
-   *  field so the table can render link chips instead of raw UUIDs. */
-  function buildDataParams(p: { page?: number; limit?: number } = {}) {
-    const params: Record<string, string> = {
-      page:  String(p.page  ?? pagination.page  ?? 1),
-      limit: String(p.limit ?? pagination.limit ?? 25),
-    };
-    if (sortField) {
-      params.sort = sortField;
-      params.order = sortDir;
-    }
-    if (searchText.trim()) params.search = searchText.trim();
-    // Auto-expand every m2o relation field so cells can show readable labels.
-    const m2oFields = customFields
-      .filter((f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection)
-      .map((f: any) => f.name);
-    if (m2oFields.length > 0) params.expand = m2oFields.join(',');
-    return params;
+/** Build URL params for the data list — includes ?expand= for every m2o
+ *  field so the table can render link chips instead of raw UUIDs. */
+function buildDataParams(p: { page?: number; limit?: number } = {}) {
+  const params: Record<string, string> = {
+    page: String(p.page ?? pagination.page ?? 1),
+    limit: String(p.limit ?? pagination.limit ?? 25),
+  };
+  if (sortField) {
+    params.sort = sortField;
+    params.order = sortDir;
   }
+  if (searchText.trim()) params.search = searchText.trim();
+  // Auto-expand every m2o relation field so cells can show readable labels.
+  const m2oFields = customFields
+    .filter(
+      (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
+    )
+    .map((f: any) => f.name);
+  if (m2oFields.length > 0) params.expand = m2oFields.join(',');
+  return params;
+}
 
-  async function reloadData(p: { page?: number; limit?: number } = {}) {
-    try {
-      const res = await dataApi.list(collectionName, buildDataParams(p));
-      records    = res.records;
-      pagination = res.pagination;
-      // Drop selection on data refresh — surviving ids may have been deleted
-      selectedIds.clear();
-      selectedIds = new Set(selectedIds);
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to reload');
-    }
-  }
-
-  // ── List controls (search, sort, selection) ─────────────────────────
-  let searchText  = $state('');
-  let sortField   = $state('');
-  let sortDir     = $state<'asc' | 'desc'>('desc');
-  let selectedIds = $state(new Set<string>());
-
-  function toggleSort(name: string) {
-    if (sortField === name) {
-      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortField = name;
-      sortDir = 'asc';
-    }
-    reloadData({ page: 1 });
-  }
-
-  let searchTimer: any;
-  function onSearchInput() {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => reloadData({ page: 1 }), 250);
-  }
-
-  function toggleSelectAll() {
-    if (selectedIds.size === records.length) {
-      selectedIds = new Set();
-    } else {
-      selectedIds = new Set(records.map((r) => r.id));
-    }
-  }
-
-  function toggleSelect(id: string) {
-    if (selectedIds.has(id)) selectedIds.delete(id);
-    else selectedIds.add(id);
+async function reloadData(p: { page?: number; limit?: number } = {}) {
+  try {
+    const res = await dataApi.list(collectionName, buildDataParams(p));
+    records = res.records;
+    pagination = res.pagination;
+    // Drop selection on data refresh — surviving ids may have been deleted
+    selectedIds.clear();
     selectedIds = new Set(selectedIds);
+  } catch (e: any) {
+    toast.error(e.message || 'Failed to reload');
   }
+}
 
-  async function bulkDeleteSelected() {
-    if (selectedIds.size === 0) return;
-    confirmState = {
-      open: true,
-      title: 'Delete selected records',
-      message: `Delete ${selectedIds.size} record(s)? This cannot be undone.`,
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await dataApi.bulkDelete(collectionName, [...selectedIds]);
-          selectedIds = new Set();
-          await reloadData();
-          toast.success('Records deleted');
-        } catch (e: any) {
-          toast.error(e.message || 'Bulk delete failed');
-        }
-      },
-    };
+// ── List controls (search, sort, selection) ─────────────────────────
+let searchText = $state('');
+let sortField = $state('');
+let sortDir = $state<'asc' | 'desc'>('desc');
+let selectedIds = $state(new Set<string>());
+
+function toggleSort(name: string) {
+  if (sortField === name) {
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField = name;
+    sortDir = 'asc';
   }
+  reloadData({ page: 1 });
+}
 
-  // ── Pagination helpers ─────────────────────────────────────────────
-  function goToPage(p: number) {
-    if (p < 1 || (pagination.pages && p > pagination.pages)) return;
-    reloadData({ page: p });
+let searchTimer: any;
+function onSearchInput() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => reloadData({ page: 1 }), 250);
+}
+
+function toggleSelectAll() {
+  if (selectedIds.size === records.length) {
+    selectedIds = new Set();
+  } else {
+    selectedIds = new Set(records.map((r) => r.id));
   }
+}
 
-  // ── Display helpers ─────────────────────────────────────────────────
-  /** Convert "snake_case" field name into "Snake Case" — used as a fallback
-   *  table header when a field has no explicit `label`. */
-  function humanize(s: string): string {
-    return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+function toggleSelect(id: string) {
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  selectedIds = new Set(selectedIds);
+}
+
+async function bulkDeleteSelected() {
+  if (selectedIds.size === 0) return;
+  confirmState = {
+    open: true,
+    title: 'Delete selected records',
+    message: `Delete ${selectedIds.size} record(s)? This cannot be undone.`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await dataApi.bulkDelete(collectionName, [...selectedIds]);
+        selectedIds = new Set();
+        await reloadData();
+        toast.success('Records deleted');
+      } catch (e: any) {
+        toast.error(e.message || 'Bulk delete failed');
+      }
+    },
+  };
+}
+
+// ── Pagination helpers ─────────────────────────────────────────────
+function goToPage(p: number) {
+  if (p < 1 || (pagination.pages && p > pagination.pages)) return;
+  reloadData({ page: p });
+}
+
+// ── Display helpers ─────────────────────────────────────────────────
+/** Convert "snake_case" field name into "Snake Case" — used as a fallback
+ *  table header when a field has no explicit `label`. */
+function humanize(s: string): string {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function fieldLabel(f: any): string {
+  if (f.label) return f.label;
+  return humanize(f.name);
+}
+
+async function reloadSchema() {
+  try {
+    const [colRes, relsRes] = await Promise.all([
+      collectionsApi.get(collectionName),
+      api.get<{ relations: any[] }>(`/api/relations?collection=${collectionName}`),
+    ]);
+    collection = colRes.collection;
+    relations = relsRes.relations ?? [];
+  } catch (e: any) {
+    toast.error(e.message || 'Failed to reload schema');
   }
+}
 
-  function fieldLabel(f: any): string {
-    if (f.label) return f.label;
-    return humanize(f.name);
+// ── Record drawer (right slide-over) — used for both Insert and Edit ────
+let drawerOpen = $state(false);
+let drawerMode = $state<'create' | 'edit'>('create');
+let drawerRecordId = $state<string | null>(null);
+let insertForm = $state<Record<string, any>>({});
+let inserting = $state(false);
+let relOptions = $state<Record<string, { id: string; label: string }[]>>({});
+let loadingRelOpts = $state(false);
+let formErrors = $state<Record<string, string>>({});
+
+function labelFromRecord(record: any): string {
+  for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
+    if (record[k]) return String(record[k]);
   }
+  const kv = Object.entries(record).find(
+    ([k, v]) => k !== 'id' && !k.startsWith('created') && !k.startsWith('updated') && v != null,
+  );
+  return kv ? String(kv[1]) : (record.id?.slice(0, 8) ?? '—');
+}
 
-  async function reloadSchema() {
-    try {
-      const [colRes, relsRes] = await Promise.all([
-        collectionsApi.get(collectionName),
-        api.get<{ relations: any[] }>(`/api/relations?collection=${collectionName}`),
-      ]);
-      collection = colRes.collection;
-      relations  = relsRes.relations ?? [];
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to reload schema');
+async function loadRelOptions() {
+  loadingRelOpts = true;
+  const relFields = insertableFields.filter(
+    (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
+  );
+  const entries = await Promise.all(
+    relFields.map(async (f: any) => {
+      try {
+        const res = await dataApi.list(f.options.related_collection, { limit: '200' });
+        return [
+          f.name,
+          (res.records ?? []).map((r: any) => ({ id: r.id, label: labelFromRecord(r) })),
+        ] as const;
+      } catch {
+        return [f.name, [] as { id: string; label: string }[]] as const;
+      }
+    }),
+  );
+  relOptions = Object.fromEntries(entries);
+  loadingRelOpts = false;
+}
+
+async function openCreateDrawer() {
+  drawerMode = 'create';
+  drawerRecordId = null;
+  insertForm = {};
+  formErrors = {};
+  drawerOpen = true;
+  loadRelOptions();
+}
+
+async function openEditDrawer(record: any) {
+  drawerMode = 'edit';
+  drawerRecordId = record.id;
+  insertForm = {};
+  formErrors = {};
+  // Seed the form with current values for editable fields only
+  for (const f of insertableFields) {
+    const v = record[f.name];
+    if (v !== undefined && v !== null) insertForm[f.name] = v;
+  }
+  drawerOpen = true;
+  loadRelOptions();
+}
+
+/** Light client-side validation — required fields, basic email/url patterns,
+ *  numeric range. Server-side validation still runs and is authoritative. */
+function validateForm(): boolean {
+  formErrors = {};
+  let ok = true;
+  for (const f of insertableFields) {
+    const v = insertForm[f.name];
+    const present = v !== undefined && v !== null && v !== '';
+    if (f.required && !present) {
+      formErrors[f.name] = 'Required';
+      ok = false;
+      continue;
+    }
+    if (!present) continue;
+    if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v))) {
+      formErrors[f.name] = 'Invalid email';
+      ok = false;
+    }
+    if (f.type === 'url' && !/^https?:\/\//i.test(String(v))) {
+      formErrors[f.name] = 'Must start with http:// or https://';
+      ok = false;
+    }
+    if (
+      (f.type === 'number' || f.type === 'integer' || f.type === 'decimal') &&
+      Number.isNaN(Number(v))
+    ) {
+      formErrors[f.name] = 'Must be a number';
+      ok = false;
+    }
+    if (f.type === 'integer' && !Number.isInteger(Number(v))) {
+      formErrors[f.name] = 'Must be a whole number';
+      ok = false;
     }
   }
+  formErrors = { ...formErrors };
+  return ok;
+}
 
-  // ── Record drawer (right slide-over) — used for both Insert and Edit ────
-  let drawerOpen     = $state(false);
-  let drawerMode     = $state<'create' | 'edit'>('create');
-  let drawerRecordId = $state<string | null>(null);
-  let insertForm     = $state<Record<string, any>>({});
-  let inserting      = $state(false);
-  let relOptions     = $state<Record<string, { id: string; label: string }[]>>({});
-  let loadingRelOpts = $state(false);
-  let formErrors     = $state<Record<string, string>>({});
-
-  function labelFromRecord(record: any): string {
-    for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
-      if (record[k]) return String(record[k]);
+async function saveRecord() {
+  if (!validateForm()) return;
+  inserting = true;
+  try {
+    // Strip empty strings so server uses defaults / NULL where applicable
+    const payload: Record<string, any> = {};
+    for (const [k, v] of Object.entries(insertForm)) {
+      if (v === '' || v === undefined) continue;
+      payload[k] = v;
     }
-    const kv = Object.entries(record).find(
-      ([k, v]) => k !== 'id' && !k.startsWith('created') && !k.startsWith('updated') && v != null
-    );
-    return kv ? String(kv[1]) : (record.id?.slice(0, 8) ?? '—');
-  }
-
-  async function loadRelOptions() {
-    loadingRelOpts = true;
-    const relFields = insertableFields.filter(
-      (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection
-    );
-    const entries = await Promise.all(
-      relFields.map(async (f: any) => {
-        try {
-          const res = await dataApi.list(f.options.related_collection, { limit: '200' });
-          return [f.name, (res.records ?? []).map((r: any) => ({ id: r.id, label: labelFromRecord(r) }))] as const;
-        } catch { return [f.name, [] as { id: string; label: string }[]] as const; }
-      })
-    );
-    relOptions     = Object.fromEntries(entries);
-    loadingRelOpts = false;
-  }
-
-  async function openCreateDrawer() {
-    drawerMode = 'create';
+    if (drawerMode === 'create') {
+      await dataApi.create(collectionName, payload);
+      toast.success('Record created');
+    } else if (drawerRecordId) {
+      await dataApi.update(collectionName, drawerRecordId, payload);
+      toast.success('Record updated');
+    }
+    drawerOpen = false;
+    insertForm = {};
     drawerRecordId = null;
-    insertForm = {};
-    formErrors = {};
-    drawerOpen = true;
-    loadRelOptions();
+    await reloadData();
+  } catch (e: any) {
+    toast.error(e.message || 'Failed to save record');
+  } finally {
+    inserting = false;
   }
+}
 
-  async function openEditDrawer(record: any) {
-    drawerMode = 'edit';
-    drawerRecordId = record.id;
-    insertForm = {};
-    formErrors = {};
-    // Seed the form with current values for editable fields only
-    for (const f of insertableFields) {
-      const v = record[f.name];
-      if (v !== undefined && v !== null) insertForm[f.name] = v;
-    }
-    drawerOpen = true;
-    loadRelOptions();
+// Backwards-compat alias used by older onclick handlers in this file.
+const openDrawer = openCreateDrawer;
+const insertRecord = saveRecord;
+
+// ── Schema: fields ────────────────────────────────────────────────────────
+let addFieldOpen = $state(false);
+
+async function handleAddField(body: Record<string, any>) {
+  const exists = customFields.find((f: any) => f.name === body.name);
+  if (exists) throw new Error(`Field '${body.name}' already exists`);
+  await api.post(`/api/collections/${collectionName}/fields`, body);
+  await reloadSchema();
+}
+
+async function deleteField(fieldName: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Field',
+    message: `Delete field '${fieldName}'? This will permanently DROP the column and all its data.`,
+    confirmLabel: 'Drop Field',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
+        await reloadSchema();
+        toast.success(`Field '${fieldName}' deleted`);
+      } catch (err: any) {
+        toast.error(err.message);
+      }
+    },
+  };
+}
+
+// ── Schema: relations ─────────────────────────────────────────────────────
+let showRelForm = $state(false);
+let savingRel = $state(false);
+let relFormError = $state('');
+let relForm = $state({
+  name: '',
+  type: 'o2m' as string,
+  source_field: '', // m2o: FK col in this table; o2m/m2m: virtual alias
+  target_collection: '',
+  target_field: '', // o2m only: FK col in target table
+  on_delete: 'SET NULL',
+});
+let targetFields = $state<any[]>([]);
+
+const relTypesMeta = [
+  {
+    value: 'm2o',
+    symbol: '∞→1',
+    label: 'Many-to-One',
+    desc: 'Each record points to ONE other record',
+    example: (src: string, tgt: string) => `each ${singular(src)} has ONE ${singular(tgt)}`,
+  },
+  {
+    value: 'o2m',
+    symbol: '1→∞',
+    label: 'One-to-Many',
+    desc: 'Each record can have MANY related records',
+    example: (src: string, tgt: string) => `each ${singular(src)} has MANY ${tgt}`,
+  },
+  {
+    value: 'm2m',
+    symbol: '∞↔∞',
+    label: 'Many-to-Many',
+    desc: 'Records can be linked to many on both sides',
+    example: (src: string, tgt: string) => `${src} and ${tgt} share many links`,
+  },
+];
+
+function singular(name: string): string {
+  return name.endsWith('ies')
+    ? name.slice(0, -3) + 'y'
+    : name.endsWith('s')
+      ? name.slice(0, -1)
+      : name;
+}
+
+// Auto-suggest the relation name + fields based on the chosen type+target.
+// Saves the user from inventing names — they can still edit before submit.
+function suggestRelDefaults() {
+  if (!relForm.target_collection) return;
+  const tgt = relForm.target_collection;
+  if (!relForm.name) {
+    relForm.name =
+      relForm.type === 'm2o'
+        ? `${collectionName}_${singular(tgt)}`
+        : relForm.type === 'o2m'
+          ? `${collectionName}_${tgt}`
+          : `${collectionName}_${tgt}`;
   }
-
-  /** Light client-side validation — required fields, basic email/url patterns,
-   *  numeric range. Server-side validation still runs and is authoritative. */
-  function validateForm(): boolean {
-    formErrors = {};
-    let ok = true;
-    for (const f of insertableFields) {
-      const v = insertForm[f.name];
-      const present = v !== undefined && v !== null && v !== '';
-      if (f.required && !present) {
-        formErrors[f.name] = 'Required';
-        ok = false;
-        continue;
-      }
-      if (!present) continue;
-      if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v))) {
-        formErrors[f.name] = 'Invalid email';
-        ok = false;
-      }
-      if (f.type === 'url' && !/^https?:\/\//i.test(String(v))) {
-        formErrors[f.name] = 'Must start with http:// or https://';
-        ok = false;
-      }
-      if ((f.type === 'number' || f.type === 'integer' || f.type === 'decimal') && Number.isNaN(Number(v))) {
-        formErrors[f.name] = 'Must be a number';
-        ok = false;
-      }
-      if (f.type === 'integer' && !Number.isInteger(Number(v))) {
-        formErrors[f.name] = 'Must be a whole number';
-        ok = false;
-      }
-    }
-    formErrors = { ...formErrors };
-    return ok;
+  if (!relForm.source_field) {
+    relForm.source_field =
+      relForm.type === 'm2o' ? `${singular(tgt)}_id` : relForm.type === 'o2m' ? tgt : tgt;
   }
-
-  async function saveRecord() {
-    if (!validateForm()) return;
-    inserting = true;
-    try {
-      // Strip empty strings so server uses defaults / NULL where applicable
-      const payload: Record<string, any> = {};
-      for (const [k, v] of Object.entries(insertForm)) {
-        if (v === '' || v === undefined) continue;
-        payload[k] = v;
-      }
-      if (drawerMode === 'create') {
-        await dataApi.create(collectionName, payload);
-        toast.success('Record created');
-      } else if (drawerRecordId) {
-        await dataApi.update(collectionName, drawerRecordId, payload);
-        toast.success('Record updated');
-      }
-      drawerOpen = false;
-      insertForm = {};
-      drawerRecordId = null;
-      await reloadData();
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to save record');
-    } finally {
-      inserting = false;
-    }
+  if (relForm.type === 'o2m' && !relForm.target_field) {
+    relForm.target_field = `${singular(collectionName)}_id`;
   }
+}
 
-  // Backwards-compat alias used by older onclick handlers in this file.
-  const openDrawer = openCreateDrawer;
-  const insertRecord = saveRecord;
-
-  // ── Schema: fields ────────────────────────────────────────────────────────
-  let addFieldOpen = $state(false);
-
-  async function handleAddField(body: Record<string, any>) {
-    const exists = customFields.find((f: any) => f.name === body.name);
-    if (exists) throw new Error(`Field '${body.name}' already exists`);
-    await api.post(`/api/collections/${collectionName}/fields`, body);
-    await reloadSchema();
+async function onRelTargetChange() {
+  targetFields = [];
+  if (!relForm.target_collection) return;
+  const tgt = allCollections.find((c: any) => c.name === relForm.target_collection);
+  if (tgt) {
+    const f = typeof tgt.fields === 'string' ? JSON.parse(tgt.fields) : tgt.fields;
+    targetFields = f ?? [];
   }
+  suggestRelDefaults();
+}
 
-  async function deleteField(fieldName: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Field',
-      message: `Delete field '${fieldName}'? This will permanently DROP the column and all its data.`,
-      confirmLabel: 'Drop Field',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
-          await reloadSchema();
-          toast.success(`Field '${fieldName}' deleted`);
-        } catch (err: any) {
-          toast.error(err.message);
-        }
-      },
-    };
-  }
+function onRelTypeChange(newType: string) {
+  relForm.type = newType;
+  // Reset auto-generated fields so the suggestions match the new type.
+  relForm.name = '';
+  relForm.source_field = '';
+  relForm.target_field = '';
+  if (relForm.target_collection) suggestRelDefaults();
+}
 
-  // ── Schema: relations ─────────────────────────────────────────────────────
-  let showRelForm   = $state(false);
-  let savingRel     = $state(false);
-  let relFormError  = $state('');
-  let relForm = $state({
-    name: '', type: 'o2m' as string,
-    source_field: '',                  // m2o: FK col in this table; o2m/m2m: virtual alias
+function openRelForm() {
+  relForm = {
+    name: '',
+    type: 'm2o',
+    source_field: '',
     target_collection: '',
-    target_field: '',                  // o2m only: FK col in target table
+    target_field: '',
     on_delete: 'SET NULL',
-  });
-  let targetFields = $state<any[]>([]);
+  };
+  targetFields = [];
+  relFormError = '';
+  showRelForm = true;
+}
 
-  const relTypesMeta = [
-    {
-      value: 'm2o', symbol: '∞→1', label: 'Many-to-One',
-      desc: 'Each record points to ONE other record',
-      example: (src: string, tgt: string) => `each ${singular(src)} has ONE ${singular(tgt)}`,
-    },
-    {
-      value: 'o2m', symbol: '1→∞', label: 'One-to-Many',
-      desc: 'Each record can have MANY related records',
-      example: (src: string, tgt: string) => `each ${singular(src)} has MANY ${tgt}`,
-    },
-    {
-      value: 'm2m', symbol: '∞↔∞', label: 'Many-to-Many',
-      desc: 'Records can be linked to many on both sides',
-      example: (src: string, tgt: string) => `${src} and ${tgt} share many links`,
-    },
-  ];
-
-  function singular(name: string): string {
-    return name.endsWith('ies') ? name.slice(0, -3) + 'y'
-         : name.endsWith('s')    ? name.slice(0, -1)
-         : name;
+async function addRelation() {
+  relFormError = '';
+  if (!relForm.target_collection) {
+    relFormError = 'Choose a target collection';
+    return;
   }
-
-  // Auto-suggest the relation name + fields based on the chosen type+target.
-  // Saves the user from inventing names — they can still edit before submit.
-  function suggestRelDefaults() {
-    if (!relForm.target_collection) return;
-    const tgt = relForm.target_collection;
-    if (!relForm.name) {
-      relForm.name = relForm.type === 'm2o' ? `${collectionName}_${singular(tgt)}`
-                   : relForm.type === 'o2m' ? `${collectionName}_${tgt}`
-                   : `${collectionName}_${tgt}`;
-    }
-    if (!relForm.source_field) {
-      relForm.source_field = relForm.type === 'm2o' ? `${singular(tgt)}_id`
-                          : relForm.type === 'o2m' ? tgt
-                          : tgt;
-    }
-    if (relForm.type === 'o2m' && !relForm.target_field) {
-      relForm.target_field = `${singular(collectionName)}_id`;
-    }
-  }
-
-  async function onRelTargetChange() {
-    targetFields = [];
-    if (!relForm.target_collection) return;
-    const tgt = allCollections.find((c: any) => c.name === relForm.target_collection);
-    if (tgt) {
-      const f = typeof tgt.fields === 'string' ? JSON.parse(tgt.fields) : tgt.fields;
-      targetFields = f ?? [];
-    }
-    suggestRelDefaults();
-  }
-
-  function onRelTypeChange(newType: string) {
-    relForm.type = newType;
-    // Reset auto-generated fields so the suggestions match the new type.
-    relForm.name = '';
-    relForm.source_field = '';
-    relForm.target_field = '';
-    if (relForm.target_collection) suggestRelDefaults();
-  }
-
-  function openRelForm() {
-    relForm = { name: '', type: 'm2o', source_field: '', target_collection: '', target_field: '', on_delete: 'SET NULL' };
-    targetFields  = [];
-    relFormError  = '';
-    showRelForm   = true;
-  }
-
-  async function addRelation() {
-    relFormError = '';
-    if (!relForm.target_collection) { relFormError = 'Choose a target collection'; return; }
-    if (!relForm.source_field.trim()) {
-      relFormError = relForm.type === 'm2o'
+  if (!relForm.source_field.trim()) {
+    relFormError =
+      relForm.type === 'm2o'
         ? 'Choose a name for the foreign-key column in this collection'
         : 'Choose a name for the relation alias';
-      return;
-    }
-    if (relForm.type === 'o2m' && !relForm.target_field.trim()) {
-      relFormError = `Choose the FK column name to add in "${relForm.target_collection}"`;
-      return;
-    }
-    if (relForm.type === 'o2m' && relForm.source_field.trim() === relForm.target_field.trim()) {
-      relFormError = 'Relation alias and FK column name must be different';
-      return;
-    }
-    if (!relForm.name.trim()) {
-      relForm.name = `${collectionName}_${relForm.source_field}`;
-    }
-    savingRel = true;
-    try {
-      const payload: Record<string, unknown> = {
-        name: relForm.name,
-        type: relForm.type,
-        source_collection: collectionName,
-        source_field: relForm.source_field,
-        target_collection: relForm.target_collection,
-        on_delete: relForm.on_delete,
-      };
-      if (relForm.type === 'o2m') payload.target_field = relForm.target_field;
-      await api.post('/api/relations', payload);
-      await reloadSchema();
-      showRelForm = false;
-      toast.success('Relation created');
-    } catch (err: any) {
-      relFormError = err.message || 'Failed to create relation';
-    } finally {
-      savingRel = false;
-    }
+    return;
   }
-
-  async function deleteRelation(id: string, relName: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Relation',
-      message: `Delete relation '${relName}'? For M2M relations, the junction table will also be dropped.`,
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await api.delete(`/api/relations/${id}`);
-          await reloadSchema();
-          toast.success(`Relation deleted`);
-        } catch (err: any) {
-          toast.error(err.message);
-        }
-      },
+  if (relForm.type === 'o2m' && !relForm.target_field.trim()) {
+    relFormError = `Choose the FK column name to add in "${relForm.target_collection}"`;
+    return;
+  }
+  if (relForm.type === 'o2m' && relForm.source_field.trim() === relForm.target_field.trim()) {
+    relFormError = 'Relation alias and FK column name must be different';
+    return;
+  }
+  if (!relForm.name.trim()) {
+    relForm.name = `${collectionName}_${relForm.source_field}`;
+  }
+  savingRel = true;
+  try {
+    const payload: Record<string, unknown> = {
+      name: relForm.name,
+      type: relForm.type,
+      source_collection: collectionName,
+      source_field: relForm.source_field,
+      target_collection: relForm.target_collection,
+      on_delete: relForm.on_delete,
     };
+    if (relForm.type === 'o2m') payload.target_field = relForm.target_field;
+    await api.post('/api/relations', payload);
+    await reloadSchema();
+    showRelForm = false;
+    toast.success('Relation created');
+  } catch (err: any) {
+    relFormError = err.message || 'Failed to create relation';
+  } finally {
+    savingRel = false;
   }
+}
 
-  // ── Delete record (optimistic) ────────────────────────────────────────────
-  // Drop the row from local state immediately so the UI feels instant.
-  // If the server rejects (403, 409, etc.) we restore the snapshot and
-  // surface the error via toast.
-  async function deleteRecord(id: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Record',
-      message: 'Delete this record? This cannot be undone.',
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        const snapshot = records;
-        await withOptimistic({
-          apply: () => { records = records.filter((r) => r.id !== id); },
-          rollback: (prev) => { records = prev; },
-          snapshot,
-          commit: () => dataApi.delete(collectionName, id),
-          onError: (err) => toast.error(err.message),
-        });
-      },
-    };
-  }
-
-  // ── AI settings ───────────────────────────────────────────────────────────
-  let aiSearchEnabled = $state(false);
-  let aiSearchField   = $state('');
-  let savingAI        = $state(false);
-
-  async function saveAISettings() {
-    savingAI = true;
-    try {
-      await api.patch(`/api/collections/${collectionName}`, {
-        aiSearchEnabled, aiSearchField: aiSearchField || null,
-      });
-      toast.success('Settings saved');
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      savingAI = false;
-    }
-  }
-
-  // ── Confirm modal ─────────────────────────────────────────────────────────
-  let confirmState = $state<{
-    open: boolean; title: string; message: string;
-    confirmLabel?: string; onconfirm: () => void;
-  }>({ open: false, title: '', message: '', onconfirm: () => {} });
-
-  // ── Formatting helpers ────────────────────────────────────────────────────
-  function fmtCell(value: any, type?: string): string {
-    if (value === null || value === undefined) return '';
-    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-    if (typeof value === 'object')  return JSON.stringify(value).slice(0, 50) + '…';
-    const s = String(value);
-    return s.length > 60 ? s.slice(0, 60) + '…' : s;
-  }
-
-  // M2O fields already live in customFields (FK column in this table).
-  // O2M / M2M / M2A are virtual — no FK column in this table → shown only in Relations section.
-  const virtualRelations = $derived(relations.filter((r: any) => r.type !== 'm2o'));
-
-  // Lookup: field name → target collection name for M2O FK fields
-  const m2oTargetMap = $derived.by(() => {
-    const map: Record<string, string> = {};
-    for (const rel of relations) {
-      if (rel.type === 'm2o' && rel.source_field) map[rel.source_field] = rel.target_collection;
-    }
-    for (const f of customFields) {
-      if ((f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection) {
-        map[f.name] = f.options.related_collection;
+async function deleteRelation(id: string, relName: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Relation',
+    message: `Delete relation '${relName}'? For M2M relations, the junction table will also be dropped.`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/relations/${id}`);
+        await reloadSchema();
+        toast.success(`Relation deleted`);
+      } catch (err: any) {
+        toast.error(err.message);
       }
+    },
+  };
+}
+
+// ── Delete record (optimistic) ────────────────────────────────────────────
+// Drop the row from local state immediately so the UI feels instant.
+// If the server rejects (403, 409, etc.) we restore the snapshot and
+// surface the error via toast.
+async function deleteRecord(id: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Record',
+    message: 'Delete this record? This cannot be undone.',
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      const snapshot = records;
+      await withOptimistic({
+        apply: () => {
+          records = records.filter((r) => r.id !== id);
+        },
+        rollback: (prev) => {
+          records = prev;
+        },
+        snapshot,
+        commit: () => dataApi.delete(collectionName, id),
+        onError: (err) => toast.error(err.message),
+      });
+    },
+  };
+}
+
+// ── AI settings ───────────────────────────────────────────────────────────
+let aiSearchEnabled = $state(false);
+let aiSearchField = $state('');
+let savingAI = $state(false);
+
+async function saveAISettings() {
+  savingAI = true;
+  try {
+    await api.patch(`/api/collections/${collectionName}`, {
+      aiSearchEnabled,
+      aiSearchField: aiSearchField || null,
+    });
+    toast.success('Settings saved');
+  } catch (e: any) {
+    toast.error(e.message);
+  } finally {
+    savingAI = false;
+  }
+}
+
+// ── Confirm modal ─────────────────────────────────────────────────────────
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+// ── Formatting helpers ────────────────────────────────────────────────────
+function fmtCell(value: any, type?: string): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'object') return JSON.stringify(value).slice(0, 50) + '…';
+  const s = String(value);
+  return s.length > 60 ? s.slice(0, 60) + '…' : s;
+}
+
+// M2O fields already live in customFields (FK column in this table).
+// O2M / M2M / M2A are virtual — no FK column in this table → shown only in Relations section.
+const virtualRelations = $derived(relations.filter((r: any) => r.type !== 'm2o'));
+
+// Lookup: field name → target collection name for M2O FK fields
+const m2oTargetMap = $derived.by(() => {
+  const map: Record<string, string> = {};
+  for (const rel of relations) {
+    if (rel.type === 'm2o' && rel.source_field) map[rel.source_field] = rel.target_collection;
+  }
+  for (const f of customFields) {
+    if ((f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection) {
+      map[f.name] = f.options.related_collection;
     }
-    return map;
-  });
-
-  function relBadgeColor(type: string): string {
-    const m: Record<string, string> = { o2m: 'badge-primary', m2o: 'badge-secondary', m2m: 'badge-accent', m2a: 'badge-warning' };
-    return m[type] ?? 'badge-ghost';
   }
+  return map;
+});
 
-  function fieldBadgeColor(type: string): string {
-    const m: Record<string, string> = {
-      text: '', textarea: '', richtext: '',
-      number: 'badge-info', integer: 'badge-info', decimal: 'badge-info',
-      boolean: 'badge-success',
-      date: 'badge-warning', datetime: 'badge-warning', timestamp: 'badge-warning',
-      m2o: 'badge-secondary', reference: 'badge-secondary',
-      uuid: 'badge-neutral', json: 'badge-neutral', jsonb: 'badge-neutral',
-    };
-    return m[type] ?? '';
-  }
+function relBadgeColor(type: string): string {
+  const m: Record<string, string> = {
+    o2m: 'badge-primary',
+    m2o: 'badge-secondary',
+    m2m: 'badge-accent',
+    m2a: 'badge-warning',
+  };
+  return m[type] ?? 'badge-ghost';
+}
+
+function fieldBadgeColor(type: string): string {
+  const m: Record<string, string> = {
+    text: '',
+    textarea: '',
+    richtext: '',
+    number: 'badge-info',
+    integer: 'badge-info',
+    decimal: 'badge-info',
+    boolean: 'badge-success',
+    date: 'badge-warning',
+    datetime: 'badge-warning',
+    timestamp: 'badge-warning',
+    m2o: 'badge-secondary',
+    reference: 'badge-secondary',
+    uuid: 'badge-neutral',
+    json: 'badge-neutral',
+    jsonb: 'badge-neutral',
+  };
+  return m[type] ?? '';
+}
 </script>
 
 <!-- ── Page shell ───────────────────────────────────────────────────────── -->

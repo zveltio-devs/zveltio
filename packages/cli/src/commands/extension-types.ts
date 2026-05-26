@@ -49,7 +49,7 @@ export async function extensionTypesCommand(opts: ExtensionTypesOptions = {}): P
   const manifestPath = join(dir, 'manifest.json');
   if (!existsSync(manifestPath)) {
     console.error(c.red(`No manifest.json found in ${dir}`));
-    console.error(c.dim('  Run this command from your extension\'s root folder, or pass --dir.'));
+    console.error(c.dim("  Run this command from your extension's root folder, or pass --dir."));
     process.exit(1);
   }
 
@@ -77,7 +77,9 @@ export async function extensionTypesCommand(opts: ExtensionTypesOptions = {}): P
   // Parse + emit.
   const schema = parseSchema(chunks);
   if (schema.tables.length === 0) {
-    console.log(c.yellow('  No tables parsed. Check that CREATE TABLE statements are well-formed.'));
+    console.log(
+      c.yellow('  No tables parsed. Check that CREATE TABLE statements are well-formed.'),
+    );
   } else {
     console.log(`  Tables parsed: ${c.dim(`${schema.tables.length}`)}`);
     for (const t of schema.tables) {
@@ -90,7 +92,9 @@ export async function extensionTypesCommand(opts: ExtensionTypesOptions = {}): P
   try {
     const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
     if (typeof m.name === 'string') extName = m.name;
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   const banner = `Generated from ${extName} migrations: ${sqlFiles.join(', ')}`;
   const tsBody = emitTypeScript(schema, { banner });
@@ -101,6 +105,10 @@ export async function extensionTypesCommand(opts: ExtensionTypesOptions = {}): P
   writeFileSync(outputPath, tsBody, 'utf8');
 
   console.log(`\n${c.green('Written:')} ${relative(process.cwd(), outputPath) || outputPath}`);
-  console.log(c.dim('  Add `.zveltio/` to your .gitignore. Regenerate with this command after every migration.'));
+  console.log(
+    c.dim(
+      '  Add `.zveltio/` to your .gitignore. Regenerate with this command after every migration.',
+    ),
+  );
   console.log('');
 }

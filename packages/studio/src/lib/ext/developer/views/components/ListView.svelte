@@ -1,10 +1,10 @@
 <script lang="ts">
 let {
-    items = [],
-    onRowClick = null
+  items = [],
+  onRowClick = null,
 }: {
-    items: any[];
-    onRowClick?: ((item: any) => void) | null;
+  items: any[];
+  onRowClick?: ((item: any) => void) | null;
 } = $props();
 </script>
 

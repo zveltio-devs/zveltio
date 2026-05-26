@@ -49,9 +49,7 @@ export class GhostDDL {
     const trigger = `_zv_trg_ghost_${tableName}`;
 
     // 1. Create ghost table with same structure (including indexes, constraints)
-    await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(
-      db,
-    );
+    await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
 
     // 2. Apply DDL changes on ghost — strict validation to prevent SQL injection
     const ALLOWED_DDL_RE =
@@ -193,10 +191,7 @@ export class GhostDDL {
    * These are the mutations that occurred on original during batch copy.
    * Returns number of entries applied.
    */
-  static async applyChangelog(
-    db: Database,
-    migration: GhostMigration,
-  ): Promise<number> {
+  static async applyChangelog(db: Database, migration: GhostMigration): Promise<number> {
     const changes = await sql<{
       id: string;
       operation: string;
@@ -235,9 +230,7 @@ export class GhostDDL {
         const valsSql = sql.join(columns.map((c) => sql`${data[c]}`));
         const updateSql =
           updateCols.length > 0
-            ? sql.join(
-                updateCols.map((c) => sql`${sql.id(c)} = EXCLUDED.${sql.id(c)}`),
-              )
+            ? sql.join(updateCols.map((c) => sql`${sql.id(c)} = EXCLUDED.${sql.id(c)}`))
             : sql`${sql.id('id')} = EXCLUDED.${sql.id('id')}`; // no-op update to avoid syntax errors
 
         await sql`
@@ -266,10 +259,7 @@ export class GhostDDL {
    * Reads continue uninterrupted during lock.
    * Cleanup (DROP TABLE old + changelog) is done async after 60s.
    */
-  static async atomicSwap(
-    db: Database,
-    migration: GhostMigration,
-  ): Promise<void> {
+  static async atomicSwap(db: Database, migration: GhostMigration): Promise<void> {
     const oldTable = `_zv_old_${migration.originalTable}`;
     const triggerFn = `${migration.triggerName}_fn`;
 
@@ -280,9 +270,7 @@ export class GhostDDL {
     await db.transaction().execute(async (trx) => {
       // SHARE ROW EXCLUSIVE: blocks INSERT/UPDATE/DELETE, allows SELECT
       await sql
-        .raw(
-          `LOCK TABLE "${migration.originalTable}" IN SHARE ROW EXCLUSIVE MODE`,
-        )
+        .raw(`LOCK TABLE "${migration.originalTable}" IN SHARE ROW EXCLUSIVE MODE`)
         .execute(trx);
 
       // Apply any writes that arrived in changelog in the window between
@@ -294,16 +282,12 @@ export class GhostDDL {
         .raw(`ALTER TABLE "${migration.originalTable}" RENAME TO "${oldTable}"`)
         .execute(trx);
       await sql
-        .raw(
-          `ALTER TABLE "${migration.ghostTable}" RENAME TO "${migration.originalTable}"`,
-        )
+        .raw(`ALTER TABLE "${migration.ghostTable}" RENAME TO "${migration.originalTable}"`)
         .execute(trx);
 
       // Cleanup trigger (was on original, now renamed to old)
       await sql
-        .raw(
-          `DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${oldTable}"`,
-        )
+        .raw(`DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${oldTable}"`)
         .execute(trx);
       await sql.raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`).execute(trx);
     });
@@ -313,9 +297,7 @@ export class GhostDDL {
       _pendingCleanups.delete(timer);
       try {
         await sql`DROP TABLE IF EXISTS ${sql.id(oldTable)}`.execute(db);
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)}`.execute(
-          db,
-        );
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)}`.execute(db);
       } catch {
         /* best-effort cleanup — don't throw errors in background */
       }
@@ -345,32 +327,20 @@ export class GhostDDL {
       .catch(() => null);
 
     if (meta && meta.is_managed === false) {
-      onProgress?.(
-        'skipped',
-        `Table "${tableName}" is unmanaged (BYOD). No DDL allowed.`,
-      );
+      onProgress?.('skipped', `Table "${tableName}" is unmanaged (BYOD). No DDL allowed.`);
       return;
     }
 
-    onProgress?.(
-      'creating',
-      `Creating ghost table and changelog trigger for "${tableName}"`,
-    );
+    onProgress?.('creating', `Creating ghost table and changelog trigger for "${tableName}"`);
     const migration = await GhostDDL.createGhost(db, tableName, ddlStatements);
 
     try {
-      onProgress?.(
-        'copying',
-        'Batch copying data from original to ghost table',
-      );
+      onProgress?.('copying', 'Batch copying data from original to ghost table');
       const copied = await GhostDDL.batchCopy(db, migration, (done, total) => {
         onProgress?.('copying', `Copied ${done}/${total} rows`);
       });
 
-      onProgress?.(
-        'changelog',
-        'Applying changelog mutations accumulated during copy',
-      );
+      onProgress?.('changelog', 'Applying changelog mutations accumulated during copy');
       const changelogApplied = await GhostDDL.applyChangelog(db, migration);
 
       onProgress?.('swapping', 'Performing atomic table swap (lock ~ms)');
@@ -383,32 +353,29 @@ export class GhostDDL {
     } catch (err) {
       // Cleanup ghost tables on failure to prevent accumulation
       try {
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.ghostTable)} CASCADE`.execute(
-          db,
-        );
-        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)} CASCADE`.execute(
-          db,
-        );
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.ghostTable)} CASCADE`.execute(db);
+        await sql`DROP TABLE IF EXISTS ${sql.id(migration.changelogTable)} CASCADE`.execute(db);
         const triggerFn = `${migration.triggerName}_fn`;
         await sql
-          .raw(
-            `DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${migration.originalTable}"`,
-          )
+          .raw(`DROP TRIGGER IF EXISTS "${migration.triggerName}" ON "${migration.originalTable}"`)
           .execute(db)
           .catch((cleanupErr: Error) => {
-            console.warn(`[ghost-ddl] DROP TRIGGER cleanup failed for ${migration.triggerName}:`, cleanupErr.message);
+            console.warn(
+              `[ghost-ddl] DROP TRIGGER cleanup failed for ${migration.triggerName}:`,
+              cleanupErr.message,
+            );
           });
         await sql
           .raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`)
           .execute(db)
           .catch((cleanupErr: Error) => {
-            console.warn(`[ghost-ddl] DROP FUNCTION cleanup failed for ${triggerFn}:`, cleanupErr.message);
+            console.warn(
+              `[ghost-ddl] DROP FUNCTION cleanup failed for ${triggerFn}:`,
+              cleanupErr.message,
+            );
           });
       } catch (cleanupErr) {
-        console.warn(
-          '[GhostDDL] Cleanup after failure also failed:',
-          cleanupErr,
-        );
+        console.warn('[GhostDDL] Cleanup after failure also failed:', cleanupErr);
       }
       throw err;
     }

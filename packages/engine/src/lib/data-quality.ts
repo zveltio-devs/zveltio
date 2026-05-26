@@ -29,9 +29,15 @@ interface QualityIssue {
   auto_fixable: boolean;
 }
 
-async function detectDuplicates(db: Database, tableName: string, fields: any[]): Promise<QualityIssue[]> {
+async function detectDuplicates(
+  db: Database,
+  tableName: string,
+  fields: any[],
+): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
-  const textFields = fields.filter((f) => ['text', 'email', 'url', 'richtext'].includes(f.type)).slice(0, 3);
+  const textFields = fields
+    .filter((f) => ['text', 'email', 'url', 'richtext'].includes(f.type))
+    .slice(0, 3);
   if (textFields.length === 0) return issues;
 
   await sql`CREATE EXTENSION IF NOT EXISTS pg_trgm`.execute(db).catch(() => {});
@@ -62,18 +68,26 @@ async function detectDuplicates(db: Database, tableName: string, fields: any[]):
           auto_fixable: false,
         });
       }
-    } catch { /* pg_trgm unavailable or field not castable */ }
+    } catch {
+      /* pg_trgm unavailable or field not castable */
+    }
   }
 
   return issues;
 }
 
-async function detectMissingData(db: Database, tableName: string, fields: any[]): Promise<QualityIssue[]> {
+async function detectMissingData(
+  db: Database,
+  tableName: string,
+  fields: any[],
+): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
 
   const totalResult = await sql<{ total: string }>`
     SELECT COUNT(*)::text AS total FROM ${sql.id(tableName)}
-  `.execute(db).catch(() => ({ rows: [{ total: '0' }] }));
+  `
+    .execute(db)
+    .catch(() => ({ rows: [{ total: '0' }] }));
   const totalCount = parseInt(totalResult.rows[0]?.total || '0');
   if (totalCount === 0) return issues;
 
@@ -112,13 +126,19 @@ async function detectMissingData(db: Database, tableName: string, fields: any[])
           : `Consider filling in "${field.name}" for better data completeness.`,
         auto_fixable: false,
       });
-    } catch { /* field may not exist yet */ }
+    } catch {
+      /* field may not exist yet */
+    }
   }
 
   return issues;
 }
 
-async function detectOutliers(db: Database, tableName: string, fields: any[]): Promise<QualityIssue[]> {
+async function detectOutliers(
+  db: Database,
+  tableName: string,
+  fields: any[],
+): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
   const numericFields = fields.filter((f) => f.type === 'number');
 
@@ -158,7 +178,9 @@ async function detectOutliers(db: Database, tableName: string, fields: any[]): P
         suggestion: 'Review these records — values are >3σ from the mean.',
         auto_fixable: false,
       });
-    } catch { /* skip non-numeric fields */ }
+    } catch {
+      /* skip non-numeric fields */
+    }
   }
 
   return issues;
@@ -191,10 +213,10 @@ Maximum 5 issues. Return [] if data looks clean.`;
     const provider = aiProviders?.getDefault?.();
     if (!provider) return [];
 
-    const response = await provider.chat(
-      [{ role: 'user', content: prompt }],
-      { max_tokens: 1000, temperature: 0.2 },
-    );
+    const response = await provider.chat([{ role: 'user', content: prompt }], {
+      max_tokens: 1000,
+      temperature: 0.2,
+    });
 
     const text = response.content || '[]';
     const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -230,7 +252,9 @@ async function runScanAsync(
 
   const countResult = await sql<{ count: string }>`
     SELECT COUNT(*)::text AS count FROM ${sql.id(tableName)}
-  `.execute(db).catch(() => ({ rows: [{ count: '0' }] }));
+  `
+    .execute(db)
+    .catch(() => ({ rows: [{ count: '0' }] }));
   const recordsScanned = parseInt(countResult.rows[0]?.count || '0');
 
   if (scanType === 'duplicates' || scanType === 'full') {
@@ -245,31 +269,42 @@ async function runScanAsync(
   if (scanType === 'normalization' || scanType === 'full') {
     // tableName is dynamic (zvd_<collection>), not in DbSchema.
     const sample = await (db as any)
-      .selectFrom(tableName).selectAll().limit(20).execute().catch(() => []);
+      .selectFrom(tableName)
+      .selectAll()
+      .limit(20)
+      .execute()
+      .catch(() => []);
     allIssues.push(...(await aiAnalyzeQuality(collection, sample, fields)));
   }
 
   if (allIssues.length > 0) {
     await db
       .insertInto('zv_quality_issues')
-      .values(allIssues.map((issue) => ({
-        scan_id: scanId,
-        collection,
-        issue_type: issue.issue_type,
-        severity: issue.severity,
-        record_ids: issue.record_ids,
-        field_name: issue.field_name || null,
-        description: issue.description,
-        suggestion: issue.suggestion || null,
-        auto_fixable: issue.auto_fixable,
-      })))
+      .values(
+        allIssues.map((issue) => ({
+          scan_id: scanId,
+          collection,
+          issue_type: issue.issue_type,
+          severity: issue.severity,
+          record_ids: issue.record_ids,
+          field_name: issue.field_name || null,
+          description: issue.description,
+          suggestion: issue.suggestion || null,
+          auto_fixable: issue.auto_fixable,
+        })),
+      )
       .execute()
       .catch(() => {});
   }
 
   await db
     .updateTable('zv_quality_scans')
-    .set({ status: 'completed', records_scanned: recordsScanned, issues_found: allIssues.length, completed_at: new Date() })
+    .set({
+      status: 'completed',
+      records_scanned: recordsScanned,
+      issues_found: allIssues.length,
+      completed_at: new Date(),
+    })
     .where('id', '=', scanId)
     .execute();
 }
@@ -296,8 +331,7 @@ export async function runQualityScan(
 
   runScanAsync(db, scanId, collection, tableName, scanType).catch((err) => {
     console.error(`Quality scan ${scanId} failed:`, err);
-    db
-      .updateTable('zv_quality_scans')
+    db.updateTable('zv_quality_scans')
       .set({ status: 'failed', completed_at: new Date() })
       .where('id', '=', scanId)
       .execute()

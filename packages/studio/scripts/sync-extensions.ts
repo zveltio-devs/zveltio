@@ -19,10 +19,12 @@ const EXT_ROOTS = [
   join(STUDIO_ROOT, '../../../zveltio-extensions'),
   // Production: EXTENSIONS_DIR env (set by install.sh or admin)
   process.env.EXTENSIONS_DIR ?? '',
-].filter(Boolean).filter((p) => existsSync(p as string)) as string[];
+]
+  .filter(Boolean)
+  .filter((p) => existsSync(p as string)) as string[];
 
 const ROUTES_EXT = join(STUDIO_ROOT, 'src/routes/(admin)');
-const LIB_EXT    = join(STUDIO_ROOT, 'src/lib/ext');
+const LIB_EXT = join(STUDIO_ROOT, 'src/lib/ext');
 
 // Docker builder sets SKIP_SYNC_EXT=1 because it runs sync inline before build
 if (process.env.SKIP_SYNC_EXT === '1') {

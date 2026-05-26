@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import {
-  parseSchema,
-  parseColumnList,
-  emitTypeScript,
-} from '@zveltio/sdk/codegen';
+import { parseSchema, parseColumnList, emitTypeScript } from '@zveltio/sdk/codegen';
 
 describe('parseColumnList', () => {
   it('parses simple column definitions', () => {
@@ -70,7 +66,8 @@ describe('parseColumnList', () => {
 
 describe('parseSchema', () => {
   it('parses a single CREATE TABLE', () => {
-    const schema = parseSchema([`
+    const schema = parseSchema([
+      `
       CREATE TABLE zv_forms (
         id UUID PRIMARY KEY,
         name TEXT NOT NULL,
@@ -80,12 +77,19 @@ describe('parseSchema', () => {
         active BOOLEAN NOT NULL DEFAULT true,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-    `]);
+    `,
+    ]);
     expect(schema.tables).toHaveLength(1);
     const t = schema.tables[0];
     expect(t.name).toBe('zv_forms');
     expect(t.columns.map((c) => c.name)).toEqual([
-      'id', 'name', 'slug', 'description', 'fields', 'active', 'created_at',
+      'id',
+      'name',
+      'slug',
+      'description',
+      'fields',
+      'active',
+      'created_at',
     ]);
     expect(t.columns.find((c) => c.name === 'description')?.tsType).toBe('string | null');
     expect(t.columns.find((c) => c.name === 'fields')?.tsType).toBe('Record<string, unknown>');
@@ -122,21 +126,25 @@ describe('parseSchema', () => {
   });
 
   it('ignores comments', () => {
-    const schema = parseSchema([`
+    const schema = parseSchema([
+      `
       -- A comment with CREATE TABLE fake_table (id INT) in it.
       /* block comment with CREATE TABLE other_fake (x INT); */
       CREATE TABLE real_table (id UUID PRIMARY KEY);
-    `]);
+    `,
+    ]);
     expect(schema.tables).toHaveLength(1);
     expect(schema.tables[0].name).toBe('real_table');
   });
 
   it('skips CREATE INDEX / CREATE FUNCTION', () => {
-    const schema = parseSchema([`
+    const schema = parseSchema([
+      `
       CREATE TABLE t (id UUID PRIMARY KEY);
       CREATE INDEX idx_t_id ON t(id);
       CREATE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;
-    `]);
+    `,
+    ]);
     expect(schema.tables).toHaveLength(1);
     expect(schema.tables[0].name).toBe('t');
   });
@@ -150,13 +158,15 @@ describe('parseSchema', () => {
 
 describe('emitTypeScript', () => {
   it('emits a Kysely-friendly interface', () => {
-    const schema = parseSchema([`
+    const schema = parseSchema([
+      `
       CREATE TABLE zv_forms (
         id UUID PRIMARY KEY,
         name TEXT NOT NULL,
         active BOOLEAN NOT NULL DEFAULT true
       );
-    `]);
+    `,
+    ]);
     const ts = emitTypeScript(schema);
     expect(ts).toContain('export interface ExtensionSchema {');
     expect(ts).toContain('zv_forms: {');

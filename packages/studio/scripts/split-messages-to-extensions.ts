@@ -77,7 +77,8 @@ for (const [k, v] of Object.entries({
   'shell.localeDe': 'Deutsch',
 })) {
   buckets.get('core')!.en[k] = buckets.get('core')!.en[k] ?? v;
-  buckets.get('core')!.ro[k] = buckets.get('core')!.ro[k] ?? (k === 'shell.localeFr' ? 'Franceză' : 'Germană');
+  buckets.get('core')!.ro[k] =
+    buckets.get('core')!.ro[k] ?? (k === 'shell.localeFr' ? 'Franceză' : 'Germană');
   buckets.get('core')!.fr[k] = CORE_FR[k]!;
   buckets.get('core')!.de[k] = CORE_DE[k]!;
 }

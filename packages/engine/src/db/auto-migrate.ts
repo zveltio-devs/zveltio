@@ -102,7 +102,8 @@ export async function autoMigrate(db: Database): Promise<AutoMigrateResult> {
   } finally {
     // Always release. If the runner threw, we still want the lock free
     // so the operator can retry on the next start.
-    await sql<unknown>`SELECT pg_advisory_unlock(${MIGRATIONS_LOCK_KEY})`.execute(db)
+    await sql<unknown>`SELECT pg_advisory_unlock(${MIGRATIONS_LOCK_KEY})`
+      .execute(db)
       .catch((err) => {
         console.warn('[auto-migrate] failed to release advisory lock:', (err as Error).message);
       });

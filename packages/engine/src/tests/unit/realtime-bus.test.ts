@@ -24,7 +24,9 @@ describe('S5-03 realtimeBus() selection', () => {
     DATABASE_URL: process.env.DATABASE_URL,
   };
 
-  beforeEach(() => { _resetForTests(); });
+  beforeEach(() => {
+    _resetForTests();
+  });
 
   afterEach(() => {
     _resetForTests();
@@ -72,7 +74,11 @@ describe('S5-03 noop backend', () => {
     const bus = new NoopRealtimeBus();
     expect(bus.isRunning).toBe(false);
     await bus.start();
-    await bus.publish({ event: 'record.created', collection: 'x', timestamp: new Date().toISOString() });
+    await bus.publish({
+      event: 'record.created',
+      collection: 'x',
+      timestamp: new Date().toISOString(),
+    });
     await bus.stop();
     // No throw == pass.
     expect(bus.isRunning).toBe(false);

@@ -42,11 +42,7 @@ export function useSyncCollection(
  */
 export function useSyncStatus(
   sync: SyncManager,
-  setter: (status: {
-    pending: number;
-    conflicts: number;
-    isOnline: boolean;
-  }) => void,
+  setter: (status: { pending: number; conflicts: number; isOnline: boolean }) => void,
   intervalMs = 2000,
 ): () => void {
   // Emit immediately

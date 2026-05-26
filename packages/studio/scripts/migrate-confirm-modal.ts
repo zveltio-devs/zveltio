@@ -127,12 +127,25 @@ function ensureSetup(script: string): string {
   let s = script;
   if (!s.includes('createExtensionConfirm')) {
     if (s.includes("import { m } from '$lib/i18n.svelte.js';")) {
-      s = s.replace("import { m } from '$lib/i18n.svelte.js';", `import { m } from '$lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`);
+      s = s.replace(
+        "import { m } from '$lib/i18n.svelte.js';",
+        `import { m } from '$lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`,
+      );
     } else {
-      s = s.replace('<script lang="ts">', `<script lang="ts">\n  import { m } from '$lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`);
+      s = s.replace(
+        '<script lang="ts">',
+        `<script lang="ts">\n  import { m } from '$lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`,
+      );
     }
     const insertAt = (() => {
-      const markers = ['\n  type ', '\n  let ', '\n  const ', '\n  onMount', '\n  async function ', '\n  function '];
+      const markers = [
+        '\n  type ',
+        '\n  let ',
+        '\n  const ',
+        '\n  onMount',
+        '\n  async function ',
+        '\n  function ',
+      ];
       let pos = -1;
       for (const mk of markers) {
         const i = s.indexOf(mk);

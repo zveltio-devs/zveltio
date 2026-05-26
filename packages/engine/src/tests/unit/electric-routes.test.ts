@@ -15,7 +15,9 @@ import { electricRoutes, _internalForTests } from '../../routes/electric.js';
 
 const fakeAuth = (user: { id: string; tenantId?: string } | null) => ({
   api: {
-    async getSession() { return user ? { user } : null; },
+    async getSession() {
+      return user ? { user } : null;
+    },
   },
 });
 
@@ -64,7 +66,7 @@ describe('S5-07 electric route — service-unavailable', () => {
     const app = makeApp({ id: 'u1' });
     const res = await app.request('/api/electric/config');
     expect(res.status).toBe(503);
-    const body = await res.json() as { enabled: boolean };
+    const body = (await res.json()) as { enabled: boolean };
     expect(body.enabled).toBe(false);
   });
 });
@@ -81,14 +83,16 @@ describe('S5-07 electric route — token mint', () => {
       body: JSON.stringify({ tables: ['zvd_contacts'] }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { token: string; expiresAt: number; electricUrl: string };
+    const body = (await res.json()) as { token: string; expiresAt: number; electricUrl: string };
 
     // Three segments separated by dots.
     expect(body.token.split('.').length).toBe(3);
 
     // Decode + check claims.
     const [, payloadB64] = body.token.split('.');
-    const padded = payloadB64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - payloadB64.length % 4) % 4);
+    const padded =
+      payloadB64.replace(/-/g, '+').replace(/_/g, '/') +
+      '='.repeat((4 - (payloadB64.length % 4)) % 4);
     const claims = JSON.parse(atob(padded)) as Record<string, unknown>;
     expect(claims.sub).toBe('user-42');
     expect(claims.tenant_id).toBe('tenant-7');

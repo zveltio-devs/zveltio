@@ -1,99 +1,114 @@
 <script lang="ts">
- import { onMount, onDestroy } from 'svelte';
- import L from 'leaflet';
- import 'leaflet/dist/leaflet.css';
+import { onMount, onDestroy } from 'svelte';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { MapPin, Navigation, X } from '@lucide/svelte';
 
- interface GeoLocation { lat: number; lng: number; }
+interface GeoLocation {
+  lat: number;
+  lng: number;
+}
 
- interface Props {
- value?: GeoLocation | null;
- readonly?: boolean;
- defaultLat?: number;
- defaultLng?: number;
- height?: string;
- }
+interface Props {
+  value?: GeoLocation | null;
+  readonly?: boolean;
+  defaultLat?: number;
+  defaultLng?: number;
+  height?: string;
+}
 
- let {
- value = $bindable<GeoLocation | null>(null),
- readonly = false,
- defaultLat = 44.4268,
- defaultLng = 26.1025,
- height = '300px',
- }: Props = $props();
+let {
+  value = $bindable<GeoLocation | null>(null),
+  readonly = false,
+  defaultLat = 44.4268,
+  defaultLng = 26.1025,
+  height = '300px',
+}: Props = $props();
 
- let mapElement: HTMLDivElement;
- let map: L.Map | null = null;
- let marker: L.Marker | null = null;
+let mapElement: HTMLDivElement;
+let map: L.Map | null = null;
+let marker: L.Marker | null = null;
 
- let lat = $state(value?.lat ?? 44.4268);
- let lng = $state(value?.lng ?? 26.1025);
- let disabled = $derived(readonly);
- const defaultZoom = 13;
+let lat = $state(value?.lat ?? 44.4268);
+let lng = $state(value?.lng ?? 26.1025);
+let disabled = $derived(readonly);
+const defaultZoom = 13;
 
- $effect(() => {
- if (value?.lat !== undefined && value?.lng !== undefined) {
- lat = value.lat;
- lng = value.lng;
- marker?.setLatLng([lat, lng]);
- map?.setView([lat, lng], defaultZoom);
- }
- });
+$effect(() => {
+  if (value?.lat !== undefined && value?.lng !== undefined) {
+    lat = value.lat;
+    lng = value.lng;
+    marker?.setLatLng([lat, lng]);
+    map?.setView([lat, lng], defaultZoom);
+  }
+});
 
- onMount(() => {
- delete (L.Icon.Default.prototype as any)._getIconUrl;
- L.Icon.Default.mergeOptions({
- iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
- iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
- shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
- });
+onMount(() => {
+  delete (L.Icon.Default.prototype as any)._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  });
 
- map = L.map(mapElement).setView([lat, lng], defaultZoom);
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
- attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
- }).addTo(map);
+  map = L.map(mapElement).setView([lat, lng], defaultZoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
 
- if (value?.lat !== undefined && value?.lng !== undefined) {
- marker = L.marker([value.lat, value.lng]).addTo(map);
- }
+  if (value?.lat !== undefined && value?.lng !== undefined) {
+    marker = L.marker([value.lat, value.lng]).addTo(map);
+  }
 
- if (!readonly) {
- map.on('click', (e: L.LeafletMouseEvent) => setLocation(e.latlng.lat, e.latlng.lng));
- }
- });
+  if (!readonly) {
+    map.on('click', (e: L.LeafletMouseEvent) => setLocation(e.latlng.lat, e.latlng.lng));
+  }
+});
 
- onDestroy(() => { map?.remove(); });
+onDestroy(() => {
+  map?.remove();
+});
 
- function setLocation(newLat: number, newLng: number) {
- lat = newLat;
- lng = newLng;
- value = { lat, lng };
- if (marker) {
- marker.setLatLng([lat, lng]);
- } else if (map) {
- marker = L.marker([lat, lng]).addTo(map);
- }
- map?.panTo([lat, lng]);
- }
+function setLocation(newLat: number, newLng: number) {
+  lat = newLat;
+  lng = newLng;
+  value = { lat, lng };
+  if (marker) {
+    marker.setLatLng([lat, lng]);
+  } else if (map) {
+    marker = L.marker([lat, lng]).addTo(map);
+  }
+  map?.panTo([lat, lng]);
+}
 
- function getCurrentLocation() {
- if (!navigator.geolocation) { alert('Geolocation is not supported'); return; }
- navigator.geolocation.getCurrentPosition(
- (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
- (err) => alert('Failed to get location: ' + err.message),
- { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
- );
- }
+function getCurrentLocation() {
+  if (!navigator.geolocation) {
+    alert('Geolocation is not supported');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => setLocation(pos.coords.latitude, pos.coords.longitude),
+    (err) => alert('Failed to get location: ' + err.message),
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+  );
+}
 
- function clearLocation() {
- value = null;
- lat = defaultLat;
- lng = defaultLng;
- if (marker) { map?.removeLayer(marker); marker = null; }
- }
+function clearLocation() {
+  value = null;
+  lat = defaultLat;
+  lng = defaultLng;
+  if (marker) {
+    map?.removeLayer(marker);
+    marker = null;
+  }
+}
 
- function onLatChange(newLat: number) { if (!isNaN(newLat)) setLocation(newLat, lng); }
- function onLngChange(newLng: number) { if (!isNaN(newLng)) setLocation(lat, newLng); }
+function onLatChange(newLat: number) {
+  if (!isNaN(newLat)) setLocation(newLat, lng);
+}
+function onLngChange(newLng: number) {
+  if (!isNaN(newLng)) setLocation(lat, newLng);
+}
 </script>
 
 <div class="location-field">

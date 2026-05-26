@@ -22,9 +22,9 @@ interface SubscriptionFilter {
 
 interface StreamSub {
   stream: any;
-  collections: string[];   // empty = all
-  recordId?: string;       // filter to specific record ID
-  filters: SubscriptionFilter[];  // field-level filters on the record payload
+  collections: string[]; // empty = all
+  recordId?: string; // filter to specific record ID
+  filters: SubscriptionFilter[]; // field-level filters on the record payload
   /**
    * Tenant id at the time the subscription was opened. Required for
    * cross-tenant isolation in `broadcastDataEvent`: without it a
@@ -53,7 +53,12 @@ function presenceCleanup(channel: string) {
   if (members.size === 0) presenceStore.delete(channel);
 }
 
-async function presenceJoin(cache: any, channel: string, userId: string, meta: Record<string, any>) {
+async function presenceJoin(
+  cache: any,
+  channel: string,
+  userId: string,
+  meta: Record<string, any>,
+) {
   const ts = Date.now();
   if (cache) {
     try {
@@ -64,7 +69,9 @@ async function presenceJoin(cache: any, channel: string, userId: string, meta: R
       await cache.hset(`presence_meta:${channel}:${userId}`, meta);
       await cache.pexpire(`presence_meta:${channel}:${userId}`, PRESENCE_TTL_MS * 2);
       return;
-    } catch { /* fall through to in-memory */ }
+    } catch {
+      /* fall through to in-memory */
+    }
   }
   if (!presenceStore.has(channel)) presenceStore.set(channel, new Map());
   presenceStore.get(channel)!.set(userId, ts);
@@ -76,12 +83,17 @@ async function presenceLeave(cache: any, channel: string, userId: string) {
       await cache.zrem(`presence:${channel}`, userId);
       await cache.del(`presence_meta:${channel}:${userId}`);
       return;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   presenceStore.get(channel)?.delete(userId);
 }
 
-async function presenceList(cache: any, channel: string): Promise<Array<{ userId: string; lastSeen: number }>> {
+async function presenceList(
+  cache: any,
+  channel: string,
+): Promise<Array<{ userId: string; lastSeen: number }>> {
   const cutoff = Date.now() - PRESENCE_TTL_MS;
   if (cache) {
     try {
@@ -93,7 +105,9 @@ async function presenceList(cache: any, channel: string): Promise<Array<{ userId
         result.push({ userId: members[i], lastSeen: parseInt(members[i + 1]) });
       }
       return result;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   presenceCleanup(channel);
   const members = presenceStore.get(channel);
@@ -144,7 +158,9 @@ export function broadcastDataEvent(
       if (!matchesSub(sub, collection, record)) continue;
       try {
         sub.stream.writeSSE({ data: payload, event: 'data' });
-      } catch { /* client disconnected */ }
+      } catch {
+        /* client disconnected */
+      }
     }
   }
 }
@@ -162,7 +178,9 @@ export function broadcastSSE(channel: string, event: string, data: any): void {
     for (const sub of subs) {
       try {
         sub.stream.writeSSE({ data: payload, event });
-      } catch { /* client disconnected */ }
+      } catch {
+        /* client disconnected */
+      }
     }
   }
 }
@@ -201,9 +219,12 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
     const userId = session.user.id;
     const rawCollections = c.req.query('collection')?.split(',').filter(Boolean) ?? [];
-    const extraChannels = c.req.query('channel')?.split(',').filter(Boolean).map((ch) =>
-      ch.startsWith('zveltio:') ? ch : `zveltio:${ch}`,
-    ) ?? [];
+    const extraChannels =
+      c.req
+        .query('channel')
+        ?.split(',')
+        .filter(Boolean)
+        .map((ch) => (ch.startsWith('zveltio:') ? ch : `zveltio:${ch}`)) ?? [];
     const recordId = c.req.query('record_id') || undefined;
     const filters = parseSubFilters(c.req.query('filter'));
 
@@ -219,9 +240,12 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     if (rawCollections.length === 0) {
       const isAdmin = await checkPermission(userId, 'admin', '*').catch(() => false);
       if (!isAdmin) {
-        return c.json({
-          error: 'Wildcard collection streams require admin; specify ?collection=name1,name2',
-        }, 403);
+        return c.json(
+          {
+            error: 'Wildcard collection streams require admin; specify ?collection=name1,name2',
+          },
+          403,
+        );
       }
     }
     const collections: string[] = [];
@@ -242,10 +266,13 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       }
     }
     if (collections.length === 0 && rawCollections.length > 0) {
-      return c.json({
-        error: 'No read permission on any of the requested collections',
-        denied,
-      }, 403);
+      return c.json(
+        {
+          error: 'No read permission on any of the requested collections',
+          denied,
+        },
+        403,
+      );
     }
 
     const tenantId = (c.get('tenant') as any)?.id ?? null;
@@ -280,7 +307,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
                 if (!matchesSub(sub, col, parsed?.data ?? parsed)) return;
               }
               stream.writeSSE({ data: message, event: 'data' });
-            } catch { /* stream closed or malformed message */ }
+            } catch {
+              /* stream closed or malformed message */
+            }
           });
         } catch {
           /* Redis unavailable — in-process broadcastDataEvent still works */
@@ -314,7 +343,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
             try {
               await subscriber.unsubscribe();
               await subscriber.disconnect();
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
           resolve();
         });
@@ -347,13 +378,18 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     });
     if (cache) {
       try {
-        await cache.publish(`zveltio:presence:${channel}`, JSON.stringify({
-          event: 'presence.join',
-          channel,
-          userId: session.user.id,
-          timestamp: Date.now(),
-        }));
-      } catch { /* non-fatal */ }
+        await cache.publish(
+          `zveltio:presence:${channel}`,
+          JSON.stringify({
+            event: 'presence.join',
+            channel,
+            userId: session.user.id,
+            timestamp: Date.now(),
+          }),
+        );
+      } catch {
+        /* non-fatal */
+      }
     }
 
     return c.json({ success: true, channel });
@@ -376,13 +412,18 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     });
     if (cache) {
       try {
-        await cache.publish(`zveltio:presence:${channel}`, JSON.stringify({
-          event: 'presence.leave',
-          channel,
-          userId: session.user.id,
-          timestamp: Date.now(),
-        }));
-      } catch { /* non-fatal */ }
+        await cache.publish(
+          `zveltio:presence:${channel}`,
+          JSON.stringify({
+            event: 'presence.leave',
+            channel,
+            userId: session.user.id,
+            timestamp: Date.now(),
+          }),
+        );
+      } catch {
+        /* non-fatal */
+      }
     }
 
     return c.json({ success: true });
@@ -426,7 +467,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     if (cache) {
       try {
         await cache.publish(broadcastChannel, JSON.stringify(message));
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
 
     broadcastSSE(broadcastChannel, body.event, message);
@@ -472,7 +515,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
             timestamp: Date.now(),
           }),
         );
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
 
     broadcastSSE(body.channel, body.event ?? 'message', body.payload);

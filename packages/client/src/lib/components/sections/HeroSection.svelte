@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { title = '', subtitle = '', cta_text = '', cta_url = '', image_url = '' } = $props();
+let { title = '', subtitle = '', cta_text = '', cta_url = '', image_url = '' } = $props();
 </script>
 
 <div class="hero min-h-[50vh] bg-base-200">

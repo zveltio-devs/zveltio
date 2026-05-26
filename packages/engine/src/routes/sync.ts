@@ -42,14 +42,8 @@ export function syncRoutes(db: Database, _auth: any): Hono {
   async function sanitizeSyncPayload(
     collectionName: string,
     raw: Record<string, any>,
-  ): Promise<
-    | { safe: true; payload: Record<string, any> }
-    | { safe: false; reason: string }
-  > {
-    const collectionDef = await DDLManager.getCollection(
-      db,
-      collectionName.replace(/^zvd_/, ''),
-    );
+  ): Promise<{ safe: true; payload: Record<string, any> } | { safe: false; reason: string }> {
+    const collectionDef = await DDLManager.getCollection(db, collectionName.replace(/^zvd_/, ''));
     if (!collectionDef) {
       return {
         safe: false,
@@ -57,9 +51,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       };
     }
 
-    const allowedFields = new Set(
-      (collectionDef.fields as any[]).map((f: any) => f.name),
-    );
+    const allowedFields = new Set((collectionDef.fields as any[]).map((f: any) => f.name));
 
     const payload: Record<string, any> = {};
     for (const [key, value] of Object.entries(raw || {})) {
@@ -85,20 +77,14 @@ export function syncRoutes(db: Database, _auth: any): Hono {
   app.post('/push', async (c) => {
     const body = await c.req.json().catch(() => null);
     if (!body || !Array.isArray(body.operations)) {
-      return c.json(
-        { error: 'Invalid body: expected { operations: [...] }' },
-        400,
-      );
+      return c.json({ error: 'Invalid body: expected { operations: [...] }' }, 400);
     }
 
     const { operations } = body;
 
     // DDoS protection: limit batch size
     if (operations.length > 500) {
-      return c.json(
-        { error: 'Batch too large. Maximum 500 operations per push.' },
-        400,
-      );
+      return c.json({ error: 'Batch too large. Maximum 500 operations per push.' }, 400);
     }
 
     const results: Array<{
@@ -115,10 +101,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     const COLLECTION_RE = /^zvd_[a-z][a-z0-9_]*$/;
 
     // Group creates by collection for batch insert
-    const createsByCollection = new Map<
-      string,
-      Array<{ recordId: string; payload: any }>
-    >();
+    const createsByCollection = new Map<string, Array<{ recordId: string; payload: any }>>();
     const nonCreateOps: typeof operations = [];
 
     for (const op of operations) {
@@ -167,11 +150,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       const canWrite = await checkPermission(
         user.id,
         `data:${collectionShortName}`,
-        op.operation === 'delete'
-          ? 'delete'
-          : op.operation === 'create'
-            ? 'create'
-            : 'update',
+        op.operation === 'delete' ? 'delete' : op.operation === 'create' ? 'create' : 'update',
       );
       if (!canWrite) {
         results.push({
@@ -288,15 +267,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
    */
   app.post('/pull', async (c) => {
     const body = await c.req.json().catch(() => null);
-    if (
-      !body ||
-      !Array.isArray(body.collections) ||
-      typeof body.since !== 'number'
-    ) {
+    if (!body || !Array.isArray(body.collections) || typeof body.since !== 'number') {
       return c.json(
         {
-          error:
-            'Invalid body: expected { collections: string[], since: number }',
+          error: 'Invalid body: expected { collections: string[], since: number }',
         },
         400,
       );
@@ -304,10 +278,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
     // Limit max collections per pull request to prevent DoS
     if (body.collections.length > 20) {
-      return c.json(
-        { error: 'Too many collections. Maximum 20 per pull request.' },
-        400,
-      );
+      return c.json({ error: 'Too many collections. Maximum 20 per pull request.' }, 400);
     }
 
     const { collections, since } = body as {
@@ -332,9 +303,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
     for (const rawName of collections) {
       const collection: string =
-        typeof rawName === 'string' && rawName.startsWith('zvd_')
-          ? rawName
-          : `zvd_${rawName}`;
+        typeof rawName === 'string' && rawName.startsWith('zvd_') ? rawName : `zvd_${rawName}`;
 
       if (!COLLECTION_RE.test(collection)) continue;
 

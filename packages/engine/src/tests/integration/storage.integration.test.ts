@@ -47,10 +47,18 @@ afterAll(async () => {
   if (skipAll || !db) return;
   // Clean up test file if still present
   if (uploadedFileId) {
-    await (db as any).deleteFrom('zv_media_files').where('id', '=', uploadedFileId).execute().catch(() => {});
+    await (db as any)
+      .deleteFrom('zv_media_files')
+      .where('id', '=', uploadedFileId)
+      .execute()
+      .catch(() => {});
   }
   if (createdFolderId) {
-    await (db as any).deleteFrom('zv_media_folders').where('id', '=', createdFolderId).execute().catch(() => {});
+    await (db as any)
+      .deleteFrom('zv_media_folders')
+      .where('id', '=', createdFolderId)
+      .execute()
+      .catch(() => {});
   }
   await db.destroy().catch(() => {});
 });
@@ -66,7 +74,7 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.files)).toBe(true);
   });
 
@@ -81,7 +89,7 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
       body: formData,
     });
     expect(res.status).toBeOneOf([200, 201]);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     const file = body.file ?? body;
     expect(file).toHaveProperty('id');
     expect(file.original_name).toBe('test-file.txt');
@@ -94,7 +102,7 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect((body.file ?? body).id).toBe(uploadedFileId);
   });
 
@@ -113,7 +121,7 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
     });
     expect(res.status).toBeOneOf([200, 201, 503]);
     if (res.status === 200 || res.status === 201) {
-      const body = await res.json() as any;
+      const body = (await res.json()) as any;
       const folder = body.folder ?? body;
       expect(folder).toHaveProperty('id');
       createdFolderId = folder.id;
@@ -125,7 +133,7 @@ describe.skipIf(skipAll)('Storage — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.folders)).toBe(true);
   });
 

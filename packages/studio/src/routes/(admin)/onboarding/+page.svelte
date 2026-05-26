@@ -1,143 +1,179 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import {
-    CircleCheck, Circle, ArrowRight, ArrowLeft,
-    Database, Key, Webhook, Zap, PartyPopper, Copy,
-  } from '@lucide/svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  CircleCheck,
+  Circle,
+  ArrowRight,
+  ArrowLeft,
+  Database,
+  Key,
+  Webhook,
+  Zap,
+  PartyPopper,
+  Copy,
+} from '@lucide/svelte';
 
-  // ── Steps ──────────────────────────────────────────────────────
-  const STEPS = [
-    { id: 'welcome',    label: 'Welcome'    },
-    { id: 'collection', label: 'Collection' },
-    { id: 'api-key',    label: 'API Key'    },
-    { id: 'test',       label: 'Test API'   },
-    { id: 'webhook',    label: 'Webhook'    },
-    { id: 'done',       label: 'Done!'      },
-  ] as const;
+// ── Steps ──────────────────────────────────────────────────────
+const STEPS = [
+  { id: 'welcome', label: 'Welcome' },
+  { id: 'collection', label: 'Collection' },
+  { id: 'api-key', label: 'API Key' },
+  { id: 'test', label: 'Test API' },
+  { id: 'webhook', label: 'Webhook' },
+  { id: 'done', label: 'Done!' },
+] as const;
 
-  type StepId = typeof STEPS[number]['id'];
+type StepId = (typeof STEPS)[number]['id'];
 
-  let step = $state<StepId>('welcome');
-  let loading = $state(false);
+let step = $state<StepId>('welcome');
+let loading = $state(false);
 
-  // Step 2 — collection
-  let colName  = $state('');
-  let colLabel = $state('');
-  let colCreated = $state(false);
-  let colNameManuallyEdited = $state(false);
+// Step 2 — collection
+let colName = $state('');
+let colLabel = $state('');
+let colCreated = $state(false);
+let colNameManuallyEdited = $state(false);
 
-  $effect(() => {
-    if (!colNameManuallyEdited && colLabel) {
-      colName = colLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    }
-  });
-
-  // Step 3 — API key
-  let keyName    = $state('My App');
-  let apiKey     = $state('');
-  let keyCreated = $state(false);
-
-  // Step 4 — test
-  let engineUrl  = (typeof window !== 'undefined' ? (window as any).__ZVELTIO_ENGINE_URL__ : '') || '';
-  let testResult = $state('');
-  let testLoading = $state(false);
-
-  // Step 5 — webhook (optional)
-  let webhookUrl   = $state('');
-  let webhookEvents = $state(['data.created']);
-  let webhookSkipped = $state(false);
-
-  const stepIndex = $derived(STEPS.findIndex(s => s.id === step));
-
-  function next() {
-    const idx = STEPS.findIndex(s => s.id === step);
-    if (idx < STEPS.length - 1) step = STEPS[idx + 1].id;
+$effect(() => {
+  if (!colNameManuallyEdited && colLabel) {
+    colName = colLabel
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
   }
-  function back() {
-    const idx = STEPS.findIndex(s => s.id === step);
-    if (idx > 0) step = STEPS[idx - 1].id;
-  }
+});
 
-  // ── Step 2: create collection ──────────────────────────────────
-  async function createCollection() {
-    if (!colName.trim()) return;
-    loading = true;
-    try {
-      const slug = colName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-      await api.post('/api/collections', {
-        name: slug,
-        label: colLabel || colName,
-        fields: [{ name: 'title', type: 'text', required: true }],
-      });
-      colCreated = true;
-      toast.success(`Collection "${colLabel || colName}" created!`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create collection');
-    } finally { loading = false; }
-  }
+// Step 3 — API key
+let keyName = $state('My App');
+let apiKey = $state('');
+let keyCreated = $state(false);
 
-  // ── Step 3: create API key ─────────────────────────────────────
-  async function createApiKey() {
-    loading = true;
-    try {
-      const res = await api.post<{ key: string }>('/api/admin/api-keys', {
-        name: keyName || 'My App',
-        scopes: [{ collection: '*', actions: ['read', 'create', 'update', 'delete'] }],
-      });
-      apiKey = res.key ?? '';
-      keyCreated = true;
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create API key');
-    } finally { loading = false; }
-  }
+// Step 4 — test
+let engineUrl = (typeof window !== 'undefined' ? (window as any).__ZVELTIO_ENGINE_URL__ : '') || '';
+let testResult = $state('');
+let testLoading = $state(false);
 
-  function copyKey() {
-    navigator.clipboard.writeText(apiKey).then(() => toast.success('Copied!'));
-  }
+// Step 5 — webhook (optional)
+let webhookUrl = $state('');
+let webhookEvents = $state(['data.created']);
+let webhookSkipped = $state(false);
 
-  // ── Step 4: test API call ──────────────────────────────────────
-  async function runTest() {
-    testLoading = true;
-    testResult = '';
-    try {
-      const colSlug = colName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') || 'test';
-      const res = await api.fetch(`/api/data/${colSlug}?limit=1`, {
-        headers: { 'X-API-Key': apiKey },
-      });
-      const data = await res.json();
-      testResult = JSON.stringify(data, null, 2);
-    } catch (err: any) {
-      testResult = `Error: ${err.message}`;
-    } finally { testLoading = false; }
-  }
+const stepIndex = $derived(STEPS.findIndex((s) => s.id === step));
 
-  // ── Step 5: create webhook ─────────────────────────────────────
-  async function createWebhook() {
-    if (!webhookUrl.trim()) { webhookSkipped = true; next(); return; }
-    loading = true;
-    try {
-      await api.post('/api/webhooks', {
-        name: 'My First Webhook',
-        url: webhookUrl,
-        events: webhookEvents,
-        is_active: true,
-      });
-      toast.success('Webhook created!');
-      next();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create webhook');
-    } finally { loading = false; }
-  }
+function next() {
+  const idx = STEPS.findIndex((s) => s.id === step);
+  if (idx < STEPS.length - 1) step = STEPS[idx + 1].id;
+}
+function back() {
+  const idx = STEPS.findIndex((s) => s.id === step);
+  if (idx > 0) step = STEPS[idx - 1].id;
+}
 
-  function skipWebhook() { webhookSkipped = true; next(); }
-
-  function finish() {
-    localStorage.setItem('zveltio-onboarding-done', '1');
-    goto(`${base}/`);
+// ── Step 2: create collection ──────────────────────────────────
+async function createCollection() {
+  if (!colName.trim()) return;
+  loading = true;
+  try {
+    const slug = colName
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
+    await api.post('/api/collections', {
+      name: slug,
+      label: colLabel || colName,
+      fields: [{ name: 'title', type: 'text', required: true }],
+    });
+    colCreated = true;
+    toast.success(`Collection "${colLabel || colName}" created!`);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to create collection');
+  } finally {
+    loading = false;
   }
+}
+
+// ── Step 3: create API key ─────────────────────────────────────
+async function createApiKey() {
+  loading = true;
+  try {
+    const res = await api.post<{ key: string }>('/api/admin/api-keys', {
+      name: keyName || 'My App',
+      scopes: [{ collection: '*', actions: ['read', 'create', 'update', 'delete'] }],
+    });
+    apiKey = res.key ?? '';
+    keyCreated = true;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to create API key');
+  } finally {
+    loading = false;
+  }
+}
+
+function copyKey() {
+  navigator.clipboard.writeText(apiKey).then(() => toast.success('Copied!'));
+}
+
+// ── Step 4: test API call ──────────────────────────────────────
+async function runTest() {
+  testLoading = true;
+  testResult = '';
+  try {
+    const colSlug =
+      colName
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_]/g, '') || 'test';
+    const res = await api.fetch(`/api/data/${colSlug}?limit=1`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    const data = await res.json();
+    testResult = JSON.stringify(data, null, 2);
+  } catch (err: any) {
+    testResult = `Error: ${err.message}`;
+  } finally {
+    testLoading = false;
+  }
+}
+
+// ── Step 5: create webhook ─────────────────────────────────────
+async function createWebhook() {
+  if (!webhookUrl.trim()) {
+    webhookSkipped = true;
+    next();
+    return;
+  }
+  loading = true;
+  try {
+    await api.post('/api/webhooks', {
+      name: 'My First Webhook',
+      url: webhookUrl,
+      events: webhookEvents,
+      is_active: true,
+    });
+    toast.success('Webhook created!');
+    next();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to create webhook');
+  } finally {
+    loading = false;
+  }
+}
+
+function skipWebhook() {
+  webhookSkipped = true;
+  next();
+}
+
+function finish() {
+  localStorage.setItem('zveltio-onboarding-done', '1');
+  goto(`${base}/`);
+}
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-base-200 py-12 px-4">

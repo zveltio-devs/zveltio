@@ -18,7 +18,11 @@ import { initAuth } from './lib/auth.js';
 import { initPermissions, checkPermission, getUserRoles } from './lib/permissions.js';
 import { initRls } from './lib/rls.js';
 import { fieldTypeRegistry } from './lib/field-type-registry.js';
-import { extensionLoader, buildExtensionInternals, serviceRegistry } from './lib/extension-loader.js';
+import {
+  extensionLoader,
+  buildExtensionInternals,
+  serviceRegistry,
+} from './lib/extension-loader.js';
 import { queryAlterRegistry } from './lib/query-alter.js';
 import { entityAccessRegistry } from './lib/entity-access.js';
 import { cronRunner } from './lib/cron-runner.js';
@@ -53,10 +57,8 @@ let _totalRequestCount = 0;
 
 // ─── Static file paths ────────────────────────────────────────
 // Runtime paths — relative to CWD (Docker: /data, Native: install dir)
-const STUDIO_DIST =
-  process.env.STUDIO_DIST_PATH || join(process.cwd(), 'studio-dist');
-const CLIENT_DIST =
-  process.env.CLIENT_DIST_PATH || join(process.cwd(), 'client-dist');
+const STUDIO_DIST = process.env.STUDIO_DIST_PATH || join(process.cwd(), 'studio-dist');
+const CLIENT_DIST = process.env.CLIENT_DIST_PATH || join(process.cwd(), 'client-dist');
 
 // ─── Static file content type helper ─────────────────────────
 function getContentType(path: string): string {
@@ -99,8 +101,9 @@ function injectCspNonce(html: string, nonce: string): string {
   // We intentionally avoid touching <script src="..."> with an explicit
   // nonce too — adding a `nonce="..."` to a sourced script is also fine
   // and matches what 'strict-dynamic' expects.
-  return html.replace(/<script(\s)/g, `<script nonce="${nonce}"$1`)
-             .replace(/<script>/g, `<script nonce="${nonce}">`);
+  return html
+    .replace(/<script(\s)/g, `<script nonce="${nonce}"$1`)
+    .replace(/<script>/g, `<script nonce="${nonce}">`);
 }
 
 async function serveStaticFile(
@@ -116,9 +119,10 @@ async function serveStaticFile(
   const resolved = resolve(distRoot, decoded.replace(/^\/+/, ''));
   const rootResolved = resolve(distRoot);
   // Trailing separator ensures `/srv/dist` cannot match `/srv/distEVIL`.
-  const rootWithSep = rootResolved.endsWith('/') || rootResolved.endsWith('\\')
-    ? rootResolved
-    : rootResolved + (process.platform === 'win32' ? '\\' : '/');
+  const rootWithSep =
+    rootResolved.endsWith('/') || rootResolved.endsWith('\\')
+      ? rootResolved
+      : rootResolved + (process.platform === 'win32' ? '\\' : '/');
   if (resolved !== rootResolved && !resolved.startsWith(rootWithSep)) {
     return null; // traversal attempt — return 404 implicitly
   }
@@ -133,9 +137,8 @@ async function serveStaticFile(
       const immutable = safe.includes('/_app/immutable/');
       // For HTML responses, rewrite inline <script> tags to carry the
       // per-request CSP nonce so we can drop 'unsafe-inline' from CSP.
-      const body = ct.startsWith('text/html') && cspNonce
-        ? injectCspNonce(await file.text(), cspNonce)
-        : file;
+      const body =
+        ct.startsWith('text/html') && cspNonce ? injectCspNonce(await file.text(), cspNonce) : file;
       return new Response(body, {
         headers: {
           'Content-Type': ct,
@@ -152,9 +155,7 @@ async function serveStaticFile(
   // SPA fallback — serve index.html for client-side routing
   const fallback = Bun.file(join(distRoot, 'index.html'));
   if (await fallback.exists()) {
-    const body = cspNonce
-      ? injectCspNonce(await fallback.text(), cspNonce)
-      : fallback;
+    const body = cspNonce ? injectCspNonce(await fallback.text(), cspNonce) : fallback;
     return new Response(body, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
@@ -172,7 +173,9 @@ const _cmd = process.argv[2];
 // Read package version once at module load (compiled into binary).
 async function _zveltioVersion(): Promise<string> {
   try {
-    const pkg = await import('../package.json', { with: { type: 'json' } }) as { default: { version: string } };
+    const pkg = (await import('../package.json', { with: { type: 'json' } })) as {
+      default: { version: string };
+    };
     return pkg.default.version;
   } catch {
     return 'unknown';
@@ -260,9 +263,7 @@ if (_cmd === 'create-god') {
     if (_args[i] === '--password' && _args[i + 1]) _password = _args[i + 1];
   }
   if (!_email || !_password) {
-    console.error(
-      'Usage: zveltio-engine create-god --email <email> --password <password>',
-    );
+    console.error('Usage: zveltio-engine create-god --email <email> --password <password>');
     process.exit(1);
   }
   const { initDatabase: _initDb2 } = await import('./db/index.js');
@@ -274,7 +275,10 @@ if (_cmd === 'create-god') {
   const _timeEnv = parseInt(process.env.ARGON_TIME_COST || '', 10);
   const _hash = await Bun.password.hash(_password, {
     algorithm: 'argon2id',
-    memoryCost: Number.isFinite(_memoryEnv) && _memoryEnv >= 1024 && _memoryEnv <= 1_048_576 ? _memoryEnv : 4096,
+    memoryCost:
+      Number.isFinite(_memoryEnv) && _memoryEnv >= 1024 && _memoryEnv <= 1_048_576
+        ? _memoryEnv
+        : 4096,
     timeCost: Number.isFinite(_timeEnv) && _timeEnv >= 1 && _timeEnv <= 20 ? _timeEnv : 3,
   });
   const _now = new Date();
@@ -332,13 +336,13 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
     {
       name: 'ai',
       display_name: 'AI',
-      description: 'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
+      description:
+        'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
       category: 'intelligence',
     },
   ];
 
-  const extBase = process.env.EXTENSIONS_DIR
-    || join(import.meta.dir, '../../../extensions');
+  const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
 
   for (const def of defaults) {
     const existing = await db
@@ -351,10 +355,14 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
     if (existing) continue;
 
     const engineEntry = join(extBase, def.name, 'engine/index.ts');
-    const filesOnDisk = await Bun.file(engineEntry).exists().catch(() => false);
+    const filesOnDisk = await Bun.file(engineEntry)
+      .exists()
+      .catch(() => false);
 
     if (!filesOnDisk) {
-      console.log(`ℹ️  ${def.name} not on disk — skipping auto-activate (install from marketplace when ready)`);
+      console.log(
+        `ℹ️  ${def.name} not on disk — skipping auto-activate (install from marketplace when ready)`,
+      );
       continue;
     }
 
@@ -374,7 +382,10 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
         // boot together — log at debug level so unexpected errors still
         // surface but the common case stays quiet.
         if (!/duplicate key|unique constraint/i.test(err.message)) {
-          console.warn(`[bootstrap] default extension activation (${def.name}) failed:`, err.message);
+          console.warn(
+            `[bootstrap] default extension activation (${def.name}) failed:`,
+            err.message,
+          );
         }
       });
     console.log(`🔌 Default extension auto-activated: ${def.name}`);
@@ -394,11 +405,14 @@ async function buildHonoApp(): Promise<Hono> {
     if (path === '/api/storage/upload' || path.startsWith('/api/import')) return next();
     return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next);
   });
-  app.use('/api/*', cors({
-    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
-    credentials: true,
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
-  }));
+  app.use(
+    '/api/*',
+    cors({
+      origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+      credentials: true,
+      allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
+    }),
+  );
   app.use('/api/*', tenantMiddleware);
 
   // ── Core routes ───────────────────────────────────────────────────────────
@@ -433,18 +447,21 @@ async function buildHonoApp(): Promise<Hono> {
     // 'unsafe-inline' is kept ONLY as the legacy fallback that modern
     // browsers ignore once a nonce is present (per CSP3); older browsers
     // (pre-2018) will continue to allow inline as before.
-    c.header('Content-Security-Policy', [
-      "default-src 'self'",
-      `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https:",
-      "font-src 'self' data:",
-      "connect-src 'self' ws: wss:",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "object-src 'none'",
-    ].join('; '));
+    c.header(
+      'Content-Security-Policy',
+      [
+        "default-src 'self'",
+        `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data:",
+        "connect-src 'self' ws: wss:",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "object-src 'none'",
+      ].join('; '),
+    );
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('X-Frame-Options', 'DENY');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -509,21 +526,28 @@ rm studio.tar.gz</pre>
       .where('is_enabled' as any, '=', true)
       .execute()
       .catch(() => [] as any[]);
-    const allActive = [...new Set([
-      ...extensionLoader.getActive(),
-      ...dbEnabled.map((r: any) => r.name as string),
-    ])];
-    return c.json({ extensions: allActive, bundles: extensionLoader.getBundles(), meta: extensionLoader.getExtensionMeta() });
+    const allActive = [
+      ...new Set([...extensionLoader.getActive(), ...dbEnabled.map((r: any) => r.name as string)]),
+    ];
+    return c.json({
+      extensions: allActive,
+      bundles: extensionLoader.getBundles(),
+      meta: extensionLoader.getExtensionMeta(),
+    });
   });
 
   // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─
   app.get('/health', (c) => c.json({ status: 'ok' }, 200));
 
-  app.use('*', async (c, next) => { _totalRequestCount++; await next(); });
+  app.use('*', async (c, next) => {
+    _totalRequestCount++;
+    await next();
+  });
   app.get('/metrics', (c) => {
     const metricsToken = process.env.METRICS_TOKEN;
     if (metricsToken) {
-      const provided = c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.query('token');
+      const provided =
+        c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.query('token');
       if (provided !== metricsToken) return c.json({ error: 'Unauthorized' }, 401);
     }
     const uptime = (Date.now() - _serverStartTime) / 1000;
@@ -558,7 +582,9 @@ rm studio.tar.gz</pre>
       `zveltio_memory_peak_rss_bytes ${memoryReport.peak.peakRSS}`,
       ...getZoneMetricsLines(),
     ];
-    return c.text(lines.join('\n') + '\n', 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
+    return c.text(lines.join('\n') + '\n', 200, {
+      'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+    });
   });
 
   // ── API 404 guard ─────────────────────────────────────────────────────────
@@ -653,7 +679,9 @@ async function bootstrap() {
         // are tagged as engine-owned, not extension-owned. Real extensions
         // get an `app`-bound version from extension-loader's loadExtension.
         registerPublicRoute: () => {
-          console.warn('[extension-loader] registerPublicRoute called from engine bootstrap context — no-op');
+          console.warn(
+            '[extension-loader] registerPublicRoute called from engine bootstrap context — no-op',
+          );
         },
         internals: buildExtensionInternals(),
       })
@@ -756,14 +784,18 @@ async function shutdown() {
   webhookWorker.stop();
   flowScheduler.stop();
   cancelPendingCleanups();
-  realtimeBus().stop().catch((err: Error) => {
-    console.warn('[shutdown] realtimeBus.stop() failed:', err.message);
-  });
+  realtimeBus()
+    .stop()
+    .catch((err: Error) => {
+      console.warn('[shutdown] realtimeBus.stop() failed:', err.message);
+    });
   // Stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
     const { stopDDLQueue } = await import('./lib/ddl-queue.js');
     await stopDDLQueue();
-  } catch { /* not initialized yet */ }
+  } catch {
+    /* not initialized yet */
+  }
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

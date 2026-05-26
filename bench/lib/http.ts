@@ -39,10 +39,7 @@ export interface TimedResponse {
 /**
  * GET + return wall-clock duration + parsed JSON.
  */
-export async function timedGet(
-  client: BenchHttpClient,
-  path: string,
-): Promise<TimedResponse> {
+export async function timedGet(client: BenchHttpClient, path: string): Promise<TimedResponse> {
   const t0 = performance.now();
   const res = await fetch(`${client.baseUrl}${path}`, {
     method: 'GET',
@@ -97,10 +94,7 @@ export async function timedPatch(
 /**
  * DELETE + return wall-clock duration + parsed JSON.
  */
-export async function timedDelete(
-  client: BenchHttpClient,
-  path: string,
-): Promise<TimedResponse> {
+export async function timedDelete(client: BenchHttpClient, path: string): Promise<TimedResponse> {
   const t0 = performance.now();
   const res = await fetch(`${client.baseUrl}${path}`, {
     method: 'DELETE',
@@ -114,17 +108,16 @@ export async function timedDelete(
  * Wait for the engine to respond 200 on /api/health. Returns the time
  * it took (used for cold-start benchmarks).
  */
-export async function waitForHealthy(
-  baseUrl: string,
-  timeoutMs = 60_000,
-): Promise<number> {
+export async function waitForHealthy(baseUrl: string, timeoutMs = 60_000): Promise<number> {
   const t0 = performance.now();
   const deadline = t0 + timeoutMs;
   while (performance.now() < deadline) {
     try {
       const res = await fetch(`${baseUrl}/api/health`);
       if (res.ok) return performance.now() - t0;
-    } catch { /* connection refused — engine not up yet */ }
+    } catch {
+      /* connection refused — engine not up yet */
+    }
     await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(`engine did not become healthy within ${timeoutMs}ms`);
@@ -161,9 +154,10 @@ export async function signInForToken(
 
   // Better-auth uses Set-Cookie. fetch in Bun/Node 18+ supports getSetCookie()
   // which preserves multi-cookie semantics; fall back to raw header parsing.
-  const setCookies = (res.headers as any).getSetCookie?.()
-    ?? res.headers.get('set-cookie')?.split(/,(?=[^;]+=)/g)
-    ?? [];
+  const setCookies =
+    (res.headers as any).getSetCookie?.() ??
+    res.headers.get('set-cookie')?.split(/,(?=[^;]+=)/g) ??
+    [];
 
   // Extract just the `name=value` part of each cookie (drop attributes like
   // Path/HttpOnly/Expires) and join — that's what a browser sends back.

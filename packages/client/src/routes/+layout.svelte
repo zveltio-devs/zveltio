@@ -1,16 +1,18 @@
 <script lang="ts">
-  import '../app.css';
-  import OfflineBanner from '$components/common/OfflineBanner.svelte';
-  import { page } from '$app/state';
-  import { Menu, X, LogIn } from '@lucide/svelte';
+import '../app.css';
+import OfflineBanner from '$components/common/OfflineBanner.svelte';
+import { page } from '$app/state';
+import { Menu, X, LogIn } from '@lucide/svelte';
 
-  let { children, data } = $props();
+let { children, data } = $props();
 
-  const theme = $derived(data?.theme ?? null);
-  const nav = $derived(data?.nav ?? []);
+const theme = $derived(data?.theme ?? null);
+const nav = $derived(data?.nav ?? []);
 
-  // Build CSS variables from theme (DB columns: color_primary, color_base_100, etc.)
-  const themeStyle = $derived(theme ? `
+// Build CSS variables from theme (DB columns: color_primary, color_base_100, etc.)
+const themeStyle = $derived(
+  theme
+    ? `
     --color-primary: ${theme.color_primary ?? '#570df8'};
     --color-secondary: ${theme.color_secondary ?? '#f000b8'};
     --color-accent: ${theme.color_accent ?? '#37cdbe'};
@@ -21,16 +23,18 @@
     font-size: ${theme.font_size_base ?? '16px'};
     background-color: ${theme.color_base_100 ?? ''};
     color: ${theme.color_neutral ?? ''};
-  ` : '');
+  `
+    : '',
+);
 
-  let mobileMenuOpen = $state(false);
+let mobileMenuOpen = $state(false);
 
-  const showNav = $derived((theme?.nav_position ?? 'top') !== 'none' && nav.length > 0);
-  const isSidebar = $derived(theme?.nav_position === 'sidebar');
+const showNav = $derived((theme?.nav_position ?? 'top') !== 'none' && nav.length > 0);
+const isSidebar = $derived(theme?.nav_position === 'sidebar');
 
-  function isActive(href: string) {
-    return page.url.pathname === href || page.url.pathname === `/${href}`;
-  }
+function isActive(href: string) {
+  return page.url.pathname === href || page.url.pathname === `/${href}`;
+}
 </script>
 
 <svelte:head>

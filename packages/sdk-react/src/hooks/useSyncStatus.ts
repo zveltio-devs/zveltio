@@ -3,10 +3,7 @@ import { SyncManager } from '@zveltio/sdk';
 import type { SyncStatus } from '../types.js';
 import { useZveltioClient } from '../context.js';
 
-export function useSyncStatus(
-  syncManager?: SyncManager,
-  pollIntervalMs = 2000,
-): SyncStatus {
+export function useSyncStatus(syncManager?: SyncManager, pollIntervalMs = 2000): SyncStatus {
   const client = useZveltioClient();
   const [status, setStatus] = useState<SyncStatus>({
     status: 'online',
@@ -19,9 +16,7 @@ export function useSyncStatus(
       const updateOnline = () =>
         setStatus((s) => ({
           ...s,
-          status: (typeof navigator !== 'undefined' && !navigator.onLine)
-            ? 'offline'
-            : 'online',
+          status: typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'online',
         }));
 
       if (typeof window !== 'undefined') {

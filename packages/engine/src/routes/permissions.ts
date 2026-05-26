@@ -35,7 +35,13 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
   app.post('/bootstrap', async (c) => {
     const recoveryToken = process.env.RECOVERY_TOKEN;
     if (!recoveryToken || recoveryToken.length < 32) {
-      return c.json({ error: 'Recovery mode is not enabled. Set RECOVERY_TOKEN (min 32 chars) to use this endpoint.' }, 403);
+      return c.json(
+        {
+          error:
+            'Recovery mode is not enabled. Set RECOVERY_TOKEN (min 32 chars) to use this endpoint.',
+        },
+        403,
+      );
     }
     const provided = c.req.header('Authorization')?.replace('Bearer ', '');
     if (!provided || provided !== recoveryToken) {
@@ -47,11 +53,11 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'email is required' }, 400);
     }
     const result = await db
-      .updateTable('user' as any)
-      .set({ role: 'god' } as any)
-      .where('email' as any, '=', email)
-      .returning(['id', 'email', 'role'] as any)
-      .executeTakeFirst() as any;
+      .updateTable('user')
+      .set({ role: 'god' })
+      .where('email', '=', email)
+      .returning(['id', 'email', 'role'])
+      .executeTakeFirst();
     if (!result) return c.json({ error: `No user found with email: ${email}` }, 404);
     const { invalidateGodCache } = await import('../lib/permissions.js');
     await invalidateGodCache(result.id).catch((err: Error) => {
@@ -60,7 +66,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       // Logging is the minimum — operator may need to bounce the cache.
       console.error('[permissions] invalidateGodCache failed after role grant:', err.message);
     });
-    return c.json({ success: true, user: { id: result.id, email: result.email, role: result.role } });
+    return c.json({
+      success: true,
+      user: { id: result.id, email: result.email, role: result.role },
+    });
   });
 
   // Store admin user in context so handlers can access it for audit logging.
@@ -74,10 +83,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
   // GET / — List all policies
   app.get('/', async (c) => {
     const policies = await db
-      .selectFrom('zvd_permissions' as any)
+      .selectFrom('zvd_permissions')
       .selectAll()
-      .orderBy('ptype' as any)
-      .orderBy('v0' as any)
+      .orderBy('ptype')
+      .orderBy('v0')
       .execute();
     return c.json({ policies });
   });

@@ -177,10 +177,7 @@
           "color": { "mode": "thresholds" },
           "thresholds": {
             "mode": "absolute",
-            "steps": [
-              { "color": "blue", "value": null },
-              { "color": "green", "value": 1 }
-            ]
+            "steps": [{ "color": "blue", "value": null }, { "color": "green", "value": 1 }]
           },
           "unit": "short",
           "mappings": []

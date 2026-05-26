@@ -55,10 +55,10 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
     // actual engine error instead of a bare status code.
     const BATCH = 200;
     for (let offset = 0; offset < seedRows; offset += BATCH) {
-      const records = Array.from(
-        { length: Math.min(BATCH, seedRows - offset) },
-        (_, i) => ({ title: `row-${offset + i}`, bucket: (offset + i) % 100 }),
-      );
+      const records = Array.from({ length: Math.min(BATCH, seedRows - offset) }, (_, i) => ({
+        title: `row-${offset + i}`,
+        bucket: (offset + i) % 100,
+      }));
       const res = await timedPost(client, `/api/data/${name}/bulk`, { records });
       if (res.status !== 200 && res.status !== 201 && res.status !== 207) {
         const bodyStr = res.body ? JSON.stringify(res.body).slice(0, 500) : '(no body)';
@@ -88,7 +88,10 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
     const deepPageSamples: number[] = [];
     const deepPageDuration = await measure(async () => {
       for (let i = 0; i < iterations; i++) {
-        const r = await timedGet(client, `/api/data/${name}?page=${deepPageNumber}&limit=${pageSize}`);
+        const r = await timedGet(
+          client,
+          `/api/data/${name}?page=${deepPageNumber}&limit=${pageSize}`,
+        );
         if (r.status !== 200) throw new Error(`deepPage returned ${r.status}`);
         deepPageSamples.push(r.durationMs);
       }

@@ -22,8 +22,6 @@ export function parseMigrationSql(raw: string): ParsedMigration {
   const up = raw.slice(0, downIdx).trim();
   const downSection = raw.slice(downIdx);
   const firstNewline = downSection.indexOf('\n');
-  const downBody = firstNewline >= 0
-    ? downSection.slice(firstNewline + 1).trim()
-    : '';
+  const downBody = firstNewline >= 0 ? downSection.slice(firstNewline + 1).trim() : '';
   return { up, down: downBody.length > 0 ? downBody : null };
 }

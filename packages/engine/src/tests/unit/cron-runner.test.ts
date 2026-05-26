@@ -123,7 +123,9 @@ describe('CronRunnerImpl — execution via _runOne', () => {
       schedule: {
         name: 's',
         intervalMs: 10_000,
-        handler: async () => { calls++; },
+        handler: async () => {
+          calls++;
+        },
       },
       nextRunAt: 0,
       inFlight: true,
@@ -140,7 +142,10 @@ describe('CronRunnerImpl — execution via _runOne', () => {
       schedule: {
         name: 's',
         intervalMs: 10_000,
-        handler: async () => { calls++; throw new Error('boom'); },
+        handler: async () => {
+          calls++;
+          throw new Error('boom');
+        },
         retry: { maxAttempts: 3, backoffMs: 1 },
       },
       nextRunAt: 0,
@@ -226,7 +231,9 @@ describe('CronRunnerImpl — execution via _runOne', () => {
       schedule: {
         name: 's',
         intervalMs: 10_000,
-        handler: async () => { throw new Error('always'); },
+        handler: async () => {
+          throw new Error('always');
+        },
         retry: { maxAttempts: 3, backoffMs: 1 },
       },
       nextRunAt: 0,

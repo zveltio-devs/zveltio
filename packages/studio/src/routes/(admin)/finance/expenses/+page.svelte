@@ -1,96 +1,116 @@
 <script lang="ts">
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { Plus, X, Check, LoaderCircle } from '@lucide/svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { Plus, X, Check, LoaderCircle } from '@lucide/svelte';
 
-  type Expense = {
-    id: string;
-    expense_date: string;
-    category: string;
-    vendor?: string | null;
-    description: string;
-    amount: number;
-    currency: string;
-    status: string;
-  };
+type Expense = {
+  id: string;
+  expense_date: string;
+  category: string;
+  vendor?: string | null;
+  description: string;
+  amount: number;
+  currency: string;
+  status: string;
+};
 
-  let expenses = $state<Expense[]>([]);
-  let loading = $state(true);
-  let statusFilter = $state<'all' | 'draft' | 'submitted' | 'approved' | 'reimbursed'>('all');
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({
-    expense_date: new Date().toISOString().slice(0, 10),
-    category: 'travel', description: '', amount: 0, currency: 'RON', vendor: '', receipt_url: '',
-  });
+let expenses = $state<Expense[]>([]);
+let loading = $state(true);
+let statusFilter = $state<'all' | 'draft' | 'submitted' | 'approved' | 'reimbursed'>('all');
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({
+  expense_date: new Date().toISOString().slice(0, 10),
+  category: 'travel',
+  description: '',
+  amount: 0,
+  currency: 'RON',
+  vendor: '',
+  receipt_url: '',
+});
 
-  const dash = $derived(m['common.emptyDash']());
+const dash = $derived(m['common.emptyDash']());
 
-  const statusOptions = $derived([
-    { value: 'all' as const, label: m['finance.expenses.filter.all']() },
-    { value: 'draft' as const, label: m['finance.expenses.filter.draft']() },
-    { value: 'submitted' as const, label: m['finance.expenses.filter.submitted']() },
-    { value: 'approved' as const, label: m['finance.expenses.filter.approved']() },
-    { value: 'reimbursed' as const, label: m['finance.expenses.filter.reimbursed']() },
-  ]);
+const statusOptions = $derived([
+  { value: 'all' as const, label: m['finance.expenses.filter.all']() },
+  { value: 'draft' as const, label: m['finance.expenses.filter.draft']() },
+  { value: 'submitted' as const, label: m['finance.expenses.filter.submitted']() },
+  { value: 'approved' as const, label: m['finance.expenses.filter.approved']() },
+  { value: 'reimbursed' as const, label: m['finance.expenses.filter.reimbursed']() },
+]);
 
-  async function load() {
-    loading = true;
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      const r = await api.get<{ data: Expense[] }>(`/ext/finance/expenses?${params}`);
-      expenses = r.data ?? [];
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  try {
+    const params = new URLSearchParams();
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    const r = await api.get<{ data: Expense[] }>(`/ext/finance/expenses?${params}`);
+    expenses = r.data ?? [];
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function createExpense() {
-    saving = true;
-    try {
-      await api.post('/ext/finance/expenses', form);
-      showForm = false;
-      form = {
-        expense_date: new Date().toISOString().slice(0, 10),
-        category: 'travel', description: '', amount: 0, currency: 'RON', vendor: '', receipt_url: '',
-      };
-      await load();
-      toast.success(m['finance.expenses.toast.submitted']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function createExpense() {
+  saving = true;
+  try {
+    await api.post('/ext/finance/expenses', form);
+    showForm = false;
+    form = {
+      expense_date: new Date().toISOString().slice(0, 10),
+      category: 'travel',
+      description: '',
+      amount: 0,
+      currency: 'RON',
+      vendor: '',
+      receipt_url: '',
+    };
+    await load();
+    toast.success(m['finance.expenses.toast.submitted']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function approve(id: string) {
-    try {
-      await api.post(`/ext/finance/expenses/${id}/approve`, {});
-      await load();
-      toast.success(m['ext.approved']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    }
+async function approve(id: string) {
+  try {
+    await api.post(`/ext/finance/expenses/${id}/approve`, {});
+    await load();
+    toast.success(m['ext.approved']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  $effect(() => { statusFilter; load(); });
+$effect(() => {
+  statusFilter;
+  load();
+});
 
-  function statusBadge(s: string) {
-    return ({
-      draft: 'badge-ghost', submitted: 'badge-warning', approved: 'badge-success',
-      reimbursed: 'badge-info', rejected: 'badge-error',
-    } as Record<string, string>)[s] ?? 'badge-ghost';
-  }
+function statusBadge(s: string) {
+  return (
+    (
+      {
+        draft: 'badge-ghost',
+        submitted: 'badge-warning',
+        approved: 'badge-success',
+        reimbursed: 'badge-info',
+        rejected: 'badge-error',
+      } as Record<string, string>
+    )[s] ?? 'badge-ghost'
+  );
+}
 
-  function fmt(n: number, c = 'RON') {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).format(n);
-  }
+function fmt(n: number, c = 'RON') {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).format(n);
+}
 </script>
 
 <ExtensionPageShell

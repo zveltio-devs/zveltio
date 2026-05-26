@@ -23,10 +23,12 @@ async function runMigrationsDirectly(opts: any, databaseUrl: string): Promise<vo
 
     // Runtime path — TypeScript won't resolve this statically (cross-package)
     const dbPath = new URL('../../../engine/src/db/index.js', import.meta.url).href;
-    const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url).href;
-    const { initDatabase } = await import(dbPath) as any;
-    const { runMigrations, getAppliedMigrations, getLastAppliedMigration } =
-      (await import(migrationsPath)) as any;
+    const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url)
+      .href;
+    const { initDatabase } = (await import(dbPath)) as any;
+    const { runMigrations, getAppliedMigrations, getLastAppliedMigration } = (await import(
+      migrationsPath
+    )) as any;
 
     const db = await initDatabase();
 

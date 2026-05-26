@@ -1,86 +1,93 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { api } from '$lib/api.js';
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { api } from '$lib/api.js';
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  const API = '/ext/operations/traceability';
+const API = '/ext/operations/traceability';
 
-  let { id }: { id: string } = $props();
+let { id }: { id: string } = $props();
 
-  let lot = $state<any>(null);
-  let timeline = $state<any[]>([]);
-  let upstream = $state<any>(null);
-  let loading = $state(true);
-  let error = $state('');
-  let activeTab = $state<'info' | 'tree' | 'timeline'>('info');
-  let releasing = $state(false);
+let lot = $state<any>(null);
+let timeline = $state<any[]>([]);
+let upstream = $state<any>(null);
+let loading = $state(true);
+let error = $state('');
+let activeTab = $state<'info' | 'tree' | 'timeline'>('info');
+let releasing = $state(false);
 
-  $effect(() => {
-    loadLot();
-  });
+$effect(() => {
+  loadLot();
+});
 
-  async function loadLot() {
-    loading = true;
-    error = '';
-    try {
-      const [lotRes, timelineRes] = await Promise.all([
-        api.fetch(`${API}/lots/${id}`),
-        api.fetch(`${API}/tree/${id}/timeline`),
-      ]);
-      if (!lotRes.ok) throw new Error(await lotRes.text());
-      lot = (await lotRes.json()).data;
-      timeline = timelineRes.ok ? (await timelineRes.json()).data : [];
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      loading = false;
-    }
+async function loadLot() {
+  loading = true;
+  error = '';
+  try {
+    const [lotRes, timelineRes] = await Promise.all([
+      api.fetch(`${API}/lots/${id}`),
+      api.fetch(`${API}/tree/${id}/timeline`),
+    ]);
+    if (!lotRes.ok) throw new Error(await lotRes.text());
+    lot = (await lotRes.json()).data;
+    timeline = timelineRes.ok ? (await timelineRes.json()).data : [];
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    loading = false;
   }
+}
 
-  async function loadUpstream() {
-    if (upstream) return;
-    try {
-      const res = await api.fetch(`${API}/tree/${id}/upstream`);
-      upstream = res.ok ? (await res.json()).data : null;
-    } catch {}
-  }
+async function loadUpstream() {
+  if (upstream) return;
+  try {
+    const res = await api.fetch(`${API}/tree/${id}/upstream`);
+    upstream = res.ok ? (await res.json()).data : null;
+  } catch {}
+}
 
-  async function releaseLot() {
-        askConfirm(m['operations.traceability.confirmReleaseLot'](), () => releaseLotConfirmed());
+async function releaseLot() {
+  askConfirm(m['operations.traceability.confirmReleaseLot'](), () => releaseLotConfirmed());
+}
+async function releaseLotConfirmed() {
+  releasing = true;
+  try {
+    const res = await api.fetch(`${API}/lots/${id}/release`, { method: 'PATCH' });
+    if (!res.ok) throw new Error(await res.text());
+    await loadLot();
+  } catch (e: any) {
+    alert(e.message);
+  } finally {
+    releasing = false;
   }
-  async function releaseLotConfirmed() {
-    releasing = true;
-    try {
-      const res = await api.fetch(`${API}/lots/${id}/release`, { method: 'PATCH' });
-      if (!res.ok) throw new Error(await res.text());
-      await loadLot();
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      releasing = false;
-    }
-  }
+}
 
+async function printLabel() {
+  window.open(`${API}/labels/${id}`, '_blank');
+}
 
-  async function printLabel() {
-    window.open(`${API}/labels/${id}`, '_blank');
-  }
+function statusClass(status: string): string {
+  return (
+    {
+      available: 'badge-success',
+      quarantine: 'badge-warning',
+      exhausted: 'badge-neutral',
+      recalled: 'badge-error',
+      returned: 'badge-info',
+    }[status] ?? 'badge-ghost'
+  );
+}
 
-  function statusClass(status: string): string {
-    return { available: 'badge-success', quarantine: 'badge-warning', exhausted: 'badge-neutral', recalled: 'badge-error', returned: 'badge-info' }[status] ?? 'badge-ghost';
-  }
-
-  function renderTree(node: any, depth = 0): string {
-    if (!node) return '';
-    const indent = '  '.repeat(depth);
-    const status = node.status ? ` [${node.status}]` : '';
-    const line = `${indent}${node.item_name ?? '?'} — ${node.lot_number ?? node.lot_id}${status}`;
-    const children = (node.inputs ?? []).map((c: any) => renderTree(c, depth + 1)).join('\n');
-    return children ? `${line}\n${children}` : line;
-  }
+function renderTree(node: any, depth = 0): string {
+  if (!node) return '';
+  const indent = '  '.repeat(depth);
+  const status = node.status ? ` [${node.status}]` : '';
+  const line = `${indent}${node.item_name ?? '?'} — ${node.lot_number ?? node.lot_id}${status}`;
+  const children = (node.inputs ?? []).map((c: any) => renderTree(c, depth + 1)).join('\n');
+  return children ? `${line}\n${children}` : line;
+}
 </script>
 
 <ExtensionPageShell title={lot?.lot_number ?? m['operations.traceability.lots.title']()}>

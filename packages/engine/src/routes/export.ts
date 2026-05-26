@@ -25,12 +25,14 @@ function flattenValue(v: unknown): string {
 function recordsToCsv(records: Record<string, unknown>[]): string {
   if (records.length === 0) return '';
   const keys = Object.keys(records[0]);
-  const header = keys.map(k => `"${k.replace(/"/g, '""')}"`).join(',');
-  const rows = records.map(r =>
-    keys.map(k => {
-      const v = flattenValue(r[k]);
-      return `"${v.replace(/"/g, '""')}"`;
-    }).join(',')
+  const header = keys.map((k) => `"${k.replace(/"/g, '""')}"`).join(',');
+  const rows = records.map((r) =>
+    keys
+      .map((k) => {
+        const v = flattenValue(r[k]);
+        return `"${v.replace(/"/g, '""')}"`;
+      })
+      .join(','),
   );
   return [header, ...rows].join('\r\n');
 }
@@ -74,7 +76,10 @@ export function exportRoutes(db: Database, _auth: any) {
 
     const fieldsParam = c.req.query('fields');
     const requestedFields = fieldsParam
-      ? fieldsParam.split(',').map(f => f.trim()).filter(f => SAFE_TABLE.test(f))
+      ? fieldsParam
+          .split(',')
+          .map((f) => f.trim())
+          .filter((f) => SAFE_TABLE.test(f))
       : null;
 
     // Fetch the collection schema to know which columns exist
@@ -86,9 +91,10 @@ export function exportRoutes(db: Database, _auth: any) {
 
     if (!schemaRow) return c.json({ error: `Collection "${collection}" not found` }, 404);
 
-    const fields: any[] = typeof (schemaRow as any).fields === 'string'
-      ? JSON.parse((schemaRow as any).fields)
-      : ((schemaRow as any).fields ?? []);
+    const fields: any[] =
+      typeof (schemaRow as any).fields === 'string'
+        ? JSON.parse((schemaRow as any).fields)
+        : ((schemaRow as any).fields ?? []);
 
     // Build column list: only fields that exist in schema + system fields
     const systemCols = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
@@ -96,7 +102,7 @@ export function exportRoutes(db: Database, _auth: any) {
     const allCols = [...new Set([...systemCols, ...schemaCols])];
 
     const selectCols = requestedFields
-      ? allCols.filter(c => requestedFields.includes(c))
+      ? allCols.filter((c) => requestedFields.includes(c))
       : allCols;
 
     if (selectCols.length === 0) return c.json({ error: 'No valid fields selected' }, 400);
@@ -105,7 +111,7 @@ export function exportRoutes(db: Database, _auth: any) {
     // Resolve to the physical table (zvd_ prefix) so export hits the right
     // table regardless of the logical collection name passed in the URL.
     const tableName = DDLManager.getTableName(collection);
-    const colList = selectCols.map(c => sql.id(c));
+    const colList = selectCols.map((c) => sql.id(c));
     const records = await tdb
       .selectFrom(tableName as any)
       .select(colList as any)
@@ -128,7 +134,7 @@ export function exportRoutes(db: Database, _auth: any) {
 
     // ── NDJSON ────────────────────────────────────────────────────────────
     if (format === 'ndjson') {
-      const body = records.map(r => JSON.stringify(r)).join('\n');
+      const body = records.map((r) => JSON.stringify(r)).join('\n');
       return new Response(body, {
         headers: {
           'Content-Type': 'application/x-ndjson; charset=utf-8',

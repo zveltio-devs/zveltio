@@ -33,9 +33,15 @@ export async function refreshExtensions(): Promise<void> {
 }
 
 export const extensions = {
-  get active() { return activeExtensions; },
-  get initialized() { return initialized; },
-  get meta() { return extensionMetaList; },
+  get active() {
+    return activeExtensions;
+  },
+  get initialized() {
+    return initialized;
+  },
+  get meta() {
+    return extensionMetaList;
+  },
   isActive: (name: string) => activeExtensions.includes(name),
   hasCategory: (category: string) => activeExtensions.some((e) => e.startsWith(category)),
 };

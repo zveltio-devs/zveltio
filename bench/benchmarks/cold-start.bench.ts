@@ -24,10 +24,10 @@ export interface ColdStartResult {
 }
 
 interface RunOptions {
-  enginePath: string;          // absolute path to engine package dir
+  enginePath: string; // absolute path to engine package dir
   warmup: number;
   iterations: number;
-  startPort: number;           // each iteration gets startPort+i
+  startPort: number; // each iteration gets startPort+i
   /** Extra env vars (e.g. DATABASE_URL) to pass to each child. */
   env?: Record<string, string>;
 }
@@ -77,7 +77,9 @@ async function spawnAndWait(
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  child.stdout?.once('data', () => { firstByteAt = performance.now(); });
+  child.stdout?.once('data', () => {
+    firstByteAt = performance.now();
+  });
 
   try {
     const healthyAfter = await waitForHealthy(`http://localhost:${port}`, 60_000);
@@ -89,8 +91,18 @@ async function spawnAndWait(
     child.kill('SIGTERM');
     // Best-effort wait for child to exit so port is released before next iter.
     await new Promise<void>((resolve) => {
-      const t = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* ignore */ } resolve(); }, 5000);
-      child.once('exit', () => { clearTimeout(t); resolve(); });
+      const t = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* ignore */
+        }
+        resolve();
+      }, 5000);
+      child.once('exit', () => {
+        clearTimeout(t);
+        resolve();
+      });
     });
   }
 }

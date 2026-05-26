@@ -36,8 +36,7 @@ interface RealtimeEvent {
 type CollectionListener = (event: RealtimeEvent) => void;
 type SystemListener = (event: RealtimeEvent) => void;
 
-const ENGINE_URL =
-  (typeof window !== 'undefined' && (window as any).__ZVELTIO_ENGINE_URL__) || '';
+const ENGINE_URL = (typeof window !== 'undefined' && (window as any).__ZVELTIO_ENGINE_URL__) || '';
 
 let socket: WebSocket | null = null;
 let connectAttempt = 0;
@@ -73,7 +72,10 @@ function scheduleReconnect() {
 }
 
 async function connect(): Promise<void> {
-  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+  if (
+    socket &&
+    (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
+  ) {
     return;
   }
   connectAttempt++;
@@ -93,23 +95,32 @@ async function connect(): Promise<void> {
     // doesn't persist subscriptions across the session boundary, so a
     // fresh connection needs to re-send the full subscribe payload.
     if (subscribedCollections.size > 0) {
-      socket?.send(JSON.stringify({
-        type: 'subscribe',
-        collections: [...subscribedCollections],
-      }));
+      socket?.send(
+        JSON.stringify({
+          type: 'subscribe',
+          collections: [...subscribedCollections],
+        }),
+      );
     }
     // 25s ping is well inside the engine's 30s LISTEN/NOTIFY keepalive +
     // most browser/proxy idle timeouts. Cheap insurance.
     if (pingTimer) clearInterval(pingTimer);
     pingTimer = setInterval(() => {
-      try { socket?.send(JSON.stringify({ type: 'ping' })); } catch { /* socket already closed */ }
+      try {
+        socket?.send(JSON.stringify({ type: 'ping' }));
+      } catch {
+        /* socket already closed */
+      }
     }, 25_000);
   });
 
   socket.addEventListener('message', (e) => {
     let msg: RealtimeEvent;
-    try { msg = JSON.parse(String((e as MessageEvent).data)); }
-    catch { return; }
+    try {
+      msg = JSON.parse(String((e as MessageEvent).data));
+    } catch {
+      return;
+    }
 
     // System messages: identified by the type field, no `collection`.
     // The server uses broadcastToAll for these, so every connected
@@ -118,8 +129,11 @@ async function connect(): Promise<void> {
       const sysSet = systemListeners.get(msg.type);
       if (sysSet && sysSet.size > 0) {
         for (const fn of [...sysSet]) {
-          try { fn(msg); }
-          catch (err) { console.error('[realtime] system listener threw:', err); }
+          try {
+            fn(msg);
+          } catch (err) {
+            console.error('[realtime] system listener threw:', err);
+          }
         }
       }
       return;
@@ -131,8 +145,11 @@ async function connect(): Promise<void> {
     // Defensive copy so a listener that unsubscribes during dispatch
     // doesn't mutate the iteration order.
     for (const fn of [...set]) {
-      try { fn(msg); }
-      catch (err) { console.error('[realtime] listener threw:', err); }
+      try {
+        fn(msg);
+      } catch (err) {
+        console.error('[realtime] listener threw:', err);
+      }
     }
   });
 
@@ -142,7 +159,10 @@ async function connect(): Promise<void> {
 
   socket.addEventListener('close', () => {
     _connected = false;
-    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+    if (pingTimer) {
+      clearInterval(pingTimer);
+      pingTimer = null;
+    }
     socket = null;
     scheduleReconnect();
   });
@@ -150,10 +170,12 @@ async function connect(): Promise<void> {
 
 function sendSubscribe() {
   if (!socket || socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify({
-    type: 'subscribe',
-    collections: [...subscribedCollections],
-  }));
+  socket.send(
+    JSON.stringify({
+      type: 'subscribe',
+      collections: [...subscribedCollections],
+    }),
+  );
 }
 
 /**
@@ -210,9 +232,22 @@ function onSystem(eventType: string, listener: SystemListener): () => void {
 
 /** Force-close the socket — used at sign-out so the next user opens fresh. */
 function disconnect() {
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-  if (socket) { try { socket.close(); } catch { /* ignore */ } socket = null; }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (pingTimer) {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  }
+  if (socket) {
+    try {
+      socket.close();
+    } catch {
+      /* ignore */
+    }
+    socket = null;
+  }
   subscribedCollections.clear();
   listeners.clear();
   systemListeners.clear();
@@ -220,8 +255,12 @@ function disconnect() {
 }
 
 export const realtime = {
-  get connected() { return _connected; },
-  get lastError() { return _lastError; },
+  get connected() {
+    return _connected;
+  },
+  get lastError() {
+    return _lastError;
+  },
   onCollection,
   onSystem,
   disconnect,

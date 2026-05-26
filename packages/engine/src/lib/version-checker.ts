@@ -62,7 +62,9 @@ export async function checkExtensionDependencies(
       const current = parseSemver((installed as any).version || '0.0.0');
       const required = parseSemver(dep.minVersion);
       if (compareSemver(current, required) < 0) {
-        missing.push(`${dep.name} >= ${dep.minVersion} (installed: ${(installed as any).installed_version})`);
+        missing.push(
+          `${dep.name} >= ${dep.minVersion} (installed: ${(installed as any).installed_version})`,
+        );
       }
     }
   }
@@ -76,7 +78,11 @@ export function getEngineVersion(): string {
 
 // ── Semver helpers ────────────────────────────────────────────
 
-interface SemVer { major: number; minor: number; patch: number }
+interface SemVer {
+  major: number;
+  minor: number;
+  patch: number;
+}
 
 function parseSemver(v: string): SemVer {
   const [major = 0, minor = 0, patch = 0] = v.replace(/^v/, '').split('.').map(Number);

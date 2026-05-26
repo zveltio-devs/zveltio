@@ -1,198 +1,212 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { SvelteSet } from 'svelte/reactivity';
- import { usersApi } from '$lib/api.js';
- import { UserPlus, Users, Shield, Trash2 } from '@lucide/svelte';
- import { base } from '$app/paths';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import Pagination from '$lib/components/common/Pagination.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
- import CrudListPage from '$lib/components/common/CrudListPage.svelte';
- import InlineEdit from '$lib/components/common/InlineEdit.svelte';
- import SchemaForm from '$lib/components/common/SchemaForm.svelte';
- import { auth } from '$lib/auth.svelte.js';
- import type { FormSchema } from '@zveltio/sdk/extension';
+import { onMount } from 'svelte';
+import { SvelteSet } from 'svelte/reactivity';
+import { usersApi } from '$lib/api.js';
+import { UserPlus, Users, Shield, Trash2 } from '@lucide/svelte';
+import { base } from '$app/paths';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Pagination from '$lib/components/common/Pagination.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import InlineEdit from '$lib/components/common/InlineEdit.svelte';
+import SchemaForm from '$lib/components/common/SchemaForm.svelte';
+import { auth } from '$lib/auth.svelte.js';
+import type { FormSchema } from '@zveltio/sdk/extension';
 
- // S3-02: schema-driven invite form so extensions can register form-alter
- // hooks against `core:user-invite` (e.g. add `preferred_language`, hide
- // `name` for tenants that don't want it, attach extra validators).
- const inviteSchema: FormSchema = {
-   id: 'core:user-invite',
-   fields: [
-     { name: 'email', type: 'email',  label: 'Email',          required: true,  placeholder: 'user@example.com' },
-     { name: 'name',  type: 'text',   label: 'Name (optional)',                  placeholder: 'John Doe' },
-     {
-       name: 'role',
-       type: 'select',
-       label: 'Role',
-       required: true,
-       options: [
-         { value: 'member',  label: 'Member'  },
-         { value: 'manager', label: 'Manager' },
-         { value: 'admin',   label: 'Admin'   },
-       ],
-     },
-   ],
- };
- let inviteFormRef: { validateAll: () => boolean } | null = $state(null);
+// S3-02: schema-driven invite form so extensions can register form-alter
+// hooks against `core:user-invite` (e.g. add `preferred_language`, hide
+// `name` for tenants that don't want it, attach extra validators).
+const inviteSchema: FormSchema = {
+  id: 'core:user-invite',
+  fields: [
+    {
+      name: 'email',
+      type: 'email',
+      label: 'Email',
+      required: true,
+      placeholder: 'user@example.com',
+    },
+    { name: 'name', type: 'text', label: 'Name (optional)', placeholder: 'John Doe' },
+    {
+      name: 'role',
+      type: 'select',
+      label: 'Role',
+      required: true,
+      options: [
+        { value: 'member', label: 'Member' },
+        { value: 'manager', label: 'Manager' },
+        { value: 'admin', label: 'Admin' },
+      ],
+    },
+  ],
+};
+let inviteFormRef: { validateAll: () => boolean } | null = $state(null);
 
- let users = $state<any[]>([]);
- let loading = $state(true);
- let currentPage = $state(1);
- let total = $state(0);
- const LIMIT = 20;
- let showInviteModal = $state(false);
- let inviting = $state(false);
- let search = $state('');
+let users = $state<any[]>([]);
+let loading = $state(true);
+let currentPage = $state(1);
+let total = $state(0);
+const LIMIT = 20;
+let showInviteModal = $state(false);
+let inviting = $state(false);
+let search = $state('');
 
- // Bulk-select state (L29). Set keeps O(1) membership checks; reset when
- // the page changes or the user list reloads.
- let selectedIds = $state<Set<string>>(new SvelteSet());
- const selectedCount = $derived(selectedIds.size);
- const allOnPageSelected = $derived(
-   users.length > 0 && users.every((u) => selectedIds.has(u.id)),
- );
- const someOnPageSelected = $derived(
-   selectedCount > 0 && !allOnPageSelected,
- );
- function toggleSelect(id: string) {
-   const next = new SvelteSet(selectedIds);
-   if (next.has(id)) next.delete(id); else next.add(id);
-   selectedIds = next;
- }
- function toggleSelectAllOnPage() {
-   const next = new SvelteSet(selectedIds);
-   if (allOnPageSelected) {
-     for (const u of users) next.delete(u.id);
-   } else {
-     for (const u of users) next.add(u.id);
-   }
-   selectedIds = next;
- }
- function clearSelection() { selectedIds = new SvelteSet(); }
+// Bulk-select state (L29). Set keeps O(1) membership checks; reset when
+// the page changes or the user list reloads.
+let selectedIds = $state<Set<string>>(new SvelteSet());
+const selectedCount = $derived(selectedIds.size);
+const allOnPageSelected = $derived(users.length > 0 && users.every((u) => selectedIds.has(u.id)));
+const someOnPageSelected = $derived(selectedCount > 0 && !allOnPageSelected);
+function toggleSelect(id: string) {
+  const next = new SvelteSet(selectedIds);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds = next;
+}
+function toggleSelectAllOnPage() {
+  const next = new SvelteSet(selectedIds);
+  if (allOnPageSelected) {
+    for (const u of users) next.delete(u.id);
+  } else {
+    for (const u of users) next.add(u.id);
+  }
+  selectedIds = next;
+}
+function clearSelection() {
+  selectedIds = new SvelteSet();
+}
 
- const filteredUsers = $derived(
-   search.trim()
-     ? users.filter(u =>
-         (u.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
-         (u.email ?? '').toLowerCase().includes(search.toLowerCase()),
-       )
-     : users,
- );
+const filteredUsers = $derived(
+  search.trim()
+    ? users.filter(
+        (u) =>
+          (u.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+          (u.email ?? '').toLowerCase().includes(search.toLowerCase()),
+      )
+    : users,
+);
 
- let inviteForm = $state({ email: '', name: '', role: 'member' });
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let inviteForm = $state({ email: '', name: '', role: 'member' });
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- onMount(async () => {
- await loadUsers();
- });
+onMount(async () => {
+  await loadUsers();
+});
 
- async function loadUsers() {
- loading = true;
- try {
- const res = await usersApi.list({ limit: LIMIT, offset: (currentPage - 1) * LIMIT });
- users = Array.isArray(res) ? res : (res as any).users ?? res;
- total = (res as any).total ?? users.length;
- } finally {
- loading = false;
- }
- }
+async function loadUsers() {
+  loading = true;
+  try {
+    const res = await usersApi.list({ limit: LIMIT, offset: (currentPage - 1) * LIMIT });
+    users = Array.isArray(res) ? res : ((res as any).users ?? res);
+    total = (res as any).total ?? users.length;
+  } finally {
+    loading = false;
+  }
+}
 
- async function inviteUser() {
- if (inviteFormRef && !inviteFormRef.validateAll()) return;
- if (!inviteForm.email) return;
- inviting = true;
- try {
- await usersApi.invite(inviteForm);
- showInviteModal = false;
- inviteForm = { email: '', name: '', role: 'member' };
- await loadUsers();
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Failed to invite user');
- } finally {
- inviting = false;
- }
- }
+async function inviteUser() {
+  if (inviteFormRef && !inviteFormRef.validateAll()) return;
+  if (!inviteForm.email) return;
+  inviting = true;
+  try {
+    await usersApi.invite(inviteForm);
+    showInviteModal = false;
+    inviteForm = { email: '', name: '', role: 'member' };
+    await loadUsers();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to invite user');
+  } finally {
+    inviting = false;
+  }
+}
 
- async function renameUser(id: string, name: string) {
-   await usersApi.update(id, { name });
-   // Optimistic local update — keep the table reactive without a full reload.
-   users = users.map((u) => (u.id === id ? { ...u, name } : u));
- }
+async function renameUser(id: string, name: string) {
+  await usersApi.update(id, { name });
+  // Optimistic local update — keep the table reactive without a full reload.
+  users = users.map((u) => (u.id === id ? { ...u, name } : u));
+}
 
- async function deleteUser(id: string, email: string) {
- confirmState = {
- open: true,
- title: 'Delete User',
- message: `Delete user ${email}?`,
- confirmLabel: 'Delete',
- onconfirm: async () => {
- confirmState.open = false;
- await usersApi.delete(id);
- await loadUsers();
- },
- };
- }
+async function deleteUser(id: string, email: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete User',
+    message: `Delete user ${email}?`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      await usersApi.delete(id);
+      await loadUsers();
+    },
+  };
+}
 
- async function deleteSelected() {
- const ids = Array.from(selectedIds);
- if (ids.length === 0) return;
- confirmState = {
- open: true,
- title: `Delete ${ids.length} user${ids.length === 1 ? '' : 's'}`,
- message: `Permanently remove ${ids.length} selected user${ids.length === 1 ? '' : 's'}? This cannot be undone.`,
- confirmLabel: `Delete ${ids.length}`,
- onconfirm: async () => {
- confirmState.open = false;
- const results = await Promise.allSettled(ids.map((id) => usersApi.delete(id)));
- const failures = results.filter((r) => r.status === 'rejected').length;
- if (failures > 0) {
- toast.error(`Removed ${ids.length - failures}/${ids.length} — ${failures} failed (check audit log).`);
- } else {
- toast.success(`Removed ${ids.length} user${ids.length === 1 ? '' : 's'}.`);
- }
- clearSelection();
- await loadUsers();
- },
- };
- }
+async function deleteSelected() {
+  const ids = Array.from(selectedIds);
+  if (ids.length === 0) return;
+  confirmState = {
+    open: true,
+    title: `Delete ${ids.length} user${ids.length === 1 ? '' : 's'}`,
+    message: `Permanently remove ${ids.length} selected user${ids.length === 1 ? '' : 's'}? This cannot be undone.`,
+    confirmLabel: `Delete ${ids.length}`,
+    onconfirm: async () => {
+      confirmState.open = false;
+      const results = await Promise.allSettled(ids.map((id) => usersApi.delete(id)));
+      const failures = results.filter((r) => r.status === 'rejected').length;
+      if (failures > 0) {
+        toast.error(
+          `Removed ${ids.length - failures}/${ids.length} — ${failures} failed (check audit log).`,
+        );
+      } else {
+        toast.success(`Removed ${ids.length} user${ids.length === 1 ? '' : 's'}.`);
+      }
+      clearSelection();
+      await loadUsers();
+    },
+  };
+}
 
- function formatDate(d?: string) {
- if (!d) return '—';
- return new Date(d).toLocaleDateString();
- }
+function formatDate(d?: string) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString();
+}
 
- function formatRelative(dateStr?: string): string {
- if (!dateStr) return '—';
- const diff = Date.now() - new Date(dateStr).getTime();
- const mins = Math.floor(diff / 60_000);
- if (mins < 1) return 'just now';
- if (mins < 60) return `${mins}m ago`;
- const hours = Math.floor(mins / 60);
- if (hours < 24) return `${hours}h ago`;
- return `${Math.floor(hours / 24)}d ago`;
- }
+function formatRelative(dateStr?: string): string {
+  if (!dateStr) return '—';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
- // Role badges represent levels of access, NOT severity. Avoid badge-error
- // (looks like a problem) and badge-warning (looks like attention needed).
- // god → secondary (distinct, signals superuser-level access).
- // admin → primary (the main authority role for normal operators).
- // manager → info (mid-level).
- // member → ghost (default, low-key — they're just regular users).
- const ROLE_BADGES: Record<string, string> = {
- god:     'badge-secondary',
- admin:   'badge-primary',
- manager: 'badge-info',
- member:  'badge-ghost',
- };
+// Role badges represent levels of access, NOT severity. Avoid badge-error
+// (looks like a problem) and badge-warning (looks like attention needed).
+// god → secondary (distinct, signals superuser-level access).
+// admin → primary (the main authority role for normal operators).
+// manager → info (mid-level).
+// member → ghost (default, low-key — they're just regular users).
+const ROLE_BADGES: Record<string, string> = {
+  god: 'badge-secondary',
+  admin: 'badge-primary',
+  manager: 'badge-info',
+  member: 'badge-ghost',
+};
 
- function roleColor(role: string) {
- return ROLE_BADGES[role] ?? 'badge-ghost';
- }
+function roleColor(role: string) {
+  return ROLE_BADGES[role] ?? 'badge-ghost';
+}
 
- function confirmDelete(user: any) {
- deleteUser(user.id, user.email);
- }
+function confirmDelete(user: any) {
+  deleteUser(user.id, user.email);
+}
 </script>
 
 <CrudListPage

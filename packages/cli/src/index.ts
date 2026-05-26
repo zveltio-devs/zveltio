@@ -22,10 +22,7 @@ import { statusCommand } from './commands/status.js';
 
 const program = new Command();
 
-program
-  .name('zveltio')
-  .description('The official Zveltio CLI')
-  .version('2.0.0');
+program.name('zveltio').description('The official Zveltio CLI').version('2.0.0');
 
 // ── zveltio init [dir] ────────────────────────────────────────────────────────
 program
@@ -99,9 +96,7 @@ program
 //   zveltio generate types [collection]  (spec)
 //   zveltio generate-types [collection]  (backwards compat)
 
-const generate = program
-  .command('generate')
-  .description('Code generation utilities');
+const generate = program.command('generate').description('Code generation utilities');
 
 generate
   .command('types [collection]')
@@ -152,10 +147,17 @@ extensions
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
   .action(async (name: string, opts: any) => {
     const url = opts.url || 'http://localhost:3000';
-    const res = await fetch(`${url}/api/marketplace/${name}/enable`, { method: 'POST' }).catch(() => null);
-    if (!res?.ok) { console.error(`Failed to enable ${name}`); process.exit(1); }
-    const body = await res.json() as any;
-    console.log(body.hot_loaded ? `${name} is now active.` : `${name} will be active after restart.`);
+    const res = await fetch(`${url}/api/marketplace/${name}/enable`, { method: 'POST' }).catch(
+      () => null,
+    );
+    if (!res?.ok) {
+      console.error(`Failed to enable ${name}`);
+      process.exit(1);
+    }
+    const body = (await res.json()) as any;
+    console.log(
+      body.hot_loaded ? `${name} is now active.` : `${name} will be active after restart.`,
+    );
   });
 
 extensions
@@ -164,13 +166,20 @@ extensions
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
   .action(async (name: string, opts: any) => {
     const url = opts.url || 'http://localhost:3000';
-    const res = await fetch(`${url}/api/marketplace/${name}/disable`, { method: 'POST' }).catch(() => null);
-    if (!res?.ok) { console.error(`Failed to disable ${name}`); process.exit(1); }
+    const res = await fetch(`${url}/api/marketplace/${name}/disable`, { method: 'POST' }).catch(
+      () => null,
+    );
+    if (!res?.ok) {
+      console.error(`Failed to disable ${name}`);
+      process.exit(1);
+    }
     console.log(`${name} disabled.`);
   });
 
 // ── zveltio extension <subcommand> (legacy) ───────────────────────────────────
-const ext = program.command('extension').description('Manage Zveltio extensions (use "extensions" for new commands)');
+const ext = program
+  .command('extension')
+  .description('Manage Zveltio extensions (use "extensions" for new commands)');
 
 ext
   .command('create <name>')
@@ -207,14 +216,18 @@ ext
 
 ext
   .command('types')
-  .description('Generate a .d.ts from the extension\'s SQL migrations (S4-01). Writes <extension>/.zveltio/db.d.ts.')
+  .description(
+    "Generate a .d.ts from the extension's SQL migrations (S4-01). Writes <extension>/.zveltio/db.d.ts.",
+  )
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
   .option('--output <path>', 'Output file path (default: <dir>/.zveltio/db.d.ts)')
   .action((opts) => extensionTypesCommand(opts));
 
 ext
   .command('validate')
-  .description('Pre-publish checks: manifest schema, peerDeps allow-list, migrations parse, destructive DDL has DOWN, bundle quota (S4-04)')
+  .description(
+    'Pre-publish checks: manifest schema, peerDeps allow-list, migrations parse, destructive DDL has DOWN, bundle quota (S4-04)',
+  )
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
   .action((opts) => extensionValidateCommand(opts));
 

@@ -40,7 +40,9 @@ export async function initDatabase(): Promise<Database> {
       if (attempt === maxAttempts) throw err;
       const wait = Math.min(1000 * attempt, 5000);
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(`⏳ Database not ready (attempt ${attempt}/${maxAttempts}), retrying in ${wait / 1000}s... [${msg}]`);
+      console.log(
+        `⏳ Database not ready (attempt ${attempt}/${maxAttempts}), retrying in ${wait / 1000}s... [${msg}]`,
+      );
       await Bun.sleep(wait);
     }
   }
@@ -52,8 +54,7 @@ export async function initDatabase(): Promise<Database> {
 }
 
 export function getDb(): Database {
-  if (!_db)
-    throw new Error('Database not initialized. Call initDatabase() first.');
+  if (!_db) throw new Error('Database not initialized. Call initDatabase() first.');
   return _db;
 }
 
@@ -64,9 +65,7 @@ async function runCoreMigrations(db: Database): Promise<void> {
     .ifNotExists()
     .addColumn('id', 'serial', (col) => col.primaryKey())
     .addColumn('name', 'text', (col) => col.notNull().unique())
-    .addColumn('ran_at', 'timestamptz', (col) =>
-      col.notNull().defaultTo(new Date()),
-    )
+    .addColumn('ran_at', 'timestamptz', (col) => col.notNull().defaultTo(new Date()))
     .execute();
 
   // Core migrations list

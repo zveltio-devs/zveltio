@@ -1,119 +1,159 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Search, Plus, X, RefreshCw, Trash2, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Search, Plus, X, RefreshCw, Trash2, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let query = $state('');
-  let selectedCollection = $state('');
-  let results = $state<any[]>([]);
-  let collections = $state<string[]>([]);
-  let indexes = $state<any[]>([]);
-  let loading = $state(false);
-  let indexesLoading = $state(true);
-  let searchError = $state<string | null>(null);
-  let syncing = $state<string | null>(null);
+let query = $state('');
+let selectedCollection = $state('');
+let results = $state<any[]>([]);
+let collections = $state<string[]>([]);
+let indexes = $state<any[]>([]);
+let loading = $state(false);
+let indexesLoading = $state(true);
+let searchError = $state<string | null>(null);
+let syncing = $state<string | null>(null);
 
-  let showConfigModal = $state(false);
-  let configCollection = $state('');
-  let configProvider = $state<'meilisearch' | 'typesense'>('meilisearch');
-  let configIndexName = $state('');
-  let configSearchable = $state('');
-  let configFilterable = $state('');
-  let configSortable = $state('');
-  let configSaving = $state(false);
+let showConfigModal = $state(false);
+let configCollection = $state('');
+let configProvider = $state<'meilisearch' | 'typesense'>('meilisearch');
+let configIndexName = $state('');
+let configSearchable = $state('');
+let configFilterable = $state('');
+let configSortable = $state('');
+let configSaving = $state(false);
 
-  let resultColumns = $derived<string[]>(
-    results.length > 0 ? Object.keys((results[0]?.hits?.[0] ?? results[0]) as Record<string, unknown>).slice(0, 8) : [],
+let resultColumns = $derived<string[]>(
+  results.length > 0
+    ? Object.keys((results[0]?.hits?.[0] ?? results[0]) as Record<string, unknown>).slice(0, 8)
+    : [],
+);
+
+function getResultRows(): any[] {
+  if (!results.length) return [];
+  const first = results[0];
+  if (first?.hits) return first.hits.map((h: any) => h.document ?? h);
+  return results;
+}
+
+async function search() {
+  if (!query.trim() || !selectedCollection) return;
+  loading = true;
+  searchError = null;
+  try {
+    const res = await api.get(
+      `/extensions/search/search?q=${encodeURIComponent(query)}&collection=${encodeURIComponent(selectedCollection)}&limit=50`,
+    );
+    results = [res.results];
+  } catch (e: any) {
+    searchError = e.message ?? m['ai.error.searchFailed']();
+    results = [];
+  } finally {
+    loading = false;
+  }
+}
+
+async function syncIndex(collection: string) {
+  syncing = collection;
+  try {
+    await api.post(`/extensions/search/indexes/${encodeURIComponent(collection)}/sync`, {});
+    toast.success(m['ext.saved']());
+  } catch (e: any) {
+    toast.error(m['search.error.syncPrefix']() + (e.message ?? ''));
+  } finally {
+    syncing = null;
+  }
+}
+
+async function removeIndex(collection: string) {
+  askConfirm(m['ext.confirm.removeSearchIndex']({ collection }), () =>
+    removeIndexConfirmed(collection),
   );
-
-  function getResultRows(): any[] {
-    if (!results.length) return [];
-    const first = results[0];
-    if (first?.hits) return first.hits.map((h: any) => h.document ?? h);
-    return results;
+}
+async function removeIndexConfirmed(collection: string) {
+  try {
+    await api.delete(`/extensions/search/indexes/${encodeURIComponent(collection)}`);
+    indexes = indexes.map((idx) =>
+      idx.collection === collection ? { ...idx, status: 'inactive' } : idx,
+    );
+  } catch (e: any) {
+    toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
   }
+}
 
-  async function search() {
-    if (!query.trim() || !selectedCollection) return;
-    loading = true; searchError = null;
-    try {
-      const res = await api.get(`/extensions/search/search?q=${encodeURIComponent(query)}&collection=${encodeURIComponent(selectedCollection)}&limit=50`);
-      results = [res.results];
-    } catch (e: any) { searchError = e.message ?? m['ai.error.searchFailed'](); results = []; }
-    finally { loading = false; }
+async function saveConfig() {
+  if (!configCollection || !configIndexName) {
+    toast.error(m['search.error.indexRequired']());
+    return;
   }
-
-  async function syncIndex(collection: string) {
-    syncing = collection;
-    try {
-      await api.post(`/extensions/search/indexes/${encodeURIComponent(collection)}/sync`, {});
-      toast.success(m['ext.saved']());
-    } catch (e: any) { toast.error(m['search.error.syncPrefix']() + (e.message ?? '')); }
-    finally { syncing = null; }
+  configSaving = true;
+  try {
+    await api.post('/extensions/search/indexes', {
+      collection: configCollection,
+      provider: configProvider,
+      index_name: configIndexName,
+      searchable_fields: configSearchable
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      filterable_fields: configFilterable
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      sortable_fields: configSortable
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+    showConfigModal = false;
+    await loadIndexes();
+    toast.success(m['search.toast.indexConfigured']());
+  } catch (e: any) {
+    toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
+  } finally {
+    configSaving = false;
   }
+}
 
-  async function removeIndex(collection: string) {
-        askConfirm(m['ext.confirm.removeSearchIndex']({ collection }), () => removeIndexConfirmed(collection));
-  }
-  async function removeIndexConfirmed(collection: string) {
-    try {
-      await api.delete(`/extensions/search/indexes/${encodeURIComponent(collection)}`);
-      indexes = indexes.map((idx) => idx.collection === collection ? { ...idx, status: 'inactive' } : idx);
-    } catch (e: any) { toast.error(m['ext.errorPrefix']() + (e.message ?? '')); }
-  }
+function openConfigModal(col = '') {
+  configCollection = col;
+  configProvider = 'meilisearch';
+  configIndexName = col || '';
+  configSearchable = '';
+  configFilterable = '';
+  configSortable = '';
+  showConfigModal = true;
+}
 
+async function loadIndexes() {
+  const res = await api.get<{ indexes: any[] }>('/extensions/search/indexes');
+  indexes = res.indexes ?? [];
+}
 
-  async function saveConfig() {
-    if (!configCollection || !configIndexName) { toast.error(m['search.error.indexRequired']()); return; }
-    configSaving = true;
-    try {
-      await api.post('/extensions/search/indexes', {
-        collection: configCollection,
-        provider: configProvider,
-        index_name: configIndexName,
-        searchable_fields: configSearchable.split(',').map((s) => s.trim()).filter(Boolean),
-        filterable_fields: configFilterable.split(',').map((s) => s.trim()).filter(Boolean),
-        sortable_fields: configSortable.split(',').map((s) => s.trim()).filter(Boolean),
-      });
-      showConfigModal = false;
-      await loadIndexes();
-      toast.success(m['search.toast.indexConfigured']());
-    } catch (e: any) { toast.error(m['ext.errorPrefix']() + (e.message ?? '')); }
-    finally { configSaving = false; }
-  }
+onMount(async () => {
+  try {
+    const colRes = await api.get<{ collections: any[] }>('/api/collections');
+    collections = (colRes.collections ?? []).map((c: any) => c.name);
+    if (collections.length > 0) selectedCollection = collections[0];
+  } catch {}
+  try {
+    await loadIndexes();
+  } catch {}
+  indexesLoading = false;
+});
 
-  function openConfigModal(col = '') {
-    configCollection = col;
-    configProvider = 'meilisearch';
-    configIndexName = col || '';
-    configSearchable = ''; configFilterable = ''; configSortable = '';
-    showConfigModal = true;
-  }
-
-  async function loadIndexes() {
-    const res = await api.get<{ indexes: any[] }>('/extensions/search/indexes');
-    indexes = res.indexes ?? [];
-  }
-
-  onMount(async () => {
-    try {
-      const colRes = await api.get<{ collections: any[] }>('/api/collections');
-      collections = (colRes.collections ?? []).map((c: any) => c.name);
-      if (collections.length > 0) selectedCollection = collections[0];
-    } catch {}
-    try { await loadIndexes(); } catch {}
-    indexesLoading = false;
-  });
-
-  function providerBadge(p: string) { return p === 'meilisearch' ? 'badge-warning' : 'badge-info'; }
-  function statusBadge(s: string) { return s === 'active' ? 'badge-success' : 'badge-ghost'; }
+function providerBadge(p: string) {
+  return p === 'meilisearch' ? 'badge-warning' : 'badge-info';
+}
+function statusBadge(s: string) {
+  return s === 'active' ? 'badge-success' : 'badge-ghost';
+}
 </script>
 
 <ExtensionPageShell title={m['search.title']()} subtitle={m['search.subtitle']()}>

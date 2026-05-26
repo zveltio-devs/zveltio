@@ -19,14 +19,17 @@ const { mapJobToPublic, QUEUE_NAMES } = _internalForTests;
 
 describe('S5-04 ddl-queue: mapJobToPublic', () => {
   it('translates pg-boss "created" state to "pending"', () => {
-    const out = mapJobToPublic({
-      id: 'abc-1',
-      state: 'created',
-      data: { name: 'contacts' },
-      retrycount: 0,
-      retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-    }, 'create_collection' as any);
+    const out = mapJobToPublic(
+      {
+        id: 'abc-1',
+        state: 'created',
+        data: { name: 'contacts' },
+        retrycount: 0,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+      },
+      'create_collection' as any,
+    );
     expect(out.id).toBe('abc-1');
     expect(out.type).toBe('create_collection');
     expect(out.status).toBe('pending');
@@ -39,73 +42,127 @@ describe('S5-04 ddl-queue: mapJobToPublic', () => {
   });
 
   it('maps "retry" → "pending" (transient failure, will be re-tried)', () => {
-    const out = mapJobToPublic({
-      id: 'r1', state: 'retry', data: {}, retrycount: 1, retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-    }, 'add_field' as any);
+    const out = mapJobToPublic(
+      {
+        id: 'r1',
+        state: 'retry',
+        data: {},
+        retrycount: 1,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+      },
+      'add_field' as any,
+    );
     expect(out.status).toBe('pending');
     expect(out.retry_count).toBe(1);
   });
 
   it('maps "active" → "running" with started_at populated', () => {
-    const out = mapJobToPublic({
-      id: 'a1', state: 'active', data: {}, retrycount: 0, retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-      startedOn: '2026-05-17T00:01:00Z',
-    }, 'remove_field' as any);
+    const out = mapJobToPublic(
+      {
+        id: 'a1',
+        state: 'active',
+        data: {},
+        retrycount: 0,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+        startedOn: '2026-05-17T00:01:00Z',
+      },
+      'remove_field' as any,
+    );
     expect(out.status).toBe('running');
     expect(out.started_at).toBeInstanceOf(Date);
     expect(out.started_at?.toISOString()).toBe('2026-05-17T00:01:00.000Z');
   });
 
   it('maps "completed" → "completed" with both timestamps', () => {
-    const out = mapJobToPublic({
-      id: 'c1', state: 'completed', data: {}, retrycount: 0, retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-      startedOn: '2026-05-17T00:01:00Z',
-      completedOn: '2026-05-17T00:02:00Z',
-    }, 'drop_collection' as any);
+    const out = mapJobToPublic(
+      {
+        id: 'c1',
+        state: 'completed',
+        data: {},
+        retrycount: 0,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+        startedOn: '2026-05-17T00:01:00Z',
+        completedOn: '2026-05-17T00:02:00Z',
+      },
+      'drop_collection' as any,
+    );
     expect(out.status).toBe('completed');
     expect(out.completed_at).toBeInstanceOf(Date);
   });
 
   it('maps "failed" → "failed" and extracts error from output.message', () => {
-    const out = mapJobToPublic({
-      id: 'f1', state: 'failed', data: {}, retrycount: 3, retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-      output: { message: 'collection already exists' },
-    }, 'create_collection' as any);
+    const out = mapJobToPublic(
+      {
+        id: 'f1',
+        state: 'failed',
+        data: {},
+        retrycount: 3,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+        output: { message: 'collection already exists' },
+      },
+      'create_collection' as any,
+    );
     expect(out.status).toBe('failed');
     expect(out.error).toBe('collection already exists');
   });
 
   it('handles string output for legacy compatibility', () => {
-    const out = mapJobToPublic({
-      id: 'f2', state: 'failed', data: {}, retrycount: 0, retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-      output: 'plain string error',
-    }, 'add_field' as any);
+    const out = mapJobToPublic(
+      {
+        id: 'f2',
+        state: 'failed',
+        data: {},
+        retrycount: 0,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+        output: 'plain string error',
+      },
+      'add_field' as any,
+    );
     expect(out.error).toBe('plain string error');
   });
 
   it('maps "cancelled" and "expired" → "failed"', () => {
-    const cancelled = mapJobToPublic({
-      id: 'x1', state: 'cancelled', data: {}, retrycount: 0, retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-    }, 'drop_relation' as any);
+    const cancelled = mapJobToPublic(
+      {
+        id: 'x1',
+        state: 'cancelled',
+        data: {},
+        retrycount: 0,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+      },
+      'drop_relation' as any,
+    );
     expect(cancelled.status).toBe('failed');
-    const expired = mapJobToPublic({
-      id: 'x2', state: 'expired', data: {}, retrycount: 0, retrylimit: 3,
-      createdon: '2026-05-17T00:00:00Z',
-    }, 'drop_relation' as any);
+    const expired = mapJobToPublic(
+      {
+        id: 'x2',
+        state: 'expired',
+        data: {},
+        retrycount: 0,
+        retrylimit: 3,
+        createdon: '2026-05-17T00:00:00Z',
+      },
+      'drop_relation' as any,
+    );
     expect(expired.status).toBe('failed');
   });
 
   it('defaults retry_count to 0 and max_retries to 3 when missing', () => {
-    const out = mapJobToPublic({
-      id: 'd1', state: 'created', data: {},
-      createdon: '2026-05-17T00:00:00Z',
-    }, 'create_collection' as any);
+    const out = mapJobToPublic(
+      {
+        id: 'd1',
+        state: 'created',
+        data: {},
+        createdon: '2026-05-17T00:00:00Z',
+      },
+      'create_collection' as any,
+    );
     expect(out.retry_count).toBe(0);
     expect(out.max_retries).toBe(3);
   });

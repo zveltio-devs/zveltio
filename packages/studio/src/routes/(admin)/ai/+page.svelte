@@ -1,165 +1,231 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { Bot, Send, Plus, Trash2, Sparkles, Settings2, BookTemplate, Search, Code2, Wand2, MessageSquare, FileText } from '@lucide/svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  Bot,
+  Send,
+  Plus,
+  Trash2,
+  Sparkles,
+  Settings2,
+  BookTemplate,
+  Search,
+  Code2,
+  Wand2,
+  MessageSquare,
+  FileText,
+} from '@lucide/svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  let providers = $state<any[]>([]);
-  let chats = $state<any[]>([]);
-  let templates = $state<any[]>([]);
-  let activeChat = $state<any>(null);
-  let activeTab = $state<'chat' | 'templates' | 'settings' | 'search' | 'query' | 'schema'>('chat');
+let providers = $state<any[]>([]);
+let chats = $state<any[]>([]);
+let templates = $state<any[]>([]);
+let activeChat = $state<any>(null);
+let activeTab = $state<'chat' | 'templates' | 'settings' | 'search' | 'query' | 'schema'>('chat');
 
-  const AI_TABS: Array<{ id: typeof activeTab; labelKey: string; icon: any }> = [
-    { id: 'chat', labelKey: 'ai.tab.chat', icon: MessageSquare },
-    { id: 'search', labelKey: 'ai.tab.search', icon: Search },
-    { id: 'query', labelKey: 'ai.tab.query', icon: Code2 },
-    { id: 'schema', labelKey: 'ai.tab.schema', icon: Wand2 },
-    { id: 'templates', labelKey: 'ai.tab.templates', icon: BookTemplate },
-    { id: 'settings', labelKey: 'ai.tab.settings', icon: Settings2 },
-  ];
+const AI_TABS: Array<{ id: typeof activeTab; labelKey: string; icon: any }> = [
+  { id: 'chat', labelKey: 'ai.tab.chat', icon: MessageSquare },
+  { id: 'search', labelKey: 'ai.tab.search', icon: Search },
+  { id: 'query', labelKey: 'ai.tab.query', icon: Code2 },
+  { id: 'schema', labelKey: 'ai.tab.schema', icon: Wand2 },
+  { id: 'templates', labelKey: 'ai.tab.templates', icon: BookTemplate },
+  { id: 'settings', labelKey: 'ai.tab.settings', icon: Settings2 },
+];
 
-  let input = $state('');
-  let sending = $state(false);
-  let messages = $state<Array<{ role: string; content: string }>>([]);
+let input = $state('');
+let sending = $state(false);
+let messages = $state<Array<{ role: string; content: string }>>([]);
 
-  let searchCollection = $state('');
-  let searchQuery = $state('');
-  let searchResults = $state<any[]>([]);
-  let searching = $state(false);
-  let searchError = $state('');
+let searchCollection = $state('');
+let searchQuery = $state('');
+let searchResults = $state<any[]>([]);
+let searching = $state(false);
+let searchError = $state('');
 
-  let queryPrompt = $state('');
-  let queryResult = $state<{ sql: string; data: any[]; columns: string[] } | null>(null);
-  let queryRunning = $state(false);
+let queryPrompt = $state('');
+let queryResult = $state<{ sql: string; data: any[]; columns: string[] } | null>(null);
+let queryRunning = $state(false);
 
-  let schemaDescription = $state('');
-  let schemaResult = $state<any | null>(null);
-  let schemaGenerating = $state(false);
+let schemaDescription = $state('');
+let schemaResult = $state<any | null>(null);
+let schemaGenerating = $state(false);
 
-  let showProviderForm = $state(false);
-  let providerForm = $state({ name: 'openai', label: 'OpenAI', api_key: '', base_url: '', default_model: '', is_default: false });
-  let savingProvider = $state(false);
+let showProviderForm = $state(false);
+let providerForm = $state({
+  name: 'openai',
+  label: 'OpenAI',
+  api_key: '',
+  base_url: '',
+  default_model: '',
+  is_default: false,
+});
+let savingProvider = $state(false);
 
-  onMount(loadAll);
+onMount(loadAll);
 
-  async function loadAll() {
-    const [pRes, cRes, tRes] = await Promise.allSettled([
-      api.get<{ providers: any[] }>('/ext/ai/providers'),
-      api.get<{ chats: any[] }>('/ext/ai/chats'),
-      api.get<{ templates: any[] }>('/ext/ai/templates'),
-    ]);
-    if (pRes.status === 'fulfilled') providers = pRes.value.providers || [];
-    if (cRes.status === 'fulfilled') chats = cRes.value.chats || [];
-    if (tRes.status === 'fulfilled') templates = tRes.value.templates || [];
+async function loadAll() {
+  const [pRes, cRes, tRes] = await Promise.allSettled([
+    api.get<{ providers: any[] }>('/ext/ai/providers'),
+    api.get<{ chats: any[] }>('/ext/ai/chats'),
+    api.get<{ templates: any[] }>('/ext/ai/templates'),
+  ]);
+  if (pRes.status === 'fulfilled') providers = pRes.value.providers || [];
+  if (cRes.status === 'fulfilled') chats = cRes.value.chats || [];
+  if (tRes.status === 'fulfilled') templates = tRes.value.templates || [];
+}
+
+async function newChat() {
+  const res = await api.post<{ chat: any }>('/ext/ai/chats', { title: 'New Chat' });
+  chats = [res.chat, ...chats];
+  await openChat(res.chat);
+}
+
+async function openChat(chat: any) {
+  const res = await api.get<{ chat: any }>(`/ext/ai/chats/${chat.id}`);
+  activeChat = res.chat;
+  messages = res.chat.messages || [];
+}
+
+async function sendMessage() {
+  if (!input.trim() || !activeChat || sending) return;
+  const userMsg = input.trim();
+  input = '';
+  sending = true;
+  messages = [...messages, { role: 'user', content: userMsg }];
+  try {
+    const res = await api.post<{ message: any }>(`/ext/ai/chats/${activeChat.id}/messages`, {
+      content: userMsg,
+    });
+    messages = [...messages, res.message];
+    chats = chats.map((c) => (c.id === activeChat.id ? { ...c, title: userMsg.slice(0, 60) } : c));
+  } catch (err: any) {
+    messages = messages.slice(0, -1);
+    toast.error(m['ext.errorPrefix']() + err.message);
+  } finally {
+    sending = false;
   }
+}
 
-  async function newChat() {
-    const res = await api.post<{ chat: any }>('/ext/ai/chats', { title: 'New Chat' });
-    chats = [res.chat, ...chats];
-    await openChat(res.chat);
+async function deleteChat(id: string) {
+  await api.delete(`/ext/ai/chats/${id}`);
+  chats = chats.filter((c) => c.id !== id);
+  if (activeChat?.id === id) {
+    activeChat = null;
+    messages = [];
   }
+}
 
-  async function openChat(chat: any) {
-    const res = await api.get<{ chat: any }>(`/ext/ai/chats/${chat.id}`);
-    activeChat = res.chat;
-    messages = res.chat.messages || [];
+async function saveProvider() {
+  savingProvider = true;
+  try {
+    await api.post('/ext/ai/admin/providers', providerForm);
+    await loadAll();
+    showProviderForm = false;
+    providerForm = {
+      name: 'openai',
+      label: 'OpenAI',
+      api_key: '',
+      base_url: '',
+      default_model: '',
+      is_default: false,
+    };
+  } catch (err: any) {
+    toast.error(err.message);
+  } finally {
+    savingProvider = false;
   }
+}
 
-  async function sendMessage() {
-    if (!input.trim() || !activeChat || sending) return;
-    const userMsg = input.trim();
-    input = '';
-    sending = true;
-    messages = [...messages, { role: 'user', content: userMsg }];
-    try {
-      const res = await api.post<{ message: any }>(`/ext/ai/chats/${activeChat.id}/messages`, { content: userMsg });
-      messages = [...messages, res.message];
-      chats = chats.map((c) => c.id === activeChat.id ? { ...c, title: userMsg.slice(0, 60) } : c);
-    } catch (err: any) {
-      messages = messages.slice(0, -1);
-      toast.error(m['ext.errorPrefix']() + err.message);
-    } finally {
-      sending = false;
-    }
+async function semanticSearch() {
+  if (!searchCollection.trim() || !searchQuery.trim()) return;
+  searching = true;
+  searchError = '';
+  searchResults = [];
+  try {
+    const res = await api.post<{ results: any[]; total: number }>('/ext/ai/search', {
+      collection: searchCollection.trim(),
+      query: searchQuery.trim(),
+      limit: 10,
+    });
+    searchResults = res.results || [];
+  } catch (err: any) {
+    searchError = err.message || m['ai.error.searchFailed']();
+  } finally {
+    searching = false;
   }
+}
 
-  async function deleteChat(id: string) {
-    await api.delete(`/ext/ai/chats/${id}`);
-    chats = chats.filter((c) => c.id !== id);
-    if (activeChat?.id === id) { activeChat = null; messages = []; }
+async function runAiQuery() {
+  if (!queryPrompt.trim() || queryRunning) return;
+  queryRunning = true;
+  queryResult = null;
+  try {
+    const res = await api.post<{ sql: string; data: any[]; columns: string[] }>('/ext/ai/query', {
+      prompt: queryPrompt.trim(),
+    });
+    queryResult = res;
+  } catch (err: any) {
+    toast.error(err.message ?? 'Query failed');
+  } finally {
+    queryRunning = false;
   }
+}
 
-  async function saveProvider() {
-    savingProvider = true;
-    try {
-      await api.post('/ext/ai/admin/providers', providerForm);
-      await loadAll();
-      showProviderForm = false;
-      providerForm = { name: 'openai', label: 'OpenAI', api_key: '', base_url: '', default_model: '', is_default: false };
-    } catch (err: any) { toast.error(err.message); }
-    finally { savingProvider = false; }
+async function generateSchema() {
+  if (!schemaDescription.trim() || schemaGenerating) return;
+  schemaGenerating = true;
+  schemaResult = null;
+  try {
+    const res = await api.post<{ schema: any }>('/ext/ai/schema-gen', {
+      description: schemaDescription.trim(),
+    });
+    schemaResult = res.schema;
+  } catch (err: any) {
+    toast.error(err.message ?? 'Schema generation failed');
+  } finally {
+    schemaGenerating = false;
   }
+}
 
-  async function semanticSearch() {
-    if (!searchCollection.trim() || !searchQuery.trim()) return;
-    searching = true; searchError = ''; searchResults = [];
-    try {
-      const res = await api.post<{ results: any[]; total: number }>('/ext/ai/search', {
-        collection: searchCollection.trim(), query: searchQuery.trim(), limit: 10,
-      });
-      searchResults = res.results || [];
-    } catch (err: any) { searchError = err.message || m['ai.error.searchFailed'](); }
-    finally { searching = false; }
+async function applySchema() {
+  if (!schemaResult) return;
+  try {
+    await api.post('/api/collections', schemaResult);
+    toast.success(m['ext.saved']());
+    schemaResult = null;
+    schemaDescription = '';
+  } catch (err: any) {
+    toast.error(err.message ?? 'Failed to create collection');
   }
+}
 
-  async function runAiQuery() {
-    if (!queryPrompt.trim() || queryRunning) return;
-    queryRunning = true; queryResult = null;
-    try {
-      const res = await api.post<{ sql: string; data: any[]; columns: string[] }>('/ext/ai/query', { prompt: queryPrompt.trim() });
-      queryResult = res;
-    } catch (err: any) { toast.error(err.message ?? 'Query failed'); }
-    finally { queryRunning = false; }
-  }
-
-  async function generateSchema() {
-    if (!schemaDescription.trim() || schemaGenerating) return;
-    schemaGenerating = true; schemaResult = null;
-    try {
-      const res = await api.post<{ schema: any }>('/ext/ai/schema-gen', { description: schemaDescription.trim() });
-      schemaResult = res.schema;
-    } catch (err: any) { toast.error(err.message ?? 'Schema generation failed'); }
-    finally { schemaGenerating = false; }
-  }
-
-  async function applySchema() {
-    if (!schemaResult) return;
-    try {
-      await api.post('/api/collections', schemaResult);
-      toast.success(m['ext.saved']());
-      schemaResult = null; schemaDescription = '';
-    } catch (err: any) { toast.error(err.message ?? 'Failed to create collection'); }
-  }
-
-  async function runTemplate(template: any) {
-    const vars: Record<string, string> = {};
-    const varDefs: any[] = typeof template.variables === 'string'
+async function runTemplate(template: any) {
+  const vars: Record<string, string> = {};
+  const varDefs: any[] =
+    typeof template.variables === 'string'
       ? JSON.parse(template.variables)
       : template.variables || [];
-    for (const v of varDefs) {
-      const val = prompt(`Enter value for "${v.name}":`);
-      if (val !== null) vars[v.name] = val;
-    }
-    const res = await api.post<{ result: any }>(`/ext/ai/templates/${template.id}/run`, { variables: vars });
-    messages = [
-      { role: 'user', content: `[Template: ${template.name}]\n${Object.entries(vars).map(([k, v]) => `${k}: ${v}`).join('\n')}` },
-      { role: 'assistant', content: res.result.content },
-    ];
-    activeChat = null; activeTab = 'chat';
+  for (const v of varDefs) {
+    const val = prompt(`Enter value for "${v.name}":`);
+    if (val !== null) vars[v.name] = val;
   }
+  const res = await api.post<{ result: any }>(`/ext/ai/templates/${template.id}/run`, {
+    variables: vars,
+  });
+  messages = [
+    {
+      role: 'user',
+      content: `[Template: ${template.name}]\n${Object.entries(vars)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n')}`,
+    },
+    { role: 'assistant', content: res.result.content },
+  ];
+  activeChat = null;
+  activeTab = 'chat';
+}
 </script>
 
 <ExtensionPageShell title={m['ai.title']()} subtitle={m['ai.subtitle']()}>

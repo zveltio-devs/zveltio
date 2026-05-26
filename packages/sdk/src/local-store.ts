@@ -88,16 +88,10 @@ export class LocalStore {
   }
 
   /** Write a local record and add to sync queue */
-  async put(
-    collection: string,
-    id: string,
-    data: Record<string, any>,
-  ): Promise<LocalRecord> {
+  async put(collection: string, id: string, data: Record<string, any>): Promise<LocalRecord> {
     if (!this.db) throw new Error('LocalStore not opened');
 
-    const existing = (await this.db.get('records', [collection, id])) as
-      | LocalRecord
-      | undefined;
+    const existing = (await this.db.get('records', [collection, id])) as LocalRecord | undefined;
 
     const lamport = this.clock ? this.clock.tick() : Date.now();
     const clientId = this.clock?.id ?? 'unknown';
@@ -139,9 +133,7 @@ export class LocalStore {
   /** Read a local record (instant, no network) */
   async get(collection: string, id: string): Promise<LocalRecord | undefined> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const record = (await this.db.get('records', [collection, id])) as
-      | LocalRecord
-      | undefined;
+    const record = (await this.db.get('records', [collection, id])) as LocalRecord | undefined;
     if (record?._deletedAt) return undefined; // Soft-deleted
     return record;
   }
@@ -189,9 +181,7 @@ export class LocalStore {
   /** Returns all pending operations from sync queue */
   async getPendingOps(): Promise<SyncQueueItem[]> {
     if (!this.db) throw new Error('LocalStore not opened');
-    return this.db.getAllFromIndex('sync_queue', 'by-created') as Promise<
-      SyncQueueItem[]
-    >;
+    return this.db.getAllFromIndex('sync_queue', 'by-created') as Promise<SyncQueueItem[]>;
   }
 
   /** Mark an operation as completed (remove from queue, update record status) */
@@ -209,9 +199,9 @@ export class LocalStore {
     await tx.objectStore('sync_queue').delete(queueItemId);
 
     // Update record status
-    const record = (await tx
-      .objectStore('records')
-      .get([collection, recordId])) as LocalRecord | undefined;
+    const record = (await tx.objectStore('records').get([collection, recordId])) as
+      | LocalRecord
+      | undefined;
     if (record) {
       record._serverVersion = serverVersion;
       record._syncStatus = 'synced';
@@ -224,9 +214,7 @@ export class LocalStore {
   /** Mark an operation as failed (increment attempts, save error) */
   async markFailed(queueItemId: string, error: string): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const item = (await this.db.get('sync_queue', queueItemId)) as
-      | SyncQueueItem
-      | undefined;
+    const item = (await this.db.get('sync_queue', queueItemId)) as SyncQueueItem | undefined;
     if (item) {
       item.attempts += 1;
       item.lastAttemptAt = Date.now();
@@ -244,9 +232,7 @@ export class LocalStore {
   ): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
 
-    const existing = (await this.db.get('records', [collection, id])) as
-      | LocalRecord
-      | undefined;
+    const existing = (await this.db.get('records', [collection, id])) as LocalRecord | undefined;
 
     // Conflict detection: local has changes not yet confirmed by server
     if (existing && existing._localVersion > existing._serverVersion) {
@@ -306,9 +292,7 @@ export class LocalStore {
     resolvedData: Record<string, any>,
   ): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const record = (await this.db.get('records', [collection, id])) as
-      | LocalRecord
-      | undefined;
+    const record = (await this.db.get('records', [collection, id])) as LocalRecord | undefined;
     if (record) {
       record.data = resolvedData;
       record._syncStatus = 'pending'; // Re-sync with server
@@ -318,12 +302,7 @@ export class LocalStore {
   }
 
   /** Save an offline blob — returns a temporary ID 'local_blob_<UUID>' */
-  async saveBlob(
-    blob: Blob,
-    collection: string,
-    recordId: string,
-    field: string,
-  ): Promise<string> {
+  async saveBlob(blob: Blob, collection: string, recordId: string, field: string): Promise<string> {
     if (!this.db) throw new Error('LocalStore not opened');
     const id = `local_blob_${generateUUID()}`;
     const item: OfflineBlob = {
@@ -353,10 +332,7 @@ export class LocalStore {
   /** Clear all local data */
   async clear(): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');
-    const tx = this.db.transaction(
-      ['records', 'sync_queue', 'meta', 'offline_blobs'],
-      'readwrite',
-    );
+    const tx = this.db.transaction(['records', 'sync_queue', 'meta', 'offline_blobs'], 'readwrite');
     await tx.objectStore('records').clear();
     await tx.objectStore('sync_queue').clear();
     await tx.objectStore('meta').clear();

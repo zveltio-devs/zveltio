@@ -1,67 +1,75 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { ClipboardList, Filter } from '@lucide/svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
- import Pagination from '$lib/components/common/Pagination.svelte';
- import PageSpinner from '$lib/components/common/PageSpinner.svelte';
- import { api } from '$lib/api.js';
+import { onMount } from 'svelte';
+import { ClipboardList, Filter } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import Pagination from '$lib/components/common/Pagination.svelte';
+import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import { api } from '$lib/api.js';
 
- let revisions = $state<any[]>([]);
- let loading = $state(true);
- let page = $state(1);
- let total = $state(0);
- const limit = 25;
+let revisions = $state<any[]>([]);
+let loading = $state(true);
+let page = $state(1);
+let total = $state(0);
+const limit = 25;
 
- let filterCollection = $state('');
- let filterUserId = $state('');
- let filterOp = $state('');
+let filterCollection = $state('');
+let filterUserId = $state('');
+let filterOp = $state('');
 
- let filterType = $state('');
- let filterUser = $state('');
- let filterFrom = $state('');
+let filterType = $state('');
+let filterUser = $state('');
+let filterFrom = $state('');
 
- onMount(() => load());
+onMount(() => load());
 
- async function load() {
- loading = true;
- const params = new URLSearchParams({ limit: String(limit), page: String(page) });
- if (filterCollection) params.set('collection', filterCollection);
- if (filterUserId) params.set('user_id', filterUserId);
- if (filterType) params.set('event_type', filterType);
- if (filterUser) params.set('user', encodeURIComponent(filterUser));
- if (filterFrom) params.set('from', filterFrom);
+async function load() {
+  loading = true;
+  const params = new URLSearchParams({ limit: String(limit), page: String(page) });
+  if (filterCollection) params.set('collection', filterCollection);
+  if (filterUserId) params.set('user_id', filterUserId);
+  if (filterType) params.set('event_type', filterType);
+  if (filterUser) params.set('user', encodeURIComponent(filterUser));
+  if (filterFrom) params.set('from', filterFrom);
 
- const res = await api.fetch(`/api/admin/revisions?${params}`, { credentials: 'include' }).then((r) => r.json());
- revisions = (res.revisions || []).filter((r: any) => !filterOp || r.operation === filterOp);
- total = res.total ?? (revisions.length < limit ? (page - 1) * limit + revisions.length : page * limit + 1);
- loading = false;
- }
+  const res = await api
+    .fetch(`/api/admin/revisions?${params}`, { credentials: 'include' })
+    .then((r) => r.json());
+  revisions = (res.revisions || []).filter((r: any) => !filterOp || r.operation === filterOp);
+  total =
+    res.total ??
+    (revisions.length < limit ? (page - 1) * limit + revisions.length : page * limit + 1);
+  loading = false;
+}
 
- function applyFilters() {
- page = 1;
- load();
- }
+function applyFilters() {
+  page = 1;
+  load();
+}
 
- function opBadge(op: string): string {
- const map: Record<string, string> = { insert: 'badge-success', update: 'badge-info', delete: 'badge-error' };
- return map[op] || 'badge-ghost';
- }
+function opBadge(op: string): string {
+  const map: Record<string, string> = {
+    insert: 'badge-success',
+    update: 'badge-info',
+    delete: 'badge-error',
+  };
+  return map[op] || 'badge-ghost';
+}
 
- function formatDiff(before: any, after: any): string[] {
- if (!before && after) return ['Created'];
- if (before && !after) return ['Deleted'];
- const changes: string[] = [];
- const b = typeof before === 'string' ? JSON.parse(before) : before;
- const a = typeof after === 'string' ? JSON.parse(after) : after;
- for (const key of Object.keys({ ...b, ...a })) {
- if (JSON.stringify(b?.[key]) !== JSON.stringify(a?.[key])) {
- changes.push(key);
- }
- }
- return changes.length ? changes : ['No changes detected'];
- }
+function formatDiff(before: any, after: any): string[] {
+  if (!before && after) return ['Created'];
+  if (before && !after) return ['Deleted'];
+  const changes: string[] = [];
+  const b = typeof before === 'string' ? JSON.parse(before) : before;
+  const a = typeof after === 'string' ? JSON.parse(after) : after;
+  for (const key of Object.keys({ ...b, ...a })) {
+    if (JSON.stringify(b?.[key]) !== JSON.stringify(a?.[key])) {
+      changes.push(key);
+    }
+  }
+  return changes.length ? changes : ['No changes detected'];
+}
 
- let expandedId = $state<string | null>(null);
+let expandedId = $state<string | null>(null);
 </script>
 
 <div class="space-y-6">

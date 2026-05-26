@@ -26,9 +26,7 @@ async function generateEmbed() {
   // Check if studio-dist exists using Bun.file()
   const studioDir = Bun.file(STUDIO_DIST);
   if (!(await studioDir.exists())) {
-    console.error(
-      '❌ studio-dist/ not found. Run: cd ../studio && bun run build first.',
-    );
+    console.error('❌ studio-dist/ not found. Run: cd ../studio && bun run build first.');
     process.exit(1);
   }
 

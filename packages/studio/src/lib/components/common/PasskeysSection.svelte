@@ -12,132 +12,142 @@
   No props for now; the signed-in user is taken from auth.user.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { Fingerprint, Plus, Trash2, RefreshCw } from '@lucide/svelte';
-  import { auth } from '$lib/auth.svelte.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { startRegistration } from '@simplewebauthn/browser';
+import { onMount } from 'svelte';
+import { Fingerprint, Plus, Trash2, RefreshCw } from '@lucide/svelte';
+import { auth } from '$lib/auth.svelte.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { startRegistration } from '@simplewebauthn/browser';
 
-  interface Passkey {
-    id: string;
-    name: string | null;
-    deviceType: string | null;
-    backedUp: boolean;
-    createdAt: string;
+interface Passkey {
+  id: string;
+  name: string | null;
+  deviceType: string | null;
+  backedUp: boolean;
+  createdAt: string;
+}
+
+let passkeys = $state<Passkey[]>([]);
+let loading = $state(true);
+let registering = $state(false);
+let deletingId = $state<string | null>(null);
+
+onMount(load);
+
+async function load(): Promise<void> {
+  loading = true;
+  try {
+    const res = await fetch('/api/auth/passkey/list-user-passkeys', {
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as { passkeys?: Passkey[] };
+    passkeys = body.passkeys ?? [];
+  } catch (e) {
+    // 404 = endpoint not present (older engine) → silently empty.
+    // anything else = log + show empty so the page still renders.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!msg.includes('404')) console.warn('[passkeys] load failed:', msg);
+    passkeys = [];
+  } finally {
+    loading = false;
   }
+}
 
-  let passkeys = $state<Passkey[]>([]);
-  let loading = $state(true);
-  let registering = $state(false);
-  let deletingId = $state<string | null>(null);
+async function registerNew(): Promise<void> {
+  if (!browserSupportsPasskey()) {
+    toast.error('This browser does not support passkeys');
+    return;
+  }
+  const label = prompt('Name this passkey (e.g. "MacBook Touch ID", "YubiKey 5")');
+  if (label == null) return; // user cancelled
 
-  onMount(load);
+  registering = true;
+  try {
+    // 1. Ask the server for a challenge.
+    const optsRes = await fetch('/api/auth/passkey/generate-register-options', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: label.trim() || 'Unnamed passkey' }),
+    });
+    if (!optsRes.ok) throw new Error(`Failed to get registration options: HTTP ${optsRes.status}`);
+    const options = await optsRes.json();
 
-  async function load(): Promise<void> {
-    loading = true;
-    try {
-      const res = await fetch('/api/auth/passkey/list-user-passkeys', {
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = await res.json() as { passkeys?: Passkey[] };
-      passkeys = body.passkeys ?? [];
-    } catch (e) {
-      // 404 = endpoint not present (older engine) → silently empty.
-      // anything else = log + show empty so the page still renders.
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!msg.includes('404')) console.warn('[passkeys] load failed:', msg);
-      passkeys = [];
-    } finally {
-      loading = false;
+    // 2. Drive the browser ceremony.
+    const attestation = await startRegistration({ optionsJSON: options });
+
+    // 3. Send the attestation back for verification + storage.
+    const verifyRes = await fetch('/api/auth/passkey/verify-registration', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        response: attestation,
+        name: label.trim() || 'Unnamed passkey',
+      }),
+    });
+    if (!verifyRes.ok) {
+      const body = (await verifyRes.json().catch(() => null)) as any;
+      throw new Error(body?.message ?? `Verification failed: HTTP ${verifyRes.status}`);
     }
-  }
-
-  async function registerNew(): Promise<void> {
-    if (!browserSupportsPasskey()) {
-      toast.error('This browser does not support passkeys');
+    toast.success('Passkey registered');
+    await load();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // User-cancelled ceremonies throw NotAllowedError / AbortError — not real errors.
+    if (
+      msg.includes('NotAllowedError') ||
+      msg.includes('AbortError') ||
+      msg.includes('cancelled')
+    ) {
+      // Quiet — user backed out.
       return;
     }
-    const label = prompt('Name this passkey (e.g. "MacBook Touch ID", "YubiKey 5")');
-    if (label == null) return; // user cancelled
-
-    registering = true;
-    try {
-      // 1. Ask the server for a challenge.
-      const optsRes = await fetch('/api/auth/passkey/generate-register-options', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: label.trim() || 'Unnamed passkey' }),
-      });
-      if (!optsRes.ok) throw new Error(`Failed to get registration options: HTTP ${optsRes.status}`);
-      const options = await optsRes.json();
-
-      // 2. Drive the browser ceremony.
-      const attestation = await startRegistration({ optionsJSON: options });
-
-      // 3. Send the attestation back for verification + storage.
-      const verifyRes = await fetch('/api/auth/passkey/verify-registration', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          response: attestation,
-          name: label.trim() || 'Unnamed passkey',
-        }),
-      });
-      if (!verifyRes.ok) {
-        const body = await verifyRes.json().catch(() => null) as any;
-        throw new Error(body?.message ?? `Verification failed: HTTP ${verifyRes.status}`);
-      }
-      toast.success('Passkey registered');
-      await load();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // User-cancelled ceremonies throw NotAllowedError / AbortError — not real errors.
-      if (msg.includes('NotAllowedError') || msg.includes('AbortError') || msg.includes('cancelled')) {
-        // Quiet — user backed out.
-        return;
-      }
-      toast.error(`Failed to register passkey: ${msg}`);
-    } finally {
-      registering = false;
-    }
+    toast.error(`Failed to register passkey: ${msg}`);
+  } finally {
+    registering = false;
   }
+}
 
-  async function deleteOne(id: string): Promise<void> {
-    if (!confirm('Delete this passkey? You will not be able to sign in with it anymore.')) return;
-    deletingId = id;
-    try {
-      const res = await fetch('/api/auth/passkey/delete-passkey', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success('Passkey deleted');
-      await load();
-    } catch (e) {
-      toast.error(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      deletingId = null;
-    }
+async function deleteOne(id: string): Promise<void> {
+  if (!confirm('Delete this passkey? You will not be able to sign in with it anymore.')) return;
+  deletingId = id;
+  try {
+    const res = await fetch('/api/auth/passkey/delete-passkey', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast.success('Passkey deleted');
+    await load();
+  } catch (e) {
+    toast.error(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    deletingId = null;
   }
+}
 
-  function browserSupportsPasskey(): boolean {
-    return typeof window !== 'undefined'
-      && 'PublicKeyCredential' in window
-      && typeof navigator.credentials?.create === 'function';
-  }
+function browserSupportsPasskey(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    'PublicKeyCredential' in window &&
+    typeof navigator.credentials?.create === 'function'
+  );
+}
 
-  function formatDate(iso: string): string {
-    try {
-      return new Date(iso).toLocaleDateString(undefined, {
-        year: 'numeric', month: 'short', day: 'numeric',
-      });
-    } catch { return iso; }
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
   }
+}
 </script>
 
 <section class="card bg-base-200">

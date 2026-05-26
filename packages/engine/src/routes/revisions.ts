@@ -107,7 +107,15 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     const data = typeof revision.data === 'string' ? JSON.parse(revision.data) : revision.data;
 
     // P2: strip ALL protected system fields before reverting — prevents tenant_id / search_vector overwrite
-    const REVERT_PROTECTED = new Set(['id', 'created_at', 'updated_at', 'tenant_id', 'search_vector', 'embedding', 'created_by']);
+    const REVERT_PROTECTED = new Set([
+      'id',
+      'created_at',
+      'updated_at',
+      'tenant_id',
+      'search_vector',
+      'embedding',
+      'created_by',
+    ]);
     const revertData: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
       if (!REVERT_PROTECTED.has(k)) revertData[k] = v;
@@ -147,8 +155,10 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const { collection, recordId } = c.req.param();
 
-    if (!(await checkPermission(user.id, collection, 'read')) &&
-        !(await checkPermission(user.id, 'admin', '*'))) {
+    if (
+      !(await checkPermission(user.id, collection, 'read')) &&
+      !(await checkPermission(user.id, 'admin', '*'))
+    ) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 

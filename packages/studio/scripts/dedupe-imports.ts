@@ -20,7 +20,10 @@ for (const p of walk(EXT)) {
   const out: string[] = [];
   for (const line of lines) {
     const t = line.trim();
-    if (t.startsWith('import ') && (t.includes('ConfirmModal') || t.includes('createExtensionConfirm'))) {
+    if (
+      t.startsWith('import ') &&
+      (t.includes('ConfirmModal') || t.includes('createExtensionConfirm'))
+    ) {
       if (seen.has(t)) continue;
       seen.add(t);
     }

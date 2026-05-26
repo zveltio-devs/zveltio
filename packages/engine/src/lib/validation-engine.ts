@@ -47,9 +47,9 @@ export async function getValidationRules(
 
   // rule_config is JSONB → typed as unknown; coerce to the runtime contract.
   const rules: ValidationRule[] = (await query.execute()).map((row) => ({
-    field_name:    row.field_name,
-    rule_type:     row.rule_type,
-    rule_config:   (row.rule_config ?? {}) as Record<string, any>,
+    field_name: row.field_name,
+    rule_type: row.rule_type,
+    rule_config: (row.rule_config ?? {}) as Record<string, any>,
     error_message: row.error_message,
   }));
   rulesCache.set(cacheKey, { rules, ts: Date.now() });
@@ -134,7 +134,8 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
   const errors: string[] = [];
 
   for (const rule of rules) {
-    const cfg = typeof rule.rule_config === 'string' ? JSON.parse(rule.rule_config) : rule.rule_config;
+    const cfg =
+      typeof rule.rule_config === 'string' ? JSON.parse(rule.rule_config) : rule.rule_config;
     let violated = false;
 
     switch (rule.rule_type) {
@@ -161,7 +162,8 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
         violated = typeof value === 'number' && (value < cfg.min || value > cfg.max);
         break;
       case 'email':
-        violated = typeof value === 'string' && value !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+        violated =
+          typeof value === 'string' && value !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
         break;
       case 'url':
         try {

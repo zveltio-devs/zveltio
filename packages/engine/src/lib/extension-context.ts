@@ -93,8 +93,8 @@ export function createRestrictedDb(
           ) {
             throw new ExtensionSecurityError(
               `Extension "${extName}" attempted to access system table "${baseTable}" via ${prop}(). ` +
-              `Extensions may only access user data tables (zvd_*) and their own namespace (${ownedPrefix}*). ` +
-              `Other zv_* system tables are reserved for Zveltio engine internals.`,
+                `Extensions may only access user data tables (zvd_*) and their own namespace (${ownedPrefix}*). ` +
+                `Other zv_* system tables are reserved for Zveltio engine internals.`,
             );
           }
 
@@ -133,7 +133,10 @@ export function createRestrictedDb(
 // Kysely builders are immutable — there's no way to mutate `values` data
 // in place.
 
-interface ChainCall { method: string; args: unknown[] }
+interface ChainCall {
+  method: string;
+  args: unknown[];
+}
 
 const TERMINAL_METHODS = new Set(['execute', 'executeTakeFirst', 'executeTakeFirstOrThrow']);
 
@@ -154,7 +157,8 @@ function wrapInsertForHooks(db: any, table: string, extName: string): any {
           return async (...termArgs: unknown[]) => {
             // Pull current `values()` arg from the recorded chain.
             const valuesIdx = chainCalls.findIndex((c) => c.method === 'values');
-            const originalData = valuesIdx >= 0 ? (chainCalls[valuesIdx].args[0] as Record<string, unknown>) : {};
+            const originalData =
+              valuesIdx >= 0 ? (chainCalls[valuesIdx].args[0] as Record<string, unknown>) : {};
 
             try {
               const payload = await engineEvents.runBefore('record.beforeInsert', {
@@ -207,9 +211,9 @@ function warnBulkSkip(kind: 'update' | 'delete', table: string, extName: string)
   _bulkWriteWarned.add(key);
   console.warn(
     `[hook-intercept] Extension "${extName}" issued a bulk ${kind} on "${table}". ` +
-    `record.before${kind === 'update' ? 'Update' : 'Delete'} hooks ` +
-    `only fire on single-row WHERE-by-id writes; this one will skip hooks. ` +
-    `Pre-fetch ids and loop if you need per-row hook semantics.`,
+      `record.before${kind === 'update' ? 'Update' : 'Delete'} hooks ` +
+      `only fire on single-row WHERE-by-id writes; this one will skip hooks. ` +
+      `Pre-fetch ids and loop if you need per-row hook semantics.`,
   );
 }
 
@@ -243,13 +247,14 @@ function wrapUpdateForHooks(db: any, table: string, extName: string): any {
             }
             // Single-row update: fire hook with `before` snapshot.
             const setIdx = chainCalls.findIndex((c) => c.method === 'set');
-            const originalPatch = setIdx >= 0 ? (chainCalls[setIdx].args[0] as Record<string, unknown>) : {};
-            const before = await db
+            const originalPatch =
+              setIdx >= 0 ? (chainCalls[setIdx].args[0] as Record<string, unknown>) : {};
+            const before = (await db
               .selectFrom(table)
               .selectAll()
               .where('id', '=', id)
               .executeTakeFirst()
-              .catch(() => undefined) as Record<string, unknown> | undefined;
+              .catch(() => undefined)) as Record<string, unknown> | undefined;
             const payload = await engineEvents.runBefore('record.beforeUpdate', {
               collection: table,
               id,
@@ -298,12 +303,12 @@ function wrapDeleteForHooks(db: any, table: string, extName: string): any {
               warnBulkSkip('delete', table, extName);
               return await (t as any)[prop](...termArgs);
             }
-            const record = await db
+            const record = (await db
               .selectFrom(table)
               .selectAll()
               .where('id', '=', id)
               .executeTakeFirst()
-              .catch(() => undefined) as Record<string, unknown> | undefined;
+              .catch(() => undefined)) as Record<string, unknown> | undefined;
             await engineEvents.runBefore('record.beforeDelete', {
               collection: table,
               id,

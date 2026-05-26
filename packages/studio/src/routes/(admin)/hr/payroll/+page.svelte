@@ -1,69 +1,85 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Wallet, Plus, X, Download, LoaderCircle } from '@lucide/svelte';
-  import { ENGINE_URL } from '$lib/config.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Wallet, Plus, X, Download, LoaderCircle } from '@lucide/svelte';
+import { ENGINE_URL } from '$lib/config.js';
 
-  let periods = $state<any[]>([]);
-  let entries = $state<any[]>([]);
-  let selectedPeriod = $state<string | null>(null);
-  let loading = $state(true);
-  let showCreatePeriod = $state(false);
-  let saving = $state(false);
-  let periodForm = $state({ name: '', period_start: '', period_end: '', pay_date: '' });
+let periods = $state<any[]>([]);
+let entries = $state<any[]>([]);
+let selectedPeriod = $state<string | null>(null);
+let loading = $state(true);
+let showCreatePeriod = $state(false);
+let saving = $state(false);
+let periodForm = $state({ name: '', period_start: '', period_end: '', pay_date: '' });
 
-  async function loadPeriods() {
-    loading = true;
-    try {
-      const res = await api.get<{ data: any[] }>('/ext/hr/payroll/periods');
-      periods = res.data ?? [];
-      if (!selectedPeriod && periods.length > 0) selectedPeriod = periods[0].id;
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadPeriods() {
+  loading = true;
+  try {
+    const res = await api.get<{ data: any[] }>('/ext/hr/payroll/periods');
+    periods = res.data ?? [];
+    if (!selectedPeriod && periods.length > 0) selectedPeriod = periods[0].id;
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function loadEntries() {
-    if (!selectedPeriod) { entries = []; return; }
-    try {
-      const res = await api.get<{ data: any[] }>(`/ext/hr/payroll/periods/${selectedPeriod}/entries`);
-      entries = res.data ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function loadEntries() {
+  if (!selectedPeriod) {
+    entries = [];
+    return;
   }
-
-  async function createPeriod() {
-    saving = true;
-    try {
-      await api.post('/ext/hr/payroll/periods', periodForm);
-      showCreatePeriod = false;
-      periodForm = { name: '', period_start: '', period_end: '', pay_date: '' };
-      await loadPeriods();
-      toast.success(m['hr.payroll.toast.periodCreated']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+  try {
+    const res = await api.get<{ data: any[] }>(`/ext/hr/payroll/periods/${selectedPeriod}/entries`);
+    entries = res.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function generateEntries(periodId: string) {
-    try {
-      await api.post(`/ext/hr/payroll/periods/${periodId}/generate`, {});
-      await loadEntries();
-      toast.success(m['hr.payroll.toast.entriesGenerated']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function createPeriod() {
+  saving = true;
+  try {
+    await api.post('/ext/hr/payroll/periods', periodForm);
+    showCreatePeriod = false;
+    periodForm = { name: '', period_start: '', period_end: '', pay_date: '' };
+    await loadPeriods();
+    toast.success(m['hr.payroll.toast.periodCreated']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  function exportRevisal(periodId: string) {
-    window.open(`${ENGINE_URL}/ext/hr/payroll/periods/${periodId}/revisal-export`, '_blank');
+async function generateEntries(periodId: string) {
+  try {
+    await api.post(`/ext/hr/payroll/periods/${periodId}/generate`, {});
+    await loadEntries();
+    toast.success(m['hr.payroll.toast.entriesGenerated']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  onMount(loadPeriods);
-  $effect(() => { selectedPeriod; loadEntries(); });
+function exportRevisal(periodId: string) {
+  window.open(`${ENGINE_URL}/ext/hr/payroll/periods/${periodId}/revisal-export`, '_blank');
+}
 
-  function fmt(n: number): string {
-    return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n);
-  }
+onMount(loadPeriods);
+$effect(() => {
+  selectedPeriod;
+  loadEntries();
+});
+
+function fmt(n: number): string {
+  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n);
+}
 </script>
 
 <ExtensionPageShell title={m['hr.payroll.title']()} subtitle={m['hr.payroll.subtitle']()}>

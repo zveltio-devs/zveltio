@@ -111,9 +111,7 @@ export async function introspectSchema(
       required: col.is_nullable === 'NO' && col.column_default === null,
       unique: false,
       indexed: false,
-      label: col.column_name
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase()),
+      label: col.column_name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     }));
 
     // If dry-run, collect only the preview
@@ -149,9 +147,7 @@ export async function introspectSchema(
         isNew: false,
       });
     } else {
-      const displayName = table_name
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+      const displayName = table_name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
       await db
         .insertInto('zvd_collections')

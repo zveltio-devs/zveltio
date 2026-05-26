@@ -1,99 +1,127 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, X, Trash2, LoaderCircle, FileText, Send, Download, Eye } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Plus, X, Trash2, LoaderCircle, FileText, Send, Download, Eye } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  type Template = { id: string; name: string; description: string | null; category: string | null; variables: string[] };
-  type Doc = {
-    id: string; template_id: string | null; filename: string; status: string;
-    is_signed: boolean; created_by: string | null; created_at: string;
-    share_token: string | null;
-  };
+type Template = {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  variables: string[];
+};
+type Doc = {
+  id: string;
+  template_id: string | null;
+  filename: string;
+  status: string;
+  is_signed: boolean;
+  created_by: string | null;
+  created_at: string;
+  share_token: string | null;
+};
 
-  let templates = $state<Template[]>([]);
-  let docs = $state<Doc[]>([]);
-  let tab = $state<'documents' | 'templates'>('documents');
-  let loading = $state(false);
-  let showGenModal = $state(false);
-  let saving = $state(false);
-  let selectedTemplate = $state<Template | null>(null);
-  let variables = $state<Record<string, string>>({});
-  let signModal = $state<Doc | null>(null);
-  let signForm = $state({ signer_email: '', signer_name: '', message: '' });
+let templates = $state<Template[]>([]);
+let docs = $state<Doc[]>([]);
+let tab = $state<'documents' | 'templates'>('documents');
+let loading = $state(false);
+let showGenModal = $state(false);
+let saving = $state(false);
+let selectedTemplate = $state<Template | null>(null);
+let variables = $state<Record<string, string>>({});
+let signModal = $state<Doc | null>(null);
+let signForm = $state({ signer_email: '', signer_name: '', message: '' });
 
-  onMount(async () => {
-    await Promise.all([loadDocs(), loadTemplates()]);
-  });
+onMount(async () => {
+  await Promise.all([loadDocs(), loadTemplates()]);
+});
 
-  async function loadDocs() {
-    loading = true;
-    try {
-      const r = await api.get<{ documents: Doc[] }>('/ext/content/documents/generated');
-      docs = r.documents ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadDocs() {
+  loading = true;
+  try {
+    const r = await api.get<{ documents: Doc[] }>('/ext/content/documents/generated');
+    docs = r.documents ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadTemplates() {
-    try {
-      const r = await api.get<{ templates: Template[] }>('/ext/content/documents/templates');
-      templates = r.templates ?? [];
-    } catch { /* ignore */ }
+}
+async function loadTemplates() {
+  try {
+    const r = await api.get<{ templates: Template[] }>('/ext/content/documents/templates');
+    templates = r.templates ?? [];
+  } catch {
+    /* ignore */
   }
+}
 
-  function openGenModal(t: Template) {
-    selectedTemplate = t;
-    variables = Object.fromEntries((t.variables ?? []).map(v => [v, '']));
-    showGenModal = true;
+function openGenModal(t: Template) {
+  selectedTemplate = t;
+  variables = Object.fromEntries((t.variables ?? []).map((v) => [v, '']));
+  showGenModal = true;
+}
+
+async function generate() {
+  if (!selectedTemplate) return;
+  saving = true;
+  try {
+    const r = await api.post<{ document: Doc }>(
+      `/ext/content/documents/generate/${selectedTemplate.id}`,
+      { variables },
+    );
+    docs = [r.document, ...docs];
+    showGenModal = false;
+    tab = 'documents';
+    toast.success(m['content.documents.toast.generated']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function generate() {
-    if (!selectedTemplate) return;
-    saving = true;
-    try {
-      const r = await api.post<{ document: Doc }>(`/ext/content/documents/generate/${selectedTemplate.id}`, { variables });
-      docs = [r.document, ...docs];
-      showGenModal = false;
-      tab = 'documents';
-      toast.success(m['content.documents.toast.generated']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+async function deleteDoc(id: string) {
+  askConfirm(m['content.documents.confirmDelete'](), () => deleteDocConfirmed(id));
+}
+async function deleteDocConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/content/documents/generated/${id}`);
+    docs = docs.filter((d) => d.id !== id);
+    toast.success(m['ext.deleted']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function deleteDoc(id: string) {
-        askConfirm(m['content.documents.confirmDelete'](), () => deleteDocConfirmed(id));
+async function sendSignRequest() {
+  if (!signModal || !signForm.signer_email) return;
+  saving = true;
+  try {
+    await api.post(`/ext/content/documents/generated/${signModal.id}/sign-request`, signForm);
+    signModal = null;
+    signForm = { signer_email: '', signer_name: '', message: '' };
+    toast.success(m['ext.sent']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
-  async function deleteDocConfirmed(id: string) {
-    try {
-      await api.delete(`/ext/content/documents/generated/${id}`);
-      docs = docs.filter(d => d.id !== id);
-      toast.success(m['ext.deleted']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  async function sendSignRequest() {
-    if (!signModal || !signForm.signer_email) return;
-    saving = true;
-    try {
-      await api.post(`/ext/content/documents/generated/${signModal.id}/sign-request`, signForm);
-      signModal = null;
-      signForm = { signer_email: '', signer_name: '', message: '' };
-      toast.success(m['ext.sent']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
-  }
-
-  const statusColor: Record<string, string> = {
-    active: 'badge-success', expired: 'badge-warning', revoked: 'badge-error',
-  };
+const statusColor: Record<string, string> = {
+  active: 'badge-success',
+  expired: 'badge-warning',
+  revoked: 'badge-error',
+};
 </script>
 
 <ExtensionPageShell title={m['content.documents.title']()} subtitle={m['content.documents.subtitle']()}>

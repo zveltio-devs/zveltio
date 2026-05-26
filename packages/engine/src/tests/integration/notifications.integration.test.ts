@@ -51,7 +51,7 @@ beforeAll(async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: regEmail, password: 'RegPass123!', name: 'Notif Regular' }),
   });
-  const regBody = await regSignup.json() as any;
+  const regBody = (await regSignup.json()) as any;
   regularUserId = regBody.user?.id ?? regBody.id;
 
   const regRes = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
@@ -86,7 +86,7 @@ describe.skipIf(skipAll)('Notifications — Integration', () => {
       }),
     });
     expect(res.status).toBeOneOf([200, 201]);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.success).toBe(true);
   });
 
@@ -108,7 +108,7 @@ describe.skipIf(skipAll)('Notifications — Integration', () => {
       headers: { Cookie: regularCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.notifications)).toBe(true);
     expect(body.stats).toHaveProperty('total');
     expect(body.stats).toHaveProperty('unread');
@@ -122,7 +122,7 @@ describe.skipIf(skipAll)('Notifications — Integration', () => {
       headers: { Cookie: regularCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.notifications)).toBe(true);
   });
 
@@ -150,7 +150,7 @@ describe.skipIf(skipAll)('Notifications — Integration', () => {
       headers: { Cookie: regularCookie },
     });
     expect(res.status).toBeOneOf([200, 204]);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.success).toBe(true);
   });
 
@@ -169,7 +169,7 @@ describe.skipIf(skipAll)('Notifications — Integration', () => {
       headers: { Cookie: regularCookie },
     });
     expect(res.status).toBeOneOf([200, 204]);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.success).toBe(true);
   });
 });

@@ -2,7 +2,12 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { checkPermission, getUserRoles, getEnforcer, invalidateUserPermCache } from '../lib/permissions.js';
+import {
+  checkPermission,
+  getUserRoles,
+  getEnforcer,
+  invalidateUserPermCache,
+} from '../lib/permissions.js';
 import { auditLog } from '../lib/audit.js';
 import { escapeLike } from '../lib/query-utils.js';
 
@@ -43,10 +48,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     if (search) {
       const safeSearch = `%${escapeLike(search)}%`;
       query = query.where((eb: any) =>
-        eb.or([
-          eb('name', 'like', safeSearch),
-          eb('email', 'like', safeSearch),
-        ])
+        eb.or([eb('name', 'like', safeSearch), eb('email', 'like', safeSearch)]),
       );
     }
 
@@ -167,7 +169,9 @@ export function usersRoutes(db: Database, auth: any): Hono {
       // Generate a secure invite token (expires in 48h)
       const tokenBytes = new Uint8Array(32);
       crypto.getRandomValues(tokenBytes);
-      const token = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      const token = Array.from(tokenBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
       // Store the invite in zv_invitations (create if table doesn't exist — graceful)
@@ -187,12 +191,15 @@ export function usersRoutes(db: Database, auth: any): Hono {
         // Table may not exist yet — fall back to returning the token directly
         // so the admin can manually share the link
         const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
-        return c.json({
-          message: 'Invite created (email sending not configured)',
-          invite_url: `${siteUrl}/accept-invite?token=${token}`,
-          token,
-          expires_at: expiresAt,
-        }, 201);
+        return c.json(
+          {
+            message: 'Invite created (email sending not configured)',
+            invite_url: `${siteUrl}/accept-invite?token=${token}`,
+            token,
+            expires_at: expiresAt,
+          },
+          201,
+        );
       }
 
       // Send invite email if SMTP is configured
@@ -225,11 +232,14 @@ export function usersRoutes(db: Database, auth: any): Hono {
         metadata: { email, role },
       });
 
-      return c.json({
-        message: 'Invitation sent',
-        invite_url: inviteUrl,
-        expires_at: expiresAt,
-      }, 201);
+      return c.json(
+        {
+          message: 'Invitation sent',
+          invite_url: inviteUrl,
+          expires_at: expiresAt,
+        },
+        201,
+      );
     },
   );
 

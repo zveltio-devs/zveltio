@@ -1,42 +1,42 @@
 <script lang="ts">
-  /**
-   * Toast renderer — place once in admin +layout.svelte.
-   *
-   *   import { toast } from '$lib/stores/toast.svelte.js';
-   *   toast.success('Saved!');
-   *   toast.undoable('Deleted webhook', { onUndo: () => restore() });
-   *
-   * Uses Svelte's `fly` transition for spring-like enter from the right.
-   * If a toast carries an action (e.g. Undo), the button renders inline
-   * — clicking it runs the handler AND dismisses the toast.
-   */
-  import { toast, type Toast } from '$lib/stores/toast.svelte.js';
-  import { X } from '@lucide/svelte';
-  import { fly } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
+/**
+ * Toast renderer — place once in admin +layout.svelte.
+ *
+ *   import { toast } from '$lib/stores/toast.svelte.js';
+ *   toast.success('Saved!');
+ *   toast.undoable('Deleted webhook', { onUndo: () => restore() });
+ *
+ * Uses Svelte's `fly` transition for spring-like enter from the right.
+ * If a toast carries an action (e.g. Undo), the button renders inline
+ * — clicking it runs the handler AND dismisses the toast.
+ */
+import { toast, type Toast } from '$lib/stores/toast.svelte.js';
+import { X } from '@lucide/svelte';
+import { fly } from 'svelte/transition';
+import { cubicOut } from 'svelte/easing';
 
-  const alertClass: Record<string, string> = {
-    success: 'alert-success',
-    error:   'alert-error',
-    warning: 'alert-warning',
-    info:    'alert-info',
-  };
+const alertClass: Record<string, string> = {
+  success: 'alert-success',
+  error: 'alert-error',
+  warning: 'alert-warning',
+  info: 'alert-info',
+};
 
-  const alertIcon: Record<string, string> = {
-    success: '✓',
-    error:   '✕',
-    warning: '⚠',
-    info:    'ℹ',
-  };
+const alertIcon: Record<string, string> = {
+  success: '✓',
+  error: '✕',
+  warning: '⚠',
+  info: 'ℹ',
+};
 
-  async function runAction(t: Toast) {
-    if (!t.action) return;
-    try {
-      await t.action.handler();
-    } finally {
-      toast.remove(t.id);
-    }
+async function runAction(t: Toast) {
+  if (!t.action) return;
+  try {
+    await t.action.handler();
+  } finally {
+    toast.remove(t.id);
   }
+}
 </script>
 
 <div class="toast toast-end toast-bottom z-9999">

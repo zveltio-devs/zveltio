@@ -1,27 +1,27 @@
 <script lang="ts">
-  import { useAuth } from '$stores/auth.svelte';
-  import { Mail, Lock, LoaderCircle } from '@lucide/svelte';
+import { useAuth } from '$stores/auth.svelte';
+import { Mail, Lock, LoaderCircle } from '@lucide/svelte';
 
-  const auth = useAuth();
-  let email = $state('');
-  let password = $state('');
-  let error = $state<string | null>(null);
-  let loading = $state(false);
+const auth = useAuth();
+let email = $state('');
+let password = $state('');
+let error = $state<string | null>(null);
+let loading = $state(false);
 
-  async function handleSubmit() {
-    error = null;
-    loading = true;
-    try {
-      const result = await auth.signIn(email, password);
-      if (result.error) {
-        error = result.error.message || 'Invalid credentials';
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Sign in failed';
-    } finally {
-      loading = false;
+async function handleSubmit() {
+  error = null;
+  loading = true;
+  try {
+    const result = await auth.signIn(email, password);
+    if (result.error) {
+      error = result.error.message || 'Invalid credentials';
     }
+  } catch (e) {
+    error = e instanceof Error ? e.message : 'Sign in failed';
+  } finally {
+    loading = false;
   }
+}
 </script>
 
 <div class="space-y-4">

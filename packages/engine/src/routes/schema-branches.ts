@@ -84,10 +84,13 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
     // POST /api/schema/branches
     .post(
       '/branches',
-      zValidator('json', z.object({
-        name: z.string().min(1).max(100),
-        description: z.string().optional(),
-      })),
+      zValidator(
+        'json',
+        z.object({
+          name: z.string().min(1).max(100),
+          description: z.string().optional(),
+        }),
+      ),
       async (c) => {
         const user = c.get('user');
         const { name, description } = c.req.valid('json');
@@ -150,7 +153,11 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           return c.json({ branch: result.rows[0], schema: branchSchema }, 201);
         } catch (error) {
           console.error('Failed to create branch:', error);
-          try { await sql`DROP SCHEMA IF EXISTS ${sql.id(branchSchema)} CASCADE`.execute(db); } catch { /* best-effort cleanup */ }
+          try {
+            await sql`DROP SCHEMA IF EXISTS ${sql.id(branchSchema)} CASCADE`.execute(db);
+          } catch {
+            /* best-effort cleanup */
+          }
           return c.json({ error: 'Failed to create branch' }, 500);
         }
       },
@@ -184,7 +191,9 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
             SELECT name FROM ${sql.id(branch.branch_schema)}.zvd_collections ORDER BY name
           `.execute(db);
           branchCols = r.rows;
-        } catch { /* schema may not exist yet */ }
+        } catch {
+          /* schema may not exist yet */
+        }
 
         const baseNames = new Set(baseCols.rows.map((r) => r.name));
         const branchNames = new Set(branchCols.map((r) => r.name));
@@ -223,7 +232,9 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
 
       const branch = await sql<{ id: string; review_status: string | null }>`
         SELECT id, review_status FROM zv_schema_branches WHERE id = ${id} AND status = 'open'
-      `.execute(db).then(r => r.rows[0]);
+      `
+        .execute(db)
+        .then((r) => r.rows[0]);
       if (!branch) return c.json({ error: 'Branch not found or already merged' }, 404);
 
       // Upsert review request
@@ -231,7 +242,9 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         INSERT INTO zvd_branch_review_requests (branch_id, requested_by, reviewer_id, status, reviewer_note, reviewed_at)
         VALUES (${id}, ${user.id}, ${user.id}, ${status}, ${body?.note ?? null}, NOW())
         ON CONFLICT DO NOTHING
-      `.execute(db).catch(() => {});
+      `
+        .execute(db)
+        .catch(() => {});
 
       // Update branch review_status
       await sql`
@@ -272,16 +285,20 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           FROM zv_schema_branches WHERE id = ${id} AND status = 'open'
         `.execute(db);
 
-        if (branchResult.rows.length === 0) return c.json({ error: 'Branch not found or already merged' }, 404);
+        if (branchResult.rows.length === 0)
+          return c.json({ error: 'Branch not found or already merged' }, 404);
 
         const branch = branchResult.rows[0];
 
         // ── Approval gate ──────────────────────────────────────────────────
         if (branch.requires_approval && branch.review_status !== 'approved') {
-          return c.json({
-            error: 'Merge blocked: this branch requires an approved review before merging.',
-            review_status: branch.review_status ?? 'none',
-          }, 403);
+          return c.json(
+            {
+              error: 'Merge blocked: this branch requires an approved review before merging.',
+              review_status: branch.review_status ?? 'none',
+            },
+            403,
+          );
         }
 
         const changes = branch.changes || [];
@@ -291,48 +308,74 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         for (const change of changes) {
           try {
             if (change.type === 'add_collection') {
-              const { enqueueDDLJob } = await import('../../../../packages/engine/src/lib/ddl-queue.js');
+              const { enqueueDDLJob } = await import(
+                '../../../../packages/engine/src/lib/ddl-queue.js'
+              );
               await enqueueDDLJob(db, 'create_collection', change.payload);
               applied.push(`Add collection: ${change.payload.name}`);
             } else if (change.type === 'add_field') {
-              const { fieldTypeRegistry } = await import('../../../../packages/engine/src/lib/field-type-registry.js');
+              const { fieldTypeRegistry } = await import(
+                '../../../../packages/engine/src/lib/field-type-registry.js'
+              );
               const tableName = DDLManager.getTableName(change.payload.collection);
               const colDDL = fieldTypeRegistry.getColumnDDL(change.payload.field);
               if (colDDL) {
                 // Use Ghost DDL for large tables (>100k rows) to avoid downtime
                 const countResult = await sql<{ cnt: string }>`
                   SELECT count(*) AS cnt FROM ${sql.id(tableName)}
-                `.execute(db).catch(() => ({ rows: [{ cnt: '0' }] }));
+                `
+                  .execute(db)
+                  .catch(() => ({ rows: [{ cnt: '0' }] }));
                 const rowCount = Number(countResult.rows[0]?.cnt ?? 0);
 
                 if (rowCount > 100_000) {
-                  await GhostDDL.execute(db, tableName, [`ADD COLUMN ${colDDL}`], (phase, detail) => {
-                    console.log(`[ghost-ddl] ${phase}: ${detail}`);
-                  });
+                  await GhostDDL.execute(
+                    db,
+                    tableName,
+                    [`ADD COLUMN ${colDDL}`],
+                    (phase, detail) => {
+                      console.log(`[ghost-ddl] ${phase}: ${detail}`);
+                    },
+                  );
                 } else {
-                  const { dynamicAddColumn } = await import('../../../../packages/engine/src/db/dynamic.js');
+                  const { dynamicAddColumn } = await import(
+                    '../../../../packages/engine/src/db/dynamic.js'
+                  );
                   await dynamicAddColumn(db, tableName, colDDL);
                 }
               }
-              applied.push(`Add field: ${change.payload.field.name} to ${change.payload.collection}`);
+              applied.push(
+                `Add field: ${change.payload.field.name} to ${change.payload.collection}`,
+              );
             } else if (change.type === 'remove_field') {
               const tableName = DDLManager.getTableName(change.payload.collection);
 
               // Use Ghost DDL for large tables (>100k rows) to avoid downtime
               const countResult = await sql<{ cnt: string }>`
                 SELECT count(*) AS cnt FROM ${sql.id(tableName)}
-              `.execute(db).catch(() => ({ rows: [{ cnt: '0' }] }));
+              `
+                .execute(db)
+                .catch(() => ({ rows: [{ cnt: '0' }] }));
               const rowCount = Number(countResult.rows[0]?.cnt ?? 0);
 
               if (rowCount > 100_000) {
-                await GhostDDL.execute(db, tableName, [`DROP COLUMN "${change.payload.field}"`], (phase, detail) => {
-                  console.log(`[ghost-ddl] ${phase}: ${detail}`);
-                });
+                await GhostDDL.execute(
+                  db,
+                  tableName,
+                  [`DROP COLUMN "${change.payload.field}"`],
+                  (phase, detail) => {
+                    console.log(`[ghost-ddl] ${phase}: ${detail}`);
+                  },
+                );
               } else {
-                const { dynamicDropColumn } = await import('../../../../packages/engine/src/db/dynamic.js');
+                const { dynamicDropColumn } = await import(
+                  '../../../../packages/engine/src/db/dynamic.js'
+                );
                 await dynamicDropColumn(db, tableName, change.payload.field);
               }
-              applied.push(`Remove field: ${change.payload.field} from ${change.payload.collection}`);
+              applied.push(
+                `Remove field: ${change.payload.field} from ${change.payload.collection}`,
+              );
             }
           } catch (err) {
             errors.push(`${change.type}: ${err instanceof Error ? err.message : String(err)}`);
@@ -360,10 +403,13 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
     // POST /api/schema/branches/:id/changes
     .post(
       '/branches/:id/changes',
-      zValidator('json', z.object({
-        type: z.enum(['add_collection', 'add_field', 'remove_field']),
-        payload: z.record(z.string(), z.any()),
-      })),
+      zValidator(
+        'json',
+        z.object({
+          type: z.enum(['add_collection', 'add_field', 'remove_field']),
+          payload: z.record(z.string(), z.any()),
+        }),
+      ),
       async (c) => {
         const id = c.req.param('id');
         const { type, payload } = c.req.valid('json');
@@ -371,7 +417,8 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           const branchResult = await sql<{ changes: any[] }>`
             SELECT changes FROM zv_schema_branches WHERE id = ${id} AND status = 'open'
           `.execute(db);
-          if (branchResult.rows.length === 0) return c.json({ error: 'Branch not found or not open' }, 404);
+          if (branchResult.rows.length === 0)
+            return c.json({ error: 'Branch not found or not open' }, 404);
 
           const currentChanges = branchResult.rows[0].changes || [];
           const newChange = { type, payload, timestamp: new Date().toISOString() };
@@ -434,9 +481,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
 
       // Always generate a fresh token on enable
       const token = crypto.randomUUID().replace(/-/g, '');
-      const expiresAt = ttlHours > 0
-        ? new Date(Date.now() + ttlHours * 3_600_000)
-        : null;
+      const expiresAt = ttlHours > 0 ? new Date(Date.now() + ttlHours * 3_600_000) : null;
 
       await sql`
         UPDATE zv_schema_branches
@@ -464,9 +509,12 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
 
       const branch = await sql<{ preview_enabled: boolean; branch_schema: string }>`
         SELECT preview_enabled, branch_schema FROM zv_schema_branches WHERE id = ${id}
-      `.execute(db).then(r => r.rows[0]);
+      `
+        .execute(db)
+        .then((r) => r.rows[0]);
       if (!branch) return c.json({ error: 'Branch not found' }, 404);
-      if (!branch.preview_enabled) return c.json({ error: 'Preview not enabled for this branch' }, 400);
+      if (!branch.preview_enabled)
+        return c.json({ error: 'Preview not enabled for this branch' }, 400);
 
       const newToken = crypto.randomUUID().replace(/-/g, '');
       const expiresAt = ttlHours > 0 ? new Date(Date.now() + ttlHours * 3_600_000) : null;

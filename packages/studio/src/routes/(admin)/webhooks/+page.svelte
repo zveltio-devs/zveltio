@@ -1,137 +1,171 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { webhooksApi, collectionsApi } from '$lib/api.js';
- import { Webhook, LoaderCircle, Trash2 } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import Pagination from '$lib/components/common/Pagination.svelte';
- import CrudListPage from '$lib/components/common/CrudListPage.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { webhooksApi, collectionsApi } from '$lib/api.js';
+import { Webhook, LoaderCircle, Trash2 } from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Pagination from '$lib/components/common/Pagination.svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- let webhooks = $state<any[]>([]);
- let collections = $state<any[]>([]);
- let loading = $state(true);
- let currentPage = $state(1);
- let total = $state(0);
- const LIMIT = 20;
- let showModal = $state(false);
- let editTarget = $state<any>(null);
- let saving = $state(false);
- let testing = $state<string | null>(null);
- let testResults = $state<Record<string, { ok: boolean; error?: string }>>({});
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let webhooks = $state<any[]>([]);
+let collections = $state<any[]>([]);
+let loading = $state(true);
+let currentPage = $state(1);
+let total = $state(0);
+const LIMIT = 20;
+let showModal = $state(false);
+let editTarget = $state<any>(null);
+let saving = $state(false);
+let testing = $state<string | null>(null);
+let testResults = $state<Record<string, { ok: boolean; error?: string }>>({});
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- const emptyForm = () => ({
- name: '', url: '', method: 'POST',
- events: [] as string[], collections: [] as string[],
- active: true, secret: '', retry_attempts: 3, timeout: 5000,
- });
- let form = $state(emptyForm());
+const emptyForm = () => ({
+  name: '',
+  url: '',
+  method: 'POST',
+  events: [] as string[],
+  collections: [] as string[],
+  active: true,
+  secret: '',
+  retry_attempts: 3,
+  timeout: 5000,
+});
+let form = $state(emptyForm());
 
- const ALL_EVENTS = [
- 'data.create', 'data.update', 'data.delete',
- 'collection.create', 'collection.delete',
- 'user.login', 'user.logout',
- ];
+const ALL_EVENTS = [
+  'data.create',
+  'data.update',
+  'data.delete',
+  'collection.create',
+  'collection.delete',
+  'user.login',
+  'user.logout',
+];
 
- onMount(load);
+onMount(load);
 
- async function load() {
- loading = true;
- try {
- const [wh, col] = await Promise.all([webhooksApi.list(), collectionsApi.list()]);
- const allWebhooks: any[] = Array.isArray(wh) ? wh : (wh as any).webhooks ?? wh;
- total = (wh as any).total ?? allWebhooks.length;
- webhooks = allWebhooks.slice((currentPage - 1) * LIMIT, currentPage * LIMIT);
- collections = col.collections || [];
- } finally { loading = false; }
- }
+async function load() {
+  loading = true;
+  try {
+    const [wh, col] = await Promise.all([webhooksApi.list(), collectionsApi.list()]);
+    const allWebhooks: any[] = Array.isArray(wh) ? wh : ((wh as any).webhooks ?? wh);
+    total = (wh as any).total ?? allWebhooks.length;
+    webhooks = allWebhooks.slice((currentPage - 1) * LIMIT, currentPage * LIMIT);
+    collections = col.collections || [];
+  } finally {
+    loading = false;
+  }
+}
 
- function openCreate() { editTarget = null; form = emptyForm(); showModal = true; }
- function openEdit(wh: any) {
- editTarget = wh;
- form = {
- name: wh.name, url: wh.url, method: wh.method || 'POST',
- events: [...(wh.events || [])], collections: [...(wh.collections || [])],
- active: wh.active ?? true, secret: wh.secret || '',
- retry_attempts: wh.retry_attempts ?? 3, timeout: wh.timeout ?? 5000,
- };
- showModal = true;
- }
+function openCreate() {
+  editTarget = null;
+  form = emptyForm();
+  showModal = true;
+}
+function openEdit(wh: any) {
+  editTarget = wh;
+  form = {
+    name: wh.name,
+    url: wh.url,
+    method: wh.method || 'POST',
+    events: [...(wh.events || [])],
+    collections: [...(wh.collections || [])],
+    active: wh.active ?? true,
+    secret: wh.secret || '',
+    retry_attempts: wh.retry_attempts ?? 3,
+    timeout: wh.timeout ?? 5000,
+  };
+  showModal = true;
+}
 
- function toggleEvent(ev: string) {
- form.events = form.events.includes(ev)
- ? form.events.filter(e => e !== ev)
- : [...form.events, ev];
- }
- function toggleCollection(name: string) {
- form.collections = form.collections.includes(name)
- ? form.collections.filter(c => c !== name)
- : [...form.collections, name];
- }
+function toggleEvent(ev: string) {
+  form.events = form.events.includes(ev)
+    ? form.events.filter((e) => e !== ev)
+    : [...form.events, ev];
+}
+function toggleCollection(name: string) {
+  form.collections = form.collections.includes(name)
+    ? form.collections.filter((c) => c !== name)
+    : [...form.collections, name];
+}
 
- async function save() {
- if (!form.name || !form.url || form.events.length === 0) return;
- saving = true;
- try {
- const payload = { ...form, secret: form.secret || undefined };
- editTarget
- ? await webhooksApi.update(editTarget.id, payload)
- : await webhooksApi.create(payload);
- showModal = false;
- await load();
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Save failed');
- } finally { saving = false; }
- }
+async function save() {
+  if (!form.name || !form.url || form.events.length === 0) return;
+  saving = true;
+  try {
+    const payload = { ...form, secret: form.secret || undefined };
+    editTarget
+      ? await webhooksApi.update(editTarget.id, payload)
+      : await webhooksApi.create(payload);
+    showModal = false;
+    await load();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Save failed');
+  } finally {
+    saving = false;
+  }
+}
 
- async function remove(id: string, name: string) {
- confirmState = {
- open: true,
- title: 'Delete Webhook',
- message: `Delete webhook "${name}"?`,
- confirmLabel: 'Delete',
- onconfirm: async () => {
- confirmState.open = false;
- // Snapshot for the optional Undo — fetched before delete so we
- // can re-create the webhook with the same config + events.
- const snapshot = webhooks.find((w) => w.id === id);
- try {
- await webhooksApi.delete(id);
- await load();
- toast.undoable(`Deleted "${name}"`, {
- onUndo: async () => {
- if (!snapshot) return;
- await webhooksApi.create({
- name: snapshot.name,
- url: snapshot.url,
- method: snapshot.method,
- events: snapshot.events,
- collections: snapshot.collections,
- active: snapshot.active,
- secret: snapshot.secret || undefined,
- retry_attempts: snapshot.retry_attempts,
- timeout: snapshot.timeout,
- });
- await load();
- toast.success(`Restored "${name}"`);
- },
- });
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Delete failed');
- }
- },
- };
- }
+async function remove(id: string, name: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Webhook',
+    message: `Delete webhook "${name}"?`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      // Snapshot for the optional Undo — fetched before delete so we
+      // can re-create the webhook with the same config + events.
+      const snapshot = webhooks.find((w) => w.id === id);
+      try {
+        await webhooksApi.delete(id);
+        await load();
+        toast.undoable(`Deleted "${name}"`, {
+          onUndo: async () => {
+            if (!snapshot) return;
+            await webhooksApi.create({
+              name: snapshot.name,
+              url: snapshot.url,
+              method: snapshot.method,
+              events: snapshot.events,
+              collections: snapshot.collections,
+              active: snapshot.active,
+              secret: snapshot.secret || undefined,
+              retry_attempts: snapshot.retry_attempts,
+              timeout: snapshot.timeout,
+            });
+            await load();
+            toast.success(`Restored "${name}"`);
+          },
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Delete failed');
+      }
+    },
+  };
+}
 
- async function testWebhook(id: string) {
- testing = id;
- try {
- await webhooksApi.test(id);
- testResults = { ...testResults, [id]: { ok: true } };
- } catch (err) {
- testResults = { ...testResults, [id]: { ok: false, error: err instanceof Error ? err.message : 'Failed' } };
- } finally { testing = null; }
- }
+async function testWebhook(id: string) {
+  testing = id;
+  try {
+    await webhooksApi.test(id);
+    testResults = { ...testResults, [id]: { ok: true } };
+  } catch (err) {
+    testResults = {
+      ...testResults,
+      [id]: { ok: false, error: err instanceof Error ? err.message : 'Failed' },
+    };
+  } finally {
+    testing = null;
+  }
+}
 </script>
 
 <CrudListPage

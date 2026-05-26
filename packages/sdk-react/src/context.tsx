@@ -9,11 +9,7 @@ export interface ZveltioProviderProps {
 }
 
 export function ZveltioProvider({ client, children }: ZveltioProviderProps) {
-  return (
-    <ZveltioContext.Provider value={client}>
-      {children}
-    </ZveltioContext.Provider>
-  );
+  return <ZveltioContext.Provider value={client}>{children}</ZveltioContext.Provider>;
 }
 
 export function useZveltioClient(): ZveltioClient {

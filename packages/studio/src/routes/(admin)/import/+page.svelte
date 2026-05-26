@@ -1,73 +1,90 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api, collectionsApi } from '$lib/api.js';
- import { Upload, CheckCircle, AlertCircle, RefreshCw, LoaderCircle } from '@lucide/svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { onMount } from 'svelte';
+import { api, collectionsApi } from '$lib/api.js';
+import { Upload, CheckCircle, AlertCircle, RefreshCw, LoaderCircle } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
 
- let collections = $state<any[]>([]);
- let selectedCollection = $state('');
- let file = $state<File | null>(null);
- let format = $state<'csv' | 'xlsx' | 'json'>('csv');
- let delimiter = $state(',');
- let skipHeader = $state(true);
- let importing = $state(false);
- let result = $state<any>(null);
- let jobs = $state<any[]>([]);
- let jobsLoading = $state(true);
+let collections = $state<any[]>([]);
+let selectedCollection = $state('');
+let file = $state<File | null>(null);
+let format = $state<'csv' | 'xlsx' | 'json'>('csv');
+let delimiter = $state(',');
+let skipHeader = $state(true);
+let importing = $state(false);
+let result = $state<any>(null);
+let jobs = $state<any[]>([]);
+let jobsLoading = $state(true);
 
- onMount(async () => {
- const res = await collectionsApi.list();
- collections = res.collections || [];
- await loadJobs();
- });
+onMount(async () => {
+  const res = await collectionsApi.list();
+  collections = res.collections || [];
+  await loadJobs();
+});
 
- async function loadJobs() {
- jobsLoading = true;
- try {
- // NOTE: endpoint is /ext/data/import/jobs (not /logs)
- const data = await api.get<{ jobs: any[] }>('/ext/data/import/jobs');
- jobs = data.jobs || [];
- } catch { jobs = []; }
- finally { jobsLoading = false; }
- }
+async function loadJobs() {
+  jobsLoading = true;
+  try {
+    // NOTE: endpoint is /ext/data/import/jobs (not /logs)
+    const data = await api.get<{ jobs: any[] }>('/ext/data/import/jobs');
+    jobs = data.jobs || [];
+  } catch {
+    jobs = [];
+  } finally {
+    jobsLoading = false;
+  }
+}
 
- function handleFile(e: Event) {
- const f = (e.target as HTMLInputElement).files?.[0];
- if (!f) return;
- file = f;
- const ext = f.name.split('.').pop()?.toLowerCase();
- if (ext === 'csv') format = 'csv';
- else if (ext === 'xlsx' || ext === 'xls') format = 'xlsx';
- else if (ext === 'json') format = 'json';
- result = null;
- }
+function handleFile(e: Event) {
+  const f = (e.target as HTMLInputElement).files?.[0];
+  if (!f) return;
+  file = f;
+  const ext = f.name.split('.').pop()?.toLowerCase();
+  if (ext === 'csv') format = 'csv';
+  else if (ext === 'xlsx' || ext === 'xls') format = 'xlsx';
+  else if (ext === 'json') format = 'json';
+  result = null;
+}
 
- async function doImport() {
- if (!selectedCollection || !file) return;
- importing = true; result = null;
- try {
- const fd = new FormData();
- fd.append('file', file);
- fd.append('format', format);
- fd.append('skip_header', String(skipHeader));
- fd.append('delimiter', delimiter);
- const res = await fetch(`/ext/data/import/${selectedCollection}`, {
- method: 'POST', credentials: 'include', body: fd,
- });
- result = await res.json();
- if (res.ok) { file = null; await loadJobs(); }
- } catch (err) {
- result = { error: err instanceof Error ? err.message : 'Import failed' };
- } finally { importing = false; }
- }
+async function doImport() {
+  if (!selectedCollection || !file) return;
+  importing = true;
+  result = null;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('format', format);
+    fd.append('skip_header', String(skipHeader));
+    fd.append('delimiter', delimiter);
+    const res = await fetch(`/ext/data/import/${selectedCollection}`, {
+      method: 'POST',
+      credentials: 'include',
+      body: fd,
+    });
+    result = await res.json();
+    if (res.ok) {
+      file = null;
+      await loadJobs();
+    }
+  } catch (err) {
+    result = { error: err instanceof Error ? err.message : 'Import failed' };
+  } finally {
+    importing = false;
+  }
+}
 
- function statusClass(s: string) {
- return s === 'completed' ? 'badge-success' :
- s === 'failed' ? 'badge-error' :
- s === 'partial' ? 'badge-warning' : 'badge-ghost';
- }
+function statusClass(s: string) {
+  return s === 'completed'
+    ? 'badge-success'
+    : s === 'failed'
+      ? 'badge-error'
+      : s === 'partial'
+        ? 'badge-warning'
+        : 'badge-ghost';
+}
 
- function fmt(s: string) { return new Date(s).toLocaleString(); }
+function fmt(s: string) {
+  return new Date(s).toLocaleString();
+}
 </script>
 
 <div class="space-y-6">

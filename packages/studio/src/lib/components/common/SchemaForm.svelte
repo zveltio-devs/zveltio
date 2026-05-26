@@ -42,72 +42,70 @@
   the field still renders + persists, just without specialized UI.
 -->
 <script lang="ts">
-  import type { FormSchema, FormField } from '@zveltio/sdk/extension';
-  import { studioApi } from '$lib/extension-api.svelte.js';
+import type { FormSchema, FormField } from '@zveltio/sdk/extension';
+import { studioApi } from '$lib/extension-api.svelte.js';
 
-  interface Props {
-    /** Stable form id; form-alter hooks match against this. */
-    formId: string;
-    /** Schema BEFORE alters. The component applies them at render. */
-    schema: FormSchema;
-    /** Bound value record, keyed by field name. */
-    values: Record<string, unknown>;
-    /**
-     * Optional context forwarded to form-alter hooks AND used for live
-     * validation (validators receive the raw value). Typical shape:
-     * `{ user, mode: 'create' | 'edit' }`.
-     */
-    ctx?: Record<string, unknown>;
-    /** Optional: forwarded onto the wrapping <form>. */
-    class?: string;
+interface Props {
+  /** Stable form id; form-alter hooks match against this. */
+  formId: string;
+  /** Schema BEFORE alters. The component applies them at render. */
+  schema: FormSchema;
+  /** Bound value record, keyed by field name. */
+  values: Record<string, unknown>;
+  /**
+   * Optional context forwarded to form-alter hooks AND used for live
+   * validation (validators receive the raw value). Typical shape:
+   * `{ user, mode: 'create' | 'edit' }`.
+   */
+  ctx?: Record<string, unknown>;
+  /** Optional: forwarded onto the wrapping <form>. */
+  class?: string;
+}
+
+let { formId, schema, values = $bindable(), ctx = {}, class: cls = '' }: Props = $props();
+
+// Apply alters at mount + on schema change. `studioApi.applyFormAlters`
+// is idempotent — repeated calls with the same hook set produce the
+// same result. Re-runs when extensions register late.
+const altered = $derived(studioApi.applyFormAlters(formId, schema, ctx));
+
+// Visible fields = altered minus hidden. Hidden fields still persist
+// (server-side defaults apply) but don't render.
+const visible = $derived(altered.fields.filter((f: FormField) => !f.hidden));
+
+/** Per-field error messages computed from registered validators. */
+let errors = $state<Record<string, string | null>>({});
+
+function runValidators(field: FormField, value: unknown): string | null {
+  for (const v of field.validators ?? []) {
+    const err = v(value);
+    if (err !== null) return err;
   }
+  return null;
+}
 
-  let { formId, schema, values = $bindable(), ctx = {}, class: cls = '' }: Props = $props();
+function onInput(field: FormField, value: unknown): void {
+  values[field.name] = value;
+  errors[field.name] = runValidators(field, value);
+}
 
-  // Apply alters at mount + on schema change. `studioApi.applyFormAlters`
-  // is idempotent — repeated calls with the same hook set produce the
-  // same result. Re-runs when extensions register late.
-  const altered = $derived(studioApi.applyFormAlters(formId, schema, ctx));
+/** Coerce option entries into a stable {value, label} shape. */
+function normalizeOptions(opts: FormField['options']): Array<{ value: string; label: string }> {
+  if (!opts) return [];
+  return opts.map((o) => (typeof o === 'string' ? { value: o, label: o } : o));
+}
 
-  // Visible fields = altered minus hidden. Hidden fields still persist
-  // (server-side defaults apply) but don't render.
-  const visible = $derived(altered.fields.filter((f: FormField) => !f.hidden));
-
-  /** Per-field error messages computed from registered validators. */
-  let errors = $state<Record<string, string | null>>({});
-
-  function runValidators(field: FormField, value: unknown): string | null {
-    for (const v of field.validators ?? []) {
-      const err = v(value);
-      if (err !== null) return err;
-    }
-    return null;
+// Public: expose a `validateAll()` for the host's submit handler.
+// Returns true when every field passes. Updates `errors` in place.
+export function validateAll(): boolean {
+  let ok = true;
+  for (const f of altered.fields) {
+    const e = runValidators(f, values[f.name]);
+    errors[f.name] = e;
+    if (e) ok = false;
   }
-
-  function onInput(field: FormField, value: unknown): void {
-    values[field.name] = value;
-    errors[field.name] = runValidators(field, value);
-  }
-
-  /** Coerce option entries into a stable {value, label} shape. */
-  function normalizeOptions(opts: FormField['options']): Array<{ value: string; label: string }> {
-    if (!opts) return [];
-    return opts.map((o) =>
-      typeof o === 'string' ? { value: o, label: o } : o,
-    );
-  }
-
-  // Public: expose a `validateAll()` for the host's submit handler.
-  // Returns true when every field passes. Updates `errors` in place.
-  export function validateAll(): boolean {
-    let ok = true;
-    for (const f of altered.fields) {
-      const e = runValidators(f, values[f.name]);
-      errors[f.name] = e;
-      if (e) ok = false;
-    }
-    return ok;
-  }
+  return ok;
+}
 </script>
 
 <div class={`space-y-3 ${cls}`}>

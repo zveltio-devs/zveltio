@@ -75,7 +75,7 @@ const LABEL_MAP: Record<string, string> = {
   'Post entry': 'finance.accounting.postEntry',
   'Create Quote': 'common.create',
   'All statuses': 'common.filter.allStatuses',
-  'All': 'common.filter.all',
+  All: 'common.filter.all',
   Pending: 'common.status.pending',
   Approved: 'common.status.approved',
   Rejected: 'common.status.rejected',
@@ -102,10 +102,16 @@ function msgKey(extName: string): string {
 function ensureImports(content: string): string {
   let c = content;
   if (!c.includes("from '$lib/i18n")) {
-    c = c.replace(/<script lang="ts">\n/, "<script lang=\"ts\">\n  import { m } from '$lib/i18n.svelte.js';\n");
+    c = c.replace(
+      /<script lang="ts">\n/,
+      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+    );
   }
-  if (!c.includes('<ExtensionPageShell') && (c.includes('<div class="space-y-4">') || c.includes('class="p-6 space-y-4"'))) {
-    if (!c.includes("ExtensionPageShell from")) {
+  if (
+    !c.includes('<ExtensionPageShell') &&
+    (c.includes('<div class="space-y-4">') || c.includes('class="p-6 space-y-4"'))
+  ) {
+    if (!c.includes('ExtensionPageShell from')) {
       c = c.replace(
         /import \{ m \} from '\$lib\/i18n\.svelte\.js';\n/,
         "import { m } from '$lib/i18n.svelte.js';\n  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';\n  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';\n",
@@ -125,7 +131,10 @@ function replaceTableHeaders(content: string): string {
   let c = content;
   for (const [text, key] of Object.entries(TH_MAP)) {
     c = c.replaceAll(`<th>${text}</th>`, `<th>{m['${key}']()}</th>`);
-    c = c.replaceAll(`<th class="text-right">${text}</th>`, `<th class="text-right">{m['${key}']()}</th>`);
+    c = c.replaceAll(
+      `<th class="text-right">${text}</th>`,
+      `<th class="text-right">{m['${key}']()}</th>`,
+    );
   }
   return c;
 }
@@ -175,14 +184,15 @@ function wrapInShell(content: string, key: string): string {
   );
 
   // Wrap main space-y-4 content
-  const mainMatch = body.match(/<div class="space-y-4">([\s\S]*)<\/div>\s*(<!--|{#if|<ConfirmModal|$)/);
+  const mainMatch = body.match(
+    /<div class="space-y-4">([\s\S]*)<\/div>\s*(<!--|{#if|<ConfirmModal|$)/,
+  );
   if (!mainMatch) return content;
 
   const inner = mainMatch[1].trim();
   const after = body.slice(body.indexOf(mainMatch[0]) + mainMatch[0].length);
 
-  const wrapped =
-    `${shellStart}${actionsSnippet}\n  {#snippet children()}\n    ${inner}\n  {/snippet}\n${shellEnd}\n\n${after}`;
+  const wrapped = `${shellStart}${actionsSnippet}\n  {#snippet children()}\n    ${inner}\n  {/snippet}\n${shellEnd}\n\n${after}`;
 
   return body.replace(mainMatch[0], wrapped);
 }
@@ -190,8 +200,10 @@ function wrapInShell(content: string, key: string): string {
 function patchToasts(content: string): string {
   return content
     .replace(/toast\.success\('([^']+)'\)/g, (_, msg) => {
-      if (msg.includes('created') || msg.includes('Created')) return "toast.success(m['ext.created']())";
-      if (msg.includes('submitted') || msg.includes('Submitted')) return "toast.success(m['ext.submitted']())";
+      if (msg.includes('created') || msg.includes('Created'))
+        return "toast.success(m['ext.created']())";
+      if (msg.includes('submitted') || msg.includes('Submitted'))
+        return "toast.success(m['ext.submitted']())";
       if (msg.includes('sent') || msg.includes('Sent')) return "toast.success(m['ext.sent']())";
       if (msg.includes('Rejected')) return "toast.success(m['ext.rejected']())";
       return `toast.success('${msg}')`;

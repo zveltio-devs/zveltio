@@ -1,81 +1,133 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Calculator, Plus, X, BookOpen, Coins, TrendingUp, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Calculator, Plus, X, BookOpen, Coins, TrendingUp, LoaderCircle } from '@lucide/svelte';
 
-  let tab = $state<'entries' | 'accounts' | 'fiscal'>('entries');
-  let entries = $state<any[]>([]);
-  let accounts = $state<any[]>([]);
-  let fiscalYears = $state<any[]>([]);
-  let loading = $state(true);
-  let showEntryForm = $state(false);
-  let showAccountForm = $state(false);
-  let saving = $state(false);
+let tab = $state<'entries' | 'accounts' | 'fiscal'>('entries');
+let entries = $state<any[]>([]);
+let accounts = $state<any[]>([]);
+let fiscalYears = $state<any[]>([]);
+let loading = $state(true);
+let showEntryForm = $state(false);
+let showAccountForm = $state(false);
+let saving = $state(false);
 
-  let entryForm = $state({
-    entry_date: new Date().toISOString().slice(0, 10),
-    description: '', document_number: '',
-    lines: [
-      { account_code: '', description: '', debit: 0, credit: 0 },
-      { account_code: '', description: '', debit: 0, credit: 0 },
-    ] as any[],
-  });
-  let accountForm = $state({ code: '', name: '', account_type: 'asset', parent_code: '' });
+let entryForm = $state({
+  entry_date: new Date().toISOString().slice(0, 10),
+  description: '',
+  document_number: '',
+  lines: [
+    { account_code: '', description: '', debit: 0, credit: 0 },
+    { account_code: '', description: '', debit: 0, credit: 0 },
+  ] as any[],
+});
+let accountForm = $state({ code: '', name: '', account_type: 'asset', parent_code: '' });
 
-  const sums = $derived({
-    debit: entryForm.lines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0),
-    credit: entryForm.lines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0),
-    get balanced() { return Math.abs(this.debit - this.credit) < 0.005; },
-  });
+const sums = $derived({
+  debit: entryForm.lines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0),
+  credit: entryForm.lines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0),
+  get balanced() {
+    return Math.abs(this.debit - this.credit) < 0.005;
+  },
+});
 
-  async function loadEntries() { try { const r = await api.get<{ data: any[] }>('/ext/finance/accounting/journal-entries?limit=100'); entries = r.data ?? []; } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); } }
-  async function loadAccounts() { try { const r = await api.get<{ data: any[] }>('/ext/finance/accounting/accounts'); accounts = r.data ?? []; } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); } }
-  async function loadFiscal() { try { const r = await api.get<{ data: any[] }>('/ext/finance/accounting/fiscal-years'); fiscalYears = r.data ?? []; } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); } }
-
-  async function loadTab() {
-    loading = true;
-    if (tab === 'entries') await loadEntries();
-    else if (tab === 'accounts') await loadAccounts();
-    else await loadFiscal();
-    loading = false;
+async function loadEntries() {
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/finance/accounting/journal-entries?limit=100');
+    entries = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-
-  function addLine() { entryForm.lines = [...entryForm.lines, { account_code: '', description: '', debit: 0, credit: 0 }]; }
-  function removeLine(idx: number) { entryForm.lines = entryForm.lines.filter((_: any, i: number) => i !== idx); }
-
-  async function createEntry() {
-    saving = true;
-    try {
-      await api.post('/ext/finance/accounting/journal-entries', entryForm);
-      showEntryForm = false;
-      entryForm = { entry_date: new Date().toISOString().slice(0, 10), description: '', document_number: '',
-        lines: [{ account_code: '', description: '', debit: 0, credit: 0 }, { account_code: '', description: '', debit: 0, credit: 0 }] };
-      await loadEntries();
-      toast.success(m['finance.accounting.toast.posted']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+}
+async function loadAccounts() {
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/finance/accounting/accounts');
+    accounts = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-
-  async function createAccount() {
-    saving = true;
-    try {
-      await api.post('/ext/finance/accounting/accounts', accountForm);
-      showAccountForm = false;
-      accountForm = { code: '', name: '', account_type: 'asset', parent_code: '' };
-      await loadAccounts();
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+}
+async function loadFiscal() {
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/finance/accounting/fiscal-years');
+    fiscalYears = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  $effect(() => { tab; loadTab(); });
-  onMount(() => { loadEntries(); loadAccounts(); });
+async function loadTab() {
+  loading = true;
+  if (tab === 'entries') await loadEntries();
+  else if (tab === 'accounts') await loadAccounts();
+  else await loadFiscal();
+  loading = false;
+}
 
-  function fmt(n: number) { return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n); }
+function addLine() {
+  entryForm.lines = [
+    ...entryForm.lines,
+    { account_code: '', description: '', debit: 0, credit: 0 },
+  ];
+}
+function removeLine(idx: number) {
+  entryForm.lines = entryForm.lines.filter((_: any, i: number) => i !== idx);
+}
+
+async function createEntry() {
+  saving = true;
+  try {
+    await api.post('/ext/finance/accounting/journal-entries', entryForm);
+    showEntryForm = false;
+    entryForm = {
+      entry_date: new Date().toISOString().slice(0, 10),
+      description: '',
+      document_number: '',
+      lines: [
+        { account_code: '', description: '', debit: 0, credit: 0 },
+        { account_code: '', description: '', debit: 0, credit: 0 },
+      ],
+    };
+    await loadEntries();
+    toast.success(m['finance.accounting.toast.posted']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
+  }
+}
+
+async function createAccount() {
+  saving = true;
+  try {
+    await api.post('/ext/finance/accounting/accounts', accountForm);
+    showAccountForm = false;
+    accountForm = { code: '', name: '', account_type: 'asset', parent_code: '' };
+    await loadAccounts();
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
+  }
+}
+
+$effect(() => {
+  tab;
+  loadTab();
+});
+onMount(() => {
+  loadEntries();
+  loadAccounts();
+});
+
+function fmt(n: number) {
+  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n);
+}
 </script>
 
 <ExtensionPageShell title={m['finance.accounting.title']()} subtitle={m['finance.accounting.subtitle']()}>

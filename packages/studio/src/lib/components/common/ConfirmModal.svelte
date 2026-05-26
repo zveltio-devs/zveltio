@@ -1,37 +1,40 @@
 <script lang="ts">
-  /**
-   * Confirmation modal — refreshed for 2026.
-   *
-   * Glass-morphism backdrop with `backdrop-blur-md` over `bg-black/30`,
-   * not the old solid `bg-black/40`. Modal box uses shadow-z3 instead
-   * of the default daisyUI border.
-   */
-  import { fade, scale } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
-  import { m } from '$lib/i18n.svelte.js';
+/**
+ * Confirmation modal — refreshed for 2026.
+ *
+ * Glass-morphism backdrop with `backdrop-blur-md` over `bg-black/30`,
+ * not the old solid `bg-black/40`. Modal box uses shadow-z3 instead
+ * of the default daisyUI border.
+ */
+import { fade, scale } from 'svelte/transition';
+import { cubicOut } from 'svelte/easing';
+import { m } from '$lib/i18n.svelte.js';
 
-  interface Props {
-    open: boolean;
-    title: string;
-    message: string;
-    confirmLabel?: string;
-    confirmClass?: string;
-    onconfirm: () => void;
-    oncancel: () => void;
-  }
-  let {
-    open, title, message,
-    confirmLabel = m['common.confirm'](),
-    confirmClass = 'btn-error',
-    onconfirm, oncancel,
-  }: Props = $props();
+interface Props {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  confirmClass?: string;
+  onconfirm: () => void;
+  oncancel: () => void;
+}
+let {
+  open,
+  title,
+  message,
+  confirmLabel = m['common.confirm'](),
+  confirmClass = 'btn-error',
+  onconfirm,
+  oncancel,
+}: Props = $props();
 
-  function onBackdropKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      oncancel();
-    }
+function onBackdropKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    oncancel();
   }
+}
 </script>
 
 {#if open}

@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { Code, Copy, Check } from '@lucide/svelte';
+import { Code, Copy, Check } from '@lucide/svelte';
 
-  interface Props {
-    collectionName: string;
-    fields?: Array<{ name: string; type: string }>;
-  }
+interface Props {
+  collectionName: string;
+  fields?: Array<{ name: string; type: string }>;
+}
 
-  let { collectionName, fields = [] }: Props = $props();
-  let copied = $state(false);
-  let activeTab = $state<'svelte' | 'sdk' | 'curl'>('svelte');
+let { collectionName, fields = [] }: Props = $props();
+let copied = $state(false);
+let activeTab = $state<'svelte' | 'sdk' | 'curl'>('svelte');
 
-  const snippets = $derived({
-    svelte: `<script lang="ts">
+const snippets = $derived({
+  svelte: `<script lang="ts">
   import { useCollection } from '$stores/collection.svelte';
 
   const ${collectionName} = useCollection('${collectionName}');
@@ -26,11 +26,14 @@
 {/if}
 
 <!-- Create -->
-<button onclick={() => ${collectionName}.create({ ${fields.slice(0, 2).map((f) => `${f.name}: '...'`).join(', ')} })}>
+<button onclick={() => ${collectionName}.create({ ${fields
+    .slice(0, 2)
+    .map((f) => `${f.name}: '...'`)
+    .join(', ')} })}>
   Add
 </button>`,
 
-    sdk: `import { ZveltioClient } from '@zveltio/sdk';
+  sdk: `import { ZveltioClient } from '@zveltio/sdk';
 
 const client = new ZveltioClient({ url: 'http://localhost:3000' });
 
@@ -39,7 +42,10 @@ const { records } = await client.collection('${collectionName}').list();
 
 // Create
 await client.collection('${collectionName}').create({
-  ${fields.slice(0, 3).map((f) => `${f.name}: '...'`).join(',\n  ')}
+  ${fields
+    .slice(0, 3)
+    .map((f) => `${f.name}: '...'`)
+    .join(',\n  ')}
 });
 
 // Update
@@ -48,7 +54,7 @@ await client.collection('${collectionName}').update('RECORD_ID', { ... });
 // Delete
 await client.collection('${collectionName}').delete('RECORD_ID');`,
 
-    curl: `# List records
+  curl: `# List records
 curl http://localhost:3000/api/data/${collectionName} \\
   -H "Cookie: session=YOUR_SESSION"
 
@@ -56,20 +62,25 @@ curl http://localhost:3000/api/data/${collectionName} \\
 curl -X POST http://localhost:3000/api/data/${collectionName} \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: zvk_YOUR_KEY" \\
-  -d '{ ${fields.slice(0, 2).map((f) => `"${f.name}": "..."`).join(', ')} }'
+  -d '{ ${fields
+    .slice(0, 2)
+    .map((f) => `"${f.name}": "..."`)
+    .join(', ')} }'
 
 # Update record
 curl -X PATCH http://localhost:3000/api/data/${collectionName}/RECORD_ID \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: zvk_YOUR_KEY" \\
   -d '{ "${fields[0]?.name || 'field'}": "new_value" }'`,
-  });
+});
 
-  async function copyToClipboard(text: string) {
-    await navigator.clipboard.writeText(text);
-    copied = true;
-    setTimeout(() => { copied = false; }, 2000);
-  }
+async function copyToClipboard(text: string) {
+  await navigator.clipboard.writeText(text);
+  copied = true;
+  setTimeout(() => {
+    copied = false;
+  }, 2000);
+}
 </script>
 
 <div class="card bg-base-200">

@@ -1,16 +1,14 @@
 <script lang="ts">
-  import { error } from '@sveltejs/kit';
-  import { untrack } from 'svelte';
+import { error } from '@sveltejs/kit';
+import { untrack } from 'svelte';
 
-  let { data } = $props();
+let { data } = $props();
 
-  if (untrack(() => data.status === 404 || !data.portalPage)) {
-    error(404, 'Page not found');
-  }
+if (untrack(() => data.status === 404 || !data.portalPage)) {
+  error(404, 'Page not found');
+}
 
-  const visibleSections = $derived(
-    (data.sections ?? []).filter((s: any) => s.is_visible !== false)
-  );
+const visibleSections = $derived((data.sections ?? []).filter((s: any) => s.is_visible !== false));
 </script>
 
 <svelte:head>

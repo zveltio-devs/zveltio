@@ -1,87 +1,116 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, X, Trash2, LoaderCircle, Package } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Plus, X, Trash2, LoaderCircle, Package } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  type Asset = {
-    id: string; name: string; code: string | null; category: string | null;
-    location: string | null; status: string; acquisition_cost: number;
-    current_value: number | null; currency: string;
-    acquisition_date: string | null; serial_number: string | null;
-  };
+type Asset = {
+  id: string;
+  name: string;
+  code: string | null;
+  category: string | null;
+  location: string | null;
+  status: string;
+  acquisition_cost: number;
+  current_value: number | null;
+  currency: string;
+  acquisition_date: string | null;
+  serial_number: string | null;
+};
 
-  let assets = $state<Asset[]>([]);
-  let loading = $state(true);
-  let showModal = $state(false);
-  let saving = $state(false);
-  let deleting = $state<string | null>(null);
+let assets = $state<Asset[]>([]);
+let loading = $state(true);
+let showModal = $state(false);
+let saving = $state(false);
+let deleting = $state<string | null>(null);
 
-  let form = $state({
-    name: '', code: '', category: '', location: '', status: 'active',
-    acquisition_cost: '', currency: 'RON', acquisition_date: '', serial_number: '',
-  });
+let form = $state({
+  name: '',
+  code: '',
+  category: '',
+  location: '',
+  status: 'active',
+  acquisition_cost: '',
+  currency: 'RON',
+  acquisition_date: '',
+  serial_number: '',
+});
 
-  const CATEGORIES = ['IT Equipment', 'Furniture', 'Vehicles', 'Machinery', 'Buildings', 'Other'];
-  const STATUSES = ['active', 'inactive', 'disposed', 'under_maintenance'];
+const CATEGORIES = ['IT Equipment', 'Furniture', 'Vehicles', 'Machinery', 'Buildings', 'Other'];
+const STATUSES = ['active', 'inactive', 'disposed', 'under_maintenance'];
 
-  onMount(load);
+onMount(load);
 
-  async function load() {
-    loading = true;
-    try {
-      const r = await api.get<{ data: Asset[] }>('/ext/operations/assets');
-      assets = r.data ?? [];
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: Asset[] }>('/ext/operations/assets');
+    assets = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function create() {
-    if (!form.name.trim()) return;
-    saving = true;
-    try {
-      const r = await api.post<{ data: Asset }>('/ext/operations/assets', {
-        ...form,
-        acquisition_cost: form.acquisition_cost ? parseFloat(form.acquisition_cost) : 0,
-      });
-      assets = [r.data, ...assets];
-      form = { name: '', code: '', category: '', location: '', status: 'active', acquisition_cost: '', currency: 'RON', acquisition_date: '', serial_number: '' };
-      showModal = false;
-      toast.success(m['operations.assets.toast.created']());
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function create() {
+  if (!form.name.trim()) return;
+  saving = true;
+  try {
+    const r = await api.post<{ data: Asset }>('/ext/operations/assets', {
+      ...form,
+      acquisition_cost: form.acquisition_cost ? parseFloat(form.acquisition_cost) : 0,
+    });
+    assets = [r.data, ...assets];
+    form = {
+      name: '',
+      code: '',
+      category: '',
+      location: '',
+      status: 'active',
+      acquisition_cost: '',
+      currency: 'RON',
+      acquisition_date: '',
+      serial_number: '',
+    };
+    showModal = false;
+    toast.success(m['operations.assets.toast.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function deleteAsset(id: string) {
-        askConfirm(m['operations.assets.confirmDelete'](), () => deleteAssetConfirmed(id));
+async function deleteAsset(id: string) {
+  askConfirm(m['operations.assets.confirmDelete'](), () => deleteAssetConfirmed(id));
+}
+async function deleteAssetConfirmed(id: string) {
+  deleting = id;
+  try {
+    await api.delete(`/ext/operations/assets/${id}`);
+    assets = assets.filter((a) => a.id !== id);
+    toast.success(m['ext.deleted']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    deleting = null;
   }
-  async function deleteAssetConfirmed(id: string) {
-    deleting = id;
-    try {
-      await api.delete(`/ext/operations/assets/${id}`);
-      assets = assets.filter(a => a.id !== id);
-      toast.success(m['ext.deleted']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { deleting = null; }
-  }
+}
 
-
-  const statusColor: Record<string, string> = {
-    active: 'badge-success', inactive: 'badge-ghost', disposed: 'badge-error', under_maintenance: 'badge-warning',
-  };
+const statusColor: Record<string, string> = {
+  active: 'badge-success',
+  inactive: 'badge-ghost',
+  disposed: 'badge-error',
+  under_maintenance: 'badge-warning',
+};
 </script>
 
 <ExtensionPageShell title={m['operations.assets.title']()} subtitle={m['operations.assets.subtitle']()}>

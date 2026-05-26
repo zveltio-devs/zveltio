@@ -4,12 +4,38 @@
  */
 import { base } from '$app/paths';
 import {
-  LayoutDashboard, Database, Users, Shield, Webhook, Settings,
-  Puzzle, HardDrive, Key, ClipboardList, Languages,
-  Upload, Bell, Download, Workflow, Package, GitBranch, Plug,
-  Building2, Images, DatabaseBackup, Layout, CheckSquare,
-  ScanSearch, Code, Bookmark, BarChart2, Terminal, Activity,
-  LayoutGrid, Zap, Sparkles,
+  LayoutDashboard,
+  Database,
+  Users,
+  Shield,
+  Webhook,
+  Settings,
+  Puzzle,
+  HardDrive,
+  Key,
+  ClipboardList,
+  Languages,
+  Upload,
+  Bell,
+  Download,
+  Workflow,
+  Package,
+  GitBranch,
+  Plug,
+  Building2,
+  Images,
+  DatabaseBackup,
+  Layout,
+  CheckSquare,
+  ScanSearch,
+  Code,
+  Bookmark,
+  BarChart2,
+  Terminal,
+  Activity,
+  LayoutGrid,
+  Zap,
+  Sparkles,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
@@ -60,76 +86,88 @@ interface ExtensionState {
 const RAW_NAV: NavGroup[] = [
   {
     items: [
-      { href: `${base}/`,           icon: LayoutDashboard, labelKey: 'nav.dashboard' },
-      { href: `${base}/onboarding`, icon: Zap,             labelKey: 'nav.quickSetup' },
+      { href: `${base}/`, icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+      { href: `${base}/onboarding`, icon: Zap, labelKey: 'nav.quickSetup' },
     ],
   },
   {
     labelKey: 'nav.group.build',
     items: [
-      { href: `${base}/collections`, icon: Database,   labelKey: 'nav.collections' },
-      { href: `${base}/templates`,   icon: Sparkles,   labelKey: 'nav.templates' },
-      { href: `${base}/views`,       icon: Layout,     labelKey: 'nav.views' },
-      { href: `${base}/zones`,       icon: LayoutGrid, labelKey: 'nav.zones' },
-      { href: `${base}/media`,       icon: Images,     labelKey: 'nav.media',      ext: 'content/media' },
+      { href: `${base}/collections`, icon: Database, labelKey: 'nav.collections' },
+      { href: `${base}/templates`, icon: Sparkles, labelKey: 'nav.templates' },
+      { href: `${base}/views`, icon: Layout, labelKey: 'nav.views' },
+      { href: `${base}/zones`, icon: LayoutGrid, labelKey: 'nav.zones' },
+      { href: `${base}/media`, icon: Images, labelKey: 'nav.media', ext: 'content/media' },
     ],
   },
   {
     labelKey: 'nav.group.security',
     items: [
-      { href: `${base}/users`,              icon: Users,     labelKey: 'nav.users' },
-      { href: `${base}/permissions`,        icon: Shield,    labelKey: 'nav.permissions' },
-      { href: `${base}/rls`,                icon: Shield,    labelKey: 'nav.rowSecurity' },
-      { href: `${base}/column-permissions`, icon: Shield,    labelKey: 'nav.columnSecurity' },
-      { href: `${base}/api-keys`,           icon: Key,       labelKey: 'nav.apiKeys' },
-      { href: `${base}/tenants`,            icon: Building2, labelKey: 'nav.tenants' },
+      { href: `${base}/users`, icon: Users, labelKey: 'nav.users' },
+      { href: `${base}/permissions`, icon: Shield, labelKey: 'nav.permissions' },
+      { href: `${base}/rls`, icon: Shield, labelKey: 'nav.rowSecurity' },
+      { href: `${base}/column-permissions`, icon: Shield, labelKey: 'nav.columnSecurity' },
+      { href: `${base}/api-keys`, icon: Key, labelKey: 'nav.apiKeys' },
+      { href: `${base}/tenants`, icon: Building2, labelKey: 'nav.tenants' },
     ],
   },
   {
     labelKey: 'nav.group.workflows',
     items: [
-      { href: `${base}/flows`,         icon: Workflow,    labelKey: 'nav.flows' },
-      { href: `${base}/webhooks`,      icon: Webhook,     labelKey: 'nav.webhooks' },
-      { href: `${base}/notifications`, icon: Bell,        labelKey: 'nav.notifications' },
-      { href: `${base}/approvals`,     icon: CheckSquare, labelKey: 'nav.approvals' },
+      { href: `${base}/flows`, icon: Workflow, labelKey: 'nav.flows' },
+      { href: `${base}/webhooks`, icon: Webhook, labelKey: 'nav.webhooks' },
+      { href: `${base}/notifications`, icon: Bell, labelKey: 'nav.notifications' },
+      { href: `${base}/approvals`, icon: CheckSquare, labelKey: 'nav.approvals' },
     ],
   },
   {
     labelKey: 'nav.group.insights',
     items: [
-      { href: `${base}/insights`,     icon: BarChart2,     labelKey: 'nav.analytics' },
-      { href: `${base}/audit`,        icon: ClipboardList, labelKey: 'nav.auditLog' },
-      { href: `${base}/request-logs`, icon: Activity,      labelKey: 'nav.requestLogs' },
+      { href: `${base}/insights`, icon: BarChart2, labelKey: 'nav.analytics' },
+      { href: `${base}/audit`, icon: ClipboardList, labelKey: 'nav.auditLog' },
+      { href: `${base}/request-logs`, icon: Activity, labelKey: 'nav.requestLogs' },
     ],
   },
   {
     labelKey: 'nav.group.developer',
     items: [
-      { href: `${base}/edge-functions`,      icon: Code,       labelKey: 'nav.edgeFunctions' },
-      { href: `${base}/rpc`,                 icon: Zap,        labelKey: 'nav.rpcFunctions' },
-      { href: `${base}/schema-branches`,     icon: GitBranch,  labelKey: 'nav.schemaBranches' },
-      { href: `${base}/virtual-collections`, icon: Plug,       labelKey: 'nav.virtualCollections' },
-      { href: `${base}/saved-queries`,       icon: Bookmark,   labelKey: 'nav.savedQueries' },
-      { href: `${base}/sql`,                 icon: Terminal,   labelKey: 'nav.sqlEditor' },
-      { href: `${base}/introspect`,          icon: ScanSearch, labelKey: 'nav.byodImport',        ext: 'developer/byod' },
+      { href: `${base}/edge-functions`, icon: Code, labelKey: 'nav.edgeFunctions' },
+      { href: `${base}/rpc`, icon: Zap, labelKey: 'nav.rpcFunctions' },
+      { href: `${base}/schema-branches`, icon: GitBranch, labelKey: 'nav.schemaBranches' },
+      { href: `${base}/virtual-collections`, icon: Plug, labelKey: 'nav.virtualCollections' },
+      { href: `${base}/saved-queries`, icon: Bookmark, labelKey: 'nav.savedQueries' },
+      { href: `${base}/sql`, icon: Terminal, labelKey: 'nav.sqlEditor' },
+      {
+        href: `${base}/introspect`,
+        icon: ScanSearch,
+        labelKey: 'nav.byodImport',
+        ext: 'developer/byod',
+      },
     ],
   },
   {
     labelKey: 'nav.group.system',
     items: [
-      { href: `${base}/storage`,      icon: HardDrive,      labelKey: 'nav.storage' },
-      { href: `${base}/backup`,       icon: DatabaseBackup, labelKey: 'nav.backup' },
-      { href: `${base}/import`,       icon: Upload,         labelKey: 'nav.import',      ext: 'data/import' },
-      { href: `${base}/export`,       icon: Download,       labelKey: 'nav.export',      ext: 'data/export' },
-      { href: `${base}/translations`, icon: Languages,      labelKey: 'nav.translations', ext: 'i18n/translations' },
-      { href: `${base}/marketplace`,  icon: Package,        labelKey: 'nav.marketplace' },
-      { href: `${base}/settings`,     icon: Settings,       labelKey: 'nav.settings' },
+      { href: `${base}/storage`, icon: HardDrive, labelKey: 'nav.storage' },
+      { href: `${base}/backup`, icon: DatabaseBackup, labelKey: 'nav.backup' },
+      { href: `${base}/import`, icon: Upload, labelKey: 'nav.import', ext: 'data/import' },
+      { href: `${base}/export`, icon: Download, labelKey: 'nav.export', ext: 'data/export' },
+      {
+        href: `${base}/translations`,
+        icon: Languages,
+        labelKey: 'nav.translations',
+        ext: 'i18n/translations',
+      },
+      { href: `${base}/marketplace`, icon: Package, labelKey: 'nav.marketplace' },
+      { href: `${base}/settings`, icon: Settings, labelKey: 'nav.settings' },
     ],
   },
 ];
 
 const RAW_NAV_EXT_NAMES: Set<string> = new Set(
-  RAW_NAV.flatMap((g) => g.items).filter((i) => i.ext).map((i) => i.ext!),
+  RAW_NAV.flatMap((g) => g.items)
+    .filter((i) => i.ext)
+    .map((i) => i.ext!),
 );
 
 const CATEGORY_TO_GROUP: Record<string, ExtensionNavGroupId> = {
@@ -183,12 +221,10 @@ function metaToNavItem(meta: ExtensionMeta): ExtensionNavItem {
 }
 
 export function buildNavModel(extensions: ExtensionState): NavGroup[] {
-  return RAW_NAV
-    .map((g) => ({
-      ...g,
-      items: g.items.filter((it) => !it.ext || extensions.isActive(it.ext)),
-    }))
-    .filter((g) => g.items.length > 0);
+  return RAW_NAV.map((g) => ({
+    ...g,
+    items: g.items.filter((it) => !it.ext || extensions.isActive(it.ext)),
+  })).filter((g) => g.items.length > 0);
 }
 
 export function buildExtensionNavGroups(extensions: ExtensionState): ExtensionNavGroup[] {
@@ -205,9 +241,9 @@ export function buildExtensionNavGroups(extensions: ExtensionState): ExtensionNa
     buckets.get(groupId)!.push(metaToNavItem(m));
   }
 
-  return EXT_NAV_GROUP_ORDER
-    .map((id) => ({ id, items: buckets.get(id)! }))
-    .filter((g) => g.items.length > 0);
+  return EXT_NAV_GROUP_ORDER.map((id) => ({ id, items: buckets.get(id)! })).filter(
+    (g) => g.items.length > 0,
+  );
 }
 
 /** Flat extension nav (manifest labels). */

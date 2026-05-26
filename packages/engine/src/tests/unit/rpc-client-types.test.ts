@@ -43,7 +43,7 @@ describe('S5-02 createRpcClient', () => {
     const res = await client.api.data[':collection'].$get({
       param: { collection: 'contacts' },
     });
-    const body = await res.json() as ListResponse;
+    const body = (await res.json()) as ListResponse;
     expect(body.total).toBe(0);
     expect(captured).not.toBeNull();
     expect(captured!.init?.credentials).toBe('include');
@@ -83,7 +83,8 @@ describe('S5-02 createRpcClient', () => {
     const fakeFetch = async (_input: any, init: any) => {
       credsSent = init?.credentials as RequestCredentials | undefined;
       return new Response(JSON.stringify({ records: [], total: 0 }), {
-        status: 200, headers: { 'Content-Type': 'application/json' },
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
       });
     };
     const client = createRpcClient<ZveltioApi>({
@@ -108,9 +109,10 @@ describe('S5-02 ZveltioApi type fixture parity', () => {
     // can't import the private `_apiRoutes` constant (it's not exported),
     // so we rebuild the surface and prove the typed client routes line
     // up with `/api/data/:collection*`.
-    const _runtime = new Hono()
-      .route('/api/data', new Hono()
-        .get('/:collection', (c) => c.json({ records: [] as any[], total: 0 })));
+    const _runtime = new Hono().route(
+      '/api/data',
+      new Hono().get('/:collection', (c) => c.json({ records: [] as any[], total: 0 })),
+    );
     const client = createRpcClient<typeof _runtime>({ baseUrl: 'http://x' });
     // hc's url() returns the URL the request would hit. Useful sanity.
     const url = client.api.data[':collection'].$url({ param: { collection: 'orders' } });

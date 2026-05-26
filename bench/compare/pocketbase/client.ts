@@ -21,14 +21,18 @@ export interface PbCrudResult {
   delete: SampleStats;
 }
 
-export async function pbAdminAuth(baseUrl: string, email: string, password: string): Promise<string> {
+export async function pbAdminAuth(
+  baseUrl: string,
+  email: string,
+  password: string,
+): Promise<string> {
   const res = await fetch(`${baseUrl}/api/admins/auth-with-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identity: email, password }),
   });
   if (!res.ok) throw new Error(`pocketbase admin auth failed: ${res.status}`);
-  const data = await res.json() as { token: string };
+  const data = (await res.json()) as { token: string };
   return data.token;
 }
 
@@ -78,10 +82,16 @@ export async function runPbCrud(opts: {
 
   try {
     for (let i = 0; i < warmup; i++) {
-      await timedPost(client, `/api/collections/${name}/records`, { title: `warmup-${i}`, count: i });
+      await timedPost(client, `/api/collections/${name}/records`, {
+        title: `warmup-${i}`,
+        count: i,
+      });
     }
     for (let i = 0; i < iterations; i++) {
-      const r = await timedPost(client, `/api/collections/${name}/records`, { title: `row-${i}`, count: i });
+      const r = await timedPost(client, `/api/collections/${name}/records`, {
+        title: `row-${i}`,
+        count: i,
+      });
       if (r.status !== 200) throw new Error(`pb create returned ${r.status}`);
       const id = (r.body as { id?: string })?.id;
       if (!id) throw new Error('pb create missing id');
@@ -99,10 +109,16 @@ export async function runPbCrud(opts: {
     }
 
     for (let i = 0; i < warmup; i++) {
-      await timedPatch(client, `/api/collections/${name}/records/${ids[i % ids.length]}`, { count: i });
+      await timedPatch(client, `/api/collections/${name}/records/${ids[i % ids.length]}`, {
+        count: i,
+      });
     }
     for (let i = 0; i < iterations; i++) {
-      const r = await timedPatch(client, `/api/collections/${name}/records/${ids[i % ids.length]}`, { count: i + 1000 });
+      const r = await timedPatch(
+        client,
+        `/api/collections/${name}/records/${ids[i % ids.length]}`,
+        { count: i + 1000 },
+      );
       if (r.status !== 200) throw new Error(`pb patch returned ${r.status}`);
       patchSamples.push(r.durationMs);
     }

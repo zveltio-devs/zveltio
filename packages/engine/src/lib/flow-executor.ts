@@ -81,7 +81,7 @@ async function executeStep(
       if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('WITH')) {
         throw new Error(
           'Flow query_db step only allows SELECT or WITH (read-only) statements. ' +
-          'Use update_record or insert_record step types for writes.',
+            'Use update_record or insert_record step types for writes.',
         );
       }
 
@@ -162,8 +162,17 @@ async function executeStep(
 
       // Security: sanitize user-supplied headers — block credential injection.
       const BLOCKED_HEADERS = new Set([
-        'authorization', 'cookie', 'set-cookie', 'x-api-key', 'x-auth-token',
-        'x-forwarded-for', 'x-real-ip', 'x-zveltio-internal', 'host', 'origin', 'referer',
+        'authorization',
+        'cookie',
+        'set-cookie',
+        'x-api-key',
+        'x-auth-token',
+        'x-forwarded-for',
+        'x-real-ip',
+        'x-zveltio-internal',
+        'host',
+        'origin',
+        'referer',
       ]);
       const sanitizedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
       for (const [key, value] of Object.entries((cfg.headers as Record<string, string>) ?? {})) {
@@ -258,9 +267,10 @@ async function executeStep(
             attachment: {
               filename: `${cfg.filename ?? cfg.collection}.${ext}`,
               content: exportResult.buffer,
-              contentType: cfg.format === 'excel'
-                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                : 'text/csv',
+              contentType:
+                cfg.format === 'excel'
+                  ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                  : 'text/csv',
             },
           });
           return { output: { exported: true, sent_to: cfg.email_to, rows: rows.rows.length } };
@@ -284,11 +294,20 @@ async function executeStep(
         output: prevOutput,
       });
 
-      type ChatProvider = { chat?: (messages: unknown[], opts?: unknown) => Promise<{ content?: string; usage?: unknown }> };
-      const aiProviders = serviceRegistry.get<{ getDefault(): ChatProvider | null }>('ai.providers');
+      type ChatProvider = {
+        chat?: (
+          messages: unknown[],
+          opts?: unknown,
+        ) => Promise<{ content?: string; usage?: unknown }>;
+      };
+      const aiProviders = serviceRegistry.get<{ getDefault(): ChatProvider | null }>(
+        'ai.providers',
+      );
       if (!aiProviders) {
         console.warn('[Flow] ai_decision: AI extension is not active, using fallback');
-        return { output: { decision: fallback, usedFallback: true, error: 'AI extension not active' } };
+        return {
+          output: { decision: fallback, usedFallback: true, error: 'AI extension not active' },
+        };
       }
       const provider = aiProviders.getDefault();
       if (!provider?.chat) {
@@ -316,7 +335,7 @@ async function executeStep(
 
         console.log(
           `🤖 AI Decision [${step.id ?? step.name}]: "${decision}" → ${finalDecision}` +
-          (matchedOption ? '' : ` (fallback, AI said: "${decision}")`),
+            (matchedOption ? '' : ` (fallback, AI said: "${decision}")`),
         );
 
         return {
@@ -384,9 +403,14 @@ export async function executeFlow(
       UPDATE zv_flow_runs
       SET status = 'failed', error = ${String(err)}, finished_at = NOW()
       WHERE id = ${runId}
-    `.execute(db).catch((bookkeepingErr: Error) => {
-      console.warn(`[flow-executor] failed to mark run ${runId} as failed:`, bookkeepingErr.message);
-    });
+    `
+      .execute(db)
+      .catch((bookkeepingErr: Error) => {
+        console.warn(
+          `[flow-executor] failed to mark run ${runId} as failed:`,
+          bookkeepingErr.message,
+        );
+      });
     return { runId, status: 'failed', output: {}, error: String(err) };
   }
 
@@ -421,9 +445,8 @@ export async function executeFlow(
       }
     }
 
-    const finalOutput = Object.keys(stepLogs).length > 0
-      ? { ...output, _step_logs: stepLogs }
-      : output;
+    const finalOutput =
+      Object.keys(stepLogs).length > 0 ? { ...output, _step_logs: stepLogs } : output;
 
     await sql`
       UPDATE zv_flow_runs
@@ -431,9 +454,14 @@ export async function executeFlow(
           output = ${JSON.stringify(finalOutput)}::jsonb,
           finished_at = NOW()
       WHERE id = ${runId}
-    `.execute(db).catch((bookkeepingErr: Error) => {
-      console.warn(`[flow-executor] failed to mark run ${runId} as success:`, bookkeepingErr.message);
-    });
+    `
+      .execute(db)
+      .catch((bookkeepingErr: Error) => {
+        console.warn(
+          `[flow-executor] failed to mark run ${runId} as success:`,
+          bookkeepingErr.message,
+        );
+      });
 
     return { runId, status: 'success', output: finalOutput };
   } catch (err) {
@@ -441,9 +469,14 @@ export async function executeFlow(
       UPDATE zv_flow_runs
       SET status = 'failed', error = ${String(err)}, finished_at = NOW()
       WHERE id = ${runId}
-    `.execute(db).catch((bookkeepingErr: Error) => {
-      console.warn(`[flow-executor] failed to mark run ${runId} as failed:`, bookkeepingErr.message);
-    });
+    `
+      .execute(db)
+      .catch((bookkeepingErr: Error) => {
+        console.warn(
+          `[flow-executor] failed to mark run ${runId} as failed:`,
+          bookkeepingErr.message,
+        );
+      });
 
     return { runId, status: 'failed', output, error: String(err) };
   }

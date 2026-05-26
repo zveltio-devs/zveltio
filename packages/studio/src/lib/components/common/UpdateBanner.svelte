@@ -1,47 +1,48 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { ArrowUpCircle, X } from '@lucide/svelte';
-  import { api } from '$lib/api.js';
+import { onMount } from 'svelte';
+import { ArrowUpCircle, X } from '@lucide/svelte';
+import { api } from '$lib/api.js';
 
-  let updateInfo = $state<{
-    has_update: boolean;
-    current: string;
-    latest: string;
-    release_url: string;
-  } | null>(null);
+let updateInfo = $state<{
+  has_update: boolean;
+  current: string;
+  latest: string;
+  release_url: string;
+} | null>(null);
 
-  let dismissed = $state(false);
+let dismissed = $state(false);
 
-  onMount(async () => {
-    const cacheKey = 'zveltio_update_check';
-    const cached = localStorage.getItem(cacheKey);
+onMount(async () => {
+  const cacheKey = 'zveltio_update_check';
+  const cached = localStorage.getItem(cacheKey);
 
-    if (cached) {
-      try {
-        const { data, timestamp } = JSON.parse(cached);
-        const age = Date.now() - timestamp;
-        if (age < 24 * 60 * 60 * 1000) {
-          updateInfo = data;
-          return;
-        }
-      } catch { /* stale/corrupt cache */ }
-    }
-
+  if (cached) {
     try {
-      // /api/health/update-check is auth-gated since the version-info
-      // endpoints were moved off public exposure — api.fetch sends the
-      // session cookie automatically.
-      const res = await api.fetch(`/api/health/update-check`);
-      if (res.ok) {
-        const data = await res.json();
-        updateInfo = data as any;
-        localStorage.setItem(
-          cacheKey,
-          JSON.stringify({ data, timestamp: Date.now() }),
-        );
+      const { data, timestamp } = JSON.parse(cached);
+      const age = Date.now() - timestamp;
+      if (age < 24 * 60 * 60 * 1000) {
+        updateInfo = data;
+        return;
       }
-    } catch { /* non-fatal */ }
-  });
+    } catch {
+      /* stale/corrupt cache */
+    }
+  }
+
+  try {
+    // /api/health/update-check is auth-gated since the version-info
+    // endpoints were moved off public exposure — api.fetch sends the
+    // session cookie automatically.
+    const res = await api.fetch(`/api/health/update-check`);
+    if (res.ok) {
+      const data = await res.json();
+      updateInfo = data as any;
+      localStorage.setItem(cacheKey, JSON.stringify({ data, timestamp: Date.now() }));
+    }
+  } catch {
+    /* non-fatal */
+  }
+});
 </script>
 
 {#if updateInfo?.has_update && !dismissed}

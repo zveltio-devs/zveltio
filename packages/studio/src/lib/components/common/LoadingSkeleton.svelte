@@ -1,30 +1,30 @@
 <script lang="ts">
-  /**
-   * Skeleton placeholders for content-shape loading states.
-   *
-   * Uses `.animate-shimmer` (defined in app.css) — a moving gradient
-   * that's friendlier than `animate-pulse` because it suggests motion
-   * (data flowing in) rather than blinking (something might be broken).
-   *
-   * Variants:
-   *   - card    — 2×2 grid of stat-card placeholders.
-   *   - table   — full table with header + N rows.
-   *   - list    — row of avatar + two lines (audit log, comments).
-   *   - text    — paragraph-style lines, varied widths.
-   */
-  let {
-    type = 'card',
-    rows = 3,
-    cols = 3,
-    class: className
-  }: {
-    type?: 'card' | 'table' | 'list' | 'text';
-    rows?: number;
-    cols?: number;
-    class?: string;
-  } = $props();
+/**
+ * Skeleton placeholders for content-shape loading states.
+ *
+ * Uses `.animate-shimmer` (defined in app.css) — a moving gradient
+ * that's friendlier than `animate-pulse` because it suggests motion
+ * (data flowing in) rather than blinking (something might be broken).
+ *
+ * Variants:
+ *   - card    — 2×2 grid of stat-card placeholders.
+ *   - table   — full table with header + N rows.
+ *   - list    — row of avatar + two lines (audit log, comments).
+ *   - text    — paragraph-style lines, varied widths.
+ */
+let {
+  type = 'card',
+  rows = 3,
+  cols = 3,
+  class: className,
+}: {
+  type?: 'card' | 'table' | 'list' | 'text';
+  rows?: number;
+  cols?: number;
+  class?: string;
+} = $props();
 
-  const skel = 'animate-shimmer rounded-md';
+const skel = 'animate-shimmer rounded-md';
 </script>
 
 {#if type === 'card'}

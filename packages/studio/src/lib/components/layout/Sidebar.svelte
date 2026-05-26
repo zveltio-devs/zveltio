@@ -1,79 +1,94 @@
 <script lang="ts">
-  /**
-   * Desktop sidebar.
-   *
-   * Renders the grouped nav model, the optional "Extensions" auto-injected
-   * group, the sidebar.bottom slot for extensions, and the footer (intranet
-   * link, dark-mode toggle, user identity + sign-out).
-   *
-   * The parent (`+layout.svelte`) owns auth state, the nav model, and
-   * persistence of `collapsed` / `dark` in localStorage. This component is
-   * pure presentation — it emits intent callbacks.
-   */
-  import { base } from '$app/paths';
-  import { page } from '$app/state';
-  import Slot from '$lib/components/common/Slot.svelte';
-  import LocaleSwitcher from '$lib/components/common/LocaleSwitcher.svelte';
-  import { m, i18n } from '$lib/i18n.svelte.js';
-  import { navLabel } from '$lib/nav-i18n.js';
-  import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
-  import {
-    LogOut, Sun, Moon, PanelLeftClose, PanelLeftOpen, Users2, Rows3, Rows2,
-  } from '@lucide/svelte';
-  const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
-    business: () => m['nav.group.business'](),
-    finance: () => m['nav.group.finance'](),
-    hr: () => m['nav.group.hr'](),
-    operations: () => m['nav.group.operations'](),
-    compliance: () => m['nav.group.compliance'](),
-    content: () => m['nav.group.content'](),
-    communications: () => m['nav.group.communications'](),
-    developer: () => m['nav.group.developer'](),
-    projects: () => m['nav.group.projects'](),
-    other: () => m['nav.group.other'](),
-  };
+/**
+ * Desktop sidebar.
+ *
+ * Renders the grouped nav model, the optional "Extensions" auto-injected
+ * group, the sidebar.bottom slot for extensions, and the footer (intranet
+ * link, dark-mode toggle, user identity + sign-out).
+ *
+ * The parent (`+layout.svelte`) owns auth state, the nav model, and
+ * persistence of `collapsed` / `dark` in localStorage. This component is
+ * pure presentation — it emits intent callbacks.
+ */
+import { base } from '$app/paths';
+import { page } from '$app/state';
+import Slot from '$lib/components/common/Slot.svelte';
+import LocaleSwitcher from '$lib/components/common/LocaleSwitcher.svelte';
+import { m, i18n } from '$lib/i18n.svelte.js';
+import { navLabel } from '$lib/nav-i18n.js';
+import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
+import {
+  LogOut,
+  Sun,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Users2,
+  Rows3,
+  Rows2,
+} from '@lucide/svelte';
+const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
+  business: () => m['nav.group.business'](),
+  finance: () => m['nav.group.finance'](),
+  hr: () => m['nav.group.hr'](),
+  operations: () => m['nav.group.operations'](),
+  compliance: () => m['nav.group.compliance'](),
+  content: () => m['nav.group.content'](),
+  communications: () => m['nav.group.communications'](),
+  developer: () => m['nav.group.developer'](),
+  projects: () => m['nav.group.projects'](),
+  other: () => m['nav.group.other'](),
+};
 
-  interface Props {
-    nav: NavGroup[];
-    /** Extension pages grouped by manifest `studio.navGroup` / category. */
-    extNavGroups: ExtensionNavGroup[];
-    collapsed: boolean;
-    dark: boolean;
-    density: 'comfortable' | 'compact';
-    user: { name?: string | null; email?: string | null } | null;
-    onToggleCollapse: () => void;
-    onToggleDark: () => void;
-    onToggleDensity: () => void;
-    onSignOut: () => void;
-  }
+interface Props {
+  nav: NavGroup[];
+  /** Extension pages grouped by manifest `studio.navGroup` / category. */
+  extNavGroups: ExtensionNavGroup[];
+  collapsed: boolean;
+  dark: boolean;
+  density: 'comfortable' | 'compact';
+  user: { name?: string | null; email?: string | null } | null;
+  onToggleCollapse: () => void;
+  onToggleDark: () => void;
+  onToggleDensity: () => void;
+  onSignOut: () => void;
+}
 
-  let {
-    nav, extNavGroups, collapsed, dark, density, user,
-    onToggleCollapse, onToggleDark, onToggleDensity, onSignOut,
-  }: Props = $props();
+let {
+  nav,
+  extNavGroups,
+  collapsed,
+  dark,
+  density,
+  user,
+  onToggleCollapse,
+  onToggleDark,
+  onToggleDensity,
+  onSignOut,
+}: Props = $props();
 
-  // Re-run group labels when locale changes.
-  const _locale = $derived(i18n.locale);
-  const groupLabel = (id: ExtensionNavGroupId) => {
-    void _locale;
-    return extGroupLabels[id]();
-  };
+// Re-run group labels when locale changes.
+const _locale = $derived(i18n.locale);
+const groupLabel = (id: ExtensionNavGroupId) => {
+  void _locale;
+  return extGroupLabels[id]();
+};
 
-  const coreGroupLabel = (key: string | undefined) => {
-    void _locale;
-    return key ? navLabel(key) : undefined;
-  };
+const coreGroupLabel = (key: string | undefined) => {
+  void _locale;
+  return key ? navLabel(key) : undefined;
+};
 
-  const coreItemLabel = (key: string) => {
-    void _locale;
-    return navLabel(key);
-  };
+const coreItemLabel = (key: string) => {
+  void _locale;
+  return navLabel(key);
+};
 
-  function isActive(href: string): boolean {
-    const cur = page.url.pathname;
-    if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
-    return cur.startsWith(href);
-  }
+function isActive(href: string): boolean {
+  const cur = page.url.pathname;
+  if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
+  return cur.startsWith(href);
+}
 </script>
 
 <aside class="

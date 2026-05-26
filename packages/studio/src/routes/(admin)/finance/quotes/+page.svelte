@@ -1,104 +1,131 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, X, LoaderCircle, FileText, Send, Check, RotateCcw, Trash2, ExternalLink } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  Plus,
+  X,
+  LoaderCircle,
+  FileText,
+  Send,
+  Check,
+  RotateCcw,
+  Trash2,
+  ExternalLink,
+} from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  type Quote = {
-    id: string; quote_number: string; client_name: string; client_email: string | null;
-    status: string; total: number; currency: string; valid_until: string | null;
-    approval_status: string | null; created_at: string;
-  };
+type Quote = {
+  id: string;
+  quote_number: string;
+  client_name: string;
+  client_email: string | null;
+  status: string;
+  total: number;
+  currency: string;
+  valid_until: string | null;
+  approval_status: string | null;
+  created_at: string;
+};
 
-  let quotes = $state<Quote[]>([]);
-  let loading = $state(true);
-  let showModal = $state(false);
-  let saving = $state(false);
-  let actionId = $state<string | null>(null);
+let quotes = $state<Quote[]>([]);
+let loading = $state(true);
+let showModal = $state(false);
+let saving = $state(false);
+let actionId = $state<string | null>(null);
 
-  let form = $state({
-    client_name: '', client_email: '', client_address: '',
-    currency: 'RON', valid_days: 30, notes: '', footer_notes: '',
-    lines: [{ description: '', quantity: 1, unit_price: 0, tax_rate: 19, discount: 0 }],
-  });
+let form = $state({
+  client_name: '',
+  client_email: '',
+  client_address: '',
+  currency: 'RON',
+  valid_days: 30,
+  notes: '',
+  footer_notes: '',
+  lines: [{ description: '', quantity: 1, unit_price: 0, tax_rate: 19, discount: 0 }],
+});
 
-  onMount(load);
+onMount(load);
 
-  async function load() {
-    loading = true;
-    try {
-      const r = await api.get<{ data: Quote[] }>('/ext/finance/quotes');
-      quotes = r.data ?? [];
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: Quote[] }>('/ext/finance/quotes');
+    quotes = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  function addLine() {
-    form.lines = [...form.lines, { description: '', quantity: 1, unit_price: 0, tax_rate: 19, discount: 0 }];
-  }
-  function removeLine(i: number) {
-    form.lines = form.lines.filter((_, idx) => idx !== i);
-  }
+function addLine() {
+  form.lines = [
+    ...form.lines,
+    { description: '', quantity: 1, unit_price: 0, tax_rate: 19, discount: 0 },
+  ];
+}
+function removeLine(i: number) {
+  form.lines = form.lines.filter((_, idx) => idx !== i);
+}
 
-  async function create() {
-    if (!form.client_name.trim()) return;
-    saving = true;
-    try {
-      const r = await api.post<{ data: Quote }>('/ext/finance/quotes', form);
-      quotes = [r.data, ...quotes];
-      showModal = false;
-      toast.success(m['finance.quotes.toast.created']());
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function create() {
+  if (!form.client_name.trim()) return;
+  saving = true;
+  try {
+    const r = await api.post<{ data: Quote }>('/ext/finance/quotes', form);
+    quotes = [r.data, ...quotes];
+    showModal = false;
+    toast.success(m['finance.quotes.toast.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function doAction(id: string, action: string) {
-    actionId = id;
-    try {
-      await api.post(`/ext/finance/quotes/${id}/${action}`, {});
-      await load();
-      toast.success(m['ext.saved']());
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      actionId = null;
-    }
+async function doAction(id: string, action: string) {
+  actionId = id;
+  try {
+    await api.post(`/ext/finance/quotes/${id}/${action}`, {});
+    await load();
+    toast.success(m['ext.saved']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    actionId = null;
   }
+}
 
-  async function deleteQuote(id: string) {
-        askConfirm(m['finance.quotes.deleteConfirm'](), () => deleteQuoteConfirmed(id));
+async function deleteQuote(id: string) {
+  askConfirm(m['finance.quotes.deleteConfirm'](), () => deleteQuoteConfirmed(id));
+}
+async function deleteQuoteConfirmed(id: string) {
+  actionId = id;
+  try {
+    await api.delete(`/ext/finance/quotes/${id}`);
+    quotes = quotes.filter((q) => q.id !== id);
+    toast.success(m['ext.deleted']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    actionId = null;
   }
-  async function deleteQuoteConfirmed(id: string) {
-    actionId = id;
-    try {
-      await api.delete(`/ext/finance/quotes/${id}`);
-      quotes = quotes.filter(q => q.id !== id);
-      toast.success(m['ext.deleted']());
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      actionId = null;
-    }
-  }
+}
 
-
-  const statusColor: Record<string, string> = {
-    draft: 'badge-ghost', sent: 'badge-info', accepted: 'badge-success',
-    rejected: 'badge-error', expired: 'badge-warning',
-  };
+const statusColor: Record<string, string> = {
+  draft: 'badge-ghost',
+  sent: 'badge-info',
+  accepted: 'badge-success',
+  rejected: 'badge-error',
+  expired: 'badge-warning',
+};
 </script>
 
 <ExtensionPageShell title={m['finance.quotes.title']()} subtitle={m['finance.quotes.subtitle']()}>

@@ -30,7 +30,8 @@ export function useCollection<T extends Record<string, any> = Record<string, any
     let unsubscribe: (() => void) | undefined;
 
     // 1. Citire initiala din IndexedDB (instant)
-    coll.list()
+    coll
+      .list()
       .then((records: any[]) => {
         data = records as any;
         loading = false;
@@ -49,9 +50,15 @@ export function useCollection<T extends Record<string, any> = Record<string, any
   });
 
   return {
-    get data() { return data; },
-    get loading() { return loading; },
-    get error() { return error; },
+    get data() {
+      return data;
+    },
+    get loading() {
+      return loading;
+    },
+    get error() {
+      return error;
+    },
 
     async create(payload: Omit<T, 'id'>) {
       return coll.create(payload);

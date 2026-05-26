@@ -1,14 +1,14 @@
 <script lang="ts">
-  interface Props {
-    total: number;
-    page: number;
-    limit: number;
-    onchange: (page: number) => void;
-  }
-  let { total, page, limit, onchange }: Props = $props();
-  const totalPages = $derived(Math.ceil(total / limit));
-  const from = $derived((page - 1) * limit + 1);
-  const to = $derived(Math.min(page * limit, total));
+interface Props {
+  total: number;
+  page: number;
+  limit: number;
+  onchange: (page: number) => void;
+}
+let { total, page, limit, onchange }: Props = $props();
+const totalPages = $derived(Math.ceil(total / limit));
+const from = $derived((page - 1) * limit + 1);
+const to = $derived(Math.min(page * limit, total));
 </script>
 
 {#if totalPages > 1}

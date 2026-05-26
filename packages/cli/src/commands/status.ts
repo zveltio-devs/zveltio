@@ -1,11 +1,11 @@
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
-  bold:   (s: string) => `\x1b[1m${s}\x1b[0m`,
-  green:  (s: string) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s: string) => `\x1b[31m${s}\x1b[0m`,
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s: string) => `\x1b[36m${s}\x1b[0m`,
-  dim:    (s: string) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
 };
 
 function statusIcon(ok: boolean | string | undefined): string {
@@ -23,7 +23,8 @@ function formatUptime(seconds: number): string {
 }
 
 export async function statusCommand(opts: { url?: string; json?: boolean }) {
-  const engineUrl = opts.url || process.env.ZVELTIO_URL || process.env.ENGINE_URL || 'http://localhost:3000';
+  const engineUrl =
+    opts.url || process.env.ZVELTIO_URL || process.env.ENGINE_URL || 'http://localhost:3000';
 
   if (!opts.json) {
     console.log(`\n${c.bold('Zveltio Status')}\n`);
@@ -69,17 +70,19 @@ export async function statusCommand(opts: { url?: string; json?: boolean }) {
   }
 
   // ── Pretty-print ──────────────────────────────────────────────────────────
-  const db     = healthData.database ?? healthData.db;
-  const cache  = healthData.cache ?? healthData.redis ?? healthData.valkey;
+  const db = healthData.database ?? healthData.db;
+  const cache = healthData.cache ?? healthData.redis ?? healthData.valkey;
   const uptime = healthData.uptime_seconds ?? healthData.uptime;
   const status = healthData.status ?? 'ok';
   // Version: try health response first, then fall back to local package.json
-  const version = healthData.version ?? healthData.engine_version ?? healthData.engine
-    ?? await getLocalVersion();
+  const version =
+    healthData.version ??
+    healthData.engine_version ??
+    healthData.engine ??
+    (await getLocalVersion());
 
-  const overallIcon = status === 'ok' || status === 'healthy'
-    ? c.green('HEALTHY')
-    : c.red('DEGRADED');
+  const overallIcon =
+    status === 'ok' || status === 'healthy' ? c.green('HEALTHY') : c.red('DEGRADED');
 
   console.log(`  Status:   ${overallIcon}`);
 
@@ -95,43 +98,43 @@ export async function statusCommand(opts: { url?: string; json?: boolean }) {
 
   // Database status
   if (db !== undefined) {
-    const dbStatus = typeof db === 'object'
-      ? (db.status ?? db.ok)
-      : db;
+    const dbStatus = typeof db === 'object' ? (db.status ?? db.ok) : db;
     const dbLatency = typeof db === 'object' ? db.latency_ms : undefined;
-    const dbLabel = dbLatency !== undefined
-      ? `${statusIcon(dbStatus)} ${c.dim(`(${dbLatency}ms)`)}`
-      : statusIcon(dbStatus);
+    const dbLabel =
+      dbLatency !== undefined
+        ? `${statusIcon(dbStatus)} ${c.dim(`(${dbLatency}ms)`)}`
+        : statusIcon(dbStatus);
     console.log(`  Database: ${dbLabel}`);
   }
 
   // Cache / Valkey status
   if (cache !== undefined) {
-    const cacheStatus = typeof cache === 'object'
-      ? (cache.status ?? cache.ok)
-      : cache;
+    const cacheStatus = typeof cache === 'object' ? (cache.status ?? cache.ok) : cache;
     const cacheLatency = typeof cache === 'object' ? cache.latency_ms : undefined;
-    const cacheLabel = cacheLatency !== undefined
-      ? `${statusIcon(cacheStatus)} ${c.dim(`(${cacheLatency}ms)`)}`
-      : statusIcon(cacheStatus);
+    const cacheLabel =
+      cacheLatency !== undefined
+        ? `${statusIcon(cacheStatus)} ${c.dim(`(${cacheLatency}ms)`)}`
+        : statusIcon(cacheStatus);
     console.log(`  Cache:    ${cacheLabel}`);
   }
 
   // Storage status (if present)
   if (healthData.storage !== undefined) {
-    const storageStatus = typeof healthData.storage === 'object'
-      ? (healthData.storage.status ?? healthData.storage.ok)
-      : healthData.storage;
+    const storageStatus =
+      typeof healthData.storage === 'object'
+        ? (healthData.storage.status ?? healthData.storage.ok)
+        : healthData.storage;
     console.log(`  Storage:  ${statusIcon(storageStatus)}`);
   }
 
   // Extensions (if present)
   if (healthData.extensions !== undefined) {
-    const extCount = typeof healthData.extensions === 'number'
-      ? healthData.extensions
-      : Array.isArray(healthData.extensions)
-        ? healthData.extensions.length
-        : healthData.extensions;
+    const extCount =
+      typeof healthData.extensions === 'number'
+        ? healthData.extensions
+        : Array.isArray(healthData.extensions)
+          ? healthData.extensions.length
+          : healthData.extensions;
     console.log(`  Extensions: ${extCount} loaded`);
   }
 
@@ -156,7 +159,9 @@ async function getLocalVersion(): Promise<string | undefined> {
     try {
       const pkg = JSON.parse(await Bun.file(p).text());
       if (pkg.name === '@zveltio/engine' || pkg._zveltio_version) return pkg.version;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return undefined;
 }

@@ -1,41 +1,44 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { auth } from '$lib/auth.svelte.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import PasskeysSection from '$lib/components/common/PasskeysSection.svelte';
-  import Slot from '$lib/components/common/Slot.svelte';
-  import { User as UserIcon, Save } from '@lucide/svelte';
+import { onMount } from 'svelte';
+import { auth } from '$lib/auth.svelte.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import PasskeysSection from '$lib/components/common/PasskeysSection.svelte';
+import Slot from '$lib/components/common/Slot.svelte';
+import { User as UserIcon, Save } from '@lucide/svelte';
 
-  let name = $state('');
-  let email = $state('');
-  let saving = $state(false);
+let name = $state('');
+let email = $state('');
+let saving = $state(false);
 
-  onMount(async () => {
-    await auth.init();
-    name = auth.user?.name ?? '';
-    email = auth.user?.email ?? '';
-  });
+onMount(async () => {
+  await auth.init();
+  name = auth.user?.name ?? '';
+  email = auth.user?.email ?? '';
+});
 
-  async function saveProfile(): Promise<void> {
-    if (!name.trim()) { toast.error('Name is required'); return; }
-    saving = true;
-    try {
-      const res = await fetch('/api/auth/update-user', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success('Profile updated');
-      await auth.init();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to update profile');
-    } finally {
-      saving = false;
-    }
+async function saveProfile(): Promise<void> {
+  if (!name.trim()) {
+    toast.error('Name is required');
+    return;
   }
+  saving = true;
+  try {
+    const res = await fetch('/api/auth/update-user', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast.success('Profile updated');
+    await auth.init();
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to update profile');
+  } finally {
+    saving = false;
+  }
+}
 </script>
 
 <div class="space-y-6 max-w-2xl">

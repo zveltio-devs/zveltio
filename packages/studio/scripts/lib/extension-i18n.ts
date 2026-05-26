@@ -48,5 +48,9 @@ export function ownerForKey(key: string, extensions: string[]): 'core' | string 
 }
 
 export function sortKeys(obj: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.keys(obj).sort().map((k) => [k, obj[k]!]));
+  return Object.fromEntries(
+    Object.keys(obj)
+      .sort()
+      .map((k) => [k, obj[k]!]),
+  );
 }

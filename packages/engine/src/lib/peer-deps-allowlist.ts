@@ -13,27 +13,27 @@
 
 export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
   // Auth providers
-  'node-saml',         // auth/saml — SAML SSO assertions
-  'ldapts',            // auth/ldap — LDAP / Active Directory client
+  'node-saml', // auth/saml — SAML SSO assertions
+  'ldapts', // auth/ldap — LDAP / Active Directory client
 
   // Communications
-  'imapflow',          // communications/mail — IMAP client
-  'mailparser',        // communications/mail — parse incoming emails
-  'nodemailer',        // communications/mail — SMTP send
+  'imapflow', // communications/mail — IMAP client
+  'mailparser', // communications/mail — parse incoming emails
+  'nodemailer', // communications/mail — SMTP send
 
   // S3-compatible storage (when aws4fetch is not enough)
-  '@aws-sdk/client-s3',           // content/media, storage/cloud
+  '@aws-sdk/client-s3', // content/media, storage/cloud
   '@aws-sdk/s3-request-presigner', // storage/cloud — presigned URLs
 
   // ID + crypto utilities
-  'nanoid',            // shared — short URL-safe identifier generation
+  'nanoid', // shared — short URL-safe identifier generation
 
   // PDF / document generation
-  'qrcode',            // operations/traceability — QR codes on dispatches
-  'pdfkit',            // operations/traceability — PDF generation
+  'qrcode', // operations/traceability — QR codes on dispatches
+  'pdfkit', // operations/traceability — PDF generation
 
   // Query language
-  'graphql',           // developer/graphql — GraphQL schema + execution
+  'graphql', // developer/graphql — GraphQL schema + execution
 ]);
 
 export function isPackageAllowed(pkg: string): boolean {

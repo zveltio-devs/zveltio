@@ -90,7 +90,7 @@ describe.skipIf(skipAll)('Slow Query Logging — Integration', () => {
     });
     expect(sqRes.status).toBe(200);
 
-    const body = await sqRes.json() as any;
+    const body = (await sqRes.json()) as any;
     expect(Array.isArray(body.slow_queries)).toBe(true);
 
     const match = body.slow_queries.find((q: any) => q.path === targetPath());
@@ -104,7 +104,7 @@ describe.skipIf(skipAll)('Slow Query Logging — Integration', () => {
     const sqRes = await fetch(`${BASE_URL}/api/admin/slow-queries?limit=100&min_ms=0`, {
       headers: { Cookie: sessionCookie },
     });
-    const body = await sqRes.json() as any;
+    const body = (await sqRes.json()) as any;
     const entry = body.slow_queries.find((q: any) => q.path === targetPath());
     expect(entry).toBeTruthy();
     expect(entry).toHaveProperty('id');
@@ -124,7 +124,7 @@ describe.skipIf(skipAll)('Slow Query Logging — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.slow_queries)).toBe(true);
     expect(body.slow_queries.length).toBe(0);
   });

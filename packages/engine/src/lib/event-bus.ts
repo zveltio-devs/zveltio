@@ -111,10 +111,10 @@ export type ZveltioEvents = {
   'record.updated': RecordUpdatedPayload;
   'record.deleted': RecordDeletedPayload;
   'schema.changed': SchemaChangedPayload;
-  'user.login':     UserLoginPayload;
-  'user.logout':    UserLogoutPayload;
+  'user.login': UserLoginPayload;
+  'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
-  'ai.task.done':   AiTaskDonePayload;
+  'ai.task.done': AiTaskDonePayload;
 };
 
 /**
@@ -134,16 +134,17 @@ export interface EngineEventMap {
   'record.updated': RecordUpdatedPayload;
   'record.deleted': RecordDeletedPayload;
   'schema.changed': SchemaChangedPayload;
-  'user.login':     UserLoginPayload;
-  'user.logout':    UserLogoutPayload;
+  'user.login': UserLoginPayload;
+  'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
-  'ai.task.done':   AiTaskDonePayload;
+  'ai.task.done': AiTaskDonePayload;
 }
 
 // ─── Typed event bus ───────────────────────────────────────────────────────────
 
-type PreHookHandler<K extends keyof ZveltioBeforeEvents> =
-  (payload: ZveltioBeforeEvents[K]) => unknown | Promise<unknown>;
+type PreHookHandler<K extends keyof ZveltioBeforeEvents> = (
+  payload: ZveltioBeforeEvents[K],
+) => unknown | Promise<unknown>;
 
 class TypedEventBus {
   private readonly emitter: EventEmitter;
@@ -221,10 +222,7 @@ class TypedEventBus {
    *   - call `payload.abort('reason')` to reject the write (throws AbortHookError)
    * Returns an unsubscribe function.
    */
-  onBefore<K extends keyof ZveltioBeforeEvents>(
-    event: K,
-    handler: PreHookHandler<K>,
-  ): () => void {
+  onBefore<K extends keyof ZveltioBeforeEvents>(event: K, handler: PreHookHandler<K>): () => void {
     const list = this.preHooks.get(event) ?? [];
     list.push(handler as PreHookHandler<any>);
     this.preHooks.set(event, list);

@@ -33,10 +33,7 @@ import type {
 /** A reserved connection from Bun.SQL pool (bun >= 1.2) */
 interface BunReservedConnection {
   /** Execute raw parameterized SQL — Bun.SQL's escape hatch for $1/$2 style */
-  unsafe<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-  ): Promise<T[]>;
+  unsafe<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
   /** Release the connection back to the pool */
   release(): void;
 }
@@ -44,17 +41,11 @@ interface BunReservedConnection {
 /** Main Bun.SQL pool */
 interface BunSQLPool {
   /** Execute raw parameterized SQL */
-  unsafe<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-  ): Promise<T[]>;
+  unsafe<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
   /** Reserve a dedicated connection from pool (for transactions) */
   reserve(): Promise<BunReservedConnection>;
   /** Register a handler for LISTEN/NOTIFY */
-  subscribe(
-    channel: string,
-    handler: (payload: string) => void,
-  ): Promise<BunSubscription>;
+  subscribe(channel: string, handler: (payload: string) => void): Promise<BunSubscription>;
   /** Close the pool and all connections */
   close(): Promise<void>;
 }
@@ -127,9 +118,7 @@ class BunSqlDriver implements Driver {
   async init(): Promise<void> {
     const url = this.#config.connectionString ?? process.env.DATABASE_URL;
     if (!url) {
-      throw new Error(
-        '[BunSqlDialect] connectionString or DATABASE_URL is required',
-      );
+      throw new Error('[BunSqlDialect] connectionString or DATABASE_URL is required');
     }
 
     let cleanUrl = url.replace(/^(postgres(?:ql)?:\/\/[^@]*@)localhost([:/])/i, '$1127.0.0.1$2');
@@ -140,7 +129,9 @@ class BunSqlDriver implements Driver {
       sslEnabled = sslmode === 'require' || sslmode.startsWith('verify');
       u.search = '';
       cleanUrl = u.toString();
-    } catch { /* URL parsing failed — use as-is */ }
+    } catch {
+      /* URL parsing failed — use as-is */
+    }
 
     // Bun.SQL not in standard Kysely types — typed `any` for both engine
     // and extensions repo (the latter exposes Bun as `any` per its
@@ -161,8 +152,7 @@ class BunSqlDriver implements Driver {
    * dedicated backend connection; using it for every query drains max quickly.
    */
   async acquireConnection(): Promise<DatabaseConnection> {
-    if (!this.#pool)
-      throw new Error('[BunSqlDriver] Driver not initialized. Call initDatabase().');
+    if (!this.#pool) throw new Error('[BunSqlDriver] Driver not initialized. Call initDatabase().');
     return new BunSqlSmartConnection(this.#pool);
   }
 
@@ -175,7 +165,9 @@ class BunSqlDriver implements Driver {
     await connection.executeQuery(CompiledQuery.raw('BEGIN'));
     if (settings.isolationLevel) {
       await connection.executeQuery(
-        CompiledQuery.raw(`SET TRANSACTION ISOLATION LEVEL ${settings.isolationLevel.toUpperCase()}`),
+        CompiledQuery.raw(
+          `SET TRANSACTION ISOLATION LEVEL ${settings.isolationLevel.toUpperCase()}`,
+        ),
       );
     }
   }
@@ -235,8 +227,14 @@ function inlineParams(sql: string, params: unknown[]): string {
     if (ch === "'") {
       const start = i++;
       while (i < sql.length) {
-        if (sql[i] === "'" && sql[i + 1] === "'") { i += 2; continue; }
-        if (sql[i] === "'") { i++; break; }
+        if (sql[i] === "'" && sql[i + 1] === "'") {
+          i += 2;
+          continue;
+        }
+        if (sql[i] === "'") {
+          i++;
+          break;
+        }
         i++;
       }
       out += sql.slice(start, i);
@@ -304,14 +302,16 @@ class BunSqlSmartConnection implements DatabaseConnection {
 
     const runPrepared = async (): Promise<QueryResult<R>> => {
       if (this.#reserved) {
-        const rows = params.length > 0
-          ? await this.#reserved.unsafe<R>(compiledQuery.sql, params)
-          : await this.#reserved.unsafe<R>(compiledQuery.sql);
+        const rows =
+          params.length > 0
+            ? await this.#reserved.unsafe<R>(compiledQuery.sql, params)
+            : await this.#reserved.unsafe<R>(compiledQuery.sql);
         return { rows };
       }
-      const rows = params.length > 0
-        ? await this.#pool.unsafe<R>(compiledQuery.sql, params)
-        : await this.#pool.unsafe<R>(compiledQuery.sql);
+      const rows =
+        params.length > 0
+          ? await this.#pool.unsafe<R>(compiledQuery.sql, params)
+          : await this.#pool.unsafe<R>(compiledQuery.sql);
       return { rows };
     };
 
@@ -347,7 +347,8 @@ class BunSqlSmartConnection implements DatabaseConnection {
       } catch (err2) {
         const e2 = err2 as { code?: string; message?: string } | undefined;
         const stillCached =
-          e2?.code === '0A000' || /cached plan must not change result type/i.test(e2?.message ?? '');
+          e2?.code === '0A000' ||
+          /cached plan must not change result type/i.test(e2?.message ?? '');
         if (!stillCached) throw err2;
         return runInline();
       }

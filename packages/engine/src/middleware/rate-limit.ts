@@ -3,11 +3,18 @@ import { getCache } from '../lib/cache.js';
 import type { Database } from '../db/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
-interface ConfigEntry { windowMs: number; max: number; ts: number }
+interface ConfigEntry {
+  windowMs: number;
+  max: number;
+  ts: number;
+}
 const configCache = new Map<string, ConfigEntry>();
 const CONFIG_TTL = 60_000;
 
-async function loadConfig(db: Database | undefined, keyPrefix: string): Promise<{ windowMs: number; max: number } | null> {
+async function loadConfig(
+  db: Database | undefined,
+  keyPrefix: string,
+): Promise<{ windowMs: number; max: number } | null> {
   if (!db) return null;
   const now = Date.now();
   const cached = configCache.get(keyPrefix);
@@ -23,7 +30,9 @@ async function loadConfig(db: Database | undefined, keyPrefix: string): Promise<
       configCache.set(keyPrefix, { windowMs: row.window_ms, max: row.max_requests, ts: now });
       return { windowMs: row.window_ms, max: row.max_requests };
     }
-  } catch { /* DB not ready yet — use defaults */ }
+  } catch {
+    /* DB not ready yet — use defaults */
+  }
   return null;
 }
 
@@ -34,7 +43,9 @@ export function invalidateRateLimitCache(keyPrefix?: string) {
 
 // Module-level DB reference — set once at engine startup via initRateLimitDb()
 let _db: Database | undefined;
-export function initRateLimitDb(db: Database) { _db = db; }
+export function initRateLimitDb(db: Database) {
+  _db = db;
+}
 
 // Fallback in-memory rate limiter — active when Valkey is not available.
 // Optimized sliding window: Map<identifier, { count: number, windowStart: number }>
@@ -54,10 +65,7 @@ function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
   const windowStart = now - windowMs;
 
   // Periodic cleanup to prevent memory leaks
-  if (
-    now - lastCleanup > CLEANUP_INTERVAL ||
-    memoryStore.size > MAX_STORE_SIZE
-  ) {
+  if (now - lastCleanup > CLEANUP_INTERVAL || memoryStore.size > MAX_STORE_SIZE) {
     lastCleanup = now;
     for (const [k, entry] of memoryStore) {
       if (entry.windowStart < windowStart) {
@@ -104,15 +112,19 @@ let _proxyHintWarned = false;
 function maybeWarnProxyMisconfig(c: Context): void {
   if (_proxyHintWarned) return;
   if (process.env.TRUSTED_PROXY === 'true') return;
-  const hasFwd = !!(c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || c.req.header('forwarded'));
+  const hasFwd = !!(
+    c.req.header('x-forwarded-for') ||
+    c.req.header('x-real-ip') ||
+    c.req.header('forwarded')
+  );
   if (!hasFwd) return;
   _proxyHintWarned = true;
   console.warn(
     '[rate-limit] X-Forwarded-For/X-Real-IP detected but TRUSTED_PROXY ' +
-    'is not set — all clients behind the proxy share the same rate-limit ' +
-    'bucket. Set TRUSTED_PROXY=true ONLY if your edge/proxy strips ' +
-    'inbound X-Forwarded-For headers before re-setting them, otherwise ' +
-    'clients can spoof their IP.',
+      'is not set — all clients behind the proxy share the same rate-limit ' +
+      'bucket. Set TRUSTED_PROXY=true ONLY if your edge/proxy strips ' +
+      'inbound X-Forwarded-For headers before re-setting them, otherwise ' +
+      'clients can spoof their IP.',
   );
 }
 
@@ -160,10 +172,7 @@ export function rateLimit(config: RateLimitConfig) {
 
       maybeWarnProxyMisconfig(c);
       const trustedProxy = process.env.TRUSTED_PROXY === 'true';
-      const rawForwardedFor = c.req
-        .header('x-forwarded-for')
-        ?.split(',')[0]
-        ?.trim();
+      const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
       // Validate the extracted IP as IPv4 or IPv6 before trusting it.
       // Octet pattern is strict 0-255; a looser \d{1,3} would accept
       // 999.999.999.999 and waste rate-limit slots on bogus identifiers.
@@ -185,9 +194,7 @@ export function rateLimit(config: RateLimitConfig) {
       // Prevents all unauthenticated non-proxied traffic from sharing the same
       // 'rl:api:unknown' rate-limit key, which would allow a single client to DoS others.
       const connectionIp: string | undefined =
-        (c.env as any)?.incoming?.socket?.remoteAddress ??
-        (c.env as any)?.ip ??
-        undefined;
+        (c.env as any)?.incoming?.socket?.remoteAddress ?? (c.env as any)?.ip ?? undefined;
 
       const ip = forwardedIp || realIp || connectionIp || 'unknown';
       const identifier = userId ?? ip;
@@ -266,6 +273,5 @@ export const destructiveRateLimit = rateLimit({
   windowMs: 60_000,
   max: 10,
   keyPrefix: 'destructive',
-  message:
-    'Too Many Destructive Requests — DELETE operations are limited to 10 per minute',
+  message: 'Too Many Destructive Requests — DELETE operations are limited to 10 per minute',
 });

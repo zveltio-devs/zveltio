@@ -15,22 +15,30 @@ export function useRealtime() {
       withCredentials: true,
     });
 
-    sse.onopen = () => { isConnected = true; };
-    sse.onerror = () => { isConnected = false; };
+    sse.onopen = () => {
+      isConnected = true;
+    };
+    sse.onerror = () => {
+      isConnected = false;
+    };
 
     sse.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         const channelHandlers = handlers.get(data.type) || handlers.get('*');
         channelHandlers?.forEach((h) => h(data.payload ?? data));
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     };
 
     return () => sse.close();
   });
 
   return {
-    get isConnected() { return isConnected; },
+    get isConnected() {
+      return isConnected;
+    },
 
     on(channel: string, handler: (payload: any) => void): () => void {
       if (!handlers.has(channel)) handlers.set(channel, new Set());

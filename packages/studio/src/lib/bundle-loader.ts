@@ -58,7 +58,10 @@ export async function loadExtensionBundles(): Promise<{ loaded: number; failed: 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     payload = (await res.json()) as EngineExtensionsResponse;
   } catch (err) {
-    console.warn('[bundle-loader] /api/extensions fetch failed; skipping bundle load:', (err as Error).message);
+    console.warn(
+      '[bundle-loader] /api/extensions fetch failed; skipping bundle load:',
+      (err as Error).message,
+    );
     return { loaded: 0, failed: [] };
   }
 
@@ -72,9 +75,7 @@ export async function loadExtensionBundles(): Promise<{ loaded: number; failed: 
     // ENGINE_URL prefixing for the absolute fallback path.
     const isAbsolute = url.startsWith('http');
     try {
-      const res = isAbsolute
-        ? await fetch(url, { credentials: 'include' })
-        : await api.fetch(url);
+      const res = isAbsolute ? await fetch(url, { credentials: 'include' }) : await api.fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
       const code = await res.text();
       // Wrap in blob → dynamic import. The bundle runs in its own module
@@ -92,14 +93,20 @@ export async function loadExtensionBundles(): Promise<{ loaded: number; failed: 
     }
   }
 
-  console.log(`[bundle-loader] ${loaded} extension Studio bundle(s) loaded${failed.length ? `, ${failed.length} failed` : ''}`);
+  console.log(
+    `[bundle-loader] ${loaded} extension Studio bundle(s) loaded${failed.length ? `, ${failed.length} failed` : ''}`,
+  );
   return { loaded, failed };
 }
 
 /** Test-only: revoke blob URLs + reset state. */
 export function _resetForTests(): void {
   for (const u of _activeBlobUrls) {
-    try { URL.revokeObjectURL(u); } catch { /* */ }
+    try {
+      URL.revokeObjectURL(u);
+    } catch {
+      /* */
+    }
   }
   _activeBlobUrls = [];
   _loaded = false;

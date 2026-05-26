@@ -86,7 +86,8 @@ export function splitSqlStatements(sql: string): string[] {
     // ── Single-quoted string ──────────────────────────────────────
     if (inSingleQuote) {
       current += ch;
-      if (ch === "'" && next === "'") { // escaped quote
+      if (ch === "'" && next === "'") {
+        // escaped quote
         current += next;
         i += 2;
       } else if (ch === "'") {
@@ -101,7 +102,8 @@ export function splitSqlStatements(sql: string): string[] {
     // ── Double-quoted identifier ──────────────────────────────────
     if (inDoubleQuote) {
       current += ch;
-      if (ch === '"' && next === '"') { // escaped quote
+      if (ch === '"' && next === '"') {
+        // escaped quote
         current += next;
         i += 2;
       } else if (ch === '"') {
@@ -163,8 +165,18 @@ export function splitSqlStatements(sql: string): string[] {
     }
 
     // Parentheses
-    if (ch === '(') { parenDepth++; current += ch; i++; continue; }
-    if (ch === ')') { parenDepth--; current += ch; i++; continue; }
+    if (ch === '(') {
+      parenDepth++;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === ')') {
+      parenDepth--;
+      current += ch;
+      i++;
+      continue;
+    }
 
     // Semicolon — statement boundary only at top level
     if (ch === ';' && parenDepth === 0) {
@@ -225,7 +237,7 @@ async function applyMigration(
     if (existing.checksum !== checksum && existing.checksum !== 'baseline') {
       console.warn(
         `⚠️  Migration ${migrationNumber} checksum mismatch! ` +
-        `File may have been modified after being applied.`,
+          `File may have been modified after being applied.`,
       );
     }
     return; // Already applied
@@ -247,7 +259,7 @@ async function applyMigration(
         throw Object.assign(
           new Error(
             `Migration ${migrationNumber} statement ${si + 1}/${statements.length} failed:\n` +
-            `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
+              `${stmt.slice(0, 300)}\n\nCause: ${err.message}`,
           ),
           { cause: err },
         );
@@ -256,10 +268,7 @@ async function applyMigration(
   });
 
   const executionMs = Date.now() - startTime;
-  const name = filename
-    .replace(/^\d+_/, '')
-    .replace('.sql', '')
-    .replace(/_/g, ' ');
+  const name = filename.replace(/^\d+_/, '').replace('.sql', '').replace(/_/g, ' ');
 
   // Record in zv_schema_versions
   await (db as any)
@@ -286,7 +295,10 @@ async function applyMigration(
     .values({ name: filename.replace('.sql', '') })
     .execute()
     .catch((err: Error) => {
-      console.warn(`[migrations] legacy zv_migrations row insert failed for ${filename}:`, err.message);
+      console.warn(
+        `[migrations] legacy zv_migrations row insert failed for ${filename}:`,
+        err.message,
+      );
     });
 
   console.log(
@@ -337,13 +349,15 @@ export async function getLastAppliedMigration(db: Database): Promise<number> {
   }
 }
 
-export async function getAppliedMigrations(db: Database): Promise<Array<{
-  version: number;
-  name: string;
-  filename: string;
-  applied_at: Date;
-  engine_version: string;
-}>> {
+export async function getAppliedMigrations(db: Database): Promise<
+  Array<{
+    version: number;
+    name: string;
+    filename: string;
+    applied_at: Date;
+    engine_version: string;
+  }>
+> {
   try {
     return await (db as any)
       .selectFrom('zv_schema_versions')

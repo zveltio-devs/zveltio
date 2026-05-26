@@ -5,9 +5,9 @@ import type { Database } from '../db/index.js';
 import { getCache } from './cache.js';
 
 // Cache TTLs
-const PERMISSION_CACHE_TTL = 60;  // seconds
-const ROLE_CACHE_TTL       = 300; // seconds
-const GOD_CACHE_TTL        = 300; // seconds
+const PERMISSION_CACHE_TTL = 60; // seconds
+const ROLE_CACHE_TTL = 300; // seconds
+const GOD_CACHE_TTL = 300; // seconds
 
 const CASBIN_MODEL = `
 [request_definition]
@@ -45,15 +45,9 @@ class KyselyCasbinAdapter {
     `.execute(_db);
 
     for (const line of policies.rows) {
-      const tokens = [
-        line.ptype,
-        line.v0,
-        line.v1,
-        line.v2,
-        line.v3,
-        line.v4,
-        line.v5,
-      ].filter((v): v is string => v !== null);
+      const tokens = [line.ptype, line.v0, line.v1, line.v2, line.v3, line.v4, line.v5].filter(
+        (v): v is string => v !== null,
+      );
       model.addPolicy(tokens);
     }
   }
@@ -86,11 +80,7 @@ class KyselyCasbinAdapter {
     `.execute(_db);
   }
 
-  async removePolicy(
-    _sec: string,
-    ptype: string,
-    rule: string[],
-  ): Promise<void> {
+  async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
     await sql`
       DELETE FROM zvd_permissions
       WHERE ptype = ${ptype} AND v0 = ${rule[0] ?? null} AND v1 = ${rule[1] ?? null} AND v2 = ${rule[2] ?? null}
@@ -104,16 +94,11 @@ class KyselyCasbinAdapter {
     ...fieldValues: (string | undefined)[]
   ): Promise<void> {
     const conditions: any[] = [sql`ptype = ${ptype}`];
-    if (fieldValues[0] !== undefined)
-      conditions.push(sql`v0 = ${fieldValues[0]}`);
-    if (fieldValues[1] !== undefined)
-      conditions.push(sql`v1 = ${fieldValues[1]}`);
-    if (fieldValues[2] !== undefined)
-      conditions.push(sql`v2 = ${fieldValues[2]}`);
+    if (fieldValues[0] !== undefined) conditions.push(sql`v0 = ${fieldValues[0]}`);
+    if (fieldValues[1] !== undefined) conditions.push(sql`v1 = ${fieldValues[1]}`);
+    if (fieldValues[2] !== undefined) conditions.push(sql`v2 = ${fieldValues[2]}`);
 
-    await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(
-      _db,
-    );
+    await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db);
   }
 }
 
@@ -129,17 +114,14 @@ export async function initPermissions(db: Database): Promise<void> {
   if (!process.env.BETTER_AUTH_SECRET) {
     throw new Error(
       '[permissions] FATAL: BETTER_AUTH_SECRET env var is not set. ' +
-      'Permission cache HMAC signatures would use an empty secret, making privilege escalation trivial. ' +
-      'Set BETTER_AUTH_SECRET to a strong random value before starting the engine.',
+        'Permission cache HMAC signatures would use an empty secret, making privilege escalation trivial. ' +
+        'Set BETTER_AUTH_SECRET to a strong random value before starting the engine.',
     );
   }
 }
 
 export async function getEnforcer(): Promise<Enforcer> {
-  if (!_enforcer)
-    throw new Error(
-      'Permissions not initialized. Call initPermissions() first.',
-    );
+  if (!_enforcer) throw new Error('Permissions not initialized. Call initPermissions() first.');
   return _enforcer;
 }
 
@@ -150,10 +132,11 @@ export async function getEnforcer(): Promise<Enforcer> {
  */
 function _permHmac(key: string, value: '1' | '0'): string {
   const secret = process.env.BETTER_AUTH_SECRET;
-  if (!secret) throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign permission cache entry');
-  return createHmac('sha256', secret)
-    .update(`perm:${key}:${value}`)
-    .digest('hex');
+  if (!secret)
+    throw new Error(
+      '[permissions] BETTER_AUTH_SECRET is not set — cannot sign permission cache entry',
+    );
+  return createHmac('sha256', secret).update(`perm:${key}:${value}`).digest('hex');
 }
 
 function _encodePermCache(key: string, allowed: boolean): string {
@@ -170,7 +153,7 @@ function _decodePermCache(key: string, raw: string): boolean | null {
   if (value !== '1' && value !== '0') return null;
   try {
     const expected = Buffer.from(_permHmac(key, value as '1' | '0'), 'hex');
-    const stored   = Buffer.from(storedHmac, 'hex');
+    const stored = Buffer.from(storedHmac, 'hex');
     if (stored.length !== expected.length) return null;
     if (!timingSafeEqual(stored, expected)) return null;
   } catch {
@@ -192,10 +175,11 @@ function _decodePermCache(key: string, raw: string): boolean | null {
  */
 function _godHmac(userId: string, value: '1' | '0'): string {
   const secret = process.env.BETTER_AUTH_SECRET;
-  if (!secret) throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign god-role cache entry');
-  return createHmac('sha256', secret)
-    .update(`god:${userId}:${value}`)
-    .digest('hex');
+  if (!secret)
+    throw new Error(
+      '[permissions] BETTER_AUTH_SECRET is not set — cannot sign god-role cache entry',
+    );
+  return createHmac('sha256', secret).update(`god:${userId}:${value}`).digest('hex');
 }
 
 function _encodeGodCache(userId: string, isGod: boolean): string {
@@ -212,7 +196,7 @@ function _decodeGodCache(userId: string, raw: string): boolean | null {
   if (value !== '1' && value !== '0') return null;
   try {
     const expected = Buffer.from(_godHmac(userId, value as '1' | '0'), 'hex');
-    const stored   = Buffer.from(storedHmac, 'hex');
+    const stored = Buffer.from(storedHmac, 'hex');
     if (stored.length !== expected.length) return null;
     if (!timingSafeEqual(stored, expected)) return null;
   } catch {
@@ -344,10 +328,9 @@ export async function checkPermission(
  */
 function _rolesHmac(userId: string, rolesJson: string): string {
   const secret = process.env.BETTER_AUTH_SECRET;
-  if (!secret) throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign roles cache entry');
-  return createHmac('sha256', secret)
-    .update(`roles:${userId}:${rolesJson}`)
-    .digest('hex');
+  if (!secret)
+    throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign roles cache entry');
+  return createHmac('sha256', secret).update(`roles:${userId}:${rolesJson}`).digest('hex');
 }
 
 function _encodeRolesCache(userId: string, roles: string[]): string {
@@ -361,10 +344,10 @@ function _decodeRolesCache(userId: string, raw: string): string[] | null {
   const HMAC_LEN = 64;
   if (raw.length < HMAC_LEN + 2) return null; // at minimum '[]' + ':' + 64 chars
   const storedHmac = raw.slice(raw.length - HMAC_LEN);
-  const json       = raw.slice(0, raw.length - HMAC_LEN - 1); // strip ':' + hmac
+  const json = raw.slice(0, raw.length - HMAC_LEN - 1); // strip ':' + hmac
   try {
     const expected = Buffer.from(_rolesHmac(userId, json), 'hex');
-    const stored   = Buffer.from(storedHmac, 'hex');
+    const stored = Buffer.from(storedHmac, 'hex');
     if (stored.length !== expected.length) return null;
     if (!timingSafeEqual(stored, expected)) return null;
     return JSON.parse(json);

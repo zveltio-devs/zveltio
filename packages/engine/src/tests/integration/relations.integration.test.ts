@@ -105,7 +105,7 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.relations)).toBe(true);
   });
 
@@ -125,7 +125,7 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
       }),
     });
     expect(res.status).toBeOneOf([200, 201, 202]);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     const relation = body.relation ?? body;
     expect(relation).toHaveProperty('id');
     relationId = relation.id;
@@ -169,7 +169,7 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect((body.relation ?? body).id).toBe(relationId);
   });
 
@@ -178,7 +178,7 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.relations)).toBe(true);
   });
 
@@ -199,7 +199,7 @@ describe.skipIf(skipAll)('Relations — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBeOneOf([200, 204]);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.success).toBe(true);
   });
 });

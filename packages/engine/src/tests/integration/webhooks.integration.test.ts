@@ -94,7 +94,7 @@ beforeAll(async () => {
     }),
   });
   expect(whRes.status).toBe(201);
-  const whBody = await whRes.json() as any;
+  const whBody = (await whRes.json()) as any;
   webhookId = whBody.webhook?.id ?? whBody.id;
 
   // Create inactive webhook
@@ -109,7 +109,7 @@ beforeAll(async () => {
       active: false,
     }),
   });
-  const inactiveBody = await inactiveRes.json() as any;
+  const inactiveBody = (await inactiveRes.json()) as any;
   inactiveWebhookId = inactiveBody.webhook?.id ?? inactiveBody.id;
 }, 30_000);
 
@@ -178,7 +178,9 @@ describe.skipIf(skipAll)('Webhooks — Integration', () => {
 
   it('inactive webhook does NOT trigger on insert', async () => {
     // Delete any existing deliveries for the inactive webhook
-    await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${inactiveWebhookId}`.execute(db);
+    await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${inactiveWebhookId}`.execute(
+      db,
+    );
 
     // Insert a record
     await fetch(`${BASE_URL}/api/data/${COLLECTION}`, {

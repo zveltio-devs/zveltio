@@ -24,8 +24,14 @@ export class QueryBuilder {
   }
 
   // Pagination
-  page(n: number): this { this._options.page = n; return this; }
-  limit(n: number): this { this._options.limit = n; return this; }
+  page(n: number): this {
+    this._options.page = n;
+    return this;
+  }
+  limit(n: number): this {
+    this._options.limit = n;
+    return this;
+  }
 
   // Sorting
   sortBy(field: string, order: 'asc' | 'desc' = 'asc'): this {
@@ -35,7 +41,10 @@ export class QueryBuilder {
   }
 
   // Search
-  search(q: string): this { this._options.search = q; return this; }
+  search(q: string): this {
+    this._options.search = q;
+    return this;
+  }
 
   // Execute
   async query<T = any>(overrideOptions?: QueryOptions): Promise<QueryResponse<T>> {

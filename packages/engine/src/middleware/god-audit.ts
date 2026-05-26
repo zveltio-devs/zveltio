@@ -75,7 +75,9 @@ export function godAuditMiddleware(db: Database) {
           status: c.res.status,
           durationMs,
           ip,
-        }).catch(() => {/* already logged inside logGodAction */});
+        }).catch(() => {
+          /* already logged inside logGodAction */
+        });
       }
     } catch {
       // Never propagate errors from the audit middleware

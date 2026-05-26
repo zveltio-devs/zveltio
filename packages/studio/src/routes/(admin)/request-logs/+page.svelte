@@ -1,62 +1,73 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { Activity } from '@lucide/svelte';
-  import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { Activity } from '@lucide/svelte';
+import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 
-  interface LogEntry {
-    id: number;
-    method: string;
-    path: string;
-    status: number;
-    duration_ms: number;
-    user_id: string | null;
-    ip: string | null;
-    user_agent: string | null;
-    created_at: string;
+interface LogEntry {
+  id: number;
+  method: string;
+  path: string;
+  status: number;
+  duration_ms: number;
+  user_id: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+let logs = $state<LogEntry[]>([]);
+let total = $state(0);
+let loading = $state(true);
+let page = $state(1);
+const limit = 100;
+
+// Filters
+let filterPath = $state('');
+let filterStatus = $state('');
+let filterMethod = $state('');
+
+async function load() {
+  loading = true;
+  try {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (filterPath) params.set('path', filterPath);
+    if (filterStatus) params.set('status', filterStatus);
+    if (filterMethod) params.set('method', filterMethod);
+    const res = await api.get<{ logs: LogEntry[]; total: number }>(`/api/admin/logs?${params}`);
+    logs = res.logs;
+    total = res.total;
+  } catch {
+    /* ignore */
+  } finally {
+    loading = false;
   }
+}
 
-  let logs = $state<LogEntry[]>([]);
-  let total = $state(0);
-  let loading = $state(true);
-  let page = $state(1);
-  const limit = 100;
+onMount(load);
 
-  // Filters
-  let filterPath = $state('');
-  let filterStatus = $state('');
-  let filterMethod = $state('');
+function statusColor(status: number) {
+  if (status < 300) return 'badge-success';
+  if (status < 400) return 'badge-info';
+  if (status < 500) return 'badge-warning';
+  return 'badge-error';
+}
 
-  async function load() {
-    loading = true;
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-      if (filterPath) params.set('path', filterPath);
-      if (filterStatus) params.set('status', filterStatus);
-      if (filterMethod) params.set('method', filterMethod);
-      const res = await api.get<{ logs: LogEntry[]; total: number }>(`/api/admin/logs?${params}`);
-      logs = res.logs;
-      total = res.total;
-    } catch { /* ignore */ } finally {
-      loading = false;
-    }
-  }
+function methodColor(method: string) {
+  const map: Record<string, string> = {
+    GET: 'badge-info',
+    POST: 'badge-success',
+    PATCH: 'badge-warning',
+    PUT: 'badge-warning',
+    DELETE: 'badge-error',
+  };
+  return map[method] ?? 'badge-ghost';
+}
 
-  onMount(load);
-
-  function statusColor(status: number) {
-    if (status < 300) return 'badge-success';
-    if (status < 400) return 'badge-info';
-    if (status < 500) return 'badge-warning';
-    return 'badge-error';
-  }
-
-  function methodColor(method: string) {
-    const map: Record<string, string> = { GET: 'badge-info', POST: 'badge-success', PATCH: 'badge-warning', PUT: 'badge-warning', DELETE: 'badge-error' };
-    return map[method] ?? 'badge-ghost';
-  }
-
-  function applyFilters() { page = 1; load(); }
+function applyFilters() {
+  page = 1;
+  load();
+}
 </script>
 
 <div class="p-6">

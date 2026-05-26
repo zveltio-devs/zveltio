@@ -1,66 +1,106 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { LayoutGrid, Plus, X, List, KanbanSquare, Calendar, Map, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  LayoutGrid,
+  Plus,
+  X,
+  List,
+  KanbanSquare,
+  Calendar,
+  Map,
+  LoaderCircle,
+} from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let views = $state<any[]>([]);
-  let collections = $state<any[]>([]);
-  let loading = $state(true);
+let views = $state<any[]>([]);
+let collections = $state<any[]>([]);
+let loading = $state(true);
 
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({
-    name: '',
-    collection: '',
-    view_type: 'list',
-    config: '{\n  "columns": [],\n  "filters": [],\n  "sort": []\n}',
-  });
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({
+  name: '',
+  collection: '',
+  view_type: 'list',
+  config: '{\n  "columns": [],\n  "filters": [],\n  "sort": []\n}',
+});
 
-  async function load() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/api/views'); views = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function load() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/api/views');
+    views = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadCollections() {
-    try { const r = await api.get<{ collections?: any[]; data?: any[] }>('/api/collections'); collections = r.collections ?? r.data ?? []; }
-    catch {}
-  }
+}
+async function loadCollections() {
+  try {
+    const r = await api.get<{ collections?: any[]; data?: any[] }>('/api/collections');
+    collections = r.collections ?? r.data ?? [];
+  } catch {}
+}
 
-  async function createView() {
-    saving = true;
+async function createView() {
+  saving = true;
+  try {
+    let cfg: any = {};
     try {
-      let cfg: any = {};
-      try { cfg = JSON.parse(form.config); } catch { throw new Error(m['developer.views.error.invalidJson']()); }
-      await api.post('/api/views', { ...form, config: cfg });
-      showForm = false;
-      form = { name: '', collection: '', view_type: 'list', config: '{\n  "columns": [],\n  "filters": [],\n  "sort": []\n}' };
-      await load();
-      toast.success(m['developer.views.toast.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+      cfg = JSON.parse(form.config);
+    } catch {
+      throw new Error(m['developer.views.error.invalidJson']());
+    }
+    await api.post('/api/views', { ...form, config: cfg });
+    showForm = false;
+    form = {
+      name: '',
+      collection: '',
+      view_type: 'list',
+      config: '{\n  "columns": [],\n  "filters": [],\n  "sort": []\n}',
+    };
+    await load();
+    toast.success(m['developer.views.toast.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function deleteView(id: string) {
-        askConfirm(m['developer.views.confirmDelete'](), () => deleteViewConfirmed(id));
+async function deleteView(id: string) {
+  askConfirm(m['developer.views.confirmDelete'](), () => deleteViewConfirmed(id));
+}
+async function deleteViewConfirmed(id: string) {
+  try {
+    await api.delete(`/api/views/${id}`);
+    await load();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteViewConfirmed(id: string) {
-    try { await api.delete(`/api/views/${id}`); await load(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
+onMount(() => {
+  load();
+  loadCollections();
+});
 
-  onMount(() => { load(); loadCollections(); });
-
-  const VIEW_ICONS: Record<string, any> = { list: List, board: KanbanSquare, calendar: Calendar, map: Map, card: LayoutGrid };
+const VIEW_ICONS: Record<string, any> = {
+  list: List,
+  board: KanbanSquare,
+  calendar: Calendar,
+  map: Map,
+  card: LayoutGrid,
+};
 </script>
 
 <ExtensionPageShell title={m['developer.views.title']()} subtitle={m['developer.views.subtitle']()}>

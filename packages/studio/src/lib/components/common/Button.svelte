@@ -1,18 +1,18 @@
 <script lang="ts">
 let {
-    children,
-    variant = 'primary',
-    size = 'md',
-    disabled = false,
-    loading = false,
-    onclick = null
+  children,
+  variant = 'primary',
+  size = 'md',
+  disabled = false,
+  loading = false,
+  onclick = null,
 }: {
-    children: any;
-    variant?: 'primary' | 'secondary' | 'ghost' | 'error';
-    size?: 'xs' | 'sm' | 'md' | 'lg';
-    disabled?: boolean;
-    loading?: boolean;
-    onclick?: (() => void) | null;
+  children: any;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'error';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+  disabled?: boolean;
+  loading?: boolean;
+  onclick?: (() => void) | null;
 } = $props();
 </script>
 

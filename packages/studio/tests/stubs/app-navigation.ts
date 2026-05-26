@@ -21,14 +21,26 @@ export async function preloadCode(..._urls: string[]): Promise<void> {
   return;
 }
 
-export async function pushState(_url: string | URL, _state: Record<string, unknown>): Promise<void> {
+export async function pushState(
+  _url: string | URL,
+  _state: Record<string, unknown>,
+): Promise<void> {
   return;
 }
 
-export async function replaceState(_url: string | URL, _state: Record<string, unknown>): Promise<void> {
+export async function replaceState(
+  _url: string | URL,
+  _state: Record<string, unknown>,
+): Promise<void> {
   return;
 }
 
-export function afterNavigate(_cb: unknown): void { /* noop */ }
-export function beforeNavigate(_cb: unknown): void { /* noop */ }
-export function onNavigate(_cb: unknown): void { /* noop */ }
+export function afterNavigate(_cb: unknown): void {
+  /* noop */
+}
+export function beforeNavigate(_cb: unknown): void {
+  /* noop */
+}
+export function onNavigate(_cb: unknown): void {
+  /* noop */
+}

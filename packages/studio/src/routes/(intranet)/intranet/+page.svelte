@@ -1,43 +1,61 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { base } from '$app/paths';
-  import { auth } from '$lib/auth.svelte.js';
-  import { api } from '$lib/api.js';
-  import { SquareCheck, Bell, Clock, ArrowRight, User as UserIcon, FileText } from '@lucide/svelte';
+import { onMount } from 'svelte';
+import { base } from '$app/paths';
+import { auth } from '$lib/auth.svelte.js';
+import { api } from '$lib/api.js';
+import { SquareCheck, Bell, Clock, ArrowRight, User as UserIcon, FileText } from '@lucide/svelte';
 
-  let notifications = $state<any[]>([]);
-  let pendingTasks = $state<number>(0);
-  let unreadCount = $state<number>(0);
-  let zonePages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
-  let loading = $state(true);
+let notifications = $state<any[]>([]);
+let pendingTasks = $state<number>(0);
+let unreadCount = $state<number>(0);
+let zonePages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
+let loading = $state(true);
 
-  onMount(async () => {
-    const [notifRes, tasksRes, zoneRes] = await Promise.allSettled([
-      api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
-      api.get<{ tasks: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me'),
-      api.get<{ nav: any[] }>('/api/zones/intranet/render'),
-    ]);
-    if (notifRes.status === 'fulfilled') {
-      notifications = (notifRes.value.notifications ?? []).slice(0, 5);
-      unreadCount = notifRes.value.notifications?.length ?? 0;
-    }
-    if (tasksRes.status === 'fulfilled') pendingTasks = tasksRes.value.tasks?.length ?? 0;
-    if (zoneRes.status === 'fulfilled') {
-      zonePages = (zoneRes.value.nav ?? [])
-        .filter((p: any) => !p.is_homepage)
-        .map((p: any) => ({ slug: p.slug, title: p.title, icon: p.icon }));
-    }
-    loading = false;
-  });
+onMount(async () => {
+  const [notifRes, tasksRes, zoneRes] = await Promise.allSettled([
+    api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
+    api.get<{ tasks: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me'),
+    api.get<{ nav: any[] }>('/api/zones/intranet/render'),
+  ]);
+  if (notifRes.status === 'fulfilled') {
+    notifications = (notifRes.value.notifications ?? []).slice(0, 5);
+    unreadCount = notifRes.value.notifications?.length ?? 0;
+  }
+  if (tasksRes.status === 'fulfilled') pendingTasks = tasksRes.value.tasks?.length ?? 0;
+  if (zoneRes.status === 'fulfilled') {
+    zonePages = (zoneRes.value.nav ?? [])
+      .filter((p: any) => !p.is_homepage)
+      .map((p: any) => ({ slug: p.slug, title: p.title, icon: p.icon }));
+  }
+  loading = false;
+});
 
-  // Quick-links point at REAL routes shipped by Studio (notifications, tasks,
-  // profile) — never at slugs that don't exist in the zones DB. Anything that
-  // depends on admin-configured zone pages is rendered separately below.
-  const quickLinks = [
-    { href: `${base}/intranet/tasks`,         icon: SquareCheck, label: 'My Tasks',       desc: 'Approvals & action items', badge: () => pendingTasks },
-    { href: `${base}/intranet/notifications`, icon: Bell,        label: 'Notifications',  desc: 'Recent alerts & updates',  badge: () => unreadCount },
-    { href: `${base}/intranet/profile`,       icon: UserIcon,    label: 'My Profile',     desc: 'View and edit your info',  badge: () => 0 },
-  ];
+// Quick-links point at REAL routes shipped by Studio (notifications, tasks,
+// profile) — never at slugs that don't exist in the zones DB. Anything that
+// depends on admin-configured zone pages is rendered separately below.
+const quickLinks = [
+  {
+    href: `${base}/intranet/tasks`,
+    icon: SquareCheck,
+    label: 'My Tasks',
+    desc: 'Approvals & action items',
+    badge: () => pendingTasks,
+  },
+  {
+    href: `${base}/intranet/notifications`,
+    icon: Bell,
+    label: 'Notifications',
+    desc: 'Recent alerts & updates',
+    badge: () => unreadCount,
+  },
+  {
+    href: `${base}/intranet/profile`,
+    icon: UserIcon,
+    label: 'My Profile',
+    desc: 'View and edit your info',
+    badge: () => 0,
+  },
+];
 </script>
 
 <div class="space-y-8 max-w-4xl">

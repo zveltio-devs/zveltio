@@ -44,7 +44,9 @@ export class RealtimeClient {
             callbacks.forEach((cb) => cb(message));
           }
         }
-      } catch { /* ignore invalid messages */ }
+      } catch {
+        /* ignore invalid messages */
+      }
     };
 
     this.ws.onclose = () => {
