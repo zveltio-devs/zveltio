@@ -1,33 +1,33 @@
 <script lang="ts">
-  /**
-   * Abstract geometric illustrations for empty states.
-   *
-   * Three variants, all 120×120, using `currentColor` so they pick up
-   * `text-primary` / `text-secondary` / `text-base-content/40` from the
-   * parent. Two opacity layers per illustration create depth.
-   *
-   * Why abstract instead of scenes: scenes (people, plants, etc.) age
-   * fast and feel cute. Abstract geometry stays timeless and works in
-   * both light + dark themes without rework.
-   *
-   * Variants:
-   *   - `list`     — stacked rectangles (records, rows, items)
-   *   - `table`    — grid (schema, structured data)
-   *   - `cloud`    — soft cluster (network, integrations, external)
-   *   - `target`   — concentric circles (goals, suggestions, AI)
-   *   - `spark`    — chart bars (metrics, insights, activity)
-   */
+/**
+ * Abstract geometric illustrations for empty states.
+ *
+ * Three variants, all 120×120, using `currentColor` so they pick up
+ * `text-primary` / `text-secondary` / `text-base-content/40` from the
+ * parent. Two opacity layers per illustration create depth.
+ *
+ * Why abstract instead of scenes: scenes (people, plants, etc.) age
+ * fast and feel cute. Abstract geometry stays timeless and works in
+ * both light + dark themes without rework.
+ *
+ * Variants:
+ *   - `list`     — stacked rectangles (records, rows, items)
+ *   - `table`    — grid (schema, structured data)
+ *   - `cloud`    — soft cluster (network, integrations, external)
+ *   - `target`   — concentric circles (goals, suggestions, AI)
+ *   - `spark`    — chart bars (metrics, insights, activity)
+ */
 
-  type Variant = 'list' | 'table' | 'cloud' | 'target' | 'spark';
+type Variant = 'list' | 'table' | 'cloud' | 'target' | 'spark';
 
-  interface Props {
-    variant?: Variant;
-    /** Tailwind text color class. Default `text-primary`. */
-    color?: string;
-    size?: number;
-  }
+interface Props {
+  variant?: Variant;
+  /** Tailwind text color class. Default `text-primary`. */
+  color?: string;
+  size?: number;
+}
 
-  let { variant = 'list', color = 'text-primary', size = 120 }: Props = $props();
+let { variant = 'list', color = 'text-primary', size = 120 }: Props = $props();
 </script>
 
 <svg

@@ -1,77 +1,95 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import { Bell, BellOff, CheckCheck, RefreshCw, LoaderCircle } from '@lucide/svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { Bell, BellOff, CheckCheck, RefreshCw, LoaderCircle } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
 
- interface Notification {
- id: string;
- type: string;
- title: string;
- message: string;
- data: any;
- is_read: boolean;
- created_at: string;
- }
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  data: any;
+  is_read: boolean;
+  created_at: string;
+}
 
- let notifications = $state<Notification[]>([]);
- let loading = $state(true);
- let markingAll = $state(false);
- let unreadOnly = $state(false);
- let activeTab = $state<'inbox' | 'rules'>('inbox');
+let notifications = $state<Notification[]>([]);
+let loading = $state(true);
+let markingAll = $state(false);
+let unreadOnly = $state(false);
+let activeTab = $state<'inbox' | 'rules'>('inbox');
 
- const unreadCount = $derived(notifications.filter(n => !n.is_read).length);
- const filtered = $derived(unreadOnly ? notifications.filter(n => !n.is_read) : notifications);
+const unreadCount = $derived(notifications.filter((n) => !n.is_read).length);
+const filtered = $derived(unreadOnly ? notifications.filter((n) => !n.is_read) : notifications);
 
- onMount(loadNotifications);
+onMount(loadNotifications);
 
- async function loadNotifications() {
- loading = true;
- try {
- const params = unreadOnly ? '?unread_only=true' : '';
- const data = await api.get<{ notifications: Notification[] }>(`/api/admin/notifications${params}`);
- notifications = data.notifications || [];
- } catch { notifications = []; }
- finally { loading = false; }
- }
+async function loadNotifications() {
+  loading = true;
+  try {
+    const params = unreadOnly ? '?unread_only=true' : '';
+    const data = await api.get<{ notifications: Notification[] }>(
+      `/api/admin/notifications${params}`,
+    );
+    notifications = data.notifications || [];
+  } catch {
+    notifications = [];
+  } finally {
+    loading = false;
+  }
+}
 
- async function markRead(id: string) {
- try {
- await api.patch(`/api/admin/notifications/${id}/read`, {});
- notifications = notifications.map(n => n.id === id ? { ...n, is_read: true } : n);
- } catch { /* silent */ }
- }
+async function markRead(id: string) {
+  try {
+    await api.patch(`/api/admin/notifications/${id}/read`, {});
+    notifications = notifications.map((n) => (n.id === id ? { ...n, is_read: true } : n));
+  } catch {
+    /* silent */
+  }
+}
 
- async function markAllRead() {
- markingAll = true;
- try {
- await api.post('/api/admin/notifications/mark-all-read', {});
- notifications = notifications.map(n => ({ ...n, is_read: true }));
- } catch { /* silent */ }
- finally { markingAll = false; }
- }
+async function markAllRead() {
+  markingAll = true;
+  try {
+    await api.post('/api/admin/notifications/mark-all-read', {});
+    notifications = notifications.map((n) => ({ ...n, is_read: true }));
+  } catch {
+    /* silent */
+  } finally {
+    markingAll = false;
+  }
+}
 
- function typeClass(type: string): string {
- switch (type) {
- case 'error': return 'text-error';
- case 'warning': return 'text-warning';
- case 'success': return 'text-success';
- default: return 'text-info';
- }
- }
+function typeClass(type: string): string {
+  switch (type) {
+    case 'error':
+      return 'text-error';
+    case 'warning':
+      return 'text-warning';
+    case 'success':
+      return 'text-success';
+    default:
+      return 'text-info';
+  }
+}
 
- function typeIcon(type: string): string {
- switch (type) {
- case 'error': return '✗';
- case 'warning': return '⚠';
- case 'success': return '✓';
- default: return 'ℹ';
- }
- }
+function typeIcon(type: string): string {
+  switch (type) {
+    case 'error':
+      return '✗';
+    case 'warning':
+      return '⚠';
+    case 'success':
+      return '✓';
+    default:
+      return 'ℹ';
+  }
+}
 
- function fmt(s: string) {
- return new Date(s).toLocaleString();
- }
+function fmt(s: string) {
+  return new Date(s).toLocaleString();
+}
 </script>
 
 <div class="space-y-6">

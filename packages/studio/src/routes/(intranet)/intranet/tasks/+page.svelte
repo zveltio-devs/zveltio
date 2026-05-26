@@ -1,54 +1,56 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { SquareCheck, Clock, ArrowRight, Inbox } from '@lucide/svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { SquareCheck, Clock, ArrowRight, Inbox } from '@lucide/svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  let tasks = $state<any[]>([]);
-  let loading = $state(true);
-  let busy = $state<string | null>(null);
+let tasks = $state<any[]>([]);
+let loading = $state(true);
+let busy = $state<string | null>(null);
 
-  async function load() {
-    loading = true;
-    try {
-      // The approvals extension exposes /api/approvals; if not installed we
-      // fall back to empty so the page degrades gracefully.
-      const res = await api.get<{ tasks?: any[]; approvals?: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me');
-      tasks = res.tasks ?? res.approvals ?? [];
-    } catch {
-      tasks = [];
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  try {
+    // The approvals extension exposes /api/approvals; if not installed we
+    // fall back to empty so the page degrades gracefully.
+    const res = await api.get<{ tasks?: any[]; approvals?: any[] }>(
+      '/ext/workflow/approvals?status=pending&assigned_to=me',
+    );
+    tasks = res.tasks ?? res.approvals ?? [];
+  } catch {
+    tasks = [];
+  } finally {
+    loading = false;
   }
+}
 
-  async function approve(id: string) {
-    busy = id;
-    try {
-      await api.post(`/ext/workflow/approvals/${id}/approve`, {});
-      toast.success('Approved');
-      await load();
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to approve');
-    } finally {
-      busy = null;
-    }
+async function approve(id: string) {
+  busy = id;
+  try {
+    await api.post(`/ext/workflow/approvals/${id}/approve`, {});
+    toast.success('Approved');
+    await load();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to approve');
+  } finally {
+    busy = null;
   }
+}
 
-  async function reject(id: string) {
-    busy = id;
-    try {
-      await api.post(`/ext/workflow/approvals/${id}/reject`, {});
-      toast.success('Rejected');
-      await load();
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to reject');
-    } finally {
-      busy = null;
-    }
+async function reject(id: string) {
+  busy = id;
+  try {
+    await api.post(`/ext/workflow/approvals/${id}/reject`, {});
+    toast.success('Rejected');
+    await load();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to reject');
+  } finally {
+    busy = null;
   }
+}
 
-  onMount(load);
+onMount(load);
 </script>
 
 <div class="space-y-5 max-w-3xl">

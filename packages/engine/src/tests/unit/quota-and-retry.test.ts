@@ -19,7 +19,11 @@ describe('directorySizeBytes', () => {
   });
 
   afterEach(() => {
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it('returns 0 for a non-existent directory', async () => {

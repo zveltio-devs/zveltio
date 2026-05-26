@@ -63,14 +63,19 @@ function readManifestName(dir: string, override?: string): string {
   if (override) return override;
   const manifestPath = join(dir, 'manifest.json');
   if (!existsSync(manifestPath)) {
-    throw new Error(`No manifest.json at ${manifestPath}. Pass --name or run from the extension's root.`);
+    throw new Error(
+      `No manifest.json at ${manifestPath}. Pass --name or run from the extension's root.`,
+    );
   }
   const Bun_ = (globalThis as any).Bun;
   // Synchronous read for startup simplicity.
   const raw = require('fs').readFileSync(manifestPath, 'utf8') as string;
   let m: Manifest;
-  try { m = JSON.parse(raw) as Manifest; }
-  catch (e) { throw new Error(`manifest.json is not valid JSON: ${(e as Error).message}`); }
+  try {
+    m = JSON.parse(raw) as Manifest;
+  } catch (e) {
+    throw new Error(`manifest.json is not valid JSON: ${(e as Error).message}`);
+  }
   if (typeof m.name !== 'string') throw new Error('manifest.json missing string `name`');
   return m.name;
 }
@@ -83,15 +88,26 @@ function collectEngineFiles(engineDir: string): string[] {
   while (stack.length > 0) {
     const dir = stack.pop()!;
     let entries: string[];
-    try { entries = readdirSync(dir); } catch { continue; }
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
     for (const name of entries) {
       if (name === 'node_modules' || name === 'dist' || name.startsWith('.')) continue;
       const full = join(dir, name);
       let st;
-      try { st = statSync(full); } catch { continue; }
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
       if (st.isDirectory()) {
         stack.push(full);
-      } else if (st.isFile() && (name.endsWith('.ts') || name.endsWith('.js') || name.endsWith('.sql'))) {
+      } else if (
+        st.isFile() &&
+        (name.endsWith('.ts') || name.endsWith('.js') || name.endsWith('.sql'))
+      ) {
         out.push(full);
       }
     }
@@ -99,7 +115,10 @@ function collectEngineFiles(engineDir: string): string[] {
   return out;
 }
 
-async function postReload(url: string, name: string): Promise<{ ok: boolean; status: number; body: any }> {
+async function postReload(
+  url: string,
+  name: string,
+): Promise<{ ok: boolean; status: number; body: any }> {
   const endpoint = `${url.replace(/\/$/, '')}/__zveltio_dev_reload`;
   let res: Response;
   try {
@@ -117,12 +136,19 @@ async function postReload(url: string, name: string): Promise<{ ok: boolean; sta
 
 export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promise<void> {
   const dir = resolve(opts.dir ?? process.cwd());
-  const url = (opts.url ?? process.env.ZVELTIO_ENGINE_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+  const url = (opts.url ?? process.env.ZVELTIO_ENGINE_URL ?? 'http://localhost:3000').replace(
+    /\/$/,
+    '',
+  );
   const engineDir = join(dir, 'engine');
 
   let extName: string;
-  try { extName = readManifestName(dir, opts.name); }
-  catch (e) { console.error(c.red((e as Error).message)); process.exit(1); }
+  try {
+    extName = readManifestName(dir, opts.name);
+  } catch (e) {
+    console.error(c.red((e as Error).message));
+    process.exit(1);
+  }
 
   console.log(`\n${c.bold('Extension dev')}\n`);
   console.log(`  Extension:  ${c.cyan(extName)}`);
@@ -134,11 +160,19 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
   // endpoint is gated off).
   const probe = await postReload(url, '__probe__');
   if (probe.status === 0) {
-    console.error(c.red(`\n  Cannot reach engine at ${url}. Start it with \`bun run dev\` in the engine package first.`));
+    console.error(
+      c.red(
+        `\n  Cannot reach engine at ${url}. Start it with \`bun run dev\` in the engine package first.`,
+      ),
+    );
     process.exit(1);
   }
   if (probe.status === 404) {
-    console.error(c.red('\n  Engine returned 404 on /__zveltio_dev_reload. Is NODE_ENV=production? The endpoint is dev-only.'));
+    console.error(
+      c.red(
+        '\n  Engine returned 404 on /__zveltio_dev_reload. Is NODE_ENV=production? The endpoint is dev-only.',
+      ),
+    );
     process.exit(1);
   }
   // 400 / 500 for the probe is fine — the endpoint exists and we just sent a fake name.
@@ -153,7 +187,9 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
     });
     console.log(`  Studio:     ${c.green('watching (vite dev)')}`);
   } else {
-    console.log(`  Studio:     ${c.dim(opts.noStudio ? 'skipped (--no-studio)' : 'no studio/ folder — skipped')}`);
+    console.log(
+      `  Studio:     ${c.dim(opts.noStudio ? 'skipped (--no-studio)' : 'no studio/ folder — skipped')}`,
+    );
   }
 
   // Engine watch.
@@ -161,7 +197,9 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
     console.log(`  Engine src: ${c.yellow('no engine/ folder — engine watch disabled')}`);
   } else {
     const files = collectEngineFiles(engineDir);
-    console.log(`  Engine src: ${c.green(`watching ${files.length} file(s)`)} ${c.dim(`(.ts / .js / .sql under engine/)`)}`);
+    console.log(
+      `  Engine src: ${c.green(`watching ${files.length} file(s)`)} ${c.dim(`(.ts / .js / .sql under engine/)`)}`,
+    );
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastTrigger = '';
@@ -190,7 +228,13 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
     // SIGINT handling.
     const cleanup = () => {
       console.log(`\n\n${c.dim('Stopping watchers…')}`);
-      for (const w of watchers) { try { w.close(); } catch { /* */ } }
+      for (const w of watchers) {
+        try {
+          w.close();
+        } catch {
+          /* */
+        }
+      }
       if (studioProc && !studioProc.killed) studioProc.kill();
       process.exit(0);
     };
@@ -205,6 +249,8 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
     await studioProc.exited;
   } else {
     // Idle wait — keep the process alive until SIGINT.
-    await new Promise<void>(() => { /* never resolves */ });
+    await new Promise<void>(() => {
+      /* never resolves */
+    });
   }
 }

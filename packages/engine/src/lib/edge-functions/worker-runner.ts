@@ -99,12 +99,7 @@ function normalizeHostname(hostname: string): string {
   if (/^\d+$/.test(hostname)) {
     const n = parseInt(hostname, 10);
     if (!isNaN(n) && n >= 0 && n <= 0xffffffff) {
-      return [
-        (n >>> 24) & 0xff,
-        (n >>> 16) & 0xff,
-        (n >>> 8) & 0xff,
-        n & 0xff,
-      ].join('.');
+      return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
     }
   }
 
@@ -125,12 +120,7 @@ function normalizeHostname(hostname: string): string {
   if (/^0x[0-9a-f]+$/i.test(hostname)) {
     const n = parseInt(hostname, 16);
     if (!isNaN(n) && n >= 0 && n <= 0xffffffff) {
-      return [
-        (n >>> 24) & 0xff,
-        (n >>> 16) & 0xff,
-        (n >>> 8) & 0xff,
-        n & 0xff,
-      ].join('.');
+      return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
     }
   }
 
@@ -161,9 +151,7 @@ const safeFetch = async (
   // Block non-http/https schemes first
   const lower = url.toLowerCase();
   if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
-    throw new Error(
-      `[Zveltio Sandbox] Only http:// and https:// URLs are allowed. Got: ${url}`,
-    );
+    throw new Error(`[Zveltio Sandbox] Only http:// and https:// URLs are allowed. Got: ${url}`);
   }
 
   // Normalise the hostname to canonical dotted-decimal before prefix-matching
@@ -195,9 +183,7 @@ const safeFetch = async (
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get('location');
     if (!location)
-      throw new Error(
-        '[Zveltio Sandbox] Redirect with no Location header blocked for security.',
-      );
+      throw new Error('[Zveltio Sandbox] Redirect with no Location header blocked for security.');
     // Re-validate the redirect target — blocks chains like public.example.com → 169.254.169.254
     return safeFetch(new URL(location, url).toString(), init, _hops + 1);
   }

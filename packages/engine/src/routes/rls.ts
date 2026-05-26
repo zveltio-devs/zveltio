@@ -3,12 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
-import {
-  listRlsPolicies,
-  createRlsPolicy,
-  updateRlsPolicy,
-  deleteRlsPolicy,
-} from '../lib/rls.js';
+import { listRlsPolicies, createRlsPolicy, updateRlsPolicy, deleteRlsPolicy } from '../lib/rls.js';
 
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });

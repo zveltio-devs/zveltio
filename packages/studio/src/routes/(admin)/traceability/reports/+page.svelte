@@ -1,60 +1,60 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { api } from '$lib/api.js';
-  const API = '/ext/operations/traceability';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { api } from '$lib/api.js';
+const API = '/ext/operations/traceability';
 
-  type ReportType = 'ansvsa' | 'reception' | 'consumption' | 'stock' | 'haccp';
+type ReportType = 'ansvsa' | 'reception' | 'consumption' | 'stock' | 'haccp';
 
-  let reportType = $state<ReportType>('ansvsa');
-  let dateFrom = $state(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
-  let dateTo = $state(new Date().toISOString().slice(0, 10));
-  let loading = $state(false);
-  let data = $state<any[]>([]);
-  let error = $state('');
-  let meta = $state<any>(null);
+let reportType = $state<ReportType>('ansvsa');
+let dateFrom = $state(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+let dateTo = $state(new Date().toISOString().slice(0, 10));
+let loading = $state(false);
+let data = $state<any[]>([]);
+let error = $state('');
+let meta = $state<any>(null);
 
-  const ENDPOINT: Record<ReportType, string> = {
-    ansvsa: 'ansvsa-traceability',
-    reception: 'reception-log',
-    consumption: 'consumption-log',
-    stock: 'stock-snapshot',
-    haccp: 'haccp-log',
-  };
+const ENDPOINT: Record<ReportType, string> = {
+  ansvsa: 'ansvsa-traceability',
+  reception: 'reception-log',
+  consumption: 'consumption-log',
+  stock: 'stock-snapshot',
+  haccp: 'haccp-log',
+};
 
-  async function load() {
-    loading = true;
-    error = '';
-    data = [];
-    meta = null;
-    try {
-      const params = new URLSearchParams();
-      if (reportType !== 'stock') {
-        params.set('from', dateFrom);
-        params.set('to', dateTo);
-      }
-      const res = await api.fetch(`${API}/reports/${ENDPOINT[reportType]}?${params}`);
-      if (!res.ok) throw new Error(await res.text());
-      const json = await res.json();
-      data = json.data ?? [];
-      meta = json.meta ?? null;
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      loading = false;
-    }
-  }
-
-  function downloadCsv() {
-    const params = new URLSearchParams({ format: 'csv' });
+async function load() {
+  loading = true;
+  error = '';
+  data = [];
+  meta = null;
+  try {
+    const params = new URLSearchParams();
     if (reportType !== 'stock') {
       params.set('from', dateFrom);
       params.set('to', dateTo);
     }
-    window.open(`${API}/reports/${ENDPOINT[reportType]}?${params}`, '_blank');
+    const res = await api.fetch(`${API}/reports/${ENDPOINT[reportType]}?${params}`);
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    data = json.data ?? [];
+    meta = json.meta ?? null;
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    loading = false;
   }
+}
 
-  const columns = $derived(data.length > 0 ? Object.keys(data[0]) : []);
+function downloadCsv() {
+  const params = new URLSearchParams({ format: 'csv' });
+  if (reportType !== 'stock') {
+    params.set('from', dateFrom);
+    params.set('to', dateTo);
+  }
+  window.open(`${API}/reports/${ENDPOINT[reportType]}?${params}`, '_blank');
+}
+
+const columns = $derived(data.length > 0 ? Object.keys(data[0]) : []);
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.reports.title']()}>

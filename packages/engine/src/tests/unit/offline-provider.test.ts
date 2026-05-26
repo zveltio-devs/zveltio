@@ -27,7 +27,9 @@ describe('S5-07 createOfflineProvider — crdt path', () => {
     const p = await createOfflineProvider({ engineUrl: 'http://localhost:3000' });
     await expect(p.pull()).resolves.toBeUndefined();
     await expect(p.push()).resolves.toBe(0);
-    const off = p.subscribe('zvd_contacts', () => { /* */ });
+    const off = p.subscribe('zvd_contacts', () => {
+      /* */
+    });
     expect(typeof off).toBe('function');
     off();
     await expect(p.close()).resolves.toBeUndefined();
@@ -68,8 +70,12 @@ class FakeWebSocket {
   addEventListener(name: string, fn: (ev: unknown) => void) {
     (this.handlers[name] ||= []).push(fn);
   }
-  send(data: string) { this.sent.push(data); }
-  close() { this.readyState = 3; }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = 3;
+  }
 
   // Test helper — drive a fake server message.
   _emitMessage(msg: object) {
@@ -77,14 +83,13 @@ class FakeWebSocket {
   }
 }
 
-function makeFetchStub(opts: {
-  status: number;
-  body: object;
-}): typeof fetch {
+function makeFetchStub(opts: { status: number; body: object }): typeof fetch {
   return (async () => ({
     ok: opts.status >= 200 && opts.status < 300,
     status: opts.status,
-    async json() { return opts.body; },
+    async json() {
+      return opts.body;
+    },
   })) as unknown as typeof fetch;
 }
 
@@ -127,7 +132,10 @@ describe('S5-07 createOfflineProvider — electric provider', () => {
     // `_emitMessage` on it inside the test.
     let captured: FakeWebSocket | null = null;
     class CapturingFake extends FakeWebSocket {
-      constructor(url: string) { super(url); captured = this; }
+      constructor(url: string) {
+        super(url);
+        captured = this;
+      }
     }
 
     const p = await createOfflineProvider({
@@ -167,7 +175,9 @@ describe('S5-07 createOfflineProvider — electric provider', () => {
         fetch: fetchStub,
         websocket: FakeWebSocket as unknown as typeof WebSocket,
       });
-    } catch (e) { caught = e as Error; }
+    } catch (e) {
+      caught = e as Error;
+    }
     expect(caught).toBeInstanceOf(ElectricUnavailable);
     expect(caught!.message).toContain('ELECTRIC_URL');
   });
@@ -182,7 +192,9 @@ describe('S5-07 createOfflineProvider — electric provider', () => {
         fetch: fetchStub,
         websocket: FakeWebSocket as unknown as typeof WebSocket,
       });
-    } catch (e) { caught = e as Error; }
+    } catch (e) {
+      caught = e as Error;
+    }
     expect(caught).toBeInstanceOf(ElectricUnavailable);
     expect(caught!.message).toContain('sign in');
   });
@@ -197,7 +209,9 @@ describe('S5-07 createOfflineProvider — electric provider', () => {
         fetch: fetchStub,
         websocket: FakeWebSocket as unknown as typeof WebSocket,
       });
-    } catch (e) { caught = e as Error; }
+    } catch (e) {
+      caught = e as Error;
+    }
     expect(caught).not.toBeNull();
     expect(caught!.message.toLowerCase()).toContain('crdt');
   });

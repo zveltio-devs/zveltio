@@ -1,187 +1,193 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import {
- Building2,
- RefreshCw,
- Edit,
- PauseCircle,
- PlayCircle,
- Layers,
- ChevronDown,
- ChevronUp,
- X,
- Check,
- Plus,
- } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import CrudListPage from '$lib/components/common/CrudListPage.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  Building2,
+  RefreshCw,
+  Edit,
+  PauseCircle,
+  PlayCircle,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Check,
+  Plus,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- // ── State ──────────────────────────────────────────────────────────────────
- let tenants = $state<any[]>([]);
- let loading = $state(false);
+// ── State ──────────────────────────────────────────────────────────────────
+let tenants = $state<any[]>([]);
+let loading = $state(false);
 
- // Create tenant modal
- let showCreateModal = $state(false);
- let creating = $state(false);
- let createForm = $state({
- slug: '',
- name: '',
- plan: 'free',
- billing_email: '',
- admin_user_email: '',
- });
- let createError = $state('');
+// Create tenant modal
+let showCreateModal = $state(false);
+let creating = $state(false);
+let createForm = $state({
+  slug: '',
+  name: '',
+  plan: 'free',
+  billing_email: '',
+  admin_user_email: '',
+});
+let createError = $state('');
 
- // Edit limits modal
- let editingTenant = $state<any>(null);
- let editForm = $state<any>({});
- let saving = $state(false);
+// Edit limits modal
+let editingTenant = $state<any>(null);
+let editForm = $state<any>({});
+let saving = $state(false);
 
- // Environments panel
- let expandedTenant = $state<string | null>(null);
- let envsByTenant = $state<Record<string, any[]>>({});
- let loadingEnvs = $state<string | null>(null);
+// Environments panel
+let expandedTenant = $state<string | null>(null);
+let envsByTenant = $state<Record<string, any[]>>({});
+let loadingEnvs = $state<string | null>(null);
 
- // Create environment modal
- let creatingEnvForTenant = $state<any>(null);
- let envForm = $state({ slug: '', name: '' });
- let creatingEnv = $state(false);
- let createEnvError = $state('');
+// Create environment modal
+let creatingEnvForTenant = $state<any>(null);
+let envForm = $state({ slug: '', name: '' });
+let creatingEnv = $state(false);
+let createEnvError = $state('');
 
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- // ── Lifecycle ──────────────────────────────────────────────────────────────
- onMount(loadTenants);
+// ── Lifecycle ──────────────────────────────────────────────────────────────
+onMount(loadTenants);
 
- // ── API helpers ────────────────────────────────────────────────────────────
- async function loadTenants() {
- loading = true;
- try {
- const data = await api.get<{ tenants: any[] }>('/api/tenants');
- tenants = data.tenants;
- } catch (e: any) {
- toast.error(e.message ?? 'Something went wrong');
- } finally {
- loading = false;
- }
- }
+// ── API helpers ────────────────────────────────────────────────────────────
+async function loadTenants() {
+  loading = true;
+  try {
+    const data = await api.get<{ tenants: any[] }>('/api/tenants');
+    tenants = data.tenants;
+  } catch (e: any) {
+    toast.error(e.message ?? 'Something went wrong');
+  } finally {
+    loading = false;
+  }
+}
 
- async function createTenant() {
- creating = true;
- createError = '';
- try {
- await api.post('/api/tenants', {
- slug: createForm.slug,
- name: createForm.name,
- plan: createForm.plan,
- billing_email: createForm.billing_email || undefined,
- admin_user_email: createForm.admin_user_email,
- });
- showCreateModal = false;
- createForm = { slug: '', name: '', plan: 'free', billing_email: '', admin_user_email: '' };
- await loadTenants();
- } catch (e: any) {
- createError = e.message;
- } finally {
- creating = false;
- }
- }
+async function createTenant() {
+  creating = true;
+  createError = '';
+  try {
+    await api.post('/api/tenants', {
+      slug: createForm.slug,
+      name: createForm.name,
+      plan: createForm.plan,
+      billing_email: createForm.billing_email || undefined,
+      admin_user_email: createForm.admin_user_email,
+    });
+    showCreateModal = false;
+    createForm = { slug: '', name: '', plan: 'free', billing_email: '', admin_user_email: '' };
+    await loadTenants();
+  } catch (e: any) {
+    createError = e.message;
+  } finally {
+    creating = false;
+  }
+}
 
- async function suspendTenant(tenant: any) {
- const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
- const action = newStatus === 'suspended' ? 'Suspend' : 'Reactivate';
- confirmState = {
- open: true,
- title: `${action} Tenant`,
- message: `${action} tenant "${tenant.name}"?`,
- confirmLabel: action,
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.patch(`/api/tenants/${tenant.id}`, { status: newStatus });
- await loadTenants();
- } catch (e: any) {
- toast.error(e.message);
- }
- },
- };
- }
+async function suspendTenant(tenant: any) {
+  const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
+  const action = newStatus === 'suspended' ? 'Suspend' : 'Reactivate';
+  confirmState = {
+    open: true,
+    title: `${action} Tenant`,
+    message: `${action} tenant "${tenant.name}"?`,
+    confirmLabel: action,
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.patch(`/api/tenants/${tenant.id}`, { status: newStatus });
+        await loadTenants();
+      } catch (e: any) {
+        toast.error(e.message);
+      }
+    },
+  };
+}
 
- function openEditLimits(tenant: any) {
- editingTenant = tenant;
- editForm = {
- max_records: tenant.max_records,
- max_storage_gb: tenant.max_storage_gb,
- max_api_calls_day: tenant.max_api_calls_day,
- max_users: tenant.max_users,
- plan: tenant.plan,
- };
- }
+function openEditLimits(tenant: any) {
+  editingTenant = tenant;
+  editForm = {
+    max_records: tenant.max_records,
+    max_storage_gb: tenant.max_storage_gb,
+    max_api_calls_day: tenant.max_api_calls_day,
+    max_users: tenant.max_users,
+    plan: tenant.plan,
+  };
+}
 
- async function saveLimits() {
- saving = true;
- try {
- await api.patch(`/api/tenants/${editingTenant.id}`, editForm);
- editingTenant = null;
- await loadTenants();
- } catch (e: any) {
- toast.error(e.message);
- } finally {
- saving = false;
- }
- }
+async function saveLimits() {
+  saving = true;
+  try {
+    await api.patch(`/api/tenants/${editingTenant.id}`, editForm);
+    editingTenant = null;
+    await loadTenants();
+  } catch (e: any) {
+    toast.error(e.message);
+  } finally {
+    saving = false;
+  }
+}
 
- async function toggleEnvironments(tenant: any) {
- if (expandedTenant === tenant.id) {
- expandedTenant = null;
- return;
- }
- expandedTenant = tenant.id;
- if (!envsByTenant[tenant.id]) {
- loadingEnvs = tenant.id;
- try {
- const data = await api.get<{ environments: any[] }>(`/api/tenants/${tenant.id}/environments`);
- envsByTenant[tenant.id] = data.environments;
- } catch {
- envsByTenant[tenant.id] = [];
- } finally {
- loadingEnvs = null;
- }
- }
- }
+async function toggleEnvironments(tenant: any) {
+  if (expandedTenant === tenant.id) {
+    expandedTenant = null;
+    return;
+  }
+  expandedTenant = tenant.id;
+  if (!envsByTenant[tenant.id]) {
+    loadingEnvs = tenant.id;
+    try {
+      const data = await api.get<{ environments: any[] }>(`/api/tenants/${tenant.id}/environments`);
+      envsByTenant[tenant.id] = data.environments;
+    } catch {
+      envsByTenant[tenant.id] = [];
+    } finally {
+      loadingEnvs = null;
+    }
+  }
+}
 
- function openCreateEnv(tenant: any) {
- creatingEnvForTenant = tenant;
- envForm = { slug: '', name: '' };
- createEnvError = '';
- }
+function openCreateEnv(tenant: any) {
+  creatingEnvForTenant = tenant;
+  envForm = { slug: '', name: '' };
+  createEnvError = '';
+}
 
- async function createEnvironment() {
- creatingEnv = true;
- createEnvError = '';
- try {
- await api.post(`/api/tenants/${creatingEnvForTenant.id}/environments`, envForm);
- const data = await api.get<{ environments: any[] }>(`/api/tenants/${creatingEnvForTenant.id}/environments`);
- envsByTenant[creatingEnvForTenant.id] = data.environments;
- creatingEnvForTenant = null;
- } catch (e: any) {
- createEnvError = e.message;
- } finally {
- creatingEnv = false;
- }
- }
+async function createEnvironment() {
+  creatingEnv = true;
+  createEnvError = '';
+  try {
+    await api.post(`/api/tenants/${creatingEnvForTenant.id}/environments`, envForm);
+    const data = await api.get<{ environments: any[] }>(
+      `/api/tenants/${creatingEnvForTenant.id}/environments`,
+    );
+    envsByTenant[creatingEnvForTenant.id] = data.environments;
+    creatingEnvForTenant = null;
+  } catch (e: any) {
+    createEnvError = e.message;
+  } finally {
+    creatingEnv = false;
+  }
+}
 
- // ── Helpers ────────────────────────────────────────────────────────────────
- const PLAN_BADGES: Record<string, string> = {
- free: 'badge-ghost',
- pro: 'badge-primary',
- enterprise: 'badge-secondary',
- custom: 'badge-accent',
- };
-
-
+// ── Helpers ────────────────────────────────────────────────────────────────
+const PLAN_BADGES: Record<string, string> = {
+  free: 'badge-ghost',
+  pro: 'badge-primary',
+  enterprise: 'badge-secondary',
+  custom: 'badge-accent',
+};
 </script>
 
 <CrudListPage

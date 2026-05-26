@@ -1,69 +1,69 @@
 <script lang="ts">
-	/**
-	 * SmartNavbar - Intelligent navbar with dynamic positioning
-	 * Positions: top, bottom, left, right
-	 * Includes: user menu, theme switcher, logo, nav items
-	 */
-	import type { Snippet } from 'svelte';
+/**
+ * SmartNavbar - Intelligent navbar with dynamic positioning
+ * Positions: top, bottom, left, right
+ * Includes: user menu, theme switcher, logo, nav items
+ */
+import type { Snippet } from 'svelte';
 
-	interface NavItem {
-		label: string;
-		href: string;
-		icon?: Snippet;
-	}
+interface NavItem {
+  label: string;
+  href: string;
+  icon?: Snippet;
+}
 
-	interface User {
-		name?: string;
-		email?: string;
-		avatar?: string;
-	}
+interface User {
+  name?: string;
+  email?: string;
+  avatar?: string;
+}
 
-	let {
-		position = 'top',
-		user = null,
-		navItems = [],
-		logo = null,
-		currentTheme = 'light',
-		onThemeToggle,
-		onLogout = null,
-		onPositionChange = null,
-		isDraggable = false
-	}: {
-		position?: 'top' | 'bottom' | 'left' | 'right';
-		user?: User | null;
-		navItems?: NavItem[];
-		logo?: Snippet | null;
-		currentTheme?: string;
-		onThemeToggle: (theme: string) => void;
-		onLogout?: (() => void) | null;
-		onPositionChange?: ((position: string) => Promise<void>) | null;
-		isDraggable?: boolean;
-	} = $props();
+let {
+  position = 'top',
+  user = null,
+  navItems = [],
+  logo = null,
+  currentTheme = 'light',
+  onThemeToggle,
+  onLogout = null,
+  onPositionChange = null,
+  isDraggable = false,
+}: {
+  position?: 'top' | 'bottom' | 'left' | 'right';
+  user?: User | null;
+  navItems?: NavItem[];
+  logo?: Snippet | null;
+  currentTheme?: string;
+  onThemeToggle: (theme: string) => void;
+  onLogout?: (() => void) | null;
+  onPositionChange?: ((position: string) => Promise<void>) | null;
+  isDraggable?: boolean;
+} = $props();
 
-	let dragging = $state(false);
-	let showPositionMenu = $state(false);
+let dragging = $state(false);
+let showPositionMenu = $state(false);
 
-	const isHorizontal = $derived(position === 'top' || position === 'bottom');
-	const isVertical = $derived(position === 'left' || position === 'right');
+const isHorizontal = $derived(position === 'top' || position === 'bottom');
+const isVertical = $derived(position === 'left' || position === 'right');
 
-	const positionClasses = {
-		top: 'top-0 left-0 right-0 flex-row border-b',
-		bottom: 'bottom-0 left-0 right-0 flex-row border-t',
-		left: 'top-0 bottom-0 left-0 flex-col border-r w-64',
-		right: 'top-0 bottom-0 right-0 flex-col border-l w-64'
-	};
+const positionClasses = {
+  top: 'top-0 left-0 right-0 flex-row border-b',
+  bottom: 'bottom-0 left-0 right-0 flex-row border-t',
+  left: 'top-0 bottom-0 left-0 flex-col border-r w-64',
+  right: 'top-0 bottom-0 right-0 flex-col border-l w-64',
+};
 
-	async function changePosition(newPos: 'top' | 'bottom' | 'left' | 'right') {
-		if (onPositionChange) {
-			await onPositionChange(newPos);
-		}
-		showPositionMenu = false;
-	}
+async function changePosition(newPos: 'top' | 'bottom' | 'left' | 'right') {
+  if (onPositionChange) {
+    await onPositionChange(newPos);
+  }
+  showPositionMenu = false;
+}
 
-	function handleThemeToggle() {
-		const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-		onThemeToggle(newTheme);
-	}
+function handleThemeToggle() {
+  const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+  onThemeToggle(newTheme);
+}
 </script>
 
 <nav

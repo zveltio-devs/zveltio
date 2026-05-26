@@ -7,7 +7,16 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     category: 'text',
     db: { columnType: 'text' },
     api: {
-      filterOperators: ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_null', 'is_not_null'],
+      filterOperators: [
+        'eq',
+        'neq',
+        'contains',
+        'not_contains',
+        'starts_with',
+        'ends_with',
+        'is_null',
+        'is_not_null',
+      ],
       validate: (v, f) => {
         if (f.required && (!v || (typeof v === 'string' && v.trim() === ''))) {
           return `${f.label || f.name} is required`;
@@ -24,10 +33,22 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     category: 'number',
     db: { columnType: 'numeric' },
     api: {
-      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'is_null', 'is_not_null'],
+      filterOperators: [
+        'eq',
+        'neq',
+        'lt',
+        'lte',
+        'gt',
+        'gte',
+        'in',
+        'not_in',
+        'is_null',
+        'is_not_null',
+      ],
       deserialize: (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
       validate: (v) => {
-        if (v !== null && v !== undefined && v !== '' && isNaN(Number(v))) return 'Must be a number';
+        if (v !== null && v !== undefined && v !== '' && isNaN(Number(v)))
+          return 'Must be a number';
         return null;
       },
     },
@@ -92,7 +113,11 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['eq', 'neq', 'contains', 'is_null', 'is_not_null'],
       validate: (v) => {
         if (v) {
-          try { new URL(v); } catch { return 'Invalid URL'; }
+          try {
+            new URL(v);
+          } catch {
+            return 'Invalid URL';
+          }
         }
         return null;
       },
@@ -234,10 +259,27 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     category: 'number',
     db: { columnType: 'bigint' },
     api: {
-      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'is_null', 'is_not_null'],
-      deserialize: (v) => (v === '' || v === null || v === undefined ? null : Math.trunc(Number(v))),
+      filterOperators: [
+        'eq',
+        'neq',
+        'lt',
+        'lte',
+        'gt',
+        'gte',
+        'in',
+        'not_in',
+        'is_null',
+        'is_not_null',
+      ],
+      deserialize: (v) =>
+        v === '' || v === null || v === undefined ? null : Math.trunc(Number(v)),
       validate: (v) => {
-        if (v !== null && v !== undefined && v !== '' && (!Number.isInteger(Number(v)) || isNaN(Number(v)))) {
+        if (
+          v !== null &&
+          v !== undefined &&
+          v !== '' &&
+          (!Number.isInteger(Number(v)) || isNaN(Number(v)))
+        ) {
           return 'Must be an integer';
         }
         return null;
@@ -255,7 +297,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
       deserialize: (v) => (v === '' || v === null || v === undefined ? null : parseFloat(v)),
       validate: (v) => {
-        if (v !== null && v !== undefined && v !== '' && isNaN(parseFloat(v))) return 'Must be a number';
+        if (v !== null && v !== undefined && v !== '' && isNaN(parseFloat(v)))
+          return 'Must be a number';
         return null;
       },
     },
@@ -287,7 +330,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       deserialize: async (v: string) => {
         if (!v || v.startsWith('$2')) return v; // already hashed
         try {
-          return await (globalThis as any).Bun?.password?.hash(v) ?? v;
+          return (await (globalThis as any).Bun?.password?.hash(v)) ?? v;
         } catch {
           return v;
         }
@@ -369,7 +412,12 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
       serialize: (v) => (Array.isArray(v) ? v : typeof v === 'string' ? JSON.parse(v) : []),
-      deserialize: (v) => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(',').map((s: string) => s.trim()) : []),
+      deserialize: (v) =>
+        Array.isArray(v)
+          ? v
+          : typeof v === 'string'
+            ? v.split(',').map((s: string) => s.trim())
+            : [],
     },
     typescript: { inputType: 'string[]', outputType: 'string[]' },
   });
@@ -387,8 +435,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['is_null', 'is_not_null'],
     },
     typescript: {
-      inputType: '{ url: string; name: string; size: number; width?: number; height?: number; alt?: string }',
-      outputType: '{ url: string; name: string; size: number; width?: number; height?: number; alt?: string }',
+      inputType:
+        '{ url: string; name: string; size: number; width?: number; height?: number; alt?: string }',
+      outputType:
+        '{ url: string; name: string; size: number; width?: number; height?: number; alt?: string }',
     },
   });
 
@@ -397,7 +447,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'o2m',
     label: 'One to Many',
-    description: 'Reverse side of an m2o relation. No DB column — resolved via relation definition.',
+    description:
+      'Reverse side of an m2o relation. No DB column — resolved via relation definition.',
     category: 'relation',
     db: { columnType: 'text', virtual: true },
     api: { filterOperators: [] },
@@ -421,7 +472,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     category: 'relation',
     db: { columnType: 'text', virtual: true },
     api: { filterOperators: [] },
-    typescript: { inputType: '{ collection: string; id: string }[]', outputType: '{ collection: string; id: string; record: any }[]' },
+    typescript: {
+      inputType: '{ collection: string; id: string }[]',
+      outputType: '{ collection: string; id: string; record: any }[]',
+    },
   });
 
   // ── Geospatial (requires PostGIS) ─────────────────────────────
@@ -473,8 +527,20 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     category: 'number',
     db: { columnType: 'smallint' },
     api: {
-      filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'not_in', 'is_null', 'is_not_null'],
-      deserialize: (v) => (v === '' || v === null || v === undefined ? null : Math.trunc(Number(v))),
+      filterOperators: [
+        'eq',
+        'neq',
+        'lt',
+        'lte',
+        'gt',
+        'gte',
+        'in',
+        'not_in',
+        'is_null',
+        'is_not_null',
+      ],
+      deserialize: (v) =>
+        v === '' || v === null || v === undefined ? null : Math.trunc(Number(v)),
     },
     typescript: { inputType: 'number', outputType: 'number' },
   });
@@ -508,7 +574,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'money',
     label: 'Money',
-    description: 'Monetary amount in locale currency. Note: locale-dependent; prefer decimal for portability.',
+    description:
+      'Monetary amount in locale currency. Note: locale-dependent; prefer decimal for portability.',
     category: 'number',
     db: { columnType: 'money' },
     api: {
@@ -526,7 +593,16 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     category: 'text',
     db: { columnType: 'character varying' },
     api: {
-      filterOperators: ['eq', 'neq', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_null', 'is_not_null'],
+      filterOperators: [
+        'eq',
+        'neq',
+        'contains',
+        'not_contains',
+        'starts_with',
+        'ends_with',
+        'is_null',
+        'is_not_null',
+      ],
     },
     typescript: { inputType: 'string', outputType: 'string' },
   });
@@ -572,7 +648,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'interval',
     label: 'Interval',
-    description: "Time interval / duration (e.g. '1 year 2 months', '3 hours'). Useful for subscriptions, scheduling.",
+    description:
+      "Time interval / duration (e.g. '1 year 2 months', '3 hours'). Useful for subscriptions, scheduling.",
     category: 'date',
     db: { columnType: 'interval' },
     api: {
@@ -598,7 +675,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'tsvector',
     label: 'Full-Text Vector',
-    description: 'PostgreSQL tsvector for native full-text search indexing (GIN index auto-created).',
+    description:
+      'PostgreSQL tsvector for native full-text search indexing (GIN index auto-created).',
     category: 'advanced',
     db: { columnType: 'tsvector', indexType: 'gin' },
     api: {
@@ -634,7 +712,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'macaddr',
     label: 'MAC Address',
-    description: 'Hardware MAC address (e.g. 08:00:2b:01:02:03). Useful for IoT and network inventory.',
+    description:
+      'Hardware MAC address (e.g. 08:00:2b:01:02:03). Useful for IoT and network inventory.',
     category: 'advanced',
     db: { columnType: 'macaddr' },
     api: {
@@ -690,7 +769,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
-    typescript: { inputType: '{ lower: number; upper: number }', outputType: '{ lower: number; upper: number }' },
+    typescript: {
+      inputType: '{ lower: number; upper: number }',
+      outputType: '{ lower: number; upper: number }',
+    },
   });
 
   registry.register({
@@ -702,7 +784,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
-    typescript: { inputType: '{ lower: number; upper: number }', outputType: '{ lower: number; upper: number }' },
+    typescript: {
+      inputType: '{ lower: number; upper: number }',
+      outputType: '{ lower: number; upper: number }',
+    },
   });
 
   registry.register({
@@ -714,7 +799,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
-    typescript: { inputType: '{ lower: number; upper: number }', outputType: '{ lower: number; upper: number }' },
+    typescript: {
+      inputType: '{ lower: number; upper: number }',
+      outputType: '{ lower: number; upper: number }',
+    },
   });
 
   registry.register({
@@ -726,7 +814,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
-    typescript: { inputType: '{ lower: string; upper: string }', outputType: '{ lower: string; upper: string }' },
+    typescript: {
+      inputType: '{ lower: string; upper: string }',
+      outputType: '{ lower: string; upper: string }',
+    },
   });
 
   registry.register({
@@ -738,7 +829,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
-    typescript: { inputType: '{ lower: string; upper: string }', outputType: '{ lower: string; upper: string }' },
+    typescript: {
+      inputType: '{ lower: string; upper: string }',
+      outputType: '{ lower: string; upper: string }',
+    },
   });
 
   registry.register({
@@ -750,6 +844,9 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
-    typescript: { inputType: '{ lower: string; upper: string }', outputType: '{ lower: string; upper: string }' },
+    typescript: {
+      inputType: '{ lower: string; upper: string }',
+      outputType: '{ lower: string; upper: string }',
+    },
   });
 }

@@ -1,25 +1,25 @@
 <script lang="ts">
-  import { useAuth } from '$stores/auth.svelte';
-  import { Mail, LoaderCircle, CheckCircle } from '@lucide/svelte';
+import { useAuth } from '$stores/auth.svelte';
+import { Mail, LoaderCircle, CheckCircle } from '@lucide/svelte';
 
-  const auth = useAuth();
-  let email = $state('');
-  let error = $state<string | null>(null);
-  let sent = $state(false);
-  let loading = $state(false);
+const auth = useAuth();
+let email = $state('');
+let error = $state<string | null>(null);
+let sent = $state(false);
+let loading = $state(false);
 
-  async function handleSubmit() {
-    error = null;
-    loading = true;
-    try {
-      await auth.resetPassword(email);
-      sent = true;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to send reset email';
-    } finally {
-      loading = false;
-    }
+async function handleSubmit() {
+  error = null;
+  loading = true;
+  try {
+    await auth.resetPassword(email);
+    sent = true;
+  } catch (e) {
+    error = e instanceof Error ? e.message : 'Failed to send reset email';
+  } finally {
+    loading = false;
   }
+}
 </script>
 
 {#if sent}

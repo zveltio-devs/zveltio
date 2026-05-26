@@ -1,129 +1,137 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { api } from '$lib/api.js';
-  import { m, i18n } from '$lib/i18n.svelte.js';
-  import type { PaletteNavItem } from '$lib/nav-model.js';
-  import { Search, Database } from '@lucide/svelte';
-  import type { Component } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { api } from '$lib/api.js';
+import { m, i18n } from '$lib/i18n.svelte.js';
+import type { PaletteNavItem } from '$lib/nav-model.js';
+import { Search, Database } from '@lucide/svelte';
+import type { Component } from 'svelte';
 
-  type PaletteItem = {
-    label: string;
-    href: string;
-    icon: Component;
-    group: string;
-    sub?: string;
-  };
+type PaletteItem = {
+  label: string;
+  href: string;
+  icon: Component;
+  group: string;
+  sub?: string;
+};
 
-  interface Props {
-    open: boolean;
-    onclose: () => void;
-    /** Core + extension routes from `buildPaletteNavItems`. */
-    navItems: PaletteNavItem[];
-  }
+interface Props {
+  open: boolean;
+  onclose: () => void;
+  /** Core + extension routes from `buildPaletteNavItems`. */
+  navItems: PaletteNavItem[];
+}
 
-  let { open, onclose, navItems }: Props = $props();
+let { open, onclose, navItems }: Props = $props();
 
-  let query = $state('');
-  let selectedIdx = $state(0);
-  let inputEl = $state<HTMLInputElement | null>(null);
-  let collectionItems = $state<PaletteItem[]>([]);
-  let loading = $state(false);
+let query = $state('');
+let selectedIdx = $state(0);
+let inputEl = $state<HTMLInputElement | null>(null);
+let collectionItems = $state<PaletteItem[]>([]);
+let loading = $state(false);
 
-  const _locale = $derived(i18n.locale);
+const _locale = $derived(i18n.locale);
 
-  const staticNavItems = $derived.by(() => {
-    void _locale;
-    return navItems;
-  });
+const staticNavItems = $derived.by(() => {
+  void _locale;
+  return navItems;
+});
 
-  $effect(() => {
-    if (open) {
-      query = '';
-      selectedIdx = 0;
-      collectionItems = [];
-      setTimeout(() => inputEl?.focus(), 50);
-      loadCollections();
-    }
-  });
-
-  async function loadCollections() {
-    loading = true;
-    try {
-      const colRes = await api.get<{ collections: { name: string; display_name?: string }[] }>('/api/collections');
-      const group = m['palette.group.collections']();
-      collectionItems = (colRes.collections || []).slice(0, 30).map((c) => ({
-        label: c.display_name || c.name,
-        href: `${base}/collections/${c.name}`,
-        icon: Database,
-        group,
-        sub: c.name,
-      }));
-    } catch {
-      collectionItems = [];
-    } finally {
-      loading = false;
-    }
-  }
-
-  const filtered = $derived.by(() => {
-    void _locale;
-    const q = query.toLowerCase().trim();
-    const all: PaletteItem[] = [...staticNavItems, ...collectionItems];
-    if (!q) return all.slice(0, 20);
-    return all.filter((item) =>
-      item.label.toLowerCase().includes(q)
-      || item.group.toLowerCase().includes(q)
-      || (item.sub?.toLowerCase().includes(q) ?? false),
-    ).slice(0, 20);
-  });
-
-  $effect(() => {
-    query;
+$effect(() => {
+  if (open) {
+    query = '';
     selectedIdx = 0;
-  });
+    collectionItems = [];
+    setTimeout(() => inputEl?.focus(), 50);
+    loadCollections();
+  }
+});
 
-  function navigate(href: string) {
-    goto(href);
+async function loadCollections() {
+  loading = true;
+  try {
+    const colRes = await api.get<{ collections: { name: string; display_name?: string }[] }>(
+      '/api/collections',
+    );
+    const group = m['palette.group.collections']();
+    collectionItems = (colRes.collections || []).slice(0, 30).map((c) => ({
+      label: c.display_name || c.name,
+      href: `${base}/collections/${c.name}`,
+      icon: Database,
+      group,
+      sub: c.name,
+    }));
+  } catch {
+    collectionItems = [];
+  } finally {
+    loading = false;
+  }
+}
+
+const filtered = $derived.by(() => {
+  void _locale;
+  const q = query.toLowerCase().trim();
+  const all: PaletteItem[] = [...staticNavItems, ...collectionItems];
+  if (!q) return all.slice(0, 20);
+  return all
+    .filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.group.toLowerCase().includes(q) ||
+        (item.sub?.toLowerCase().includes(q) ?? false),
+    )
+    .slice(0, 20);
+});
+
+$effect(() => {
+  query;
+  selectedIdx = 0;
+});
+
+function navigate(href: string) {
+  goto(href);
+  onclose();
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (!open) return;
+  if (e.key === 'Escape') {
     onclose();
+    return;
   }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (!open) return;
-    if (e.key === 'Escape') { onclose(); return; }
-    const items = filtered;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      selectedIdx = Math.min(selectedIdx + 1, items.length - 1);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      selectedIdx = Math.max(selectedIdx - 1, 0);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (items[selectedIdx]) navigate(items[selectedIdx].href);
-    }
+  const items = filtered;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    selectedIdx = Math.min(selectedIdx + 1, items.length - 1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    selectedIdx = Math.max(selectedIdx - 1, 0);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (items[selectedIdx]) navigate(items[selectedIdx].href);
   }
+}
 
-  onMount(() => {
-    window.addEventListener('keydown', handleKeydown);
-  });
-  onDestroy(() => {
-    window.removeEventListener('keydown', handleKeydown);
-  });
+onMount(() => {
+  window.addEventListener('keydown', handleKeydown);
+});
+onDestroy(() => {
+  window.removeEventListener('keydown', handleKeydown);
+});
 
-  function groupedItems(items: PaletteItem[]) {
-    const groups: Record<string, PaletteItem[]> = {};
-    for (const item of items) {
-      if (!groups[item.group]) groups[item.group] = [];
-      groups[item.group].push(item);
-    }
-    return Object.entries(groups);
+function groupedItems(items: PaletteItem[]) {
+  const groups: Record<string, PaletteItem[]> = {};
+  for (const item of items) {
+    if (!groups[item.group]) groups[item.group] = [];
+    groups[item.group].push(item);
   }
+  return Object.entries(groups);
+}
 
-  function noResultsMessage(q: string): string {
-    return m['palette.noResults']({ query: q });
-  }
+function noResultsMessage(q: string): string {
+  return m['palette.noResults']({ query: q });
+}
 </script>
 
 {#if open}

@@ -1,130 +1,152 @@
 <script lang="ts">
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { Plus, X, LoaderCircle } from '@lucide/svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { Plus, X, LoaderCircle } from '@lucide/svelte';
 
-  type Employee = {
-    id: string;
-    employee_number: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    department_name?: string | null;
-    position_title?: string | null;
-    hire_date: string;
-    status: string;
+type Employee = {
+  id: string;
+  employee_number: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  department_name?: string | null;
+  position_title?: string | null;
+  hire_date: string;
+  status: string;
+};
+
+let employees = $state<Employee[]>([]);
+let departments = $state<{ id: string; name: string }[]>([]);
+let positions = $state<{ id: string; title: string }[]>([]);
+let loading = $state(true);
+let search = $state('');
+let statusFilter = $state<'all' | 'active' | 'on_leave' | 'terminated'>('active');
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({
+  first_name: '',
+  last_name: '',
+  email: '',
+  work_email: '',
+  phone: '',
+  hire_date: new Date().toISOString().slice(0, 10),
+  department_id: '',
+  position_id: '',
+  employment_type: 'full_time',
+  salary: 0,
+  salary_type: 'gross',
+  currency: 'RON',
+  address: '',
+});
+
+const dash = $derived(m['common.emptyDash']());
+
+const statusOptions = $derived([
+  { value: 'all' as const, label: m['hr.employees.filter.all']() },
+  { value: 'active' as const, label: m['hr.employees.filter.active']() },
+  { value: 'on_leave' as const, label: m['hr.employees.filter.onLeave']() },
+  { value: 'terminated' as const, label: m['hr.employees.filter.terminated']() },
+]);
+
+async function loadAll() {
+  loading = true;
+  try {
+    const params = new URLSearchParams({ limit: '100' });
+    if (search.trim()) params.set('q', search.trim());
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    const [emps, depts, posList] = await Promise.all([
+      api.get<{ data: Employee[] }>(`/ext/hr/employees?${params}`),
+      api.get<{ data: { id: string; name: string }[] }>('/ext/hr/employees/departments'),
+      api.get<{ data: { id: string; title: string }[] }>('/ext/hr/employees/positions'),
+    ]);
+    employees = emps.data ?? [];
+    departments = depts.data ?? [];
+    positions = posList.data ?? [];
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
+  }
+}
+
+async function createEmployee() {
+  saving = true;
+  try {
+    await api.post('/ext/hr/employees', {
+      ...form,
+      department_id: form.department_id || undefined,
+      position_id: form.position_id || undefined,
+      salary: form.salary || undefined,
+    });
+    showForm = false;
+    form = {
+      first_name: '',
+      last_name: '',
+      email: '',
+      work_email: '',
+      phone: '',
+      hire_date: new Date().toISOString().slice(0, 10),
+      department_id: '',
+      position_id: '',
+      employment_type: 'full_time',
+      salary: 0,
+      salary_type: 'gross',
+      currency: 'RON',
+      address: '',
+    };
+    await loadAll();
+    toast.success(m['hr.employees.toast.created']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
+  }
+}
+
+$effect(() => {
+  statusFilter;
+  loadAll();
+});
+
+function statusBadge(s: string) {
+  return (
+    (
+      {
+        active: 'badge-success',
+        on_leave: 'badge-warning',
+        terminated: 'badge-error',
+        inactive: 'badge-ghost',
+      } as Record<string, string>
+    )[s] ?? 'badge-ghost'
+  );
+}
+
+function statusLabel(s: string): string {
+  const map: Record<string, string> = {
+    active: 'hr.employees.status.active',
+    on_leave: 'hr.employees.status.onLeave',
+    terminated: 'hr.employees.status.terminated',
+    inactive: 'hr.employees.status.inactive',
   };
+  const key = map[s];
+  if (!key) return s;
+  return (m as Record<string, () => string>)[key]?.() ?? s;
+}
 
-  let employees = $state<Employee[]>([]);
-  let departments = $state<{ id: string; name: string }[]>([]);
-  let positions = $state<{ id: string; title: string }[]>([]);
-  let loading = $state(true);
-  let search = $state('');
-  let statusFilter = $state<'all' | 'active' | 'on_leave' | 'terminated'>('active');
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({
-    first_name: '', last_name: '', email: '', work_email: '', phone: '',
-    hire_date: new Date().toISOString().slice(0, 10),
-    department_id: '', position_id: '', employment_type: 'full_time',
-    salary: 0, salary_type: 'gross', currency: 'RON', address: '',
-  });
-
-  const dash = $derived(m['common.emptyDash']());
-
-  const statusOptions = $derived([
-    { value: 'all' as const, label: m['hr.employees.filter.all']() },
-    { value: 'active' as const, label: m['hr.employees.filter.active']() },
-    { value: 'on_leave' as const, label: m['hr.employees.filter.onLeave']() },
-    { value: 'terminated' as const, label: m['hr.employees.filter.terminated']() },
-  ]);
-
-  async function loadAll() {
-    loading = true;
-    try {
-      const params = new URLSearchParams({ limit: '100' });
-      if (search.trim()) params.set('q', search.trim());
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      const [emps, depts, posList] = await Promise.all([
-        api.get<{ data: Employee[] }>(`/ext/hr/employees?${params}`),
-        api.get<{ data: { id: string; name: string }[] }>('/ext/hr/employees/departments'),
-        api.get<{ data: { id: string; title: string }[] }>('/ext/hr/employees/positions'),
-      ]);
-      employees = emps.data ?? [];
-      departments = depts.data ?? [];
-      positions = posList.data ?? [];
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function createEmployee() {
-    saving = true;
-    try {
-      await api.post('/ext/hr/employees', {
-        ...form,
-        department_id: form.department_id || undefined,
-        position_id: form.position_id || undefined,
-        salary: form.salary || undefined,
-      });
-      showForm = false;
-      form = {
-        first_name: '', last_name: '', email: '', work_email: '', phone: '',
-        hire_date: new Date().toISOString().slice(0, 10),
-        department_id: '', position_id: '', employment_type: 'full_time',
-        salary: 0, salary_type: 'gross', currency: 'RON', address: '',
-      };
-      await loadAll();
-      toast.success(m['hr.employees.toast.created']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
-  }
-
-  $effect(() => {
-    statusFilter;
-    loadAll();
-  });
-
-  function statusBadge(s: string) {
-    return ({
-      active: 'badge-success',
-      on_leave: 'badge-warning',
-      terminated: 'badge-error',
-      inactive: 'badge-ghost',
-    } as Record<string, string>)[s] ?? 'badge-ghost';
-  }
-
-  function statusLabel(s: string): string {
-    const map: Record<string, string> = {
-      active: 'hr.employees.status.active',
-      on_leave: 'hr.employees.status.onLeave',
-      terminated: 'hr.employees.status.terminated',
-      inactive: 'hr.employees.status.inactive',
-    };
-    const key = map[s];
-    if (!key) return s;
-    return (m as Record<string, () => string>)[key]?.() ?? s;
-  }
-
-  function employmentLabel(type: string): string {
-    const map: Record<string, string> = {
-      full_time: 'hr.employees.employment.fullTime',
-      part_time: 'hr.employees.employment.partTime',
-      contractor: 'hr.employees.employment.contractor',
-      intern: 'hr.employees.employment.intern',
-    };
-    const key = map[type];
-    if (!key) return type;
-    return (m as Record<string, () => string>)[key]?.() ?? type;
-  }
+function employmentLabel(type: string): string {
+  const map: Record<string, string> = {
+    full_time: 'hr.employees.employment.fullTime',
+    part_time: 'hr.employees.employment.partTime',
+    contractor: 'hr.employees.employment.contractor',
+    intern: 'hr.employees.employment.intern',
+  };
+  const key = map[type];
+  if (!key) return type;
+  return (m as Record<string, () => string>)[key]?.() ?? type;
+}
 </script>
 
 <ExtensionPageShell

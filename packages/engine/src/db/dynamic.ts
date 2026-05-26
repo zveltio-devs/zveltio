@@ -45,8 +45,7 @@ function sanitizeIdentifier(name: string): string {
       `Invalid SQL identifier "${name}" — only letters, digits, and underscores allowed, must start with a letter or underscore.`,
     );
   }
-  if (name.length > 63)
-    throw new Error(`SQL identifier too long (max 63): "${name}"`);
+  if (name.length > 63) throw new Error(`SQL identifier too long (max 63): "${name}"`);
   return name;
 }
 
@@ -148,15 +147,7 @@ export async function dynamicSelect(
 ): Promise<QueryResult> {
   // sanitizeIdentifier validates the name; Kysely will quote it on emission.
   const tableNameSanitized = sanitizeIdentifier(tableName);
-  const {
-    limit = 100,
-    offset = 0,
-    filters = {},
-    sort,
-    fts,
-    hasTrgm,
-    applyAlters,
-  } = options;
+  const { limit = 100, offset = 0, filters = {}, sort, fts, hasTrgm, applyAlters } = options;
 
   // Build both queries with the Kysely builder so extension query alters
   // (S2-03) — supplied via `applyAlters` — can attach .where() clauses
@@ -242,9 +233,7 @@ export async function dynamicInsert(
   data: Record<string, any>,
 ): Promise<Record<string, any>> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const clean = Object.fromEntries(
-    Object.entries(data).filter(([k]) => !RESERVED.has(k)),
-  );
+  const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
 
   const cols = Object.keys(clean).map((k) => sql.id(sanitizeIdentifier(k)));
   const vals = Object.values(clean).map((v) => sql`${v}`);
@@ -267,9 +256,7 @@ export async function dynamicUpdate(
   data: Record<string, any>,
 ): Promise<Record<string, any> | null> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const clean = Object.fromEntries(
-    Object.entries(data).filter(([k]) => !RESERVED.has(k)),
-  );
+  const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
 
   if (Object.keys(clean).length === 0) return null;
 
@@ -289,11 +276,7 @@ export async function dynamicUpdate(
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 
-export async function dynamicDelete(
-  db: Database,
-  tableName: string,
-  id: string,
-): Promise<boolean> {
+export async function dynamicDelete(db: Database, tableName: string, id: string): Promise<boolean> {
   const table = sql.id(sanitizeIdentifier(tableName));
 
   const result = await sql`
@@ -373,9 +356,7 @@ export async function dynamicChangeColumnType(
 ): Promise<void> {
   const table = sql.id(sanitizeIdentifier(tableName));
   const col = sql.id(sanitizeIdentifier(columnName));
-  const usingClause = usingExpression
-    ? sql.raw(`USING ${usingExpression}`)
-    : sql.raw('');
+  const usingClause = usingExpression ? sql.raw(`USING ${usingExpression}`) : sql.raw('');
   await withLockTimeout(db, async (trx) => {
     await sql`
       ALTER TABLE ${table}

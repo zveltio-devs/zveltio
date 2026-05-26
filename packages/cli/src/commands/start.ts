@@ -3,10 +3,10 @@ import { join } from 'path';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
-  bold:  (s: string) => `\x1b[1m${s}\x1b[0m`,
-  cyan:  (s: string) => `\x1b[36m${s}\x1b[0m`,
-  dim:   (s: string) => `\x1b[2m${s}\x1b[0m`,
-  red:   (s: string) => `\x1b[31m${s}\x1b[0m`,
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
 };
 
 export async function startCommand(opts: { port?: string; binary?: string }) {
@@ -25,8 +25,14 @@ export async function startCommand(opts: { port?: string; binary?: string }) {
       stdio: ['inherit', 'inherit', 'inherit'],
     });
 
-    process.on('SIGINT', () => { proc.kill(); process.exit(0); });
-    process.on('SIGTERM', () => { proc.kill(); process.exit(0); });
+    process.on('SIGINT', () => {
+      proc.kill();
+      process.exit(0);
+    });
+    process.on('SIGTERM', () => {
+      proc.kill();
+      process.exit(0);
+    });
     const exitCode = await proc.exited;
     process.exit(exitCode);
     return;
@@ -35,7 +41,9 @@ export async function startCommand(opts: { port?: string; binary?: string }) {
   // Fall back to running the engine source with bun (production mode, no --watch)
   const engineEntry = findEngineEntry();
   if (!engineEntry) {
-    console.error(c.red('Could not find a compiled binary or engine source. Did you run "bun build"?'));
+    console.error(
+      c.red('Could not find a compiled binary or engine source. Did you run "bun build"?'),
+    );
     process.exit(1);
   }
 
@@ -49,8 +57,14 @@ export async function startCommand(opts: { port?: string; binary?: string }) {
     stdio: ['inherit', 'inherit', 'inherit'],
   });
 
-  process.on('SIGINT', () => { proc.kill(); process.exit(0); });
-  process.on('SIGTERM', () => { proc.kill(); process.exit(0); });
+  process.on('SIGINT', () => {
+    proc.kill();
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    proc.kill();
+    process.exit(0);
+  });
   const exitCode = await proc.exited;
   process.exit(exitCode);
 }
@@ -71,11 +85,7 @@ function findBinary(): string | null {
 }
 
 function findEngineEntry(): string | null {
-  const candidates = [
-    'packages/engine/src/index.ts',
-    'src/index.ts',
-    'index.ts',
-  ];
+  const candidates = ['packages/engine/src/index.ts', 'src/index.ts', 'index.ts'];
 
   for (const candidate of candidates) {
     const full = join(process.cwd(), candidate);

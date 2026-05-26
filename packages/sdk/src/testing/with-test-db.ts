@@ -72,8 +72,8 @@ async function loadPgContainer(): Promise<typeof import('@testcontainers/postgre
   } catch {
     throw new Error(
       `withTestDb requires the '@testcontainers/postgresql' npm package. ` +
-      `Install it as a devDep in your extension:\n` +
-      `  bun add -d @testcontainers/postgresql pg @types/pg`,
+        `Install it as a devDep in your extension:\n` +
+        `  bun add -d @testcontainers/postgresql pg @types/pg`,
     );
   }
 }
@@ -92,7 +92,8 @@ async function loadKysely(): Promise<typeof import('kysely')> {
  */
 export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb> {
   const image = opts.image ?? 'postgres:18-alpine';
-  const database = opts.database ?? `zveltio_test_${Date.now()}_${Math.floor(Math.random() * 10_000)}`;
+  const database =
+    opts.database ?? `zveltio_test_${Date.now()}_${Math.floor(Math.random() * 10_000)}`;
   const startupTimeoutMs = opts.startupTimeoutMs ?? 60_000;
 
   const tc = await loadPgContainer();
@@ -110,8 +111,7 @@ export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb>
     username = _sharedContainer.getUsername();
     password = _sharedContainer.getPassword();
   } else {
-    const builder = new tc.PostgreSqlContainer(image)
-      .withStartupTimeout(startupTimeoutMs);
+    const builder = new tc.PostgreSqlContainer(image).withStartupTimeout(startupTimeoutMs);
     createdContainer = await builder.start();
     if (opts.reuse) _sharedContainer = createdContainer;
 
@@ -147,10 +147,22 @@ export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb>
     db,
     connectionString,
     async cleanup(): Promise<void> {
-      try { await db.destroy(); } catch { /* */ }
-      try { await pool.end(); } catch { /* */ }
+      try {
+        await db.destroy();
+      } catch {
+        /* */
+      }
+      try {
+        await pool.end();
+      } catch {
+        /* */
+      }
       if (createdContainer && !opts.reuse) {
-        try { await createdContainer.stop(); } catch { /* */ }
+        try {
+          await createdContainer.stop();
+        } catch {
+          /* */
+        }
       }
     },
   };
@@ -234,11 +246,19 @@ export async function applyMigrationFiles(db: Kysely<any>, paths: string[]): Pro
  */
 export async function stopReusedTestDb(): Promise<void> {
   if (_sharedClient) {
-    try { await _sharedClient.end(); } catch { /* */ }
+    try {
+      await _sharedClient.end();
+    } catch {
+      /* */
+    }
     _sharedClient = null;
   }
   if (_sharedContainer) {
-    try { await _sharedContainer.stop(); } catch { /* */ }
+    try {
+      await _sharedContainer.stop();
+    } catch {
+      /* */
+    }
     _sharedContainer = null;
   }
 }
@@ -250,7 +270,7 @@ async function openPgPool(connectionString: string): Promise<any> {
   const pg = await import('pg').catch(() => {
     throw new Error(
       `withTestDb requires the 'pg' npm package. Install it alongside testcontainers:\n` +
-      `  bun add -d testcontainers pg @types/pg`,
+        `  bun add -d testcontainers pg @types/pg`,
     );
   });
   // pg's Pool — the Kysely PostgresDialect accepts this directly.
@@ -272,24 +292,37 @@ export function splitStatements(src: string): string[] {
     const ch = src[i];
     // Comments: -- to end of line
     if (ch === '-' && src[i + 1] === '-') {
-      while (i < src.length && src[i] !== '\n') { buf += src[i++]; }
+      while (i < src.length && src[i] !== '\n') {
+        buf += src[i++];
+      }
       continue;
     }
     // Block comments: /* ... */
     if (ch === '/' && src[i + 1] === '*') {
-      buf += src[i++]; buf += src[i++];
+      buf += src[i++];
+      buf += src[i++];
       while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
         buf += src[i++];
       }
-      if (i < src.length) { buf += src[i++]; buf += src[i++]; }
+      if (i < src.length) {
+        buf += src[i++];
+        buf += src[i++];
+      }
       continue;
     }
     // Single-quoted strings: handle escaped quotes.
     if (ch === "'") {
       buf += src[i++];
       while (i < src.length) {
-        if (src[i] === "'" && src[i + 1] === "'") { buf += src[i++]; buf += src[i++]; continue; }
-        if (src[i] === "'") { buf += src[i++]; break; }
+        if (src[i] === "'" && src[i + 1] === "'") {
+          buf += src[i++];
+          buf += src[i++];
+          continue;
+        }
+        if (src[i] === "'") {
+          buf += src[i++];
+          break;
+        }
         buf += src[i++];
       }
       continue;
@@ -302,7 +335,11 @@ export function splitStatements(src: string): string[] {
         buf += tag;
         i += tag.length;
         const endIdx = src.indexOf(tag, i);
-        if (endIdx < 0) { buf += src.slice(i); i = src.length; break; }
+        if (endIdx < 0) {
+          buf += src.slice(i);
+          i = src.length;
+          break;
+        }
         buf += src.slice(i, endIdx + tag.length);
         i = endIdx + tag.length;
         continue;

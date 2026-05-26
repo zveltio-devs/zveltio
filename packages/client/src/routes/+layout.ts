@@ -20,7 +20,9 @@ export async function load({ fetch }) {
       const data = await res.json();
       return { theme: data.zone ?? null, nav: data.pages ?? [] };
     }
-  } catch { /* engine not ready — degrade gracefully */ }
+  } catch {
+    /* engine not ready — degrade gracefully */
+  }
 
   return { theme: null, nav: [] };
 }

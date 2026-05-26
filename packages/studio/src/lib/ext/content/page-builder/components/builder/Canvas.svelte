@@ -1,88 +1,98 @@
 <script lang="ts">
-  import type { Block, DeviceMode } from '../../lib/builder-types.js';
-  import { LIBRARY } from '../../lib/builder-types.js';
-  import BlockPreview from './BlockPreview.svelte';
-  import { GripVertical, ChevronUp, ChevronDown, X } from '@lucide/svelte';
+import type { Block, DeviceMode } from '../../lib/builder-types.js';
+import { LIBRARY } from '../../lib/builder-types.js';
+import BlockPreview from './BlockPreview.svelte';
+import { GripVertical, ChevronUp, ChevronDown, X } from '@lucide/svelte';
 
-  let { blocks, selectedId, device, onChange, onSelect }: {
-    blocks: Block[];
-    selectedId: string | null;
-    device: DeviceMode;
-    onChange: (b: Block[]) => void;
-    onSelect: (id: string) => void;
-  } = $props();
+let {
+  blocks,
+  selectedId,
+  device,
+  onChange,
+  onSelect,
+}: {
+  blocks: Block[];
+  selectedId: string | null;
+  device: DeviceMode;
+  onChange: (b: Block[]) => void;
+  onSelect: (id: string) => void;
+} = $props();
 
-  // Index of the drop zone that is currently highlighted (= "insert before block[i]")
-  let dropZone = $state<number | null>(null);
+// Index of the drop zone that is currently highlighted (= "insert before block[i]")
+let dropZone = $state<number | null>(null);
 
-  const widthClass = $derived(
-    device === 'mobile' ? 'max-w-sm' :
-    device === 'tablet' ? 'max-w-2xl' : 'max-w-5xl'
-  );
+const widthClass = $derived(
+  device === 'mobile' ? 'max-w-sm' : device === 'tablet' ? 'max-w-2xl' : 'max-w-5xl',
+);
 
-  // ── Drag handlers ────────────────────────────────────────────────────────────
+// ── Drag handlers ────────────────────────────────────────────────────────────
 
-  function onHandleDragStart(e: DragEvent, i: number) {
-    e.dataTransfer!.setData('text/canvas-index', String(i));
-    e.dataTransfer!.effectAllowed = 'move';
-    e.stopPropagation();
-  }
+function onHandleDragStart(e: DragEvent, i: number) {
+  e.dataTransfer!.setData('text/canvas-index', String(i));
+  e.dataTransfer!.effectAllowed = 'move';
+  e.stopPropagation();
+}
 
-  function onZoneDragOver(e: DragEvent, i: number) {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone = i;
-  }
+function onZoneDragOver(e: DragEvent, i: number) {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone = i;
+}
 
-  function onDrop(e: DragEvent, insertAt: number) {
-    e.preventDefault();
-    e.stopPropagation();
-    const prevZone = dropZone;
-    dropZone = null;
+function onDrop(e: DragEvent, insertAt: number) {
+  e.preventDefault();
+  e.stopPropagation();
+  const prevZone = dropZone;
+  dropZone = null;
 
-    const fromType  = e.dataTransfer!.getData('text/block-type');
-    const fromIndex = e.dataTransfer!.getData('text/canvas-index');
+  const fromType = e.dataTransfer!.getData('text/block-type');
+  const fromIndex = e.dataTransfer!.getData('text/canvas-index');
 
-    if (fromType) {
-      // Dropped from library → insert new block
-      const lib = LIBRARY.find(b => b.type === fromType);
-      if (!lib) return;
-      const nb: Block = { id: crypto.randomUUID(), type: lib.type, props: { ...lib.defaultProps }, style: {} };
-      const arr = [...blocks];
-      arr.splice(insertAt, 0, nb);
-      onChange(arr);
-      onSelect(nb.id);
-    } else if (fromIndex !== '') {
-      // Reordering within canvas
-      const fi = Number(fromIndex);
-      if (fi === insertAt || fi + 1 === insertAt) return;
-      const arr = [...blocks];
-      const [moved] = arr.splice(fi, 1);
-      const target = fi < insertAt ? insertAt - 1 : insertAt;
-      arr.splice(target, 0, moved);
-      onChange(arr);
-    }
-
-    void prevZone;
-  }
-
-  function onDragLeaveCanvas() {
-    dropZone = null;
-  }
-
-  // ── Block controls ────────────────────────────────────────────────────────────
-
-  function move(i: number, dir: -1 | 1) {
-    const j = i + dir;
-    if (j < 0 || j >= blocks.length) return;
+  if (fromType) {
+    // Dropped from library → insert new block
+    const lib = LIBRARY.find((b) => b.type === fromType);
+    if (!lib) return;
+    const nb: Block = {
+      id: crypto.randomUUID(),
+      type: lib.type,
+      props: { ...lib.defaultProps },
+      style: {},
+    };
     const arr = [...blocks];
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    arr.splice(insertAt, 0, nb);
+    onChange(arr);
+    onSelect(nb.id);
+  } else if (fromIndex !== '') {
+    // Reordering within canvas
+    const fi = Number(fromIndex);
+    if (fi === insertAt || fi + 1 === insertAt) return;
+    const arr = [...blocks];
+    const [moved] = arr.splice(fi, 1);
+    const target = fi < insertAt ? insertAt - 1 : insertAt;
+    arr.splice(target, 0, moved);
     onChange(arr);
   }
 
-  function remove(i: number) {
-    onChange(blocks.filter((_, idx) => idx !== i));
-  }
+  void prevZone;
+}
+
+function onDragLeaveCanvas() {
+  dropZone = null;
+}
+
+// ── Block controls ────────────────────────────────────────────────────────────
+
+function move(i: number, dir: -1 | 1) {
+  const j = i + dir;
+  if (j < 0 || j >= blocks.length) return;
+  const arr = [...blocks];
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  onChange(arr);
+}
+
+function remove(i: number) {
+  onChange(blocks.filter((_, idx) => idx !== i));
+}
 </script>
 
 <div

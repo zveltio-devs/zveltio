@@ -87,7 +87,7 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
       body: JSON.stringify({ operations: [] }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.results)).toBe(true);
     expect(body.results.length).toBe(0);
   });
@@ -103,7 +103,7 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.results[0].status).toBe('error');
   });
 
@@ -132,7 +132,7 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.changes)).toBe(true);
     expect(typeof body.serverTimestamp).toBe('number');
   });
@@ -148,7 +148,7 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
     });
     // Should not crash — engine catches table-not-found errors per collection
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.changes)).toBe(true);
     expect(body.changes.length).toBe(0);
   });
@@ -164,7 +164,7 @@ describe.skipIf(skipAll)('Sync — Integration', () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.changes.length).toBe(0);
   });
 });

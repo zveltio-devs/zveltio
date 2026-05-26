@@ -11,9 +11,15 @@ import '@testing-library/jest-dom/vitest';
 
 // Polyfill ResizeObserver — Studio sidebar uses it for collapse animation.
 class _ResizeObserver {
-  observe() { /* noop */ }
-  unobserve() { /* noop */ }
-  disconnect() { /* noop */ }
+  observe() {
+    /* noop */
+  }
+  unobserve() {
+    /* noop */
+  }
+  disconnect() {
+    /* noop */
+  }
 }
 (globalThis as any).ResizeObserver = _ResizeObserver;
 
@@ -23,10 +29,18 @@ if (!globalThis.matchMedia) {
     matches: false,
     media: query,
     onchange: null,
-    addListener: () => { /* noop */ },
-    removeListener: () => { /* noop */ },
-    addEventListener: () => { /* noop */ },
-    removeEventListener: () => { /* noop */ },
+    addListener: () => {
+      /* noop */
+    },
+    removeListener: () => {
+      /* noop */
+    },
+    addEventListener: () => {
+      /* noop */
+    },
+    removeEventListener: () => {
+      /* noop */
+    },
     dispatchEvent: () => false,
   })) as any;
 }

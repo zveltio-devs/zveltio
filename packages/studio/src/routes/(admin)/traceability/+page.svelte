@@ -1,62 +1,65 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-    import { api } from '$lib/api.js';
-  const API = '/ext/operations/traceability';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { api } from '$lib/api.js';
+const API = '/ext/operations/traceability';
 
-  let lots = $state<any[]>([]);
-  let loading = $state(true);
-  let error = $state('');
-  let search = $state('');
-  let statusFilter = $state('');
-  let page = $state(1);
-  let total = $state(0);
-  const limit = 50;
+let lots = $state<any[]>([]);
+let loading = $state(true);
+let error = $state('');
+let search = $state('');
+let statusFilter = $state('');
+let page = $state(1);
+let total = $state(0);
+const limit = 50;
 
-  const totalPages = $derived(Math.ceil(total / limit));
+const totalPages = $derived(Math.ceil(total / limit));
 
-  async function load() {
-    loading = true;
-    error = '';
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-      if (statusFilter) params.set('status', statusFilter);
-      const res = await api.fetch(`${API}/lots?${params}`);
-      if (!res.ok) throw new Error(await res.text());
-      const json = await res.json();
-      lots = json.data;
-      total = json.meta.total;
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  error = '';
+  try {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (statusFilter) params.set('status', statusFilter);
+    const res = await api.fetch(`${API}/lots?${params}`);
+    if (!res.ok) throw new Error(await res.text());
+    const json = await res.json();
+    lots = json.data;
+    total = json.meta.total;
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    loading = false;
   }
+}
 
-  $effect(() => {
-    load();
-  });
+$effect(() => {
+  load();
+});
 
-  $effect(() => {
-    page; statusFilter;
-    load();
-  });
+$effect(() => {
+  page;
+  statusFilter;
+  load();
+});
 
-  function statusClass(status: string): string {
-    return {
+function statusClass(status: string): string {
+  return (
+    {
       available: 'badge-success',
       quarantine: 'badge-warning',
       exhausted: 'badge-neutral',
       recalled: 'badge-error',
       returned: 'badge-info',
-    }[status] ?? 'badge-ghost';
-  }
+    }[status] ?? 'badge-ghost'
+  );
+}
 
-  function daysUntilExpiry(date: string): number {
-    if (!date) return 999;
-    return Math.ceil((new Date(date).getTime() - Date.now()) / 86400000);
-  }
+function daysUntilExpiry(date: string): number {
+  if (!date) return 999;
+  return Math.ceil((new Date(date).getTime() - Date.now()) / 86400000);
+}
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.title']()} subtitle={m['operations.traceability.subtitle']()}>

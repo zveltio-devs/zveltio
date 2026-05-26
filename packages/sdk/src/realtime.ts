@@ -31,10 +31,16 @@ export class ZveltioRealtime {
         const subs = this.listeners.get(collection);
         if (subs) {
           subs.forEach((fn) => {
-            try { fn(msg); } catch { /* ignore callback errors */ }
+            try {
+              fn(msg);
+            } catch {
+              /* ignore callback errors */
+            }
           });
         }
-      } catch { /* invalid JSON — ignore */ }
+      } catch {
+        /* invalid JSON — ignore */
+      }
     };
 
     this.ws.onclose = () => {

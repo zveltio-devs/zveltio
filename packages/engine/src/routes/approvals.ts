@@ -29,34 +29,38 @@ import { auditLog } from '../lib/audit.js';
 // ── Schemas ────────────────────────────────────────────────────────────────
 
 const WorkflowCreateSchema = z.object({
-  name:          z.string().min(1).max(200),
-  description:   z.string().max(1000).optional(),
-  collection:    z.string().min(1).max(100),
+  name: z.string().min(1).max(200),
+  description: z.string().max(1000).optional(),
+  collection: z.string().min(1).max(100),
   trigger_field: z.string().max(100).nullable().optional(),
   trigger_value: z.string().max(200).nullable().optional(),
-  is_active:     z.boolean().optional(),
-  steps: z.array(z.object({
-    name:             z.string().min(1).max(200),
-    step_order:       z.number().int().min(0),
-    approver_role:    z.string().max(100).nullable().optional(),
-    approver_user_id: z.string().nullable().optional(),
-    deadline_hours:   z.number().int().min(1).nullable().optional(),
-    is_required:      z.boolean().optional(),
-  })).optional(),
+  is_active: z.boolean().optional(),
+  steps: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(200),
+        step_order: z.number().int().min(0),
+        approver_role: z.string().max(100).nullable().optional(),
+        approver_user_id: z.string().nullable().optional(),
+        deadline_hours: z.number().int().min(1).nullable().optional(),
+        is_required: z.boolean().optional(),
+      }),
+    )
+    .optional(),
 });
 
 const WorkflowUpdateSchema = WorkflowCreateSchema.partial();
 
 const SubmitSchema = z.object({
-  workflow_id:  z.string().uuid(),
-  collection:   z.string().min(1).max(100),
-  record_id:    z.string().min(1),
-  metadata:     z.record(z.string(), z.unknown()).optional(),
+  workflow_id: z.string().uuid(),
+  collection: z.string().min(1).max(100),
+  record_id: z.string().min(1),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const DecideSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
-  comment:  z.string().max(2000).optional(),
+  comment: z.string().max(2000).optional(),
 });
 
 // ── Route factory ──────────────────────────────────────────────────────────
@@ -100,7 +104,9 @@ export function approvalsRoutes(db: Database, auth: any) {
           .execute()
       : [];
 
-    const countMap = Object.fromEntries(stepCounts.map((r: any) => [r.workflow_id, Number(r.step_count)]));
+    const countMap = Object.fromEntries(
+      stepCounts.map((r: any) => [r.workflow_id, Number(r.step_count)]),
+    );
 
     return c.json({
       workflows: workflows.map((w: any) => ({ ...w, step_count: countMap[w.id] ?? 0 })),
@@ -116,15 +122,15 @@ export function approvalsRoutes(db: Database, auth: any) {
     const data = c.req.valid('json');
 
     const workflow = await db
-      .insertInto('zv_approval_workflows' as any)
+      .insertInto('zv_approval_workflows')
       .values({
-        name:          data.name,
-        description:   data.description ?? null,
-        collection:    data.collection,
+        name: data.name,
+        description: data.description ?? null,
+        collection: data.collection,
         trigger_field: data.trigger_field ?? null,
         trigger_value: data.trigger_value ?? null,
-        is_active:     data.is_active ?? true,
-        created_by:    user.id,
+        is_active: data.is_active ?? true,
+        created_by: user.id,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -132,16 +138,18 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Create steps if provided
     if (data.steps?.length) {
       await db
-        .insertInto('zv_approval_steps' as any)
-        .values(data.steps.map(s => ({
-          workflow_id:      (workflow as any).id,
-          step_order:       s.step_order,
-          name:             s.name,
-          approver_role:    s.approver_role ?? null,
-          approver_user_id: s.approver_user_id ?? null,
-          deadline_hours:   s.deadline_hours ?? null,
-          is_required:      s.is_required ?? true,
-        })))
+        .insertInto('zv_approval_steps')
+        .values(
+          data.steps.map((s) => ({
+            workflow_id: (workflow as any).id,
+            step_order: s.step_order,
+            name: s.name,
+            approver_role: s.approver_role ?? null,
+            approver_user_id: s.approver_user_id ?? null,
+            deadline_hours: s.deadline_hours ?? null,
+            is_required: s.is_required ?? true,
+          })),
+        )
         .execute();
     }
 
@@ -150,7 +158,12 @@ export function approvalsRoutes(db: Database, auth: any) {
       userId: user.id,
       resourceId: (workflow as any).id,
       resourceType: 'approval_workflow',
-      metadata: { action: 'created', name: data.name, collection: data.collection, steps: data.steps?.length ?? 0 },
+      metadata: {
+        action: 'created',
+        name: data.name,
+        collection: data.collection,
+        steps: data.steps?.length ?? 0,
+      },
     });
     return c.json({ workflow }, 201);
   });
@@ -165,14 +178,14 @@ export function approvalsRoutes(db: Database, auth: any) {
     const data = c.req.valid('json');
 
     const update: any = { updated_at: new Date() };
-    if (data.name          !== undefined) update.name          = data.name;
-    if (data.description   !== undefined) update.description   = data.description;
+    if (data.name !== undefined) update.name = data.name;
+    if (data.description !== undefined) update.description = data.description;
     if (data.trigger_field !== undefined) update.trigger_field = data.trigger_field;
     if (data.trigger_value !== undefined) update.trigger_value = data.trigger_value;
-    if (data.is_active     !== undefined) update.is_active     = data.is_active;
+    if (data.is_active !== undefined) update.is_active = data.is_active;
 
     const workflow = await db
-      .updateTable('zv_approval_workflows' as any)
+      .updateTable('zv_approval_workflows')
       .set(update)
       .where('id', '=', id)
       .returningAll()
@@ -182,19 +195,21 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     // Replace steps if provided
     if (data.steps !== undefined) {
-      await db.deleteFrom('zv_approval_steps' as any).where('workflow_id', '=', id).execute();
+      await db.deleteFrom('zv_approval_steps').where('workflow_id', '=', id).execute();
       if (data.steps.length) {
         await db
-          .insertInto('zv_approval_steps' as any)
-          .values(data.steps.map(s => ({
-            workflow_id:      id,
-            step_order:       s.step_order,
-            name:             s.name,
-            approver_role:    s.approver_role ?? null,
-            approver_user_id: s.approver_user_id ?? null,
-            deadline_hours:   s.deadline_hours ?? null,
-            is_required:      s.is_required ?? true,
-          })))
+          .insertInto('zv_approval_steps')
+          .values(
+            data.steps.map((s) => ({
+              workflow_id: id,
+              step_order: s.step_order,
+              name: s.name,
+              approver_role: s.approver_role ?? null,
+              approver_user_id: s.approver_user_id ?? null,
+              deadline_hours: s.deadline_hours ?? null,
+              is_required: s.is_required ?? true,
+            })),
+          )
           .execute();
       }
     }
@@ -216,7 +231,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     if (!(await isAdmin(user))) return c.json({ error: 'Forbidden' }, 403);
 
     const { id } = c.req.param();
-    await db.deleteFrom('zv_approval_workflows' as any).where('id', '=', id).execute();
+    await db.deleteFrom('zv_approval_workflows').where('id', '=', id).execute();
     await auditLog(db, {
       type: 'approval.workflow_changed',
       userId: user.id,
@@ -236,9 +251,9 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     const admin = await isAdmin(user);
 
-    const limit  = Math.min(parseInt(c.req.query('limit')  ?? '50'),  200);
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '50'), 200);
     const offset = parseInt(c.req.query('offset') ?? '0');
-    const status = c.req.query('status');          // e.g. "pending" or "approved,rejected,cancelled"
+    const status = c.req.query('status'); // e.g. "pending" or "approved,rejected,cancelled"
     const myPending = c.req.query('my_pending') === 'true';
 
     let query = db
@@ -268,18 +283,18 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Non-admins see only their own requests + requests where they are the approver
     if (!admin) {
       const userRoles = await getUserRoles(user.id);
-      query = query.where(eb =>
+      query = query.where((eb) =>
         eb.or([
           eb('r.requested_by', '=', user.id),
           eb('cs.approver_user_id', '=', user.id),
           ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles as any)] : []),
-        ])
+        ]),
       );
     }
 
     // Filter by status
     if (status) {
-      const statuses = status.split(',').map(s => s.trim());
+      const statuses = status.split(',').map((s) => s.trim());
       query = query.where('r.status', 'in', statuses as any);
     }
 
@@ -288,11 +303,11 @@ export function approvalsRoutes(db: Database, auth: any) {
       const userRoles = await getUserRoles(user.id);
       query = query
         .where('r.status', '=', 'pending')
-        .where(eb =>
+        .where((eb) =>
           eb.or([
             eb('cs.approver_user_id', '=', user.id),
             ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles as any)] : []),
-          ])
+          ]),
         );
     }
 
@@ -350,15 +365,15 @@ export function approvalsRoutes(db: Database, auth: any) {
       .executeTakeFirst();
 
     const request = await db
-      .insertInto('zv_approval_requests' as any)
+      .insertInto('zv_approval_requests')
       .values({
         workflow_id,
         collection,
         record_id,
         current_step_id: firstStep ? (firstStep as any).id : null,
-        status:          'pending',
-        requested_by:    user.id,
-        metadata:        JSON.stringify(metadata ?? {}),
+        status: 'pending',
+        requested_by: user.id,
+        metadata: JSON.stringify(metadata ?? {}),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -389,10 +404,17 @@ export function approvalsRoutes(db: Database, auth: any) {
       .innerJoin('zv_approval_workflows as w', 'w.id', 'r.workflow_id')
       .leftJoin('user as u', 'u.id', 'r.requested_by')
       .select([
-        'r.id', 'r.collection', 'r.record_id', 'r.status',
-        'r.requested_by', 'r.requested_at', 'r.completed_at',
-        'r.metadata', 'r.current_step_id',
-        'w.name as workflow_name', 'w.id as workflow_id',
+        'r.id',
+        'r.collection',
+        'r.record_id',
+        'r.status',
+        'r.requested_by',
+        'r.requested_at',
+        'r.completed_at',
+        'r.metadata',
+        'r.current_step_id',
+        'w.name as workflow_name',
+        'w.id as workflow_id',
         sql<string>`COALESCE(u.name, u.email)`.as('requester_name'),
       ])
       .where('r.id', '=', id)
@@ -408,14 +430,18 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Load all steps with decisions
     const steps = await db
       .selectFrom('zv_approval_steps as s')
-      .leftJoin('zv_approval_decisions as d', join =>
-        join.onRef('d.step_id', '=', 's.id').on('d.request_id', '=', id)
+      .leftJoin('zv_approval_decisions as d', (join) =>
+        join.onRef('d.step_id', '=', 's.id').on('d.request_id', '=', id),
       )
       .leftJoin('user as du', 'du.id', 'd.decided_by')
       .select([
-        's.id', 's.step_order', 's.name',
-        's.approver_role', 's.approver_user_id',
-        's.deadline_hours', 's.is_required',
+        's.id',
+        's.step_order',
+        's.name',
+        's.approver_role',
+        's.approver_user_id',
+        's.deadline_hours',
+        's.is_required',
         'd.decision',
         'd.comment',
         'd.decided_at',
@@ -471,17 +497,17 @@ export function approvalsRoutes(db: Database, auth: any) {
       .insertInto('zv_approval_decisions' as any)
       .values({
         request_id: id,
-        step_id:    (request as any).current_step_id,
+        step_id: (request as any).current_step_id,
         decision,
         decided_by: user.id,
-        comment:    comment ?? null,
+        comment: comment ?? null,
       })
       .execute();
 
     if (decision === 'rejected') {
       // Rejected → entire request rejected
       await db
-        .updateTable('zv_approval_requests' as any)
+        .updateTable('zv_approval_requests')
         .set({ status: 'rejected', completed_at: new Date() })
         .where('id', '=', id)
         .execute();
@@ -510,7 +536,7 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     if (nextStep) {
       await db
-        .updateTable('zv_approval_requests' as any)
+        .updateTable('zv_approval_requests')
         .set({ current_step_id: (nextStep as any).id })
         .where('id', '=', id)
         .execute();
@@ -519,7 +545,7 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     // All steps approved → request fully approved
     await db
-      .updateTable('zv_approval_requests' as any)
+      .updateTable('zv_approval_requests')
       .set({ status: 'approved', completed_at: new Date(), current_step_id: null })
       .where('id', '=', id)
       .execute();
@@ -559,7 +585,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     }
 
     await db
-      .updateTable('zv_approval_requests' as any)
+      .updateTable('zv_approval_requests')
       .set({ status: 'cancelled', completed_at: new Date() })
       .where('id', '=', id)
       .execute();

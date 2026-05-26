@@ -1,64 +1,98 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-    import { onMount } from 'svelte';
-  import { Languages, Plus, X, Globe, Key } from '@lucide/svelte';
-  import { api as zApi } from '$lib/api.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { Languages, Plus, X, Globe, Key } from '@lucide/svelte';
+import { api as zApi } from '$lib/api.js';
 
-  let tab = $state<'translations' | 'locales' | 'glossary'>('translations');
-  let translations = $state<any[]>([]);
-  let locales = $state<any[]>([]);
-  let glossary = $state<any[]>([]);
-  let selectedLocale = $state('en');
-  let q = $state('');
-  let error = $state('');
+let tab = $state<'translations' | 'locales' | 'glossary'>('translations');
+let translations = $state<any[]>([]);
+let locales = $state<any[]>([]);
+let glossary = $state<any[]>([]);
+let selectedLocale = $state('en');
+let q = $state('');
+let error = $state('');
 
-  let showLocaleForm = $state(false);
-  let saving = $state(false);
-  let localeForm = $state({ code: '', name: '', is_active: true });
+let showLocaleForm = $state(false);
+let saving = $state(false);
+let localeForm = $state({ code: '', name: '', is_active: true });
 
-  async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-    const res = await zApi.fetch(path, init);
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-    return json as T;
+async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const res = await zApi.fetch(path, init);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json as T;
+}
+
+async function loadTranslations() {
+  try {
+    const params = new URLSearchParams({ locale: selectedLocale });
+    if (q) params.set('q', q);
+    const r = await api(`/ext/i18n/translations/keys?${params}`);
+    translations = r.data ?? [];
+  } catch (e: any) {
+    error = e.message;
   }
-
-  async function loadTranslations() {
-    try {
-      const params = new URLSearchParams({ locale: selectedLocale });
-      if (q) params.set('q', q);
-      const r = await api(`/ext/i18n/translations/keys?${params}`);
-      translations = r.data ?? [];
-    } catch (e: any) { error = e.message; }
+}
+async function loadLocales() {
+  try {
+    const r = await api('/ext/i18n/translations/locales');
+    locales = r.data ?? [];
+  } catch (e: any) {
+    error = e.message;
   }
-  async function loadLocales() { try { const r = await api('/ext/i18n/translations/locales'); locales = r.data ?? []; } catch (e: any) { error = e.message; } }
-  async function loadGlossary() { try { const r = await api('/ext/i18n/translations/glossary'); glossary = r.data ?? []; } catch (e: any) { error = e.message; } }
-
-  async function saveTranslation(key: string, value: string) {
-    try {
-      await api('/ext/i18n/translations/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, locale: selectedLocale, value }) });
-    } catch (e: any) { error = e.message; }
+}
+async function loadGlossary() {
+  try {
+    const r = await api('/ext/i18n/translations/glossary');
+    glossary = r.data ?? [];
+  } catch (e: any) {
+    error = e.message;
   }
+}
 
-  async function createLocale() {
-    saving = true; error = '';
-    try {
-      await api('/ext/i18n/translations/locales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(localeForm) });
-      showLocaleForm = false;
-      localeForm = { code: '', name: '', is_active: true };
-      await loadLocales();
-    } catch (e: any) { error = e.message; } finally { saving = false; }
+async function saveTranslation(key: string, value: string) {
+  try {
+    await api('/ext/i18n/translations/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, locale: selectedLocale, value }),
+    });
+  } catch (e: any) {
+    error = e.message;
   }
+}
 
-  $effect(() => {
-    if (tab === 'translations') loadTranslations();
-    else if (tab === 'locales') loadLocales();
-    else loadGlossary();
-  });
+async function createLocale() {
+  saving = true;
+  error = '';
+  try {
+    await api('/ext/i18n/translations/locales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(localeForm),
+    });
+    showLocaleForm = false;
+    localeForm = { code: '', name: '', is_active: true };
+    await loadLocales();
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    saving = false;
+  }
+}
 
-  onMount(() => { loadTranslations(); loadLocales(); });
+$effect(() => {
+  if (tab === 'translations') loadTranslations();
+  else if (tab === 'locales') loadLocales();
+  else loadGlossary();
+});
+
+onMount(() => {
+  loadTranslations();
+  loadLocales();
+});
 </script>
 
 <ExtensionPageShell title={m['i18n.translations.title']()} subtitle={m['i18n.translations.subtitle']()}>

@@ -1,81 +1,123 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-    import { onMount } from 'svelte';
-  import { DatabaseZap, Plus, X, ScanLine, Play } from '@lucide/svelte';
-  import { api as zApi } from '$lib/api.js';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { DatabaseZap, Plus, X, ScanLine, Play } from '@lucide/svelte';
+import { api as zApi } from '$lib/api.js';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let tab = $state<'profiles' | 'history'>('profiles');
-  let profiles = $state<any[]>([]);
-  let history = $state<any[]>([]);
-  let error = $state('');
-  let scanning = $state<string | null>(null);
+let tab = $state<'profiles' | 'history'>('profiles');
+let profiles = $state<any[]>([]);
+let history = $state<any[]>([]);
+let error = $state('');
+let scanning = $state<string | null>(null);
 
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({
-    name: '',
-    connection_string: '',
-    schema: 'public',
-    include_patterns: '',
-    exclude_patterns: 'pg_*,information_schema.*',
-  });
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({
+  name: '',
+  connection_string: '',
+  schema: 'public',
+  include_patterns: '',
+  exclude_patterns: 'pg_*,information_schema.*',
+});
 
-  // Local wrapper around the shared $lib/api client (renamed import to
-  // `zApi` to avoid colliding with this helper's name). Routes credentials
-  // through the centralised module instead of re-implementing the cookie
-  // and base-URL logic per page.
-  async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-    const res = await zApi.fetch(path, init);
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-    return json as T;
+// Local wrapper around the shared $lib/api client (renamed import to
+// `zApi` to avoid colliding with this helper's name). Routes credentials
+// through the centralised module instead of re-implementing the cookie
+// and base-URL logic per page.
+async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const res = await zApi.fetch(path, init);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json as T;
+}
+async function loadProfiles() {
+  try {
+    const r = await api('/api/byod/scan-profiles');
+    profiles = r.data ?? [];
+  } catch (e: any) {
+    error = e.message;
   }
-  async function loadProfiles() { try { const r = await api('/api/byod/scan-profiles'); profiles = r.data ?? []; } catch (e: any) { error = e.message; } }
-  async function loadHistory() { try { const r = await api('/api/byod/scan-history?limit=50'); history = r.data ?? []; } catch (e: any) { error = e.message; } }
-
-  async function createProfile() {
-    saving = true; error = '';
-    try {
-      await api('/api/byod/scan-profiles', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          include_patterns: form.include_patterns.split(',').map((s) => s.trim()).filter(Boolean),
-          exclude_patterns: form.exclude_patterns.split(',').map((s) => s.trim()).filter(Boolean),
-        }),
-      });
-      showForm = false;
-      form = { name: '', connection_string: '', schema: 'public', include_patterns: '', exclude_patterns: 'pg_*,information_schema.*' };
-      await loadProfiles();
-    } catch (e: any) { error = e.message; } finally { saving = false; }
+}
+async function loadHistory() {
+  try {
+    const r = await api('/api/byod/scan-history?limit=50');
+    history = r.data ?? [];
+  } catch (e: any) {
+    error = e.message;
   }
+}
 
-  async function runScan(id: string) {
-    scanning = id; error = '';
-    try {
-      await api(`/api/byod/scan-profiles/${id}/scan`, { method: 'POST' });
-      tab = 'history';
-      await loadHistory();
-    } catch (e: any) { error = e.message; } finally { scanning = null; }
+async function createProfile() {
+  saving = true;
+  error = '';
+  try {
+    await api('/api/byod/scan-profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...form,
+        include_patterns: form.include_patterns
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        exclude_patterns: form.exclude_patterns
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      }),
+    });
+    showForm = false;
+    form = {
+      name: '',
+      connection_string: '',
+      schema: 'public',
+      include_patterns: '',
+      exclude_patterns: 'pg_*,information_schema.*',
+    };
+    await loadProfiles();
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    saving = false;
   }
+}
 
-  async function deleteProfile(id: string) {
-        askConfirm(m['developer.byod.confirmDelete'](), () => deleteProfileConfirmed(id));
+async function runScan(id: string) {
+  scanning = id;
+  error = '';
+  try {
+    await api(`/api/byod/scan-profiles/${id}/scan`, { method: 'POST' });
+    tab = 'history';
+    await loadHistory();
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    scanning = null;
   }
-  async function deleteProfileConfirmed(id: string) {
-    try { await api(`/api/byod/scan-profiles/${id}`, { method: 'DELETE' }); await loadProfiles(); }
-    catch (e: any) { error = e.message; }
+}
+
+async function deleteProfile(id: string) {
+  askConfirm(m['developer.byod.confirmDelete'](), () => deleteProfileConfirmed(id));
+}
+async function deleteProfileConfirmed(id: string) {
+  try {
+    await api(`/api/byod/scan-profiles/${id}`, { method: 'DELETE' });
+    await loadProfiles();
+  } catch (e: any) {
+    error = e.message;
   }
+}
 
-
-  $effect(() => { tab === 'profiles' ? loadProfiles() : loadHistory(); });
-  onMount(loadProfiles);
+$effect(() => {
+  tab === 'profiles' ? loadProfiles() : loadHistory();
+});
+onMount(loadProfiles);
 </script>
 
 <ExtensionPageShell title={m['developer.byod.title']()} subtitle={m['developer.byod.subtitle']()}>

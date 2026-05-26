@@ -1,27 +1,27 @@
 <script lang="ts">
-	/**
-	 * PermissionGuard - Standalone permission gatekeeper
-	 * 
-	 * Props-based design: no external dependencies
-	 * Compatible with Casbin, RBAC, or any auth system
-	 */
-	import type { Snippet } from 'svelte';
+/**
+ * PermissionGuard - Standalone permission gatekeeper
+ *
+ * Props-based design: no external dependencies
+ * Compatible with Casbin, RBAC, or any auth system
+ */
+import type { Snippet } from 'svelte';
 
-	let {
-		children,
-		fallback,
-		canAccess = true, // Parent decides permission
-		isLoading = false,
-		showFallback = false,
-		errorMessage = 'Access Denied'
-	}: {
-		children: Snippet;
-		fallback?: Snippet;
-		canAccess?: boolean;
-		isLoading?: boolean;
-		showFallback?: boolean;
-		errorMessage?: string;
-	} = $props();
+let {
+  children,
+  fallback,
+  canAccess = true, // Parent decides permission
+  isLoading = false,
+  showFallback = false,
+  errorMessage = 'Access Denied',
+}: {
+  children: Snippet;
+  fallback?: Snippet;
+  canAccess?: boolean;
+  isLoading?: boolean;
+  showFallback?: boolean;
+  errorMessage?: string;
+} = $props();
 </script>
 
 {#if isLoading}

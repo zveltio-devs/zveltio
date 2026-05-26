@@ -1,161 +1,188 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import { Play, Pause, Trash2, LoaderCircle, Workflow, Zap, Clock, Webhook, RefreshCw } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import CrudListPage from '$lib/components/common/CrudListPage.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  Play,
+  Pause,
+  Trash2,
+  LoaderCircle,
+  Workflow,
+  Zap,
+  Clock,
+  Webhook,
+  RefreshCw,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- interface Flow {
- id: string;
- name: string;
- description: string | null;
- trigger_type: string;
- trigger_config: Record<string, any>;
- is_active: boolean;
- total_runs?: number;
- last_run_at?: string;
- last_run_status?: 'success' | 'error' | string;
- created_at: string;
- updated_at: string;
- }
+interface Flow {
+  id: string;
+  name: string;
+  description: string | null;
+  trigger_type: string;
+  trigger_config: Record<string, any>;
+  is_active: boolean;
+  total_runs?: number;
+  last_run_at?: string;
+  last_run_status?: 'success' | 'error' | string;
+  created_at: string;
+  updated_at: string;
+}
 
- let flows = $state<Flow[]>([]);
- let loading = $state(true);
- let currentPage = $state(1);
- let total = $state(0);
- const LIMIT = 20;
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
- let showModal = $state(false);
- let saving = $state(false);
- let formError = $state('');
+let flows = $state<Flow[]>([]);
+let loading = $state(true);
+let currentPage = $state(1);
+let total = $state(0);
+const LIMIT = 20;
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+let showModal = $state(false);
+let saving = $state(false);
+let formError = $state('');
 
- // Form state
- let name = $state('');
- let description = $state('');
- let triggerType = $state('manual');
- let triggerCollection = $state('');
- let triggerCron = $state('0 * * * *');
- let isActive = $state(true);
+// Form state
+let name = $state('');
+let description = $state('');
+let triggerType = $state('manual');
+let triggerCollection = $state('');
+let triggerCron = $state('0 * * * *');
+let isActive = $state(true);
 
- onMount(loadFlows);
+onMount(loadFlows);
 
- async function loadFlows() {
- loading = true;
- try {
- const data = await api.get<{ flows: Flow[]; total?: number }>(`/api/flows?limit=${LIMIT}&offset=${(currentPage - 1) * LIMIT}`);
- flows = data.flows || [];
- total = data.total ?? flows.length;
- } catch (e: any) {
- toast.error(e.message ?? 'Something went wrong');
- } finally {
- loading = false;
- }
- }
+async function loadFlows() {
+  loading = true;
+  try {
+    const data = await api.get<{ flows: Flow[]; total?: number }>(
+      `/api/flows?limit=${LIMIT}&offset=${(currentPage - 1) * LIMIT}`,
+    );
+    flows = data.flows || [];
+    total = data.total ?? flows.length;
+  } catch (e: any) {
+    toast.error(e.message ?? 'Something went wrong');
+  } finally {
+    loading = false;
+  }
+}
 
- function openModal() {
- name = '';
- description = '';
- triggerType = 'manual';
- triggerCollection = '';
- triggerCron = '0 * * * *';
- isActive = true;
- formError = '';
- showModal = true;
- }
+function openModal() {
+  name = '';
+  description = '';
+  triggerType = 'manual';
+  triggerCollection = '';
+  triggerCron = '0 * * * *';
+  isActive = true;
+  formError = '';
+  showModal = true;
+}
 
- async function createFlow() {
- if (!name.trim()) { formError = 'Name is required'; return; }
- saving = true;
- formError = '';
- try {
- const triggerConfig: Record<string, any> = {};
- if (triggerType === 'cron') triggerConfig.expression = triggerCron;
- if (['on_create', 'on_update', 'on_delete'].includes(triggerType) && triggerCollection)
- triggerConfig.collection = triggerCollection;
+async function createFlow() {
+  if (!name.trim()) {
+    formError = 'Name is required';
+    return;
+  }
+  saving = true;
+  formError = '';
+  try {
+    const triggerConfig: Record<string, any> = {};
+    if (triggerType === 'cron') triggerConfig.expression = triggerCron;
+    if (['on_create', 'on_update', 'on_delete'].includes(triggerType) && triggerCollection)
+      triggerConfig.collection = triggerCollection;
 
- const data = await api.post<{ flow: Flow }>('/api/flows', {
- name: name.trim(),
- description: description.trim() || undefined,
- trigger_type: triggerType,
- trigger_config: triggerConfig,
- is_active: isActive,
- });
- flows = [data.flow, ...flows];
- showModal = false;
- } catch (e: any) {
- formError = e.message;
- } finally {
- saving = false;
- }
- }
+    const data = await api.post<{ flow: Flow }>('/api/flows', {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      trigger_type: triggerType,
+      trigger_config: triggerConfig,
+      is_active: isActive,
+    });
+    flows = [data.flow, ...flows];
+    showModal = false;
+  } catch (e: any) {
+    formError = e.message;
+  } finally {
+    saving = false;
+  }
+}
 
- async function toggleFlow(flow: Flow) {
- try {
- const data = await api.patch<{ flow: Flow }>(`/api/flows/${flow.id}`, {
- is_active: !flow.is_active,
- });
- flows = flows.map(f => f.id === flow.id ? data.flow : f);
- } catch (e: any) {
- toast.error(e.message ?? 'Something went wrong');
- }
- }
+async function toggleFlow(flow: Flow) {
+  try {
+    const data = await api.patch<{ flow: Flow }>(`/api/flows/${flow.id}`, {
+      is_active: !flow.is_active,
+    });
+    flows = flows.map((f) => (f.id === flow.id ? data.flow : f));
+  } catch (e: any) {
+    toast.error(e.message ?? 'Something went wrong');
+  }
+}
 
- async function deleteFlow(id: string, flowName: string) {
- confirmState = {
- open: true,
- title: 'Delete Flow',
- message: `Delete flow "${flowName}"?`,
- confirmLabel: 'Delete',
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.delete(`/api/flows/${id}`);
- flows = flows.filter(f => f.id !== id);
- } catch (e: any) {
- toast.error(e.message ?? 'Something went wrong');
- }
- },
- };
- }
+async function deleteFlow(id: string, flowName: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Flow',
+    message: `Delete flow "${flowName}"?`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/flows/${id}`);
+        flows = flows.filter((f) => f.id !== id);
+      } catch (e: any) {
+        toast.error(e.message ?? 'Something went wrong');
+      }
+    },
+  };
+}
 
- async function runFlow(id: string) {
- try {
- await api.post(`/api/flows/${id}/run`, {});
- await loadFlows();
- } catch (e: any) {
- toast.error(e.message ?? 'Something went wrong');
- }
- }
+async function runFlow(id: string) {
+  try {
+    await api.post(`/api/flows/${id}/run`, {});
+    await loadFlows();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Something went wrong');
+  }
+}
 
- function triggerIcon(triggerType: string) {
- if (triggerType === 'cron') return Clock;
- if (triggerType === 'webhook') return Webhook;
- if (['on_create', 'on_update', 'on_delete'].includes(triggerType)) return Zap;
- return Play;
- }
+function triggerIcon(triggerType: string) {
+  if (triggerType === 'cron') return Clock;
+  if (triggerType === 'webhook') return Webhook;
+  if (['on_create', 'on_update', 'on_delete'].includes(triggerType)) return Zap;
+  return Play;
+}
 
- function triggerLabel(flow: Flow): string {
- switch (flow.trigger_type) {
- case 'on_create': return `${flow.trigger_config?.collection || '*'} → insert`;
- case 'on_update': return `${flow.trigger_config?.collection || '*'} → update`;
- case 'on_delete': return `${flow.trigger_config?.collection || '*'} → delete`;
- case 'cron': return `Cron: ${flow.trigger_config?.expression || '?'}`;
- case 'webhook': return 'Webhook';
- default: return 'Manual';
- }
- }
+function triggerLabel(flow: Flow): string {
+  switch (flow.trigger_type) {
+    case 'on_create':
+      return `${flow.trigger_config?.collection || '*'} → insert`;
+    case 'on_update':
+      return `${flow.trigger_config?.collection || '*'} → update`;
+    case 'on_delete':
+      return `${flow.trigger_config?.collection || '*'} → delete`;
+    case 'cron':
+      return `Cron: ${flow.trigger_config?.expression || '?'}`;
+    case 'webhook':
+      return 'Webhook';
+    default:
+      return 'Manual';
+  }
+}
 
- function formatRelative(dateStr?: string): string {
- if (!dateStr) return 'never';
- const diff = Date.now() - new Date(dateStr).getTime();
- const mins = Math.floor(diff / 60_000);
- if (mins < 1) return 'just now';
- if (mins < 60) return `${mins}m ago`;
- const hours = Math.floor(mins / 60);
- if (hours < 24) return `${hours}h ago`;
- return `${Math.floor(hours / 24)}d ago`;
- }
+function formatRelative(dateStr?: string): string {
+  if (!dateStr) return 'never';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 </script>
 
 <CrudListPage

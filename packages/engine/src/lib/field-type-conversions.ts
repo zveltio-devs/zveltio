@@ -48,7 +48,8 @@ export function resolveConversion(
   if (RELATION_TYPES.has(from) || RELATION_TYPES.has(to)) {
     return {
       ok: false,
-      reason: 'Converting to/from relation types is not supported. Delete and re-add the field instead.',
+      reason:
+        'Converting to/from relation types is not supported. Delete and re-add the field instead.',
     };
   }
 

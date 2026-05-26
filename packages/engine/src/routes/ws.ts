@@ -29,7 +29,10 @@ const subscriptionIndex = new Map<string, Set<string>>();
 
 function indexSubscription(channel: string, connId: string): void {
   let set = subscriptionIndex.get(channel);
-  if (!set) { set = new Set(); subscriptionIndex.set(channel, set); }
+  if (!set) {
+    set = new Set();
+    subscriptionIndex.set(channel, set);
+  }
   set.add(connId);
 }
 
@@ -146,15 +149,25 @@ export const websocketHandler = {
             const denied: string[] = [];
             for (const col of msg.collections) {
               // Block wildcard subscriptions — they bypass per-collection permission checks
-              if (col === '*') { denied.push(col); continue; }
+              if (col === '*') {
+                denied.push(col);
+                continue;
+              }
               // Extract base collection name from channel format (e.g. "orders:insert" → "orders")
               const collectionName = typeof col === 'string' ? col.split(':')[0] : null;
-              if (!collectionName) { denied.push(col); continue; }
+              if (!collectionName) {
+                denied.push(col);
+                continue;
+              }
 
               // Check permission with per-session cache
               let canRead = permCache.get(collectionName);
               if (canRead === undefined) {
-                canRead = await checkPermission(conn.userId, `data:${collectionName}`, 'read').catch(() => false);
+                canRead = await checkPermission(
+                  conn.userId,
+                  `data:${collectionName}`,
+                  'read',
+                ).catch(() => false);
                 permCache.set(collectionName, canRead);
               }
 
@@ -169,13 +182,20 @@ export const websocketHandler = {
             ws.send(JSON.stringify({ type: 'subscribed', collections: allowed, denied }));
           } else if (typeof msg.channel === 'string') {
             if (msg.channel === '*') {
-              ws.send(JSON.stringify({ type: 'error', message: 'Wildcard subscriptions are not allowed' }));
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  message: 'Wildcard subscriptions are not allowed',
+                }),
+              );
               break;
             }
             const collectionName = msg.channel.split(':')[0];
             let canRead = permCache.get(collectionName);
             if (canRead === undefined) {
-              canRead = await checkPermission(conn.userId, `data:${collectionName}`, 'read').catch(() => false);
+              canRead = await checkPermission(conn.userId, `data:${collectionName}`, 'read').catch(
+                () => false,
+              );
               permCache.set(collectionName, canRead);
             }
             if (canRead) {
@@ -183,7 +203,12 @@ export const websocketHandler = {
               indexSubscription(msg.channel, ws.data.id);
               ws.send(JSON.stringify({ type: 'subscribed', channel: msg.channel }));
             } else {
-              ws.send(JSON.stringify({ type: 'error', message: `No read permission for "${collectionName}"` }));
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  message: `No read permission for "${collectionName}"`,
+                }),
+              );
             }
           }
           break;
@@ -301,7 +326,9 @@ export function broadcastToUser(userId: string, event: object): void {
     if (conn.userId === userId) {
       try {
         conn.ws.send(payload);
-      } catch { /* ignore closed socket */ }
+      } catch {
+        /* ignore closed socket */
+      }
     }
   }
 }
@@ -314,6 +341,8 @@ export function broadcastToAll(event: object): void {
   for (const [, conn] of connections) {
     try {
       conn.ws.send(payload);
-    } catch { /* ignore closed socket */ }
+    } catch {
+      /* ignore closed socket */
+    }
   }
 }

@@ -4,13 +4,19 @@ import { useZveltioClient } from '../context.js';
 import type { HookResult } from '../types.js';
 
 // React Native: persist session token via AsyncStorage (optional peer dep)
-let AsyncStorage: { getItem(k: string): Promise<string | null>; setItem(k: string, v: string): Promise<void>; removeItem(k: string): Promise<void> } | null = null;
+let AsyncStorage: {
+  getItem(k: string): Promise<string | null>;
+  setItem(k: string, v: string): Promise<void>;
+  removeItem(k: string): Promise<void>;
+} | null = null;
 // Dynamic require works in React Native bundlers (Metro/Expo); falls back gracefully if absent
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = (globalThis as any).require?.('@react-native-async-storage/async-storage');
   if (mod) AsyncStorage = mod.default ?? mod;
-} catch { /* optional peer dep */ }
+} catch {
+  /* optional peer dep */
+}
 
 const SESSION_KEY = '@zveltio/session_token';
 
@@ -35,25 +41,30 @@ export function useAuth(): HookResult<AuthState> & {
     }
   }, [client]);
 
-  useEffect(() => { loadSession(); }, [loadSession]);
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const session = await loginUser(client, email, password);
-      setData(session);
-      // Persist token for React Native (no cookies)
-      if (AsyncStorage && (session as any)?.token) {
-        await AsyncStorage.setItem(SESSION_KEY, (session as any).token);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const session = await loginUser(client, email, password);
+        setData(session);
+        // Persist token for React Native (no cookies)
+        if (AsyncStorage && (session as any)?.token) {
+          await AsyncStorage.setItem(SESSION_KEY, (session as any).token);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+        throw err;
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [client]);
+    },
+    [client],
+  );
 
   const logout = useCallback(async () => {
     setLoading(true);
@@ -69,22 +80,25 @@ export function useAuth(): HookResult<AuthState> & {
     }
   }, [client]);
 
-  const signup = useCallback(async (email: string, password: string, name: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const session = await signupUser(client, email, password, name);
-      setData(session);
-      if (AsyncStorage && (session as any)?.token) {
-        await AsyncStorage.setItem(SESSION_KEY, (session as any).token);
+  const signup = useCallback(
+    async (email: string, password: string, name: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const session = await signupUser(client, email, password, name);
+        setData(session);
+        if (AsyncStorage && (session as any)?.token) {
+          await AsyncStorage.setItem(SESSION_KEY, (session as any).token);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+        throw err;
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [client]);
+    },
+    [client],
+  );
 
   return { data, loading, error, login, logout, signup };
 }

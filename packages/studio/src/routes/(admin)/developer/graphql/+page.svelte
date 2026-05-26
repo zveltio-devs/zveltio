@@ -1,54 +1,74 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Network, Play, Save, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Network, Play, Save, LoaderCircle } from '@lucide/svelte';
 
-  let tab = $state<'playground' | 'logs' | 'persisted' | 'policies'>('playground');
-  let logs = $state<any[]>([]);
-  let persisted = $state<any[]>([]);
-  let policies = $state<any[]>([]);
-  let loading = $state(false);
+let tab = $state<'playground' | 'logs' | 'persisted' | 'policies'>('playground');
+let logs = $state<any[]>([]);
+let persisted = $state<any[]>([]);
+let policies = $state<any[]>([]);
+let loading = $state(false);
 
-  let queryText = $state('{\n  collections {\n    name\n    display_name\n  }\n}');
-  let queryResult = $state('');
-  let running = $state(false);
+let queryText = $state('{\n  collections {\n    name\n    display_name\n  }\n}');
+let queryResult = $state('');
+let running = $state(false);
 
-  async function runQuery() {
-    running = true; queryResult = '';
-    try {
-      const res = await api.post<object>('/ext/developer/graphql', { query: queryText });
-      queryResult = JSON.stringify(res, null, 2);
-    } catch (e: any) { toast.error(e?.message ?? m['developer.graphql.error.queryFailed']()); queryResult = ''; }
-    finally { running = false; }
+async function runQuery() {
+  running = true;
+  queryResult = '';
+  try {
+    const res = await api.post<object>('/ext/developer/graphql', { query: queryText });
+    queryResult = JSON.stringify(res, null, 2);
+  } catch (e: any) {
+    toast.error(e?.message ?? m['developer.graphql.error.queryFailed']());
+    queryResult = '';
+  } finally {
+    running = false;
   }
+}
 
-  async function loadLogs() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/operations?limit=100'); logs = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadLogs() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/developer/graphql/operations?limit=100');
+    logs = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadPersisted() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/persisted'); persisted = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+}
+async function loadPersisted() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/developer/graphql/persisted');
+    persisted = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadPolicies() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/developer/graphql/field-policies'); policies = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+}
+async function loadPolicies() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/developer/graphql/field-policies');
+    policies = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  $effect(() => {
-    if (tab === 'logs') loadLogs();
-    else if (tab === 'persisted') loadPersisted();
-    else if (tab === 'policies') loadPolicies();
-  });
+$effect(() => {
+  if (tab === 'logs') loadLogs();
+  else if (tab === 'persisted') loadPersisted();
+  else if (tab === 'policies') loadPolicies();
+});
 </script>
 
 <ExtensionPageShell title={m['developer.graphql.title']()} subtitle={m['developer.graphql.subtitle']()}>

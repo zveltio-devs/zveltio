@@ -17,7 +17,7 @@ describe('Health — Integration', () => {
   it('GET /api/health — returns status ok', async () => {
     const res = await fetch(`${BASE_URL}/api/health`);
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.status).toBe('ok');
   });
 
@@ -25,7 +25,7 @@ describe('Health — Integration', () => {
     // Public /health must stay minimal — engine/schema/runtime details live
     // behind /version (auth-gated) per the security-sprint remediation.
     const res = await fetch(`${BASE_URL}/api/health`);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.engine).toBeUndefined();
     expect(body.schema).toBeUndefined();
     expect(body.runtime).toBeUndefined();

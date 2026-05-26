@@ -1,16 +1,16 @@
 <script lang="ts">
 let {
-    value = $bindable(''),
-    type = 'text',
-    placeholder = '',
-    label = '',
-    error = ''
+  value = $bindable(''),
+  type = 'text',
+  placeholder = '',
+  label = '',
+  error = '',
 }: {
-    value?: string;
-    type?: string;
-    placeholder?: string;
-    label?: string;
-    error?: string;
+  value?: string;
+  type?: string;
+  placeholder?: string;
+  label?: string;
+  error?: string;
 } = $props();
 </script>
 

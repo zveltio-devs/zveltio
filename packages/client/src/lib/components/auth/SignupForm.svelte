@@ -1,40 +1,40 @@
 <script lang="ts">
-  import { useAuth } from '$stores/auth.svelte';
-  import { Mail, Lock, User, LoaderCircle } from '@lucide/svelte';
+import { useAuth } from '$stores/auth.svelte';
+import { Mail, Lock, User, LoaderCircle } from '@lucide/svelte';
 
-  const auth = useAuth();
-  let name = $state('');
-  let email = $state('');
-  let password = $state('');
-  let confirmPassword = $state('');
-  let error = $state<string | null>(null);
-  let loading = $state(false);
+const auth = useAuth();
+let name = $state('');
+let email = $state('');
+let password = $state('');
+let confirmPassword = $state('');
+let error = $state<string | null>(null);
+let loading = $state(false);
 
-  async function handleSubmit() {
-    error = null;
+async function handleSubmit() {
+  error = null;
 
-    if (password !== confirmPassword) {
-      error = 'Passwords do not match';
-      return;
-    }
-
-    if (password.length < 8) {
-      error = 'Password must be at least 8 characters';
-      return;
-    }
-
-    loading = true;
-    try {
-      const result = await auth.signUp({ email, password, name });
-      if (result.error) {
-        error = result.error.message || 'Sign up failed';
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Sign up failed';
-    } finally {
-      loading = false;
-    }
+  if (password !== confirmPassword) {
+    error = 'Passwords do not match';
+    return;
   }
+
+  if (password.length < 8) {
+    error = 'Password must be at least 8 characters';
+    return;
+  }
+
+  loading = true;
+  try {
+    const result = await auth.signUp({ email, password, name });
+    if (result.error) {
+      error = result.error.message || 'Sign up failed';
+    }
+  } catch (e) {
+    error = e instanceof Error ? e.message : 'Sign up failed';
+  } finally {
+    loading = false;
+  }
+}
 </script>
 
 <div class="space-y-4">

@@ -71,8 +71,11 @@ function readManifest(dir: string): Manifest {
   }
   const raw = readFileSync(path, 'utf8');
   let m: Manifest;
-  try { m = JSON.parse(raw) as Manifest; }
-  catch (e) { throw new Error(`manifest.json is not valid JSON: ${(e as Error).message}`); }
+  try {
+    m = JSON.parse(raw) as Manifest;
+  } catch (e) {
+    throw new Error(`manifest.json is not valid JSON: ${(e as Error).message}`);
+  }
   if (!m.name || !m.version) {
     throw new Error('manifest.json is missing required `name` or `version` field.');
   }
@@ -142,9 +145,21 @@ async function uploadToRegistry(opts: {
 }): Promise<{ ok: boolean; status: number; body: string }> {
   const url = `${opts.registryUrl.replace(/\/$/, '')}/api/v1/extensions/publish`;
   const form = new FormData();
-  form.append('manifest', new Blob([JSON.stringify(opts.manifest)], { type: 'application/json' }), 'manifest.json');
-  form.append('signature', new Blob([opts.signatureJson], { type: 'application/json' }), 'signature.json');
-  form.append('archive', new Blob([opts.archive as BlobPart], { type: 'application/gzip' }), `${artifactBaseName(opts.manifest)}.zvext`);
+  form.append(
+    'manifest',
+    new Blob([JSON.stringify(opts.manifest)], { type: 'application/json' }),
+    'manifest.json',
+  );
+  form.append(
+    'signature',
+    new Blob([opts.signatureJson], { type: 'application/json' }),
+    'signature.json',
+  );
+  form.append(
+    'archive',
+    new Blob([opts.archive as BlobPart], { type: 'application/gzip' }),
+    `${artifactBaseName(opts.manifest)}.zvext`,
+  );
 
   const res = await fetch(url, {
     method: 'POST',
@@ -157,7 +172,8 @@ async function uploadToRegistry(opts: {
 
 export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}): Promise<void> {
   const dir = resolve(opts.dir ?? process.cwd());
-  const registryUrl = opts.registryUrl ?? process.env.ZVELTIO_REGISTRY_URL ?? 'https://registry.zveltio.com';
+  const registryUrl =
+    opts.registryUrl ?? process.env.ZVELTIO_REGISTRY_URL ?? 'https://registry.zveltio.com';
   const token = opts.token ?? process.env.ZVELTIO_REGISTRY_TOKEN;
 
   console.log(`\n${c.bold('Extension publish')}\n`);
@@ -165,8 +181,12 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
 
   // 1. Manifest (must succeed for everything downstream).
   let manifest: Manifest;
-  try { manifest = readManifest(dir); }
-  catch (e) { console.error(c.red((e as Error).message)); process.exit(1); }
+  try {
+    manifest = readManifest(dir);
+  } catch (e) {
+    console.error(c.red((e as Error).message));
+    process.exit(1);
+  }
 
   console.log(`  Name:          ${c.bold(manifest.name)} ${c.dim('v' + manifest.version)}`);
 
@@ -189,8 +209,12 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   const runBuildStep = opts.build !== false;
   if (runBuildStep) {
     console.log(`\n${c.bold('Step 2/5: build')}`);
-    try { await runBuild(dir); }
-    catch (e) { console.error(c.red((e as Error).message)); process.exit(1); }
+    try {
+      await runBuild(dir);
+    } catch (e) {
+      console.error(c.red((e as Error).message));
+      process.exit(1);
+    }
     console.log(c.green('  build OK'));
   } else {
     console.log(c.yellow('\nSkipping build (--no-build)'));
@@ -203,11 +227,17 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
 
   // 4. Archive.
   console.log(`\n${c.bold('Step 3/5: archive')}`);
-  const tmpDir = opts.output ? resolve(opts.output) : join(tmpdir(), `zveltio-publish-${Date.now()}`);
+  const tmpDir = opts.output
+    ? resolve(opts.output)
+    : join(tmpdir(), `zveltio-publish-${Date.now()}`);
   if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
   const zvextPath = join(tmpDir, `${artifactBaseName(manifest)}.zvext`);
-  try { await createArchive(dir, zvextPath); }
-  catch (e) { console.error(c.red((e as Error).message)); process.exit(1); }
+  try {
+    await createArchive(dir, zvextPath);
+  } catch (e) {
+    console.error(c.red((e as Error).message));
+    process.exit(1);
+  }
   const archive = new Uint8Array(readFileSync(zvextPath));
   const stat = statSync(zvextPath);
   console.log(`  ${c.dim(zvextPath)} ${c.dim(`(${(stat.size / 1024).toFixed(1)} KB)`)}`);
@@ -215,8 +245,12 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   // 5. Sign.
   console.log(`\n${c.bold('Step 4/5: sign')}`);
   let keyId: string;
-  try { keyId = resolveKeyId(opts.keyId); }
-  catch (e) { console.error(c.red((e as Error).message)); process.exit(1); }
+  try {
+    keyId = resolveKeyId(opts.keyId);
+  } catch (e) {
+    console.error(c.red((e as Error).message));
+    process.exit(1);
+  }
   let signature: Awaited<ReturnType<typeof signBundle>>;
   let sigPath: string;
   try {
@@ -237,14 +271,22 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   // 6. Publish (or stop here in local mode).
   if (opts.output) {
     console.log(`\n${c.green('Local publish complete.')}`);
-    console.log(c.dim(`  Artifacts in ${tmpDir}. Upload them to the registry manually, or re-run without --output.`));
+    console.log(
+      c.dim(
+        `  Artifacts in ${tmpDir}. Upload them to the registry manually, or re-run without --output.`,
+      ),
+    );
     console.log('');
     return;
   }
 
   if (!token) {
     console.error(c.red('\nNo registry token provided.'));
-    console.error(c.dim('  Pass --token <token>, set ZVELTIO_REGISTRY_TOKEN, or use --output <dir> for a local-only build.'));
+    console.error(
+      c.dim(
+        '  Pass --token <token>, set ZVELTIO_REGISTRY_TOKEN, or use --output <dir> for a local-only build.',
+      ),
+    );
     process.exit(1);
   }
 
@@ -264,8 +306,16 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
     } else if (result.status === 404) {
       // Friendly message: this is the expected state until the registry
       // endpoint lands in zveltio-registry.
-      console.error(c.yellow(`  HTTP 404 — the registry at ${registryUrl} does not implement /api/v1/extensions/publish yet.`));
-      console.error(c.dim('  Use --output <dir> to ship locally for now. The CLI bits ahead of the server is intentional.'));
+      console.error(
+        c.yellow(
+          `  HTTP 404 — the registry at ${registryUrl} does not implement /api/v1/extensions/publish yet.`,
+        ),
+      );
+      console.error(
+        c.dim(
+          '  Use --output <dir> to ship locally for now. The CLI bits ahead of the server is intentional.',
+        ),
+      );
       process.exit(2);
     } else {
       console.error(c.red(`  HTTP ${result.status} — upload failed.`));

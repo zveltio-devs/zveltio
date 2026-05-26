@@ -15,14 +15,18 @@
  * (admin tool) and is tracked separately.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, chmodSync, statSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+  statSync,
+} from 'fs';
 import { join } from 'path';
 import { homedir, platform } from 'os';
-import {
-  generateKeypair,
-  exportTrustedKeyEntry,
-  type ZveltioKeypair,
-} from '@zveltio/sdk/publish';
+import { generateKeypair, exportTrustedKeyEntry, type ZveltioKeypair } from '@zveltio/sdk/publish';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
@@ -45,7 +49,11 @@ function ensureKeysDir(): string {
     // POSIX: restrict to 0700 so private keys aren't readable by others.
     // Windows: NTFS ACLs default to user-only — no chmod needed.
     if (platform() !== 'win32') {
-      try { chmodSync(dir, 0o700); } catch { /* best effort */ }
+      try {
+        chmodSync(dir, 0o700);
+      } catch {
+        /* best effort */
+      }
     }
   }
   return dir;
@@ -59,14 +67,20 @@ function writeKeyFile(kp: ZveltioKeypair): void {
   const path = keyPath(kp.keyId);
   writeFileSync(path, JSON.stringify(kp, null, 2), 'utf8');
   if (platform() !== 'win32') {
-    try { chmodSync(path, 0o600); } catch { /* best effort */ }
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      /* best effort */
+    }
   }
 }
 
 export function readKeyFile(keyId: string): ZveltioKeypair {
   const path = keyPath(keyId);
   if (!existsSync(path)) {
-    throw new Error(`Keypair "${keyId}" not found at ${path}. Run \`zveltio keys generate --id ${keyId}\` first.`);
+    throw new Error(
+      `Keypair "${keyId}" not found at ${path}. Run \`zveltio keys generate --id ${keyId}\` first.`,
+    );
   }
   const raw = readFileSync(path, 'utf8');
   const kp = JSON.parse(raw) as ZveltioKeypair;
@@ -83,7 +97,9 @@ export function resolveKeyId(explicit?: string): string {
   if (!existsSync(dir)) {
     throw new Error('No keypairs found. Run `zveltio keys generate` first.');
   }
-  const ids = readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5));
+  const ids = readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.slice(0, -5));
   if (ids.length === 0) throw new Error('No keypairs found. Run `zveltio keys generate` first.');
   if (ids.length > 1) {
     throw new Error(`Multiple keypairs exist (${ids.join(', ')}). Pass --key-id to choose one.`);
@@ -122,19 +138,29 @@ export async function keysGenerateCommand(opts: KeysGenerateOptions = {}): Promi
   const trusted = await exportTrustedKeyEntry(kp.keyId, kp.publicJwk);
   console.log(`\n${c.bold('Public key (share with registry admin):')}\n`);
   console.log(`  ${JSON.stringify([trusted], null, 2)}`);
-  console.log(c.dim('\n  Paste the array above into the engine\'s `REGISTRY_PUBLIC_KEYS_JSON` env to trust this key locally.'));
+  console.log(
+    c.dim(
+      "\n  Paste the array above into the engine's `REGISTRY_PUBLIC_KEYS_JSON` env to trust this key locally.",
+    ),
+  );
   console.log('');
 }
 
 export async function keysListCommand(): Promise<void> {
   const dir = keysDir();
   if (!existsSync(dir)) {
-    console.log(`${c.yellow('No keypairs yet.')} Run ${c.dim('zveltio keys generate')} to create one.`);
+    console.log(
+      `${c.yellow('No keypairs yet.')} Run ${c.dim('zveltio keys generate')} to create one.`,
+    );
     return;
   }
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .sort();
   if (files.length === 0) {
-    console.log(`${c.yellow('No keypairs yet.')} Run ${c.dim('zveltio keys generate')} to create one.`);
+    console.log(
+      `${c.yellow('No keypairs yet.')} Run ${c.dim('zveltio keys generate')} to create one.`,
+    );
     return;
   }
   console.log(`\n${c.bold('Keypairs in')} ${c.dim(dir)}\n`);
@@ -144,7 +170,9 @@ export async function keysListCommand(): Promise<void> {
       const kp = readKeyFile(keyId);
       const st = statSync(join(dir, file));
       const sizeKb = (st.size / 1024).toFixed(1);
-      console.log(`  ${c.green(keyId.padEnd(24))} ${c.dim(kp.createdAt)} ${c.dim(`(${sizeKb} KB)`)}`);
+      console.log(
+        `  ${c.green(keyId.padEnd(24))} ${c.dim(kp.createdAt)} ${c.dim(`(${sizeKb} KB)`)}`,
+      );
     } catch (err) {
       console.log(`  ${c.red(keyId)} ${c.dim('— malformed: ' + (err as Error).message)}`);
     }

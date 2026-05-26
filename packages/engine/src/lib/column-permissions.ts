@@ -34,7 +34,9 @@ export async function getColumnAccess(
         const parsed = JSON.parse(cached) as { hidden: string[]; readOnly: string[] };
         return { hidden: new Set(parsed.hidden), readOnly: new Set(parsed.readOnly) };
       }
-    } catch { /* cache miss */ }
+    } catch {
+      /* cache miss */
+    }
   }
 
   const rows = await db
@@ -54,11 +56,17 @@ export async function getColumnAccess(
 
   if (cache) {
     try {
-      await cache.setex(key, CACHE_TTL, JSON.stringify({
-        hidden: [...hidden],
-        readOnly: [...readOnly],
-      }));
-    } catch { /* non-critical */ }
+      await cache.setex(
+        key,
+        CACHE_TTL,
+        JSON.stringify({
+          hidden: [...hidden],
+          readOnly: [...readOnly],
+        }),
+      );
+    } catch {
+      /* non-critical */
+    }
   }
 
   return { hidden, readOnly };
@@ -74,7 +82,10 @@ export function invalidateColumnPermCache(collection?: string) {
   }
 }
 
-export function applyColumnAccess(record: Record<string, any>, access: ColumnAccess): Record<string, any> {
+export function applyColumnAccess(
+  record: Record<string, any>,
+  access: ColumnAccess,
+): Record<string, any> {
   if (access.hidden.size === 0) return record;
   const result: Record<string, any> = {};
   for (const [k, v] of Object.entries(record)) {

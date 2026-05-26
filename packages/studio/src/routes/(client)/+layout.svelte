@@ -1,61 +1,61 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { page } from '$app/state';
-  import { auth } from '$lib/auth.svelte.js';
-  import { api } from '$lib/api.js';
-  import { LogOut, Sun, Moon, Menu, X } from '@lucide/svelte';
-  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
+import { onMount } from 'svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { page } from '$app/state';
+import { auth } from '$lib/auth.svelte.js';
+import { api } from '$lib/api.js';
+import { LogOut, Sun, Moon, Menu, X } from '@lucide/svelte';
+import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
-  let { children } = $props();
-  let mobileOpen = $state(false);
-  let dark = $state(false);
+let { children } = $props();
+let mobileOpen = $state(false);
+let dark = $state(false);
 
-  // Zone resolved dynamically from /api/zones/:slug/render
-  let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
-  let navPages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
+// Zone resolved dynamically from /api/zones/:slug/render
+let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
+let navPages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
 
-  // The client zone slug — matches zvd_zones.slug = 'client'
-  const ZONE_SLUG = 'client';
+// The client zone slug — matches zvd_zones.slug = 'client'
+const ZONE_SLUG = 'client';
 
-  $effect(() => {
-    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-    if (typeof localStorage !== 'undefined')
-      localStorage.setItem('zveltio-theme', dark ? 'dark' : 'light');
-  });
+$effect(() => {
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  if (typeof localStorage !== 'undefined')
+    localStorage.setItem('zveltio-theme', dark ? 'dark' : 'light');
+});
 
-  function isActive(href: string): boolean {
-    const cur = page.url.pathname;
-    return cur === href || cur.startsWith(href + '/');
-  }
+function isActive(href: string): boolean {
+  const cur = page.url.pathname;
+  return cur === href || cur.startsWith(href + '/');
+}
 
-  onMount(async () => {
-    const t = localStorage.getItem('zveltio-theme');
-    if (t) dark = t === 'dark';
+onMount(async () => {
+  const t = localStorage.getItem('zveltio-theme');
+  if (t) dark = t === 'dark';
 
-    await auth.init();
-    if (!auth.isAuthenticated) {
-      goto(`${base}/portal-client/login`);
-      return;
-    }
-
-    try {
-      const res = await api.get<{ zone: any; pages: any[] }>(`/api/zones/${ZONE_SLUG}/render`);
-      zone = res.zone;
-      navPages = (res.pages ?? []).filter((p: any) => p.is_active);
-    } catch {
-      // Zone not configured yet — show empty nav
-    }
-  });
-
-  async function signOut() {
-    await auth.signOut();
+  await auth.init();
+  if (!auth.isAuthenticated) {
     goto(`${base}/portal-client/login`);
+    return;
   }
 
-  const primaryColor = $derived(zone?.primary_color ?? '#069494');
-  const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
+  try {
+    const res = await api.get<{ zone: any; pages: any[] }>(`/api/zones/${ZONE_SLUG}/render`);
+    zone = res.zone;
+    navPages = (res.pages ?? []).filter((p: any) => p.is_active);
+  } catch {
+    // Zone not configured yet — show empty nav
+  }
+});
+
+async function signOut() {
+  await auth.signOut();
+  goto(`${base}/portal-client/login`);
+}
+
+const primaryColor = $derived(zone?.primary_color ?? '#069494');
+const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
 </script>
 
 {#if auth.loading}

@@ -1,70 +1,89 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { MapPin, Search, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { MapPin, Search, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let geofences = $state<any[]>([]);
-  let loading = $state(true);
-  let activeTab = $state<'proximity' | 'geofences' | 'cluster'>('proximity');
+let geofences = $state<any[]>([]);
+let loading = $state(true);
+let activeTab = $state<'proximity' | 'geofences' | 'cluster'>('proximity');
 
-  let nearForm = $state({ collection: '', location_field: 'location', lat: 0, lng: 0, radius_meters: 1000 });
-  let nearResults = $state<any[]>([]);
-  let searching = $state(false);
+let nearForm = $state({
+  collection: '',
+  location_field: 'location',
+  lat: 0,
+  lng: 0,
+  radius_meters: 1000,
+});
+let nearResults = $state<any[]>([]);
+let searching = $state(false);
 
-  let newGeofenceName = $state('');
-  let coordinatesJson = $state('');
-  let creating = $state(false);
+let newGeofenceName = $state('');
+let coordinatesJson = $state('');
+let creating = $state(false);
 
-  onMount(loadGeofences);
+onMount(loadGeofences);
 
-  async function loadGeofences() {
-    loading = true;
-    try {
-      const data = await api.get<{ geofences: any[] }>('/ext/geospatial/postgis/geofences');
-      geofences = data.geofences ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadGeofences() {
+  loading = true;
+  try {
+    const data = await api.get<{ geofences: any[] }>('/ext/geospatial/postgis/geofences');
+    geofences = data.geofences ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function searchNear() {
-    if (!nearForm.collection) return;
-    searching = true;
-    try {
-      const data = await api.post<{ records: any[] }>('/ext/geospatial/postgis/near', nearForm);
-      nearResults = data.records ?? [];
-    } catch (e: any) { toast.error(e?.message ?? m['ai.error.searchFailed']()); }
-    finally { searching = false; }
+async function searchNear() {
+  if (!nearForm.collection) return;
+  searching = true;
+  try {
+    const data = await api.post<{ records: any[] }>('/ext/geospatial/postgis/near', nearForm);
+    nearResults = data.records ?? [];
+  } catch (e: any) {
+    toast.error(e?.message ?? m['ai.error.searchFailed']());
+  } finally {
+    searching = false;
   }
+}
 
-  async function createGeofence() {
-    if (!newGeofenceName || !coordinatesJson) return;
-    creating = true;
-    try {
-      const coordinates = JSON.parse(coordinatesJson);
-      await api.post('/ext/geospatial/postgis/geofences', { name: newGeofenceName, coordinates });
-      newGeofenceName = ''; coordinatesJson = '';
-      await loadGeofences();
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e?.message ?? 'Invalid coordinates JSON'); }
-    finally { creating = false; }
+async function createGeofence() {
+  if (!newGeofenceName || !coordinatesJson) return;
+  creating = true;
+  try {
+    const coordinates = JSON.parse(coordinatesJson);
+    await api.post('/ext/geospatial/postgis/geofences', { name: newGeofenceName, coordinates });
+    newGeofenceName = '';
+    coordinatesJson = '';
+    await loadGeofences();
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Invalid coordinates JSON');
+  } finally {
+    creating = false;
   }
+}
 
-  async function deleteGeofence(id: string) {
-        askConfirm(m['geospatial.postgis.confirmDelete'](), () => deleteGeofenceConfirmed(id));
+async function deleteGeofence(id: string) {
+  askConfirm(m['geospatial.postgis.confirmDelete'](), () => deleteGeofenceConfirmed(id));
+}
+async function deleteGeofenceConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/geospatial/postgis/geofences/${id}`);
+    await loadGeofences();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteGeofenceConfirmed(id: string) {
-    try { await api.delete(`/ext/geospatial/postgis/geofences/${id}`); await loadGeofences(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
-
+}
 </script>
 
 <ExtensionPageShell title={m['geospatial.postgis.title']()} subtitle={m['geospatial.postgis.subtitle']()}>

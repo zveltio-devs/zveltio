@@ -2,13 +2,13 @@
 import type { Snippet } from 'svelte';
 
 let {
-    children,
-    title = '',
-    actions = null
+  children,
+  title = '',
+  actions = null,
 }: {
-    children: Snippet;
-    title?: string;
-    actions?: Snippet | null;
+  children: Snippet;
+  title?: string;
+  actions?: Snippet | null;
 } = $props();
 </script>
 

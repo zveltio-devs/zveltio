@@ -4,9 +4,15 @@ let currentUser = $state<any>(null);
 let loading = $state(true);
 
 export const auth = {
-  get user() { return currentUser; },
-  get loading() { return loading; },
-  get isAuthenticated() { return !!currentUser; },
+  get user() {
+    return currentUser;
+  },
+  get loading() {
+    return loading;
+  },
+  get isAuthenticated() {
+    return !!currentUser;
+  },
 
   async init() {
     try {

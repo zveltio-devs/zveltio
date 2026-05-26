@@ -1,79 +1,116 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { FolderKanban, Plus, X, List, KanbanSquare, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { FolderKanban, Plus, X, List, KanbanSquare, LoaderCircle } from '@lucide/svelte';
 
-  let view = $state<'list' | 'board'>('board');
-  let projects = $state<any[]>([]);
-  let activeProject = $state<any | null>(null);
-  let tasks = $state<any[]>([]);
-  let loading = $state(true);
+let view = $state<'list' | 'board'>('board');
+let projects = $state<any[]>([]);
+let activeProject = $state<any | null>(null);
+let tasks = $state<any[]>([]);
+let loading = $state(true);
 
-  let showProjectForm = $state(false);
-  let showTaskForm = $state(false);
-  let saving = $state(false);
-  let projectForm = $state({ name: '', description: '', start_date: '', end_date: '' });
-  let taskForm = $state({ title: '', description: '', status: 'todo', priority: 'medium', assignee_id: '', due_date: '' });
+let showProjectForm = $state(false);
+let showTaskForm = $state(false);
+let saving = $state(false);
+let projectForm = $state({ name: '', description: '', start_date: '', end_date: '' });
+let taskForm = $state({
+  title: '',
+  description: '',
+  status: 'todo',
+  priority: 'medium',
+  assignee_id: '',
+  due_date: '',
+});
 
-  const STATUSES = [
-    { id: 'todo', label: 'To do' },
-    { id: 'in_progress', label: 'In progress' },
-    { id: 'review', label: 'Review' },
-    { id: 'done', label: 'Done' },
-  ];
+const STATUSES = [
+  { id: 'todo', label: 'To do' },
+  { id: 'in_progress', label: 'In progress' },
+  { id: 'review', label: 'Review' },
+  { id: 'done', label: 'Done' },
+];
 
-  async function loadProjects() {
-    loading = true;
-    try {
-      const r = await api.get<{ data: any[] }>('/ext/projects/management');
-      projects = r.data ?? [];
-      if (!activeProject && projects[0]) activeProject = projects[0];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadProjects() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/projects/management');
+    projects = r.data ?? [];
+    if (!activeProject && projects[0]) activeProject = projects[0];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadTasks() {
-    if (!activeProject) { tasks = []; return; }
-    try { const r = await api.get<{ data: any[] }>(`/ext/projects/management/${activeProject.id}/tasks`); tasks = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+}
+async function loadTasks() {
+  if (!activeProject) {
+    tasks = [];
+    return;
   }
-  async function createProject() {
-    saving = true;
-    try {
-      await api.post('/ext/projects/management', projectForm);
-      showProjectForm = false;
-      projectForm = { name: '', description: '', start_date: '', end_date: '' };
-      await loadProjects();
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+  try {
+    const r = await api.get<{ data: any[] }>(`/ext/projects/management/${activeProject.id}/tasks`);
+    tasks = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function createTask() {
-    if (!activeProject) return;
-    saving = true;
-    try {
-      await api.post(`/ext/projects/management/${activeProject.id}/tasks`, taskForm);
-      showTaskForm = false;
-      taskForm = { title: '', description: '', status: 'todo', priority: 'medium', assignee_id: '', due_date: '' };
-      await loadTasks();
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+}
+async function createProject() {
+  saving = true;
+  try {
+    await api.post('/ext/projects/management', projectForm);
+    showProjectForm = false;
+    projectForm = { name: '', description: '', start_date: '', end_date: '' };
+    await loadProjects();
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
-  async function moveTask(taskId: string, status: string) {
-    try {
-      await api.patch(`/ext/projects/management/tasks/${taskId}`, { status });
-      await loadTasks();
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+}
+async function createTask() {
+  if (!activeProject) return;
+  saving = true;
+  try {
+    await api.post(`/ext/projects/management/${activeProject.id}/tasks`, taskForm);
+    showTaskForm = false;
+    taskForm = {
+      title: '',
+      description: '',
+      status: 'todo',
+      priority: 'medium',
+      assignee_id: '',
+      due_date: '',
+    };
+    await loadTasks();
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
+async function moveTask(taskId: string, status: string) {
+  try {
+    await api.patch(`/ext/projects/management/tasks/${taskId}`, { status });
+    await loadTasks();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  }
+}
 
-  onMount(loadProjects);
-  $effect(() => { activeProject; loadTasks(); });
+onMount(loadProjects);
+$effect(() => {
+  activeProject;
+  loadTasks();
+});
 
-  function tasksByStatus(s: string) { return tasks.filter((t) => t.status === s); }
+function tasksByStatus(s: string) {
+  return tasks.filter((t) => t.status === s);
+}
 </script>
 
 <ExtensionPageShell title={m['projects.management.title']()} subtitle={m['projects.management.subtitle']()}>

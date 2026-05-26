@@ -50,9 +50,7 @@ export async function runRealtime(opts: RunOptions): Promise<RealtimeResult> {
     };
   }
 
-  await createCollection(client, name, [
-    { name: 'title', type: 'text', required: true },
-  ]);
+  await createCollection(client, name, [{ name: 'title', type: 'text', required: true }]);
 
   try {
     const wsUrl = client.baseUrl.replace(/^http/, 'ws') + '/api/ws';
@@ -61,7 +59,9 @@ export async function runRealtime(opts: RunOptions): Promise<RealtimeResult> {
     const pendingByTitle = new Map<string, (msUntilDelivery: number) => void>();
     const wsReady = new Promise<void>((resolve, reject) => {
       ws.addEventListener('open', () => resolve());
-      ws.addEventListener('error', (e) => reject(new Error(`ws error: ${(e as any).message ?? 'unknown'}`)));
+      ws.addEventListener('error', (e) =>
+        reject(new Error(`ws error: ${(e as any).message ?? 'unknown'}`)),
+      );
     });
     await wsReady;
 
@@ -77,7 +77,9 @@ export async function runRealtime(opts: RunOptions): Promise<RealtimeResult> {
             cb(performance.now());
           }
         }
-      } catch { /* ignore non-JSON / unexpected message shapes */ }
+      } catch {
+        /* ignore non-JSON / unexpected message shapes */
+      }
     });
 
     ws.send(JSON.stringify({ type: 'subscribe', collections: [name] }));
@@ -91,7 +93,10 @@ export async function runRealtime(opts: RunOptions): Promise<RealtimeResult> {
           () => reject(new Error(`WS event for "${title}" not received in 5s`)),
           5000,
         );
-        pendingByTitle.set(title, (tArrived) => { clearTimeout(timeout); resolve(tArrived); });
+        pendingByTitle.set(title, (tArrived) => {
+          clearTimeout(timeout);
+          resolve(tArrived);
+        });
       });
       const post = await timedPost(client, `/api/data/${name}`, { title });
       if (post.status !== 201) throw new Error(`insert returned ${post.status}`);
@@ -113,7 +118,11 @@ export async function runRealtime(opts: RunOptions): Promise<RealtimeResult> {
       postToWs.push(m.postToWs);
     }
 
-    try { ws.close(); } catch { /* ignore */ }
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
 
     return {
       collection: name,

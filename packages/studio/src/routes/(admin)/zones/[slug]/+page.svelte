@@ -1,191 +1,213 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { page } from '$app/state';
-  import { api } from '$lib/api.js';
-  import { base } from '$app/paths';
-  import {
-    Plus, Trash2, Save, Users, Palette,
-    Home, Eye, EyeOff, ToggleLeft, ToggleRight, Layout, LoaderCircle,
-    GripVertical,
-  } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { page } from '$app/state';
+import { api } from '$lib/api.js';
+import { base } from '$app/paths';
+import {
+  Plus,
+  Trash2,
+  Save,
+  Users,
+  Palette,
+  Home,
+  Eye,
+  EyeOff,
+  ToggleLeft,
+  ToggleRight,
+  Layout,
+  LoaderCircle,
+  GripVertical,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  const zoneSlug = $derived((page.params as Record<string, string>).slug ?? '');
+const zoneSlug = $derived((page.params as Record<string, string>).slug ?? '');
 
-  let zone = $state<any>(null);
-  let pages = $state<any[]>([]);
-  let loading = $state(true);
-  let saving = $state(false);
-  let tab = $state<'pages' | 'access' | 'branding'>('pages');
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let zone = $state<any>(null);
+let pages = $state<any[]>([]);
+let loading = $state(true);
+let saving = $state(false);
+let tab = $state<'pages' | 'access' | 'branding'>('pages');
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-  let showAddPage = $state(false);
-  let newPage = $state({ title: '', slug: '', description: '', auth_required: true });
-  let creatingPage = $state(false);
+let showAddPage = $state(false);
+let newPage = $state({ title: '', slug: '', description: '', auth_required: true });
+let creatingPage = $state(false);
 
-  function extractError(e: unknown): string {
-    if (typeof e === 'string') return e;
-    if (e instanceof Error) return e.message;
-    if (e && typeof e === 'object') {
-      const o = e as Record<string, unknown>;
-      if (typeof o.message === 'string') return o.message;
-      if (typeof o.error === 'string') return o.error;
-    }
-    return 'An unexpected error occurred.';
+function extractError(e: unknown): string {
+  if (typeof e === 'string') return e;
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>;
+    if (typeof o.message === 'string') return o.message;
+    if (typeof o.error === 'string') return o.error;
   }
+  return 'An unexpected error occurred.';
+}
 
-  onMount(load);
+onMount(load);
 
-  async function load() {
-    loading = true;
-    try {
-      const [zoneRes, pagesRes] = await Promise.all([
-        api.get<{ zone: any }>(`/api/zones/${zoneSlug}`),
-        api.get<{ pages: any[] }>(`/api/zones/${zoneSlug}/pages`),
-      ]);
-      zone = zoneRes.zone;
-      pages = pagesRes.pages ?? [];
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  try {
+    const [zoneRes, pagesRes] = await Promise.all([
+      api.get<{ zone: any }>(`/api/zones/${zoneSlug}`),
+      api.get<{ pages: any[] }>(`/api/zones/${zoneSlug}/pages`),
+    ]);
+    zone = zoneRes.zone;
+    pages = pagesRes.pages ?? [];
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    loading = false;
   }
+}
 
-  async function saveZone() {
-    saving = true;
-    try {
-      const res = await api.put(`/api/zones/${zoneSlug}`, {
-        name: zone.name,
-        description: zone.description || null,
-        is_active: zone.is_active,
-        access_roles: zone.access_roles,
-        site_name: zone.site_name || null,
-        site_logo_url: zone.site_logo_url || null,
-        primary_color: zone.primary_color || null,
-        custom_css: zone.custom_css || null,
-        nav_position: zone.nav_position,
-        show_breadcrumbs: zone.show_breadcrumbs,
-      });
-      zone = (res as any).zone;
-      toast.success('Zone saved.');
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      saving = false;
-    }
+async function saveZone() {
+  saving = true;
+  try {
+    const res = await api.put(`/api/zones/${zoneSlug}`, {
+      name: zone.name,
+      description: zone.description || null,
+      is_active: zone.is_active,
+      access_roles: zone.access_roles,
+      site_name: zone.site_name || null,
+      site_logo_url: zone.site_logo_url || null,
+      primary_color: zone.primary_color || null,
+      custom_css: zone.custom_css || null,
+      nav_position: zone.nav_position,
+      show_breadcrumbs: zone.show_breadcrumbs,
+    });
+    zone = (res as any).zone;
+    toast.success('Zone saved.');
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    saving = false;
   }
+}
 
-  function slugifyPage(s: string) {
-    return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function slugifyPage(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+async function addPage() {
+  if (!newPage.title.trim() || !newPage.slug.trim()) return;
+  creatingPage = true;
+  try {
+    const res = await api.post<{ page: any }>(`/api/zones/${zoneSlug}/pages`, {
+      title: newPage.title.trim(),
+      slug: newPage.slug.trim(),
+      description: newPage.description || undefined,
+      auth_required: newPage.auth_required,
+    });
+    pages = [...pages, (res as any).page];
+    newPage = { title: '', slug: '', description: '', auth_required: true };
+    showAddPage = false;
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    creatingPage = false;
   }
+}
 
-  async function addPage() {
-    if (!newPage.title.trim() || !newPage.slug.trim()) return;
-    creatingPage = true;
-    try {
-      const res = await api.post<{ page: any }>(`/api/zones/${zoneSlug}/pages`, {
-        title: newPage.title.trim(),
-        slug: newPage.slug.trim(),
-        description: newPage.description || undefined,
-        auth_required: newPage.auth_required,
-      });
-      pages = [...pages, (res as any).page];
-      newPage = { title: '', slug: '', description: '', auth_required: true };
-      showAddPage = false;
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      creatingPage = false;
-    }
-  }
-
-  async function deletePage(slug: string, title: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Page',
-      message: `Delete page "${title}"?`,
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await api.delete(`/api/zones/${zoneSlug}/pages/${slug}`);
-          pages = pages.filter(p => p.slug !== slug);
-        } catch (e) {
-          toast.error(extractError(e));
-        }
-      },
-    };
-  }
-
-  async function togglePageActive(p: any) {
-    try {
-      const res = await api.put<{ page: any }>(`/api/zones/${zoneSlug}/pages/${p.slug}`, {
-        is_active: !p.is_active,
-      });
-      pages = pages.map(x => x.id === p.id ? (res as any).page : x);
-    } catch (e) {
-      toast.error(extractError(e));
-    }
-  }
-
-  async function setHomepage(p: any) {
-    try {
-      await api.put(`/api/zones/${zoneSlug}/pages/${p.slug}`, { is_homepage: true });
-      await load();
-    } catch (e) {
-      toast.error(extractError(e));
-    }
-  }
-
-  function rolesInput(e: Event) {
-    const val = (e.target as HTMLInputElement).value;
-    zone.access_roles = val.split(',').map((r: string) => r.trim()).filter(Boolean);
-  }
-
-  async function toggleActive() {
-    zone.is_active = !zone.is_active;
-    await saveZone();
-  }
-
-  const ZONE_TEMPLATES: Record<string, { title: string; slug: string; auth_required: boolean }[]> = {
-    intranet: [
-      { title: 'Dashboard',      slug: 'dashboard',      auth_required: true },
-      { title: 'Announcements',  slug: 'announcements',  auth_required: true },
-      { title: 'Team Directory', slug: 'team-directory', auth_required: true },
-      { title: 'My Tasks',       slug: 'my-tasks',       auth_required: true },
-    ],
-    'client-portal': [
-      { title: 'Home',      slug: 'home',      auth_required: true },
-      { title: 'Documents', slug: 'documents', auth_required: true },
-      { title: 'Support',   slug: 'support',   auth_required: true },
-    ],
-    generic: [
-      { title: 'Home',  slug: 'home',  auth_required: false },
-      { title: 'About', slug: 'about', auth_required: false },
-    ],
-  };
-
-  let applyingTemplate = $state(false);
-
-  async function applyTemplate(templateKey: string) {
-    const tplPages = ZONE_TEMPLATES[templateKey] ?? ZONE_TEMPLATES.generic;
-    applyingTemplate = true;
-    try {
-      for (const p of tplPages) {
-        const res = await api.post<{ page: any }>(`/api/zones/${zoneSlug}/pages`, p);
-        pages = [...pages, (res as any).page];
+async function deletePage(slug: string, title: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Page',
+    message: `Delete page "${title}"?`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/zones/${zoneSlug}/pages/${slug}`);
+        pages = pages.filter((p) => p.slug !== slug);
+      } catch (e) {
+        toast.error(extractError(e));
       }
-      toast.success('Template applied.');
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      applyingTemplate = false;
-    }
+    },
+  };
+}
+
+async function togglePageActive(p: any) {
+  try {
+    const res = await api.put<{ page: any }>(`/api/zones/${zoneSlug}/pages/${p.slug}`, {
+      is_active: !p.is_active,
+    });
+    pages = pages.map((x) => (x.id === p.id ? (res as any).page : x));
+  } catch (e) {
+    toast.error(extractError(e));
   }
+}
+
+async function setHomepage(p: any) {
+  try {
+    await api.put(`/api/zones/${zoneSlug}/pages/${p.slug}`, { is_homepage: true });
+    await load();
+  } catch (e) {
+    toast.error(extractError(e));
+  }
+}
+
+function rolesInput(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  zone.access_roles = val
+    .split(',')
+    .map((r: string) => r.trim())
+    .filter(Boolean);
+}
+
+async function toggleActive() {
+  zone.is_active = !zone.is_active;
+  await saveZone();
+}
+
+const ZONE_TEMPLATES: Record<string, { title: string; slug: string; auth_required: boolean }[]> = {
+  intranet: [
+    { title: 'Dashboard', slug: 'dashboard', auth_required: true },
+    { title: 'Announcements', slug: 'announcements', auth_required: true },
+    { title: 'Team Directory', slug: 'team-directory', auth_required: true },
+    { title: 'My Tasks', slug: 'my-tasks', auth_required: true },
+  ],
+  'client-portal': [
+    { title: 'Home', slug: 'home', auth_required: true },
+    { title: 'Documents', slug: 'documents', auth_required: true },
+    { title: 'Support', slug: 'support', auth_required: true },
+  ],
+  generic: [
+    { title: 'Home', slug: 'home', auth_required: false },
+    { title: 'About', slug: 'about', auth_required: false },
+  ],
+};
+
+let applyingTemplate = $state(false);
+
+async function applyTemplate(templateKey: string) {
+  const tplPages = ZONE_TEMPLATES[templateKey] ?? ZONE_TEMPLATES.generic;
+  applyingTemplate = true;
+  try {
+    for (const p of tplPages) {
+      const res = await api.post<{ page: any }>(`/api/zones/${zoneSlug}/pages`, p);
+      pages = [...pages, (res as any).page];
+    }
+    toast.success('Template applied.');
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    applyingTemplate = false;
+  }
+}
 </script>
 
 <div class="space-y-6">

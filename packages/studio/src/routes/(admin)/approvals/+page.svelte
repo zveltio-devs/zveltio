@@ -1,171 +1,190 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import {
- CheckCircle, XCircle, Clock, Eye, X, AlertCircle, Check, Ban, RefreshCw,
- } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
- import Pagination from '$lib/components/common/Pagination.svelte';
- import PageSpinner from '$lib/components/common/PageSpinner.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  CheckCircle,
+  XCircle,
+  Clock,
+  Eye,
+  X,
+  AlertCircle,
+  Check,
+  Ban,
+  RefreshCw,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import Pagination from '$lib/components/common/Pagination.svelte';
+import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- interface ApprovalRequest {
- id: string;
- workflow_name: string;
- collection: string;
- record_id: string;
- current_step_id: string | null;
- current_step_name: string | null;
- status: 'pending' | 'approved' | 'rejected' | 'cancelled';
- requester_name: string | null;
- requested_at: string;
- metadata: Record<string, any>;
- }
+interface ApprovalRequest {
+  id: string;
+  workflow_name: string;
+  collection: string;
+  record_id: string;
+  current_step_id: string | null;
+  current_step_name: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  requester_name: string | null;
+  requested_at: string;
+  metadata: Record<string, any>;
+}
 
- interface ApprovalStep {
- id: string;
- step_order: number;
- name: string;
- approver_role: string | null;
- deadline_hours: number | null;
- decision: 'approved' | 'rejected' | 'skipped' | null;
- decider_name: string | null;
- comment: string | null;
- }
+interface ApprovalStep {
+  id: string;
+  step_order: number;
+  name: string;
+  approver_role: string | null;
+  deadline_hours: number | null;
+  decision: 'approved' | 'rejected' | 'skipped' | null;
+  decider_name: string | null;
+  comment: string | null;
+}
 
- let requests = $state<ApprovalRequest[]>([]);
- let total = $state(0);
- let currentPage = $state(1);
- const LIMIT = 25;
- let loading = $state(true);
- let error = $state<string | null>(null);
- let activeTab = $state<'all' | 'pending' | 'my_pending' | 'completed'>('all');
- let selectedRequest = $state<ApprovalRequest | null>(null);
- let requestSteps = $state<ApprovalStep[]>([]);
- let showDetailModal = $state(false);
- let deciding = $state(false);
- let decisionComment = $state('');
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let requests = $state<ApprovalRequest[]>([]);
+let total = $state(0);
+let currentPage = $state(1);
+const LIMIT = 25;
+let loading = $state(true);
+let error = $state<string | null>(null);
+let activeTab = $state<'all' | 'pending' | 'my_pending' | 'completed'>('all');
+let selectedRequest = $state<ApprovalRequest | null>(null);
+let requestSteps = $state<ApprovalStep[]>([]);
+let showDetailModal = $state(false);
+let deciding = $state(false);
+let decisionComment = $state('');
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- const tabs = [
- { key: 'all' as const, label: 'All' },
- { key: 'pending' as const, label: 'Pending' },
- { key: 'my_pending' as const, label: 'My Pending' },
- { key: 'completed' as const, label: 'Completed' },
- ];
+const tabs = [
+  { key: 'all' as const, label: 'All' },
+  { key: 'pending' as const, label: 'Pending' },
+  { key: 'my_pending' as const, label: 'My Pending' },
+  { key: 'completed' as const, label: 'Completed' },
+];
 
- onMount(loadRequests);
+onMount(loadRequests);
 
- async function loadRequests() {
- loading = true;
- error = null;
- try {
- const offset = (currentPage - 1) * LIMIT;
- let endpoint = `/ext/workflow/approvals?limit=${LIMIT}&offset=${offset}`;
- if (activeTab === 'pending') endpoint += '&status=pending';
- else if (activeTab === 'my_pending') endpoint += '&my_pending=true';
- else if (activeTab === 'completed') endpoint += '&status=approved,rejected,cancelled';
+async function loadRequests() {
+  loading = true;
+  error = null;
+  try {
+    const offset = (currentPage - 1) * LIMIT;
+    let endpoint = `/ext/workflow/approvals?limit=${LIMIT}&offset=${offset}`;
+    if (activeTab === 'pending') endpoint += '&status=pending';
+    else if (activeTab === 'my_pending') endpoint += '&my_pending=true';
+    else if (activeTab === 'completed') endpoint += '&status=approved,rejected,cancelled';
 
- const data = await api.get<{ requests: ApprovalRequest[]; total: number }>(endpoint);
- requests = data.requests || [];
- total = data.total || 0;
- } catch (e) {
- error = e instanceof Error ? e.message : 'Failed to load approval requests';
- } finally {
- loading = false;
- }
- }
+    const data = await api.get<{ requests: ApprovalRequest[]; total: number }>(endpoint);
+    requests = data.requests || [];
+    total = data.total || 0;
+  } catch (e) {
+    error = e instanceof Error ? e.message : 'Failed to load approval requests';
+  } finally {
+    loading = false;
+  }
+}
 
- function setTab(tab: typeof activeTab) {
- activeTab = tab;
- currentPage = 1;
- loadRequests();
- }
+function setTab(tab: typeof activeTab) {
+  activeTab = tab;
+  currentPage = 1;
+  loadRequests();
+}
 
- function getStatusBadge(status: string) {
- switch (status) {
- case 'pending': return { cls: 'badge-warning', text: 'Pending' };
- case 'approved': return { cls: 'badge-success', text: 'Approved' };
- case 'rejected': return { cls: 'badge-error', text: 'Rejected' };
- case 'cancelled': return { cls: 'badge-ghost', text: 'Cancelled' };
- default: return { cls: 'badge-ghost', text: status };
- }
- }
+function getStatusBadge(status: string) {
+  switch (status) {
+    case 'pending':
+      return { cls: 'badge-warning', text: 'Pending' };
+    case 'approved':
+      return { cls: 'badge-success', text: 'Approved' };
+    case 'rejected':
+      return { cls: 'badge-error', text: 'Rejected' };
+    case 'cancelled':
+      return { cls: 'badge-ghost', text: 'Cancelled' };
+    default:
+      return { cls: 'badge-ghost', text: status };
+  }
+}
 
- async function openDetail(request: ApprovalRequest) {
- selectedRequest = request;
- showDetailModal = true;
- decisionComment = '';
- try {
- const data = await api.get<{ steps: ApprovalStep[] }>(`/ext/workflow/approvals/${request.id}`);
- requestSteps = data.steps || [];
- } catch {
- requestSteps = [];
- }
- }
+async function openDetail(request: ApprovalRequest) {
+  selectedRequest = request;
+  showDetailModal = true;
+  decisionComment = '';
+  try {
+    const data = await api.get<{ steps: ApprovalStep[] }>(`/ext/workflow/approvals/${request.id}`);
+    requestSteps = data.steps || [];
+  } catch {
+    requestSteps = [];
+  }
+}
 
- function closeDetail() {
- showDetailModal = false;
- selectedRequest = null;
- requestSteps = [];
- decisionComment = '';
- }
+function closeDetail() {
+  showDetailModal = false;
+  selectedRequest = null;
+  requestSteps = [];
+  decisionComment = '';
+}
 
- async function makeDecision(requestId: string, decision: 'approved' | 'rejected') {
- deciding = true;
- try {
- await api.post(`/ext/workflow/approvals/${requestId}/decide`, {
- decision,
- comment: decisionComment || undefined,
- });
- await loadRequests();
- closeDetail();
- } catch (e) {
- toast.error(e instanceof Error ? e.message : 'Failed to submit decision');
- } finally {
- deciding = false;
- }
- }
+async function makeDecision(requestId: string, decision: 'approved' | 'rejected') {
+  deciding = true;
+  try {
+    await api.post(`/ext/workflow/approvals/${requestId}/decide`, {
+      decision,
+      comment: decisionComment || undefined,
+    });
+    await loadRequests();
+    closeDetail();
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to submit decision');
+  } finally {
+    deciding = false;
+  }
+}
 
- async function cancelRequest(requestId: string) {
- confirmState = {
- open: true,
- title: 'Cancel Request',
- message: 'Cancel this request?',
- confirmLabel: 'Cancel Request',
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.post(`/ext/workflow/approvals/${requestId}/cancel`);
- await loadRequests();
- closeDetail();
- } catch (e) {
- toast.error(e instanceof Error ? e.message : 'Failed to cancel request');
- }
- },
- };
- }
+async function cancelRequest(requestId: string) {
+  confirmState = {
+    open: true,
+    title: 'Cancel Request',
+    message: 'Cancel this request?',
+    confirmLabel: 'Cancel Request',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.post(`/ext/workflow/approvals/${requestId}/cancel`);
+        await loadRequests();
+        closeDetail();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Failed to cancel request');
+      }
+    },
+  };
+}
 
- function getStepStatus(step: ApprovalStep) {
- if (step.decision === 'approved') return 'approved';
- if (step.decision === 'rejected') return 'rejected';
- if (step.decision === 'skipped') return 'skipped';
- if (selectedRequest?.current_step_id === step.id) return 'current';
- return 'pending';
- }
+function getStepStatus(step: ApprovalStep) {
+  if (step.decision === 'approved') return 'approved';
+  if (step.decision === 'rejected') return 'rejected';
+  if (step.decision === 'skipped') return 'skipped';
+  if (selectedRequest?.current_step_id === step.id) return 'current';
+  return 'pending';
+}
 
- function formatDate(date: string) {
- return new Date(date).toLocaleString();
- }
+function formatDate(date: string) {
+  return new Date(date).toLocaleString();
+}
 
- function truncateId(id: string, length = 8) {
- return id.length <= length ? id : id.substring(0, length) + '…';
- }
+function truncateId(id: string, length = 8) {
+  return id.length <= length ? id : id.substring(0, length) + '…';
+}
 
- let viewMode = $state<'list' | 'kanban'>('list');
+let viewMode = $state<'list' | 'kanban'>('list');
 
- function formatRelative(dateStr: string): string {
+function formatRelative(dateStr: string): string {
   if (!dateStr) return '—';
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60_000);
@@ -174,7 +193,7 @@
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
- }
+}
 </script>
 
 <div class="space-y-6">

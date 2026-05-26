@@ -114,7 +114,7 @@ describe.skipIf(skipAll)('ETag Caching — Integration', () => {
       },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.records)).toBe(true);
   });
 

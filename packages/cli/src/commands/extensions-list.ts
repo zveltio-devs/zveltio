@@ -31,7 +31,7 @@ export async function extensionsListCommand(opts: {
     process.exit(1);
   }
 
-  const { extensions } = await res.json() as { extensions: any[] };
+  const { extensions } = (await res.json()) as { extensions: any[] };
 
   if (opts.json) {
     console.log(JSON.stringify(extensions, null, 2));
@@ -40,7 +40,7 @@ export async function extensionsListCommand(opts: {
 
   // Filter by category if requested
   const filtered = opts.category
-    ? extensions.filter(e => e.category === opts.category)
+    ? extensions.filter((e) => e.category === opts.category)
     : extensions;
 
   if (!filtered.length) {
@@ -57,10 +57,12 @@ export async function extensionsListCommand(opts: {
   }
 
   const total = filtered.length;
-  const active = filtered.filter(e => e.is_running).length;
-  const installed = filtered.filter(e => e.is_installed).length;
+  const active = filtered.filter((e) => e.is_running).length;
+  const installed = filtered.filter((e) => e.is_installed).length;
 
-  console.log(`\n📦 Zveltio Extensions (${active} active / ${installed} installed / ${total} available)\n`);
+  console.log(
+    `\n📦 Zveltio Extensions (${active} active / ${installed} installed / ${total} available)\n`,
+  );
 
   for (const [category, exts] of Object.entries(byCategory).sort()) {
     console.log(`  ${category.toUpperCase()}`);
@@ -75,7 +77,9 @@ export async function extensionsListCommand(opts: {
 
       const needsRestart = ext.needs_restart ? ' ⚠️ restart needed' : '';
       const name = (ext.displayName || ext.name).padEnd(32);
-      console.log(`  ${status} ${name} v${ext.version || '?'}  ${ext.description || ''}${needsRestart}`);
+      console.log(
+        `  ${status} ${name} v${ext.version || '?'}  ${ext.description || ''}${needsRestart}`,
+      );
     }
     console.log('');
   }

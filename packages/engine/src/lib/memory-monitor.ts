@@ -51,10 +51,7 @@ export function getMemoryUsage(): {
 export function updatePeakStats(): void {
   const usage = process.memoryUsage();
   memoryStats.peakHeapUsed = Math.max(memoryStats.peakHeapUsed, usage.heapUsed);
-  memoryStats.peakHeapTotal = Math.max(
-    memoryStats.peakHeapTotal,
-    usage.heapTotal,
-  );
+  memoryStats.peakHeapTotal = Math.max(memoryStats.peakHeapTotal, usage.heapTotal);
   memoryStats.peakRSS = Math.max(memoryStats.peakRSS, usage.rss);
   memoryStats.samples++;
 }
@@ -81,9 +78,7 @@ export function resetMemoryStats(): void {
 /**
  * Start automatic memory sampling
  */
-export function startMemorySampling(
-  intervalMs = MEMORY_SAMPLING_INTERVAL,
-): void {
+export function startMemorySampling(intervalMs = MEMORY_SAMPLING_INTERVAL): void {
   if (samplingInterval) {
     stopMemorySampling();
   }
@@ -124,9 +119,7 @@ export function getMemoryReport(): {
 } {
   const current = getMemoryUsage();
   const peak = getPeakStats();
-  const heapUsagePercent = Math.round(
-    (current.heapUsed / current.heapTotal) * 100,
-  );
+  const heapUsagePercent = Math.round((current.heapUsed / current.heapTotal) * 100);
 
   let heapEfficiency = 'Good';
   if (heapUsagePercent > 80) {

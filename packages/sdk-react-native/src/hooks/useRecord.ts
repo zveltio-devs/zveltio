@@ -13,7 +13,10 @@ export function useRecord<T = any>(
   const [error, setError] = useState<Error | null>(null);
 
   const load = useCallback(async () => {
-    if (!id) { setLoading(false); return; }
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -25,7 +28,9 @@ export function useRecord<T = any>(
     }
   }, [client, collectionName, id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return { data, loading, error, refetch: load };
 }

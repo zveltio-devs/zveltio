@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+import type { Snippet } from 'svelte';
 
-  interface Props {
-    title: string;
-    subtitle?: string;
-    count?: number | null;
-    children?: Snippet;
-  }
-  let { title, subtitle, count, children }: Props = $props();
+interface Props {
+  title: string;
+  subtitle?: string;
+  count?: number | null;
+  children?: Snippet;
+}
+let { title, subtitle, count, children }: Props = $props();
 </script>
 
 <div class="flex items-start justify-between gap-4 mb-6">

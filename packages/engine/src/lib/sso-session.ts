@@ -78,9 +78,7 @@ export async function createBetterAuthSession(
 ): Promise<{ token: string; setCookie: string }> {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret) {
-    throw new Error(
-      '[sso-session] BETTER_AUTH_SECRET is not set — cannot sign session cookie.',
-    );
+    throw new Error('[sso-session] BETTER_AUTH_SECRET is not set — cannot sign session cookie.');
   }
 
   const token = generateSessionToken();

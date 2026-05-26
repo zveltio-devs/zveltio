@@ -18,26 +18,27 @@
   hosts can declare slots liberally without worrying about empty UI.
 -->
 <script lang="ts">
-  import { studioApi } from '$lib/extension-api.svelte.js';
-  import type { SlotContribution } from '@zveltio/sdk/extension';
+import { studioApi } from '$lib/extension-api.svelte.js';
+import type { SlotContribution } from '@zveltio/sdk/extension';
 
-  interface Props {
-    name: string;
-    ctx?: Record<string, unknown>;
-  }
+interface Props {
+  name: string;
+  ctx?: Record<string, unknown>;
+}
 
-  let { name, ctx = {} }: Props = $props();
+let { name, ctx = {} }: Props = $props();
 
-  const contributions = $derived<SlotContribution[]>(
-    studioApi.getSlotContributions(name).filter((c) => {
-      if (typeof c.visible !== 'function') return true;
-      try { return c.visible(ctx); }
-      catch (err) {
-        console.error(`[slot:${name}] visible() threw, hiding contribution:`, err);
-        return false;
-      }
-    }),
-  );
+const contributions = $derived<SlotContribution[]>(
+  studioApi.getSlotContributions(name).filter((c) => {
+    if (typeof c.visible !== 'function') return true;
+    try {
+      return c.visible(ctx);
+    } catch (err) {
+      console.error(`[slot:${name}] visible() threw, hiding contribution:`, err);
+      return false;
+    }
+  }),
+);
 </script>
 
 {#each contributions as c, i (i)}

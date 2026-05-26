@@ -14,8 +14,7 @@ export async function installCommand(
   name: string,
   opts: { path?: string; url?: string; force?: boolean; registry?: string },
 ) {
-  const engineUrl =
-    opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
+  const engineUrl = opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
 
   console.log(`\n📦 Installing extension: ${name}\n`);
 
@@ -44,9 +43,7 @@ async function installFromPath(
 
   let manifest: any;
   try {
-    manifest = JSON.parse(
-      await readFile(join(sourcePath, 'manifest.json'), 'utf-8'),
-    );
+    manifest = JSON.parse(await readFile(join(sourcePath, 'manifest.json'), 'utf-8'));
   } catch {
     console.error('❌ Failed to read manifest.json');
     process.exit(1);
@@ -108,9 +105,7 @@ async function installFromPath(
 
   await activateViaApi(extName, category, engineUrl);
 
-  console.log(
-    `\n✅ Extension "${manifest.displayName || manifest.name}" installed!`,
-  );
+  console.log(`\n✅ Extension "${manifest.displayName || manifest.name}" installed!`);
   console.log(`\n  Add to your .env:`);
   console.log(`  ZVELTIO_EXTENSIONS=...,${category}/${extName}\n`);
 }
@@ -131,19 +126,13 @@ async function installFromCatalog(name: string, engineUrl: string) {
   }
 
   if (catalogRes.status === 401) {
-    console.error(
-      '❌ Admin authentication required. Engine marketplace requires admin session.',
-    );
-    console.error(
-      '   Tip: use --path <local-path> for unauthenticated install.',
-    );
+    console.error('❌ Admin authentication required. Engine marketplace requires admin session.');
+    console.error('   Tip: use --path <local-path> for unauthenticated install.');
     process.exit(1);
   }
 
   if (!catalogRes.ok) {
-    console.error(
-      `❌ Marketplace error: ${catalogRes.status} ${catalogRes.statusText}`,
-    );
+    console.error(`❌ Marketplace error: ${catalogRes.status} ${catalogRes.statusText}`);
     process.exit(1);
   }
 
@@ -183,9 +172,7 @@ async function installFromCatalog(name: string, engineUrl: string) {
   console.log(`  Description: ${entry.description || ''}`);
 
   if (entry.is_running) {
-    console.log(
-      `\n✅ Extension "${entry.displayName || entry.name}" is already active.`,
-    );
+    console.log(`\n✅ Extension "${entry.displayName || entry.name}" is already active.`);
     return;
   }
 
@@ -193,21 +180,16 @@ async function installFromCatalog(name: string, engineUrl: string) {
     console.log(`  Already installed. Enabling...`);
   } else {
     // Install first (marks as installed in DB)
-    const installRes = await fetch(
-      `${engineUrl}/api/marketplace/${entry.name}/install`,
-      { method: 'POST' },
-    ).catch(() => null);
+    const installRes = await fetch(`${engineUrl}/api/marketplace/${entry.name}/install`, {
+      method: 'POST',
+    }).catch(() => null);
 
     if (!installRes?.ok) {
       const err = (await installRes?.json().catch(() => ({}))) as any;
       if (installRes?.status === 501) {
-        console.log(
-          `  ℹ️  Bundled extension — skipping install step, enabling directly...`,
-        );
+        console.log(`  ℹ️  Bundled extension — skipping install step, enabling directly...`);
       } else {
-        console.error(
-          `❌ Install failed: ${err?.error || `HTTP ${installRes?.status}`}`,
-        );
+        console.error(`❌ Install failed: ${err?.error || `HTTP ${installRes?.status}`}`);
         process.exit(1);
       }
     } else {
@@ -216,29 +198,22 @@ async function installFromCatalog(name: string, engineUrl: string) {
   }
 
   // Enable (hot-load if engine supports it)
-  const enableRes = await fetch(
-    `${engineUrl}/api/marketplace/${entry.name}/enable`,
-    { method: 'POST' },
-  ).catch(() => null);
+  const enableRes = await fetch(`${engineUrl}/api/marketplace/${entry.name}/enable`, {
+    method: 'POST',
+  }).catch(() => null);
 
   if (!enableRes?.ok) {
     const err = (await enableRes?.json().catch(() => ({}))) as any;
-    console.error(
-      `❌ Enable failed: ${err?.error || `HTTP ${enableRes?.status}`}`,
-    );
+    console.error(`❌ Enable failed: ${err?.error || `HTTP ${enableRes?.status}`}`);
     process.exit(1);
   }
 
   const result = (await enableRes.json()) as any;
 
   if (result.hot_loaded) {
-    console.log(
-      `\n✅ Extension "${entry.displayName || entry.name}" is now active (hot-loaded).`,
-    );
+    console.log(`\n✅ Extension "${entry.displayName || entry.name}" is now active (hot-loaded).`);
   } else {
-    console.log(
-      `\n✅ Extension "${entry.displayName || entry.name}" installed.`,
-    );
+    console.log(`\n✅ Extension "${entry.displayName || entry.name}" installed.`);
     console.log(`\n  Restart engine to activate:`);
     console.log(`  bun run dev\n`);
     console.log(`  Or add to your .env:`);
@@ -248,31 +223,20 @@ async function installFromCatalog(name: string, engineUrl: string) {
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
-async function activateViaApi(
-  name: string,
-  category: string,
-  engineUrl: string,
-) {
+async function activateViaApi(name: string, category: string, engineUrl: string) {
   try {
-    const res = await fetch(
-      `${engineUrl}/api/marketplace/${category}/${name}/enable`,
-      {
-        method: 'POST',
-      },
-    );
+    const res = await fetch(`${engineUrl}/api/marketplace/${category}/${name}/enable`, {
+      method: 'POST',
+    });
     if (res.ok) {
       const result = (await res.json()) as any;
       console.log(
         `  ✓ ${result.hot_loaded ? 'Hot-loaded into running engine' : 'Registered (restart engine to activate)'}`,
       );
     } else {
-      console.log(
-        `  ⚠️  Engine responded with ${res.status} — enable manually or restart`,
-      );
+      console.log(`  ⚠️  Engine responded with ${res.status} — enable manually or restart`);
     }
   } catch {
-    console.log(
-      `  ⚠️  Engine not reachable at ${engineUrl} — enable manually or restart`,
-    );
+    console.log(`  ⚠️  Engine not reachable at ${engineUrl} — enable manually or restart`);
   }
 }

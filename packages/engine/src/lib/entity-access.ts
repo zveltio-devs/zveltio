@@ -87,9 +87,7 @@ export class EntityAccessRegistryImpl {
   }
 
   count(table?: string): number {
-    return table
-      ? this.entries.filter((e) => e.table === table).length
-      : this.entries.length;
+    return table ? this.entries.filter((e) => e.table === table).length : this.entries.length;
   }
 
   list(): Array<{ owner: string; table: string }> {
@@ -99,10 +97,7 @@ export class EntityAccessRegistryImpl {
   scope(extName: string): EntityAccessScope {
     return {
       register: (def) => this.registerAs(extName, def.table, def.check),
-      list: () =>
-        this.entries
-          .filter((e) => e.owner === extName)
-          .map((e) => ({ table: e.table })),
+      list: () => this.entries.filter((e) => e.owner === extName).map((e) => ({ table: e.table })),
       unregisterAll: () => {
         this.unregisterAll(extName);
       },

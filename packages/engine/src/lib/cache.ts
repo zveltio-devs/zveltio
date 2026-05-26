@@ -28,8 +28,7 @@ export async function initCache(): Promise<Redis | null> {
     // Memory optimizations for Valkey client
     retryStrategy: (times: number) => {
       // Exponential backoff with jitter
-      const delay =
-        Math.min(100 * Math.pow(2, times), 1000) + Math.random() * 100;
+      const delay = Math.min(100 * Math.pow(2, times), 1000) + Math.random() * 100;
       return delay;
     },
   });

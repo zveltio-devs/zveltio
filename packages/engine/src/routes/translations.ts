@@ -39,7 +39,9 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       FROM zvd_translations t
       JOIN zvd_translation_keys tk ON tk.id = t.key_id
       WHERE t.locale = ${locale}
-    `.execute(db).catch(() => ({ rows: [] }));
+    `
+      .execute(db)
+      .catch(() => ({ rows: [] }));
 
     const map = new Map<string, string>();
     for (const row of rows.rows as any[]) {
@@ -47,7 +49,9 @@ export function translationsRoutes(db: Database, auth: any): Hono {
     }
 
     if (rows.rows.length === 0) {
-      const allKeys = await sql`SELECT key, default_value FROM zvd_translation_keys`.execute(db).catch(() => ({ rows: [] }));
+      const allKeys = await sql`SELECT key, default_value FROM zvd_translation_keys`
+        .execute(db)
+        .catch(() => ({ rows: [] }));
       for (const row of allKeys.rows as any[]) {
         if (row.default_value) map.set(row.key, row.default_value);
       }
@@ -69,20 +73,38 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
   app.get('/locales', async (c) => {
     const locales = await db
-      .selectFrom('zvd_locales').selectAll()
-      .orderBy('is_default', 'desc').orderBy('name', 'asc').execute();
+      .selectFrom('zvd_locales')
+      .selectAll()
+      .orderBy('is_default', 'desc')
+      .orderBy('name', 'asc')
+      .execute();
     return c.json({ locales });
   });
 
   app.post(
     '/locales',
-    zValidator('json', z.object({ code: z.string().min(2).max(10), name: z.string().min(1), is_default: z.boolean().default(false) })),
+    zValidator(
+      'json',
+      z.object({
+        code: z.string().min(2).max(10),
+        name: z.string().min(1),
+        is_default: z.boolean().default(false),
+      }),
+    ),
     async (c) => {
       const { code, name, is_default } = c.req.valid('json');
       if (is_default) {
-        await db.updateTable('zvd_locales').set({ is_default: false }).where('is_default', '=', true).execute();
+        await db
+          .updateTable('zvd_locales')
+          .set({ is_default: false })
+          .where('is_default', '=', true)
+          .execute();
       }
-      const locale = await db.insertInto('zvd_locales').values({ code, name, is_default }).returningAll().executeTakeFirst();
+      const locale = await db
+        .insertInto('zvd_locales')
+        .values({ code, name, is_default })
+        .returningAll()
+        .executeTakeFirst();
       return c.json({ locale }, 201);
     },
   );
@@ -141,20 +163,30 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
   app.post(
     '/',
-    zValidator('json', z.object({
-      key: z.string().min(1).max(255),
-      context: z.string().optional(),
-      default_value: z.string().optional(),
-      description: z.string().optional(),
-      tags: z.array(z.string()).default([]),
-      max_length: z.number().int().positive().optional(),
-      is_pluralized: z.boolean().default(false),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        key: z.string().min(1).max(255),
+        context: z.string().optional(),
+        default_value: z.string().optional(),
+        description: z.string().optional(),
+        tags: z.array(z.string()).default([]),
+        max_length: z.number().int().positive().optional(),
+        is_pluralized: z.boolean().default(false),
+      }),
+    ),
     async (c) => {
       const data = c.req.valid('json');
-      const existing = await db.selectFrom('zvd_translation_keys').where('key', '=', data.key).executeTakeFirst();
+      const existing = await db
+        .selectFrom('zvd_translation_keys')
+        .where('key', '=', data.key)
+        .executeTakeFirst();
       if (existing) return c.json({ error: `Key '${data.key}' already exists` }, 409);
-      const key = await db.insertInto('zvd_translation_keys').values(data).returningAll().executeTakeFirst();
+      const key = await db
+        .insertInto('zvd_translation_keys')
+        .values(data)
+        .returningAll()
+        .executeTakeFirst();
       return c.json({ key }, 201);
     },
   );
@@ -180,17 +212,23 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
   app.put(
     '/:keyId/:locale',
-    zValidator('json', z.object({
-      value: z.string().min(1),
-      is_machine_translated: z.boolean().default(false),
-      reviewed: z.boolean().default(false),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        value: z.string().min(1),
+        is_machine_translated: z.boolean().default(false),
+        reviewed: z.boolean().default(false),
+      }),
+    ),
     async (c) => {
       const user = c.get('user') as any;
       const { keyId, locale } = c.req.param();
       const data = c.req.valid('json');
 
-      const key = await db.selectFrom('zvd_translation_keys').where('id', '=', keyId).executeTakeFirst();
+      const key = await db
+        .selectFrom('zvd_translation_keys')
+        .where('id', '=', keyId)
+        .executeTakeFirst();
       if (!key) return c.json({ error: 'Translation key not found' }, 404);
 
       const translation = await sql`
@@ -224,7 +262,11 @@ export function translationsRoutes(db: Database, auth: any): Hono {
   });
 
   app.delete('/:keyId/:locale', async (c) => {
-    await db.deleteFrom('zvd_translations').where('key_id', '=', c.req.param('keyId')).where('locale', '=', c.req.param('locale')).execute();
+    await db
+      .deleteFrom('zvd_translations')
+      .where('key_id', '=', c.req.param('keyId'))
+      .where('locale', '=', c.req.param('locale'))
+      .execute();
     invalidateCache();
     return c.json({ success: true });
   });
@@ -245,7 +287,9 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       CROSS JOIN zvd_translation_keys tk
       LEFT JOIN zvd_translations t ON t.key_id = tk.id AND t.locale = l.code
       GROUP BY l.code, l.name ORDER BY l.code
-    `.execute(db).catch(() => ({ rows: [] }));
+    `
+      .execute(db)
+      .catch(() => ({ rows: [] }));
 
     return c.json({ coverage: stats.rows });
   });
@@ -260,7 +304,9 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       )
       ORDER BY tk.key
       LIMIT 200
-    `.execute(db).catch(() => ({ rows: [] }));
+    `
+      .execute(db)
+      .catch(() => ({ rows: [] }));
 
     return c.json({ locale, missing_keys: missing.rows, count: missing.rows.length });
   });
@@ -276,13 +322,16 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
   app.post(
     '/glossary',
-    zValidator('json', z.object({
-      term: z.string().min(1),
-      locale: z.string().min(2),
-      translation: z.string().min(1),
-      definition: z.string().optional(),
-      forbidden: z.boolean().default(false),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        term: z.string().min(1),
+        locale: z.string().min(2),
+        translation: z.string().min(1),
+        definition: z.string().optional(),
+        forbidden: z.boolean().default(false),
+      }),
+    ),
     async (c) => {
       const user = c.get('user') as any;
       const data = c.req.valid('json');

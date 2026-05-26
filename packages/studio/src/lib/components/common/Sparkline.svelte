@@ -11,46 +11,38 @@
   Svg primitives directly in the calling page.
 -->
 <script lang="ts">
-  import { Chart, Svg, Spline, Area } from 'layerchart';
-  import { scaleLinear } from 'd3-scale';
+import { Chart, Svg, Spline, Area } from 'layerchart';
+import { scaleLinear } from 'd3-scale';
 
-  interface Props {
-    /** Values in chronological order. Empty / single-value renders nothing. */
-    data: number[];
-    /** Width / height in px. Defaults sized for a stat-card footer. */
-    width?: number;
-    height?: number;
-    /** Hex / CSS color for the line. Defaults to currentColor. */
-    color?: string;
-    /** Fill under the line. Defaults to color at 15% alpha. */
-    showArea?: boolean;
-  }
+interface Props {
+  /** Values in chronological order. Empty / single-value renders nothing. */
+  data: number[];
+  /** Width / height in px. Defaults sized for a stat-card footer. */
+  width?: number;
+  height?: number;
+  /** Hex / CSS color for the line. Defaults to currentColor. */
+  color?: string;
+  /** Fill under the line. Defaults to color at 15% alpha. */
+  showArea?: boolean;
+}
 
-  let {
-    data,
-    width = 120,
-    height = 32,
-    color = 'currentColor',
-    showArea = true,
-  }: Props = $props();
+let { data, width = 120, height = 32, color = 'currentColor', showArea = true }: Props = $props();
 
-  // Reshape the raw numbers into {x, y} points Layerchart expects. We
-  // index by position so the x axis is the just the natural order;
-  // callers pass time-ordered data, no date math needed inside the chart.
-  const points = $derived(
-    data.map((y, x) => ({ x, y })),
-  );
+// Reshape the raw numbers into {x, y} points Layerchart expects. We
+// index by position so the x axis is the just the natural order;
+// callers pass time-ordered data, no date math needed inside the chart.
+const points = $derived(data.map((y, x) => ({ x, y })));
 
-  // Tight y-domain so small variations don't get squashed. min/max with a
-  // small padding so the line never touches the SVG edge.
-  const yDomain = $derived.by(() => {
-    if (data.length === 0) return [0, 1] as [number, number];
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    if (min === max) return [min - 1, max + 1] as [number, number];
-    const pad = (max - min) * 0.1;
-    return [min - pad, max + pad] as [number, number];
-  });
+// Tight y-domain so small variations don't get squashed. min/max with a
+// small padding so the line never touches the SVG edge.
+const yDomain = $derived.by(() => {
+  if (data.length === 0) return [0, 1] as [number, number];
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  if (min === max) return [min - 1, max + 1] as [number, number];
+  const pad = (max - min) * 0.1;
+  return [min - pad, max + pad] as [number, number];
+});
 </script>
 
 {#if points.length >= 2}

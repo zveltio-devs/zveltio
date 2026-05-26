@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { useAuth } from '$stores/auth.svelte';
-  import { LogIn, UserPlus } from '@lucide/svelte';
+import { useAuth } from '$stores/auth.svelte';
+import { LogIn, UserPlus } from '@lucide/svelte';
 
-  let { data } = $props();
+let { data } = $props();
 
-  const auth = useAuth();
-  const theme = $derived(data?.theme ?? null);
-  const nav = $derived((data?.nav ?? []) as any[]);
-  const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? 'Portal');
+const auth = useAuth();
+const theme = $derived(data?.theme ?? null);
+const nav = $derived((data?.nav ?? []) as any[]);
+const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? 'Portal');
 </script>
 
 <!-- If there are portal pages, the homepage is rendered via [slug]/+page  -->

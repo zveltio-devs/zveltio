@@ -26,7 +26,11 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    const row = await db.selectFrom('user' as any).select(['role'] as any).where('id' as any, '=', session.user.id).executeTakeFirst() as any;
+    const row = (await db
+      .selectFrom('user' as any)
+      .select(['role'] as any)
+      .where('id' as any, '=', session.user.id)
+      .executeTakeFirst()) as any;
     c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
     return next();
   });
@@ -70,7 +74,8 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
       RETURNING id
     `.execute(tdb);
 
-    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${result.rows[0].id}`.execute(tdb);
+    const templateResult =
+      await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${result.rows[0].id}`.execute(tdb);
     return c.json({ template: templateResult.rows[0] }, 201);
   });
 
@@ -84,10 +89,23 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const id = c.req.param('id');
     const body = await c.req.json();
 
-    const existing = await sql<{ id: string }>`SELECT id FROM zv_doc_templates WHERE id = ${id}`.execute(tdb);
+    const existing = await sql<{
+      id: string;
+    }>`SELECT id FROM zv_doc_templates WHERE id = ${id}`.execute(tdb);
     if (existing.rows.length === 0) return c.json({ error: 'Template not found' }, 404);
 
-    const ALLOWED = ['name', 'type', 'description', 'template_html', 'template_text', 'variables', 'source_collection', 'field_mapping', 'prefix', 'is_active'];
+    const ALLOWED = [
+      'name',
+      'type',
+      'description',
+      'template_html',
+      'template_text',
+      'variables',
+      'source_collection',
+      'field_mapping',
+      'prefix',
+      'is_active',
+    ];
 
     // Build SET clauses using Kysely's sql template — fully parameterized, no sql.raw().
     const setClauses: ReturnType<typeof sql>[] = [];
@@ -105,9 +123,13 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     if (setClauses.length === 0) return c.json({ error: 'No fields to update' }, 400);
 
     setClauses.push(sql`updated_at = NOW()`);
-    await sql`UPDATE zv_doc_templates SET ${sql.join(setClauses, sql`, `)} WHERE id = ${id}`.execute(tdb);
+    await sql`UPDATE zv_doc_templates SET ${sql.join(setClauses, sql`, `)} WHERE id = ${id}`.execute(
+      tdb,
+    );
 
-    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(tdb);
+    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(
+      tdb,
+    );
     return c.json({ template: templateResult.rows[0] });
   });
 
@@ -119,7 +141,9 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const id = c.req.param('id');
-    const result = await sql`DELETE FROM zv_doc_templates WHERE id = ${id} RETURNING id`.execute(tdb);
+    const result = await sql`DELETE FROM zv_doc_templates WHERE id = ${id} RETURNING id`.execute(
+      tdb,
+    );
     if (result.rows.length === 0) return c.json({ error: 'Template not found' }, 404);
     return c.json({ success: true });
   });
@@ -130,7 +154,8 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const user = c.get('user');
     const templateId = c.req.param('templateId');
 
-    const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${templateId}`.execute(tdb);
+    const templateResult =
+      await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${templateId}`.execute(tdb);
     const template = templateResult.rows[0];
     if (!template) return c.json({ error: 'Template not found' }, 404);
 
@@ -147,23 +172,31 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
         return c.json({ error: `Access denied to collection "${source_collection}"` }, 403);
       }
 
-      const collectionDef = await DDLManager.getCollection(tdb, source_collection).catch(() => null);
+      const collectionDef = await DDLManager.getCollection(tdb, source_collection).catch(
+        () => null,
+      );
       if (!collectionDef) return c.json({ error: 'Invalid source collection' }, 400);
 
       const tableName = DDLManager.getTableName(source_collection);
       try {
-        const recordResult = await sql<any>`SELECT * FROM ${sql.id(tableName)} WHERE id = ${source_record_id}`.execute(tdb);
+        const recordResult =
+          await sql<any>`SELECT * FROM ${sql.id(tableName)} WHERE id = ${source_record_id}`.execute(
+            tdb,
+          );
         const record = recordResult.rows[0];
         if (record) {
-          const mapping = typeof template.field_mapping === 'string'
-            ? JSON.parse(template.field_mapping)
-            : template.field_mapping || {};
+          const mapping =
+            typeof template.field_mapping === 'string'
+              ? JSON.parse(template.field_mapping)
+              : template.field_mapping || {};
           for (const [varName, fieldName] of Object.entries(mapping)) {
             allVariables[varName] = record[fieldName as string];
           }
           allVariables = { ...record, ...allVariables };
         }
-      } catch { /* table may not exist */ }
+      } catch {
+        /* table may not exist */
+      }
     }
 
     allVariables._data_generare = new Date().toLocaleDateString('ro-RO');
@@ -173,7 +206,10 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     allVariables._numar_document = docNumber;
 
     const htmlContent = renderTemplate(template.template_html, allVariables);
-    const pdfBuffer = await generatePDF(htmlContent, { title: `${template.name} ${docNumber}`, subject: template.type });
+    const pdfBuffer = await generatePDF(htmlContent, {
+      title: `${template.name} ${docNumber}`,
+      subject: template.type,
+    });
 
     await sql`
       INSERT INTO zv_generated_docs (template_id, template_name, source_collection, source_record_id, document_number, variables_data, html_content, generated_by)
@@ -181,7 +217,10 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     `.execute(tdb);
 
     c.header('Content-Type', 'application/pdf');
-    c.header('Content-Disposition', `attachment; filename="${template.name.replace(/\s/g, '_')}_${docNumber.replace(/\//g, '-')}.pdf"`);
+    c.header(
+      'Content-Disposition',
+      `attachment; filename="${template.name.replace(/\s/g, '_')}_${docNumber.replace(/\//g, '-')}.pdf"`,
+    );
     return c.body(new Uint8Array(pdfBuffer));
   });
 
@@ -200,11 +239,20 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const tdb = reqDb(c, db);
     let result;
     if (templateId) {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE template_id = ${templateId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(tdb);
+      result =
+        await sql<any>`SELECT * FROM zv_generated_docs WHERE template_id = ${templateId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(
+          tdb,
+        );
     } else if (sourceCollection && sourceRecordId) {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE source_collection = ${sourceCollection} AND source_record_id = ${sourceRecordId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(tdb);
+      result =
+        await sql<any>`SELECT * FROM zv_generated_docs WHERE source_collection = ${sourceCollection} AND source_record_id = ${sourceRecordId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(
+          tdb,
+        );
     } else {
-      result = await sql<any>`SELECT * FROM zv_generated_docs WHERE 1=1 ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(tdb);
+      result =
+        await sql<any>`SELECT * FROM zv_generated_docs WHERE 1=1 ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(
+          tdb,
+        );
     }
 
     return c.json({ documents: result.rows });

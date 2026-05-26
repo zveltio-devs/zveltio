@@ -67,15 +67,15 @@ export async function rebuildStudio(
   }
 
   const extRoutesBase = join(srcDir, 'src', 'routes', '(admin)');
-  const extLibBase    = join(srcDir, 'src', 'lib', 'ext');
+  const extLibBase = join(srcDir, 'src', 'lib', 'ext');
 
   // Collect extensions that have studio source to integrate
   const toIntegrate: Array<{ name: string; pagesDir: string; srcDir?: string }> = [];
 
   for (const name of activeExtNames) {
-    const extDir   = join(extensionsBase, name);
+    const extDir = join(extensionsBase, name);
     const pagesDir = join(extDir, 'studio', 'pages');
-    const compDir  = join(extDir, 'studio', 'src');
+    const compDir = join(extDir, 'studio', 'src');
     if (existsSync(pagesDir)) {
       toIntegrate.push({ name, pagesDir, srcDir: existsSync(compDir) ? compDir : undefined });
     }
@@ -100,10 +100,12 @@ export async function rebuildStudio(
         if (firstPage?.path) {
           slug = firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '');
         }
-      } catch { /* use name as slug */ }
+      } catch {
+        /* use name as slug */
+      }
     }
     const routeDest = join(extRoutesBase, slug);
-    const libDest   = join(extLibBase, name);
+    const libDest = join(extLibBase, name);
 
     mkdirSync(routeDest, { recursive: true });
     cpSync(pagesDir, routeDest, { recursive: true });
@@ -125,13 +127,16 @@ export async function rebuildStudio(
   if (exitCode !== 0) {
     const stderr = await new Response(build.stderr).text();
     console.error('[studio-builder] Build failed:\n', stderr);
-    return { rebuilt: false, error: `Studio build exited with code ${exitCode}: ${stderr.slice(0, 500)}` };
+    return {
+      rebuilt: false,
+      error: `Studio build exited with code ${exitCode}: ${stderr.slice(0, 500)}`,
+    };
   }
 
   // Swap dist: rename old → backup, move new → live, remove backup
-  const newDist  = join(srcDir, 'dist');
+  const newDist = join(srcDir, 'dist');
   const liveDist = studioDistDir();
-  const bakDist  = liveDist + '.bak';
+  const bakDist = liveDist + '.bak';
 
   if (!existsSync(newDist)) {
     return { rebuilt: false, error: 'Build succeeded but dist/ not found' };
@@ -147,7 +152,11 @@ export async function rebuildStudio(
   } catch (err) {
     // Attempt rollback
     if (!existsSync(liveDist) && existsSync(bakDist)) {
-      try { renameSync(bakDist, liveDist); } catch { /* ignore */ }
+      try {
+        renameSync(bakDist, liveDist);
+      } catch {
+        /* ignore */
+      }
     }
     return { rebuilt: false, error: (err as Error).message };
   }

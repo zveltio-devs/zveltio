@@ -1,25 +1,30 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { Plus, Play, Trash2, Save, Code, CircleCheck } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { api } from '$lib/api.js';
+import { onMount } from 'svelte';
+import { Plus, Play, Trash2, Save, Code, CircleCheck } from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { api } from '$lib/api.js';
 
+let functions = $state<any[]>([]);
+let loading = $state(true);
+let selected = $state<any>(null);
+let saving = $state(false);
+let saved = $state(false);
+let invoking = $state(false);
+let invokeInput = $state('{}');
+let invokeResult = $state<any>(null);
+let showCreateModal = $state(false);
+let creating = $state(false);
 
-  let functions = $state<any[]>([]);
-  let loading = $state(true);
-  let selected = $state<any>(null);
-  let saving = $state(false);
-  let saved = $state(false);
-  let invoking = $state(false);
-  let invokeInput = $state('{}');
-  let invokeResult = $state<any>(null);
-  let showCreateModal = $state(false);
-  let creating = $state(false);
+let form = $state({ name: '', display_name: '', description: '', http_method: 'POST' });
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-  let form = $state({ name: '', display_name: '', description: '', http_method: 'POST' });
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
-
-  const DEFAULT_CODE = `// Edge function — handler(request, env) is the entry point
+const DEFAULT_CODE = `// Edge function — handler(request, env) is the entry point
 // request: { method, headers, query, body, path }
 // env:     key/value pairs from the function's env_vars config
 // return:  { status, body, headers? }  OR  any value (wrapped as 200)
@@ -31,111 +36,114 @@ async function handler(request, env) {
 }
 `;
 
-  onMount(async () => {
-    await loadFunctions();
-  });
+onMount(async () => {
+  await loadFunctions();
+});
 
-  async function loadFunctions() {
-    loading = true;
-    try {
-      const res = await api.fetch(`/ext/developer/edge-functions`, { credentials: 'include' });
-      const data = await res.json();
-      functions = data.functions || [];
-      if (functions.length > 0 && !selected) {
-        await selectFunction(functions[0]);
-      }
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function selectFunction(fn: any) {
-    const res = await api.fetch(`/ext/developer/edge-functions/${fn.id}`, { credentials: 'include' });
+async function loadFunctions() {
+  loading = true;
+  try {
+    const res = await api.fetch(`/ext/developer/edge-functions`, { credentials: 'include' });
     const data = await res.json();
-    selected = data.function;
-    invokeResult = null;
-  }
-
-  async function saveCode() {
-    if (!selected) return;
-    saving = true;
-    try {
-      await api.fetch(`/ext/developer/edge-functions/${selected.id}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: selected.code }),
-      });
-      saved = true;
-      setTimeout(() => (saved = false), 2000);
-    } finally {
-      saving = false;
+    functions = data.functions || [];
+    if (functions.length > 0 && !selected) {
+      await selectFunction(functions[0]);
     }
+  } finally {
+    loading = false;
   }
+}
 
-  async function invoke() {
-    if (!selected) return;
-    invoking = true;
-    invokeResult = null;
-    try {
-      const res = await api.fetch(`/ext/developer/edge-functions/${selected.id}/invoke`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: invokeInput,
-      });
-      const data = await res.json();
-      invokeResult = data.result;
-    } finally {
-      invoking = false;
-    }
-  }
+async function selectFunction(fn: any) {
+  const res = await api.fetch(`/ext/developer/edge-functions/${fn.id}`, { credentials: 'include' });
+  const data = await res.json();
+  selected = data.function;
+  invokeResult = null;
+}
 
-  async function createFunction() {
-    if (!form.name || !form.display_name) return;
-    creating = true;
-    try {
-      const res = await api.fetch(`/ext/developer/edge-functions`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, code: DEFAULT_CODE }),
-      });
-      const data = await res.json();
-      showCreateModal = false;
-      form = { name: '', display_name: '', description: '', http_method: 'POST' };
-      await loadFunctions();
-      await selectFunction(data.function);
-    } finally {
-      creating = false;
-    }
-  }
-
-  async function deleteFunction(id: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Function',
-      message: 'Delete this edge function? This cannot be undone.',
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        await api.fetch(`/ext/developer/edge-functions/${id}`, { method: 'DELETE', credentials: 'include' });
-        selected = null;
-        await loadFunctions();
-      },
-    };
-  }
-
-  async function toggleActive(fn: any) {
-    await api.fetch(`/ext/developer/edge-functions/${fn.id}`, {
+async function saveCode() {
+  if (!selected) return;
+  saving = true;
+  try {
+    await api.fetch(`/ext/developer/edge-functions/${selected.id}`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_active: !fn.is_active }),
+      body: JSON.stringify({ code: selected.code }),
     });
-    await loadFunctions();
-    if (selected?.id === fn.id) selected.is_active = !fn.is_active;
+    saved = true;
+    setTimeout(() => (saved = false), 2000);
+  } finally {
+    saving = false;
   }
+}
+
+async function invoke() {
+  if (!selected) return;
+  invoking = true;
+  invokeResult = null;
+  try {
+    const res = await api.fetch(`/ext/developer/edge-functions/${selected.id}/invoke`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: invokeInput,
+    });
+    const data = await res.json();
+    invokeResult = data.result;
+  } finally {
+    invoking = false;
+  }
+}
+
+async function createFunction() {
+  if (!form.name || !form.display_name) return;
+  creating = true;
+  try {
+    const res = await api.fetch(`/ext/developer/edge-functions`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, code: DEFAULT_CODE }),
+    });
+    const data = await res.json();
+    showCreateModal = false;
+    form = { name: '', display_name: '', description: '', http_method: 'POST' };
+    await loadFunctions();
+    await selectFunction(data.function);
+  } finally {
+    creating = false;
+  }
+}
+
+async function deleteFunction(id: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Function',
+    message: 'Delete this edge function? This cannot be undone.',
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      await api.fetch(`/ext/developer/edge-functions/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      selected = null;
+      await loadFunctions();
+    },
+  };
+}
+
+async function toggleActive(fn: any) {
+  await api.fetch(`/ext/developer/edge-functions/${fn.id}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: !fn.is_active }),
+  });
+  await loadFunctions();
+  if (selected?.id === fn.id) selected.is_active = !fn.is_active;
+}
 </script>
 
 <div class="flex h-[calc(100vh-4rem)]">

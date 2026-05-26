@@ -29,17 +29,24 @@ const WebhookSchema = z.object({
 function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 async function signBody(body: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
   );
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-  return `sha256=${Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return `sha256=${Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}`;
 }
 
 export function webhooksRoutes(db: Database, auth: any): Hono {
@@ -108,7 +115,10 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     // Return plaintext secret only on creation — subsequent GETs return masked value
-    return c.json({ webhook: { ...webhook, secret: '••••••••' }, secret, _secret_shown_once: true }, 201);
+    return c.json(
+      { webhook: { ...webhook, secret: '••••••••' }, secret, _secret_shown_once: true },
+      201,
+    );
   });
 
   // PATCH /:id — Update webhook
@@ -190,11 +200,22 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     try {
       // Security: sanitize stored headers — block credential injection.
       const BLOCKED_HEADERS = new Set([
-        'authorization', 'cookie', 'set-cookie', 'x-api-key', 'x-auth-token',
-        'x-forwarded-for', 'x-real-ip', 'x-zveltio-internal', 'host', 'origin', 'referer',
+        'authorization',
+        'cookie',
+        'set-cookie',
+        'x-api-key',
+        'x-auth-token',
+        'x-forwarded-for',
+        'x-real-ip',
+        'x-zveltio-internal',
+        'host',
+        'origin',
+        'referer',
       ]);
       const sanitizedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      for (const [key, value] of Object.entries((webhook.headers as Record<string, string>) || {})) {
+      for (const [key, value] of Object.entries(
+        (webhook.headers as Record<string, string>) || {},
+      )) {
         if (!BLOCKED_HEADERS.has(key.toLowerCase()) && typeof value === 'string') {
           sanitizedHeaders[key] = value;
         }

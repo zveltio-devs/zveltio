@@ -1,71 +1,93 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { CheckSquare, Workflow, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { CheckSquare, Workflow, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let tab = $state<'approvals' | 'workflows'>('approvals');
-  let requests = $state<any[]>([]);
-  let workflows = $state<any[]>([]);
-  let loading = $state(true);
-  let filter = $state<'all' | 'pending' | 'approved' | 'rejected'>('all');
+let tab = $state<'approvals' | 'workflows'>('approvals');
+let requests = $state<any[]>([]);
+let workflows = $state<any[]>([]);
+let loading = $state(true);
+let filter = $state<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
-  async function loadRequests() {
-    loading = true;
-    try {
-      const qs = filter !== 'all' ? `?status=${filter}` : '';
-      const data = await api.get<{ requests: any[] }>(`/api/approvals${qs}`);
-      requests = data.requests ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadRequests() {
+  loading = true;
+  try {
+    const qs = filter !== 'all' ? `?status=${filter}` : '';
+    const data = await api.get<{ requests: any[] }>(`/api/approvals${qs}`);
+    requests = data.requests ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function loadWorkflows() {
-    loading = true;
-    try {
-      const data = await api.get<{ workflows: any[] }>('/ext/workflow/approvals/workflows');
-      workflows = data.workflows ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadWorkflows() {
+  loading = true;
+  try {
+    const data = await api.get<{ workflows: any[] }>('/ext/workflow/approvals/workflows');
+    workflows = data.workflows ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function decide(requestId: string, decision: 'approved' | 'rejected') {
-    const comment = decision === 'rejected' ? prompt('Rejection reason (optional):') ?? undefined : undefined;
-    try {
-      await api.post(`/ext/workflow/approvals/${requestId}/decide`, { decision, comment });
-      await loadRequests();
-      toast.success(decision === 'approved' ? 'Approved.' : 'Rejected.');
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function decide(requestId: string, decision: 'approved' | 'rejected') {
+  const comment =
+    decision === 'rejected' ? (prompt('Rejection reason (optional):') ?? undefined) : undefined;
+  try {
+    await api.post(`/ext/workflow/approvals/${requestId}/decide`, { decision, comment });
+    await loadRequests();
+    toast.success(decision === 'approved' ? 'Approved.' : 'Rejected.');
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function cancel(requestId: string) {
-        askConfirm(m['workflow.approvals.confirmCancel'](), () => cancelConfirmed(requestId));
+async function cancel(requestId: string) {
+  askConfirm(m['workflow.approvals.confirmCancel'](), () => cancelConfirmed(requestId));
+}
+async function cancelConfirmed(requestId: string) {
+  try {
+    await api.post(`/ext/workflow/approvals/${requestId}/cancel`, {});
+    await loadRequests();
+    toast.success(m['workflow.approvals.toast.cancelled']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function cancelConfirmed(requestId: string) {
-    try {
-      await api.post(`/ext/workflow/approvals/${requestId}/cancel`, {});
-      await loadRequests();
-      toast.success(m['workflow.approvals.toast.cancelled']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
+$effect(() => {
+  if (tab === 'approvals') loadRequests();
+  else loadWorkflows();
+});
+$effect(() => {
+  filter;
+  if (tab === 'approvals') loadRequests();
+});
 
-  $effect(() => {
-    if (tab === 'approvals') loadRequests();
-    else loadWorkflows();
-  });
-  $effect(() => { filter; if (tab === 'approvals') loadRequests(); });
-
-  function statusBadge(s: string) {
-    return ({ pending: 'badge-warning', approved: 'badge-success', rejected: 'badge-error', cancelled: 'badge-ghost' } as any)[s] ?? 'badge-ghost';
-  }
+function statusBadge(s: string) {
+  return (
+    (
+      {
+        pending: 'badge-warning',
+        approved: 'badge-success',
+        rejected: 'badge-error',
+        cancelled: 'badge-ghost',
+      } as any
+    )[s] ?? 'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['workflow.approvals.title']()} subtitle={m['workflow.approvals.subtitle']()}>

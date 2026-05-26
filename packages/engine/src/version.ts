@@ -41,8 +41,9 @@ export function getMaxSchemaVersion(): number {
     return Math.max(...versions);
   } catch {
     // Compiled binary: derive max version from embedded migrations
-    const versions = Object.keys(EMBEDDED_MIGRATIONS)
-      .map((f) => parseInt(f.match(/^(\d+)/)?.[1] ?? '0'));
+    const versions = Object.keys(EMBEDDED_MIGRATIONS).map((f) =>
+      parseInt(f.match(/^(\d+)/)?.[1] ?? '0'),
+    );
     return Math.max(...versions, 0);
   }
 }
@@ -83,9 +84,7 @@ export async function checkSchemaCompatibility(db: any): Promise<void> {
 
   const pendingCount = MAX_SCHEMA_VERSION - currentVersion;
   if (pendingCount > 0) {
-    console.log(
-      `⚠️  ${pendingCount} pending migration(s). Run: zveltio migrate`,
-    );
+    console.log(`⚠️  ${pendingCount} pending migration(s). Run: zveltio migrate`);
   }
 }
 

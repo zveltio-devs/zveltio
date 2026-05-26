@@ -19,8 +19,8 @@ function warnMissingKeyOnce(): void {
   _missingKeyWarned = true;
   console.warn(
     '[field-crypto] WARNING: FIELD_ENCRYPTION_KEY is not set — fields ' +
-    'marked `encrypted: true` are being stored in PLAINTEXT. Generate ' +
-    'a key with `openssl rand -hex 32` and set FIELD_ENCRYPTION_KEY.',
+      'marked `encrypted: true` are being stored in PLAINTEXT. Generate ' +
+      'a key with `openssl rand -hex 32` and set FIELD_ENCRYPTION_KEY.',
   );
 }
 
@@ -31,18 +31,27 @@ function warnMissingKeyOnce(): void {
  * disk in the clear instead of failing silently the first time someone
  * writes to one of those fields.
  */
-export async function checkFieldEncryptionAtBoot(db: import('../db/index.js').Database): Promise<void> {
+export async function checkFieldEncryptionAtBoot(
+  db: import('../db/index.js').Database,
+): Promise<void> {
   if (KEY_HEX) return; // key is set — nothing to flag
   try {
-    const rows = await db
+    const rows = (await db
       .selectFrom('zvd_collections')
       .select(['name', 'fields'])
-      .execute() as Array<{ name: string; fields: unknown }>;
+      .execute()) as Array<{ name: string; fields: unknown }>;
     const collectionsWithEncrypted: string[] = [];
     for (const row of rows) {
-      const fields = typeof row.fields === 'string'
-        ? (() => { try { return JSON.parse(row.fields as string); } catch { return []; } })()
-        : (row.fields as any);
+      const fields =
+        typeof row.fields === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(row.fields as string);
+              } catch {
+                return [];
+              }
+            })()
+          : (row.fields as any);
       if (Array.isArray(fields) && fields.some((f: any) => f?.encrypted === true)) {
         collectionsWithEncrypted.push(row.name);
       }
@@ -50,14 +59,16 @@ export async function checkFieldEncryptionAtBoot(db: import('../db/index.js').Da
     if (collectionsWithEncrypted.length > 0) {
       console.warn(
         `[field-crypto] WARNING: ${collectionsWithEncrypted.length} ` +
-        `collection(s) have fields marked encrypted but FIELD_ENCRYPTION_KEY ` +
-        `is not set: ${collectionsWithEncrypted.join(', ')}. ` +
-        `Those fields are being stored in PLAINTEXT. ` +
-        `Generate a key with \`openssl rand -hex 32\` and set ` +
-        `FIELD_ENCRYPTION_KEY before writing more sensitive data.`,
+          `collection(s) have fields marked encrypted but FIELD_ENCRYPTION_KEY ` +
+          `is not set: ${collectionsWithEncrypted.join(', ')}. ` +
+          `Those fields are being stored in PLAINTEXT. ` +
+          `Generate a key with \`openssl rand -hex 32\` and set ` +
+          `FIELD_ENCRYPTION_KEY before writing more sensitive data.`,
       );
     }
-  } catch { /* zvd_collections may not exist yet on a brand new install */ }
+  } catch {
+    /* zvd_collections may not exist yet on a brand new install */
+  }
 }
 
 async function getKey(): Promise<CryptoKey> {
@@ -65,11 +76,14 @@ async function getKey(): Promise<CryptoKey> {
   if (!KEY_HEX || KEY_HEX.length !== 64) {
     throw new Error(
       'FIELD_ENCRYPTION_KEY env var must be set to a 64-char hex string (32 bytes). ' +
-      'Generate with: openssl rand -hex 32',
+        'Generate with: openssl rand -hex 32',
     );
   }
   const raw = new Uint8Array(KEY_HEX.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
-  _key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  _key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
   return _key;
 }
 
@@ -85,7 +99,13 @@ export async function encryptField(plaintext: string): Promise<string> {
   const combined = new Uint8Array(iv.byteLength + cipherBuf.byteLength);
   combined.set(iv, 0);
   combined.set(new Uint8Array(cipherBuf), iv.byteLength);
-  return ENC_PREFIX + btoa(String.fromCharCode(...combined)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return (
+    ENC_PREFIX +
+    btoa(String.fromCharCode(...combined))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '')
+  );
 }
 
 export async function decryptField(value: string): Promise<string> {
@@ -127,7 +147,7 @@ export async function maybeDecrypt(value: unknown, isEncrypted: boolean): Promis
     // whole record, which is worse for ops than a noisy log line.
     console.error(
       '[field-crypto] decryptField failed — wrong FIELD_ENCRYPTION_KEY ' +
-      'or corrupted ciphertext. Returning value as-is.',
+        'or corrupted ciphertext. Returning value as-is.',
       err instanceof Error ? err.message : err,
     );
     return value;

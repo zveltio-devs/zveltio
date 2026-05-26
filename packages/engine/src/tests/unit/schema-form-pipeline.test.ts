@@ -23,12 +23,17 @@ function userInviteSchema(): FormSchema {
   return {
     id: 'core:user-invite',
     fields: [
-      { name: 'email', type: 'email',  label: 'Email', required: true },
-      { name: 'name',  type: 'text',   label: 'Name' },
-      { name: 'role',  type: 'select', label: 'Role', options: [
-        { value: 'member', label: 'Member' },
-        { value: 'admin',  label: 'Admin'  },
-      ] },
+      { name: 'email', type: 'email', label: 'Email', required: true },
+      { name: 'name', type: 'text', label: 'Name' },
+      {
+        name: 'role',
+        type: 'select',
+        label: 'Role',
+        options: [
+          { value: 'member', label: 'Member' },
+          { value: 'admin', label: 'Admin' },
+        ],
+      },
     ],
   };
 }
@@ -65,10 +70,7 @@ describe('S3-02 closure — SchemaForm consumption pipeline', () => {
       form.addValidator('phone', (v) =>
         typeof v === 'string' && v.startsWith('+') ? null : 'Must start with +',
       );
-    const out = applyFormAlterHooks(
-      [addPhone, hideName, validatePhone],
-      userInviteSchema(),
-    );
+    const out = applyFormAlterHooks([addPhone, hideName, validatePhone], userInviteSchema());
     const visible = out.fields.filter((f) => !f.hidden);
     expect(visible.map((f) => f.name)).toEqual(['email', 'phone', 'role']);
     // SchemaForm runs validators per-field on input.
@@ -87,23 +89,23 @@ describe('S3-02 closure — SchemaForm consumption pipeline', () => {
       }
     };
 
-    const adminOut = applyFormAlterHooks(
-      [adminOnlyExtraField],
-      userInviteSchema(),
-      { user: { roles: ['admin'] }, mode: 'create' },
-    );
+    const adminOut = applyFormAlterHooks([adminOnlyExtraField], userInviteSchema(), {
+      user: { roles: ['admin'] },
+      mode: 'create',
+    });
     expect(adminOut.fields.some((f) => f.name === 'audit_note')).toBe(true);
 
-    const memberOut = applyFormAlterHooks(
-      [adminOnlyExtraField],
-      userInviteSchema(),
-      { user: { roles: ['member'] }, mode: 'create' },
-    );
+    const memberOut = applyFormAlterHooks([adminOnlyExtraField], userInviteSchema(), {
+      user: { roles: ['member'] },
+      mode: 'create',
+    });
     expect(memberOut.fields.some((f) => f.name === 'audit_note')).toBe(false);
   });
 
   it('isolates a throwing hook: the rest of the alters still apply', () => {
-    const broken: FormAlterHook = () => { throw new Error('broken extension'); };
+    const broken: FormAlterHook = () => {
+      throw new Error('broken extension');
+    };
     const hide: FormAlterHook = (form) => form.hideField('name');
     const out = applyFormAlterHooks([broken, hide], userInviteSchema());
     expect(out.fields.find((f) => f.name === 'name')?.hidden).toBe(true);
@@ -145,13 +147,20 @@ describe('S3-03 closure — slot host contract', () => {
   // visibility-filter shape so a slot host that passes specific ctx
   // doesn't surprise contributors.
 
-  interface Contribution { component: unknown; priority?: number; visible?: (ctx: any) => boolean }
+  interface Contribution {
+    component: unknown;
+    priority?: number;
+    visible?: (ctx: any) => boolean;
+  }
 
   function filterVisible(items: Contribution[], ctx: Record<string, unknown>): Contribution[] {
     return items.filter((c) => {
       if (typeof c.visible !== 'function') return true;
-      try { return c.visible(ctx); }
-      catch { return false; }
+      try {
+        return c.visible(ctx);
+      } catch {
+        return false;
+      }
     });
   }
 
@@ -170,7 +179,12 @@ describe('S3-03 closure — slot host contract', () => {
 
   it('treats a throwing predicate as hidden (defensive — bad extension)', () => {
     const items: Contribution[] = [
-      { component: {}, visible: () => { throw new Error('boom'); } },
+      {
+        component: {},
+        visible: () => {
+          throw new Error('boom');
+        },
+      },
       { component: {} },
     ];
     const out = filterVisible(items, {});

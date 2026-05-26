@@ -1,113 +1,137 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import { DatabaseBackup, Download, Trash2, RefreshCw, LoaderCircle, Clock, CheckCircle, XCircle } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import CrudListPage from '$lib/components/common/CrudListPage.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  DatabaseBackup,
+  Download,
+  Trash2,
+  RefreshCw,
+  LoaderCircle,
+  Clock,
+  CheckCircle,
+  XCircle,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- interface Backup {
- id: string;
- filename: string;
- size_bytes: number | null;
- size_human: string | null;
- status: 'in_progress' | 'completed' | 'failed';
- error: string | null;
- notes: string | null;
- created_by: string | null;
- created_at: string;
- completed_at: string | null;
- }
+interface Backup {
+  id: string;
+  filename: string;
+  size_bytes: number | null;
+  size_human: string | null;
+  status: 'in_progress' | 'completed' | 'failed';
+  error: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
 
- let backups = $state<Backup[]>([]);
- let loading = $state(true);
- let creating = $state(false);
- let notes = $state('');
- let showModal = $state(false);
- let pollingIds = $state<Set<string>>(new Set());
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let backups = $state<Backup[]>([]);
+let loading = $state(true);
+let creating = $state(false);
+let notes = $state('');
+let showModal = $state(false);
+let pollingIds = $state<Set<string>>(new Set());
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- onMount(loadBackups);
+onMount(loadBackups);
 
- async function loadBackups() {
- loading = true;
- try {
- const data = await api.get<{ backups: Backup[] }>('/api/backup');
- backups = data.backups || [];
- for (const b of backups) {
- if (b.status === 'in_progress' && !pollingIds.has(b.id)) {
- pollBackup(b.id);
- }
- }
- } catch (e: any) {
- toast.error(e.message ?? 'Failed to load backups');
- } finally {
- loading = false;
- }
- }
+async function loadBackups() {
+  loading = true;
+  try {
+    const data = await api.get<{ backups: Backup[] }>('/api/backup');
+    backups = data.backups || [];
+    for (const b of backups) {
+      if (b.status === 'in_progress' && !pollingIds.has(b.id)) {
+        pollBackup(b.id);
+      }
+    }
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to load backups');
+  } finally {
+    loading = false;
+  }
+}
 
- async function createBackup() {
- creating = true;
- try {
- const data = await api.post<{ backup_id: string; filename: string }>('/api/backup', { notes: notes.trim() || undefined });
- showModal = false;
- notes = '';
- await loadBackups();
- pollBackup(data.backup_id);
- } catch (e: any) {
- toast.error(e.message ?? 'Failed to create backup');
- } finally {
- creating = false;
- }
- }
+async function createBackup() {
+  creating = true;
+  try {
+    const data = await api.post<{ backup_id: string; filename: string }>('/api/backup', {
+      notes: notes.trim() || undefined,
+    });
+    showModal = false;
+    notes = '';
+    await loadBackups();
+    pollBackup(data.backup_id);
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to create backup');
+  } finally {
+    creating = false;
+  }
+}
 
- function pollBackup(id: string) {
- if (pollingIds.has(id)) return;
- pollingIds = new Set([...pollingIds, id]);
+function pollBackup(id: string) {
+  if (pollingIds.has(id)) return;
+  pollingIds = new Set([...pollingIds, id]);
 
- const interval = setInterval(async () => {
- try {
- const status = await api.get<{ status: string; size_human: string | null; error: string | null }>(`/api/backup/${id}/status`);
- if (status.status !== 'in_progress') {
- clearInterval(interval);
- pollingIds = new Set([...pollingIds].filter(x => x !== id));
- await loadBackups();
- }
- } catch {
- clearInterval(interval);
- pollingIds = new Set([...pollingIds].filter(x => x !== id));
- }
- }, 3000);
- }
+  const interval = setInterval(async () => {
+    try {
+      const status = await api.get<{
+        status: string;
+        size_human: string | null;
+        error: string | null;
+      }>(`/api/backup/${id}/status`);
+      if (status.status !== 'in_progress') {
+        clearInterval(interval);
+        pollingIds = new Set([...pollingIds].filter((x) => x !== id));
+        await loadBackups();
+      }
+    } catch {
+      clearInterval(interval);
+      pollingIds = new Set([...pollingIds].filter((x) => x !== id));
+    }
+  }, 3000);
+}
 
- async function deleteBackup(id: string, filename: string) {
- confirmState = {
- open: true,
- title: 'Delete Backup',
- message: `Delete backup "${filename}"?`,
- confirmLabel: 'Delete',
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.delete(`/api/backup/${id}`);
- backups = backups.filter(b => b.id !== id);
- } catch (e: any) {
- toast.error(e.message ?? 'Failed to delete backup');
- }
- },
- };
- }
+async function deleteBackup(id: string, filename: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Backup',
+    message: `Delete backup "${filename}"?`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/backup/${id}`);
+        backups = backups.filter((b) => b.id !== id);
+      } catch (e: any) {
+        toast.error(e.message ?? 'Failed to delete backup');
+      }
+    },
+  };
+}
 
- function downloadBackup(id: string) {
- window.open(`/api/backup/${id}/download`, '_blank');
- }
+function downloadBackup(id: string) {
+  window.open(`/api/backup/${id}/download`, '_blank');
+}
 
- function fmtDate(s: string) {
- return new Date(s).toLocaleString('en-US', {
- year: 'numeric', month: 'short', day: '2-digit',
- hour: '2-digit', minute: '2-digit',
- });
- }
+function fmtDate(s: string) {
+  return new Date(s).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 </script>
 
 <CrudListPage

@@ -33,7 +33,12 @@ async function main() {
   const cfg = loadConfig();
   const variant = process.env.BENCH_VARIANT ?? 'zveltio';
   const tag = process.env.BENCH_TAG ?? variant;
-  const skip = new Set((process.env.BENCH_SKIP ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+  const skip = new Set(
+    (process.env.BENCH_SKIP ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 
   console.log(`▶ Bench runner — variant=${variant}, baseUrl=${cfg.baseUrl}`);
   console.log(`  warmup=${cfg.warmup} iterations=${cfg.iterations} concurrency=${cfg.concurrency}`);
@@ -64,7 +69,12 @@ async function main() {
 
   if (!skip.has('crud')) {
     console.log('\n▶ REST CRUD');
-    const r = await runRestCrud({ client, warmup: cfg.warmup, iterations: cfg.iterations, concurrency: cfg.concurrency });
+    const r = await runRestCrud({
+      client,
+      warmup: cfg.warmup,
+      iterations: cfg.iterations,
+      concurrency: cfg.concurrency,
+    });
     results.restCrud = r;
     console.log(formatStats('  create', r.create));
     console.log(formatStats('  get   ', r.get));
@@ -87,7 +97,12 @@ async function main() {
     // signInForToken already returns one (it's the same shape the engine's
     // /api/ws handler wants), just pass it through.
     const sessionCookie = process.env.BENCH_SESSION_COOKIE ?? token;
-    const r = await runRealtime({ client, warmup: Math.min(5, cfg.warmup), iterations: Math.min(50, cfg.iterations), sessionCookie });
+    const r = await runRealtime({
+      client,
+      warmup: Math.min(5, cfg.warmup),
+      iterations: Math.min(50, cfg.iterations),
+      sessionCookie,
+    });
     results.realtime = r;
     if (r.skipped) {
       console.log(`  skipped: ${r.skipped}`);

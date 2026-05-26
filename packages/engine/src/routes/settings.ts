@@ -8,32 +8,67 @@ import { checkPermission } from '../lib/permissions.js';
 // Internal/system keys that affect engine security are listed in READONLY_SETTINGS_KEYS.
 const WRITABLE_SETTINGS_KEYS = new Set([
   // Branding & UI
-  'branding', 'company_name', 'site_name', 'site_url', 'logo_url', 'favicon_url',
-  'primary_color', 'support_email', 'contact_email', 'timezone', 'date_format', 'language',
+  'branding',
+  'company_name',
+  'site_name',
+  'site_url',
+  'logo_url',
+  'favicon_url',
+  'primary_color',
+  'support_email',
+  'contact_email',
+  'timezone',
+  'date_format',
+  'language',
   // Feature toggles (non-security)
-  'maintenance_mode', 'registration_enabled', 'api_docs_public',
-  'max_upload_size_mb', 'allowed_file_types', 'default_collection_permissions',
+  'maintenance_mode',
+  'registration_enabled',
+  'api_docs_public',
+  'max_upload_size_mb',
+  'allowed_file_types',
+  'default_collection_permissions',
   // General
   'app_name',
   // Email configuration
-  'smtp_host', 'smtp_port', 'smtp_from_name', 'smtp_from_email', 'smtp_from', 'smtp_secure',
-  'smtp_user', 'smtp_pass',
+  'smtp_host',
+  'smtp_port',
+  'smtp_from_name',
+  'smtp_from_email',
+  'smtp_from',
+  'smtp_secure',
+  'smtp_user',
+  'smtp_pass',
   // Security
-  'two_factor_enabled', 'session_expiry_hours', 'api_rate_limit',
+  'two_factor_enabled',
+  'session_expiry_hours',
+  'api_rate_limit',
   // AI configuration (non-secret)
-  'ai_enabled', 'ai_default_provider', 'ai_default_model', 'ai_max_tokens_per_request',
+  'ai_enabled',
+  'ai_default_provider',
+  'ai_default_model',
+  'ai_max_tokens_per_request',
   // Storage configuration (non-secret)
-  's3_public_url', 's3_bucket_public',
+  's3_public_url',
+  's3_bucket_public',
   // Monitoring
-  'audit_log_retention_days', 'session_max_age_days',
+  'audit_log_retention_days',
+  'session_max_age_days',
   // Rate limiting
   'rate_limiting',
 ]);
 
 // These keys are system-managed and NEVER writable via the settings API.
 const READONLY_SETTINGS_KEYS = new Set([
-  'auth_secret', 'jwt_secret', 'encryption_key', 'database_url', 'redis_url',
-  'internal_api_key', 'webhook_signing_secret', 'license_key', 'engine_version', 'schema_version',
+  'auth_secret',
+  'jwt_secret',
+  'encryption_key',
+  'database_url',
+  'redis_url',
+  'internal_api_key',
+  'webhook_signing_secret',
+  'license_key',
+  'engine_version',
+  'schema_version',
   'marketplace_auth_token',
 ]);
 
@@ -44,10 +79,23 @@ export function settingsRoutes(db: Database, auth: any): Hono {
   // Security: double-guard — is_public flag AND explicit whitelist.
   // Even if a sensitive key is accidentally marked is_public, it won't be served.
   const PUBLIC_SETTINGS_WHITELIST = new Set([
-    'branding', 'company_name', 'site_name', 'site_url', 'logo_url', 'favicon_url',
-    'primary_color', 'language', 'timezone', 'date_format', 'support_email',
-    'contact_email', 'registration_enabled', 'api_docs_public', 'maintenance_mode',
-    'ai_enabled', 'ai_default_model',
+    'branding',
+    'company_name',
+    'site_name',
+    'site_url',
+    'logo_url',
+    'favicon_url',
+    'primary_color',
+    'language',
+    'timezone',
+    'date_format',
+    'support_email',
+    'contact_email',
+    'registration_enabled',
+    'api_docs_public',
+    'maintenance_mode',
+    'ai_enabled',
+    'ai_default_model',
   ]);
 
   app.get('/public', async (c) => {
@@ -63,7 +111,11 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       if (!PUBLIC_SETTINGS_WHITELIST.has(key)) continue; // extra guard
       const raw = (s as any).value;
       if (typeof raw === 'string') {
-        try { result[key] = JSON.parse(raw); } catch { result[key] = raw; }
+        try {
+          result[key] = JSON.parse(raw);
+        } catch {
+          result[key] = raw;
+        }
       } else {
         result[key] = raw;
       }
@@ -83,17 +135,17 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
   // GET / — All settings
   app.get('/', async (c) => {
-    const settings = await db
-      .selectFrom('zv_settings')
-      .selectAll()
-      .orderBy('key')
-      .execute();
+    const settings = await db.selectFrom('zv_settings').selectAll().orderBy('key').execute();
 
     const result: Record<string, any> = {};
     for (const s of settings) {
       const raw = (s as any).value;
       if (typeof raw === 'string') {
-        try { result[(s as any).key] = JSON.parse(raw); } catch { result[(s as any).key] = raw; }
+        try {
+          result[(s as any).key] = JSON.parse(raw);
+        } catch {
+          result[(s as any).key] = raw;
+        }
       } else {
         result[(s as any).key] = raw;
       }
@@ -114,7 +166,11 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     const raw = (setting as any).value;
     let parsed: any;
     if (typeof raw === 'string') {
-      try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = raw;
+      }
     } else {
       parsed = raw;
     }
@@ -128,7 +184,10 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const key = c.req.param('key');
       if (READONLY_SETTINGS_KEYS.has(key)) {
-        return c.json({ error: `Setting key "${key}" is read-only and cannot be modified via the API.` }, 403);
+        return c.json(
+          { error: `Setting key "${key}" is read-only and cannot be modified via the API.` },
+          403,
+        );
       }
       if (!WRITABLE_SETTINGS_KEYS.has(key)) {
         return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
@@ -170,7 +229,10 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     // Security: validate all keys before writing any of them.
     for (const key of Object.keys(body)) {
       if (READONLY_SETTINGS_KEYS.has(key)) {
-        return c.json({ error: `Setting key "${key}" is read-only and cannot be modified via the API.` }, 403);
+        return c.json(
+          { error: `Setting key "${key}" is read-only and cannot be modified via the API.` },
+          403,
+        );
       }
       if (!WRITABLE_SETTINGS_KEYS.has(key)) {
         return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);

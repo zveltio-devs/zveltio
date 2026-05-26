@@ -1,32 +1,32 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+import type { Snippet } from 'svelte';
 
-  let {
-    children,
-    open = $bindable(false),
-    title = '',
-    size = 'md',
-    onClose = null,
-  }: {
-    children: Snippet;
-    open?: boolean;
-    title?: string;
-    size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
-    onClose?: (() => void) | null;
-  } = $props();
+let {
+  children,
+  open = $bindable(false),
+  title = '',
+  size = 'md',
+  onClose = null,
+}: {
+  children: Snippet;
+  open?: boolean;
+  title?: string;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  onClose?: (() => void) | null;
+} = $props();
 
-  const sizes: Record<string, string> = {
-    sm:  'max-w-sm',
-    md:  'max-w-lg',
-    lg:  'max-w-2xl',
-    xl:  'max-w-4xl',
-    '2xl': 'max-w-6xl',
-  };
+const sizes: Record<string, string> = {
+  sm: 'max-w-sm',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+  '2xl': 'max-w-6xl',
+};
 
-  function close() {
-    open = false;
-    onClose?.();
-  }
+function close() {
+  open = false;
+  onClose?.();
+}
 </script>
 
 {#if open}

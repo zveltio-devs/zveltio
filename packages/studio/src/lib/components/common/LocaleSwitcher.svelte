@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { Languages } from '@lucide/svelte';
-  import { i18n, m } from '$lib/i18n.svelte.js';
+import { Languages } from '@lucide/svelte';
+import { i18n, m } from '$lib/i18n.svelte.js';
 
-  interface Props {
-    collapsed?: boolean;
-  }
-  let { collapsed = false }: Props = $props();
+interface Props {
+  collapsed?: boolean;
+}
+let { collapsed = false }: Props = $props();
 
-  const labels: Record<string, () => string> = {
-    en: () => m['shell.localeEn'](),
-    ro: () => m['shell.localeRo'](),
-    fr: () => m['shell.localeFr'](),
-    de: () => m['shell.localeDe'](),
-  };
+const labels: Record<string, () => string> = {
+  en: () => m['shell.localeEn'](),
+  ro: () => m['shell.localeRo'](),
+  fr: () => m['shell.localeFr'](),
+  de: () => m['shell.localeDe'](),
+};
 </script>
 
 <div class="px-2 py-0.5">

@@ -1,25 +1,25 @@
 <script lang="ts">
-  import type { Block, BlockStyle } from '../../lib/builder-types.js';
+import type { Block, BlockStyle } from '../../lib/builder-types.js';
 
-  let { block }: { block: Block } = $props();
+let { block }: { block: Block } = $props();
 
-  function styleStr(s: BlockStyle = {}): string {
-    const parts: string[] = [];
-    if (s.paddingTop    != null) parts.push(`padding-top:${s.paddingTop}px`);
-    if (s.paddingBottom != null) parts.push(`padding-bottom:${s.paddingBottom}px`);
-    if (s.paddingLeft   != null) parts.push(`padding-left:${s.paddingLeft}px`);
-    if (s.paddingRight  != null) parts.push(`padding-right:${s.paddingRight}px`);
-    if (s.marginTop     != null) parts.push(`margin-top:${s.marginTop}px`);
-    if (s.marginBottom  != null) parts.push(`margin-bottom:${s.marginBottom}px`);
-    if (s.backgroundColor)      parts.push(`background-color:${s.backgroundColor}`);
-    if (s.textColor)             parts.push(`color:${s.textColor}`);
-    if (s.borderRadius  != null) parts.push(`border-radius:${s.borderRadius}px`);
-    if (s.textAlign)             parts.push(`text-align:${s.textAlign}`);
-    return parts.join(';');
-  }
+function styleStr(s: BlockStyle = {}): string {
+  const parts: string[] = [];
+  if (s.paddingTop != null) parts.push(`padding-top:${s.paddingTop}px`);
+  if (s.paddingBottom != null) parts.push(`padding-bottom:${s.paddingBottom}px`);
+  if (s.paddingLeft != null) parts.push(`padding-left:${s.paddingLeft}px`);
+  if (s.paddingRight != null) parts.push(`padding-right:${s.paddingRight}px`);
+  if (s.marginTop != null) parts.push(`margin-top:${s.marginTop}px`);
+  if (s.marginBottom != null) parts.push(`margin-bottom:${s.marginBottom}px`);
+  if (s.backgroundColor) parts.push(`background-color:${s.backgroundColor}`);
+  if (s.textColor) parts.push(`color:${s.textColor}`);
+  if (s.borderRadius != null) parts.push(`border-radius:${s.borderRadius}px`);
+  if (s.textAlign) parts.push(`text-align:${s.textAlign}`);
+  return parts.join(';');
+}
 
-  const p = $derived(block.props);
-  const outer = $derived(styleStr(block.style));
+const p = $derived(block.props);
+const outer = $derived(styleStr(block.style));
 </script>
 
 <div style={outer} class="w-full overflow-hidden">

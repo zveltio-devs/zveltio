@@ -161,12 +161,24 @@ const transactions: CoreCollectionInput = {
       options: { values: ['draft', 'pending', 'completed', 'cancelled', 'refunded'] },
     },
     { name: 'number', type: 'text', required: false, indexed: true, label: 'Number' },
-    { name: 'organization_id', type: 'uuid', required: false, indexed: true, label: 'Organization' },
+    {
+      name: 'organization_id',
+      type: 'uuid',
+      required: false,
+      indexed: true,
+      label: 'Organization',
+    },
     { name: 'contact_id', type: 'uuid', required: false, label: 'Contact' },
     { name: 'currency', type: 'text', required: true, defaultValue: 'RON', label: 'Currency' },
     { name: 'amount', type: 'number', required: true, defaultValue: 0, label: 'Amount' },
     { name: 'tax_amount', type: 'number', required: true, defaultValue: 0, label: 'Tax amount' },
-    { name: 'total_amount', type: 'number', required: true, defaultValue: 0, label: 'Total amount' },
+    {
+      name: 'total_amount',
+      type: 'number',
+      required: true,
+      defaultValue: 0,
+      label: 'Total amount',
+    },
     { name: 'due_date', type: 'date', required: false, label: 'Due date' },
     { name: 'paid_date', type: 'date', required: false, label: 'Paid date' },
     { name: 'line_items', type: 'json', required: true, label: 'Line items' },
@@ -176,11 +188,7 @@ const transactions: CoreCollectionInput = {
   ],
 };
 
-export const CORE_COLLECTIONS: CoreCollectionInput[] = [
-  contacts,
-  organizations,
-  transactions,
-];
+export const CORE_COLLECTIONS: CoreCollectionInput[] = [contacts, organizations, transactions];
 
 /**
  * Creates the core collections through DDLManager if they don't already exist.

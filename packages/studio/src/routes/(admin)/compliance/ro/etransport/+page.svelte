@@ -1,23 +1,84 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, Trash2, Truck, CheckCircle, XCircle, RefreshCw, Send, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  Plus,
+  Trash2,
+  Truck,
+  CheckCircle,
+  XCircle,
+  RefreshCw,
+  Send,
+  LoaderCircle,
+} from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let declarations = $state<any[]>([]);
-  let loading = $state(true);
-  let filter = $state('all');
-  let showModal = $state(false);
-  let submitting = $state(false);
+let declarations = $state<any[]>([]);
+let loading = $state(true);
+let filter = $state('all');
+let showModal = $state(false);
+let submitting = $state(false);
 
-  let form = $state({
+let form = $state({
+  transport_date: new Date().toISOString().split('T')[0],
+  vehicle_plate: '',
+  driver_name: '',
+  driver_cnp: '',
+  departure_address: '',
+  departure_county: '',
+  departure_country: 'RO',
+  destination_address: '',
+  destination_county: '',
+  destination_country: 'RO',
+  goods: [{ tariff_code: '', description: '', quantity: 1, unit: 'BUC', weight_kg: 0 }],
+  total_weight_kg: 0,
+  purpose: 'commercial',
+});
+
+onMount(loadDeclarations);
+$effect(() => {
+  filter;
+  loadDeclarations();
+});
+
+async function loadDeclarations() {
+  loading = true;
+  try {
+    const qs = filter !== 'all' ? `?status=${filter}` : '';
+    const r = await api.get<{ declarations: any[] }>(`/ext/compliance/ro/etransport${qs}`);
+    declarations = r.declarations ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
+  }
+}
+
+function recalcWeight() {
+  form.total_weight_kg = form.goods.reduce((s, g) => s + Number(g.weight_kg || 0), 0);
+}
+
+function addGood() {
+  form.goods = [
+    ...form.goods,
+    { tariff_code: '', description: '', quantity: 1, unit: 'BUC', weight_kg: 0 },
+  ];
+}
+
+function removeGood(i: number) {
+  form.goods = form.goods.filter((_, idx) => idx !== i);
+  recalcWeight();
+}
+
+function openCreate() {
+  form = {
     transport_date: new Date().toISOString().split('T')[0],
     vehicle_plate: '',
     driver_name: '',
@@ -31,111 +92,99 @@
     goods: [{ tariff_code: '', description: '', quantity: 1, unit: 'BUC', weight_kg: 0 }],
     total_weight_kg: 0,
     purpose: 'commercial',
-  });
+  };
+  showModal = true;
+}
 
-  onMount(loadDeclarations);
-  $effect(() => { filter; loadDeclarations(); });
-
-  async function loadDeclarations() {
-    loading = true;
-    try {
-      const qs = filter !== 'all' ? `?status=${filter}` : '';
-      const r = await api.get<{ declarations: any[] }>(`/ext/compliance/ro/etransport${qs}`);
-      declarations = r.declarations ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function saveDeclaration() {
+  if (!form.vehicle_plate || !form.driver_name) return;
+  recalcWeight();
+  submitting = true;
+  try {
+    await api.post('/ext/compliance/ro/etransport', form);
+    showModal = false;
+    await loadDeclarations();
+    toast.success(m['compliance.ro.etransport.toast.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    submitting = false;
   }
+}
 
-  function recalcWeight() {
-    form.total_weight_kg = form.goods.reduce((s, g) => s + Number(g.weight_kg || 0), 0);
+async function declare(id: string) {
+  askConfirm(m['compliance.ro.etransport.confirmSend'](), () => declareConfirmed(id));
+}
+async function declareConfirmed(id: string) {
+  try {
+    const data = await api.post<any>(`/ext/compliance/ro/etransport/${id}/declare`, {});
+    toast.success(m['ext.saved']());
+    await loadDeclarations();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   }
+}
 
-  function addGood() {
-    form.goods = [...form.goods, { tariff_code: '', description: '', quantity: 1, unit: 'BUC', weight_kg: 0 }];
+async function complete(id: string) {
+  try {
+    await api.post(`/ext/compliance/ro/etransport/${id}/complete`, {});
+    await loadDeclarations();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  function removeGood(i: number) {
-    form.goods = form.goods.filter((_, idx) => idx !== i);
-    recalcWeight();
+async function cancel(id: string) {
+  askConfirm(m['compliance.ro.etransport.confirmCancel'](), () => cancelConfirmed(id));
+}
+async function cancelConfirmed(id: string) {
+  try {
+    await api.post(`/ext/compliance/ro/etransport/${id}/cancel`, {});
+    await loadDeclarations();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  function openCreate() {
-    form = {
-      transport_date: new Date().toISOString().split('T')[0],
-      vehicle_plate: '', driver_name: '', driver_cnp: '',
-      departure_address: '', departure_county: '', departure_country: 'RO',
-      destination_address: '', destination_county: '', destination_country: 'RO',
-      goods: [{ tariff_code: '', description: '', quantity: 1, unit: 'BUC', weight_kg: 0 }],
-      total_weight_kg: 0, purpose: 'commercial',
-    };
-    showModal = true;
+async function deleteDecl(id: string) {
+  askConfirm(m['compliance.ro.etransport.confirmDelete'](), () => deleteDeclConfirmed(id));
+}
+async function deleteDeclConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/compliance/ro/etransport/${id}`);
+    await loadDeclarations();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-
-  async function saveDeclaration() {
-    if (!form.vehicle_plate || !form.driver_name) return;
-    recalcWeight();
-    submitting = true;
-    try {
-      await api.post('/ext/compliance/ro/etransport', form);
-      showModal = false;
-      await loadDeclarations();
-      toast.success(m['compliance.ro.etransport.toast.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { submitting = false; }
-  }
-
-  async function declare(id: string) {
-        askConfirm(m['compliance.ro.etransport.confirmSend'](), () => declareConfirmed(id));
-  }
-  async function declareConfirmed(id: string) {
-    try {
-      const data = await api.post<any>(`/ext/compliance/ro/etransport/${id}/declare`, {});
-      toast.success(m['ext.saved']());
-      await loadDeclarations();
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-  }
-
-
-  async function complete(id: string) {
-    try { await api.post(`/ext/compliance/ro/etransport/${id}/complete`, {}); await loadDeclarations(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
-
-  async function cancel(id: string) {
-        askConfirm(m['compliance.ro.etransport.confirmCancel'](), () => cancelConfirmed(id));
-  }
-  async function cancelConfirmed(id: string) {
-    try { await api.post(`/ext/compliance/ro/etransport/${id}/cancel`, {}); await loadDeclarations(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
-
-
-  async function deleteDecl(id: string) {
-        askConfirm(m['compliance.ro.etransport.confirmDelete'](), () => deleteDeclConfirmed(id));
-  }
-  async function deleteDeclConfirmed(id: string) {
-    try { await api.delete(`/ext/compliance/ro/etransport/${id}`); await loadDeclarations(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
-
+}
 
 function transportStatusLabel(s: string): string {
-    const map: Record<string, () => string> = {
-      all: () => m['common.filter.all'](),
-      draft: () => m['compliance.ro.etransport.status.draft'](),
-      declared: () => m['compliance.ro.etransport.status.declared'](),
-      in_transit: () => m['compliance.ro.etransport.status.inTransit'](),
-      completed: () => m['compliance.ro.etransport.status.completed'](),
-      cancelled: () => m['compliance.ro.etransport.status.cancelled'](),
-    };
-    return (map[s] ?? (() => s))();
-  }
+  const map: Record<string, () => string> = {
+    all: () => m['common.filter.all'](),
+    draft: () => m['compliance.ro.etransport.status.draft'](),
+    declared: () => m['compliance.ro.etransport.status.declared'](),
+    in_transit: () => m['compliance.ro.etransport.status.inTransit'](),
+    completed: () => m['compliance.ro.etransport.status.completed'](),
+    cancelled: () => m['compliance.ro.etransport.status.cancelled'](),
+  };
+  return (map[s] ?? (() => s))();
+}
 
-  function statusBadge(status: string): string {
-    return ({ draft: 'badge-warning', declared: 'badge-primary', in_transit: 'badge-info', completed: 'badge-success', cancelled: 'badge-error' } as Record<string, string>)[status] ?? 'badge-ghost';
-  }
+function statusBadge(status: string): string {
+  return (
+    (
+      {
+        draft: 'badge-warning',
+        declared: 'badge-primary',
+        in_transit: 'badge-info',
+        completed: 'badge-success',
+        cancelled: 'badge-error',
+      } as Record<string, string>
+    )[status] ?? 'badge-ghost'
+  );
+}
 
-  const STATUSES = ['all', 'draft', 'declared', 'in_transit', 'completed', 'cancelled'];
+const STATUSES = ['all', 'draft', 'declared', 'in_transit', 'completed', 'cancelled'];
 </script>
 
 <ExtensionPageShell title={m['compliance.ro.etransport.title']()} subtitle={m['compliance.ro.etransport.subtitle']()}>

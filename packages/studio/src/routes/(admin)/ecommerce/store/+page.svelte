@@ -1,106 +1,168 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, X, Trash2, LoaderCircle, ShoppingBag, ShoppingCart, Tag, BarChart2 } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  Plus,
+  X,
+  Trash2,
+  LoaderCircle,
+  ShoppingBag,
+  ShoppingCart,
+  Tag,
+  BarChart2,
+} from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  type Product = {
-    id: string; name: string; slug: string; price: number | null;
-    currency: string; stock_qty: number; is_active: boolean;
-    category_name: string | null; avg_rating: number | null;
-  };
-  type Order = {
-    id: string; order_number: string; customer_name: string | null;
-    customer_email: string; status: string; total: number; currency: string;
-    created_at: string;
-  };
-  type Stats = { total_orders: number; total_revenue: number; total_products: number; pending_orders: number };
+type Product = {
+  id: string;
+  name: string;
+  slug: string;
+  price: number | null;
+  currency: string;
+  stock_qty: number;
+  is_active: boolean;
+  category_name: string | null;
+  avg_rating: number | null;
+};
+type Order = {
+  id: string;
+  order_number: string;
+  customer_name: string | null;
+  customer_email: string;
+  status: string;
+  total: number;
+  currency: string;
+  created_at: string;
+};
+type Stats = {
+  total_orders: number;
+  total_revenue: number;
+  total_products: number;
+  pending_orders: number;
+};
 
-  let tab = $state<'products' | 'orders'>('products');
-  let products = $state<Product[]>([]);
-  let orders = $state<Order[]>([]);
-  let stats = $state<Stats | null>(null);
-  let loading = $state(false);
-  let showModal = $state(false);
-  let saving = $state(false);
+let tab = $state<'products' | 'orders'>('products');
+let products = $state<Product[]>([]);
+let orders = $state<Order[]>([]);
+let stats = $state<Stats | null>(null);
+let loading = $state(false);
+let showModal = $state(false);
+let saving = $state(false);
 
-  let productForm = $state({ name: '', slug: '', price: '', currency: 'RON', stock_qty: '0', is_active: true, short_description: '' });
+let productForm = $state({
+  name: '',
+  slug: '',
+  price: '',
+  currency: 'RON',
+  stock_qty: '0',
+  is_active: true,
+  short_description: '',
+});
 
-  onMount(async () => {
-    await Promise.all([loadProducts(), loadOrders(), loadStats()]);
-  });
+onMount(async () => {
+  await Promise.all([loadProducts(), loadOrders(), loadStats()]);
+});
 
-  async function loadProducts() {
-    loading = true;
-    try {
-      const r = await api.get<{ data: Product[] }>('/ext/ecommerce/store/admin/products');
-      products = r.data ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadProducts() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: Product[] }>('/ext/ecommerce/store/admin/products');
+    products = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadOrders() {
-    try {
-      const r = await api.get<{ data: Order[] }>('/ext/ecommerce/store/admin/orders');
-      orders = r.data ?? [];
-    } catch { /* ignore */ }
+}
+async function loadOrders() {
+  try {
+    const r = await api.get<{ data: Order[] }>('/ext/ecommerce/store/admin/orders');
+    orders = r.data ?? [];
+  } catch {
+    /* ignore */
   }
-  async function loadStats() {
-    try {
-      const r = await api.get<{ stats: Stats }>('/ext/ecommerce/store/admin/stats');
-      stats = r.stats;
-    } catch { /* ignore */ }
+}
+async function loadStats() {
+  try {
+    const r = await api.get<{ stats: Stats }>('/ext/ecommerce/store/admin/stats');
+    stats = r.stats;
+  } catch {
+    /* ignore */
   }
+}
 
-  async function createProduct() {
-    if (!productForm.name.trim()) return;
-    saving = true;
-    try {
-      const slug = productForm.slug || productForm.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const r = await api.post<{ data: Product }>('/ext/ecommerce/store/admin/products', {
-        ...productForm,
-        slug,
-        price: productForm.price ? parseFloat(productForm.price) : null,
-        stock_qty: parseInt(productForm.stock_qty) || 0,
-      });
-      products = [r.data, ...products];
-      productForm = { name: '', slug: '', price: '', currency: 'RON', stock_qty: '0', is_active: true, short_description: '' };
-      showModal = false;
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+async function createProduct() {
+  if (!productForm.name.trim()) return;
+  saving = true;
+  try {
+    const slug =
+      productForm.slug ||
+      productForm.name
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '');
+    const r = await api.post<{ data: Product }>('/ext/ecommerce/store/admin/products', {
+      ...productForm,
+      slug,
+      price: productForm.price ? parseFloat(productForm.price) : null,
+      stock_qty: parseInt(productForm.stock_qty) || 0,
+    });
+    products = [r.data, ...products];
+    productForm = {
+      name: '',
+      slug: '',
+      price: '',
+      currency: 'RON',
+      stock_qty: '0',
+      is_active: true,
+      short_description: '',
+    };
+    showModal = false;
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function deleteProduct(id: string) {
-        askConfirm(m['ecommerce.store.confirmDeleteProduct'](), () => deleteProductConfirmed(id));
+async function deleteProduct(id: string) {
+  askConfirm(m['ecommerce.store.confirmDeleteProduct'](), () => deleteProductConfirmed(id));
+}
+async function deleteProductConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/ecommerce/store/admin/products/${id}`);
+    products = products.filter((p) => p.id !== id);
+    toast.success(m['ext.deleted']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteProductConfirmed(id: string) {
-    try {
-      await api.delete(`/ext/ecommerce/store/admin/products/${id}`);
-      products = products.filter(p => p.id !== id);
-      toast.success(m['ext.deleted']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+}
+
+async function updateOrderStatus(id: string, status: string) {
+  try {
+    await api.patch(`/ext/ecommerce/store/admin/orders/${id}`, { status });
+    orders = orders.map((o) => (o.id === id ? { ...o, status } : o));
+    toast.success(m['ecommerce.store.toast.orderUpdated']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-
-  async function updateOrderStatus(id: string, status: string) {
-    try {
-      await api.patch(`/ext/ecommerce/store/admin/orders/${id}`, { status });
-      orders = orders.map(o => o.id === id ? { ...o, status } : o);
-      toast.success(m['ecommerce.store.toast.orderUpdated']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
-
-  const orderStatusColor: Record<string, string> = {
-    pending: 'badge-warning', processing: 'badge-info', shipped: 'badge-primary',
-    delivered: 'badge-success', cancelled: 'badge-error',
-  };
+const orderStatusColor: Record<string, string> = {
+  pending: 'badge-warning',
+  processing: 'badge-info',
+  shipped: 'badge-primary',
+  delivered: 'badge-success',
+  cancelled: 'badge-error',
+};
 </script>
 
 <ExtensionPageShell title={m['ecommerce.store.title']()} subtitle={m['ecommerce.store.subtitle']()}>

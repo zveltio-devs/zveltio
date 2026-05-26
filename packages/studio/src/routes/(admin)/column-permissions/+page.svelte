@@ -1,161 +1,165 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { TableProperties, Plus, Trash2, Info, X, Check } from '@lucide/svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { TableProperties, Plus, Trash2, Info, X, Check } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  interface ColumnPermission {
-    id: string;
-    collection_name: string;
-    column_name: string;
-    role: string;
-    can_read: boolean;
-    can_write: boolean;
+interface ColumnPermission {
+  id: string;
+  collection_name: string;
+  column_name: string;
+  role: string;
+  can_read: boolean;
+  can_write: boolean;
+}
+
+let permissions = $state<ColumnPermission[]>([]);
+let collections = $state<string[]>([]);
+let collectionFields = $state<Record<string, string[]>>({});
+let roles = $state<string[]>(['*', 'god', 'admin', 'member']);
+let loading = $state(true);
+
+let filterCollection = $state('');
+let showForm = $state(false);
+let editingId = $state<string | null>(null);
+let saving = $state(false);
+
+let form = $state({
+  collection_name: '',
+  column_name: '',
+  role: 'member',
+  can_read: true,
+  can_write: false,
+});
+
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+const filtered = $derived(
+  filterCollection
+    ? permissions.filter((p) => p.collection_name === filterCollection)
+    : permissions,
+);
+
+const formFields = $derived(collectionFields[form.collection_name] ?? []);
+
+onMount(loadAll);
+
+async function loadAll() {
+  loading = true;
+  try {
+    const [permRes, colRes, roleRes] = await Promise.all([
+      api.get<{ column_permissions: ColumnPermission[] }>('/api/admin/column-permissions'),
+      api.get<{ collections: any[] }>('/api/collections'),
+      api.get<{ roles: any[] }>('/api/admin/roles'),
+    ]);
+    permissions = permRes.column_permissions ?? [];
+    collections = (colRes.collections ?? []).map((c: any) => c.slug ?? c.name);
+    const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
+    roles = ['*', 'god', 'admin', 'member', ...customRoles];
+  } catch {
+    toast.error('Failed to load column permissions');
+  } finally {
+    loading = false;
   }
+}
 
-  let permissions = $state<ColumnPermission[]>([]);
-  let collections = $state<string[]>([]);
-  let collectionFields = $state<Record<string, string[]>>({});
-  let roles = $state<string[]>(['*', 'god', 'admin', 'member']);
-  let loading = $state(true);
+async function loadFields(collectionName: string) {
+  if (!collectionName || collectionFields[collectionName]) return;
+  try {
+    const res = await api.get<{ collection: any }>(`/api/collections/${collectionName}`);
+    const fields = res.collection?.fields ?? [];
+    const names: string[] = (typeof fields === 'string' ? JSON.parse(fields) : fields).map(
+      (f: any) => f.name,
+    );
+    collectionFields = { ...collectionFields, [collectionName]: names };
+  } catch {
+    collectionFields = { ...collectionFields, [collectionName]: [] };
+  }
+}
 
-  let filterCollection = $state('');
-  let showForm = $state(false);
-  let editingId = $state<string | null>(null);
-  let saving = $state(false);
-
-  let form = $state({
-    collection_name: '',
+function openNew() {
+  editingId = null;
+  form = {
+    collection_name: filterCollection || (collections[0] ?? ''),
     column_name: '',
     role: 'member',
     can_read: true,
     can_write: false,
-  });
+  };
+  if (form.collection_name) loadFields(form.collection_name);
+  showForm = true;
+}
 
-  let confirmState = $state<{
-    open: boolean; title: string; message: string; onconfirm: () => void;
-  }>({ open: false, title: '', message: '', onconfirm: () => {} });
+function openEdit(p: ColumnPermission) {
+  editingId = p.id;
+  form = {
+    collection_name: p.collection_name,
+    column_name: p.column_name,
+    role: p.role,
+    can_read: p.can_read,
+    can_write: p.can_write,
+  };
+  loadFields(p.collection_name);
+  showForm = true;
+}
 
-  const filtered = $derived(
-    filterCollection
-      ? permissions.filter(p => p.collection_name === filterCollection)
-      : permissions,
-  );
-
-  const formFields = $derived(collectionFields[form.collection_name] ?? []);
-
-  onMount(loadAll);
-
-  async function loadAll() {
-    loading = true;
-    try {
-      const [permRes, colRes, roleRes] = await Promise.all([
-        api.get<{ column_permissions: ColumnPermission[] }>('/api/admin/column-permissions'),
-        api.get<{ collections: any[] }>('/api/collections'),
-        api.get<{ roles: any[] }>('/api/admin/roles'),
-      ]);
-      permissions = permRes.column_permissions ?? [];
-      collections = (colRes.collections ?? []).map((c: any) => c.slug ?? c.name);
-      const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
-      roles = ['*', 'god', 'admin', 'member', ...customRoles];
-    } catch {
-      toast.error('Failed to load column permissions');
-    } finally {
-      loading = false;
+async function save() {
+  if (!form.collection_name || !form.column_name || !form.role) return;
+  saving = true;
+  try {
+    if (editingId) {
+      await api.put(`/api/admin/column-permissions/${editingId}`, form);
+      toast.success('Permission updated');
+    } else {
+      await api.post('/api/admin/column-permissions', form);
+      toast.success('Permission created');
     }
+    showForm = false;
+    await loadAll();
+  } catch {
+    toast.error('Failed to save permission');
+  } finally {
+    saving = false;
   }
+}
 
-  async function loadFields(collectionName: string) {
-    if (!collectionName || collectionFields[collectionName]) return;
-    try {
-      const res = await api.get<{ collection: any }>(`/api/collections/${collectionName}`);
-      const fields = res.collection?.fields ?? [];
-      const names: string[] = (typeof fields === 'string' ? JSON.parse(fields) : fields)
-        .map((f: any) => f.name);
-      collectionFields = { ...collectionFields, [collectionName]: names };
-    } catch {
-      collectionFields = { ...collectionFields, [collectionName]: [] };
-    }
+async function toggleField(p: ColumnPermission, field: 'can_read' | 'can_write') {
+  const updated = { ...p, [field]: !p[field] };
+  try {
+    await api.put(`/api/admin/column-permissions/${p.id}`, {
+      can_read: updated.can_read,
+      can_write: updated.can_write,
+    });
+    permissions = permissions.map((x) => (x.id === p.id ? { ...x, [field]: !x[field] } : x));
+  } catch {
+    toast.error('Failed to update permission');
   }
+}
 
-  function openNew() {
-    editingId = null;
-    form = {
-      collection_name: filterCollection || (collections[0] ?? ''),
-      column_name: '',
-      role: 'member',
-      can_read: true,
-      can_write: false,
-    };
-    if (form.collection_name) loadFields(form.collection_name);
-    showForm = true;
-  }
-
-  function openEdit(p: ColumnPermission) {
-    editingId = p.id;
-    form = {
-      collection_name: p.collection_name,
-      column_name: p.column_name,
-      role: p.role,
-      can_read: p.can_read,
-      can_write: p.can_write,
-    };
-    loadFields(p.collection_name);
-    showForm = true;
-  }
-
-  async function save() {
-    if (!form.collection_name || !form.column_name || !form.role) return;
-    saving = true;
-    try {
-      if (editingId) {
-        await api.put(`/api/admin/column-permissions/${editingId}`, form);
-        toast.success('Permission updated');
-      } else {
-        await api.post('/api/admin/column-permissions', form);
-        toast.success('Permission created');
+function confirmDelete(p: ColumnPermission) {
+  confirmState = {
+    open: true,
+    title: 'Delete Column Permission',
+    message: `Remove the rule for "${p.collection_name}.${p.column_name}" / "${p.role}"?`,
+    onconfirm: async () => {
+      try {
+        await api.delete(`/api/admin/column-permissions/${p.id}`);
+        toast.success('Permission deleted');
+        await loadAll();
+      } catch {
+        toast.error('Failed to delete permission');
       }
-      showForm = false;
-      await loadAll();
-    } catch {
-      toast.error('Failed to save permission');
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function toggleField(p: ColumnPermission, field: 'can_read' | 'can_write') {
-    const updated = { ...p, [field]: !p[field] };
-    try {
-      await api.put(`/api/admin/column-permissions/${p.id}`, {
-        can_read: updated.can_read,
-        can_write: updated.can_write,
-      });
-      permissions = permissions.map(x => x.id === p.id ? { ...x, [field]: !x[field] } : x);
-    } catch {
-      toast.error('Failed to update permission');
-    }
-  }
-
-  function confirmDelete(p: ColumnPermission) {
-    confirmState = {
-      open: true,
-      title: 'Delete Column Permission',
-      message: `Remove the rule for "${p.collection_name}.${p.column_name}" / "${p.role}"?`,
-      onconfirm: async () => {
-        try {
-          await api.delete(`/api/admin/column-permissions/${p.id}`);
-          toast.success('Permission deleted');
-          await loadAll();
-        } catch {
-          toast.error('Failed to delete permission');
-        }
-      },
-    };
-  }
+    },
+  };
+}
 </script>
 
 <PageHeader title="Column Permissions" subtitle="Control which columns each role can read or write per collection.">

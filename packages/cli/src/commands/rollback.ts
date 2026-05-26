@@ -19,10 +19,8 @@ export const rollbackCommand = new Command('rollback')
 
     // Runtime paths — avoids TypeScript rootDir cross-package errors
     const dbPath = new URL('../../../engine/src/db/index.js', import.meta.url).href;
-    const migrationsPath = new URL(
-      '../../../engine/src/db/migrations/index.js',
-      import.meta.url,
-    ).href;
+    const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url)
+      .href;
 
     const { initDatabase } = (await import(dbPath)) as any;
     const { getLastAppliedMigration, rollbackMigration } = (await import(migrationsPath)) as any;
@@ -59,10 +57,7 @@ export const rollbackCommand = new Command('rollback')
       });
 
       const answer = await new Promise<string>((resolve) => {
-        rl.question(
-          `\n⚠️  This will rollback schema changes. Type "yes" to continue: `,
-          resolve,
-        );
+        rl.question(`\n⚠️  This will rollback schema changes. Type "yes" to continue: `, resolve);
       });
       rl.close();
 

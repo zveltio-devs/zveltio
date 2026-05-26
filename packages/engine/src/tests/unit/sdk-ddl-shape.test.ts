@@ -86,11 +86,14 @@ describe('S4-08 SDK ddl shape', () => {
       invalidateCache: (name?: string) => RealDDLManager.invalidateCache(name),
       tableExists: (db, name) => RealDDLManager.tableExists(db as any, name),
       createCollection: (db, def) => RealDDLManager.createCollection(db as any, def as any),
-      dropCollection: (db, name, opts) => RealDDLManager.dropCollection(db as any, name, opts as any),
+      dropCollection: (db, name, opts) =>
+        RealDDLManager.dropCollection(db as any, name, opts as any),
       addField: (db, c, f) => RealDDLManager.addField(db as any, c, f as any),
       removeField: (db, c, f) => RealDDLManager.removeField(db as any, c, f),
-      getCollections: (db) => RealDDLManager.getCollections(db as any) as Promise<CollectionRecord[]>,
-      getCollection: (db, name) => RealDDLManager.getCollection(db as any, name) as Promise<CollectionRecord | null>,
+      getCollections: (db) =>
+        RealDDLManager.getCollections(db as any) as Promise<CollectionRecord[]>,
+      getCollection: (db, name) =>
+        RealDDLManager.getCollection(db as any, name) as Promise<CollectionRecord | null>,
       updateCollectionMetadata: (db, name, meta) =>
         RealDDLManager.updateCollectionMetadata(db as any, name, meta as any),
       introspectTable: (db, name) =>

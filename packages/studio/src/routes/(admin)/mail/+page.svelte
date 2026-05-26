@@ -1,364 +1,543 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { ENGINE_URL } from '$lib/config.js';
-  import { api } from '$lib/api.js';
-  import {
-    Mail, Send, Inbox, Star, Trash2, Archive, RefreshCw, Plus, Search,
-    Reply, ReplyAll, Forward, Wand2, X, Paperclip, Filter,
-    ChevronDown, Settings, FileText, Users, AlertCircle
-  } from '@lucide/svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { ENGINE_URL } from '$lib/config.js';
+import { api } from '$lib/api.js';
+import {
+  Mail,
+  Send,
+  Inbox,
+  Star,
+  Trash2,
+  Archive,
+  RefreshCw,
+  Plus,
+  Search,
+  Reply,
+  ReplyAll,
+  Forward,
+  Wand2,
+  X,
+  Paperclip,
+  Filter,
+  ChevronDown,
+  Settings,
+  FileText,
+  Users,
+  AlertCircle,
+} from '@lucide/svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  type Tab = 'mail' | 'drafts' | 'contacts' | 'signatures' | 'filters';
+type Tab = 'mail' | 'drafts' | 'contacts' | 'signatures' | 'filters';
 
-  let activeTab = $state<Tab>('mail');
-  let accounts = $state<any[]>([]);
-  let selectedAccount = $state<any>(null);
-  let folders = $state<any[]>([]);
-  let selectedFolder = $state<any>(null);
-  let messages = $state<any[]>([]);
-  let selectedMessage = $state<any>(null);
-  let selectedIds = $state<Set<string>>(new Set());
-  let searchQuery = $state('');
-  let loading = $state(false);
-  let syncing = $state(false);
-  let stats = $state<any>({});
+let activeTab = $state<Tab>('mail');
+let accounts = $state<any[]>([]);
+let selectedAccount = $state<any>(null);
+let folders = $state<any[]>([]);
+let selectedFolder = $state<any>(null);
+let messages = $state<any[]>([]);
+let selectedMessage = $state<any>(null);
+let selectedIds = $state<Set<string>>(new Set());
+let searchQuery = $state('');
+let loading = $state(false);
+let syncing = $state(false);
+let stats = $state<any>({});
 
-  let showCompose = $state(false);
-  let draftId = $state<string | null>(null);
-  let composeTo = $state('');
-  let composeCc = $state('');
-  let composeBcc = $state('');
-  let composeSubject = $state('');
-  let composeBody = $state('');
-  let composePriority = $state('normal');
-  let composeRequestReceipt = $state(false);
-  let sendingMail = $state(false);
-  let replyToMessageId = $state<string | null>(null);
-  let autoSaveTimer: any = null;
+let showCompose = $state(false);
+let draftId = $state<string | null>(null);
+let composeTo = $state('');
+let composeCc = $state('');
+let composeBcc = $state('');
+let composeSubject = $state('');
+let composeBody = $state('');
+let composePriority = $state('normal');
+let composeRequestReceipt = $state(false);
+let sendingMail = $state(false);
+let replyToMessageId = $state<string | null>(null);
+let autoSaveTimer: any = null;
 
-  let toSuggestions = $state<any[]>([]);
-  let showToSuggestions = $state(false);
+let toSuggestions = $state<any[]>([]);
+let showToSuggestions = $state(false);
 
-  let summary = $state('');
-  let summarizing = $state(false);
-  let aiDraftLoading = $state(false);
+let summary = $state('');
+let summarizing = $state(false);
+let aiDraftLoading = $state(false);
 
-  let showAddAccount = $state(false);
-  let newAccount = $state({
-    name: '', email_address: '', display_name: '',
-    imap_host: '', imap_port: 993, imap_secure: true, imap_user: '', imap_password: '',
-    smtp_host: '', smtp_port: 587, smtp_secure: true, smtp_user: '', smtp_password: '',
-    is_default: false,
-  });
-  let addingAccount = $state(false);
+let showAddAccount = $state(false);
+let newAccount = $state({
+  name: '',
+  email_address: '',
+  display_name: '',
+  imap_host: '',
+  imap_port: 993,
+  imap_secure: true,
+  imap_user: '',
+  imap_password: '',
+  smtp_host: '',
+  smtp_port: 587,
+  smtp_secure: true,
+  smtp_user: '',
+  smtp_password: '',
+  is_default: false,
+});
+let addingAccount = $state(false);
 
-  let drafts = $state<any[]>([]);
-  let contacts = $state<any[]>([]);
-  let contactSearch = $state('');
-  let signatures = $state<any[]>([]);
-  let editSig = $state<any | null>(null);
-  let sigName = $state('');
-  let sigHtml = $state('');
-  let sigDefault = $state(false);
-  let filters = $state<any[]>([]);
-  let showFilterModal = $state(false);
-  let newFilter = $state({
+let drafts = $state<any[]>([]);
+let contacts = $state<any[]>([]);
+let contactSearch = $state('');
+let signatures = $state<any[]>([]);
+let editSig = $state<any | null>(null);
+let sigName = $state('');
+let sigHtml = $state('');
+let sigDefault = $state(false);
+let filters = $state<any[]>([]);
+let showFilterModal = $state(false);
+let newFilter = $state({
+  name: '',
+  conditions: [{ field: 'from', operator: 'contains', value: '' }],
+  actions: [{ type: 'mark_read' }],
+  is_active: true,
+});
+let showBulkMenu = $state(false);
+
+async function loadAll() {
+  loading = true;
+  try {
+    const r = await api.get<{ accounts: any[] }>('/ext/communications/mail/accounts');
+    accounts = r.accounts ?? [];
+    if (accounts.length > 0 && !selectedAccount) {
+      await selectAccount(accounts.find((a: any) => a.is_default) ?? accounts[0]);
+    }
+    await loadStats();
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.load']());
+  } finally {
+    loading = false;
+  }
+}
+
+async function loadStats() {
+  try {
+    const r = await api.get<{ stats: any }>('/ext/communications/mail/stats');
+    stats = r.stats ?? {};
+  } catch {
+    /* ignore */
+  }
+}
+
+async function selectAccount(account: any) {
+  selectedAccount = account;
+  selectedFolder = null;
+  selectedMessage = null;
+  messages = [];
+  folders = [];
+  summary = '';
+  loading = true;
+  try {
+    const r = await api.get<{ folders: any[] }>(
+      `/ext/communications/mail/accounts/${account.id}/folders`,
+    );
+    folders = r.folders ?? [];
+    const inbox = folders.find((f: any) => f.type === 'inbox') ?? folders[0];
+    if (inbox) await selectFolder(inbox);
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.folders']());
+  } finally {
+    loading = false;
+  }
+}
+
+async function selectFolder(folder: any) {
+  selectedFolder = folder;
+  selectedMessage = null;
+  summary = '';
+  selectedIds = new Set();
+  messages = [];
+  loading = true;
+  try {
+    const r = await api.get<{ messages: any[] }>(
+      `/ext/communications/mail/folders/${folder.id}/messages?limit=50`,
+    );
+    messages = r.messages ?? [];
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.messages']());
+  } finally {
+    loading = false;
+  }
+}
+
+async function selectMessage(msg: any) {
+  summary = '';
+  loading = true;
+  try {
+    const r = await api.get<{ message: any }>(`/ext/communications/mail/messages/${msg.id}`);
+    selectedMessage = r.message;
+    messages = messages.map((m: any) => (m.id === msg.id ? { ...m, is_read: true } : m));
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.message']());
+  } finally {
+    loading = false;
+  }
+}
+
+async function syncAccount() {
+  if (!selectedAccount) return;
+  syncing = true;
+  try {
+    await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/sync`, {});
+    if (selectedFolder) await selectFolder(selectedFolder);
+    await loadStats();
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.sync']());
+  } finally {
+    syncing = false;
+  }
+}
+
+async function toggleStar(msg: any) {
+  await api.patch(`/ext/communications/mail/messages/${msg.id}`, { is_starred: !msg.is_starred });
+  messages = messages.map((m: any) => (m.id === msg.id ? { ...m, is_starred: !m.is_starred } : m));
+}
+
+async function deleteMessage(msg: any) {
+  await api.delete(`/ext/communications/mail/messages/${msg.id}`);
+  messages = messages.filter((m: any) => m.id !== msg.id);
+  if (selectedMessage?.id === msg.id) selectedMessage = null;
+}
+
+async function downloadEml() {
+  if (!selectedMessage) return;
+  const res = await api.fetch(`/ext/communications/mail/messages/${selectedMessage.id}/eml`);
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${selectedMessage.subject || 'message'}.eml`;
+  a.click();
+}
+
+async function bulkAction(action: string) {
+  if (selectedIds.size === 0) return;
+  await api.post('/ext/communications/mail/bulk', { message_ids: [...selectedIds], action });
+  if (action === 'delete' || action === 'spam') {
+    messages = messages.filter((m: any) => !selectedIds.has(m.id));
+  } else {
+    messages = messages.map((m: any) => {
+      if (!selectedIds.has(m.id)) return m;
+      if (action === 'mark_read' || action === 'mark_unread')
+        return { ...m, is_read: action === 'mark_read' };
+      if (action === 'star' || action === 'unstar') return { ...m, is_starred: action === 'star' };
+      return m;
+    });
+  }
+  selectedIds = new Set();
+  showBulkMenu = false;
+}
+
+function toggleSelect(id: string) {
+  const next = new Set(selectedIds);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds = next;
+}
+
+function openCompose(
+  preset?: Partial<{ to: string; subject: string; body: string; replyId: string }>,
+) {
+  composeTo = preset?.to ?? '';
+  composeCc = '';
+  composeBcc = '';
+  composeSubject = preset?.subject ?? '';
+  composeBody = preset?.body ?? '';
+  replyToMessageId = preset?.replyId ?? null;
+  draftId = null;
+  showCompose = true;
+}
+
+async function openReplyContext(type: 'reply' | 'reply_all' | 'forward') {
+  if (!selectedMessage) return;
+  try {
+    const ctx = await api.post<any>(
+      `/ext/communications/mail/messages/${selectedMessage.id}/reply-context`,
+      { type },
+    );
+    composeTo = (ctx.to ?? []).map((a: any) => a.address).join(', ');
+    composeCc = (ctx.cc ?? []).map((a: any) => a.address).join(', ');
+    composeSubject = ctx.subject ?? '';
+    composeBody = ctx.bodyText ?? '';
+    replyToMessageId = selectedMessage.id;
+    draftId = null;
+    showCompose = true;
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.failed']());
+  }
+}
+
+async function autoSaveDraft() {
+  if (!selectedAccount || !showCompose) return;
+  try {
+    const r = await api.post<{ draft_id: string }>('/ext/communications/mail/drafts', {
+      draft_id: draftId,
+      account_id: selectedAccount.id,
+      to: composeTo
+        .split(',')
+        .map((s: string) => ({ address: s.trim() }))
+        .filter((a: any) => a.address),
+      cc: composeCc ? composeCc.split(',').map((s: string) => ({ address: s.trim() })) : [],
+      bcc: composeBcc ? composeBcc.split(',').map((s: string) => ({ address: s.trim() })) : [],
+      subject: composeSubject,
+      body_html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
+      body_text: composeBody,
+      priority: composePriority,
+      request_read_receipt: composeRequestReceipt,
+      reply_type: replyToMessageId ? 'reply' : null,
+      original_msg_id: replyToMessageId,
+    });
+    draftId = r.draft_id;
+  } catch {
+    /* non-critical */
+  }
+}
+
+async function sendEmail() {
+  if (!selectedAccount || !composeTo.trim() || !composeSubject.trim()) return;
+  sendingMail = true;
+  try {
+    if (draftId) {
+      await autoSaveDraft();
+      await api.post(`/ext/communications/mail/drafts/${draftId}/send`, {});
+    } else {
+      await api.post('/ext/communications/mail/send', {
+        account_id: selectedAccount.id,
+        to: composeTo
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean),
+        cc: composeCc
+          ? composeCc
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : undefined,
+        bcc: composeBcc
+          ? composeBcc
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : undefined,
+        subject: composeSubject,
+        body_html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
+        body_text: composeBody,
+        reply_to_message_id: replyToMessageId ?? undefined,
+      });
+    }
+    showCompose = false;
+    if (selectedFolder?.type === 'sent') await selectFolder(selectedFolder);
+    await loadStats();
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.send']());
+  } finally {
+    sendingMail = false;
+  }
+}
+
+async function fetchSuggestions(q: string) {
+  if (q.length < 2) {
+    toSuggestions = [];
+    return;
+  }
+  try {
+    const r = await api.get<{ contacts: any[] }>(
+      `/ext/communications/mail/contacts?q=${encodeURIComponent(q)}&limit=8`,
+    );
+    toSuggestions = r.contacts ?? [];
+  } catch {
+    toSuggestions = [];
+  }
+}
+
+function pickSuggestion(contact: any) {
+  const parts = composeTo.split(',');
+  parts[parts.length - 1] = contact.display_name
+    ? `${contact.display_name} <${contact.email}>`
+    : contact.email;
+  composeTo = parts.join(', ') + ', ';
+  toSuggestions = [];
+  showToSuggestions = false;
+}
+
+async function summarizeMessage() {
+  if (!selectedMessage) return;
+  summarizing = true;
+  summary = '';
+  try {
+    const r = await api.post<{ summary: string }>(
+      `/ext/communications/mail/messages/${selectedMessage.id}/summarize`,
+      {},
+    );
+    summary = r.summary ?? '';
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.failed']());
+  } finally {
+    summarizing = false;
+  }
+}
+
+async function generateAiDraft() {
+  if (!selectedMessage) return;
+  aiDraftLoading = true;
+  try {
+    const r = await api.post<{ draft: string }>(
+      `/ext/communications/mail/messages/${selectedMessage.id}/reply-draft`,
+      {},
+    );
+    if (r.draft)
+      openReplyContext('reply').then(() => {
+        composeBody = r.draft;
+      });
+  } catch (e: any) {
+    toast.error(e.message ?? m['communications.mail.error.failed']());
+  } finally {
+    aiDraftLoading = false;
+  }
+}
+
+async function loadDrafts() {
+  try {
+    const r = await api.get<{ drafts: any[] }>('/ext/communications/mail/drafts');
+    drafts = r.drafts ?? [];
+  } catch {
+    /* ignore */
+  }
+}
+
+async function deleteDraft(id: string) {
+  await api.delete(`/ext/communications/mail/drafts/${id}`);
+  drafts = drafts.filter((d: any) => d.id !== id);
+}
+
+async function openDraft(draft: any) {
+  const r = await api.get<{ draft: any }>(`/ext/communications/mail/drafts/${draft.id}`);
+  const d = r.draft;
+  const parseAddrs = (v: any) => {
+    try {
+      return (Array.isArray(v) ? v : JSON.parse(v)).map((a: any) => a.address).join(', ');
+    } catch {
+      return '';
+    }
+  };
+  composeTo = parseAddrs(d.to_addresses);
+  composeCc = parseAddrs(d.cc_addresses);
+  composeBcc = parseAddrs(d.bcc_addresses);
+  composeSubject = d.subject;
+  composeBody = d.body_text || d.body_html?.replace(/<[^>]*>/g, '') || '';
+  draftId = d.id;
+  activeTab = 'mail';
+  showCompose = true;
+}
+
+async function loadContacts() {
+  try {
+    const r = await api.get<{ contacts: any[] }>(
+      `/ext/communications/mail/contacts?q=${encodeURIComponent(contactSearch)}&limit=50`,
+    );
+    contacts = r.contacts ?? [];
+  } catch {
+    /* ignore */
+  }
+}
+
+async function loadSignatures() {
+  try {
+    const r = await api.get<{ signatures: any[] }>('/ext/communications/mail/signatures');
+    signatures = r.signatures ?? [];
+  } catch {
+    /* ignore */
+  }
+}
+
+async function saveSignature() {
+  if (!sigName.trim()) return;
+  const path = editSig
+    ? `/ext/communications/mail/signatures/${editSig.id}`
+    : '/ext/communications/mail/signatures';
+  if (editSig) await api.put(path, { name: sigName, body_html: sigHtml, is_default: sigDefault });
+  else await api.post(path, { name: sigName, body_html: sigHtml, is_default: sigDefault });
+  editSig = null;
+  sigName = '';
+  sigHtml = '';
+  sigDefault = false;
+  await loadSignatures();
+}
+
+async function deleteSignature(id: string) {
+  await api.delete(`/ext/communications/mail/signatures/${id}`);
+  await loadSignatures();
+}
+
+async function loadFilters() {
+  if (!selectedAccount) return;
+  try {
+    const r = await api.get<{ filters: any[] }>(
+      `/ext/communications/mail/accounts/${selectedAccount.id}/filters`,
+    );
+    filters = r.filters ?? [];
+  } catch {
+    /* ignore */
+  }
+}
+
+async function saveFilter() {
+  if (!selectedAccount || !newFilter.name) return;
+  await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/filters`, newFilter);
+  showFilterModal = false;
+  newFilter = {
     name: '',
     conditions: [{ field: 'from', operator: 'contains', value: '' }],
     actions: [{ type: 'mark_read' }],
     is_active: true,
+  };
+  await loadFilters();
+}
+
+async function toggleFilter(filter: any) {
+  await api.patch(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${filter.id}`, {
+    is_active: !filter.is_active,
   });
-  let showBulkMenu = $state(false);
+  await loadFilters();
+}
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const r = await api.get<{ accounts: any[] }>('/ext/communications/mail/accounts');
-      accounts = r.accounts ?? [];
-      if (accounts.length > 0 && !selectedAccount) {
-        await selectAccount(accounts.find((a: any) => a.is_default) ?? accounts[0]);
-      }
-      await loadStats();
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.load']()); }
-    finally { loading = false; }
-  }
+async function deleteFilter(id: string) {
+  await api.delete(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${id}`);
+  filters = filters.filter((f: any) => f.id !== id);
+}
 
-  async function loadStats() {
-    try { const r = await api.get<{ stats: any }>('/ext/communications/mail/stats'); stats = r.stats ?? {}; } catch { /* ignore */ }
-  }
+$effect(() => {
+  loadAll();
+});
 
-  async function selectAccount(account: any) {
-    selectedAccount = account; selectedFolder = null; selectedMessage = null;
-    messages = []; folders = []; summary = '';
-    loading = true;
-    try {
-      const r = await api.get<{ folders: any[] }>(`/ext/communications/mail/accounts/${account.id}/folders`);
-      folders = r.folders ?? [];
-      const inbox = folders.find((f: any) => f.type === 'inbox') ?? folders[0];
-      if (inbox) await selectFolder(inbox);
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.folders']()); }
-    finally { loading = false; }
-  }
+$effect(() => {
+  if (autoSaveTimer) clearInterval(autoSaveTimer);
+  if (showCompose) autoSaveTimer = setInterval(autoSaveDraft, 30_000);
+  return () => clearInterval(autoSaveTimer);
+});
 
-  async function selectFolder(folder: any) {
-    selectedFolder = folder; selectedMessage = null; summary = '';
-    selectedIds = new Set(); messages = []; loading = true;
-    try {
-      const r = await api.get<{ messages: any[] }>(`/ext/communications/mail/folders/${folder.id}/messages?limit=50`);
-      messages = r.messages ?? [];
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.messages']()); }
-    finally { loading = false; }
-  }
+function folderIcon(type: string) {
+  return (
+    ({ inbox: Inbox, sent: Send, trash: Trash2, archive: Archive, spam: AlertCircle } as any)[
+      type
+    ] ?? Mail
+  );
+}
 
-  async function selectMessage(msg: any) {
-    summary = ''; loading = true;
-    try {
-      const r = await api.get<{ message: any }>(`/ext/communications/mail/messages/${msg.id}`);
-      selectedMessage = r.message;
-      messages = messages.map((m: any) => m.id === msg.id ? { ...m, is_read: true } : m);
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.message']()); }
-    finally { loading = false; }
-  }
+function formatDate(d: string) {
+  const dt = new Date(d);
+  const now = new Date();
+  if (dt.toDateString() === now.toDateString())
+    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
 
-  async function syncAccount() {
-    if (!selectedAccount) return;
-    syncing = true;
-    try {
-      await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/sync`, {});
-      if (selectedFolder) await selectFolder(selectedFolder);
-      await loadStats();
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.sync']()); }
-    finally { syncing = false; }
-  }
-
-  async function toggleStar(msg: any) {
-    await api.patch(`/ext/communications/mail/messages/${msg.id}`, { is_starred: !msg.is_starred });
-    messages = messages.map((m: any) => m.id === msg.id ? { ...m, is_starred: !m.is_starred } : m);
-  }
-
-  async function deleteMessage(msg: any) {
-    await api.delete(`/ext/communications/mail/messages/${msg.id}`);
-    messages = messages.filter((m: any) => m.id !== msg.id);
-    if (selectedMessage?.id === msg.id) selectedMessage = null;
-  }
-
-  async function downloadEml() {
-    if (!selectedMessage) return;
-    const res = await api.fetch(`/ext/communications/mail/messages/${selectedMessage.id}/eml`);
-    const blob = await res.blob();
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `${selectedMessage.subject || 'message'}.eml`; a.click();
-  }
-
-  async function bulkAction(action: string) {
-    if (selectedIds.size === 0) return;
-    await api.post('/ext/communications/mail/bulk', { message_ids: [...selectedIds], action });
-    if (action === 'delete' || action === 'spam') {
-      messages = messages.filter((m: any) => !selectedIds.has(m.id));
-    } else {
-      messages = messages.map((m: any) => {
-        if (!selectedIds.has(m.id)) return m;
-        if (action === 'mark_read' || action === 'mark_unread') return { ...m, is_read: action === 'mark_read' };
-        if (action === 'star' || action === 'unstar') return { ...m, is_starred: action === 'star' };
-        return m;
-      });
-    }
-    selectedIds = new Set(); showBulkMenu = false;
-  }
-
-  function toggleSelect(id: string) {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    selectedIds = next;
-  }
-
-  function openCompose(preset?: Partial<{ to: string; subject: string; body: string; replyId: string }>) {
-    composeTo = preset?.to ?? ''; composeCc = ''; composeBcc = '';
-    composeSubject = preset?.subject ?? ''; composeBody = preset?.body ?? '';
-    replyToMessageId = preset?.replyId ?? null; draftId = null; showCompose = true;
-  }
-
-  async function openReplyContext(type: 'reply' | 'reply_all' | 'forward') {
-    if (!selectedMessage) return;
-    try {
-      const ctx = await api.post<any>(`/ext/communications/mail/messages/${selectedMessage.id}/reply-context`, { type });
-      composeTo = (ctx.to ?? []).map((a: any) => a.address).join(', ');
-      composeCc = (ctx.cc ?? []).map((a: any) => a.address).join(', ');
-      composeSubject = ctx.subject ?? ''; composeBody = ctx.bodyText ?? '';
-      replyToMessageId = selectedMessage.id; draftId = null; showCompose = true;
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.failed']()); }
-  }
-
-  async function autoSaveDraft() {
-    if (!selectedAccount || !showCompose) return;
-    try {
-      const r = await api.post<{ draft_id: string }>('/ext/communications/mail/drafts', {
-        draft_id: draftId,
-        account_id: selectedAccount.id,
-        to: composeTo.split(',').map((s: string) => ({ address: s.trim() })).filter((a: any) => a.address),
-        cc: composeCc ? composeCc.split(',').map((s: string) => ({ address: s.trim() })) : [],
-        bcc: composeBcc ? composeBcc.split(',').map((s: string) => ({ address: s.trim() })) : [],
-        subject: composeSubject,
-        body_html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
-        body_text: composeBody,
-        priority: composePriority,
-        request_read_receipt: composeRequestReceipt,
-        reply_type: replyToMessageId ? 'reply' : null,
-        original_msg_id: replyToMessageId,
-      });
-      draftId = r.draft_id;
-    } catch { /* non-critical */ }
-  }
-
-  async function sendEmail() {
-    if (!selectedAccount || !composeTo.trim() || !composeSubject.trim()) return;
-    sendingMail = true;
-    try {
-      if (draftId) {
-        await autoSaveDraft();
-        await api.post(`/ext/communications/mail/drafts/${draftId}/send`, {});
-      } else {
-        await api.post('/ext/communications/mail/send', {
-          account_id: selectedAccount.id,
-          to: composeTo.split(',').map((s: string) => s.trim()).filter(Boolean),
-          cc: composeCc ? composeCc.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
-          bcc: composeBcc ? composeBcc.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
-          subject: composeSubject,
-          body_html: `<p>${composeBody.replace(/\n/g, '<br/>')}</p>`,
-          body_text: composeBody,
-          reply_to_message_id: replyToMessageId ?? undefined,
-        });
-      }
-      showCompose = false;
-      if (selectedFolder?.type === 'sent') await selectFolder(selectedFolder);
-      await loadStats();
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.send']()); }
-    finally { sendingMail = false; }
-  }
-
-  async function fetchSuggestions(q: string) {
-    if (q.length < 2) { toSuggestions = []; return; }
-    try {
-      const r = await api.get<{ contacts: any[] }>(`/ext/communications/mail/contacts?q=${encodeURIComponent(q)}&limit=8`);
-      toSuggestions = r.contacts ?? [];
-    } catch { toSuggestions = []; }
-  }
-
-  function pickSuggestion(contact: any) {
-    const parts = composeTo.split(',');
-    parts[parts.length - 1] = contact.display_name ? `${contact.display_name} <${contact.email}>` : contact.email;
-    composeTo = parts.join(', ') + ', ';
-    toSuggestions = []; showToSuggestions = false;
-  }
-
-  async function summarizeMessage() {
-    if (!selectedMessage) return;
-    summarizing = true; summary = '';
-    try {
-      const r = await api.post<{ summary: string }>(`/ext/communications/mail/messages/${selectedMessage.id}/summarize`, {});
-      summary = r.summary ?? '';
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.failed']()); }
-    finally { summarizing = false; }
-  }
-
-  async function generateAiDraft() {
-    if (!selectedMessage) return;
-    aiDraftLoading = true;
-    try {
-      const r = await api.post<{ draft: string }>(`/ext/communications/mail/messages/${selectedMessage.id}/reply-draft`, {});
-      if (r.draft) openReplyContext('reply').then(() => { composeBody = r.draft; });
-    } catch (e: any) { toast.error(e.message ?? m['communications.mail.error.failed']()); }
-    finally { aiDraftLoading = false; }
-  }
-
-  async function loadDrafts() {
-    try { const r = await api.get<{ drafts: any[] }>('/ext/communications/mail/drafts'); drafts = r.drafts ?? []; } catch { /* ignore */ }
-  }
-
-  async function deleteDraft(id: string) {
-    await api.delete(`/ext/communications/mail/drafts/${id}`);
-    drafts = drafts.filter((d: any) => d.id !== id);
-  }
-
-  async function openDraft(draft: any) {
-    const r = await api.get<{ draft: any }>(`/ext/communications/mail/drafts/${draft.id}`);
-    const d = r.draft;
-    const parseAddrs = (v: any) => {
-      try { return (Array.isArray(v) ? v : JSON.parse(v)).map((a: any) => a.address).join(', '); }
-      catch { return ''; }
-    };
-    composeTo = parseAddrs(d.to_addresses); composeCc = parseAddrs(d.cc_addresses);
-    composeBcc = parseAddrs(d.bcc_addresses); composeSubject = d.subject;
-    composeBody = d.body_text || d.body_html?.replace(/<[^>]*>/g, '') || '';
-    draftId = d.id; activeTab = 'mail'; showCompose = true;
-  }
-
-  async function loadContacts() {
-    try { const r = await api.get<{ contacts: any[] }>(`/ext/communications/mail/contacts?q=${encodeURIComponent(contactSearch)}&limit=50`); contacts = r.contacts ?? []; } catch { /* ignore */ }
-  }
-
-  async function loadSignatures() {
-    try { const r = await api.get<{ signatures: any[] }>('/ext/communications/mail/signatures'); signatures = r.signatures ?? []; } catch { /* ignore */ }
-  }
-
-  async function saveSignature() {
-    if (!sigName.trim()) return;
-    const path = editSig ? `/ext/communications/mail/signatures/${editSig.id}` : '/ext/communications/mail/signatures';
-    if (editSig) await api.put(path, { name: sigName, body_html: sigHtml, is_default: sigDefault });
-    else await api.post(path, { name: sigName, body_html: sigHtml, is_default: sigDefault });
-    editSig = null; sigName = ''; sigHtml = ''; sigDefault = false;
-    await loadSignatures();
-  }
-
-  async function deleteSignature(id: string) {
-    await api.delete(`/ext/communications/mail/signatures/${id}`);
-    await loadSignatures();
-  }
-
-  async function loadFilters() {
-    if (!selectedAccount) return;
-    try { const r = await api.get<{ filters: any[] }>(`/ext/communications/mail/accounts/${selectedAccount.id}/filters`); filters = r.filters ?? []; } catch { /* ignore */ }
-  }
-
-  async function saveFilter() {
-    if (!selectedAccount || !newFilter.name) return;
-    await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/filters`, newFilter);
-    showFilterModal = false;
-    newFilter = { name: '', conditions: [{ field: 'from', operator: 'contains', value: '' }], actions: [{ type: 'mark_read' }], is_active: true };
-    await loadFilters();
-  }
-
-  async function toggleFilter(filter: any) {
-    await api.patch(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${filter.id}`, { is_active: !filter.is_active });
-    await loadFilters();
-  }
-
-  async function deleteFilter(id: string) {
-    await api.delete(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${id}`);
-    filters = filters.filter((f: any) => f.id !== id);
-  }
-
-  $effect(() => { loadAll(); });
-
-  $effect(() => {
-    if (autoSaveTimer) clearInterval(autoSaveTimer);
-    if (showCompose) autoSaveTimer = setInterval(autoSaveDraft, 30_000);
-    return () => clearInterval(autoSaveTimer);
-  });
-
-  function folderIcon(type: string) {
-    return ({ inbox: Inbox, sent: Send, trash: Trash2, archive: Archive, spam: AlertCircle } as any)[type] ?? Mail;
-  }
-
-  function formatDate(d: string) {
-    const dt = new Date(d); const now = new Date();
-    if (dt.toDateString() === now.toDateString()) return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  }
-
-  const hasSelection = $derived(selectedIds.size > 0);
+const hasSelection = $derived(selectedIds.size > 0);
 </script>
 
 <ExtensionPageShell title={m['communications.mail.title']()} subtitle={m['communications.mail.subtitle']()}>

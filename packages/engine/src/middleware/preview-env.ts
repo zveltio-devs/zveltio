@@ -23,7 +23,8 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
       if (row?.preview_expires_at && new Date(row.preview_expires_at) < new Date()) {
         // Expired — auto-disable (fire-and-forget)
         sql`UPDATE zv_schema_branches SET preview_enabled = false, preview_token = NULL WHERE preview_token = ${token}`
-          .execute(db).catch(() => {});
+          .execute(db)
+          .catch(() => {});
       }
       const schema = row?.preview_schema;
       if (schema) {
@@ -31,7 +32,9 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
         await sql`SET LOCAL search_path TO ${sql.id(schema)}, public`.execute(db);
         c.set('previewSchema', schema);
       }
-    } catch { /* non-fatal — fall through to normal schema */ }
+    } catch {
+      /* non-fatal — fall through to normal schema */
+    }
 
     return next();
   };

@@ -60,10 +60,13 @@ function extractSpaceY4(template: string): { inner: string; after: string } | nu
 
 function peelHeader(inner: string): { actions: string; body: string } {
   let s = inner.trimStart();
-  const between = /^<div class="flex items-center justify-between[^>]*>([\s\S]*?)<\/div>\s*\n?/m.exec(s);
+  const between =
+    /^<div class="flex items-center justify-between[^>]*>([\s\S]*?)<\/div>\s*\n?/m.exec(s);
   if (between) {
     const block = between[1];
-    const btnMatch = block.match(/(<(?:div class="flex gap-2"[^>]*>)?[\s\S]*?<button[\s\S]*?<\/button>[\s\S]*?(?:<\/div>)?)\s*$/m);
+    const btnMatch = block.match(
+      /(<(?:div class="flex gap-2"[^>]*>)?[\s\S]*?<button[\s\S]*?<\/button>[\s\S]*?(?:<\/div>)?)\s*$/m,
+    );
     const actions = btnMatch ? btnMatch[1].trim() : '';
     s = s.slice(between[0].length);
     return { actions, body: s };
@@ -76,7 +79,7 @@ function peelHeader(inner: string): { actions: string; body: string } {
 }
 
 function ensureShellImport(src: string): string {
-  if (src.includes("ExtensionPageShell")) return src;
+  if (src.includes('ExtensionPageShell')) return src;
   return src.replace(
     /<script lang="ts">\n/,
     `<script lang="ts">\n  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';\n`,
@@ -106,9 +109,7 @@ for (const abs of walkPages(EXT)) {
   const { actions, body } = peelHeader(extracted.inner);
   const subtitleExpr = en[subtitleKey] ? ` subtitle={m['${subtitleKey}']()}` : '';
 
-  const actionsBlock = actions
-    ? `  {#snippet actions()}\n    ${actions}\n  {/snippet}\n\n`
-    : '';
+  const actionsBlock = actions ? `  {#snippet actions()}\n    ${actions}\n  {/snippet}\n\n` : '';
 
   const newTemplate = `<ExtensionPageShell title={m['${titleKey}']()}${subtitleExpr}>
 ${actionsBlock}  {#snippet children()}

@@ -1,137 +1,188 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { ENGINE_URL } from '$lib/config.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, Download, Send, Trash2, FileText, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { ENGINE_URL } from '$lib/config.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Plus, Download, Send, Trash2, FileText, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let invoices = $state<any[]>([]);
-  let loading = $state(true);
-  let showCreateModal = $state(false);
-  let creating = $state(false);
-  let filter = $state('all');
+let invoices = $state<any[]>([]);
+let loading = $state(true);
+let showCreateModal = $state(false);
+let creating = $state(false);
+let filter = $state('all');
 
-  let form = $state({
-    invoice_number: '',
-    invoice_date: new Date().toISOString().split('T')[0],
-    due_date: '',
-    seller_name: '',
-    seller_cui: '',
-    seller_address: '',
-    seller_iban: '',
-    buyer_name: '',
-    buyer_cui: '',
-    buyer_address: '',
-    currency: 'RON',
-    lines: [{ description: '', quantity: 1, unit: 'BUC', unit_price: 0, vat_rate: 19, vat_amount: 0, line_total: 0 }],
-  });
+let form = $state({
+  invoice_number: '',
+  invoice_date: new Date().toISOString().split('T')[0],
+  due_date: '',
+  seller_name: '',
+  seller_cui: '',
+  seller_address: '',
+  seller_iban: '',
+  buyer_name: '',
+  buyer_cui: '',
+  buyer_address: '',
+  currency: 'RON',
+  lines: [
+    {
+      description: '',
+      quantity: 1,
+      unit: 'BUC',
+      unit_price: 0,
+      vat_rate: 19,
+      vat_amount: 0,
+      line_total: 0,
+    },
+  ],
+});
 
-  onMount(loadInvoices);
-  $effect(() => { filter; loadInvoices(); });
+onMount(loadInvoices);
+$effect(() => {
+  filter;
+  loadInvoices();
+});
 
-  async function loadInvoices() {
-    loading = true;
-    try {
-      const qs = filter !== 'all' ? `?status=${filter}` : '';
-      const r = await api.get<{ invoices: any[] }>(`/ext/compliance/ro/efactura${qs}`);
-      invoices = r.invoices ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadInvoices() {
+  loading = true;
+  try {
+    const qs = filter !== 'all' ? `?status=${filter}` : '';
+    const r = await api.get<{ invoices: any[] }>(`/ext/compliance/ro/efactura${qs}`);
+    invoices = r.invoices ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  function recalcLine(line: any) {
-    const base = line.quantity * line.unit_price;
-    line.vat_amount = Math.round(base * (line.vat_rate / 100) * 100) / 100;
-    line.line_total = Math.round((base + line.vat_amount) * 100) / 100;
+function recalcLine(line: any) {
+  const base = line.quantity * line.unit_price;
+  line.vat_amount = Math.round(base * (line.vat_rate / 100) * 100) / 100;
+  line.line_total = Math.round((base + line.vat_amount) * 100) / 100;
+}
+
+function addLine() {
+  form.lines = [
+    ...form.lines,
+    {
+      description: '',
+      quantity: 1,
+      unit: 'BUC',
+      unit_price: 0,
+      vat_rate: 19,
+      vat_amount: 0,
+      line_total: 0,
+    },
+  ];
+}
+
+function removeLine(i: number) {
+  form.lines = form.lines.filter((_, idx) => idx !== i);
+}
+
+const totals = $derived({
+  subtotal: form.lines.reduce((s, l) => s + (l.line_total - l.vat_amount), 0),
+  vat_total: form.lines.reduce((s, l) => s + l.vat_amount, 0),
+  total: form.lines.reduce((s, l) => s + l.line_total, 0),
+});
+
+async function createInvoice() {
+  if (!form.invoice_number || !form.seller_name || !form.buyer_name) return;
+  creating = true;
+  try {
+    await api.post('/ext/compliance/ro/efactura', { ...form, ...totals });
+    showCreateModal = false;
+    await loadInvoices();
+    toast.success(m['compliance.ro.efactura.toast.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  function addLine() {
-    form.lines = [...form.lines, { description: '', quantity: 1, unit: 'BUC', unit_price: 0, vat_rate: 19, vat_amount: 0, line_total: 0 }];
+async function generateXML(id: string) {
+  try {
+    await api.post(`/ext/compliance/ro/efactura/${id}/generate-xml`, {});
+    toast.success(m['compliance.ro.efactura.toast.xmlGenerated']());
+    await loadInvoices();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  function removeLine(i: number) {
-    form.lines = form.lines.filter((_, idx) => idx !== i);
+async function downloadXML(id: string, number: string) {
+  const res = await api.fetch(`/ext/compliance/ro/efactura/${id}/xml`);
+  if (!res.ok) {
+    toast.error(m['compliance.ro.saft.error.generateXmlFirst']());
+    return;
   }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `factura_${number}.xml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-  const totals = $derived({
-    subtotal: form.lines.reduce((s, l) => s + (l.line_total - l.vat_amount), 0),
-    vat_total: form.lines.reduce((s, l) => s + l.vat_amount, 0),
-    total: form.lines.reduce((s, l) => s + l.line_total, 0),
-  });
-
-  async function createInvoice() {
-    if (!form.invoice_number || !form.seller_name || !form.buyer_name) return;
-    creating = true;
-    try {
-      await api.post('/ext/compliance/ro/efactura', { ...form, ...totals });
-      showCreateModal = false;
-      await loadInvoices();
-      toast.success(m['compliance.ro.efactura.toast.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { creating = false; }
+async function submitToANAF(id: string) {
+  askConfirm(m['compliance.ro.efactura.confirmSend'](), () => submitToANAFConfirmed(id));
+}
+async function submitToANAFConfirmed(id: string) {
+  try {
+    const data = await api.post<any>(`/ext/compliance/ro/efactura/${id}/submit`, {});
+    toast.success(m['ext.saved']());
+    await loadInvoices();
+  } catch (e: any) {
+    toast.error(e?.message ?? m['compliance.ro.efactura.toast.submissionFailed']());
   }
+}
 
-  async function generateXML(id: string) {
-    try {
-      await api.post(`/ext/compliance/ro/efactura/${id}/generate-xml`, {});
-      toast.success(m['compliance.ro.efactura.toast.xmlGenerated']());
-      await loadInvoices();
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function deleteInvoice(id: string) {
+  askConfirm(m['compliance.ro.efactura.confirmDelete'](), () => deleteInvoiceConfirmed(id));
+}
+async function deleteInvoiceConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/compliance/ro/efactura/${id}`);
+    await loadInvoices();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-
-  async function downloadXML(id: string, number: string) {
-    const res = await api.fetch(`/ext/compliance/ro/efactura/${id}/xml`);
-    if (!res.ok) { toast.error(m['compliance.ro.saft.error.generateXmlFirst']()); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `factura_${number}.xml`; a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  async function submitToANAF(id: string) {
-        askConfirm(m['compliance.ro.efactura.confirmSend'](), () => submitToANAFConfirmed(id));
-  }
-  async function submitToANAFConfirmed(id: string) {
-    try {
-      const data = await api.post<any>(`/ext/compliance/ro/efactura/${id}/submit`, {});
-      toast.success(m['ext.saved']());
-      await loadInvoices();
-    } catch (e: any) { toast.error(e?.message ?? m['compliance.ro.efactura.toast.submissionFailed']()); }
-  }
-
-
-  async function deleteInvoice(id: string) {
-        askConfirm(m['compliance.ro.efactura.confirmDelete'](), () => deleteInvoiceConfirmed(id));
-  }
-  async function deleteInvoiceConfirmed(id: string) {
-    try { await api.delete(`/ext/compliance/ro/efactura/${id}`); await loadInvoices(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
-
+}
 
 function invoiceStatusLabel(s: string): string {
-    const map: Record<string, () => string> = {
-      all: () => m['common.filter.all'](),
-      draft: () => m['compliance.ro.efactura.status.draft'](),
-      xml_generated: () => m['compliance.ro.efactura.status.xmlGenerated'](),
-      submitted: () => m['compliance.ro.efactura.status.submitted'](),
-      accepted: () => m['compliance.ro.efactura.status.accepted'](),
-      rejected: () => m['compliance.ro.efactura.status.rejected'](),
-    };
-    return (map[s] ?? (() => s))();
-  }
+  const map: Record<string, () => string> = {
+    all: () => m['common.filter.all'](),
+    draft: () => m['compliance.ro.efactura.status.draft'](),
+    xml_generated: () => m['compliance.ro.efactura.status.xmlGenerated'](),
+    submitted: () => m['compliance.ro.efactura.status.submitted'](),
+    accepted: () => m['compliance.ro.efactura.status.accepted'](),
+    rejected: () => m['compliance.ro.efactura.status.rejected'](),
+  };
+  return (map[s] ?? (() => s))();
+}
 
-  function statusBadge(status: string): string {
-    return ({ draft: 'badge-warning', xml_generated: 'badge-info', submitted: 'badge-primary', accepted: 'badge-success', rejected: 'badge-error' } as Record<string, string>)[status] ?? 'badge-ghost';
-  }
+function statusBadge(status: string): string {
+  return (
+    (
+      {
+        draft: 'badge-warning',
+        xml_generated: 'badge-info',
+        submitted: 'badge-primary',
+        accepted: 'badge-success',
+        rejected: 'badge-error',
+      } as Record<string, string>
+    )[status] ?? 'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['compliance.ro.efactura.title']()} subtitle={m['compliance.ro.efactura.subtitle']()}>

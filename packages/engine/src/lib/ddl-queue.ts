@@ -44,11 +44,11 @@ let _boss: PgBossInst | null = null;
 /** Map our public type names to pg-boss queue names. Kept identical for grep-ability. */
 const QUEUE_NAMES = {
   create_collection: 'ddl.create_collection',
-  drop_collection:   'ddl.drop_collection',
-  add_field:         'ddl.add_field',
-  remove_field:      'ddl.remove_field',
-  create_relation:   'ddl.create_relation',
-  drop_relation:     'ddl.drop_relation',
+  drop_collection: 'ddl.drop_collection',
+  add_field: 'ddl.add_field',
+  remove_field: 'ddl.remove_field',
+  create_relation: 'ddl.create_relation',
+  drop_relation: 'ddl.drop_relation',
 } as const;
 type DdlJobType = keyof typeof QUEUE_NAMES;
 
@@ -67,8 +67,8 @@ interface PublicJobShape {
 
 const DEFAULT_RETRY = {
   retryLimit: 3,
-  retryDelay: 5,        // seconds — initial backoff
-  retryBackoff: true,   // exponential
+  retryDelay: 5, // seconds — initial backoff
+  retryBackoff: true, // exponential
 } as const;
 
 /**
@@ -111,7 +111,9 @@ export async function initDDLQueue(db: Database): Promise<void> {
       retentionSeconds: 30 * 24 * 60 * 60,
     };
     for (const qname of Object.values(QUEUE_NAMES)) {
-      await _boss.createQueue(qname, QUEUE_RETENTION).catch(() => { /* already exists */ });
+      await _boss.createQueue(qname, QUEUE_RETENTION).catch(() => {
+        /* already exists */
+      });
     }
 
     // One-time recovery: reindex any CREATE INDEX CONCURRENTLY that left an
@@ -139,7 +141,9 @@ async function reindexInvalid(db: Database): Promise<void> {
   `.execute(db);
   for (const row of rows.rows) {
     try {
-      await sql.raw(`REINDEX INDEX CONCURRENTLY "${row.schemaname}"."${row.indexname}"`).execute(db);
+      await sql
+        .raw(`REINDEX INDEX CONCURRENTLY "${row.schemaname}"."${row.indexname}"`)
+        .execute(db);
     } catch (err) {
       console.warn(`Failed to REINDEX invalid index ${row.indexname}:`, err);
     }
@@ -212,13 +216,13 @@ export async function getDDLJob(
 
 function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
   const stateMap: Record<string, PublicJobShape['status']> = {
-    created:   'pending',
-    retry:     'pending',
-    active:    'running',
+    created: 'pending',
+    retry: 'pending',
+    active: 'running',
     completed: 'completed',
-    failed:    'failed',
+    failed: 'failed',
     cancelled: 'failed',
-    expired:   'failed',
+    expired: 'failed',
   };
   return {
     id: job.id,
@@ -309,25 +313,39 @@ async function runCreateRelation(trx: any, payload: any): Promise<void> {
   const onUpdate: string = payload.on_update ?? 'NO ACTION';
 
   if (relType === 'm2o') {
-    if (!SAFE_NAME.test(srcCol) || !SAFE_NAME.test(tgtCol) || !SAFE_NAME.test(srcField) || !SAFE_NAME.test(tgtField)) {
+    if (
+      !SAFE_NAME.test(srcCol) ||
+      !SAFE_NAME.test(tgtCol) ||
+      !SAFE_NAME.test(srcField) ||
+      !SAFE_NAME.test(tgtField)
+    ) {
       throw new Error('Invalid identifier in create_relation payload');
     }
     if (!SAFE_ACTION.test(onDelete) || !SAFE_ACTION.test(onUpdate)) {
       throw new Error('Invalid ON DELETE/ON UPDATE action in create_relation');
     }
-    await sql.raw(
-      `ALTER TABLE zvd_${srcCol} ADD COLUMN IF NOT EXISTS "${srcField}" UUID REFERENCES zvd_${tgtCol}(${tgtField}) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
-    ).execute(trx);
+    await sql
+      .raw(
+        `ALTER TABLE zvd_${srcCol} ADD COLUMN IF NOT EXISTS "${srcField}" UUID REFERENCES zvd_${tgtCol}(${tgtField}) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`,
+      )
+      .execute(trx);
   } else if (relType === 'm2m') {
     const junctionTable: string = payload.junction_table ?? '';
-    if (junctionTable && SAFE_NAME.test(junctionTable) && SAFE_NAME.test(srcCol) && SAFE_NAME.test(tgtCol)) {
-      await sql.raw(
-        `CREATE TABLE IF NOT EXISTS ${junctionTable} (` +
-        `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
-        `${srcCol}_id UUID REFERENCES zvd_${srcCol}(id) ON DELETE CASCADE, ` +
-        `${tgtCol}_id UUID REFERENCES zvd_${tgtCol}(id) ON DELETE CASCADE, ` +
-        `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-      ).execute(trx);
+    if (
+      junctionTable &&
+      SAFE_NAME.test(junctionTable) &&
+      SAFE_NAME.test(srcCol) &&
+      SAFE_NAME.test(tgtCol)
+    ) {
+      await sql
+        .raw(
+          `CREATE TABLE IF NOT EXISTS ${junctionTable} (` +
+            `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
+            `${srcCol}_id UUID REFERENCES zvd_${srcCol}(id) ON DELETE CASCADE, ` +
+            `${tgtCol}_id UUID REFERENCES zvd_${tgtCol}(id) ON DELETE CASCADE, ` +
+            `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+        )
+        .execute(trx);
     }
   }
   // o2m / m2a handled on the other side.
@@ -349,7 +367,11 @@ async function runDropRelation(trx: any, payload: any): Promise<void> {
 /** Stop pg-boss gracefully. Call from process shutdown. */
 export async function stopDDLQueue(): Promise<void> {
   if (_boss) {
-    try { await _boss.stop({ graceful: true }); } catch { /* */ }
+    try {
+      await _boss.stop({ graceful: true });
+    } catch {
+      /* */
+    }
     _boss = null;
   }
 }

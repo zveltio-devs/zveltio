@@ -1,56 +1,69 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { FileType, Plus, X, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { FileType, Plus, X, LoaderCircle } from '@lucide/svelte';
 
-  let templates = $state<any[]>([]);
-  let loading = $state(true);
-  let showForm = $state(false);
-  let saving = $state(false);
-  let editing = $state<any | null>(null);
-  let form = $state({
+let templates = $state<any[]>([]);
+let loading = $state(true);
+let showForm = $state(false);
+let saving = $state(false);
+let editing = $state<any | null>(null);
+let form = $state({
+  name: '',
+  description: '',
+  format: 'html',
+  body: '<h1>{{title}}</h1>\n<p>Hello {{client_name}}</p>',
+});
+
+async function load() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/content/document-templates');
+    templates = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
+  }
+}
+
+function openCreate() {
+  editing = null;
+  form = {
     name: '',
     description: '',
     format: 'html',
     body: '<h1>{{title}}</h1>\n<p>Hello {{client_name}}</p>',
-  });
+  };
+  showForm = true;
+}
 
-  async function load() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/content/document-templates'); templates = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+function openEdit(t: any) {
+  editing = t;
+  form = { name: t.name, description: t.description ?? '', format: t.format, body: t.body };
+  showForm = true;
+}
+
+async function save() {
+  saving = true;
+  try {
+    if (editing) await api.patch(`/ext/content/document-templates/${editing.id}`, form);
+    else await api.post('/ext/content/document-templates', form);
+    showForm = false;
+    await load();
+    toast.success(editing ? 'Template updated.' : 'Template created.');
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  function openCreate() {
-    editing = null;
-    form = { name: '', description: '', format: 'html', body: '<h1>{{title}}</h1>\n<p>Hello {{client_name}}</p>' };
-    showForm = true;
-  }
-
-  function openEdit(t: any) {
-    editing = t;
-    form = { name: t.name, description: t.description ?? '', format: t.format, body: t.body };
-    showForm = true;
-  }
-
-  async function save() {
-    saving = true;
-    try {
-      if (editing) await api.patch(`/ext/content/document-templates/${editing.id}`, form);
-      else await api.post('/ext/content/document-templates', form);
-      showForm = false;
-      await load();
-      toast.success(editing ? 'Template updated.' : 'Template created.');
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
-  }
-
-  onMount(load);
+onMount(load);
 </script>
 
 <ExtensionPageShell title={m['content.document-templates.title']()} subtitle={m['content.document-templates.subtitle']()}>

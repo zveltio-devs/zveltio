@@ -81,7 +81,7 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.revisions)).toBe(true);
     expect(body.pagination).toHaveProperty('total');
     if (body.revisions.length > 0) {
@@ -94,7 +94,7 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.revisions)).toBe(true);
   });
 
@@ -103,7 +103,7 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.revisions.length).toBeLessThanOrEqual(5);
     expect(body.pagination.page).toBe(1);
     expect(body.pagination.limit).toBe(5);
@@ -115,7 +115,7 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect((body.revision ?? body).id).toBe(firstRevisionId);
   });
 
@@ -133,7 +133,7 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
     // 200 with empty array, 403 if collection access is restricted, or 503 if migration not run
     expect(res.status).toBeOneOf([200, 403, 503]);
     if (res.status === 200) {
-      const body = await res.json() as any;
+      const body = (await res.json()) as any;
       expect(Array.isArray(body.comments)).toBe(true);
     }
   });

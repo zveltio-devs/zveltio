@@ -1,47 +1,47 @@
 <script lang="ts">
-	/**
-	 * AddressInput - Address field with geocoding
-	 */
-	interface Address {
-		street?: string;
-		city?: string;
-		country?: string;
-		postal_code?: string;
-		lat?: number;
-		lng?: number;
-	}
+/**
+ * AddressInput - Address field with geocoding
+ */
+interface Address {
+  street?: string;
+  city?: string;
+  country?: string;
+  postal_code?: string;
+  lat?: number;
+  lng?: number;
+}
 
-	let {
-		value = $bindable<Address>({}),
-		onSearch = null,
-		label = 'Address',
-		disabled = false
-	}: {
-		value?: Address;
-		onSearch?: ((query: string) => Promise<Address[]>) | null;
-		label?: string;
-		disabled?: boolean;
-	} = $props();
+let {
+  value = $bindable<Address>({}),
+  onSearch = null,
+  label = 'Address',
+  disabled = false,
+}: {
+  value?: Address;
+  onSearch?: ((query: string) => Promise<Address[]>) | null;
+  label?: string;
+  disabled?: boolean;
+} = $props();
 
-	let searchResults = $state<Address[]>([]);
-	let searching = $state(false);
-	let showResults = $state(false);
+let searchResults = $state<Address[]>([]);
+let searching = $state(false);
+let showResults = $state(false);
 
-	async function handleSearch(query: string) {
-		if (!onSearch || query.length < 3) return;
-		searching = true;
-		try {
-			searchResults = await onSearch(query);
-			showResults = true;
-		} finally {
-			searching = false;
-		}
-	}
+async function handleSearch(query: string) {
+  if (!onSearch || query.length < 3) return;
+  searching = true;
+  try {
+    searchResults = await onSearch(query);
+    showResults = true;
+  } finally {
+    searching = false;
+  }
+}
 
-	function selectAddress(addr: Address) {
-		value = addr;
-		showResults = false;
-	}
+function selectAddress(addr: Address) {
+  value = addr;
+  showResults = false;
+}
 </script>
 
 <div class="form-control">

@@ -1,22 +1,48 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let organizations = $state<any[]>([]);
-  let total = $state(0);
-  let page = $state(1);
-  let search = $state('');
-  let loading = $state(false);
-  let showModal = $state(false);
-  let editingOrg = $state<any>(null);
+let organizations = $state<any[]>([]);
+let total = $state(0);
+let page = $state(1);
+let search = $state('');
+let loading = $state(false);
+let showModal = $state(false);
+let editingOrg = $state<any>(null);
 
-  let form = $state({
+let form = $state({
+  name: '',
+  legal_name: '',
+  tax_id: '',
+  type: 'company',
+  industry: '',
+  website: '',
+  email: '',
+  phone: '',
+});
+
+async function loadOrganizations() {
+  loading = true;
+  try {
+    const params = new URLSearchParams({ page: String(page), limit: '20' });
+    if (search) params.set('search', search);
+    const res = await api.get(`/organizations?${params}`);
+    organizations = res.data;
+    total = res.meta.total;
+  } finally {
+    loading = false;
+  }
+}
+
+function openCreate() {
+  editingOrg = null;
+  form = {
     name: '',
     legal_name: '',
     tax_id: '',
@@ -25,62 +51,44 @@
     website: '',
     email: '',
     phone: '',
-  });
+  };
+  showModal = true;
+}
 
-  async function loadOrganizations() {
-    loading = true;
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' });
-      if (search) params.set('search', search);
-      const res = await api.get(`/organizations?${params}`);
-      organizations = res.data;
-      total = res.meta.total;
-    } finally {
-      loading = false;
-    }
+function openEdit(org: any) {
+  editingOrg = org;
+  form = {
+    name: org.name ?? '',
+    legal_name: org.legal_name ?? '',
+    tax_id: org.tax_id ?? '',
+    type: org.type ?? 'company',
+    industry: org.industry ?? '',
+    website: org.website ?? '',
+    email: org.email ?? '',
+    phone: org.phone ?? '',
+  };
+  showModal = true;
+}
+
+async function save() {
+  if (editingOrg) {
+    await api.patch(`/organizations/${editingOrg.id}`, form);
+  } else {
+    await api.post('/organizations', form);
   }
+  showModal = false;
+  await loadOrganizations();
+}
 
-  function openCreate() {
-    editingOrg = null;
-    form = { name: '', legal_name: '', tax_id: '', type: 'company', industry: '', website: '', email: '', phone: '' };
-    showModal = true;
-  }
+async function deleteOrg(id: string) {
+  askConfirm(m['crm.organizations.confirmDelete'](), () => deleteOrgConfirmed(id));
+}
+async function deleteOrgConfirmed(id: string) {
+  await api.delete(`/organizations/${id}`);
+  await loadOrganizations();
+}
 
-  function openEdit(org: any) {
-    editingOrg = org;
-    form = {
-      name: org.name ?? '',
-      legal_name: org.legal_name ?? '',
-      tax_id: org.tax_id ?? '',
-      type: org.type ?? 'company',
-      industry: org.industry ?? '',
-      website: org.website ?? '',
-      email: org.email ?? '',
-      phone: org.phone ?? '',
-    };
-    showModal = true;
-  }
-
-  async function save() {
-    if (editingOrg) {
-      await api.patch(`/organizations/${editingOrg.id}`, form);
-    } else {
-      await api.post('/organizations', form);
-    }
-    showModal = false;
-    await loadOrganizations();
-  }
-
-  async function deleteOrg(id: string) {
-        askConfirm(m['crm.organizations.confirmDelete'](), () => deleteOrgConfirmed(id));
-  }
-  async function deleteOrgConfirmed(id: string) {
-    await api.delete(`/organizations/${id}`);
-    await loadOrganizations();
-  }
-
-
-  onMount(loadOrganizations);
+onMount(loadOrganizations);
 </script>
 
 <ExtensionPageShell title={m['crm.organizations.title']()} subtitle={m['crm.organizations.count']({ count: total })}>

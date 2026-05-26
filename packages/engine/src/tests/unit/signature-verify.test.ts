@@ -27,14 +27,16 @@ function bytesToBase64(b: Uint8Array): string {
  * hex form of a sha256 (matching what the registry would produce), and
  * publish it under REGISTRY_PUBLIC_KEYS_JSON.
  */
-async function setupKeyAndSign(archive: Uint8Array, keyId: string): Promise<{
+async function setupKeyAndSign(
+  archive: Uint8Array,
+  keyId: string,
+): Promise<{
   signature: ExtensionSignature;
 }> {
-  const keyPair = (await crypto.subtle.generateKey(
-    { name: 'Ed25519' },
-    true,
-    ['sign', 'verify'],
-  )) as CryptoKeyPair;
+  const keyPair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+    'sign',
+    'verify',
+  ])) as CryptoKeyPair;
 
   const rawPub = new Uint8Array(await crypto.subtle.exportKey('raw', keyPair.publicKey));
   process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
@@ -86,10 +88,12 @@ describe('signature-verify', () => {
     const { signature } = await setupKeyAndSign(archive, 'test-key-2');
 
     const tampered = new TextEncoder().encode('hello world!'); // extra byte
-    await expect(verifySignature(tampered, signature, 'my-ext'))
-      .rejects.toBeInstanceOf(SignatureInvalidError);
-    await expect(verifySignature(tampered, signature, 'my-ext'))
-      .rejects.toThrow(/bundleSha256 mismatch/);
+    await expect(verifySignature(tampered, signature, 'my-ext')).rejects.toBeInstanceOf(
+      SignatureInvalidError,
+    );
+    await expect(verifySignature(tampered, signature, 'my-ext')).rejects.toThrow(
+      /bundleSha256 mismatch/,
+    );
   });
 
   it('rejects an unknown keyId', async () => {
@@ -99,8 +103,7 @@ describe('signature-verify', () => {
     // Drop the key registry so the signature's keyId no longer resolves.
     delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
 
-    await expect(verifySignature(archive, signature, 'my-ext'))
-      .rejects.toThrow(/unknown keyId/);
+    await expect(verifySignature(archive, signature, 'my-ext')).rejects.toThrow(/unknown keyId/);
   });
 
   it('rejects a signature signed by a different key', async () => {
@@ -108,8 +111,14 @@ describe('signature-verify', () => {
 
     // Generate two keypairs but register only the FIRST. Use the SECOND to sign,
     // then claim it was the first.
-    const keyA = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
-    const keyB = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+    const keyA = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+      'sign',
+      'verify',
+    ])) as CryptoKeyPair;
+    const keyB = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+      'sign',
+      'verify',
+    ])) as CryptoKeyPair;
 
     const rawA = new Uint8Array(await crypto.subtle.exportKey('raw', keyA.publicKey));
     process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
@@ -130,16 +139,16 @@ describe('signature-verify', () => {
       keyId: 'key-a', // lying about which key signed it
     };
 
-    await expect(verifySignature(archive, sig, 'my-ext'))
-      .rejects.toThrow(/Ed25519 verification failed/);
+    await expect(verifySignature(archive, sig, 'my-ext')).rejects.toThrow(
+      /Ed25519 verification failed/,
+    );
   });
 
   it('rejects malformed base64 signature', async () => {
     const archive = new TextEncoder().encode('x');
     const { signature } = await setupKeyAndSign(archive, 'key-bad-b64');
     const broken: ExtensionSignature = { ...signature, signature: '!!! not base64 !!!' };
-    await expect(verifySignature(archive, broken, 'my-ext'))
-      .rejects.toThrow();
+    await expect(verifySignature(archive, broken, 'my-ext')).rejects.toThrow();
   });
 
   it('rejects a signature with wrong byte length', async () => {
@@ -149,8 +158,7 @@ describe('signature-verify', () => {
       ...signature,
       signature: bytesToBase64(new Uint8Array(16)),
     };
-    await expect(verifySignature(archive, short, 'my-ext'))
-      .rejects.toThrow(/is not 64 bytes/);
+    await expect(verifySignature(archive, short, 'my-ext')).rejects.toThrow(/is not 64 bytes/);
   });
 });
 
@@ -167,17 +175,12 @@ describe('parseSignature', () => {
 
   it('rejects wrong algorithm', () => {
     expect(() =>
-      parseSignature(
-        { algorithm: 'rsa', signature: 'a', bundleSha256: 'b', keyId: 'k' },
-        'ext',
-      ),
+      parseSignature({ algorithm: 'rsa', signature: 'a', bundleSha256: 'b', keyId: 'k' }, 'ext'),
     ).toThrow(/missing required fields or has wrong algorithm/);
   });
 
   it('rejects missing fields', () => {
-    expect(() =>
-      parseSignature({ algorithm: 'ed25519', signature: 'a' }, 'ext'),
-    ).toThrow();
+    expect(() => parseSignature({ algorithm: 'ed25519', signature: 'a' }, 'ext')).toThrow();
   });
 
   it('rejects null / non-object input', () => {

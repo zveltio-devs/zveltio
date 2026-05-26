@@ -42,7 +42,9 @@ describe('S5-05 isFirstParty', () => {
 describe('S5-05 policyFor', () => {
   const origEnv = process.env.EXTENSION_POLICIES_JSON;
 
-  beforeEach(() => { _internalForTests.resetCache(); });
+  beforeEach(() => {
+    _internalForTests.resetCache();
+  });
   afterEach(() => {
     _internalForTests.resetCache();
     if (origEnv === undefined) delete process.env.EXTENSION_POLICIES_JSON;
@@ -101,8 +103,12 @@ describe('S5-05 policyFor', () => {
 });
 
 describe('S5-05 hasCapability', () => {
-  beforeEach(() => { _internalForTests.resetCache(); });
-  afterEach(() => { _internalForTests.resetCache(); });
+  beforeEach(() => {
+    _internalForTests.resetCache();
+  });
+  afterEach(() => {
+    _internalForTests.resetCache();
+  });
 
   it('allows first-party extensions to use first-party capabilities', () => {
     expect(hasCapability('forms', 'db.write')).toBe(true);
@@ -131,7 +137,9 @@ describe('S5-05 hasCapability', () => {
 });
 
 describe('S5-05 default quotas', () => {
-  beforeEach(() => { _internalForTests.resetCache(); });
+  beforeEach(() => {
+    _internalForTests.resetCache();
+  });
 
   it('first-party gets larger bundle / migrations / no CPU limit', () => {
     const p = policyFor('ai');

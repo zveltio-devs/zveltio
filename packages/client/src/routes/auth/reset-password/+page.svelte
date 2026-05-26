@@ -1,5 +1,5 @@
 <script lang="ts">
-  import ResetPassword from '$components/auth/ResetPassword.svelte';
+import ResetPassword from '$components/auth/ResetPassword.svelte';
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-base-200 p-4">

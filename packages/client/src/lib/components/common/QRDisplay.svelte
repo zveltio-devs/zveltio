@@ -1,19 +1,19 @@
 <script lang="ts">
-  import QRCode from 'qrcode';
+import QRCode from 'qrcode';
 
-  interface Props {
-    value: string;
-    size?: number;
-  }
+interface Props {
+  value: string;
+  size?: number;
+}
 
-  let { value, size = 200 }: Props = $props();
-  let src = $state<string | null>(null);
+let { value, size = 200 }: Props = $props();
+let src = $state<string | null>(null);
 
-  $effect(() => {
-    QRCode.toDataURL(value, { width: size, margin: 2 }).then((url) => {
-      src = url;
-    });
+$effect(() => {
+  QRCode.toDataURL(value, { width: size, margin: 2 }).then((url) => {
+    src = url;
   });
+});
 </script>
 
 {#if src}

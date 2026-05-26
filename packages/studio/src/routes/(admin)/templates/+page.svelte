@@ -1,158 +1,189 @@
 <script lang="ts">
-  /**
-   * /admin/templates — pre-built business application templates.
-   *
-   * Lists every template exposed by GET /api/templates. Clicking a card
-   * opens a preview drawer; clicking "Install" enqueues the DDL jobs and
-   * polls the collections jobs endpoint until everything is applied.
-   *
-   * Optional name prefix lets the user install the same template twice
-   * (e.g. one CRM for sales, one for partner relations) without colliding.
-   */
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { api, collectionsApi, invalidateCollectionsCache } from '$lib/api.js';
-  import {
-    Users, Receipt, Kanban, LifeBuoy, Package, Sparkles, Download,
-    ChevronRight, X, Loader2, Check,
-  } from '@lucide/svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+/**
+ * /admin/templates — pre-built business application templates.
+ *
+ * Lists every template exposed by GET /api/templates. Clicking a card
+ * opens a preview drawer; clicking "Install" enqueues the DDL jobs and
+ * polls the collections jobs endpoint until everything is applied.
+ *
+ * Optional name prefix lets the user install the same template twice
+ * (e.g. one CRM for sales, one for partner relations) without colliding.
+ */
+import { onMount } from 'svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { api, collectionsApi, invalidateCollectionsCache } from '$lib/api.js';
+import {
+  Users,
+  Receipt,
+  Kanban,
+  LifeBuoy,
+  Package,
+  Sparkles,
+  Download,
+  ChevronRight,
+  X,
+  Loader2,
+  Check,
+} from '@lucide/svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  interface TemplateSummary {
-    id: string;
-    name: string;
-    description: string;
-    icon?: string;
-    tags?: string[];
-    collection_count: number;
-    relation_count: number;
+interface TemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  icon?: string;
+  tags?: string[];
+  collection_count: number;
+  relation_count: number;
+}
+interface FieldDef {
+  name: string;
+  type: string;
+  required?: boolean;
+  options?: any;
+}
+interface CollectionDef {
+  name: string;
+  display_name?: string;
+  fields: FieldDef[];
+}
+interface TemplateFull extends TemplateSummary {
+  collections: CollectionDef[];
+}
+
+let templates = $state<TemplateSummary[]>([]);
+let loading = $state(true);
+
+// Preview drawer state
+let openId = $state('');
+let preview = $state<TemplateFull | null>(null);
+let previewLoading = $state(false);
+let prefix = $state('');
+let prefixError = $state('');
+
+// Install progress
+let installing = $state(false);
+let installedCollections = $state<string[]>([]);
+let installCompletedCount = $state(0);
+
+const ICONS: Record<string, any> = {
+  Users,
+  Receipt,
+  Kanban,
+  LifeBuoy,
+  Package,
+};
+
+async function loadList() {
+  loading = true;
+  try {
+    const r = await api.get<{ templates: TemplateSummary[] }>('/api/templates');
+    templates = r.templates ?? [];
+  } finally {
+    loading = false;
   }
-  interface FieldDef { name: string; type: string; required?: boolean; options?: any }
-  interface CollectionDef { name: string; display_name?: string; fields: FieldDef[] }
-  interface TemplateFull extends TemplateSummary {
-    collections: CollectionDef[];
-  }
+}
 
-  let templates = $state<TemplateSummary[]>([]);
-  let loading   = $state(true);
-
-  // Preview drawer state
-  let openId   = $state('');
-  let preview  = $state<TemplateFull | null>(null);
-  let previewLoading = $state(false);
-  let prefix   = $state('');
-  let prefixError = $state('');
-
-  // Install progress
-  let installing = $state(false);
-  let installedCollections = $state<string[]>([]);
-  let installCompletedCount = $state(0);
-
-  const ICONS: Record<string, any> = {
-    Users, Receipt, Kanban, LifeBuoy, Package,
-  };
-
-  async function loadList() {
-    loading = true;
-    try {
-      const r = await api.get<{ templates: TemplateSummary[] }>('/api/templates');
-      templates = r.templates ?? [];
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function openPreview(id: string) {
-    openId = id;
-    preview = null;
-    previewLoading = true;
-    prefix = '';
-    prefixError = '';
-    try {
-      const r = await api.get<{ template: TemplateFull }>(`/api/templates/${id}`);
-      preview = r.template;
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Failed to load template');
-      openId = '';
-    } finally {
-      previewLoading = false;
-    }
-  }
-
-  function closePreview() {
-    if (installing) return; // can't close while installing
+async function openPreview(id: string) {
+  openId = id;
+  preview = null;
+  previewLoading = true;
+  prefix = '';
+  prefixError = '';
+  try {
+    const r = await api.get<{ template: TemplateFull }>(`/api/templates/${id}`);
+    preview = r.template;
+  } catch (err: any) {
+    toast.error(err?.message ?? 'Failed to load template');
     openId = '';
-    preview = null;
-    installedCollections = [];
-    installCompletedCount = 0;
+  } finally {
+    previewLoading = false;
   }
+}
 
-  function validatePrefix(p: string): string {
-    if (!p) return '';
-    if (!/^[a-z][a-z0-9_]*$/.test(p)) return 'Lowercase letters, digits, underscore; must start with a letter';
-    if (p.length > 20) return 'Max 20 characters';
-    return '';
-  }
+function closePreview() {
+  if (installing) return; // can't close while installing
+  openId = '';
+  preview = null;
+  installedCollections = [];
+  installCompletedCount = 0;
+}
 
-  async function install() {
-    if (!preview) return;
-    prefixError = validatePrefix(prefix);
-    if (prefixError) return;
+function validatePrefix(p: string): string {
+  if (!p) return '';
+  if (!/^[a-z][a-z0-9_]*$/.test(p))
+    return 'Lowercase letters, digits, underscore; must start with a letter';
+  if (p.length > 20) return 'Max 20 characters';
+  return '';
+}
 
-    installing = true;
-    installedCollections = [];
-    installCompletedCount = 0;
+async function install() {
+  if (!preview) return;
+  prefixError = validatePrefix(prefix);
+  if (prefixError) return;
 
-    try {
-      const res = await api.post<{
-        installed: { name: string; job_id: string | null; status: 'queued' | 'skipped' }[];
-      }>(`/api/templates/${preview.id}/install`, prefix ? { prefix } : {});
+  installing = true;
+  installedCollections = [];
+  installCompletedCount = 0;
 
-      installedCollections = res.installed.map((i) => i.name);
-      const queuedJobs = res.installed.filter((i) => i.job_id);
+  try {
+    const res = await api.post<{
+      installed: { name: string; job_id: string | null; status: 'queued' | 'skipped' }[];
+    }>(`/api/templates/${preview.id}/install`, prefix ? { prefix } : {});
 
-      // Poll job statuses in parallel — each completes within a few seconds
-      // once the DDL queue processes it.
-      const deadline = Date.now() + 60_000;
-      const pending = new Map(queuedJobs.map((j) => [j.job_id!, j.name]));
-      while (pending.size > 0 && Date.now() < deadline) {
-        for (const [jobId, _name] of pending) {
-          try {
-            const j = await collectionsApi.jobStatus(jobId);
-            // Route returns { job: { status, error, ... } } — see
-            // mapJobToPublic in packages/engine/src/lib/ddl-queue.ts.
-            const status = (j.job as any)?.status;
-            if (status === 'completed') {
-              pending.delete(jobId);
-              installCompletedCount++;
-            } else if (status === 'failed') {
-              throw new Error(`Job ${jobId} failed: ${(j.job as any)?.error ?? 'unknown'}`);
-            }
-          } catch { /* keep polling */ }
+    installedCollections = res.installed.map((i) => i.name);
+    const queuedJobs = res.installed.filter((i) => i.job_id);
+
+    // Poll job statuses in parallel — each completes within a few seconds
+    // once the DDL queue processes it.
+    const deadline = Date.now() + 60_000;
+    const pending = new Map(queuedJobs.map((j) => [j.job_id!, j.name]));
+    while (pending.size > 0 && Date.now() < deadline) {
+      for (const [jobId, _name] of pending) {
+        try {
+          const j = await collectionsApi.jobStatus(jobId);
+          // Route returns { job: { status, error, ... } } — see
+          // mapJobToPublic in packages/engine/src/lib/ddl-queue.ts.
+          const status = (j.job as any)?.status;
+          if (status === 'completed') {
+            pending.delete(jobId);
+            installCompletedCount++;
+          } else if (status === 'failed') {
+            throw new Error(`Job ${jobId} failed: ${(j.job as any)?.error ?? 'unknown'}`);
+          }
+        } catch {
+          /* keep polling */
         }
-        if (pending.size > 0) await new Promise((r) => setTimeout(r, 500));
       }
-
-      // Count skipped (existing) collections as already-done.
-      installCompletedCount += res.installed.filter((i) => i.status === 'skipped').length;
-
-      invalidateCollectionsCache();
-
-      if (pending.size === 0) {
-        toast.success(`Installed '${preview.name}' template (${installedCollections.length} collections).`);
-        setTimeout(() => goto(`${base}/collections/erd`), 800);
-      } else {
-        toast.error(`Template install timed out — ${pending.size} collections still pending. Check the collections page.`);
-      }
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Install failed');
-    } finally {
-      installing = false;
+      if (pending.size > 0) await new Promise((r) => setTimeout(r, 500));
     }
-  }
 
-  onMount(() => { loadList(); });
+    // Count skipped (existing) collections as already-done.
+    installCompletedCount += res.installed.filter((i) => i.status === 'skipped').length;
+
+    invalidateCollectionsCache();
+
+    if (pending.size === 0) {
+      toast.success(
+        `Installed '${preview.name}' template (${installedCollections.length} collections).`,
+      );
+      setTimeout(() => goto(`${base}/collections/erd`), 800);
+    } else {
+      toast.error(
+        `Template install timed out — ${pending.size} collections still pending. Check the collections page.`,
+      );
+    }
+  } catch (err: any) {
+    toast.error(err?.message ?? 'Install failed');
+  } finally {
+    installing = false;
+  }
+}
+
+onMount(() => {
+  loadList();
+});
 </script>
 
 <svelte:head><title>Business templates — Zveltio Studio</title></svelte:head>

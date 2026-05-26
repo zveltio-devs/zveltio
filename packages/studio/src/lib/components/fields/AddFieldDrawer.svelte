@@ -1,79 +1,133 @@
 <script lang="ts">
-  import {
-    X, Plus, Type, Pilcrow, FileText, Mail, Lock, Hash, Link2, Phone,
-    Calendar, Clock, Image, File, GitBranch, Network, Share2, MapPin,
-    Braces, ToggleLeft, List, ScanLine, Binary, Database, Layers,
-    SquareCheck, Barcode, Globe, StickyNote,
-  } from '@lucide/svelte';
+import {
+  X,
+  Plus,
+  Type,
+  Pilcrow,
+  FileText,
+  Mail,
+  Lock,
+  Hash,
+  Link2,
+  Phone,
+  Calendar,
+  Clock,
+  Image,
+  File,
+  GitBranch,
+  Network,
+  Share2,
+  MapPin,
+  Braces,
+  ToggleLeft,
+  List,
+  ScanLine,
+  Binary,
+  Database,
+  Layers,
+  SquareCheck,
+  Barcode,
+  Globe,
+  StickyNote,
+} from '@lucide/svelte';
 
-  let {
-    open = $bindable(false),
-    fieldTypes = [] as any[],
-    allCollections = [] as any[],
-    collectionName = '',
-    onsave,
-  }: {
-    open: boolean;
-    fieldTypes: any[];
-    allCollections: any[];
-    collectionName: string;
-    onsave: (field: any) => Promise<void>;
-  } = $props();
+let {
+  open = $bindable(false),
+  fieldTypes = [] as any[],
+  allCollections = [] as any[],
+  collectionName = '',
+  onsave,
+}: {
+  open: boolean;
+  fieldTypes: any[];
+  allCollections: any[];
+  collectionName: string;
+  onsave: (field: any) => Promise<void>;
+} = $props();
 
-  // Category definitions with icons and colors
-  const categories = [
-    { id: 'text',     label: 'Text',        Icon: Type,        color: 'text-blue-500' },
-    { id: 'number',   label: 'Number',      Icon: Hash,        color: 'text-green-500' },
-    { id: 'date',     label: 'Date & Time', Icon: Calendar,    color: 'text-orange-500' },
-    { id: 'media',    label: 'Media',       Icon: Image,       color: 'text-purple-500' },
-    { id: 'relation', label: 'Relations',   Icon: GitBranch,   color: 'text-pink-500' },
-    { id: 'location', label: 'Location',    Icon: MapPin,      color: 'text-teal-500' },
-    { id: 'special',  label: 'Special',     Icon: Layers,      color: 'text-yellow-500' },
-    { id: 'advanced', label: 'Advanced',    Icon: Database,    color: 'text-gray-500' },
-  ];
+// Category definitions with icons and colors
+const categories = [
+  { id: 'text', label: 'Text', Icon: Type, color: 'text-blue-500' },
+  { id: 'number', label: 'Number', Icon: Hash, color: 'text-green-500' },
+  { id: 'date', label: 'Date & Time', Icon: Calendar, color: 'text-orange-500' },
+  { id: 'media', label: 'Media', Icon: Image, color: 'text-purple-500' },
+  { id: 'relation', label: 'Relations', Icon: GitBranch, color: 'text-pink-500' },
+  { id: 'location', label: 'Location', Icon: MapPin, color: 'text-teal-500' },
+  { id: 'special', label: 'Special', Icon: Layers, color: 'text-yellow-500' },
+  { id: 'advanced', label: 'Advanced', Icon: Database, color: 'text-gray-500' },
+];
 
-  // Per-type icons for the grid cards
-  const TYPE_ICONS: Record<string, any> = {
-    text:        Type,
-    longtext:    Pilcrow,
-    richtext:    FileText,
-    email:       Mail,
-    password:    Lock,
-    slug:        Barcode,
-    url:         Globe,
-    phone:       Phone,
-    int:         Hash,
-    float:       Binary,
-    decimal:     Binary,
-    number:      Hash,
-    boolean:     ToggleLeft,
-    checkbox:    SquareCheck,
-    date:        Calendar,
-    time:        Clock,
-    datetime:    Calendar,
-    timestamp:   Clock,
-    image:       Image,
-    file:        File,
-    m2o:         GitBranch,
-    o2m:         Network,
-    m2m:         Share2,
-    reference:   Link2,
-    location:    MapPin,
-    json:        Braces,
-    jsonb:       Braces,
-    enum:        List,
-    uuid:        ScanLine,
-    text_array:  Layers,
-    note:        StickyNote,
-  };
+// Per-type icons for the grid cards
+const TYPE_ICONS: Record<string, any> = {
+  text: Type,
+  longtext: Pilcrow,
+  richtext: FileText,
+  email: Mail,
+  password: Lock,
+  slug: Barcode,
+  url: Globe,
+  phone: Phone,
+  int: Hash,
+  float: Binary,
+  decimal: Binary,
+  number: Hash,
+  boolean: ToggleLeft,
+  checkbox: SquareCheck,
+  date: Calendar,
+  time: Clock,
+  datetime: Calendar,
+  timestamp: Clock,
+  image: Image,
+  file: File,
+  m2o: GitBranch,
+  o2m: Network,
+  m2m: Share2,
+  reference: Link2,
+  location: MapPin,
+  json: Braces,
+  jsonb: Braces,
+  enum: List,
+  uuid: ScanLine,
+  text_array: Layers,
+  note: StickyNote,
+};
 
-  const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
+const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 
-  let selectedCategory = $state('text');
-  let saving = $state(false);
-  let error = $state('');
+let selectedCategory = $state('text');
+let saving = $state(false);
+let error = $state('');
 
-  let form = $state({
+let form = $state({
+  name: '',
+  type: 'text',
+  label: '',
+  description: '',
+  required: false,
+  unique: false,
+  indexed: false,
+  related_collection: '',
+  enum_values_raw: '',
+});
+
+const visibleTypes = $derived(fieldTypes.filter((t) => t.category === selectedCategory));
+
+const selectedTypeDef = $derived(fieldTypes.find((t) => t.type === form.type));
+
+function selectType(type: string) {
+  form.type = type;
+  // auto-switch category to match the selected type
+  const def = fieldTypes.find((t) => t.type === type);
+  if (def?.category) selectedCategory = def.category;
+}
+
+function close() {
+  open = false;
+  error = '';
+}
+
+function reset() {
+  form = {
     name: '',
     type: 'text',
     label: '',
@@ -83,91 +137,78 @@
     indexed: false,
     related_collection: '',
     enum_values_raw: '',
-  });
+  };
+  selectedCategory = 'text';
+  error = '';
+}
 
-  const visibleTypes = $derived(fieldTypes.filter((t) => t.category === selectedCategory));
+$effect(() => {
+  if (!open) reset();
+});
 
-  const selectedTypeDef = $derived(fieldTypes.find((t) => t.type === form.type));
+// Auto-select first type of a category when switching
+$effect(() => {
+  const typesInCat = fieldTypes.filter((t) => t.category === selectedCategory);
+  if (typesInCat.length > 0 && !typesInCat.some((t) => t.type === form.type)) {
+    form.type = typesInCat[0].type;
+  }
+});
 
-  function selectType(type: string) {
-    form.type = type;
-    // auto-switch category to match the selected type
-    const def = fieldTypes.find((t) => t.type === type);
-    if (def?.category) selectedCategory = def.category;
+function parseEnumValues(raw: string): string[] {
+  return raw
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+async function submit() {
+  error = '';
+  if (!form.name.trim()) {
+    error = 'Field name is required';
+    return;
+  }
+  if (!/^[a-z][a-z0-9_]*$/.test(form.name)) {
+    error =
+      'Field name must start with a lowercase letter and contain only lowercase letters, digits, underscores';
+    return;
+  }
+  if (RELATION_NEEDS_TARGET.has(form.type) && !form.related_collection) {
+    error = 'Please select a target collection for this relation field';
+    return;
+  }
+  let enumValues: string[] = [];
+  if (form.type === 'enum') {
+    enumValues = parseEnumValues(form.enum_values_raw);
+    if (enumValues.length === 0) {
+      error = 'Enum fields need at least one value';
+      return;
+    }
   }
 
-  function close() {
-    open = false;
-    error = '';
-  }
-
-  function reset() {
-    form = {
-      name: '', type: 'text', label: '', description: '',
-      required: false, unique: false, indexed: false,
-      related_collection: '', enum_values_raw: '',
+  saving = true;
+  try {
+    const body: Record<string, any> = {
+      name: form.name,
+      type: form.type,
+      label: form.label || form.name,
+      description: form.description || undefined,
+      required: form.required,
+      unique: form.unique,
+      indexed: form.indexed,
     };
-    selectedCategory = 'text';
-    error = '';
+    const options: Record<string, any> = {};
+    if (form.related_collection) options.related_collection = form.related_collection;
+    if (enumValues.length > 0) options.values = enumValues;
+    if (Object.keys(options).length > 0) body.options = options;
+
+    await onsave(body);
+    close();
+  } catch (e: any) {
+    error = e.message || 'Failed to add field';
+  } finally {
+    saving = false;
   }
-
-  $effect(() => {
-    if (!open) reset();
-  });
-
-  // Auto-select first type of a category when switching
-  $effect(() => {
-    const typesInCat = fieldTypes.filter((t) => t.category === selectedCategory);
-    if (typesInCat.length > 0 && !typesInCat.some((t) => t.type === form.type)) {
-      form.type = typesInCat[0].type;
-    }
-  });
-
-  function parseEnumValues(raw: string): string[] {
-    return raw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
-  }
-
-  async function submit() {
-    error = '';
-    if (!form.name.trim()) { error = 'Field name is required'; return; }
-    if (!/^[a-z][a-z0-9_]*$/.test(form.name)) {
-      error = 'Field name must start with a lowercase letter and contain only lowercase letters, digits, underscores';
-      return;
-    }
-    if (RELATION_NEEDS_TARGET.has(form.type) && !form.related_collection) {
-      error = 'Please select a target collection for this relation field';
-      return;
-    }
-    let enumValues: string[] = [];
-    if (form.type === 'enum') {
-      enumValues = parseEnumValues(form.enum_values_raw);
-      if (enumValues.length === 0) { error = 'Enum fields need at least one value'; return; }
-    }
-
-    saving = true;
-    try {
-      const body: Record<string, any> = {
-        name: form.name,
-        type: form.type,
-        label: form.label || form.name,
-        description: form.description || undefined,
-        required: form.required,
-        unique: form.unique,
-        indexed: form.indexed,
-      };
-      const options: Record<string, any> = {};
-      if (form.related_collection) options.related_collection = form.related_collection;
-      if (enumValues.length > 0) options.values = enumValues;
-      if (Object.keys(options).length > 0) body.options = options;
-
-      await onsave(body);
-      close();
-    } catch (e: any) {
-      error = e.message || 'Failed to add field';
-    } finally {
-      saving = false;
-    }
-  }
+}
 </script>
 
 <!-- Full-screen overlay -->

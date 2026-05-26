@@ -1,102 +1,129 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api, settingsApi } from '$lib/api.js';
- import { Globe, Palette, Mail, Shield, Save, LoaderCircle, Eye, EyeOff, Gauge } from '@lucide/svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
- import Slot from '$lib/components/common/Slot.svelte';
- import { auth } from '$lib/auth.svelte.js';
+import { onMount } from 'svelte';
+import { api, settingsApi } from '$lib/api.js';
+import {
+  Globe,
+  Palette,
+  Mail,
+  Shield,
+  Save,
+  LoaderCircle,
+  Eye,
+  EyeOff,
+  Gauge,
+} from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
+import Slot from '$lib/components/common/Slot.svelte';
+import { auth } from '$lib/auth.svelte.js';
 
- let loading = $state(true);
- let saving = $state(false);
- let saved = $state(false);
- let tab = $state<'general' | 'branding' | 'smtp' | 'security' | 'rate_limiting'>('general');
- let showSmtpPass = $state(false);
+let loading = $state(true);
+let saving = $state(false);
+let saved = $state(false);
+let tab = $state<'general' | 'branding' | 'smtp' | 'security' | 'rate_limiting'>('general');
+let showSmtpPass = $state(false);
 
- let s = $state({
- app_name: 'Zveltio',
- site_url: '',
- logo_url: '',
- primary_color: '#069494',
- smtp_host: '',
- smtp_port: 587,
- smtp_user: '',
- smtp_pass: '',
- smtp_from: '',
- smtp_secure: false,
- two_factor_enabled: false,
- session_expiry_hours: 24,
- api_rate_limit: 100,
- });
+let s = $state({
+  app_name: 'Zveltio',
+  site_url: '',
+  logo_url: '',
+  primary_color: '#069494',
+  smtp_host: '',
+  smtp_port: 587,
+  smtp_user: '',
+  smtp_pass: '',
+  smtp_from: '',
+  smtp_secure: false,
+  two_factor_enabled: false,
+  session_expiry_hours: 24,
+  api_rate_limit: 100,
+});
 
- // Rate limiting — per-tier configs from zv_rate_limit_configs
- let rlTiers = $state<Array<{ key_prefix: string; window_ms: number; max_requests: number; is_active: boolean; description: string }>>([]);
- let rlSaving = $state<string | null>(null);
- let rlResetting = $state(false);
+// Rate limiting — per-tier configs from zv_rate_limit_configs
+let rlTiers = $state<
+  Array<{
+    key_prefix: string;
+    window_ms: number;
+    max_requests: number;
+    is_active: boolean;
+    description: string;
+  }>
+>([]);
+let rlSaving = $state<string | null>(null);
+let rlResetting = $state(false);
 
- onMount(async () => {
- try {
- const data = await settingsApi.getAll();
- for (const [k, v] of Object.entries(data)) {
- if (k in s) (s as any)[k] = v;
- }
- } finally { loading = false; }
- loadRateLimiting();
- });
+onMount(async () => {
+  try {
+    const data = await settingsApi.getAll();
+    for (const [k, v] of Object.entries(data)) {
+      if (k in s) (s as any)[k] = v;
+    }
+  } finally {
+    loading = false;
+  }
+  loadRateLimiting();
+});
 
- async function loadRateLimiting() {
- try {
- const res = await api.get<{ rate_limits: any[] }>('/api/admin/rate-limits');
- if (Array.isArray(res?.rate_limits)) rlTiers = res.rate_limits;
- } catch {
- // table may not exist yet if migration hasn't run
- }
- }
+async function loadRateLimiting() {
+  try {
+    const res = await api.get<{ rate_limits: any[] }>('/api/admin/rate-limits');
+    if (Array.isArray(res?.rate_limits)) rlTiers = res.rate_limits;
+  } catch {
+    // table may not exist yet if migration hasn't run
+  }
+}
 
- async function save() {
- saving = true; saved = false;
- try {
- await settingsApi.updateBulk(s);
- saved = true;
- toast.success('Settings saved successfully');
- setTimeout(() => (saved = false), 3000);
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Save failed');
- } finally { saving = false; }
- }
+async function save() {
+  saving = true;
+  saved = false;
+  try {
+    await settingsApi.updateBulk(s);
+    saved = true;
+    toast.success('Settings saved successfully');
+    setTimeout(() => (saved = false), 3000);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Save failed');
+  } finally {
+    saving = false;
+  }
+}
 
- async function saveTier(tier: typeof rlTiers[number]) {
- rlSaving = tier.key_prefix;
- try {
- await api.patch(`/api/admin/rate-limits/${tier.key_prefix}`, {
- window_ms: tier.window_ms,
- max_requests: tier.max_requests,
- is_active: tier.is_active,
- });
- toast.success(`${tier.key_prefix} limits saved`);
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Save failed');
- } finally { rlSaving = null; }
- }
+async function saveTier(tier: (typeof rlTiers)[number]) {
+  rlSaving = tier.key_prefix;
+  try {
+    await api.patch(`/api/admin/rate-limits/${tier.key_prefix}`, {
+      window_ms: tier.window_ms,
+      max_requests: tier.max_requests,
+      is_active: tier.is_active,
+    });
+    toast.success(`${tier.key_prefix} limits saved`);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Save failed');
+  } finally {
+    rlSaving = null;
+  }
+}
 
- async function resetDefaults() {
- rlResetting = true;
- try {
- await api.post('/api/admin/rate-limits/reset', {});
- toast.success('Rate limits reset to defaults');
- await loadRateLimiting();
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Reset failed');
- } finally { rlResetting = false; }
- }
+async function resetDefaults() {
+  rlResetting = true;
+  try {
+    await api.post('/api/admin/rate-limits/reset', {});
+    toast.success('Rate limits reset to defaults');
+    await loadRateLimiting();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Reset failed');
+  } finally {
+    rlResetting = false;
+  }
+}
 
- const TABS = [
- { id: 'general', label: 'General', icon: Globe },
- { id: 'branding', label: 'Branding', icon: Palette },
- { id: 'smtp', label: 'SMTP', icon: Mail },
- { id: 'security', label: 'Security', icon: Shield },
- { id: 'rate_limiting', label: 'Rate Limiting', icon: Gauge },
- ] as const;
+const TABS = [
+  { id: 'general', label: 'General', icon: Globe },
+  { id: 'branding', label: 'Branding', icon: Palette },
+  { id: 'smtp', label: 'SMTP', icon: Mail },
+  { id: 'security', label: 'Security', icon: Shield },
+  { id: 'rate_limiting', label: 'Rate Limiting', icon: Gauge },
+] as const;
 </script>
 
 <div class="space-y-6">

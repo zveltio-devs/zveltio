@@ -1,145 +1,168 @@
 <script lang="ts">
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { m } from '$lib/i18n.svelte.js';
-  import { api } from '$lib/api.js';
-  const API = '/ext/operations/traceability';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { m } from '$lib/i18n.svelte.js';
+import { api } from '$lib/api.js';
+const API = '/ext/operations/traceability';
 
-  let orders = $state<any[]>([]);
-  let loading = $state(true);
-  let error = $state('');
-  let statusFilter = $state('');
-  let showNewForm = $state(false);
+let orders = $state<any[]>([]);
+let loading = $state(true);
+let error = $state('');
+let statusFilter = $state('');
+let showNewForm = $state(false);
 
-  let items = $state<any[]>([]);
-  let recipes = $state<any[]>([]);
-  let lots = $state<any[]>([]);
+let items = $state<any[]>([]);
+let recipes = $state<any[]>([]);
+let lots = $state<any[]>([]);
 
-  let newOrder = $state({
-    output_item_id: '',
-    recipe_id: '',
-    planned_quantity: '',
-    unit: 'kg' as string,
-    notes: '',
-  });
+let newOrder = $state({
+  output_item_id: '',
+  recipe_id: '',
+  planned_quantity: '',
+  unit: 'kg' as string,
+  notes: '',
+});
 
-  let selectedOrder = $state<any>(null);
-  let consumeForm = $state({ lot_id: '', quantity_used: '' });
-  let haccpForm = $state({ ccp: '', value: '', unit: '°C', limit_min: '', ok: true });
-  let processing = $state(false);
+let selectedOrder = $state<any>(null);
+let consumeForm = $state({ lot_id: '', quantity_used: '' });
+let haccpForm = $state({ ccp: '', value: '', unit: '°C', limit_min: '', ok: true });
+let processing = $state(false);
 
-  $effect(() => {
-    loadOrders();
-    api.fetch(`${API}/items?type=finished`).then(r => r.json()).then(d => { items = d.data ?? []; });
-    api.fetch(`${API}/production/recipes`).then(r => r.json()).then(d => { recipes = d.data ?? []; });
-  });
+$effect(() => {
+  loadOrders();
+  api
+    .fetch(`${API}/items?type=finished`)
+    .then((r) => r.json())
+    .then((d) => {
+      items = d.data ?? [];
+    });
+  api
+    .fetch(`${API}/production/recipes`)
+    .then((r) => r.json())
+    .then((d) => {
+      recipes = d.data ?? [];
+    });
+});
 
-  $effect(() => { statusFilter; loadOrders(); });
+$effect(() => {
+  statusFilter;
+  loadOrders();
+});
 
-  async function loadOrders() {
-    loading = true;
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set('status', statusFilter);
-      const res = await api.fetch(`${API}/production?${params}`);
-      orders = res.ok ? (await res.json()).data : [];
-    } finally {
-      loading = false;
-    }
+async function loadOrders() {
+  loading = true;
+  try {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status', statusFilter);
+    const res = await api.fetch(`${API}/production?${params}`);
+    orders = res.ok ? (await res.json()).data : [];
+  } finally {
+    loading = false;
   }
+}
 
-  async function loadAvailableLots(itemId: string) {
-    const res = await api.fetch(`${API}/lots?status=available&limit=200`);
-    lots = res.ok ? (await res.json()).data : [];
-  }
+async function loadAvailableLots(itemId: string) {
+  const res = await api.fetch(`${API}/lots?status=available&limit=200`);
+  lots = res.ok ? (await res.json()).data : [];
+}
 
-  async function createOrder(e: Event) {
-    e.preventDefault();
-    processing = true;
-    error = '';
-    try {
-      const res = await api.fetch(`${API}/production`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          output_item_id: newOrder.output_item_id,
-          recipe_id: newOrder.recipe_id || undefined,
-          planned_quantity: parseFloat(newOrder.planned_quantity),
-          unit: newOrder.unit,
-          notes: newOrder.notes || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      showNewForm = false;
-      await loadOrders();
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      processing = false;
-    }
-  }
-
-  async function startOrder(id: string) {
-    await api.fetch(`${API}/production/${id}/start`, { method: 'PATCH' });
+async function createOrder(e: Event) {
+  e.preventDefault();
+  processing = true;
+  error = '';
+  try {
+    const res = await api.fetch(`${API}/production`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        output_item_id: newOrder.output_item_id,
+        recipe_id: newOrder.recipe_id || undefined,
+        planned_quantity: parseFloat(newOrder.planned_quantity),
+        unit: newOrder.unit,
+        notes: newOrder.notes || undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showNewForm = false;
     await loadOrders();
-    if (selectedOrder?.id === id) await loadOrder(id);
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    processing = false;
   }
+}
 
-  async function loadOrder(id: string) {
-    const res = await api.fetch(`${API}/production/${id}`);
-    if (res.ok) {
-      selectedOrder = (await res.json()).data;
-      await loadAvailableLots(selectedOrder.output_lot_id);
-    }
-  }
+async function startOrder(id: string) {
+  await api.fetch(`${API}/production/${id}/start`, { method: 'PATCH' });
+  await loadOrders();
+  if (selectedOrder?.id === id) await loadOrder(id);
+}
 
-  async function addConsumption(e: Event) {
-    e.preventDefault();
-    processing = true;
-    error = '';
-    try {
-      const res = await api.fetch(`${API}/production/${selectedOrder.id}/consume`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lot_id: consumeForm.lot_id, quantity_used: parseFloat(consumeForm.quantity_used) }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      consumeForm = { lot_id: '', quantity_used: '' };
-      await loadOrder(selectedOrder.id);
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      processing = false;
-    }
+async function loadOrder(id: string) {
+  const res = await api.fetch(`${API}/production/${id}`);
+  if (res.ok) {
+    selectedOrder = (await res.json()).data;
+    await loadAvailableLots(selectedOrder.output_lot_id);
   }
+}
 
-  async function addHACCP(e: Event) {
-    e.preventDefault();
-    processing = true;
-    try {
-      await api.fetch(`${API}/production/${selectedOrder.id}/haccp`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          check: {
-            ccp: haccpForm.ccp,
-            value: parseFloat(haccpForm.value),
-            unit: haccpForm.unit,
-            limit_min: haccpForm.limit_min ? parseFloat(haccpForm.limit_min) : undefined,
-            ok: haccpForm.ok,
-            checked_at: new Date().toISOString(),
-          },
-        }),
-      });
-      haccpForm = { ccp: '', value: '', unit: '°C', limit_min: '', ok: true };
-      await loadOrder(selectedOrder.id);
-    } finally {
-      processing = false;
-    }
+async function addConsumption(e: Event) {
+  e.preventDefault();
+  processing = true;
+  error = '';
+  try {
+    const res = await api.fetch(`${API}/production/${selectedOrder.id}/consume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lot_id: consumeForm.lot_id,
+        quantity_used: parseFloat(consumeForm.quantity_used),
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    consumeForm = { lot_id: '', quantity_used: '' };
+    await loadOrder(selectedOrder.id);
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    processing = false;
   }
+}
 
-  function statusBadge(s: string) {
-    return { draft: 'badge-ghost', in_progress: 'badge-warning', completed: 'badge-success', cancelled: 'badge-error' }[s] ?? 'badge-ghost';
+async function addHACCP(e: Event) {
+  e.preventDefault();
+  processing = true;
+  try {
+    await api.fetch(`${API}/production/${selectedOrder.id}/haccp`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        check: {
+          ccp: haccpForm.ccp,
+          value: parseFloat(haccpForm.value),
+          unit: haccpForm.unit,
+          limit_min: haccpForm.limit_min ? parseFloat(haccpForm.limit_min) : undefined,
+          ok: haccpForm.ok,
+          checked_at: new Date().toISOString(),
+        },
+      }),
+    });
+    haccpForm = { ccp: '', value: '', unit: '°C', limit_min: '', ok: true };
+    await loadOrder(selectedOrder.id);
+  } finally {
+    processing = false;
   }
+}
+
+function statusBadge(s: string) {
+  return (
+    {
+      draft: 'badge-ghost',
+      in_progress: 'badge-warning',
+      completed: 'badge-success',
+      cancelled: 'badge-error',
+    }[s] ?? 'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.production.title']()}>

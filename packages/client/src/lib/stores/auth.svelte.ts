@@ -9,9 +9,15 @@ export function useAuth() {
   const session = useSession();
 
   return {
-    get user() { return session.get().data?.user ?? null; },
-    get isLoggedIn() { return !!session.get().data?.user; },
-    get isPending() { return session.get().isPending; },
+    get user() {
+      return session.get().data?.user ?? null;
+    },
+    get isLoggedIn() {
+      return !!session.get().data?.user;
+    },
+    get isPending() {
+      return session.get().isPending;
+    },
 
     async signIn(email: string, password: string) {
       const result = await authClient.signIn.email({ email, password });

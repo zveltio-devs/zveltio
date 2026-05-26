@@ -56,9 +56,15 @@ const _formAlters = $state<Record<string, FormAlterHook[]>>({});
  * Svelte 5's `$derived` re-run when extensions register late.
  */
 export const studioApi = {
-  get routes() { return _routes; },
-  get slots() { return _slots; },
-  get formAlters() { return _formAlters; },
+  get routes() {
+    return _routes;
+  },
+  get slots() {
+    return _slots;
+  },
+  get formAlters() {
+    return _formAlters;
+  },
   /** Slot consumers — `<Slot name>` calls this. */
   getSlotContributions(name: string): SlotContribution[] {
     const list = _slots[name];
@@ -118,8 +124,12 @@ export function installGlobalApi(engineUrl: string): void {
       _formAlters[formId].push(hook);
     },
     // Existing surfaces — keep stable for already-published bundles.
-    registerFieldType(_ft: any) { /* wired by FieldRegistry; left as-is */ },
-    registerAssetPreview(_h: any) { /* wired by AssetPreview; left as-is */ },
+    registerFieldType(_ft: any) {
+      /* wired by FieldRegistry; left as-is */
+    },
+    registerAssetPreview(_h: any) {
+      /* wired by AssetPreview; left as-is */
+    },
   };
 }
 

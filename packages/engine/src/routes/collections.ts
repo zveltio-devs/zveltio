@@ -31,7 +31,13 @@ const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 // physical table already owns them (see DDLManager.createCollection). Declared at
 // module scope so both CREATE-collection and ADD-field paths use the same list.
 const SYSTEM_FIELDS = new Set([
-  'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector',
+  'id',
+  'created_at',
+  'updated_at',
+  'status',
+  'created_by',
+  'updated_by',
+  'search_vector',
 ]);
 
 // Auth helper — checks session from request headers
@@ -91,100 +97,96 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   });
 
   // POST /preview — dry-run: returns DDL SQL without executing it
-  app.post(
-    '/preview',
-    zValidator('json', CollectionSchema),
-    async (c) => {
-      const data = c.req.valid('json');
-      // Validate field types
-      for (const field of data.fields) {
-        if (!fieldTypeRegistry.has(field.type)) {
-          return c.json({ error: `Unknown field type: "${field.type}"` }, 400);
-        }
+  app.post('/preview', zValidator('json', CollectionSchema), async (c) => {
+    const data = c.req.valid('json');
+    // Validate field types
+    for (const field of data.fields) {
+      if (!fieldTypeRegistry.has(field.type)) {
+        return c.json({ error: `Unknown field type: "${field.type}"` }, 400);
       }
-      const preview = await DDLManager.previewCollection(data);
-      return c.json(preview);
-    },
-  );
+    }
+    const preview = await DDLManager.previewCollection(data);
+    return c.json(preview);
+  });
 
   // POST / — Create collection (async via DDL queue)
-  app.post(
-    '/',
-    zValidator('json', CollectionSchema),
-    async (c) => {
-      const data = c.req.valid('json');
+  app.post('/', zValidator('json', CollectionSchema), async (c) => {
+    const data = c.req.valid('json');
 
-      // Validate field types against registry
-      for (const field of data.fields) {
-        if (!fieldTypeRegistry.has(field.type)) {
-          return c.json(
-            { error: `Unknown field type: "${field.type}". Use GET /api/collections/field-types for available types.` },
-            400,
-          );
-        }
-        // Block reserved system column names before enqueueing DDL — otherwise the
-        // async job fails with "column X specified more than once" and leaves orphan
-        // metadata in zvd_collections (ghost collection).
-        if (SYSTEM_FIELDS.has(field.name)) {
-          return c.json(
-            { error: `Field name '${field.name}' is reserved (conflicts with system column).` },
-            400,
-          );
-        }
-      }
-
-      // Reject duplicate names immediately
-      const existing = await db
-        .selectFrom('zvd_collections')
-        .select('name')
-        .where('name', '=', data.name)
-        .executeTakeFirst();
-      if (existing) {
-        return c.json({ error: `Collection '${data.name}' already exists` }, 409);
-      }
-
-      // Register metadata immediately so GET /:name works without waiting
-      // for the DDL job. pg-boss has its own connection pool, so we can't
-      // wrap both calls in one Kysely transaction — instead we
-      // try-then-rollback: if enqueue fails, delete the metadata row we
-      // just inserted to keep zvd_collections in sync with reality.
-      let metadataRegistered = false;
-      try {
-        await DDLManager.registerMetadata(db, data);
-        metadataRegistered = true;
-        const jobId = await enqueueDDLJob(db, 'create_collection', data);
-        const user = c.get('user') as any;
-        await auditLog(db, {
-          type: 'collection.created',
-          userId: user?.id,
-          resourceId: data.name,
-          resourceType: 'collection',
-          metadata: { name: data.name, fields: data.fields?.length ?? 0 },
-        });
+    // Validate field types against registry
+    for (const field of data.fields) {
+      if (!fieldTypeRegistry.has(field.type)) {
         return c.json(
           {
-            success: true,
-            message: `Collection '${data.name}' is being created`,
-            name: data.name,
-            job_id: jobId,
-            collection: data,
+            error: `Unknown field type: "${field.type}". Use GET /api/collections/field-types for available types.`,
           },
-          202,
+          400,
         );
-      } catch (error) {
-        if (metadataRegistered) {
-          // Rollback the metadata row so we don't leave a ghost collection
-          // visible to GET /api/collections while no physical table exists.
-          await db
-            .deleteFrom('zvd_collections')
-            .where('name', '=', data.name)
-            .execute()
-            .catch((err: any) => console.warn(`[collections] rollback failed for '${data.name}':`, err?.message ?? err));
-        }
-        return c.json({ error: error instanceof Error ? error.message : 'Unknown error' }, 400);
       }
-    },
-  );
+      // Block reserved system column names before enqueueing DDL — otherwise the
+      // async job fails with "column X specified more than once" and leaves orphan
+      // metadata in zvd_collections (ghost collection).
+      if (SYSTEM_FIELDS.has(field.name)) {
+        return c.json(
+          { error: `Field name '${field.name}' is reserved (conflicts with system column).` },
+          400,
+        );
+      }
+    }
+
+    // Reject duplicate names immediately
+    const existing = await db
+      .selectFrom('zvd_collections')
+      .select('name')
+      .where('name', '=', data.name)
+      .executeTakeFirst();
+    if (existing) {
+      return c.json({ error: `Collection '${data.name}' already exists` }, 409);
+    }
+
+    // Register metadata immediately so GET /:name works without waiting
+    // for the DDL job. pg-boss has its own connection pool, so we can't
+    // wrap both calls in one Kysely transaction — instead we
+    // try-then-rollback: if enqueue fails, delete the metadata row we
+    // just inserted to keep zvd_collections in sync with reality.
+    let metadataRegistered = false;
+    try {
+      await DDLManager.registerMetadata(db, data);
+      metadataRegistered = true;
+      const jobId = await enqueueDDLJob(db, 'create_collection', data);
+      const user = c.get('user') as any;
+      await auditLog(db, {
+        type: 'collection.created',
+        userId: user?.id,
+        resourceId: data.name,
+        resourceType: 'collection',
+        metadata: { name: data.name, fields: data.fields?.length ?? 0 },
+      });
+      return c.json(
+        {
+          success: true,
+          message: `Collection '${data.name}' is being created`,
+          name: data.name,
+          job_id: jobId,
+          collection: data,
+        },
+        202,
+      );
+    } catch (error) {
+      if (metadataRegistered) {
+        // Rollback the metadata row so we don't leave a ghost collection
+        // visible to GET /api/collections while no physical table exists.
+        await db
+          .deleteFrom('zvd_collections')
+          .where('name', '=', data.name)
+          .execute()
+          .catch((err: any) =>
+            console.warn(`[collections] rollback failed for '${data.name}':`, err?.message ?? err),
+          );
+      }
+      return c.json({ error: error instanceof Error ? error.message : 'Unknown error' }, 400);
+    }
+  });
 
   // POST /:name/sync-schema — Reconcile zvd_collections.fields with the
   // physical table by introspecting information_schema.columns.
@@ -192,14 +194,25 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // which leaves fields=[] and breaks the Studio schema view.
   app.post('/:name/sync-schema', async (c) => {
     const name = c.req.param('name');
+    const user = c.get('user') as any;
     const exists = await DDLManager.tableExists(db, name);
     if (!exists) return c.json({ error: 'Table does not exist' }, 404);
     const count = await DDLManager.syncFieldsFromDB(db, name);
+    if (count > 0) {
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user?.id,
+        resourceId: name,
+        resourceType: 'collection_schema',
+        metadata: { action: 'sync_fields_from_db', fields_added: count },
+      });
+    }
     return c.json({
       success: true,
-      message: count > 0
-        ? `Populated ${count} field(s) for '${name}' from physical schema`
-        : `No sync needed — '${name}' already has fields metadata`,
+      message:
+        count > 0
+          ? `Populated ${count} field(s) for '${name}' from physical schema`
+          : `No sync needed — '${name}' already has fields metadata`,
       synced: count,
     });
   });
@@ -313,174 +326,186 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   }
 
   // POST /:name/fields — Add a field to existing collection
-  app.post(
-    '/:name/fields',
-    zValidator('json', FieldSchema),
-    async (c) => {
-      const name = c.req.param('name');
-      const field = c.req.valid('json');
+  app.post('/:name/fields', zValidator('json', FieldSchema), async (c) => {
+    const name = c.req.param('name');
+    const field = c.req.valid('json');
 
-      if (SYSTEM_FIELDS.has(field.name)) {
-        return c.json({ error: `"${field.name}" is a reserved system field name` }, 400);
-      }
+    if (SYSTEM_FIELDS.has(field.name)) {
+      return c.json({ error: `"${field.name}" is a reserved system field name` }, 400);
+    }
 
-      if (!fieldTypeRegistry.has(field.type)) {
-        return c.json({ error: `Unknown field type: "${field.type}"` }, 400);
-      }
+    if (!fieldTypeRegistry.has(field.type)) {
+      return c.json({ error: `Unknown field type: "${field.type}"` }, 400);
+    }
 
-      const collection = await DDLManager.getCollection(db, name);
-      if (!collection) return c.json({ error: 'Collection not found' }, 404);
+    const collection = await DDLManager.getCollection(db, name);
+    if (!collection) return c.json({ error: 'Collection not found' }, 404);
 
-      const guardError = await assertMutable(name, 'add');
-      if (guardError) return c.json({ error: guardError }, 403);
+    const guardError = await assertMutable(name, 'add');
+    if (guardError) return c.json({ error: guardError }, 403);
 
-      let existingFields: any[];
-      try {
-        existingFields = typeof collection.fields === 'string'
+    let existingFields: any[];
+    try {
+      existingFields =
+        typeof collection.fields === 'string'
           ? JSON.parse(collection.fields)
           : (collection.fields ?? []);
-      } catch {
-        existingFields = [];
-      }
+    } catch {
+      existingFields = [];
+    }
 
-      if (existingFields.some((f: any) => f.name === field.name)) {
-        return c.json({ error: `Field "${field.name}" already exists in collection "${name}"` }, 409);
-      }
+    if (existingFields.some((f: any) => f.name === field.name)) {
+      return c.json({ error: `Field "${field.name}" already exists in collection "${name}"` }, 409);
+    }
 
-      // Every relation type needs a target — if the caller omits it we
-      // get a confusing "column X cannot reference NULL" later, so reject
-      // here with a clear message instead.
-      const opts = (field as any).options ?? {};
-      const relatedCollection = opts.related_collection ? String(opts.related_collection) : null;
-      if (ALL_RELATION_TYPES.has(field.type) && !relatedCollection) {
-        return c.json({ error: `Field type "${field.type}" requires options.related_collection` }, 400);
-      }
+    // Every relation type needs a target — if the caller omits it we
+    // get a confusing "column X cannot reference NULL" later, so reject
+    // here with a clear message instead.
+    const opts = (field as any).options ?? {};
+    const relatedCollection = opts.related_collection ? String(opts.related_collection) : null;
+    if (ALL_RELATION_TYPES.has(field.type) && !relatedCollection) {
+      return c.json(
+        { error: `Field type "${field.type}" requires options.related_collection` },
+        400,
+      );
+    }
 
-      // Validate relation target upfront (fail-fast with proper HTTP codes before DDL)
-      if (relatedCollection) {
-        if (!SAFE_NAME_RE.test(relatedCollection)) {
-          return c.json({ error: `Invalid target collection: '${relatedCollection}'` }, 400);
-        }
-        const targetExists = await DDLManager.tableExists(db, relatedCollection);
-        if (!targetExists) {
-          return c.json({ error: `Target collection '${relatedCollection}' not found` }, 404);
-        }
+    // Validate relation target upfront (fail-fast with proper HTTP codes before DDL)
+    if (relatedCollection) {
+      if (!SAFE_NAME_RE.test(relatedCollection)) {
+        return c.json({ error: `Invalid target collection: '${relatedCollection}'` }, 400);
+      }
+      const targetExists = await DDLManager.tableExists(db, relatedCollection);
+      if (!targetExists) {
+        return c.json({ error: `Target collection '${relatedCollection}' not found` }, 404);
+      }
+      const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
+      const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
+      if (!ON_DELETE_RE.test(onDelete) || !ON_DELETE_RE.test(onUpdate)) {
+        return c.json({ error: 'Invalid on_delete/on_update value' }, 400);
+      }
+    }
+
+    try {
+      const tableName = DDLManager.getTableName(name);
+
+      if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
+        // m2o / reference: FK column lives in the SOURCE table. Both
+        // helpers delegate to DDLManager so add-field stays in sync
+        // with the create-table path's FK semantics.
+        const targetTable = DDLManager.getTableName(relatedCollection);
         const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
         const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
-        if (!ON_DELETE_RE.test(onDelete) || !ON_DELETE_RE.test(onUpdate)) {
-          return c.json({ error: 'Invalid on_delete/on_update value' }, 400);
+        await DDLManager.applyRelationFK(
+          db,
+          tableName,
+          field.name,
+          targetTable,
+          onDelete,
+          onUpdate,
+        );
+        await DDLManager.registerRelation(db, {
+          name: `${name}_${field.name}`,
+          type: 'm2o',
+          source_collection: name,
+          source_field: field.name,
+          target_collection: relatedCollection,
+          target_field: 'id',
+          on_delete: onDelete,
+          on_update: onUpdate,
+        });
+      } else if (RELATION_REVERSE_TYPES.has(field.type) && relatedCollection) {
+        // o2m — FK column lives in TARGET table (target has many of source)
+        const targetTable = DDLManager.getTableName(relatedCollection);
+        const fkColumnInTarget = `${name}_id`;
+        const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
+        const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
+        await DDLManager.applyRelationFK(
+          db,
+          targetTable,
+          fkColumnInTarget,
+          tableName,
+          onDelete,
+          onUpdate,
+        );
+        await DDLManager.registerRelation(db, {
+          name: `${name}_${field.name}`,
+          type: 'o2m',
+          source_collection: name,
+          source_field: field.name,
+          target_collection: relatedCollection,
+          target_field: fkColumnInTarget,
+          on_delete: onDelete,
+          on_update: onUpdate,
+        });
+      } else if (field.type === 'm2m' && relatedCollection) {
+        // m2m — junction table with FK columns for both sides
+        const junctionTable = await DDLManager.createJunctionTable(db, name, relatedCollection);
+        await DDLManager.registerRelation(db, {
+          name: `${name}_${field.name}`,
+          type: 'm2m',
+          source_collection: name,
+          source_field: field.name,
+          target_collection: relatedCollection,
+          target_field: 'id',
+          junction_table: junctionTable,
+        });
+      } else {
+        const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
+        if (colDDL) {
+          // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
+          await dynamicAddColumn(db, tableName, colDDL);
         }
       }
 
-      try {
-        const tableName = DDLManager.getTableName(name);
-
-        if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
-          // m2o / reference: FK column lives in the SOURCE table. Both
-          // helpers delegate to DDLManager so add-field stays in sync
-          // with the create-table path's FK semantics.
-          const targetTable = DDLManager.getTableName(relatedCollection);
-          const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
-          const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
-          await DDLManager.applyRelationFK(db, tableName, field.name, targetTable, onDelete, onUpdate);
-          await DDLManager.registerRelation(db, {
-            name: `${name}_${field.name}`,
-            type: 'm2o',
-            source_collection: name,
-            source_field: field.name,
-            target_collection: relatedCollection,
-            target_field: 'id',
-            on_delete: onDelete,
-            on_update: onUpdate,
-          });
-
-        } else if (RELATION_REVERSE_TYPES.has(field.type) && relatedCollection) {
-          // o2m — FK column lives in TARGET table (target has many of source)
-          const targetTable = DDLManager.getTableName(relatedCollection);
-          const fkColumnInTarget = `${name}_id`;
-          const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
-          const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
-          await DDLManager.applyRelationFK(db, targetTable, fkColumnInTarget, tableName, onDelete, onUpdate);
-          await DDLManager.registerRelation(db, {
-            name: `${name}_${field.name}`,
-            type: 'o2m',
-            source_collection: name,
-            source_field: field.name,
-            target_collection: relatedCollection,
-            target_field: fkColumnInTarget,
-            on_delete: onDelete,
-            on_update: onUpdate,
-          });
-
-        } else if (field.type === 'm2m' && relatedCollection) {
-          // m2m — junction table with FK columns for both sides
-          const junctionTable = await DDLManager.createJunctionTable(db, name, relatedCollection);
-          await DDLManager.registerRelation(db, {
-            name: `${name}_${field.name}`,
-            type: 'm2m',
-            source_collection: name,
-            source_field: field.name,
-            target_collection: relatedCollection,
-            target_field: 'id',
-            junction_table: junctionTable,
-          });
-
-        } else {
-          const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
-          if (colDDL) {
-            // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
-            await dynamicAddColumn(db, tableName, colDDL);
-          }
+      // Row-lock the collection (FOR UPDATE) inside a transaction so
+      // two concurrent add-field calls can't both observe the same
+      // pre-mutation fields[] and overwrite each other's writes.
+      await db.transaction().execute(async (trx: any) => {
+        const locked = await (trx as any)
+          .selectFrom('zvd_collections')
+          .select(['fields'])
+          .where('name', '=', name)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!locked) throw new Error('Collection not found');
+        let currentFields: any[];
+        try {
+          currentFields =
+            typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
+        } catch {
+          currentFields = [];
         }
+        if (currentFields.some((f: any) => f.name === field.name)) {
+          const err = new Error(
+            `Field "${field.name}" already exists in collection "${name}"`,
+          ) as any;
+          err.code = 'DUPLICATE';
+          throw err;
+        }
+        const updatedFields = [...currentFields, field];
+        await (trx as any)
+          .updateTable('zvd_collections')
+          .set({ fields: JSON.stringify(updatedFields), updated_at: new Date() })
+          .where('name', '=', name)
+          .execute();
+      });
+      DDLManager.invalidateCache(name);
 
-        // Row-lock the collection (FOR UPDATE) inside a transaction so
-        // two concurrent add-field calls can't both observe the same
-        // pre-mutation fields[] and overwrite each other's writes.
-        await db.transaction().execute(async (trx: any) => {
-          const locked = await (trx as any)
-            .selectFrom('zvd_collections')
-            .select(['fields'])
-            .where('name', '=', name)
-            .forUpdate()
-            .executeTakeFirst();
-          if (!locked) throw new Error('Collection not found');
-          let currentFields: any[];
-          try {
-            currentFields = typeof locked.fields === 'string'
-              ? JSON.parse(locked.fields)
-              : (locked.fields ?? []);
-          } catch {
-            currentFields = [];
-          }
-          if (currentFields.some((f: any) => f.name === field.name)) {
-            const err = new Error(`Field "${field.name}" already exists in collection "${name}"`) as any;
-            err.code = 'DUPLICATE';
-            throw err;
-          }
-          const updatedFields = [...currentFields, field];
-          await (trx as any)
-            .updateTable('zvd_collections')
-            .set({ fields: JSON.stringify(updatedFields), updated_at: new Date() })
-            .where('name', '=', name)
-            .execute();
-        });
-        DDLManager.invalidateCache(name);
-
-        const user = c.get('user' as never) as any;
-        await auditLog(db, {
-          type: 'settings.changed',
-          userId: user?.id,
-          resourceId: name,
-          resourceType: 'collection_field',
-          metadata: { action: 'added', field: { name: field.name, type: field.type } },
-        });
-        return c.json({ success: true, field });
-      } catch (error: any) {
-        if (error?.code === 'DUPLICATE') return c.json({ error: error.message }, 409);
-        return c.json({ error: error instanceof Error ? error.message : 'Failed to add field' }, 400);
-      }
-    },
-  );
+      const user = c.get('user' as never) as any;
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user?.id,
+        resourceId: name,
+        resourceType: 'collection_field',
+        metadata: { action: 'added', field: { name: field.name, type: field.type } },
+      });
+      return c.json({ success: true, field });
+    } catch (error: any) {
+      if (error?.code === 'DUPLICATE') return c.json({ error: error.message }, 409);
+      return c.json({ error: error instanceof Error ? error.message : 'Failed to add field' }, 400);
+    }
+  });
 
   // PATCH /:name/fields/:field — Modify a field (rename / change type / toggle required).
   //
@@ -505,13 +530,24 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   //     for cardinality changes.
   app.patch(
     '/:name/fields/:field',
-    zValidator('json', z.object({
-      new_name: z.string().regex(SAFE_NAME_RE, 'lowercase, snake_case').optional(),
-      new_type: z.string().regex(/^[a-z][a-z0-9_]*$/, 'lowercase identifier').optional(),
-      required: z.boolean().optional(),
-    }).refine((d) => d.new_name !== undefined || d.new_type !== undefined || d.required !== undefined, {
-      message: 'At least one of new_name, new_type, required must be provided',
-    })),
+    zValidator(
+      'json',
+      z
+        .object({
+          new_name: z.string().regex(SAFE_NAME_RE, 'lowercase, snake_case').optional(),
+          new_type: z
+            .string()
+            .regex(/^[a-z][a-z0-9_]*$/, 'lowercase identifier')
+            .optional(),
+          required: z.boolean().optional(),
+        })
+        .refine(
+          (d) => d.new_name !== undefined || d.new_type !== undefined || d.required !== undefined,
+          {
+            message: 'At least one of new_name, new_type, required must be provided',
+          },
+        ),
+    ),
     async (c) => {
       const name = c.req.param('name');
       const fieldName = c.req.param('field');
@@ -532,9 +568,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
       let existingFields: any[];
       try {
-        existingFields = typeof collection.fields === 'string'
-          ? JSON.parse(collection.fields)
-          : (collection.fields ?? []);
+        existingFields =
+          typeof collection.fields === 'string'
+            ? JSON.parse(collection.fields)
+            : (collection.fields ?? []);
       } catch {
         existingFields = [];
       }
@@ -551,21 +588,37 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           return c.json({ error: 'New name is identical to the current name' }, 400);
         }
         if (existingFields.some((f: any) => f.name === newName)) {
-          return c.json({ error: `Field "${newName}" already exists in collection "${name}"` }, 409);
+          return c.json(
+            { error: `Field "${newName}" already exists in collection "${name}"` },
+            409,
+          );
         }
       }
       if (newType && isRelation) {
-        return c.json({
-          error: 'Changing type on a relation field is not supported. Delete and re-add the field.',
-        }, 400);
+        return c.json(
+          {
+            error:
+              'Changing type on a relation field is not supported. Delete and re-add the field.',
+          },
+          400,
+        );
       }
       if (newType && fieldDef.type === 'computed') {
         return c.json({ error: 'Computed fields cannot change type via this endpoint.' }, 400);
       }
-      if (required !== undefined && isRelation && fieldDef.type !== 'm2o' && fieldDef.type !== 'reference') {
-        return c.json({
-          error: 'Toggling required is only supported on m2o/reference relations among relation types.',
-        }, 400);
+      if (
+        required !== undefined &&
+        isRelation &&
+        fieldDef.type !== 'm2o' &&
+        fieldDef.type !== 'reference'
+      ) {
+        return c.json(
+          {
+            error:
+              'Toggling required is only supported on m2o/reference relations among relation types.',
+          },
+          400,
+        );
       }
 
       const tableName = DDLManager.getTableName(name);
@@ -629,7 +682,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         // ── Persist metadata ──────────────────────────────────────────
         const finalName = updatedFieldShape.name;
         const updatedFields = existingFields.map((f: any) =>
-          f.name === fieldName ? updatedFieldShape : f
+          f.name === fieldName ? updatedFieldShape : f,
         );
         await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
 
@@ -643,7 +696,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         });
         return c.json({ success: true, field: updatedFieldShape, actions });
       } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : 'Failed to modify field' }, 400);
+        return c.json(
+          { error: error instanceof Error ? error.message : 'Failed to modify field' },
+          400,
+        );
       }
     },
   );
@@ -665,9 +721,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     let existingFields: any[];
     try {
-      existingFields = typeof collection.fields === 'string'
-        ? JSON.parse(collection.fields)
-        : (collection.fields ?? []);
+      existingFields =
+        typeof collection.fields === 'string'
+          ? JSON.parse(collection.fields)
+          : (collection.fields ?? []);
     } catch {
       existingFields = [];
     }
@@ -713,7 +770,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         .where('source_collection', '=', name)
         .where('source_field', '=', fieldName)
         .execute()
-        .catch((err: any) => console.warn(`[remove-field] zvd_relations cleanup:`, err?.message ?? err));
+        .catch((err: any) =>
+          console.warn(`[remove-field] zvd_relations cleanup:`, err?.message ?? err),
+        );
 
       const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
       await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
@@ -728,7 +787,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       });
       return c.json({ success: true });
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'Failed to delete field' }, 400);
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Failed to delete field' },
+        400,
+      );
     }
   });
 

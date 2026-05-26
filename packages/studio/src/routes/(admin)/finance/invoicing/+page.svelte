@@ -1,135 +1,157 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { Plus, X, Trash2, LoaderCircle, Send, DollarSign } from '@lucide/svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { Plus, X, Trash2, LoaderCircle, Send, DollarSign } from '@lucide/svelte';
 
-  type Invoice = {
-    id: string; invoice_number: string; client_name: string; client_email: string | null;
-    status: string; total: number; amount_paid: number; currency: string;
-    due_date: string | null; issued_date: string; created_at: string;
-  };
-  type Stats = { total_invoiced: number; total_paid: number; total_overdue: number; count_draft: number };
+type Invoice = {
+  id: string;
+  invoice_number: string;
+  client_name: string;
+  client_email: string | null;
+  status: string;
+  total: number;
+  amount_paid: number;
+  currency: string;
+  due_date: string | null;
+  issued_date: string;
+  created_at: string;
+};
+type Stats = {
+  total_invoiced: number;
+  total_paid: number;
+  total_overdue: number;
+  count_draft: number;
+};
 
-  let invoices = $state<Invoice[]>([]);
-  let stats = $state<Stats | null>(null);
-  let loading = $state(true);
-  let showModal = $state(false);
-  let saving = $state(false);
-  let actionId = $state<string | null>(null);
-  let confirmDelete = $state<{ open: boolean; id: string }>({ open: false, id: '' });
+let invoices = $state<Invoice[]>([]);
+let stats = $state<Stats | null>(null);
+let loading = $state(true);
+let showModal = $state(false);
+let saving = $state(false);
+let actionId = $state<string | null>(null);
+let confirmDelete = $state<{ open: boolean; id: string }>({ open: false, id: '' });
 
-  let form = $state({
-    client_name: '', client_email: '', currency: 'RON',
-    due_days: 30, notes: '',
-    lines: [{ description: '', quantity: 1, unit_price: 0, tax_rate: 19 }],
-  });
+let form = $state({
+  client_name: '',
+  client_email: '',
+  currency: 'RON',
+  due_days: 30,
+  notes: '',
+  lines: [{ description: '', quantity: 1, unit_price: 0, tax_rate: 19 }],
+});
 
-  const dash = $derived(m['common.emptyDash']());
+const dash = $derived(m['common.emptyDash']());
 
-  onMount(async () => {
-    await Promise.all([loadInvoices(), loadStats()]);
-  });
+onMount(async () => {
+  await Promise.all([loadInvoices(), loadStats()]);
+});
 
-  async function loadInvoices() {
-    loading = true;
-    try {
-      const r = await api.get<{ data: Invoice[] }>('/ext/finance/invoicing/invoices');
-      invoices = r.data ?? [];
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
+async function loadInvoices() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: Invoice[] }>('/ext/finance/invoicing/invoices');
+    invoices = r.data ?? [];
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function loadStats() {
-    try {
-      const r = await api.get<{ stats: Stats }>('/ext/finance/invoicing/invoices/stats');
-      stats = r.stats;
-    } catch { /* ignore */ }
+async function loadStats() {
+  try {
+    const r = await api.get<{ stats: Stats }>('/ext/finance/invoicing/invoices/stats');
+    stats = r.stats;
+  } catch {
+    /* ignore */
   }
+}
 
-  function addLine() {
-    form.lines = [...form.lines, { description: '', quantity: 1, unit_price: 0, tax_rate: 19 }];
+function addLine() {
+  form.lines = [...form.lines, { description: '', quantity: 1, unit_price: 0, tax_rate: 19 }];
+}
+
+function statusLabel(status: string): string {
+  const key = `invoicing.status.${status}` as 'invoicing.status.draft';
+  const fn = (m as Record<string, (() => string) | undefined>)[key];
+  return fn?.() ?? status;
+}
+
+async function create() {
+  saving = true;
+  try {
+    const r = await api.post<{ data: Invoice }>('/ext/finance/invoicing/invoices', form);
+    invoices = [r.data, ...invoices];
+    showModal = false;
+    await loadStats();
+    toast.success(m['invoicing.toast.created']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  function statusLabel(status: string): string {
-    const key = `invoicing.status.${status}` as 'invoicing.status.draft';
-    const fn = (m as Record<string, (() => string) | undefined>)[key];
-    return fn?.() ?? status;
+async function sendInvoice(id: string) {
+  actionId = id;
+  try {
+    await api.post(`/ext/finance/invoicing/invoices/${id}/send`, {});
+    await loadInvoices();
+    toast.success(m['invoicing.toast.sent']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    actionId = null;
   }
+}
 
-  async function create() {
-    saving = true;
-    try {
-      const r = await api.post<{ data: Invoice }>('/ext/finance/invoicing/invoices', form);
-      invoices = [r.data, ...invoices];
-      showModal = false;
-      await loadStats();
-      toast.success(m['invoicing.toast.created']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
+async function markPaid(id: string, total: number) {
+  actionId = id;
+  try {
+    await api.post(`/ext/finance/invoicing/invoices/${id}/pay`, { amount: total });
+    await loadInvoices();
+    await loadStats();
+    toast.success(m['invoicing.toast.paid']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    actionId = null;
   }
+}
 
-  async function sendInvoice(id: string) {
-    actionId = id;
-    try {
-      await api.post(`/ext/finance/invoicing/invoices/${id}/send`, {});
-      await loadInvoices();
-      toast.success(m['invoicing.toast.sent']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      actionId = null;
-    }
+function requestDelete(id: string) {
+  confirmDelete = { open: true, id };
+}
+
+async function confirmDeleteInvoice() {
+  const id = confirmDelete.id;
+  confirmDelete = { open: false, id: '' };
+  actionId = id;
+  try {
+    await api.delete(`/ext/finance/invoicing/invoices/${id}`);
+    invoices = invoices.filter((i) => i.id !== id);
+    await loadStats();
+    toast.success(m['invoicing.toast.deleted']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    actionId = null;
   }
+}
 
-  async function markPaid(id: string, total: number) {
-    actionId = id;
-    try {
-      await api.post(`/ext/finance/invoicing/invoices/${id}/pay`, { amount: total });
-      await loadInvoices();
-      await loadStats();
-      toast.success(m['invoicing.toast.paid']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      actionId = null;
-    }
-  }
-
-  function requestDelete(id: string) {
-    confirmDelete = { open: true, id };
-  }
-
-  async function confirmDeleteInvoice() {
-    const id = confirmDelete.id;
-    confirmDelete = { open: false, id: '' };
-    actionId = id;
-    try {
-      await api.delete(`/ext/finance/invoicing/invoices/${id}`);
-      invoices = invoices.filter((i) => i.id !== id);
-      await loadStats();
-      toast.success(m['invoicing.toast.deleted']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      actionId = null;
-    }
-  }
-
-  const statusColor: Record<string, string> = {
-    draft: 'badge-ghost', sent: 'badge-info', partial: 'badge-warning',
-    paid: 'badge-success', overdue: 'badge-error', cancelled: 'badge-ghost',
-  };
+const statusColor: Record<string, string> = {
+  draft: 'badge-ghost',
+  sent: 'badge-info',
+  partial: 'badge-warning',
+  paid: 'badge-success',
+  overdue: 'badge-error',
+  cancelled: 'badge-ghost',
+};
 </script>
 
 <ExtensionPageShell

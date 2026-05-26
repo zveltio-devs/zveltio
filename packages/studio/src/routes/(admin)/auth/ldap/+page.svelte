@@ -1,60 +1,74 @@
 <script lang="ts">
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { m } from '$lib/i18n.svelte.js';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Save, LoaderCircle, Play } from '@lucide/svelte';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { m } from '$lib/i18n.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Save, LoaderCircle, Play } from '@lucide/svelte';
 
-  type LDAPConfig = {
-    enabled: boolean; url: string; bindDN: string; bindPassword: string;
-    searchBase: string; searchFilter: string; usernameAttribute: string;
-    emailAttribute: string; nameAttribute: string; tlsVerify: boolean;
-  };
+type LDAPConfig = {
+  enabled: boolean;
+  url: string;
+  bindDN: string;
+  bindPassword: string;
+  searchBase: string;
+  searchFilter: string;
+  usernameAttribute: string;
+  emailAttribute: string;
+  nameAttribute: string;
+  tlsVerify: boolean;
+};
 
-  let config = $state<LDAPConfig>({
-    enabled: false, url: 'ldap://ldap.example.com:389', bindDN: 'cn=admin,dc=example,dc=com',
-    bindPassword: '', searchBase: 'dc=example,dc=com', searchFilter: '(uid={{username}})',
-    usernameAttribute: 'uid', emailAttribute: 'mail', nameAttribute: 'cn', tlsVerify: true,
-  });
-  let loading = $state(true);
-  let saving = $state(false);
-  let testing = $state(false);
+let config = $state<LDAPConfig>({
+  enabled: false,
+  url: 'ldap://ldap.example.com:389',
+  bindDN: 'cn=admin,dc=example,dc=com',
+  bindPassword: '',
+  searchBase: 'dc=example,dc=com',
+  searchFilter: '(uid={{username}})',
+  usernameAttribute: 'uid',
+  emailAttribute: 'mail',
+  nameAttribute: 'cn',
+  tlsVerify: true,
+});
+let loading = $state(true);
+let saving = $state(false);
+let testing = $state(false);
 
-  onMount(async () => {
-    try {
-      const r = await api.get<{ config: LDAPConfig | null }>('/ext/auth/ldap/config');
-      if (r.config) config = { ...config, ...r.config };
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
-  });
-
-  async function save() {
-    saving = true;
-    try {
-      await api.post('/ext/auth/ldap/config', config);
-      toast.success(m['auth.ldap.toast.saved']());
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Error saving config');
-    } finally {
-      saving = false;
-    }
+onMount(async () => {
+  try {
+    const r = await api.get<{ config: LDAPConfig | null }>('/ext/auth/ldap/config');
+    if (r.config) config = { ...config, ...r.config };
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+});
 
-  async function testConnection() {
-    testing = true;
-    try {
-      await api.post('/ext/auth/ldap/test', config);
-      toast.success(m['auth.ldap.toast.connectionOk']());
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Connection failed');
-    } finally {
-      testing = false;
-    }
+async function save() {
+  saving = true;
+  try {
+    await api.post('/ext/auth/ldap/config', config);
+    toast.success(m['auth.ldap.toast.saved']());
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Error saving config');
+  } finally {
+    saving = false;
   }
+}
+
+async function testConnection() {
+  testing = true;
+  try {
+    await api.post('/ext/auth/ldap/test', config);
+    toast.success(m['auth.ldap.toast.connectionOk']());
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Connection failed');
+  } finally {
+    testing = false;
+  }
+}
 </script>
 
 <ExtensionPageShell title={m['auth.ldap.title']()} subtitle={m['auth.ldap.subtitle']()}>

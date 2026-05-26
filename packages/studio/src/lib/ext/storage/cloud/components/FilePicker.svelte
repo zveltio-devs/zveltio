@@ -1,60 +1,60 @@
 <script lang="ts">
 import { Upload, X, File as FileIcon } from '@lucide/svelte';
- import { api } from '$lib/api.js';
+import { api } from '$lib/api.js';
 
- interface Props {
- value?: string | null;
- accept?: string;
- readonly?: boolean;
- showPreview?: boolean;
- onupload?: (file: File) => Promise<string>;
- }
+interface Props {
+  value?: string | null;
+  accept?: string;
+  readonly?: boolean;
+  showPreview?: boolean;
+  onupload?: (file: File) => Promise<string>;
+}
 
- let {
- value = $bindable<string | null>(null),
- accept = '*/*',
- readonly = false,
- showPreview = true,
- onupload,
- }: Props = $props();
+let {
+  value = $bindable<string | null>(null),
+  accept = '*/*',
+  readonly = false,
+  showPreview = true,
+  onupload,
+}: Props = $props();
 
- let uploading = $state(false);
- let fileInput: HTMLInputElement;
+let uploading = $state(false);
+let fileInput: HTMLInputElement;
 
- function isImage(url: string | null): boolean {
- if (!url) return false;
- return !!url.match(/\.(jpg|jpeg|png|gif|webp|svg|avif)$/i);
- }
+function isImage(url: string | null): boolean {
+  if (!url) return false;
+  return !!url.match(/\.(jpg|jpeg|png|gif|webp|svg|avif)$/i);
+}
 
- async function handleFiles(files: FileList | null) {
- if (!files || files.length === 0) return;
- uploading = true;
- try {
- const file = files[0];
- if (onupload) {
- value = await onupload(file);
- } else {
- // Default: upload to engine storage
- const formData = new FormData();
- formData.append('file', file);
- const res = await api.fetch(`/api/storage/upload`, {
- method: 'POST',
- body: formData,
- });
- if (!res.ok) throw new Error('Upload failed');
- const data = await res.json();
- value = data.file?.url || data.url;
- }
- } catch {
- alert('Upload failed');
- } finally {
- uploading = false;
- }
- }
+async function handleFiles(files: FileList | null) {
+  if (!files || files.length === 0) return;
+  uploading = true;
+  try {
+    const file = files[0];
+    if (onupload) {
+      value = await onupload(file);
+    } else {
+      // Default: upload to engine storage
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.fetch(`/api/storage/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const data = await res.json();
+      value = data.file?.url || data.url;
+    }
+  } catch {
+    alert('Upload failed');
+  } finally {
+    uploading = false;
+  }
+}
 
- let isImageFile = $derived(isImage(value));
- let fileName = $derived(value ? value.split('/').pop() : '');
- let hasValue = $derived(!!value);
+let isImageFile = $derived(isImage(value));
+let fileName = $derived(value ? value.split('/').pop() : '');
+let hasValue = $derived(!!value);
 </script>
 
 <div class="file-picker">

@@ -7,7 +7,12 @@ import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 export function useRecord<T = any>(
   collectionName: string,
   id: string | null | undefined,
-): { data: Ref<T | null>; loading: Ref<boolean>; error: Ref<Error | null>; refetch: () => Promise<void> } {
+): {
+  data: Ref<T | null>;
+  loading: Ref<boolean>;
+  error: Ref<Error | null>;
+  refetch: () => Promise<void>;
+} {
   const client = inject<ZveltioClient>(ZVELTIO_CLIENT_KEY);
   if (!client) throw new Error('useRecord must be used within ZveltioPlugin');
 
@@ -16,7 +21,11 @@ export function useRecord<T = any>(
   const error = ref<Error | null>(null);
 
   const load = async () => {
-    if (!id) { data.value = null; loading.value = false; return; }
+    if (!id) {
+      data.value = null;
+      loading.value = false;
+      return;
+    }
     loading.value = true;
     error.value = null;
     try {

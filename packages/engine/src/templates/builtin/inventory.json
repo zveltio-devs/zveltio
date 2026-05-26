@@ -21,7 +21,11 @@
       "fields": [
         { "name": "name", "type": "text", "required": true },
         { "name": "address", "type": "text" },
-        { "name": "kind", "type": "enum", "options": { "values": ["warehouse", "shop", "office", "transit"] } }
+        {
+          "name": "kind",
+          "type": "enum",
+          "options": { "values": ["warehouse", "shop", "office", "transit"] }
+        }
       ]
     },
     {
@@ -41,9 +45,24 @@
       "name": "inv_movements",
       "display_name": "Stock movements",
       "fields": [
-        { "name": "product", "type": "m2o", "options": { "related_collection": "inv_products" }, "required": true },
-        { "name": "location", "type": "m2o", "options": { "related_collection": "inv_locations" }, "required": true },
-        { "name": "kind", "type": "enum", "options": { "values": ["receipt", "issue", "adjustment", "transfer"] }, "required": true },
+        {
+          "name": "product",
+          "type": "m2o",
+          "options": { "related_collection": "inv_products" },
+          "required": true
+        },
+        {
+          "name": "location",
+          "type": "m2o",
+          "options": { "related_collection": "inv_locations" },
+          "required": true
+        },
+        {
+          "name": "kind",
+          "type": "enum",
+          "options": { "values": ["receipt", "issue", "adjustment", "transfer"] },
+          "required": true
+        },
         { "name": "quantity", "type": "number", "required": true },
         { "name": "moved_at", "type": "datetime", "required": true },
         { "name": "reference", "type": "text" },

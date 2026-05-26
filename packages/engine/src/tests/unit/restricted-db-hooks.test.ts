@@ -21,7 +21,10 @@ import { engineEvents, AbortHookError } from '../../lib/event-bus.js';
 
 // ── Recorder builder ────────────────────────────────────────────────────────
 
-interface CallLog { method: string; args: unknown[] }
+interface CallLog {
+  method: string;
+  args: unknown[];
+}
 
 function makeRecorder(initial: CallLog[] = []): any {
   const log: CallLog[] = initial;
@@ -44,7 +47,10 @@ function makeRecorder(initial: CallLog[] = []): any {
       };
     },
     set(_t, prop: string | symbol, value: unknown) {
-      if (prop === '__result') { state.result = value; return true; }
+      if (prop === '__result') {
+        state.result = value;
+        return true;
+      }
       return true;
     },
   });
@@ -105,15 +111,15 @@ describe('S2-02 follow-up: extension-context internals', () => {
   });
 
   it('extractSingleId returns null for non-id WHEREs', () => {
-    expect(_internalForTests.extractSingleId([
-      { method: 'where', args: ['email', '=', 'a@b'] },
-    ])).toBeNull();
+    expect(
+      _internalForTests.extractSingleId([{ method: 'where', args: ['email', '=', 'a@b'] }]),
+    ).toBeNull();
   });
 
   it('extractSingleId returns null for non-equality operators', () => {
-    expect(_internalForTests.extractSingleId([
-      { method: 'where', args: ['id', '>', '100'] },
-    ])).toBeNull();
+    expect(
+      _internalForTests.extractSingleId([{ method: 'where', args: ['id', '>', '100'] }]),
+    ).toBeNull();
   });
 
   it('shouldFireHooks only fires on zvd_* user tables', () => {
@@ -139,7 +145,9 @@ describe('S2-02 follow-up: insertInto interception', () => {
 
   it('fires record.beforeInsert with the table + data + system userId', async () => {
     const seen: any[] = [];
-    engineEvents.onBefore('record.beforeInsert', async (p) => { seen.push({ ...p, abort: undefined, mutate: undefined }); });
+    engineEvents.onBefore('record.beforeInsert', async (p) => {
+      seen.push({ ...p, abort: undefined, mutate: undefined });
+    });
 
     const db = makeStubDb();
     const rdb = createRestrictedDb(db, 'forms');
@@ -185,7 +193,10 @@ describe('S2-02 follow-up: insertInto interception', () => {
     const rdb = createRestrictedDb(db, 'forms');
     let caught: Error | null = null;
     try {
-      await rdb.insertInto('zvd_forms' as any).values({ name: 'X' } as any).execute();
+      await rdb
+        .insertInto('zvd_forms' as any)
+        .values({ name: 'X' } as any)
+        .execute();
     } catch (e) {
       caught = e as Error;
     }
@@ -194,7 +205,9 @@ describe('S2-02 follow-up: insertInto interception', () => {
   });
 
   it('passes other chain methods through (onConflict, returning, etc.)', async () => {
-    engineEvents.onBefore('record.beforeInsert', async () => { /* no-op */ });
+    engineEvents.onBefore('record.beforeInsert', async () => {
+      /* no-op */
+    });
 
     const db = makeStubDb();
     const rdb = createRestrictedDb(db, 'forms');
@@ -216,7 +229,9 @@ describe('S2-02 follow-up: insertInto interception', () => {
 
   it('does NOT fire hooks for non-zvd tables (e.g. user, account)', async () => {
     let fired = 0;
-    engineEvents.onBefore('record.beforeInsert', async () => { fired++; });
+    engineEvents.onBefore('record.beforeInsert', async () => {
+      fired++;
+    });
 
     const db = makeStubDb();
     const rdb = createRestrictedDb(db, 'forms');
@@ -285,7 +300,9 @@ describe('S2-02 follow-up: updateTable interception', () => {
 
   it('skips the hook on bulk WHERE (and warns once per ext+table)', async () => {
     let fired = 0;
-    engineEvents.onBefore('record.beforeUpdate', async () => { fired++; });
+    engineEvents.onBefore('record.beforeUpdate', async () => {
+      fired++;
+    });
 
     const db = makeStubDb();
     const rdb = createRestrictedDb(db, 'forms');
@@ -341,7 +358,10 @@ describe('S2-02 follow-up: deleteFrom interception', () => {
     const rdb = createRestrictedDb(db, 'forms');
     let caught: Error | null = null;
     try {
-      await rdb.deleteFrom('zvd_forms' as any).where('id' as any, '=', 'x').execute();
+      await rdb
+        .deleteFrom('zvd_forms' as any)
+        .where('id' as any, '=', 'x')
+        .execute();
     } catch (e) {
       caught = e as Error;
     }

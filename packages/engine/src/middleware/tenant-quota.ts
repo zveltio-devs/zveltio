@@ -28,7 +28,7 @@ export function tenantQuota(db: Database) {
     try {
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       const counterKey = `tq:${tenant.id}:${today}`;
-      const limitKey   = `tq:limit:${tenant.id}`;
+      const limitKey = `tq:limit:${tenant.id}`;
 
       // ── Fetch limit (cached) ──────────────────────────────────────────────
       let maxCalls = 0;
@@ -65,7 +65,7 @@ export function tenantQuota(db: Database) {
       }
 
       // ── Expose quota headers ──────────────────────────────────────────────
-      c.header('X-Tenant-Quota-Limit',     String(maxCalls));
+      c.header('X-Tenant-Quota-Limit', String(maxCalls));
       c.header('X-Tenant-Quota-Remaining', String(Math.max(0, maxCalls - count)));
 
       if (count > maxCalls) {
@@ -77,8 +77,7 @@ export function tenantQuota(db: Database) {
 
       // ── Async DB sync every 50 calls (non-blocking, for billing reports) ──
       if (count % 50 === 0) {
-        db
-          .insertInto('zv_tenant_usage')
+        db.insertInto('zv_tenant_usage')
           .values({ tenant_id: tenant.id, date: new Date(), api_calls: count })
           .onConflict((oc: any) =>
             oc.columns(['tenant_id', 'date']).doUpdateSet({ api_calls: count }),

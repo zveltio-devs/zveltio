@@ -1,136 +1,133 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
- import PageSpinner from '$lib/components/common/PageSpinner.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- interface VirtualCollection {
- name: string;
- display_name: string;
- source_type: 'virtual';
- virtual_config: {
- source_url: string;
- auth_type: 'none' | 'bearer' | 'api_key' | 'basic';
- auth_value?: string;
- field_mapping: Record<string, string>;
- list_path: string;
- id_field: string;
- };
- }
+interface VirtualCollection {
+  name: string;
+  display_name: string;
+  source_type: 'virtual';
+  virtual_config: {
+    source_url: string;
+    auth_type: 'none' | 'bearer' | 'api_key' | 'basic';
+    auth_value?: string;
+    field_mapping: Record<string, string>;
+    list_path: string;
+    id_field: string;
+  };
+}
 
- let collections = $state<VirtualCollection[]>([]);
- let loading = $state(true);
- let error = $state('');
- let showCreate = $state(false);
- let testResult = $state<{ ok: boolean; message: string; sample?: any } | null>(null);
- let testing = $state(false);
+let collections = $state<VirtualCollection[]>([]);
+let loading = $state(true);
+let error = $state('');
+let showCreate = $state(false);
+let testResult = $state<{ ok: boolean; message: string; sample?: any } | null>(null);
+let testing = $state(false);
 
- // Create form state
- let form = $state({
- name: '',
- displayName: '',
- source_url: '',
- auth_type: 'none' as 'none' | 'bearer' | 'api_key' | 'basic',
- auth_value: '',
- list_path: '$.data',
- id_field: 'id',
- field_mapping_raw: '',
- });
+// Create form state
+let form = $state({
+  name: '',
+  displayName: '',
+  source_url: '',
+  auth_type: 'none' as 'none' | 'bearer' | 'api_key' | 'basic',
+  auth_value: '',
+  list_path: '$.data',
+  id_field: 'id',
+  field_mapping_raw: '',
+});
 
- async function load() {
- loading = true;
- error = '';
- try {
- const res = await api.get<{ collections: any[] }>('/api/collections');
- collections = (res.collections || []).filter(
- (c: any) => c.source_type === 'virtual',
- );
- } catch (e: any) {
- error = e.message;
- } finally {
- loading = false;
- }
- }
+async function load() {
+  loading = true;
+  error = '';
+  try {
+    const res = await api.get<{ collections: any[] }>('/api/collections');
+    collections = (res.collections || []).filter((c: any) => c.source_type === 'virtual');
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    loading = false;
+  }
+}
 
- async function testConnection() {
- testing = true;
- testResult = null;
- try {
- const res = await api.post('/api/data/' + (form.name || '_test_'), {});
- testResult = { ok: true, message: 'Connection OK', sample: res };
- } catch {
- // Try a GET instead
- try {
- const url = new URL(form.source_url);
- const headers: Record<string, string> = {};
- if (form.auth_type === 'bearer' && form.auth_value)
- headers['Authorization'] = `Bearer ${form.auth_value}`;
- if (form.auth_type === 'api_key' && form.auth_value)
- headers['X-API-Key'] = form.auth_value;
- const resp = await fetch(url.toString(), { headers });
- if (resp.ok) {
- const json = await resp.json();
- testResult = { ok: true, message: `Connected — status ${resp.status}`, sample: json };
- } else {
- testResult = { ok: false, message: `Source returned ${resp.status}` };
- }
- } catch (e2: any) {
- testResult = { ok: false, message: e2.message };
- }
- } finally {
- testing = false;
- }
- }
+async function testConnection() {
+  testing = true;
+  testResult = null;
+  try {
+    const res = await api.post('/api/data/' + (form.name || '_test_'), {});
+    testResult = { ok: true, message: 'Connection OK', sample: res };
+  } catch {
+    // Try a GET instead
+    try {
+      const url = new URL(form.source_url);
+      const headers: Record<string, string> = {};
+      if (form.auth_type === 'bearer' && form.auth_value)
+        headers['Authorization'] = `Bearer ${form.auth_value}`;
+      if (form.auth_type === 'api_key' && form.auth_value) headers['X-API-Key'] = form.auth_value;
+      const resp = await fetch(url.toString(), { headers });
+      if (resp.ok) {
+        const json = await resp.json();
+        testResult = { ok: true, message: `Connected — status ${resp.status}`, sample: json };
+      } else {
+        testResult = { ok: false, message: `Source returned ${resp.status}` };
+      }
+    } catch (e2: any) {
+      testResult = { ok: false, message: e2.message };
+    }
+  } finally {
+    testing = false;
+  }
+}
 
- function parseFieldMapping(): Record<string, string> {
- const mapping: Record<string, string> = {};
- for (const line of form.field_mapping_raw.split('\n')) {
- const parts = line.trim().split('=');
- if (parts.length === 2) {
- const [zveltio, external] = parts.map((s) => s.trim());
- if (zveltio && external) mapping[zveltio] = external;
- }
- }
- return mapping;
- }
+function parseFieldMapping(): Record<string, string> {
+  const mapping: Record<string, string> = {};
+  for (const line of form.field_mapping_raw.split('\n')) {
+    const parts = line.trim().split('=');
+    if (parts.length === 2) {
+      const [zveltio, external] = parts.map((s) => s.trim());
+      if (zveltio && external) mapping[zveltio] = external;
+    }
+  }
+  return mapping;
+}
 
- async function create() {
- if (!form.name || !form.source_url) return;
- try {
- await api.post('/api/collections', {
- name: form.name,
- displayName: form.displayName || form.name,
- source_type: 'virtual',
- fields: [{ name: 'id', type: 'uuid', required: true }], // placeholder
- virtual_config: {
- source_url: form.source_url,
- auth_type: form.auth_type,
- auth_value: form.auth_value || undefined,
- list_path: form.list_path || '$.data',
- id_field: form.id_field || 'id',
- field_mapping: parseFieldMapping(),
- },
- });
- showCreate = false;
- form = {
- name: '',
- displayName: '',
- source_url: '',
- auth_type: 'none',
- auth_value: '',
- list_path: '$.data',
- id_field: 'id',
- field_mapping_raw: '',
- };
- await load();
- } catch (e: any) {
- toast.error(e.message ?? 'Failed to create virtual collection');
- }
- }
+async function create() {
+  if (!form.name || !form.source_url) return;
+  try {
+    await api.post('/api/collections', {
+      name: form.name,
+      displayName: form.displayName || form.name,
+      source_type: 'virtual',
+      fields: [{ name: 'id', type: 'uuid', required: true }], // placeholder
+      virtual_config: {
+        source_url: form.source_url,
+        auth_type: form.auth_type,
+        auth_value: form.auth_value || undefined,
+        list_path: form.list_path || '$.data',
+        id_field: form.id_field || 'id',
+        field_mapping: parseFieldMapping(),
+      },
+    });
+    showCreate = false;
+    form = {
+      name: '',
+      displayName: '',
+      source_url: '',
+      auth_type: 'none',
+      auth_value: '',
+      list_path: '$.data',
+      id_field: 'id',
+      field_mapping_raw: '',
+    };
+    await load();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to create virtual collection');
+  }
+}
 
- onMount(load);
+onMount(load);
 </script>
 
 <div class="space-y-6">

@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { base } from '$app/paths';
-  import { Database, Layers, Code, Settings } from '@lucide/svelte';
+import { base } from '$app/paths';
+import { Database, Layers, Code, Settings } from '@lucide/svelte';
 
-  type Props = {
-    collectionName: string;
-    active: 'data' | 'schema' | 'api' | 'settings';
-  };
+type Props = {
+  collectionName: string;
+  active: 'data' | 'schema' | 'api' | 'settings';
+};
 
-  let { collectionName, active }: Props = $props();
+let { collectionName, active }: Props = $props();
 </script>
 
 <div class="border-b border-base-200 mb-6">

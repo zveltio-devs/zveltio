@@ -1,55 +1,67 @@
 <script lang="ts">
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { m } from '$lib/i18n.svelte.js';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Save, LoaderCircle, Copy, Shield } from '@lucide/svelte';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { m } from '$lib/i18n.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Save, LoaderCircle, Copy, Shield } from '@lucide/svelte';
 
-  type SAMLConfig = {
-    enabled: boolean; entryPoint: string; issuer: string; cert: string;
-    callbackUrl: string; signatureAlgorithm: string;
-    wantAuthnResponseSigned: boolean; mapEmail: string; mapName: string;
-  };
+type SAMLConfig = {
+  enabled: boolean;
+  entryPoint: string;
+  issuer: string;
+  cert: string;
+  callbackUrl: string;
+  signatureAlgorithm: string;
+  wantAuthnResponseSigned: boolean;
+  mapEmail: string;
+  mapName: string;
+};
 
-  let config = $state<SAMLConfig>({
-    enabled: false, entryPoint: '', issuer: '', cert: '', callbackUrl: '',
-    signatureAlgorithm: 'sha256', wantAuthnResponseSigned: true,
-    mapEmail: 'email', mapName: 'displayName',
-  });
-  let loading = $state(true);
-  let saving = $state(false);
-  let metadataUrl = $state('');
+let config = $state<SAMLConfig>({
+  enabled: false,
+  entryPoint: '',
+  issuer: '',
+  cert: '',
+  callbackUrl: '',
+  signatureAlgorithm: 'sha256',
+  wantAuthnResponseSigned: true,
+  mapEmail: 'email',
+  mapName: 'displayName',
+});
+let loading = $state(true);
+let saving = $state(false);
+let metadataUrl = $state('');
 
-  onMount(async () => {
-    try {
-      const r = await api.get<{ config: SAMLConfig | null }>('/ext/auth/saml/config');
-      if (r.config) config = r.config;
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-    } finally {
-      loading = false;
-    }
-    const base = (window as any).__ZVELTIO_ENGINE_URL__ || '';
-    metadataUrl = `${base}/ext/auth/saml/metadata`;
-  });
-
-  async function save() {
-    saving = true;
-    try {
-      await api.post('/ext/auth/saml/config', config);
-      toast.success(m['auth.saml.toast.saved']());
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Error saving config');
-    } finally {
-      saving = false;
-    }
+onMount(async () => {
+  try {
+    const r = await api.get<{ config: SAMLConfig | null }>('/ext/auth/saml/config');
+    if (r.config) config = r.config;
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+  const base = (window as any).__ZVELTIO_ENGINE_URL__ || '';
+  metadataUrl = `${base}/ext/auth/saml/metadata`;
+});
 
-  function copyUrl(url: string) {
-    navigator.clipboard.writeText(url);
-    toast.success(m['ext.copied']());
+async function save() {
+  saving = true;
+  try {
+    await api.post('/ext/auth/saml/config', config);
+    toast.success(m['auth.saml.toast.saved']());
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Error saving config');
+  } finally {
+    saving = false;
   }
+}
+
+function copyUrl(url: string) {
+  navigator.clipboard.writeText(url);
+  toast.success(m['ext.copied']());
+}
 </script>
 
 <ExtensionPageShell title={m['auth.saml.title']()} subtitle={m['auth.saml.subtitle']()}>

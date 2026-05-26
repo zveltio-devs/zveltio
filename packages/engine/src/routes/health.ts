@@ -4,8 +4,11 @@ import { ENGINE_VERSION, getVersionInfo } from '../version.js';
 import { getLastAppliedMigration, getAppliedMigrations } from '../db/migrations/index.js';
 import { getCache } from '../lib/cache.js';
 
-
-interface CheckResult { ok: boolean; durationMs: number; error?: string }
+interface CheckResult {
+  ok: boolean;
+  durationMs: number;
+  error?: string;
+}
 
 async function timed(fn: () => Promise<void>): Promise<CheckResult> {
   const t0 = performance.now();
@@ -13,7 +16,11 @@ async function timed(fn: () => Promise<void>): Promise<CheckResult> {
     await fn();
     return { ok: true, durationMs: performance.now() - t0 };
   } catch (err) {
-    return { ok: false, durationMs: performance.now() - t0, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      durationMs: performance.now() - t0,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -78,12 +85,14 @@ export function healthRoutes(db: Database, auth?: any): Hono {
         timestamp: new Date().toISOString(),
         demo_mode: demoMode,
         demo_reset_cron: demoMode ? (process.env.DEMO_RESET_CRON ?? null) : undefined,
-        demo_credentials: exposeCreds ? {
-          email: process.env.DEMO_EMAIL ?? 'demo@zveltio.com',
-          // We intentionally surface the password — demo accounts must be
-          // disposable. Never run with this enabled on real data.
-          password: process.env.DEMO_PASSWORD ?? 'demo123456',
-        } : undefined,
+        demo_credentials: exposeCreds
+          ? {
+              email: process.env.DEMO_EMAIL ?? 'demo@zveltio.com',
+              // We intentionally surface the password — demo accounts must be
+              // disposable. Never run with this enabled on real data.
+              password: process.env.DEMO_PASSWORD ?? 'demo123456',
+            }
+          : undefined,
       },
       databaseOk ? 200 : 503,
     );
@@ -127,10 +136,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     });
 
     const allOk = Object.values(checks).every((c) => c.ok);
-    return c.json(
-      { status: allOk ? 'ok' : 'degraded', checks },
-      allOk ? 200 : 503,
-    );
+    return c.json({ status: allOk ? 'ok' : 'degraded', checks }, allOk ? 200 : 503);
   });
 
   // GET /api/health/deep — comprehensive diagnostic for operators.

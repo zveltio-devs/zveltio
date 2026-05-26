@@ -1,319 +1,371 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import {
-    Package, CheckCircle, Power, PowerOff, Settings,
-    Trash2, Download, RefreshCw, AlertTriangle, Puzzle,
-    Workflow, Brain, FileText, Zap, Map, Shield, Code2, Key,
-    Circle, Hammer,
-  } from '@lucide/svelte';
-  import { api as marketplaceApi } from '$lib/api.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import PageSpinner from '$lib/components/common/PageSpinner.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { refreshExtensions } from '$lib/extensions.svelte.js';
+import { onMount } from 'svelte';
+import {
+  Package,
+  CheckCircle,
+  Power,
+  PowerOff,
+  Settings,
+  Trash2,
+  Download,
+  RefreshCw,
+  AlertTriangle,
+  Puzzle,
+  Workflow,
+  Brain,
+  FileText,
+  Zap,
+  Map,
+  Shield,
+  Code2,
+  Key,
+  Circle,
+  Hammer,
+} from '@lucide/svelte';
+import { api as marketplaceApi } from '$lib/api.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { refreshExtensions } from '$lib/extensions.svelte.js';
 
-  const CATEGORY_ICONS: Record<string, any> = {
-    workflow: Workflow,
-    ai: Brain,
-    content: FileText,
-    automation: Zap,
-    geospatial: Map,
-    compliance: Shield,
-    developer: Code2,
-    custom: Puzzle,
-  };
+const CATEGORY_ICONS: Record<string, any> = {
+  workflow: Workflow,
+  ai: Brain,
+  content: FileText,
+  automation: Zap,
+  geospatial: Map,
+  compliance: Shield,
+  developer: Code2,
+  custom: Puzzle,
+};
 
-  const CATEGORY_COLORS: Record<string, string> = {
-    workflow: 'text-blue-500',
-    ai: 'text-purple-500',
-    content: 'text-orange-500',
-    automation: 'text-yellow-500',
-    geospatial: 'text-teal-500',
-    compliance: 'text-red-500',
-    developer: 'text-cyan-500',
-    custom: 'text-gray-400',
-  };
+const CATEGORY_COLORS: Record<string, string> = {
+  workflow: 'text-blue-500',
+  ai: 'text-purple-500',
+  content: 'text-orange-500',
+  automation: 'text-yellow-500',
+  geospatial: 'text-teal-500',
+  compliance: 'text-red-500',
+  developer: 'text-cyan-500',
+  custom: 'text-gray-400',
+};
 
-  interface Extension {
-    name: string;
-    displayName: string;
-    description: string;
-    category: string;
-    version: string;
-    author: string;
-    tags: string[];
-    requires_license?: boolean;
-    has_license?: boolean;
-    is_installed: boolean;
-    is_enabled: boolean;
-    is_running: boolean;
-    needs_restart: boolean;
-    files_on_disk: boolean;
-    config: Record<string, any>;
-  }
+interface Extension {
+  name: string;
+  displayName: string;
+  description: string;
+  category: string;
+  version: string;
+  author: string;
+  tags: string[];
+  requires_license?: boolean;
+  has_license?: boolean;
+  is_installed: boolean;
+  is_enabled: boolean;
+  is_running: boolean;
+  needs_restart: boolean;
+  files_on_disk: boolean;
+  config: Record<string, any>;
+}
 
-  // ── License key modal state ────────────────────────────────────────────────
-  let licenseExt    = $state<Extension | null>(null);
-  let licenseKey    = $state('');
-  let licenseError  = $state('');
-  let licenseSaving = $state(false);
+// ── License key modal state ────────────────────────────────────────────────
+let licenseExt = $state<Extension | null>(null);
+let licenseKey = $state('');
+let licenseError = $state('');
+let licenseSaving = $state(false);
 
-  // ── Catalog state ──────────────────────────────────────────────────────────
-  let extensions   = $state<Extension[]>([]);
-  let loading      = $state(false);
-  let error        = $state('');
-  let processingId = $state<string | null>(null);
-  let restartNeeded = $state(false);
-  let searchQuery  = $state('');
-  let selectedCategory = $state('all');
-  let configuringExt = $state<Extension | null>(null);
-  let confirmState = $state<{
-    open: boolean; title: string; message: string;
-    confirmLabel?: string; confirmClass?: string; onconfirm: () => void;
-  }>({ open: false, title: '', message: '', onconfirm: () => {} });
-  let configJson  = $state('{}');
-  let configError = $state('');
+// ── Catalog state ──────────────────────────────────────────────────────────
+let extensions = $state<Extension[]>([]);
+let loading = $state(false);
+let error = $state('');
+let processingId = $state<string | null>(null);
+let restartNeeded = $state(false);
+let searchQuery = $state('');
+let selectedCategory = $state('all');
+let configuringExt = $state<Extension | null>(null);
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  confirmClass?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+let configJson = $state('{}');
+let configError = $state('');
 
-  let cat = $state('all');
+let cat = $state('all');
 
-  // ── Rebuild state ──────────────────────────────────────────────────────────
-  let rebuildingExt   = $state<string | null>(null);
-  let rebuildElapsed  = $state(0);
-  let rebuildTimer    = $state<ReturnType<typeof setInterval> | null>(null);
+// ── Rebuild state ──────────────────────────────────────────────────────────
+let rebuildingExt = $state<string | null>(null);
+let rebuildElapsed = $state(0);
+let rebuildTimer = $state<ReturnType<typeof setInterval> | null>(null);
 
-  function startRebuildIndicator(extName: string) {
-    if (rebuildTimer) clearInterval(rebuildTimer);
-    rebuildingExt  = extName;
+function startRebuildIndicator(extName: string) {
+  if (rebuildTimer) clearInterval(rebuildTimer);
+  rebuildingExt = extName;
+  rebuildElapsed = 0;
+  rebuildTimer = setInterval(() => {
+    rebuildElapsed += 1;
+  }, 1000);
+  // Auto-reload studio after 35s to surface new nav item
+  setTimeout(async () => {
+    clearInterval(rebuildTimer!);
+    rebuildTimer = null;
+    rebuildingExt = null;
     rebuildElapsed = 0;
-    rebuildTimer   = setInterval(() => { rebuildElapsed += 1; }, 1000);
-    // Auto-reload studio after 35s to surface new nav item
-    setTimeout(async () => {
-      clearInterval(rebuildTimer!);
-      rebuildTimer   = null;
-      rebuildingExt  = null;
-      rebuildElapsed = 0;
-      await loadCatalog();
-      await refreshExtensions();
-    }, 35_000);
-  }
-
-  const CATEGORIES = [
-    'analytics', 'auth', 'business', 'communications', 'compliance',
-    'content', 'data', 'developer', 'ecommerce', 'finance', 'geospatial',
-    'hr', 'i18n', 'integrations', 'operations', 'projects', 'storage', 'workflow',
-  ];
-
-  const filtered = $derived(
-    extensions.filter(e => {
-      const q = searchQuery.toLowerCase();
-      const matchSearch = !q ||
-        e.displayName.toLowerCase().includes(q) ||
-        e.description.toLowerCase().includes(q) ||
-        e.tags.some(t => t.includes(q));
-      const matchSideCat = cat === 'all' || e.category === cat;
-      return matchSearch && matchSideCat;
-    })
-  );
-
-  const stats = $derived({
-    total: extensions.length,
-    installed: extensions.filter(e => e.is_installed).length,
-    running: extensions.filter(e => e.is_running).length,
-  });
-
-  // ── API helper ─────────────────────────────────────────────────────────────
-  // Local wrapper around the shared $lib/api client — keeps the existing
-  // call sites unchanged while routing through the centralised credentials/
-  // base-URL logic instead of re-implementing it per page.
-  async function api(path: string, opts: RequestInit = {}) {
-    const res = await marketplaceApi.fetch(path, {
-      ...opts,
-      headers: { 'Content-Type': 'application/json', ...opts.headers },
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(err.error || `HTTP ${res.status}`);
-    }
-    return res.json();
-  }
-
-  // ── License key actions ────────────────────────────────────────────────────
-  function openLicense(ext: Extension) {
-    licenseExt = ext;
-    licenseKey = '';
-    licenseError = '';
-  }
-
-  async function saveLicense() {
-    if (!licenseExt) return;
-    licenseError = '';
-    licenseSaving = true;
-    try {
-      await api(`/api/marketplace/license/${encodeURIComponent(licenseExt.name)}`, {
-        method: 'POST',
-        body: JSON.stringify({ license_key: licenseKey }),
-      });
-      licenseExt = null;
-      await loadCatalog();
-      toast.success('License key saved');
-    } catch (e: any) {
-      licenseError = e.message;
-    } finally {
-      licenseSaving = false;
-    }
-  }
-
-  async function removeLicense(ext: Extension) {
-    await api(`/api/marketplace/license/${encodeURIComponent(ext.name)}`, { method: 'DELETE' }).catch(() => {});
     await loadCatalog();
-    toast.success('License key removed');
-  }
+    await refreshExtensions();
+  }, 35_000);
+}
 
-  // ── Catalog actions ────────────────────────────────────────────────────────
-  async function loadCatalog() {
-    loading = true;
-    error = '';
-    try {
-      const data = await api('/api/marketplace');
-      extensions = data.extensions || [];
-      restartNeeded = extensions.some(e => e.needs_restart);
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      loading = false;
+const CATEGORIES = [
+  'analytics',
+  'auth',
+  'business',
+  'communications',
+  'compliance',
+  'content',
+  'data',
+  'developer',
+  'ecommerce',
+  'finance',
+  'geospatial',
+  'hr',
+  'i18n',
+  'integrations',
+  'operations',
+  'projects',
+  'storage',
+  'workflow',
+];
+
+const filtered = $derived(
+  extensions.filter((e) => {
+    const q = searchQuery.toLowerCase();
+    const matchSearch =
+      !q ||
+      e.displayName.toLowerCase().includes(q) ||
+      e.description.toLowerCase().includes(q) ||
+      e.tags.some((t) => t.includes(q));
+    const matchSideCat = cat === 'all' || e.category === cat;
+    return matchSearch && matchSideCat;
+  }),
+);
+
+const stats = $derived({
+  total: extensions.length,
+  installed: extensions.filter((e) => e.is_installed).length,
+  running: extensions.filter((e) => e.is_running).length,
+});
+
+// ── API helper ─────────────────────────────────────────────────────────────
+// Local wrapper around the shared $lib/api client — keeps the existing
+// call sites unchanged while routing through the centralised credentials/
+// base-URL logic instead of re-implementing it per page.
+async function api(path: string, opts: RequestInit = {}) {
+  const res = await marketplaceApi.fetch(path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...opts.headers },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── License key actions ────────────────────────────────────────────────────
+function openLicense(ext: Extension) {
+  licenseExt = ext;
+  licenseKey = '';
+  licenseError = '';
+}
+
+async function saveLicense() {
+  if (!licenseExt) return;
+  licenseError = '';
+  licenseSaving = true;
+  try {
+    await api(`/api/marketplace/license/${encodeURIComponent(licenseExt.name)}`, {
+      method: 'POST',
+      body: JSON.stringify({ license_key: licenseKey }),
+    });
+    licenseExt = null;
+    await loadCatalog();
+    toast.success('License key saved');
+  } catch (e: any) {
+    licenseError = e.message;
+  } finally {
+    licenseSaving = false;
+  }
+}
+
+async function removeLicense(ext: Extension) {
+  await api(`/api/marketplace/license/${encodeURIComponent(ext.name)}`, { method: 'DELETE' }).catch(
+    () => {},
+  );
+  await loadCatalog();
+  toast.success('License key removed');
+}
+
+// ── Catalog actions ────────────────────────────────────────────────────────
+async function loadCatalog() {
+  loading = true;
+  error = '';
+  try {
+    const data = await api('/api/marketplace');
+    extensions = data.extensions || [];
+    restartNeeded = extensions.some((e) => e.needs_restart);
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    loading = false;
+  }
+}
+
+async function install(ext: Extension) {
+  processingId = ext.name;
+  try {
+    await api(`/api/marketplace/${encodeURIComponent(ext.name)}/install`, { method: 'POST' });
+    await loadCatalog();
+  } catch (e: any) {
+    toast.error(`Install failed: ${e.message}`);
+  } finally {
+    processingId = null;
+  }
+}
+
+async function enable(ext: Extension) {
+  processingId = ext.name;
+  try {
+    // Engine now awaits the Studio rebuild inline (v2 model: rebuild
+    // IS the install step, not a side-effect). The response carries
+    // the real outcome — no more "triggered" / unknown end-state.
+    const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/enable`, {
+      method: 'POST',
+    });
+    if (res.needs_restart) restartNeeded = true;
+    await loadCatalog();
+    await refreshExtensions();
+
+    if (!res.success) {
+      toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
+      return;
     }
-  }
 
-  async function install(ext: Extension) {
-    processingId = ext.name;
-    try {
-      await api(`/api/marketplace/${encodeURIComponent(ext.name)}/install`, { method: 'POST' });
-      await loadCatalog();
-    } catch (e: any) {
-      toast.error(`Install failed: ${e.message}`);
-    } finally {
-      processingId = null;
+    const rebuild = res.studio_rebuild as 'success' | 'failed' | 'skipped' | undefined;
+    const sec = res.studio_rebuild_ms ? `${(res.studio_rebuild_ms / 1000).toFixed(1)}s` : '';
+
+    if (rebuild === 'success') {
+      // Engine broadcasts `studio:reloaded` on WS — the (admin) layout
+      // shows a refresh prompt with "Refresh now" button. We just
+      // confirm the action here.
+      toast.success(`${ext.displayName} active. Studio rebuilt in ${sec}.`);
+    } else if (rebuild === 'failed') {
+      toast.error(
+        `${ext.displayName} engine-loaded but Studio rebuild failed: ${res.studio_rebuild_error ?? 'unknown'}`,
+      );
+    } else {
+      // skipped → engine isn't configured for hot-rebuild (no
+      // STUDIO_SRC_DIR / STUDIO_BUILDER_URL). Old binary install or
+      // dev mode without source dir.
+      toast.success(
+        `${ext.displayName} active. Studio rebuild skipped — restart engine to pick up Studio pages.`,
+      );
     }
+  } catch (e: any) {
+    toast.error(`Enable failed: ${e.message}`);
+  } finally {
+    processingId = null;
   }
+}
 
-  async function enable(ext: Extension) {
-    processingId = ext.name;
-    try {
-      // Engine now awaits the Studio rebuild inline (v2 model: rebuild
-      // IS the install step, not a side-effect). The response carries
-      // the real outcome — no more "triggered" / unknown end-state.
-      const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/enable`, { method: 'POST' });
-      if (res.needs_restart) restartNeeded = true;
-      await loadCatalog();
-      await refreshExtensions();
+async function disable(ext: Extension) {
+  confirmState = {
+    open: true,
+    title: 'Disable Extension',
+    message: `Disable "${ext.displayName}"?`,
+    confirmLabel: 'Disable',
+    confirmClass: 'btn-warning',
+    onconfirm: async () => {
+      confirmState.open = false;
+      processingId = ext.name;
+      try {
+        const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, {
+          method: 'POST',
+        });
+        await loadCatalog();
+        await refreshExtensions();
 
-      if (!res.success) {
-        toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
-        return;
-      }
+        const rebuild = res?.studio_rebuild as 'success' | 'failed' | 'skipped' | undefined;
+        const sec = res?.studio_rebuild_ms ? `${(res.studio_rebuild_ms / 1000).toFixed(1)}s` : '';
 
-      const rebuild = res.studio_rebuild as 'success' | 'failed' | 'skipped' | undefined;
-      const sec = res.studio_rebuild_ms ? `${(res.studio_rebuild_ms / 1000).toFixed(1)}s` : '';
-
-      if (rebuild === 'success') {
-        // Engine broadcasts `studio:reloaded` on WS — the (admin) layout
-        // shows a refresh prompt with "Refresh now" button. We just
-        // confirm the action here.
-        toast.success(`${ext.displayName} active. Studio rebuilt in ${sec}.`);
-      } else if (rebuild === 'failed') {
-        toast.error(`${ext.displayName} engine-loaded but Studio rebuild failed: ${res.studio_rebuild_error ?? 'unknown'}`);
-      } else {
-        // skipped → engine isn't configured for hot-rebuild (no
-        // STUDIO_SRC_DIR / STUDIO_BUILDER_URL). Old binary install or
-        // dev mode without source dir.
-        toast.success(`${ext.displayName} active. Studio rebuild skipped — restart engine to pick up Studio pages.`);
-      }
-    } catch (e: any) {
-      toast.error(`Enable failed: ${e.message}`);
-    } finally {
-      processingId = null;
-    }
-  }
-
-  async function disable(ext: Extension) {
-    confirmState = {
-      open: true,
-      title: 'Disable Extension',
-      message: `Disable "${ext.displayName}"?`,
-      confirmLabel: 'Disable',
-      confirmClass: 'btn-warning',
-      onconfirm: async () => {
-        confirmState.open = false;
-        processingId = ext.name;
-        try {
-          const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, { method: 'POST' });
-          await loadCatalog();
-          await refreshExtensions();
-
-          const rebuild = res?.studio_rebuild as 'success' | 'failed' | 'skipped' | undefined;
-          const sec = res?.studio_rebuild_ms ? `${(res.studio_rebuild_ms / 1000).toFixed(1)}s` : '';
-
-          if (rebuild === 'success') {
-            toast.success(`${ext.displayName} disabled. Studio rebuilt in ${sec}.`);
-          } else if (rebuild === 'failed') {
-            toast.error(`${ext.displayName} disabled but Studio rebuild failed: ${res?.studio_rebuild_error ?? 'unknown'}`);
-          } else {
-            toast.success(`${ext.displayName} disabled. Studio rebuild skipped — restart engine to drop its pages.`);
-          }
-        } catch (e: any) {
-          toast.error(`Disable failed: ${e.message}`);
-        } finally {
-          processingId = null;
+        if (rebuild === 'success') {
+          toast.success(`${ext.displayName} disabled. Studio rebuilt in ${sec}.`);
+        } else if (rebuild === 'failed') {
+          toast.error(
+            `${ext.displayName} disabled but Studio rebuild failed: ${res?.studio_rebuild_error ?? 'unknown'}`,
+          );
+        } else {
+          toast.success(
+            `${ext.displayName} disabled. Studio rebuild skipped — restart engine to drop its pages.`,
+          );
         }
-      },
-    };
-  }
+      } catch (e: any) {
+        toast.error(`Disable failed: ${e.message}`);
+      } finally {
+        processingId = null;
+      }
+    },
+  };
+}
 
-  async function uninstall(ext: Extension) {
-    confirmState = {
-      open: true,
-      title: 'Uninstall Extension',
-      message: `Uninstall "${ext.displayName}"? Configuration will be lost.`,
-      confirmLabel: 'Uninstall',
-      onconfirm: async () => {
-        confirmState.open = false;
-        processingId = ext.name;
-        try {
-          await api(`/api/marketplace/${encodeURIComponent(ext.name)}/uninstall`, { method: 'POST' });
-          await loadCatalog();
-        } catch (e: any) {
-          toast.error(`Uninstall failed: ${e.message}`);
-        } finally {
-          processingId = null;
-        }
-      },
-    };
-  }
+async function uninstall(ext: Extension) {
+  confirmState = {
+    open: true,
+    title: 'Uninstall Extension',
+    message: `Uninstall "${ext.displayName}"? Configuration will be lost.`,
+    confirmLabel: 'Uninstall',
+    onconfirm: async () => {
+      confirmState.open = false;
+      processingId = ext.name;
+      try {
+        await api(`/api/marketplace/${encodeURIComponent(ext.name)}/uninstall`, { method: 'POST' });
+        await loadCatalog();
+      } catch (e: any) {
+        toast.error(`Uninstall failed: ${e.message}`);
+      } finally {
+        processingId = null;
+      }
+    },
+  };
+}
 
-  function openConfig(ext: Extension) {
-    configuringExt = ext;
-    configJson = JSON.stringify(ext.config || {}, null, 2);
-    configError = '';
-  }
+function openConfig(ext: Extension) {
+  configuringExt = ext;
+  configJson = JSON.stringify(ext.config || {}, null, 2);
+  configError = '';
+}
 
-  async function saveConfig() {
-    if (!configuringExt) return;
-    configError = '';
-    try {
-      const parsed = JSON.parse(configJson);
-      await api(`/api/marketplace/${encodeURIComponent(configuringExt.name)}/config`, {
-        method: 'PUT',
-        body: JSON.stringify(parsed),
-      });
-      configuringExt = null;
-      await loadCatalog();
-    } catch (e: any) {
-      configError = e instanceof SyntaxError ? 'Invalid JSON' : e.message;
-    }
+async function saveConfig() {
+  if (!configuringExt) return;
+  configError = '';
+  try {
+    const parsed = JSON.parse(configJson);
+    await api(`/api/marketplace/${encodeURIComponent(configuringExt.name)}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(parsed),
+    });
+    configuringExt = null;
+    await loadCatalog();
+  } catch (e: any) {
+    configError = e instanceof SyntaxError ? 'Invalid JSON' : e.message;
   }
+}
 
-  onMount(loadCatalog);
+onMount(loadCatalog);
 </script>
 
 <div class="space-y-6">

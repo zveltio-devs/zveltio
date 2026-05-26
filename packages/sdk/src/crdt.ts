@@ -7,8 +7,8 @@ import { generateUUID } from './utils.js';
 // LWW-Register (Last Write Wins) with Lamport timestamp per field
 export interface LWWField<T = any> {
   value: T;
-  lamport: number;   // Lamport clock value at time of write
-  clientId: string;  // tie-breaker: higher string wins on same lamport
+  lamport: number; // Lamport clock value at time of write
+  clientId: string; // tie-breaker: higher string wins on same lamport
 }
 
 export type LWWDocument = Record<string, LWWField>;
@@ -63,7 +63,7 @@ export function fromDocument(doc: LWWDocument): Record<string, any> {
 
 export interface ORSetElement<T = any> {
   value: T;
-  uid: string;       // unique tag for this add operation
+  uid: string; // unique tag for this add operation
   removed: boolean;
 }
 

@@ -1,164 +1,218 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { ENGINE_URL } from '$lib/config.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, Download, Send, Trash2, FileSpreadsheet, RefreshCw, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { ENGINE_URL } from '$lib/config.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  Plus,
+  Download,
+  Send,
+  Trash2,
+  FileSpreadsheet,
+  RefreshCw,
+  LoaderCircle,
+} from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let activeTab = $state<'exports' | 'accounts' | 'entries'>('exports');
-  let exports_ = $state<any[]>([]);
-  let accounts = $state<any[]>([]);
-  let entries = $state<any[]>([]);
-  let loading = $state(true);
-  let showCreateModal = $state(false);
-  let showAccountModal = $state(false);
-  let showEntryModal = $state(false);
-  let creating = $state(false);
+let activeTab = $state<'exports' | 'accounts' | 'entries'>('exports');
+let exports_ = $state<any[]>([]);
+let accounts = $state<any[]>([]);
+let entries = $state<any[]>([]);
+let loading = $state(true);
+let showCreateModal = $state(false);
+let showAccountModal = $state(false);
+let showEntryModal = $state(false);
+let creating = $state(false);
 
-  let exportForm = $state({
-    period_start: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0],
-    period_end: new Date().toISOString().split('T')[0],
-    company_name: '',
-    company_cui: '',
-    company_address: '',
-  });
+let exportForm = $state({
+  period_start: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0],
+  period_end: new Date().toISOString().split('T')[0],
+  company_name: '',
+  company_cui: '',
+  company_address: '',
+});
 
-  let accountForm = $state({ code: '', description: '', account_type: 'balance' });
-  let entryForm = $state({
-    account_code: '',
-    entry_date: new Date().toISOString().split('T')[0],
-    description: '',
-    debit: 0,
-    credit: 0,
-    document_number: '',
-  });
+let accountForm = $state({ code: '', description: '', account_type: 'balance' });
+let entryForm = $state({
+  account_code: '',
+  entry_date: new Date().toISOString().split('T')[0],
+  description: '',
+  debit: 0,
+  credit: 0,
+  document_number: '',
+});
 
-  onMount(loadAll);
+onMount(loadAll);
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const [expR, accR, entR] = await Promise.allSettled([
-        api.get<{ exports: any[] }>('/ext/compliance/ro/saft'),
-        api.get<{ accounts: any[] }>('/ext/compliance/ro/saft/accounts'),
-        api.get<{ entries: any[] }>('/ext/compliance/ro/saft/entries'),
-      ]);
-      if (expR.status === 'fulfilled') exports_ = expR.value.exports ?? [];
-      if (accR.status === 'fulfilled') accounts = accR.value.accounts ?? [];
-      if (entR.status === 'fulfilled') entries = entR.value.entries ?? [];
-    } finally { loading = false; }
+async function loadAll() {
+  loading = true;
+  try {
+    const [expR, accR, entR] = await Promise.allSettled([
+      api.get<{ exports: any[] }>('/ext/compliance/ro/saft'),
+      api.get<{ accounts: any[] }>('/ext/compliance/ro/saft/accounts'),
+      api.get<{ entries: any[] }>('/ext/compliance/ro/saft/entries'),
+    ]);
+    if (expR.status === 'fulfilled') exports_ = expR.value.exports ?? [];
+    if (accR.status === 'fulfilled') accounts = accR.value.accounts ?? [];
+    if (entR.status === 'fulfilled') entries = entR.value.entries ?? [];
+  } finally {
+    loading = false;
   }
+}
 
-  async function createExport() {
-    if (!exportForm.company_name || !exportForm.company_cui) return;
-    creating = true;
-    try {
-      await api.post('/ext/compliance/ro/saft', exportForm);
-      showCreateModal = false;
-      const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
-      exports_ = r.exports ?? [];
-      toast.success(m['compliance.ro.saft.toast.exportCreated']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { creating = false; }
+async function createExport() {
+  if (!exportForm.company_name || !exportForm.company_cui) return;
+  creating = true;
+  try {
+    await api.post('/ext/compliance/ro/saft', exportForm);
+    showCreateModal = false;
+    const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
+    exports_ = r.exports ?? [];
+    toast.success(m['compliance.ro.saft.toast.exportCreated']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  async function generateXML(id: string) {
-    try {
-      await api.post(`/ext/compliance/ro/saft/${id}/generate`, {});
-      toast.success(m['compliance.ro.saft.toast.xmlGenerated']());
-      const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
-      exports_ = r.exports ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
+async function generateXML(id: string) {
+  try {
+    await api.post(`/ext/compliance/ro/saft/${id}/generate`, {});
+    toast.success(m['compliance.ro.saft.toast.xmlGenerated']());
+    const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
+    exports_ = r.exports ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   }
+}
 
-  async function downloadXML(id: string, start: string, end: string) {
-    const res = await api.fetch(`/ext/compliance/ro/saft/${id}/xml`);
-    if (!res.ok) { toast.error(m['compliance.ro.saft.error.generateXmlFirst']()); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `SAFT_${start}_${end}.xml`; a.click();
-    URL.revokeObjectURL(url);
+async function downloadXML(id: string, start: string, end: string) {
+  const res = await api.fetch(`/ext/compliance/ro/saft/${id}/xml`);
+  if (!res.ok) {
+    toast.error(m['compliance.ro.saft.error.generateXmlFirst']());
+    return;
   }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `SAFT_${start}_${end}.xml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-  async function submitToANAF(id: string) {
-        askConfirm(m['compliance.ro.saft.confirmSend'](), () => submitToANAFConfirmed(id));
+async function submitToANAF(id: string) {
+  askConfirm(m['compliance.ro.saft.confirmSend'](), () => submitToANAFConfirmed(id));
+}
+async function submitToANAFConfirmed(id: string) {
+  try {
+    await api.post(`/ext/compliance/ro/saft/${id}/submit`, {});
+    toast.success(m['compliance.ro.saft.toast.sentAnaf']());
+    const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
+    exports_ = r.exports ?? [];
+  } catch (e: any) {
+    toast.error(e?.message ?? m['compliance.ro.saft.toast.submissionFailed']());
   }
-  async function submitToANAFConfirmed(id: string) {
-    try {
-      await api.post(`/ext/compliance/ro/saft/${id}/submit`, {});
-      toast.success(m['compliance.ro.saft.toast.sentAnaf']());
-      const r = await api.get<{ exports: any[] }>('/ext/compliance/ro/saft');
-      exports_ = r.exports ?? [];
-    } catch (e: any) { toast.error(e?.message ?? m['compliance.ro.saft.toast.submissionFailed']()); }
-  }
+}
 
-
-  async function deleteExport(id: string) {
-        askConfirm(m['compliance.ro.saft.confirmDeleteExport'](), () => deleteExportConfirmed(id));
+async function deleteExport(id: string) {
+  askConfirm(m['compliance.ro.saft.confirmDeleteExport'](), () => deleteExportConfirmed(id));
+}
+async function deleteExportConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/compliance/ro/saft/${id}`);
+    exports_ = exports_.filter((e) => e.id !== id);
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteExportConfirmed(id: string) {
-    try { await api.delete(`/ext/compliance/ro/saft/${id}`); exports_ = exports_.filter((e) => e.id !== id); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  async function createAccount() {
-    if (!accountForm.code || !accountForm.description) return;
-    creating = true;
-    try {
-      await api.post('/ext/compliance/ro/saft/accounts', accountForm);
-      showAccountModal = false;
-      accountForm = { code: '', description: '', account_type: 'balance' };
-      const r = await api.get<{ accounts: any[] }>('/ext/compliance/ro/saft/accounts');
-      accounts = r.accounts ?? [];
-      toast.success(m['compliance.ro.saft.toast.accountAdded']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { creating = false; }
+async function createAccount() {
+  if (!accountForm.code || !accountForm.description) return;
+  creating = true;
+  try {
+    await api.post('/ext/compliance/ro/saft/accounts', accountForm);
+    showAccountModal = false;
+    accountForm = { code: '', description: '', account_type: 'balance' };
+    const r = await api.get<{ accounts: any[] }>('/ext/compliance/ro/saft/accounts');
+    accounts = r.accounts ?? [];
+    toast.success(m['compliance.ro.saft.toast.accountAdded']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  async function deleteAccount(id: string) {
-        askConfirm(m['compliance.ro.saft.confirmDeleteAccount'](), () => deleteAccountConfirmed(id));
+async function deleteAccount(id: string) {
+  askConfirm(m['compliance.ro.saft.confirmDeleteAccount'](), () => deleteAccountConfirmed(id));
+}
+async function deleteAccountConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/compliance/ro/saft/accounts/${id}`);
+    accounts = accounts.filter((a) => a.id !== id);
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteAccountConfirmed(id: string) {
-    try { await api.delete(`/ext/compliance/ro/saft/accounts/${id}`); accounts = accounts.filter((a) => a.id !== id); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  async function createEntry() {
-    if (!entryForm.account_code || !entryForm.description) return;
-    creating = true;
-    try {
-      await api.post('/ext/compliance/ro/saft/entries', { ...entryForm, debit: Number(entryForm.debit), credit: Number(entryForm.credit) });
-      showEntryModal = false;
-      entryForm = { account_code: '', entry_date: new Date().toISOString().split('T')[0], description: '', debit: 0, credit: 0, document_number: '' };
-      const r = await api.get<{ entries: any[] }>('/ext/compliance/ro/saft/entries');
-      entries = r.entries ?? [];
-      toast.success(m['compliance.ro.saft.toast.entryAdded']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { creating = false; }
+async function createEntry() {
+  if (!entryForm.account_code || !entryForm.description) return;
+  creating = true;
+  try {
+    await api.post('/ext/compliance/ro/saft/entries', {
+      ...entryForm,
+      debit: Number(entryForm.debit),
+      credit: Number(entryForm.credit),
+    });
+    showEntryModal = false;
+    entryForm = {
+      account_code: '',
+      entry_date: new Date().toISOString().split('T')[0],
+      description: '',
+      debit: 0,
+      credit: 0,
+      document_number: '',
+    };
+    const r = await api.get<{ entries: any[] }>('/ext/compliance/ro/saft/entries');
+    entries = r.entries ?? [];
+    toast.success(m['compliance.ro.saft.toast.entryAdded']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  async function deleteEntry(id: string) {
-        askConfirm(m['compliance.ro.saft.confirmDeleteEntry'](), () => deleteEntryConfirmed(id));
+async function deleteEntry(id: string) {
+  askConfirm(m['compliance.ro.saft.confirmDeleteEntry'](), () => deleteEntryConfirmed(id));
+}
+async function deleteEntryConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/compliance/ro/saft/entries/${id}`);
+    entries = entries.filter((e) => e.id !== id);
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteEntryConfirmed(id: string) {
-    try { await api.delete(`/ext/compliance/ro/saft/entries/${id}`); entries = entries.filter((e) => e.id !== id); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  function statusBadge(status: string): string {
-    return ({ draft: 'badge-warning', generated: 'badge-info', submitted: 'badge-success' } as Record<string, string>)[status] ?? 'badge-ghost';
-  }
+function statusBadge(status: string): string {
+  return (
+    (
+      { draft: 'badge-warning', generated: 'badge-info', submitted: 'badge-success' } as Record<
+        string,
+        string
+      >
+    )[status] ?? 'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['compliance.ro.saft.title']()} subtitle={m['compliance.ro.saft.subtitle']()}>

@@ -19,11 +19,10 @@ import type { Database } from '../../db/index.js';
 // `autoMigrate` (which pulls Kysely's `sql` tag and would require a
 // live driver to exercise). Drift between this stub and the real
 // function should be caught in review when the file is edited.
-function decideAutoMigrate(opts: {
-  env: string | undefined;
-  current: number;
-  max: number;
-}): { skip: boolean; reason: 'env' | 'up-to-date' | 'run' } {
+function decideAutoMigrate(opts: { env: string | undefined; current: number; max: number }): {
+  skip: boolean;
+  reason: 'env' | 'up-to-date' | 'run';
+} {
   if (opts.env === 'false') return { skip: true, reason: 'env' };
   if (opts.current >= opts.max) return { skip: true, reason: 'up-to-date' };
   return { skip: false, reason: 'run' };
@@ -91,7 +90,9 @@ describe('S4-10 autoMigrate — integration with stub db (env path)', () => {
   // pg_advisory_lock, no SELECT).
 
   let originalEnv: string | undefined;
-  beforeEach(() => { originalEnv = process.env.MIGRATIONS_AUTO; });
+  beforeEach(() => {
+    originalEnv = process.env.MIGRATIONS_AUTO;
+  });
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.MIGRATIONS_AUTO;
     else process.env.MIGRATIONS_AUTO = originalEnv;

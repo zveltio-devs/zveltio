@@ -76,7 +76,9 @@ for (const ext of findExtensions(EXT_ROOT)) {
 }
 
 if (collisions.length) {
-  console.warn(`[i18n:merge] warning: ${collisions.length} core/extension key overlaps (extension wins in bundle)`);
+  console.warn(
+    `[i18n:merge] warning: ${collisions.length} core/extension key overlaps (extension wins in bundle)`,
+  );
 }
 
 console.log('[i18n:merge] done');

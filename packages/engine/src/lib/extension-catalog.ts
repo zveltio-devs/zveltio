@@ -16,7 +16,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'ai',
     displayName: 'AI',
-    description: 'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
+    description:
+      'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
     category: 'intelligence',
     version: '1.0.0',
     author: 'Zveltio',
@@ -51,7 +52,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'auth/saml',
     displayName: 'SAML 2.0 SSO',
-    description: 'SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace)',
+    description:
+      'SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace)',
     category: 'auth',
     version: '1.0.0',
     author: 'Zveltio',
@@ -95,7 +97,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'compliance/ro/documents',
     displayName: 'Documents RO',
-    description: 'Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata',
+    description:
+      'Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata',
     category: 'compliance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -105,7 +108,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'compliance/ro/efactura',
     displayName: 'e-Factura RO',
-    description: 'Romanian e-Invoice (e-Factura) integration with ANAF — generate, validate, and submit UBL XML invoices',
+    description:
+      'Romanian e-Invoice (e-Factura) integration with ANAF — generate, validate, and submit UBL XML invoices',
     category: 'compliance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -115,7 +119,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'compliance/ro/etransport',
     displayName: 'e-Transport RO',
-    description: 'Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF',
+    description:
+      'Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF',
     category: 'compliance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -125,7 +130,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'compliance/ro/procurement',
     displayName: 'Achizitii Publice RO',
-    description: 'Romanian public procurement management — purchase orders, supplier registry, budget tracking',
+    description:
+      'Romanian public procurement management — purchase orders, supplier registry, budget tracking',
     category: 'compliance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -135,7 +141,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'compliance/ro/saft',
     displayName: 'SAF-T RO',
-    description: 'Romanian Standard Audit File for Tax (SAF-T D.394) — generate XML audit files for ANAF',
+    description:
+      'Romanian Standard Audit File for Tax (SAF-T D.394) — generate XML audit files for ANAF',
     category: 'compliance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -147,7 +154,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'content/document-templates',
     displayName: 'Document Templates',
-    description: 'Admin-managed HTML/PDF templates with variable interpolation and async generation',
+    description:
+      'Admin-managed HTML/PDF templates with variable interpolation and async generation',
     category: 'content',
     version: '1.0.0',
     author: 'Zveltio',
@@ -187,7 +195,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'content/page-builder',
     displayName: 'Page Builder',
-    description: 'Visual CMS page builder with drag-and-drop sections, blocks, SEO fields, and live preview',
+    description:
+      'Visual CMS page builder with drag-and-drop sections, blocks, SEO fields, and live preview',
     category: 'content',
     version: '1.0.0',
     author: 'Zveltio',
@@ -241,7 +250,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'data/import',
     displayName: 'Data Import',
-    description: 'Import collection data from CSV or JSON files with column mapping and background processing',
+    description:
+      'Import collection data from CSV or JSON files with column mapping and background processing',
     category: 'data',
     version: '1.0.0',
     author: 'Zveltio',
@@ -283,7 +293,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'developer/edge-functions',
     displayName: 'Edge Functions',
-    description: 'Write and deploy TypeScript serverless functions directly inside the engine with a sandboxed runtime',
+    description:
+      'Write and deploy TypeScript serverless functions directly inside the engine with a sandboxed runtime',
     category: 'developer',
     version: '1.0.0',
     author: 'Zveltio',
@@ -315,7 +326,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'developer/views',
     displayName: 'Alternative Views',
-    description: 'Calendar, Card, and List views for collection data — installable alongside the default Table view',
+    description:
+      'Calendar, Card, and List views for collection data — installable alongside the default Table view',
     category: 'developer',
     version: '1.0.0',
     author: 'Zveltio',
@@ -361,7 +373,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'finance/accounting',
     displayName: 'Accounting',
-    description: 'Double-entry bookkeeping, chart of accounts, journal entries, P&L and balance sheet reports',
+    description:
+      'Double-entry bookkeeping, chart of accounts, journal entries, P&L and balance sheet reports',
     category: 'finance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -371,7 +384,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'finance/banking',
     displayName: 'Banking Sync',
-    description: 'Import bank statements, auto-reconcile transactions with invoices and track cash flow',
+    description:
+      'Import bank statements, auto-reconcile transactions with invoices and track cash flow',
     category: 'finance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -381,7 +395,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'finance/expenses',
     displayName: 'Expenses',
-    description: 'Employee expense reports with receipt management, categorization and approval flow',
+    description:
+      'Employee expense reports with receipt management, categorization and approval flow',
     category: 'finance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -401,7 +416,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'finance/quotes',
     displayName: 'Quotes & Proposals',
-    description: 'Generate branded PDF quotes and proposals linked to CRM contacts, with convert-to-invoice action',
+    description:
+      'Generate branded PDF quotes and proposals linked to CRM contacts, with convert-to-invoice action',
     category: 'finance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -411,7 +427,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'finance/subscriptions',
     displayName: 'Subscriptions',
-    description: 'Recurring billing plans, subscriber management, MRR/ARR tracking and Stripe integration',
+    description:
+      'Recurring billing plans, subscriber management, MRR/ARR tracking and Stripe integration',
     category: 'finance',
     version: '1.0.0',
     author: 'Zveltio',
@@ -423,7 +440,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'geospatial/postgis',
     displayName: 'Geospatial',
-    description: 'Location field type, map views in Studio, proximity search, bbox queries, clustering, and geofences',
+    description:
+      'Location field type, map views in Studio, proximity search, bbox queries, clustering, and geofences',
     category: 'geospatial',
     version: '1.0.0',
     author: 'Zveltio',
@@ -435,7 +453,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'hr/employees',
     displayName: 'HR',
-    description: 'Employee records, departments, job positions, contracts and onboarding checklists',
+    description:
+      'Employee records, departments, job positions, contracts and onboarding checklists',
     category: 'hr',
     version: '1.0.0',
     author: 'Zveltio',
@@ -445,7 +464,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'hr/leave',
     displayName: 'Leave Management',
-    description: 'Vacation and leave requests with balance tracking, approval workflow and calendar view',
+    description:
+      'Vacation and leave requests with balance tracking, approval workflow and calendar view',
     category: 'hr',
     version: '1.0.0',
     author: 'Zveltio',
@@ -455,7 +475,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'hr/payroll',
     displayName: 'Payroll RO',
-    description: 'Romanian payroll: CAS, CASS, income tax calculations, meal vouchers and Revisal XML export',
+    description:
+      'Romanian payroll: CAS, CASS, income tax calculations, meal vouchers and Revisal XML export',
     category: 'hr',
     version: '1.0.0',
     author: 'Zveltio',
@@ -477,7 +498,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'i18n/translations',
     displayName: 'Translations',
-    description: 'Internationalization: manage locales, translation keys and per-locale string values',
+    description:
+      'Internationalization: manage locales, translation keys and per-locale string values',
     category: 'i18n',
     version: '1.0.0',
     author: 'Zveltio',
@@ -489,7 +511,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'integrations/api-connector',
     displayName: 'API Connector',
-    description: 'No-code HTTP integrations — connect external REST APIs with field mapping, retry logic and execution logs',
+    description:
+      'No-code HTTP integrations — connect external REST APIs with field mapping, retry logic and execution logs',
     category: 'integrations',
     version: '1.0.0',
     author: 'Zveltio',
@@ -501,7 +524,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'operations/assets',
     displayName: 'Fixed Assets',
-    description: 'Fixed asset register, straight-line and declining balance depreciation, maintenance schedules',
+    description:
+      'Fixed asset register, straight-line and declining balance depreciation, maintenance schedules',
     category: 'operations',
     version: '1.0.0',
     author: 'Zveltio',
@@ -532,7 +556,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'operations/traceability',
     displayName: 'Food Traceability',
-    description: 'Food traceability conforming to Regulation (EC) 178/2002 Art. 18 — lot reception, QR scanning, bidirectional tree, recall simulator',
+    description:
+      'Food traceability conforming to Regulation (EC) 178/2002 Art. 18 — lot reception, QR scanning, bidirectional tree, recall simulator',
     category: 'operations',
     version: '1.0.0',
     author: 'Zveltio',
@@ -544,7 +569,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'projects/helpdesk',
     displayName: 'Helpdesk',
-    description: 'Support ticket management with SLA timers, priorities, assignments and message threads',
+    description:
+      'Support ticket management with SLA timers, priorities, assignments and message threads',
     category: 'projects',
     version: '1.0.0',
     author: 'Zveltio',
@@ -554,7 +580,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'projects/management',
     displayName: 'Project Management',
-    description: 'Projects, milestones, tasks, kanban board, team assignments and progress tracking',
+    description:
+      'Projects, milestones, tasks, kanban board, team assignments and progress tracking',
     category: 'projects',
     version: '1.0.0',
     author: 'Zveltio',
@@ -578,7 +605,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'workflow/approvals',
     displayName: 'Approval Workflows',
-    description: 'Multi-step approval workflows with email notifications, SLA tracking, and full audit trail',
+    description:
+      'Multi-step approval workflows with email notifications, SLA tracking, and full audit trail',
     category: 'workflow',
     version: '1.0.0',
     author: 'Zveltio',
@@ -588,7 +616,8 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
   {
     name: 'workflow/checklists',
     displayName: 'Checklists',
-    description: 'Dynamic checklists and forms with scoring, conditional logic, and response analytics',
+    description:
+      'Dynamic checklists and forms with scoring, conditional logic, and response analytics',
     category: 'workflow',
     version: '1.0.0',
     author: 'Zveltio',

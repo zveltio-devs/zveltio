@@ -1,147 +1,163 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { api } from '$lib/api.js';
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { api } from '$lib/api.js';
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  const API = '/ext/operations/traceability';
+const API = '/ext/operations/traceability';
 
-  type Tab = 'pending' | 'confirmed' | 'direct';
+type Tab = 'pending' | 'confirmed' | 'direct';
 
-  let activeTab = $state<Tab>('pending');
-  let dispatches = $state<any[]>([]);
-  let loading = $state(false);
-  let error = $state('');
+let activeTab = $state<Tab>('pending');
+let dispatches = $state<any[]>([]);
+let loading = $state(false);
+let error = $state('');
 
-  let selected = $state<any>(null);
-  let confirmForm = $state({ quantity_dispatched: '', notes: '' });
-  let assignLotId = $state('');
-  let lots = $state<any[]>([]);
-  let confirming = $state(false);
+let selected = $state<any>(null);
+let confirmForm = $state({ quantity_dispatched: '', notes: '' });
+let assignLotId = $state('');
+let lots = $state<any[]>([]);
+let confirming = $state(false);
 
-  // Direct dispatch form
-  let directForm = $state({
-    lot_id: '',
-    quantity_dispatched: '',
-    unit: 'buc',
-    customer_name: '',
-    invoice_number: '',
-    notes: '',
-  });
-  let directSaving = $state(false);
-  let directDone = $state<any>(null);
+// Direct dispatch form
+let directForm = $state({
+  lot_id: '',
+  quantity_dispatched: '',
+  unit: 'buc',
+  customer_name: '',
+  invoice_number: '',
+  notes: '',
+});
+let directSaving = $state(false);
+let directDone = $state<any>(null);
 
-  $effect(() => {
-    activeTab;
-    loadDispatches();
-  });
+$effect(() => {
+  activeTab;
+  loadDispatches();
+});
 
-  $effect(() => {
-    if (activeTab === 'direct') {
-      api.fetch(`${API}/lots?status=available&limit=200`)
-        .then(r => r.json())
-        .then(d => { lots = d.data ?? []; });
-    }
-  });
-
-  async function loadDispatches() {
-    loading = true;
-    error = '';
-    try {
-      const status = activeTab === 'pending' ? 'pending' : activeTab === 'confirmed' ? 'confirmed' : null;
-      const params = status ? `?status=${status}` : '';
-      const res = await api.fetch(`${API}/dispatches${params}`);
-      dispatches = res.ok ? (await res.json()).data : [];
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      loading = false;
-    }
+$effect(() => {
+  if (activeTab === 'direct') {
+    api
+      .fetch(`${API}/lots?status=available&limit=200`)
+      .then((r) => r.json())
+      .then((d) => {
+        lots = d.data ?? [];
+      });
   }
+});
 
-  async function selectDispatch(d: any) {
-    const res = await api.fetch(`${API}/dispatches/${d.id}`);
-    selected = res.ok ? (await res.json()).data : d;
-    confirmForm = { quantity_dispatched: String(selected.quantity_invoiced ?? ''), notes: '' };
-    assignLotId = selected.lot_id ?? '';
+async function loadDispatches() {
+  loading = true;
+  error = '';
+  try {
+    const status =
+      activeTab === 'pending' ? 'pending' : activeTab === 'confirmed' ? 'confirmed' : null;
+    const params = status ? `?status=${status}` : '';
+    const res = await api.fetch(`${API}/dispatches${params}`);
+    dispatches = res.ok ? (await res.json()).data : [];
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    loading = false;
   }
+}
 
-  async function assignLot() {
-    if (!assignLotId || !selected) return;
-    const res = await api.fetch(`${API}/dispatches/${selected.id}/assign-lot`, {
+async function selectDispatch(d: any) {
+  const res = await api.fetch(`${API}/dispatches/${d.id}`);
+  selected = res.ok ? (await res.json()).data : d;
+  confirmForm = { quantity_dispatched: String(selected.quantity_invoiced ?? ''), notes: '' };
+  assignLotId = selected.lot_id ?? '';
+}
+
+async function assignLot() {
+  if (!assignLotId || !selected) return;
+  const res = await api.fetch(`${API}/dispatches/${selected.id}/assign-lot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lot_id: assignLotId }),
+  });
+  if (res.ok) {
+    selected = { ...selected, lot_id: assignLotId };
+  } else {
+    error = (await res.json()).error;
+  }
+}
+
+async function confirm(e: Event) {
+  e.preventDefault();
+  confirming = true;
+  error = '';
+  try {
+    const res = await api.fetch(`${API}/dispatches/${selected.id}/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lot_id: assignLotId }),
+      body: JSON.stringify({
+        quantity_dispatched: parseFloat(confirmForm.quantity_dispatched),
+        notes: confirmForm.notes || undefined,
+      }),
     });
-    if (res.ok) {
-      selected = { ...selected, lot_id: assignLotId };
-    } else {
-      error = (await res.json()).error;
-    }
-  }
-
-  async function confirm(e: Event) {
-    e.preventDefault();
-    confirming = true;
-    error = '';
-    try {
-      const res = await api.fetch(`${API}/dispatches/${selected.id}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quantity_dispatched: parseFloat(confirmForm.quantity_dispatched),
-          notes: confirmForm.notes || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      selected = null;
-      await loadDispatches();
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      confirming = false;
-    }
-  }
-
-  async function cancelDispatch(id: string) {
-        askConfirm(m['operations.traceability.confirmCancelDispatch'](), () => cancelDispatchConfirmed(id));
-  }
-  async function cancelDispatchConfirmed(id: string) {
-    await api.fetch(`${API}/dispatches/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (!res.ok) throw new Error((await res.json()).error);
     selected = null;
     await loadDispatches();
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    confirming = false;
   }
+}
 
+async function cancelDispatch(id: string) {
+  askConfirm(m['operations.traceability.confirmCancelDispatch'](), () =>
+    cancelDispatchConfirmed(id),
+  );
+}
+async function cancelDispatchConfirmed(id: string) {
+  await api.fetch(`${API}/dispatches/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  selected = null;
+  await loadDispatches();
+}
 
-  async function submitDirect(e: Event) {
-    e.preventDefault();
-    directSaving = true;
-    error = '';
-    directDone = null;
-    try {
-      const res = await api.fetch(`${API}/dispatches/direct`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lot_id: directForm.lot_id,
-          quantity_dispatched: parseFloat(directForm.quantity_dispatched),
-          unit: directForm.unit,
-          customer_name: directForm.customer_name,
-          invoice_number: directForm.invoice_number || undefined,
-          notes: directForm.notes || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error);
-      directDone = (await res.json()).data;
-      directForm = { lot_id: '', quantity_dispatched: '', unit: 'buc', customer_name: '', invoice_number: '', notes: '' };
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      directSaving = false;
-    }
+async function submitDirect(e: Event) {
+  e.preventDefault();
+  directSaving = true;
+  error = '';
+  directDone = null;
+  try {
+    const res = await api.fetch(`${API}/dispatches/direct`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lot_id: directForm.lot_id,
+        quantity_dispatched: parseFloat(directForm.quantity_dispatched),
+        unit: directForm.unit,
+        customer_name: directForm.customer_name,
+        invoice_number: directForm.invoice_number || undefined,
+        notes: directForm.notes || undefined,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    directDone = (await res.json()).data;
+    directForm = {
+      lot_id: '',
+      quantity_dispatched: '',
+      unit: 'buc',
+      customer_name: '',
+      invoice_number: '',
+      notes: '',
+    };
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    directSaving = false;
   }
+}
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.dispatches.title']()}>

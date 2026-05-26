@@ -15,36 +15,35 @@ import { z } from 'zod';
 // ── Per-type schemas ──────────────────────────────────────────────────────────
 
 export const stepSchemas = {
-
   /** Execute a JavaScript/TypeScript script in a sandboxed edge function */
   run_script: z.object({
-    script:     z.string().min(1, 'Script is required'),
+    script: z.string().min(1, 'Script is required'),
     timeout_ms: z.number().int().min(100).max(30_000).default(5_000),
   }),
 
   /** Send a transactional email via the configured mail provider */
   send_email: z.object({
-    to:      z.union([z.string().email(), z.string().startsWith('{{')]),
+    to: z.union([z.string().email(), z.string().startsWith('{{')]),
     subject: z.string().min(1, 'Subject is required'),
-    body:    z.string().min(1, 'Email body is required'),
-    from:    z.string().optional(),
-    cc:      z.string().optional(),
-    bcc:     z.string().optional(),
+    body: z.string().min(1, 'Email body is required'),
+    from: z.string().optional(),
+    cc: z.string().optional(),
+    bcc: z.string().optional(),
   }),
 
   /** HTTP webhook call to an external URL */
   webhook: z.object({
-    url:           z.union([z.string().url(), z.string().startsWith('{{')]),
-    method:        z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
-    headers:       z.record(z.string(), z.string()).default({}),
+    url: z.union([z.string().url(), z.string().startsWith('{{')]),
+    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+    headers: z.record(z.string(), z.string()).default({}),
     body_template: z.string().optional(),
-    timeout_ms:    z.number().int().min(100).max(30_000).default(10_000),
+    timeout_ms: z.number().int().min(100).max(30_000).default(10_000),
   }),
 
   /** Conditional branching — evaluate an expression and follow true/false branch */
   condition: z.object({
-    expression:   z.string().min(1, 'Condition expression is required'),
-    true_branch:  z.array(z.string().uuid()).default([]),
+    expression: z.string().min(1, 'Condition expression is required'),
+    true_branch: z.array(z.string().uuid()).default([]),
     false_branch: z.array(z.string().uuid()).default([]),
   }),
 
@@ -56,36 +55,36 @@ export const stepSchemas = {
   /** Create a new record in a collection */
   create_record: z.object({
     collection: z.string().min(1),
-    data:       z.record(z.string(), z.unknown()),
+    data: z.record(z.string(), z.unknown()),
   }),
 
   /** Update an existing record in a collection */
   update_record: z.object({
     collection: z.string().min(1),
-    id:         z.union([z.string().uuid(), z.string().startsWith('{{')]),
-    data:       z.record(z.string(), z.unknown()),
+    id: z.union([z.string().uuid(), z.string().startsWith('{{')]),
+    data: z.record(z.string(), z.unknown()),
   }),
 
   /** Delete a record from a collection */
   delete_record: z.object({
     collection: z.string().min(1),
-    id:         z.union([z.string().uuid(), z.string().startsWith('{{')]),
+    id: z.union([z.string().uuid(), z.string().startsWith('{{')]),
   }),
 
   /** AI-based decision step — evaluates prompt and classifies outcome */
   ai_decision: z.object({
-    prompt:       z.string().min(1, 'AI prompt is required'),
-    model:        z.string().optional(),
-    options:      z.array(z.string()).min(2, 'At least 2 decision options required'),
+    prompt: z.string().min(1, 'AI prompt is required'),
+    model: z.string().optional(),
+    options: z.array(z.string()).min(2, 'At least 2 decision options required'),
     context_keys: z.array(z.string()).default([]),
-    timeout_ms:   z.number().int().min(1_000).max(60_000).default(15_000),
+    timeout_ms: z.number().int().min(1_000).max(60_000).default(15_000),
   }),
 
   /** Send an SMS message via the configured SMS provider */
   send_sms: z.object({
-    to:      z.union([z.string(), z.string().startsWith('{{')]),
+    to: z.union([z.string(), z.string().startsWith('{{')]),
     message: z.string().min(1).max(1600),
-    from:    z.string().optional(),
+    from: z.string().optional(),
   }),
 
   /** Transform data using a template or expression */
@@ -95,12 +94,11 @@ export const stepSchemas = {
 
   /** Loop over an array and execute sub-steps for each item */
   loop: z.object({
-    items_key:  z.string().min(1, 'items_key is required (path to array in context)'),
+    items_key: z.string().min(1, 'items_key is required (path to array in context)'),
     item_alias: z.string().default('item'),
-    steps:      z.array(z.string().uuid()).default([]),
+    steps: z.array(z.string().uuid()).default([]),
     max_iterations: z.number().int().min(1).max(1000).default(100),
   }),
-
 } as const;
 
 export type StepType = keyof typeof stepSchemas;

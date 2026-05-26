@@ -1,203 +1,256 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { Bookmark, Play, Trash2, Plus, Share2, X } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import { api } from '$lib/api.js';
+import { onMount } from 'svelte';
+import { Bookmark, Play, Trash2, Plus, Share2, X } from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { api } from '$lib/api.js';
 
-  // ── State ────────────────────────────────────────────────────────────────────
-  let queries = $state<any[]>([]);
-  let collections = $state<string[]>([]);
-  let loading = $state(true);
-  let filterCollection = $state('');
-  let filterOwner = $state<'all' | 'mine' | 'shared'>('all');
+// ── State ────────────────────────────────────────────────────────────────────
+let queries = $state<any[]>([]);
+let collections = $state<string[]>([]);
+let loading = $state(true);
+let filterCollection = $state('');
+let filterOwner = $state<'all' | 'mine' | 'shared'>('all');
 
-  // Builder state
-  let showBuilder = $state(false);
-  let builderCollection = $state('');
-  let builderName = $state('');
-  let builderDescription = $state('');
-  let builderIsShared = $state(false);
-  let builderFilters = $state<Array<{ field: string; operator: string; value: string }>>([]);
-  let builderSorts = $state<Array<{ field: string; direction: 'asc' | 'desc' }>>([]);
-  let builderColumns = $state('');
-  let builderLimit = $state(50);
-  let builderPage = $state(1);
-  let builderMode = $state<'AND' | 'OR'>('AND');
+// Builder state
+let showBuilder = $state(false);
+let builderCollection = $state('');
+let builderName = $state('');
+let builderDescription = $state('');
+let builderIsShared = $state(false);
+let builderFilters = $state<Array<{ field: string; operator: string; value: string }>>([]);
+let builderSorts = $state<Array<{ field: string; direction: 'asc' | 'desc' }>>([]);
+let builderColumns = $state('');
+let builderLimit = $state(50);
+let builderPage = $state(1);
+let builderMode = $state<'AND' | 'OR'>('AND');
 
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+// Split-view state
+let activeQuery = $state<any>(null);
+let queryResults = $state<any>(null);
+let running = $state(false);
 
-  // Split-view state
-  let activeQuery = $state<any>(null);
-  let queryResults = $state<any>(null);
-  let running = $state(false);
+// Inline execute (no save)
+let executeResult = $state<any>(null);
+let executeError = $state('');
+let executing = $state(false);
+let apiUrlPreview = $state('');
 
-  // Inline execute (no save)
-  let executeResult = $state<any>(null);
-  let executeError = $state('');
-  let executing = $state(false);
-  let apiUrlPreview = $state('');
+onMount(async () => {
+  await Promise.all([loadQueries(), loadCollections()]);
+});
 
-  onMount(async () => {
-    await Promise.all([loadQueries(), loadCollections()]);
-  });
+async function loadQueries() {
+  loading = true;
+  const params = new URLSearchParams();
+  if (filterCollection) params.set('collection', filterCollection);
+  const res = await api
+    .fetch(`/api/saved-queries?${params}`, { credentials: 'include' })
+    .then((r) => r.json());
+  queries = res.queries ?? [];
+  loading = false;
+}
 
-  async function loadQueries() {
-    loading = true;
-    const params = new URLSearchParams();
-    if (filterCollection) params.set('collection', filterCollection);
-    const res = await api.fetch(`/api/saved-queries?${params}`, { credentials: 'include' }).then(r => r.json());
-    queries = res.queries ?? [];
-    loading = false;
-  }
+async function loadCollections() {
+  const res = await api.fetch(`/api/collections`, { credentials: 'include' }).then((r) => r.json());
+  collections = (res.collections ?? []).map((c: any) => c.name);
+}
 
-  async function loadCollections() {
-    const res = await api.fetch(`/api/collections`, { credentials: 'include' }).then(r => r.json());
-    collections = (res.collections ?? []).map((c: any) => c.name);
-  }
-
-  // ── Computed filter ───────────────────────────────────────────────────────────
-  let filtered = $derived(queries.filter(q => {
+// ── Computed filter ───────────────────────────────────────────────────────────
+let filtered = $derived(
+  queries.filter((q) => {
     if (filterOwner === 'mine' && !q.is_owner) return false;
     if (filterOwner === 'shared' && !q.is_shared) return false;
     if (filterCollection && q.collection !== filterCollection) return false;
     return true;
-  }));
+  }),
+);
 
-  // ── API URL preview ───────────────────────────────────────────────────────────
-  async function previewUrl() {
-    if (!builderCollection) return;
-    const res = await api.fetch(`/api/saved-queries/preview-url`, {
+// ── API URL preview ───────────────────────────────────────────────────────────
+async function previewUrl() {
+  if (!builderCollection) return;
+  const res = await api
+    .fetch(`/api/saved-queries/preview-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ collection: builderCollection, config: buildConfig() }),
-    }).then(r => r.json());
-    apiUrlPreview = res.api_url ?? '';
-  }
+    })
+    .then((r) => r.json());
+  apiUrlPreview = res.api_url ?? '';
+}
 
-  function buildConfig() {
-    return {
-      filters: builderFilters,
-      filter_mode: builderMode,
-      filter_groups: [],
-      columns: builderColumns ? builderColumns.split(',').map(s => s.trim()).filter(Boolean) : [],
-      sorts: builderSorts,
-      limit: builderLimit,
-      page: builderPage,
-    };
-  }
+function buildConfig() {
+  return {
+    filters: builderFilters,
+    filter_mode: builderMode,
+    filter_groups: [],
+    columns: builderColumns
+      ? builderColumns
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [],
+    sorts: builderSorts,
+    limit: builderLimit,
+    page: builderPage,
+  };
+}
 
-  // ── Execute without saving ────────────────────────────────────────────────────
-  async function executeNow() {
-    if (!builderCollection) return;
-    executing = true;
-    executeError = '';
-    executeResult = null;
-    const res = await api.fetch(`/api/saved-queries/execute`, {
+// ── Execute without saving ────────────────────────────────────────────────────
+async function executeNow() {
+  if (!builderCollection) return;
+  executing = true;
+  executeError = '';
+  executeResult = null;
+  const res = await api
+    .fetch(`/api/saved-queries/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ collection: builderCollection, config: buildConfig() }),
-    }).then(r => r.json());
-    if (res.error) executeError = res.error;
-    else executeResult = res;
-    executing = false;
-  }
+    })
+    .then((r) => r.json());
+  if (res.error) executeError = res.error;
+  else executeResult = res;
+  executing = false;
+}
 
-  // ── Save query ────────────────────────────────────────────────────────────────
-  async function saveQuery() {
-    if (!builderCollection || !builderName) return;
-    await api.fetch(`/api/saved-queries`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        name: builderName,
-        description: builderDescription || undefined,
-        collection: builderCollection,
-        config: buildConfig(),
-        is_shared: builderIsShared,
-      }),
-    });
-    resetBuilder();
-    await loadQueries();
-  }
+// ── Save query ────────────────────────────────────────────────────────────────
+async function saveQuery() {
+  if (!builderCollection || !builderName) return;
+  await api.fetch(`/api/saved-queries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      name: builderName,
+      description: builderDescription || undefined,
+      collection: builderCollection,
+      config: buildConfig(),
+      is_shared: builderIsShared,
+    }),
+  });
+  resetBuilder();
+  await loadQueries();
+}
 
-  function resetBuilder() {
-    showBuilder = false;
-    builderName = '';
-    builderDescription = '';
-    builderCollection = '';
-    builderIsShared = false;
-    builderFilters = [];
-    builderSorts = [];
-    builderColumns = '';
-    builderLimit = 50;
-    builderPage = 1;
-    builderMode = 'AND';
-    executeResult = null;
-    executeError = '';
-    apiUrlPreview = '';
-  }
+function resetBuilder() {
+  showBuilder = false;
+  builderName = '';
+  builderDescription = '';
+  builderCollection = '';
+  builderIsShared = false;
+  builderFilters = [];
+  builderSorts = [];
+  builderColumns = '';
+  builderLimit = 50;
+  builderPage = 1;
+  builderMode = 'AND';
+  executeResult = null;
+  executeError = '';
+  apiUrlPreview = '';
+}
 
-  // ── Delete ────────────────────────────────────────────────────────────────────
-  async function deleteQuery(id: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Query',
-      message: 'Delete this saved query?',
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        await api.fetch(`/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
-        await loadQueries();
-      },
-    };
-  }
+// ── Delete ────────────────────────────────────────────────────────────────────
+async function deleteQuery(id: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Query',
+    message: 'Delete this saved query?',
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      await api.fetch(`/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
+      await loadQueries();
+    },
+  };
+}
 
-  // ── Split-view helpers ────────────────────────────────────────────────────────
-  function selectQuery(q: any) { activeQuery = { ...q }; queryResults = null; }
-  function newQuery() { activeQuery = { id: null, name: 'Untitled', sql: '' }; queryResults = null; }
+// ── Split-view helpers ────────────────────────────────────────────────────────
+function selectQuery(q: any) {
+  activeQuery = { ...q };
+  queryResults = null;
+}
+function newQuery() {
+  activeQuery = { id: null, name: 'Untitled', sql: '' };
+  queryResults = null;
+}
 
-  async function runActiveQuery() {
-    if (!activeQuery) return;
-    running = true;
-    queryResults = null;
-    try {
-      if (activeQuery.id) {
-        const res = await api.fetch(`/api/saved-queries/${activeQuery.id}/run`, {
-          method: 'POST', credentials: 'include',
-        }).then(r => r.json());
-        queryResults = { rows: res.records ?? [], columns: res.records?.length ? Object.keys(res.records[0]) : [] };
-      }
-    } finally {
-      running = false;
-    }
-  }
-
-  async function saveActiveQuery() {
-    if (!activeQuery) return;
+async function runActiveQuery() {
+  if (!activeQuery) return;
+  running = true;
+  queryResults = null;
+  try {
     if (activeQuery.id) {
-      await api.fetch(`/api/saved-queries/${activeQuery.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: activeQuery.name }),
-      });
+      const res = await api
+        .fetch(`/api/saved-queries/${activeQuery.id}/run`, {
+          method: 'POST',
+          credentials: 'include',
+        })
+        .then((r) => r.json());
+      queryResults = {
+        rows: res.records ?? [],
+        columns: res.records?.length ? Object.keys(res.records[0]) : [],
+      };
     }
-    await loadQueries();
+  } finally {
+    running = false;
   }
+}
 
-  // ── Copy API URL ──────────────────────────────────────────────────────────────
-  // ── Filter helpers ────────────────────────────────────────────────────────────
-  const OPERATORS = ['equals','not_equals','contains','not_contains','starts_with','ends_with','gt','lt','gte','lte','is_null','is_not_null','is_true','is_false'];
+async function saveActiveQuery() {
+  if (!activeQuery) return;
+  if (activeQuery.id) {
+    await api.fetch(`/api/saved-queries/${activeQuery.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ name: activeQuery.name }),
+    });
+  }
+  await loadQueries();
+}
 
-  function addFilter() { builderFilters = [...builderFilters, { field: '', operator: 'equals', value: '' }]; }
-  function removeFilter(i: number) { builderFilters = builderFilters.filter((_, idx) => idx !== i); }
-  function addSort() { builderSorts = [...builderSorts, { field: '', direction: 'asc' }]; }
-  function removeSort(i: number) { builderSorts = builderSorts.filter((_, idx) => idx !== i); }
+// ── Copy API URL ──────────────────────────────────────────────────────────────
+// ── Filter helpers ────────────────────────────────────────────────────────────
+const OPERATORS = [
+  'equals',
+  'not_equals',
+  'contains',
+  'not_contains',
+  'starts_with',
+  'ends_with',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'is_null',
+  'is_not_null',
+  'is_true',
+  'is_false',
+];
+
+function addFilter() {
+  builderFilters = [...builderFilters, { field: '', operator: 'equals', value: '' }];
+}
+function removeFilter(i: number) {
+  builderFilters = builderFilters.filter((_, idx) => idx !== i);
+}
+function addSort() {
+  builderSorts = [...builderSorts, { field: '', direction: 'asc' }];
+}
+function removeSort(i: number) {
+  builderSorts = builderSorts.filter((_, idx) => idx !== i);
+}
 </script>
 
 <div class="space-y-6">

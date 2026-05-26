@@ -83,19 +83,21 @@ export function backupRoutes(db: Database, auth: any): Hono {
       if (rawUrl) {
         try {
           const u = new URL(rawUrl);
-          if (!dbHost)     dbHost     = u.hostname;
-          if (!dbPort)     dbPort     = u.port || '5432';
-          if (!dbName)     dbName     = u.pathname.replace(/^\//, '');
-          if (!dbUser)     dbUser     = u.username;
+          if (!dbHost) dbHost = u.hostname;
+          if (!dbPort) dbPort = u.port || '5432';
+          if (!dbName) dbName = u.pathname.replace(/^\//, '');
+          if (!dbUser) dbUser = u.username;
           if (!dbPassword) dbPassword = decodeURIComponent(u.password);
-        } catch { /* malformed URL — keep empty strings */ }
+        } catch {
+          /* malformed URL — keep empty strings */
+        }
       }
     }
 
-    dbHost     = dbHost     || 'localhost';
-    dbPort     = dbPort     || '5432';
-    dbName     = dbName     || 'zveltio_dev';
-    dbUser     = dbUser     || 'postgres';
+    dbHost = dbHost || 'localhost';
+    dbPort = dbPort || '5432';
+    dbName = dbName || 'zveltio_dev';
+    dbUser = dbUser || 'postgres';
 
     // Run backup in background — do NOT await
     const backupBg = async () => {
@@ -272,9 +274,13 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   router.get('/pitr/config', async (c) => {
     const result = await sql<{
-      id: string; is_enabled: boolean; wal_archive_path: string | null;
-      retention_days: number; last_base_backup_at: Date | null;
-      last_wal_segment: string | null; updated_at: Date;
+      id: string;
+      is_enabled: boolean;
+      wal_archive_path: string | null;
+      retention_days: number;
+      last_base_backup_at: Date | null;
+      last_wal_segment: string | null;
+      updated_at: Date;
     }>`SELECT id::text, is_enabled, wal_archive_path, retention_days,
          last_base_backup_at, last_wal_segment, updated_at
        FROM zv_pitr_config LIMIT 1`.execute(db);
@@ -302,8 +308,11 @@ export function backupRoutes(db: Database, auth: any): Hono {
         updated_at = NOW()
       WHERE id = (SELECT id FROM zv_pitr_config LIMIT 1)`.execute(db);
     const result = await sql<{
-      id: string; is_enabled: boolean; wal_archive_path: string | null;
-      retention_days: number; updated_at: Date;
+      id: string;
+      is_enabled: boolean;
+      wal_archive_path: string | null;
+      retention_days: number;
+      updated_at: Date;
     }>`SELECT id::text, is_enabled, wal_archive_path, retention_days, updated_at
        FROM zv_pitr_config LIMIT 1`.execute(db);
     await auditLog(db, {
@@ -317,8 +326,12 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
   router.get('/pitr/restore-points', async (c) => {
     const result = await sql<{
-      id: string; name: string; description: string | null;
-      lsn: string | null; recorded_at: Date; created_by: string | null;
+      id: string;
+      name: string;
+      description: string | null;
+      lsn: string | null;
+      recorded_at: Date;
+      created_by: string | null;
     }>`SELECT id::text, name, description, lsn, recorded_at, created_by::text
        FROM zv_pitr_restore_points ORDER BY recorded_at DESC LIMIT 100`.execute(db);
     return c.json({ restore_points: result.rows });
@@ -342,24 +355,42 @@ export function backupRoutes(db: Database, auth: any): Hono {
       INSERT INTO zv_pitr_restore_points (name, description, lsn, created_by)
       VALUES (${name}, ${description ?? null}, ${lsn}, ${user.id})
       RETURNING id::text, recorded_at`.execute(db);
+    const restorePointId = insertResult.rows[0]?.id;
+    await auditLog(db, {
+      type: 'pitr.config_changed',
+      userId: user.id,
+      resourceId: restorePointId,
+      resourceType: 'pitr_restore_point',
+      metadata: { name, description, lsn, action: 'create' },
+    });
     return c.json({ restore_point: { ...insertResult.rows[0], name, description, lsn } }, 201);
   });
 
   router.delete('/pitr/restore-points/:id', async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user' as never) as any;
     const existing = await sql<{ id: string }>`
       SELECT id::text FROM zv_pitr_restore_points WHERE id = ${id}`.execute(db);
     if (!existing.rows[0]) return c.json({ error: 'Restore point not found' }, 404);
     await sql`DELETE FROM zv_pitr_restore_points WHERE id = ${id}`.execute(db);
+    await auditLog(db, {
+      type: 'pitr.config_changed',
+      userId: user?.id,
+      resourceId: id,
+      resourceType: 'pitr_restore_point',
+      metadata: { action: 'delete' },
+    });
     return c.json({ success: true });
   });
 
-  const PitrRestoreSchema = z.object({
-    restore_point_id: z.string().uuid().optional(),
-    target_time: z.string().datetime().optional(),
-  }).refine((d) => d.restore_point_id || d.target_time, {
-    message: 'Provide either restore_point_id or target_time',
-  });
+  const PitrRestoreSchema = z
+    .object({
+      restore_point_id: z.string().uuid().optional(),
+      target_time: z.string().datetime().optional(),
+    })
+    .refine((d) => d.restore_point_id || d.target_time, {
+      message: 'Provide either restore_point_id or target_time',
+    });
 
   router.post('/pitr/restore', async (c) => {
     const user = c.get('user' as never) as any;
@@ -370,7 +401,9 @@ export function backupRoutes(db: Database, auth: any): Hono {
     let resolvedTime = target_time;
     if (restore_point_id) {
       const rp = await sql<{ recorded_at: Date; lsn: string | null }>`
-        SELECT recorded_at, lsn FROM zv_pitr_restore_points WHERE id = ${restore_point_id}`.execute(db);
+        SELECT recorded_at, lsn FROM zv_pitr_restore_points WHERE id = ${restore_point_id}`.execute(
+        db,
+      );
       if (!rp.rows[0]) return c.json({ error: 'Restore point not found' }, 404);
       resolvedTime = new Date(rp.rows[0].recorded_at).toISOString();
     }
@@ -396,7 +429,8 @@ export function backupRoutes(db: Database, auth: any): Hono {
         '5. Start PostgreSQL — it will replay WAL segments up to the target time.',
         '6. Restart the Zveltio engine once PostgreSQL is healthy.',
       ],
-      warning: 'This will REPLACE your current database with data from the target point in time. All changes after that point will be LOST.',
+      warning:
+        'This will REPLACE your current database with data from the target point in time. All changes after that point will be LOST.',
     });
   });
 
@@ -486,33 +520,49 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const setClauses: string[] = ['updated_at = NOW()'];
     const values: any[] = [];
 
-    if (data.name !== undefined) { setClauses.push(`name = $${values.push(data.name)}`); }
-    if (data.cron_expression !== undefined) { setClauses.push(`cron_expression = $${values.push(data.cron_expression)}`); }
-    if (data.retention_count !== undefined) { setClauses.push(`retention_count = $${values.push(data.retention_count)}`); }
-    if (data.storage_destination !== undefined) { setClauses.push(`storage_destination = $${values.push(data.storage_destination)}`); }
-    if (data.s3_bucket !== undefined) { setClauses.push(`s3_bucket = $${values.push(data.s3_bucket)}`); }
-    if (data.s3_prefix !== undefined) { setClauses.push(`s3_prefix = $${values.push(data.s3_prefix)}`); }
-    if (data.notify_on_failure !== undefined) { setClauses.push(`notify_on_failure = $${values.push(data.notify_on_failure)}`); }
-    if (data.notify_emails !== undefined) { setClauses.push(`notify_emails = $${values.push(JSON.stringify(data.notify_emails))}`); }
-    if (data.is_active !== undefined) { setClauses.push(`is_active = $${values.push(data.is_active)}`); }
+    if (data.name !== undefined) {
+      setClauses.push(`name = $${values.push(data.name)}`);
+    }
+    if (data.cron_expression !== undefined) {
+      setClauses.push(`cron_expression = $${values.push(data.cron_expression)}`);
+    }
+    if (data.retention_count !== undefined) {
+      setClauses.push(`retention_count = $${values.push(data.retention_count)}`);
+    }
+    if (data.storage_destination !== undefined) {
+      setClauses.push(`storage_destination = $${values.push(data.storage_destination)}`);
+    }
+    if (data.s3_bucket !== undefined) {
+      setClauses.push(`s3_bucket = $${values.push(data.s3_bucket)}`);
+    }
+    if (data.s3_prefix !== undefined) {
+      setClauses.push(`s3_prefix = $${values.push(data.s3_prefix)}`);
+    }
+    if (data.notify_on_failure !== undefined) {
+      setClauses.push(`notify_on_failure = $${values.push(data.notify_on_failure)}`);
+    }
+    if (data.notify_emails !== undefined) {
+      setClauses.push(`notify_emails = $${values.push(JSON.stringify(data.notify_emails))}`);
+    }
+    if (data.is_active !== undefined) {
+      setClauses.push(`is_active = $${values.push(data.is_active)}`);
+    }
 
     // Use Kysely updateTable for safety
     const updateData: Record<string, any> = { updated_at: new Date() };
     if (data.name !== undefined) updateData.name = data.name;
     if (data.cron_expression !== undefined) updateData.cron_expression = data.cron_expression;
     if (data.retention_count !== undefined) updateData.retention_count = data.retention_count;
-    if (data.storage_destination !== undefined) updateData.storage_destination = data.storage_destination;
+    if (data.storage_destination !== undefined)
+      updateData.storage_destination = data.storage_destination;
     if (data.s3_bucket !== undefined) updateData.s3_bucket = data.s3_bucket;
     if (data.s3_prefix !== undefined) updateData.s3_prefix = data.s3_prefix;
     if (data.notify_on_failure !== undefined) updateData.notify_on_failure = data.notify_on_failure;
-    if (data.notify_emails !== undefined) updateData.notify_emails = JSON.stringify(data.notify_emails);
+    if (data.notify_emails !== undefined)
+      updateData.notify_emails = JSON.stringify(data.notify_emails);
     if (data.is_active !== undefined) updateData.is_active = data.is_active;
 
-    await db
-      .updateTable('zv_backup_schedules')
-      .set(updateData)
-      .where('id', '=', id)
-      .execute();
+    await db.updateTable('zv_backup_schedules').set(updateData).where('id', '=', id).execute();
 
     await auditLog(db, {
       type: 'backup.scheduled',
@@ -630,7 +680,20 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     backupBg().catch((err) => console.error('Scheduled backup bg error:', err));
 
-    return c.json({ backup_id: backupId, status: 'in_progress', filename, schedule_id: scheduleId });
+    await auditLog(db, {
+      type: 'backup.scheduled',
+      userId: user.id,
+      resourceId: backupId,
+      resourceType: 'backup',
+      metadata: { action: 'manual_trigger', schedule_id: scheduleId, filename },
+    });
+
+    return c.json({
+      backup_id: backupId,
+      status: 'in_progress',
+      filename,
+      schedule_id: scheduleId,
+    });
   });
 
   // ── Enterprise: Integrity Checks ──────────────────────────────
@@ -748,8 +811,12 @@ export function backupRoutes(db: Database, auth: any): Hono {
 
     return c.json({
       total_backups: parseInt(totalResult.rows[0]?.count || '0'),
-      total_size_bytes: totalResult.rows[0]?.total_size ? parseInt(totalResult.rows[0].total_size) : 0,
-      total_size_human: totalResult.rows[0]?.total_size ? formatBytes(parseInt(totalResult.rows[0].total_size)) : '0 B',
+      total_size_bytes: totalResult.rows[0]?.total_size
+        ? parseInt(totalResult.rows[0].total_size)
+        : 0,
+      total_size_human: totalResult.rows[0]?.total_size
+        ? formatBytes(parseInt(totalResult.rows[0].total_size))
+        : '0 B',
       last_successful_backup: lastSuccessResult.rows[0] ?? null,
       success_rate_30d: successRate,
       active_schedule_count: parseInt(scheduleCountResult.rows[0]?.count || '0'),

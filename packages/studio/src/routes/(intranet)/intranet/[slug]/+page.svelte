@@ -1,45 +1,47 @@
 <script lang="ts">
-  import { page } from '$app/state';
-  import { base } from '$app/paths';
-  import { auth } from '$lib/auth.svelte.js';
-  import { FileX, ShieldCheck, ArrowLeft } from '@lucide/svelte';
+import { page } from '$app/state';
+import { base } from '$app/paths';
+import { auth } from '$lib/auth.svelte.js';
+import { FileX, ShieldCheck, ArrowLeft } from '@lucide/svelte';
 
-  const ZONE_SLUG = 'intranet';
+const ZONE_SLUG = 'intranet';
 
-  let pageData = $state<{ page: any; zone: any; views: any[] } | null>(null);
-  let loading = $state(true);
-  let error = $state<{ status: number; message: string } | null>(null);
+let pageData = $state<{ page: any; zone: any; views: any[] } | null>(null);
+let loading = $state(true);
+let error = $state<{ status: number; message: string } | null>(null);
 
-  const slug = $derived(page.params.slug);
+const slug = $derived(page.params.slug);
 
-  // Re-fetch whenever the slug changes (navigation between zone pages)
-  $effect(() => {
-    const s = slug;
-    loading = true;
-    error = null;
-    pageData = null;
+// Re-fetch whenever the slug changes (navigation between zone pages)
+$effect(() => {
+  const s = slug;
+  loading = true;
+  error = null;
+  pageData = null;
 
-    // Use a manual fetch so we can read the HTTP status (api wrapper throws on
-    // non-ok and loses the status code). 404 vs 403 vs 500 each get distinct UX.
-    fetch(`/api/zones/${ZONE_SLUG}/render/${encodeURIComponent(s ?? '')}`, { credentials: 'include' })
-      .then(async (res) => {
-        if (res.ok) {
-          pageData = await res.json();
-          return;
-        }
-        const body = await res.json().catch(() => ({}));
-        error = {
-          status: res.status,
-          message: body?.error ?? body?.message ?? `HTTP ${res.status}`,
-        };
-      })
-      .catch((e) => {
-        error = { status: 0, message: e?.message ?? 'Network error' };
-      })
-      .finally(() => { loading = false; });
-  });
+  // Use a manual fetch so we can read the HTTP status (api wrapper throws on
+  // non-ok and loses the status code). 404 vs 403 vs 500 each get distinct UX.
+  fetch(`/api/zones/${ZONE_SLUG}/render/${encodeURIComponent(s ?? '')}`, { credentials: 'include' })
+    .then(async (res) => {
+      if (res.ok) {
+        pageData = await res.json();
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      error = {
+        status: res.status,
+        message: body?.error ?? body?.message ?? `HTTP ${res.status}`,
+      };
+    })
+    .catch((e) => {
+      error = { status: 0, message: e?.message ?? 'Network error' };
+    })
+    .finally(() => {
+      loading = false;
+    });
+});
 
-  const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'owner');
+const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'owner');
 </script>
 
 {#if loading}

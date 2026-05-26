@@ -23,10 +23,7 @@ function labeledCounter(): LabeledCounter {
     },
     toPrometheusLines(name, help) {
       if (data.size === 0) return [];
-      const lines = [
-        `# HELP ${name} ${help}`,
-        `# TYPE ${name} counter`,
-      ];
+      const lines = [`# HELP ${name} ${help}`, `# TYPE ${name} counter`];
       for (const [labels, value] of data.entries()) {
         lines.push(`${name}{${labels}} ${value}`);
       }
@@ -40,7 +37,9 @@ interface LabeledHistogram {
   toPrometheusLines(name: string, help: string): string[];
 }
 
-function labeledHistogram(buckets: number[] = [10, 50, 100, 250, 500, 1000, 2500, 5000]): LabeledHistogram {
+function labeledHistogram(
+  buckets: number[] = [10, 50, 100, 250, 500, 1000, 2500, 5000],
+): LabeledHistogram {
   type BucketData = { sum: number; count: number; buckets: Map<number, number> };
   const data = new Map<string, BucketData>();
 
@@ -65,10 +64,7 @@ function labeledHistogram(buckets: number[] = [10, 50, 100, 250, 500, 1000, 2500
     },
     toPrometheusLines(name, help) {
       if (data.size === 0) return [];
-      const lines = [
-        `# HELP ${name} ${help}`,
-        `# TYPE ${name} histogram`,
-      ];
+      const lines = [`# HELP ${name} ${help}`, `# TYPE ${name} histogram`];
       for (const [labels, entry] of data.entries()) {
         const labelStr = labels ? `{${labels},` : '{';
         for (const [b, count] of entry.buckets.entries()) {
@@ -156,7 +152,7 @@ export async function initTelemetry(): Promise<void> {
   if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
 
   try {
-    const { NodeSDK }           = await import('@opentelemetry/sdk-node');
+    const { NodeSDK } = await import('@opentelemetry/sdk-node');
     const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore — @opentelemetry/core is a transitive dep of sdk-node; types not declared directly
@@ -165,12 +161,14 @@ export async function initTelemetry(): Promise<void> {
 
     // Register W3C traceparent + baggage propagators.
     // CompositePropagator lives in @opentelemetry/core ≥1.x; fall back to W3C-only if absent.
-    const W3CTraceCtx  = otelCore.W3CTraceContextPropagator;
-    const W3CBaggage   = otelCore.W3CBaggagePropagator;
-    const Composite    = (otelCore as any).CompositePropagator;
+    const W3CTraceCtx = otelCore.W3CTraceContextPropagator;
+    const W3CBaggage = otelCore.W3CBaggagePropagator;
+    const Composite = (otelCore as any).CompositePropagator;
 
     if (Composite && W3CBaggage) {
-      propagation.setGlobalPropagator(new Composite({ propagators: [new W3CTraceCtx(), new W3CBaggage()] }));
+      propagation.setGlobalPropagator(
+        new Composite({ propagators: [new W3CTraceCtx(), new W3CBaggage()] }),
+      );
     } else {
       propagation.setGlobalPropagator(new W3CTraceCtx());
     }
@@ -204,10 +202,11 @@ export async function initTelemetry(): Promise<void> {
  * Wraps a Kysely execute() call with a database span.
  * Usage: await tracedQuery('users.list', () => db.selectFrom('users').selectAll().execute())
  */
-export async function tracedQuery<T>(
-  operationName: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function tracedQuery<T>(operationName: string, fn: () => Promise<T>): Promise<T> {
   if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return fn();
-  return traced(`db.query ${operationName}`, { 'db.system': 'postgresql', 'db.operation': operationName }, fn);
+  return traced(
+    `db.query ${operationName}`,
+    { 'db.system': 'postgresql', 'db.operation': operationName },
+    fn,
+  );
 }

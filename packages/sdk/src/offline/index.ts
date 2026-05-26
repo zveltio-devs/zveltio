@@ -90,18 +90,22 @@ export interface OfflineProvider {
 
 export class ElectricNotConfigured extends Error {
   constructor(reason: string) {
-    super(`Electric SQL provider is not configured: ${reason}. ` +
-      `Set provider: 'crdt' for the default sync path, or stand up an Electric ` +
-      `service and pass electricUrl. See docs/OFFLINE-SYNC.md.`);
+    super(
+      `Electric SQL provider is not configured: ${reason}. ` +
+        `Set provider: 'crdt' for the default sync path, or stand up an Electric ` +
+        `service and pass electricUrl. See docs/OFFLINE-SYNC.md.`,
+    );
     this.name = 'ElectricNotConfigured';
   }
 }
 
 export class ElectricUnavailable extends Error {
   constructor(reason: string) {
-    super(`Electric SQL is unavailable: ${reason}. ` +
-      `The engine reported ELECTRIC_URL / ELECTRIC_AUTH_TOKEN are unset, or the ` +
-      `Electric service is down. Fall back to provider: 'crdt' or check the ops checklist.`);
+    super(
+      `Electric SQL is unavailable: ${reason}. ` +
+        `The engine reported ELECTRIC_URL / ELECTRIC_AUTH_TOKEN are unset, or the ` +
+        `Electric service is down. Fall back to provider: 'crdt' or check the ops checklist.`,
+    );
     this.name = 'ElectricUnavailable';
   }
 }
@@ -139,10 +143,20 @@ async function makeCrdtAdapter(_config: OfflineProviderConfig): Promise<OfflineP
   void SyncManager;
   return {
     kind: 'crdt',
-    async pull() { /* delegated to SyncManager in the full impl */ },
-    async push() { return 0; },
-    subscribe(_table, _cb) { return () => { /* */ }; },
-    async close() { /* */ },
+    async pull() {
+      /* delegated to SyncManager in the full impl */
+    },
+    async push() {
+      return 0;
+    },
+    subscribe(_table, _cb) {
+      return () => {
+        /* */
+      };
+    },
+    async close() {
+      /* */
+    },
   };
 }
 
@@ -161,16 +175,17 @@ interface ElectricMessage {
   rows?: unknown[];
 }
 
-async function makeElectricProvider(
-  config: OfflineProviderConfig,
-): Promise<OfflineProvider> {
+async function makeElectricProvider(config: OfflineProviderConfig): Promise<OfflineProvider> {
   const doFetch = config.fetch ?? globalThis.fetch;
   if (typeof doFetch !== 'function') {
     throw new ElectricNotConfigured('no fetch implementation available — pass config.fetch');
   }
-  const WSCandidate = config.websocket ?? (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;
+  const WSCandidate =
+    config.websocket ?? (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;
   if (typeof WSCandidate !== 'function') {
-    throw new ElectricNotConfigured('no WebSocket implementation available — pass config.websocket');
+    throw new ElectricNotConfigured(
+      'no WebSocket implementation available — pass config.websocket',
+    );
   }
   const WS = WSCandidate;
 
@@ -183,16 +198,18 @@ async function makeElectricProvider(
       body: JSON.stringify({ tables: config.tables ?? [] }),
     });
     if (res.status === 401) {
-      throw new ElectricUnavailable('engine returned 401 — sign in before requesting Electric sync');
+      throw new ElectricUnavailable(
+        'engine returned 401 — sign in before requesting Electric sync',
+      );
     }
     if (res.status === 503) {
-      const body = await res.json().catch(() => ({})) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
       throw new ElectricUnavailable(body.error ?? 'engine reports Electric is not configured');
     }
     if (!res.ok) {
       throw new ElectricUnavailable(`engine returned ${res.status}`);
     }
-    return await res.json() as ElectricAuthResponse;
+    return (await res.json()) as ElectricAuthResponse;
   }
 
   let auth = await mintToken();
@@ -236,7 +253,9 @@ async function makeElectricProvider(
     });
     socket.addEventListener('error', (ev) => {
       // The first error fires before `open`; treat it as a connect failure.
-      reject(new ElectricUnavailable(`websocket error: ${(ev as ErrorEvent).message ?? 'unknown'}`));
+      reject(
+        new ElectricUnavailable(`websocket error: ${(ev as ErrorEvent).message ?? 'unknown'}`),
+      );
     });
     socket.addEventListener('message', (ev) => {
       let msg: ElectricMessage;
@@ -286,7 +305,10 @@ async function makeElectricProvider(
       };
     },
     async close() {
-      if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
       if (socket.readyState === WS.OPEN || socket.readyState === WS.CONNECTING) {
         socket.close();
       }
