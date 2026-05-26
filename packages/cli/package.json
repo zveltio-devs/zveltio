@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/cli",
-  "version": "1.0.0-alpha.101",
+  "version": "1.0.0-alpha.102",
   "type": "module",
   "bin": {
     "zveltio": "./dist/index.js"
