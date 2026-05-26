@@ -139,18 +139,12 @@ export async function uploadFile(
   return (result as any)?.data ?? (result as any)?.file ?? result;
 }
 
-export async function listFiles(
-  client: ZveltioClient,
-  folder?: string,
-): Promise<StorageFile[]> {
+export async function listFiles(client: ZveltioClient, folder?: string): Promise<StorageFile[]> {
   const result = await client.storage.list(folder);
   return (result as any)?.data ?? (result as any)?.files ?? result ?? [];
 }
 
-export async function removeFile(
-  client: ZveltioClient,
-  fileId: string,
-): Promise<void> {
+export async function removeFile(client: ZveltioClient, fileId: string): Promise<void> {
   await client.storage.delete(fileId);
 }
 

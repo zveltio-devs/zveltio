@@ -1,13 +1,13 @@
 <script lang="ts">
-  interface Crumb {
-    label: string;
-    href?: string;
-  }
-  interface Props {
-    crumbs: Crumb[];
-    class?: string;
-  }
-  let { crumbs, class: className = '' }: Props = $props();
+interface Crumb {
+  label: string;
+  href?: string;
+}
+interface Props {
+  crumbs: Crumb[];
+  class?: string;
+}
+let { crumbs, class: className = '' }: Props = $props();
 </script>
 
 <div class="breadcrumbs text-sm {className}">

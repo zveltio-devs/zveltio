@@ -24,7 +24,9 @@ export function useCollection<T = any>(
     }
   }, [client, collectionName, JSON.stringify(options)]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return { data, loading, error, refetch: load };
 }

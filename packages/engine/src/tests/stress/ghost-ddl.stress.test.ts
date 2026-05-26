@@ -31,7 +31,8 @@ afterAll(async () => {
 
 async function createTestTable(tableName: string, rows = 0): Promise<void> {
   await sql.raw(`DROP TABLE IF EXISTS "${tableName}" CASCADE`).execute(db);
-  await sql.raw(`
+  await sql
+    .raw(`
     CREATE TABLE "${tableName}" (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name TEXT NOT NULL DEFAULT '',
@@ -40,17 +41,22 @@ async function createTestTable(tableName: string, rows = 0): Promise<void> {
       tags TEXT[] NOT NULL DEFAULT '{}',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
-  `).execute(db);
+  `)
+    .execute(db);
 
   if (rows > 0) {
     // Batch insert using VALUES
     const batchSize = 1000;
     for (let offset = 0; offset < rows; offset += batchSize) {
       const count = Math.min(batchSize, rows - offset);
-      const values = Array.from({ length: count }, (_, i) =>
-        `(gen_random_uuid(), 'row-${offset + i}', ${offset + i}, '{"key":"value"}'::jsonb, ARRAY['tag1','tag2'])`,
+      const values = Array.from(
+        { length: count },
+        (_, i) =>
+          `(gen_random_uuid(), 'row-${offset + i}', ${offset + i}, '{"key":"value"}'::jsonb, ARRAY['tag1','tag2'])`,
       ).join(',');
-      await sql.raw(`INSERT INTO "${tableName}" (id, name, value, data, tags) VALUES ${values}`).execute(db);
+      await sql
+        .raw(`INSERT INTO "${tableName}" (id, name, value, data, tags) VALUES ${values}`)
+        .execute(db);
     }
   }
 }
@@ -75,27 +81,29 @@ async function columnExists(tableName: string, columnName: string): Promise<bool
 }
 
 describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
-
   // ═══ Scenario 1: Concurrent inserts during migration ═══
   it('should not lose data during concurrent inserts while ghost DDL runs', async () => {
     const tableName = 'test_ghost_concurrent';
     await createTestTable(tableName, 1000);
 
     // Start Ghost DDL concurrently with inserts
-    const ghostPromise = GhostDDL.execute(
-      db,
-      tableName,
-      [`ADD COLUMN new_col TEXT NOT NULL DEFAULT 'added'`],
-    );
+    const ghostPromise = GhostDDL.execute(db, tableName, [
+      `ADD COLUMN new_col TEXT NOT NULL DEFAULT 'added'`,
+    ]);
 
     // Simultaneously insert 500 rows while migration runs
     const insertPromise = (async () => {
       const inserts = Array.from({ length: 50 }, (_, batchIdx) =>
-        sql.raw(`
+        sql
+          .raw(`
           INSERT INTO "${tableName}" (name, value, data, tags)
           SELECT 'concurrent-${batchIdx}-' || generate_series, ${batchIdx}, '{}'::jsonb, '{}'
           FROM generate_series(1, 10)
-        `).execute(db).catch(() => { /* ignore during swap */ }),
+        `)
+          .execute(db)
+          .catch(() => {
+            /* ignore during swap */
+          }),
       );
       await Promise.all(inserts);
     })();
@@ -111,11 +119,13 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
     expect(count).toBeGreaterThanOrEqual(1000);
 
     // No duplicates
-    const dupCheck = await sql.raw(`
+    const dupCheck = await sql
+      .raw(`
       SELECT COUNT(*) AS cnt FROM (
         SELECT id, COUNT(*) FROM "${tableName}" GROUP BY id HAVING COUNT(*) > 1
       ) t
-    `).execute(db);
+    `)
+      .execute(db);
     expect(parseInt((dupCheck.rows[0] as any).cnt)).toBe(0);
 
     await dropTestTable(tableName);
@@ -131,9 +141,7 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
     expect(await columnExists(tableName, 'temp_col')).toBe(true);
 
     // 2. Rename column (via add+drop — Ghost DDL doesn't support RENAME directly)
-    await GhostDDL.execute(db, tableName, [
-      `ADD COLUMN final_col TEXT NOT NULL DEFAULT ''`,
-    ]);
+    await GhostDDL.execute(db, tableName, [`ADD COLUMN final_col TEXT NOT NULL DEFAULT ''`]);
     expect(await columnExists(tableName, 'final_col')).toBe(true);
 
     // 3. Drop temp_col
@@ -153,7 +161,9 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
     await createTestTable(tableName, rowCount);
 
     const start = Date.now();
-    await GhostDDL.execute(db, tableName, [`ADD COLUMN large_col TEXT NOT NULL DEFAULT 'migrated'`]);
+    await GhostDDL.execute(db, tableName, [
+      `ADD COLUMN large_col TEXT NOT NULL DEFAULT 'migrated'`,
+    ]);
     const duration = Date.now() - start;
 
     expect(await columnExists(tableName, 'large_col')).toBe(true);
@@ -197,12 +207,17 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
     expect(await columnExists(tableName, 'swap_col')).toBe(false);
 
     // Cleanup any ghost tables
-    const ghosts = await sql.raw(`
+    const ghosts = await sql
+      .raw(`
       SELECT tablename FROM pg_tables
       WHERE schemaname = 'public' AND tablename LIKE '${tableName}_ghost_%'
-    `).execute(db);
+    `)
+      .execute(db);
     for (const row of ghosts.rows) {
-      await sql.raw(`DROP TABLE IF EXISTS "${(row as any).tablename}" CASCADE`).execute(db).catch(() => {});
+      await sql
+        .raw(`DROP TABLE IF EXISTS "${(row as any).tablename}" CASCADE`)
+        .execute(db)
+        .catch(() => {});
     }
 
     await dropTestTable(tableName);
@@ -213,13 +228,23 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
     const tableName = 'test_ghost_changelog';
     await createTestTable(tableName, 500);
 
-    const migration = await GhostDDL.createGhost(db, tableName, [`ADD COLUMN cl_col TEXT NOT NULL DEFAULT ''`]);
+    const migration = await GhostDDL.createGhost(db, tableName, [
+      `ADD COLUMN cl_col TEXT NOT NULL DEFAULT ''`,
+    ]);
 
     // Simulate changes during batchCopy
     await Promise.all([
       // Insert new rows
-      sql.raw(`INSERT INTO "${tableName}" (name, value, data, tags) VALUES ('new1', 999, '{}'::jsonb, '{}')`).execute(db),
-      sql.raw(`INSERT INTO "${tableName}" (name, value, data, tags) VALUES ('new2', 998, '{}'::jsonb, '{}')`).execute(db),
+      sql
+        .raw(
+          `INSERT INTO "${tableName}" (name, value, data, tags) VALUES ('new1', 999, '{}'::jsonb, '{}')`,
+        )
+        .execute(db),
+      sql
+        .raw(
+          `INSERT INTO "${tableName}" (name, value, data, tags) VALUES ('new2', 998, '{}'::jsonb, '{}')`,
+        )
+        .execute(db),
       // Update existing rows
       sql.raw(`UPDATE "${tableName}" SET value = -1 WHERE name LIKE 'row-%' LIMIT 50`).execute(db),
     ]);
@@ -256,11 +281,13 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
     const tableName = 'test_ghost_complex_data';
     await createTestTable(tableName, 0);
 
-    await sql.raw(`
+    await sql
+      .raw(`
       INSERT INTO "${tableName}" (name, value, data, tags) VALUES
         ('json-test', 1, '{"nested":{"key":"value"},"arr":[1,2,3]}'::jsonb, ARRAY['a','b','c']),
         ('unicode', 2, '{"emoji":"🚀","special":"<>&\\""}'::jsonb, ARRAY['x'])
-    `).execute(db);
+    `)
+      .execute(db);
 
     await GhostDDL.execute(db, tableName, [`ADD COLUMN migrated BOOLEAN NOT NULL DEFAULT true`]);
 
@@ -274,5 +301,4 @@ describe.skipIf(skipAll)('Ghost DDL — Stress & Fuzz Tests', () => {
 
     await dropTestTable(tableName);
   }, 30_000);
-
 });

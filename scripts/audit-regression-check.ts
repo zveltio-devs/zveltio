@@ -20,7 +20,10 @@ interface InventoryEntry {
   audited: boolean;
 }
 
-interface Inventory { covered: InventoryEntry[]; gaps: InventoryEntry[] }
+interface Inventory {
+  covered: InventoryEntry[];
+  gaps: InventoryEntry[];
+}
 
 /**
  * Handlers that MUST have an auditLog() call. Key = "<basename>:<METHOD> <path>".
@@ -71,10 +74,7 @@ async function main(): Promise<void> {
   // Sanity: every mandatory entry should at least exist in the codebase as a
   // route (either covered or gap). If not, the route was renamed/removed and
   // this list is stale.
-  const allKeys = new Set([
-    ...inv.covered.map(keyFor),
-    ...inv.gaps.map(keyFor),
-  ]);
+  const allKeys = new Set([...inv.covered.map(keyFor), ...inv.gaps.map(keyFor)]);
   for (const k of MANDATORY) {
     if (!allKeys.has(k)) extras.push(k);
   }
@@ -87,7 +87,9 @@ async function main(): Promise<void> {
   if (missing.length > 0) {
     console.error('\n✗ The following privileged handlers have no auditLog() call:');
     for (const k of missing) console.error(`  - ${k}`);
-    console.error('\n  Add auditLog(...) to the handler, or remove from MANDATORY in scripts/audit-regression-check.ts if intentional.');
+    console.error(
+      '\n  Add auditLog(...) to the handler, or remove from MANDATORY in scripts/audit-regression-check.ts if intentional.',
+    );
   }
   if (extras.length > 0) {
     console.error('\n✗ The following entries in MANDATORY refer to routes that no longer exist:');

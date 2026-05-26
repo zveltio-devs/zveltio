@@ -1,77 +1,114 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { ENGINE_URL } from '$lib/config.js';
-  import { BookOpen, Plus, X, FileCode, Key, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { ENGINE_URL } from '$lib/config.js';
+import { BookOpen, Plus, X, FileCode, Key, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let tab = $state<'changelog' | 'custom' | 'tokens'>('changelog');
-  let changelogs = $state<any[]>([]);
-  let customDocs = $state<any[]>([]);
-  let tokens = $state<any[]>([]);
-  let loading = $state(false);
+let tab = $state<'changelog' | 'custom' | 'tokens'>('changelog');
+let changelogs = $state<any[]>([]);
+let customDocs = $state<any[]>([]);
+let tokens = $state<any[]>([]);
+let loading = $state(false);
 
-  let showCustomForm = $state(false);
-  let saving = $state(false);
-  let customForm = $state({ slug: '', title: '', body: '# New documentation page\n\nWrite content in Markdown.', is_public: false });
+let showCustomForm = $state(false);
+let saving = $state(false);
+let customForm = $state({
+  slug: '',
+  title: '',
+  body: '# New documentation page\n\nWrite content in Markdown.',
+  is_public: false,
+});
 
-  async function loadChangelog() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/changelogs'); changelogs = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadChangelog() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/changelogs');
+    changelogs = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadCustom() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/custom'); customDocs = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+}
+async function loadCustom() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/custom');
+    customDocs = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadTokens() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/access-tokens'); tokens = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+}
+async function loadTokens() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/access-tokens');
+    tokens = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function createCustom() {
-    saving = true;
-    try {
-      await api.post('/ext/developer/api-docs/custom', customForm);
-      showCustomForm = false;
-      customForm = { slug: '', title: '', body: '# New documentation page\n\nWrite content in Markdown.', is_public: false };
-      await loadCustom();
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+async function createCustom() {
+  saving = true;
+  try {
+    await api.post('/ext/developer/api-docs/custom', customForm);
+    showCustomForm = false;
+    customForm = {
+      slug: '',
+      title: '',
+      body: '# New documentation page\n\nWrite content in Markdown.',
+      is_public: false,
+    };
+    await loadCustom();
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function generateToken() {
-    try { await api.post('/ext/developer/api-docs/access-tokens', {}); await loadTokens(); toast.success(m['developer.apiDocs.toast.tokenGenerated']()); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function generateToken() {
+  try {
+    await api.post('/ext/developer/api-docs/access-tokens', {});
+    await loadTokens();
+    toast.success(m['developer.apiDocs.toast.tokenGenerated']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function revokeToken(id: string) {
-        askConfirm(m['developer.apiDocs.confirmRevoke'](), () => revokeTokenConfirmed(id));
+}
+async function revokeToken(id: string) {
+  askConfirm(m['developer.apiDocs.confirmRevoke'](), () => revokeTokenConfirmed(id));
+}
+async function revokeTokenConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/developer/api-docs/access-tokens/${id}`);
+    await loadTokens();
+    toast.success(m['developer.apiDocs.toast.revoked']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function revokeTokenConfirmed(id: string) {
-    try { await api.delete(`/ext/developer/api-docs/access-tokens/${id}`); await loadTokens(); toast.success(m['developer.apiDocs.toast.revoked']()); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  $effect(() => {
-    if (tab === 'changelog') loadChangelog();
-    else if (tab === 'custom') loadCustom();
-    else loadTokens();
-  });
-  onMount(loadChangelog);
+$effect(() => {
+  if (tab === 'changelog') loadChangelog();
+  else if (tab === 'custom') loadCustom();
+  else loadTokens();
+});
+onMount(loadChangelog);
 </script>
 
 <ExtensionPageShell title={m['developer.api-docs.title']()} subtitle={m['developer.api-docs.subtitle']()}>

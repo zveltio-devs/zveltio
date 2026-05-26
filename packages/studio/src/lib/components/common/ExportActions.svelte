@@ -1,40 +1,40 @@
 <script lang="ts">
 import { Download, ChevronDown } from '@lucide/svelte';
- import { api } from '$lib/api.js';
+import { api } from '$lib/api.js';
 
- interface Props {
- collection: string;
- filters?: Record<string, string>;
- label?: string;
- }
+interface Props {
+  collection: string;
+  filters?: Record<string, string>;
+  label?: string;
+}
 
- let { collection, filters = {}, label = 'Export' }: Props = $props();
+let { collection, filters = {}, label = 'Export' }: Props = $props();
 
- let exporting = $state(false);
+let exporting = $state(false);
 
- async function exportFormat(format: 'csv' | 'json' | 'xlsx') {
- exporting = true;
- try {
- const params = new URLSearchParams({ format, ...filters });
- const res = await fetch(
- `${(await import('$lib/config.js')).ENGINE_URL}/ext/data/export/${collection}?${params}`,
- { credentials: 'include' }
- );
- if (!res.ok) throw new Error('Export failed');
+async function exportFormat(format: 'csv' | 'json' | 'xlsx') {
+  exporting = true;
+  try {
+    const params = new URLSearchParams({ format, ...filters });
+    const res = await fetch(
+      `${(await import('$lib/config.js')).ENGINE_URL}/ext/data/export/${collection}?${params}`,
+      { credentials: 'include' },
+    );
+    if (!res.ok) throw new Error('Export failed');
 
- const blob = await res.blob();
- const url = URL.createObjectURL(blob);
- const a = document.createElement('a');
- a.href = url;
- a.download = `${collection}-export.${format}`;
- a.click();
- URL.revokeObjectURL(url);
- } catch (e) {
- alert('Export failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
- } finally {
- exporting = false;
- }
- }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${collection}-export.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Export failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
+  } finally {
+    exporting = false;
+  }
+}
 </script>
 
 <div class="dropdown dropdown-end">

@@ -1,151 +1,160 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import { Plus, Search, Trash2, Globe, Check, X } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
- import PageSpinner from '$lib/components/common/PageSpinner.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { Plus, Search, Trash2, Globe, Check, X } from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- let locales = $state<any[]>([]);
- let keys = $state<any[]>([]);
- let pagination = $state({ total: 0, page: 1, limit: 50 });
- let loading = $state(true);
- let activeLocale = $state('en');
- let search = $state('');
- let showAddKey = $state(false);
- let showAddLocale = $state(false);
- let saving = $state(false);
+let locales = $state<any[]>([]);
+let keys = $state<any[]>([]);
+let pagination = $state({ total: 0, page: 1, limit: 50 });
+let loading = $state(true);
+let activeLocale = $state('en');
+let search = $state('');
+let showAddKey = $state(false);
+let showAddLocale = $state(false);
+let saving = $state(false);
 
- let newKey = $state({ key: '', context: '', default_value: '', description: '' });
- let newLocale = $state({ code: '', name: '', is_default: false });
- let editingCell = $state<{ keyId: string; locale: string } | null>(null);
- let editValue = $state('');
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let newKey = $state({ key: '', context: '', default_value: '', description: '' });
+let newLocale = $state({ code: '', name: '', is_default: false });
+let editingCell = $state<{ keyId: string; locale: string } | null>(null);
+let editValue = $state('');
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- onMount(async () => {
- await loadAll();
- });
+onMount(async () => {
+  await loadAll();
+});
 
- async function loadAll() {
- loading = true;
- const [locRes, keysRes] = await Promise.all([
- api.get<{ locales: any[] }>('/ext/i18n/translations/locales'),
- loadKeys(),
- ]);
- locales = locRes.locales || [];
- if (locales.length > 0) activeLocale = locales.find((l) => l.is_default)?.code || locales[0].code;
- loading = false;
- }
+async function loadAll() {
+  loading = true;
+  const [locRes, keysRes] = await Promise.all([
+    api.get<{ locales: any[] }>('/ext/i18n/translations/locales'),
+    loadKeys(),
+  ]);
+  locales = locRes.locales || [];
+  if (locales.length > 0) activeLocale = locales.find((l) => l.is_default)?.code || locales[0].code;
+  loading = false;
+}
 
- async function loadKeys() {
- const qs = new URLSearchParams({ limit: String(pagination.limit), page: String(pagination.page) });
- if (search.trim()) qs.set('search', search.trim());
- const res = await api.get<{ keys: any[]; pagination: any }>(`/ext/i18n/translations?${qs}`);
- keys = res.keys || [];
- pagination = { ...pagination, ...res.pagination };
- return res;
- }
+async function loadKeys() {
+  const qs = new URLSearchParams({
+    limit: String(pagination.limit),
+    page: String(pagination.page),
+  });
+  if (search.trim()) qs.set('search', search.trim());
+  const res = await api.get<{ keys: any[]; pagination: any }>(`/ext/i18n/translations?${qs}`);
+  keys = res.keys || [];
+  pagination = { ...pagination, ...res.pagination };
+  return res;
+}
 
- async function addKey() {
- if (!newKey.key.trim()) return;
- saving = true;
- try {
- await api.post('/ext/i18n/translations', newKey);
- await loadKeys();
- showAddKey = false;
- newKey = { key: '', context: '', default_value: '', description: '' };
- } catch (err: any) {
- toast.error(err.message);
- } finally {
- saving = false;
- }
- }
+async function addKey() {
+  if (!newKey.key.trim()) return;
+  saving = true;
+  try {
+    await api.post('/ext/i18n/translations', newKey);
+    await loadKeys();
+    showAddKey = false;
+    newKey = { key: '', context: '', default_value: '', description: '' };
+  } catch (err: any) {
+    toast.error(err.message);
+  } finally {
+    saving = false;
+  }
+}
 
- async function addLocale() {
- if (!newLocale.code || !newLocale.name) return;
- saving = true;
- try {
- await api.post('/ext/i18n/translations/locales', newLocale);
- const res = await api.get<{ locales: any[] }>('/ext/i18n/translations/locales');
- locales = res.locales;
- showAddLocale = false;
- newLocale = { code: '', name: '', is_default: false };
- } catch (err: any) {
- toast.error(err.message);
- } finally {
- saving = false;
- }
- }
+async function addLocale() {
+  if (!newLocale.code || !newLocale.name) return;
+  saving = true;
+  try {
+    await api.post('/ext/i18n/translations/locales', newLocale);
+    const res = await api.get<{ locales: any[] }>('/ext/i18n/translations/locales');
+    locales = res.locales;
+    showAddLocale = false;
+    newLocale = { code: '', name: '', is_default: false };
+  } catch (err: any) {
+    toast.error(err.message);
+  } finally {
+    saving = false;
+  }
+}
 
- async function deleteKey(id: string, key: string) {
- confirmState = {
- open: true,
- title: 'Delete Translation Key',
- message: `Delete key '${key}' and all its translations?`,
- confirmLabel: 'Delete',
- onconfirm: async () => {
- confirmState.open = false;
- await api.delete(`/ext/i18n/translations/${id}`);
- keys = keys.filter((k) => k.id !== id);
- },
- };
- }
+async function deleteKey(id: string, key: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Translation Key',
+    message: `Delete key '${key}' and all its translations?`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      await api.delete(`/ext/i18n/translations/${id}`);
+      keys = keys.filter((k) => k.id !== id);
+    },
+  };
+}
 
- function startEdit(keyId: string, locale: string, currentValue: string) {
- editingCell = { keyId, locale };
- editValue = currentValue || '';
- }
+function startEdit(keyId: string, locale: string, currentValue: string) {
+  editingCell = { keyId, locale };
+  editValue = currentValue || '';
+}
 
- async function saveEdit() {
- if (!editingCell) return;
- const { keyId, locale } = editingCell;
- saving = true;
- try {
- await api.put(`/ext/i18n/translations/${keyId}/${locale}`, {
- value: editValue,
- is_machine_translated: false,
- reviewed: false,
- });
- // Update local state
- const keyIdx = keys.findIndex((k) => k.id === keyId);
- if (keyIdx >= 0) {
- const translations = [...(keys[keyIdx].translations || [])];
- const tIdx = translations.findIndex((t: any) => t.locale === locale);
- if (tIdx >= 0) {
- translations[tIdx] = { ...translations[tIdx], value: editValue };
- } else {
- translations.push({ locale, value: editValue, reviewed: false });
- }
- keys[keyIdx] = { ...keys[keyIdx], translations };
- }
- } catch (err: any) {
- toast.error(err.message);
- } finally {
- saving = false;
- editingCell = null;
- }
- }
+async function saveEdit() {
+  if (!editingCell) return;
+  const { keyId, locale } = editingCell;
+  saving = true;
+  try {
+    await api.put(`/ext/i18n/translations/${keyId}/${locale}`, {
+      value: editValue,
+      is_machine_translated: false,
+      reviewed: false,
+    });
+    // Update local state
+    const keyIdx = keys.findIndex((k) => k.id === keyId);
+    if (keyIdx >= 0) {
+      const translations = [...(keys[keyIdx].translations || [])];
+      const tIdx = translations.findIndex((t: any) => t.locale === locale);
+      if (tIdx >= 0) {
+        translations[tIdx] = { ...translations[tIdx], value: editValue };
+      } else {
+        translations.push({ locale, value: editValue, reviewed: false });
+      }
+      keys[keyIdx] = { ...keys[keyIdx], translations };
+    }
+  } catch (err: any) {
+    toast.error(err.message);
+  } finally {
+    saving = false;
+    editingCell = null;
+  }
+}
 
- function cancelEdit() {
- editingCell = null;
- editValue = '';
- }
+function cancelEdit() {
+  editingCell = null;
+  editValue = '';
+}
 
- function getTranslation(key: any, locale: string): string {
- const t = (key.translations || []).find((tr: any) => tr.locale === locale);
- return t?.value || '';
- }
+function getTranslation(key: any, locale: string): string {
+  const t = (key.translations || []).find((tr: any) => tr.locale === locale);
+  return t?.value || '';
+}
 
- function isReviewed(key: any, locale: string): boolean {
- const t = (key.translations || []).find((tr: any) => tr.locale === locale);
- return t?.reviewed || false;
- }
+function isReviewed(key: any, locale: string): boolean {
+  const t = (key.translations || []).find((tr: any) => tr.locale === locale);
+  return t?.reviewed || false;
+}
 
- async function searchKeys() {
- pagination.page = 1;
- await loadKeys();
- }
+async function searchKeys() {
+  pagination.page = 1;
+  await loadKeys();
+}
 </script>
 
 <div class="space-y-6">

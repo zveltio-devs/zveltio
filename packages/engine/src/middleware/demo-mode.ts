@@ -20,14 +20,14 @@ import type { Context, Next } from 'hono';
 const BLOCKED_PATHS: Array<{ method: string; pattern: RegExp }> = [
   // Auth secrets & user-state machinery
   { method: 'DELETE', pattern: /^\/api\/users\/[^/]+$/ },
-  { method: 'POST',   pattern: /^\/api\/admin\/api-keys$/ },
+  { method: 'POST', pattern: /^\/api\/admin\/api-keys$/ },
   { method: 'DELETE', pattern: /^\/api\/admin\/api-keys\/[^/]+$/ },
   // Backups: restoring or scheduling against a demo replaces the demo
   // state with whatever the operator dumped — not safe.
-  { method: 'POST',   pattern: /^\/api\/backup\/pitr\/restore$/ },
-  { method: 'POST',   pattern: /^\/api\/backup\/schedules$/ },
+  { method: 'POST', pattern: /^\/api\/backup\/pitr\/restore$/ },
+  { method: 'POST', pattern: /^\/api\/backup\/schedules$/ },
   // Migrations — re-running on demo can race the reset cron.
-  { method: 'POST',   pattern: /^\/api\/admin\/migrate$/ },
+  { method: 'POST', pattern: /^\/api\/admin\/migrate$/ },
   // Wiping logs would hide the audit trail of the demo session itself.
   { method: 'DELETE', pattern: /^\/api\/admin\/revisions$/ },
   // SQL editor — the demo can be useful with read-only SQL, but we'd need a
@@ -39,7 +39,9 @@ export function demoModeMiddleware() {
   const enabled = process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === '1';
   if (!enabled) {
     // Identity middleware — no overhead when demo mode is off.
-    return async (_c: Context, next: Next) => { await next(); };
+    return async (_c: Context, next: Next) => {
+      await next();
+    };
   }
 
   return async (c: Context, next: Next) => {
@@ -47,10 +49,13 @@ export function demoModeMiddleware() {
     const method = c.req.method.toUpperCase();
     for (const rule of BLOCKED_PATHS) {
       if (rule.method === method && rule.pattern.test(path)) {
-        return c.json({
-          error: 'This action is disabled in demo mode.',
-          code: 'DEMO_BLOCKED',
-        }, 451);
+        return c.json(
+          {
+            error: 'This action is disabled in demo mode.',
+            code: 'DEMO_BLOCKED',
+          },
+          451,
+        );
       }
     }
     await next();

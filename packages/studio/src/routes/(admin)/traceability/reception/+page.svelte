@@ -1,93 +1,118 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { api } from '$lib/api.js';
-  const API = '/ext/operations/traceability';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { api } from '$lib/api.js';
+const API = '/ext/operations/traceability';
 
-  let items = $state<any[]>([]);
-  let suppliers = $state<any[]>([]);
-  let locations = $state<any[]>([]);
-  let saving = $state(false);
-  let saved = $state<any>(null);
-  let error = $state('');
+let items = $state<any[]>([]);
+let suppliers = $state<any[]>([]);
+let locations = $state<any[]>([]);
+let saving = $state(false);
+let saved = $state<any>(null);
+let error = $state('');
 
-  let form = $state({
-    item_id: '',
-    lot_type: 'inbound' as const,
-    quantity_initial: '',
-    unit: 'kg',
-    supplier_id: '',
-    supplier_lot_ref: '',
-    best_before_date: '',
-    production_date: '',
-    reception_date: new Date().toISOString().slice(0, 10),
-    invoice_ref: '',
-    location_id: '',
-    notes: '',
-    gs1_raw: '',
-  });
+let form = $state({
+  item_id: '',
+  lot_type: 'inbound' as const,
+  quantity_initial: '',
+  unit: 'kg',
+  supplier_id: '',
+  supplier_lot_ref: '',
+  best_before_date: '',
+  production_date: '',
+  reception_date: new Date().toISOString().slice(0, 10),
+  invoice_ref: '',
+  location_id: '',
+  notes: '',
+  gs1_raw: '',
+});
 
-  $effect(() => {
-    Promise.all([
-      api.fetch(`${API}/items?type=raw`).then(r => r.json()).then(d => { items = d.data ?? []; }),
-      api.fetch(`${API}/suppliers`).then(r => r.json()).then(d => { suppliers = d.data ?? []; }),
-      api.fetch(`${API}/locations`).then(r => r.json()).then(d => { locations = d.data ?? []; }),
-    ]);
-  });
+$effect(() => {
+  Promise.all([
+    api
+      .fetch(`${API}/items?type=raw`)
+      .then((r) => r.json())
+      .then((d) => {
+        items = d.data ?? [];
+      }),
+    api
+      .fetch(`${API}/suppliers`)
+      .then((r) => r.json())
+      .then((d) => {
+        suppliers = d.data ?? [];
+      }),
+    api
+      .fetch(`${API}/locations`)
+      .then((r) => r.json())
+      .then((d) => {
+        locations = d.data ?? [];
+      }),
+  ]);
+});
 
-  async function parseGS1() {
-    if (!form.gs1_raw.trim()) return;
-    try {
-      const res = await api.fetch(`${API}/scan/parse-gs1`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw: form.gs1_raw }),
-      });
-      const data = (await res.json()).data;
-      if (data.supplier_lot_ref) form.supplier_lot_ref = data.supplier_lot_ref;
-      if (data.best_before_date) form.best_before_date = data.best_before_date;
-    } catch {}
+async function parseGS1() {
+  if (!form.gs1_raw.trim()) return;
+  try {
+    const res = await api.fetch(`${API}/scan/parse-gs1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw: form.gs1_raw }),
+    });
+    const data = (await res.json()).data;
+    if (data.supplier_lot_ref) form.supplier_lot_ref = data.supplier_lot_ref;
+    if (data.best_before_date) form.best_before_date = data.best_before_date;
+  } catch {}
+}
+
+async function submit(e: Event) {
+  e.preventDefault();
+  saving = true;
+  error = '';
+  saved = null;
+
+  try {
+    const payload: any = {
+      item_id: form.item_id,
+      lot_type: form.lot_type,
+      quantity_initial: parseFloat(form.quantity_initial),
+      unit: form.unit,
+      reception_date: form.reception_date,
+    };
+    if (form.supplier_id) payload.supplier_id = form.supplier_id;
+    if (form.supplier_lot_ref) payload.supplier_lot_ref = form.supplier_lot_ref;
+    if (form.best_before_date) payload.best_before_date = form.best_before_date;
+    if (form.production_date) payload.production_date = form.production_date;
+    if (form.invoice_ref) payload.invoice_ref = form.invoice_ref;
+    if (form.location_id) payload.location_id = form.location_id;
+    if (form.notes) payload.notes = form.notes;
+
+    const res = await api.fetch(`${API}/lots`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) throw new Error(await res.text());
+    saved = (await res.json()).data;
+
+    // Reset form
+    form = {
+      ...form,
+      item_id: '',
+      quantity_initial: '',
+      supplier_lot_ref: '',
+      best_before_date: '',
+      production_date: '',
+      invoice_ref: '',
+      notes: '',
+      gs1_raw: '',
+    };
+  } catch (e: any) {
+    error = e.message;
+  } finally {
+    saving = false;
   }
-
-  async function submit(e: Event) {
-    e.preventDefault();
-    saving = true;
-    error = '';
-    saved = null;
-
-    try {
-      const payload: any = {
-        item_id: form.item_id,
-        lot_type: form.lot_type,
-        quantity_initial: parseFloat(form.quantity_initial),
-        unit: form.unit,
-        reception_date: form.reception_date,
-      };
-      if (form.supplier_id) payload.supplier_id = form.supplier_id;
-      if (form.supplier_lot_ref) payload.supplier_lot_ref = form.supplier_lot_ref;
-      if (form.best_before_date) payload.best_before_date = form.best_before_date;
-      if (form.production_date) payload.production_date = form.production_date;
-      if (form.invoice_ref) payload.invoice_ref = form.invoice_ref;
-      if (form.location_id) payload.location_id = form.location_id;
-      if (form.notes) payload.notes = form.notes;
-
-      const res = await api.fetch(`${API}/lots`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) throw new Error(await res.text());
-      saved = (await res.json()).data;
-
-      // Reset form
-      form = { ...form, item_id: '', quantity_initial: '', supplier_lot_ref: '', best_before_date: '', production_date: '', invoice_ref: '', notes: '', gs1_raw: '' };
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      saving = false;
-    }
-  }
+}
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.reception.title']()}>

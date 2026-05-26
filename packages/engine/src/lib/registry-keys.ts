@@ -67,7 +67,9 @@ function loadEnvKeys(): RegistryKey[] {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    console.warn(`[registry-keys] REGISTRY_PUBLIC_KEYS_JSON is not valid JSON: ${(err as Error).message}`);
+    console.warn(
+      `[registry-keys] REGISTRY_PUBLIC_KEYS_JSON is not valid JSON: ${(err as Error).message}`,
+    );
     return [];
   }
   if (!Array.isArray(parsed)) {
@@ -83,7 +85,9 @@ function loadEnvKeys(): RegistryKey[] {
     try {
       const publicKey = hexToBytes(entry.publicKeyHex);
       if (publicKey.length !== 32) {
-        console.warn(`[registry-keys] key ${entry.keyId}: expected 32-byte Ed25519 pubkey, got ${publicKey.length}`);
+        console.warn(
+          `[registry-keys] key ${entry.keyId}: expected 32-byte Ed25519 pubkey, got ${publicKey.length}`,
+        );
         continue;
       }
       out.push({ keyId: entry.keyId, publicKey });

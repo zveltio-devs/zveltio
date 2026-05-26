@@ -112,10 +112,7 @@ function mapToExternal(item: any, fieldMapping: Record<string, string>): any {
  * THROWS ERROR if an unsupported operator is requested and supported_operators is defined.
  * Does NOT do fetch-all — sends parameters directly to API.
  */
-export function translateQuery(
-  config: VirtualConfig,
-  query: VirtualQuery,
-): string {
+export function translateQuery(config: VirtualConfig, query: VirtualQuery): string {
   const params = new URLSearchParams();
   const supportedOps = config.supported_operators;
   const paginationStyle = config.pagination_style ?? 'page';
@@ -155,9 +152,7 @@ export function translateQuery(
       case 'in':
         params.append(
           `${apiField}[in]`,
-          Array.isArray(filter.value)
-            ? filter.value.join(',')
-            : String(filter.value),
+          Array.isArray(filter.value) ? filter.value.join(',') : String(filter.value),
         );
         break;
       case 'like':
@@ -188,12 +183,8 @@ export function translateQuery(
 
   // Sort
   if (query.sort) {
-    const apiField =
-      config.field_mapping?.[query.sort.field] ?? query.sort.field;
-    params.append(
-      'sort',
-      `${query.sort.direction === 'desc' ? '-' : ''}${apiField}`,
-    );
+    const apiField = config.field_mapping?.[query.sort.field] ?? query.sort.field;
+    params.append('sort', `${query.sort.direction === 'desc' ? '-' : ''}${apiField}`);
   }
 
   return params.toString();
@@ -218,50 +209,36 @@ export async function virtualList(
 
   const response = await fetch(url, { headers });
   if (!response.ok) {
-    throw new Error(
-      `Virtual source returned ${response.status}: ${await response.text()}`,
-    );
+    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
   }
 
   const json = await response.json();
   const extractPath = config.list_path || '$.data';
   const items = extractByPath(json, extractPath);
   const data = items.map((item) => mapToZveltio(item, config.field_mapping));
-  const total: number =
-    json.total ?? json.count ?? json.meta?.total ?? data.length;
+  const total: number = json.total ?? json.count ?? json.meta?.total ?? data.length;
 
   return { data, total };
 }
 
-export async function virtualGetOne(
-  config: VirtualConfig,
-  id: string,
-): Promise<any | null> {
+export async function virtualGetOne(config: VirtualConfig, id: string): Promise<any | null> {
   validatePublicUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
-  const getPath = (config.get_endpoint ?? '/:id').replace(
-    ':id',
-    encodeURIComponent(id),
-  );
+  const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
   const url = `${baseUrl}${getPath}`;
 
   const response = await fetch(url, { headers });
   if (response.status === 404) return null;
   if (!response.ok) {
-    throw new Error(
-      `Virtual source returned ${response.status}: ${await response.text()}`,
-    );
+    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
   }
 
   const item = await response.json();
   return mapToZveltio(item, config.field_mapping);
 }
 
-export async function virtualCreate(
-  config: VirtualConfig,
-  body: any,
-): Promise<any> {
+export async function virtualCreate(config: VirtualConfig, body: any): Promise<any> {
   validatePublicUrl(config.source_url);
   const headers = {
     'Content-Type': 'application/json',
@@ -275,30 +252,21 @@ export async function virtualCreate(
     body: JSON.stringify(externalBody),
   });
   if (!response.ok) {
-    throw new Error(
-      `Virtual source returned ${response.status}: ${await response.text()}`,
-    );
+    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
   }
 
   const item = await response.json();
   return mapToZveltio(item, config.field_mapping);
 }
 
-export async function virtualUpdate(
-  config: VirtualConfig,
-  id: string,
-  body: any,
-): Promise<any> {
+export async function virtualUpdate(config: VirtualConfig, id: string, body: any): Promise<any> {
   validatePublicUrl(config.source_url);
   const headers = {
     'Content-Type': 'application/json',
     ...buildAuthHeaders(config),
   };
   const baseUrl = config.source_url.replace(/\/$/, '');
-  const getPath = (config.get_endpoint ?? '/:id').replace(
-    ':id',
-    encodeURIComponent(id),
-  );
+  const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
   const url = `${baseUrl}${getPath}`;
   const externalBody = mapToExternal(body, config.field_mapping);
 
@@ -308,33 +276,23 @@ export async function virtualUpdate(
     body: JSON.stringify(externalBody),
   });
   if (!response.ok) {
-    throw new Error(
-      `Virtual source returned ${response.status}: ${await response.text()}`,
-    );
+    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
   }
 
   const item = await response.json();
   return mapToZveltio(item, config.field_mapping);
 }
 
-export async function virtualDelete(
-  config: VirtualConfig,
-  id: string,
-): Promise<void> {
+export async function virtualDelete(config: VirtualConfig, id: string): Promise<void> {
   validatePublicUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
-  const getPath = (config.get_endpoint ?? '/:id').replace(
-    ':id',
-    encodeURIComponent(id),
-  );
+  const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
   const url = `${baseUrl}${getPath}`;
 
   const response = await fetch(url, { method: 'DELETE', headers });
   if (response.status === 404 || response.status === 204) return;
   if (!response.ok) {
-    throw new Error(
-      `Virtual source returned ${response.status}: ${await response.text()}`,
-    );
+    throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
   }
 }

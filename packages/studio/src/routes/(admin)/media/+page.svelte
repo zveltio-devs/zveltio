@@ -1,222 +1,273 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
- import {
- Folder, FolderPlus, Upload, Image, Video, FileText, Trash2,
- Tag, Search, Grid3x3, List, Download, X, Plus,
- } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  Folder,
+  FolderPlus,
+  Upload,
+  Image,
+  Video,
+  FileText,
+  Trash2,
+  Tag,
+  Search,
+  Grid3x3,
+  List,
+  Download,
+  X,
+  Plus,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- let folders = $state<any[]>([]);
- let files = $state<any[]>([]);
- let tags = $state<any[]>([]);
- let selectedFolder = $state<string | null>(null);
- let selectedFolderName = $state<string>('All Files');
- let viewMode = $state<'grid' | 'list'>('grid');
- let searchQuery = $state('');
- let selectedTag = $state<string | null>(null);
- let selectedFiles = $state<Set<string>>(new Set());
+let folders = $state<any[]>([]);
+let files = $state<any[]>([]);
+let tags = $state<any[]>([]);
+let selectedFolder = $state<string | null>(null);
+let selectedFolderName = $state<string>('All Files');
+let viewMode = $state<'grid' | 'list'>('grid');
+let searchQuery = $state('');
+let selectedTag = $state<string | null>(null);
+let selectedFiles = $state<Set<string>>(new Set());
 
- let showUploadModal = $state(false);
- let uploadingFiles = $state<File[]>([]);
- let uploading = $state(false);
- let uploadProgress = $state(0);
+let showUploadModal = $state(false);
+let uploadingFiles = $state<File[]>([]);
+let uploading = $state(false);
+let uploadProgress = $state(0);
 
- let showFolderModal = $state(false);
- let folderName = $state('');
+let showFolderModal = $state(false);
+let folderName = $state('');
 
- let showTagModal = $state(false);
- let tagName = $state('');
- let tagColor = $state('#3b82f6');
+let showTagModal = $state(false);
+let tagName = $state('');
+let tagColor = $state('#3b82f6');
 
- let showFileDetails = $state<any>(null);
- let stats = $state<any>(null);
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let showFileDetails = $state<any>(null);
+let stats = $state<any>(null);
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- onMount(async () => {
- await Promise.all([loadFolders(), loadFiles(), loadTags(), loadStats()]);
- });
+onMount(async () => {
+  await Promise.all([loadFolders(), loadFiles(), loadTags(), loadStats()]);
+});
 
- async function loadFolders() {
- try {
- const data = await api.get<{ folders: any[] }>('/ext/content/media/folders');
- folders = data.folders || [];
- } catch (e: any) { toast.error(e.message ?? m['ext.loadFailed']()); }
- }
+async function loadFolders() {
+  try {
+    const data = await api.get<{ folders: any[] }>('/ext/content/media/folders');
+    folders = data.folders || [];
+  } catch (e: any) {
+    toast.error(e.message ?? m['ext.loadFailed']());
+  }
+}
 
- async function loadFiles() {
- try {
- const params = new URLSearchParams();
- if (selectedFolder) params.set('folder_id', selectedFolder);
- if (searchQuery) params.set('search', searchQuery);
- if (selectedTag) params.set('tag', selectedTag);
- params.set('limit', '100');
- const data = await api.get<{ files: any[] }>(`/ext/content/media/files?${params}`);
- files = data.files || [];
- } catch (e: any) { toast.error(e.message ?? m['ext.loadFailed']()); }
- }
+async function loadFiles() {
+  try {
+    const params = new URLSearchParams();
+    if (selectedFolder) params.set('folder_id', selectedFolder);
+    if (searchQuery) params.set('search', searchQuery);
+    if (selectedTag) params.set('tag', selectedTag);
+    params.set('limit', '100');
+    const data = await api.get<{ files: any[] }>(`/ext/content/media/files?${params}`);
+    files = data.files || [];
+  } catch (e: any) {
+    toast.error(e.message ?? m['ext.loadFailed']());
+  }
+}
 
- async function loadTags() {
- try {
- const data = await api.get<{ tags: any[] }>('/ext/content/media/tags');
- tags = data.tags || [];
- } catch (e: any) { toast.error(e.message ?? m['ext.loadFailed']()); }
- }
+async function loadTags() {
+  try {
+    const data = await api.get<{ tags: any[] }>('/ext/content/media/tags');
+    tags = data.tags || [];
+  } catch (e: any) {
+    toast.error(e.message ?? m['ext.loadFailed']());
+  }
+}
 
- async function loadStats() {
- try {
- stats = await api.get('/ext/content/media/stats');
- } catch { /* non-critical */ }
- }
+async function loadStats() {
+  try {
+    stats = await api.get('/ext/content/media/stats');
+  } catch {
+    /* non-critical */
+  }
+}
 
- function selectFolder(folderId: string | null, name = 'All Files') {
- selectedFolder = folderId;
- selectedFolderName = name;
- selectedFiles = new Set();
- loadFiles();
- }
+function selectFolder(folderId: string | null, name = 'All Files') {
+  selectedFolder = folderId;
+  selectedFolderName = name;
+  selectedFiles = new Set();
+  loadFiles();
+}
 
- async function createFolder() {
- if (!folderName.trim()) return;
- try {
- await api.post('/ext/content/media/folders', { name: folderName, parent_id: selectedFolder });
- showFolderModal = false;
- folderName = '';
- await loadFolders();
- } catch (e: any) { toast.error(e.message); }
- }
+async function createFolder() {
+  if (!folderName.trim()) return;
+  try {
+    await api.post('/ext/content/media/folders', { name: folderName, parent_id: selectedFolder });
+    showFolderModal = false;
+    folderName = '';
+    await loadFolders();
+  } catch (e: any) {
+    toast.error(e.message);
+  }
+}
 
- async function deleteFolder(id: string) {
- confirmState = {
- open: true,
- title: m['content.media.confirm.deleteFolderTitle'](),
- message: m['content.media.confirm.deleteFolderMsg'](),
- confirmLabel: m['common.delete'](),
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.delete(`/ext/content/media/folders/${id}`);
- await loadFolders();
- if (selectedFolder === id) selectFolder(null);
- } catch (e: any) { toast.error(e.message); }
- },
- };
- }
+async function deleteFolder(id: string) {
+  confirmState = {
+    open: true,
+    title: m['content.media.confirm.deleteFolderTitle'](),
+    message: m['content.media.confirm.deleteFolderMsg'](),
+    confirmLabel: m['common.delete'](),
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/ext/content/media/folders/${id}`);
+        await loadFolders();
+        if (selectedFolder === id) selectFolder(null);
+      } catch (e: any) {
+        toast.error(e.message);
+      }
+    },
+  };
+}
 
- function handleFileSelect(e: Event) {
- const input = e.target as HTMLInputElement;
- if (input.files) {
- uploadingFiles = Array.from(input.files);
- showUploadModal = true;
- }
- }
+function handleFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (input.files) {
+    uploadingFiles = Array.from(input.files);
+    showUploadModal = true;
+  }
+}
 
- async function uploadFiles() {
- if (uploadingFiles.length === 0) return;
- uploading = true;
- uploadProgress = 0;
- let uploaded = 0;
- for (const file of uploadingFiles) {
- try {
- const formData = new FormData();
- formData.append('file', file);
- if (selectedFolder) formData.append('folder_id', selectedFolder);
- await fetch('/ext/content/media/upload', { method: 'POST', body: formData, credentials: 'include' });
- uploaded++;
- uploadProgress = Math.round((uploaded / uploadingFiles.length) * 100);
- } catch (e) { console.error('Upload failed for', file.name, e); }
- }
- uploading = false;
- showUploadModal = false;
- uploadingFiles = [];
- uploadProgress = 0;
- await loadFiles();
- await loadStats();
- }
+async function uploadFiles() {
+  if (uploadingFiles.length === 0) return;
+  uploading = true;
+  uploadProgress = 0;
+  let uploaded = 0;
+  for (const file of uploadingFiles) {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (selectedFolder) formData.append('folder_id', selectedFolder);
+      await fetch('/ext/content/media/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      uploaded++;
+      uploadProgress = Math.round((uploaded / uploadingFiles.length) * 100);
+    } catch (e) {
+      console.error('Upload failed for', file.name, e);
+    }
+  }
+  uploading = false;
+  showUploadModal = false;
+  uploadingFiles = [];
+  uploadProgress = 0;
+  await loadFiles();
+  await loadStats();
+}
 
- async function deleteFile(id: string) {
- confirmState = {
- open: true,
- title: m['content.media.confirm.deleteFileTitle'](),
- message: m['storage.cloud.confirmDeleteFile'](),
- confirmLabel: m['common.delete'](),
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.delete(`/ext/content/media/files/${id}`);
- await loadFiles();
- await loadStats();
- if (showFileDetails?.id === id) showFileDetails = null;
- } catch (e: any) { toast.error(e.message); }
- },
- };
- }
+async function deleteFile(id: string) {
+  confirmState = {
+    open: true,
+    title: m['content.media.confirm.deleteFileTitle'](),
+    message: m['storage.cloud.confirmDeleteFile'](),
+    confirmLabel: m['common.delete'](),
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/ext/content/media/files/${id}`);
+        await loadFiles();
+        await loadStats();
+        if (showFileDetails?.id === id) showFileDetails = null;
+      } catch (e: any) {
+        toast.error(e.message);
+      }
+    },
+  };
+}
 
- async function deleteSelectedFiles() {
- if (selectedFiles.size === 0) return;
- confirmState = {
- open: true,
- title: m['content.media.confirm.deleteFilesTitle'](),
- message: m['content.media.confirm.deleteFilesMsg']({ n: String(selectedFiles.size) }),
- confirmLabel: m['common.delete'](),
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.post('/ext/content/media/files/batch-delete', { ids: Array.from(selectedFiles) });
- selectedFiles = new Set();
- await loadFiles();
- await loadStats();
- } catch (e: any) { toast.error(e.message); }
- },
- };
- }
+async function deleteSelectedFiles() {
+  if (selectedFiles.size === 0) return;
+  confirmState = {
+    open: true,
+    title: m['content.media.confirm.deleteFilesTitle'](),
+    message: m['content.media.confirm.deleteFilesMsg']({ n: String(selectedFiles.size) }),
+    confirmLabel: m['common.delete'](),
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.post('/ext/content/media/files/batch-delete', { ids: Array.from(selectedFiles) });
+        selectedFiles = new Set();
+        await loadFiles();
+        await loadStats();
+      } catch (e: any) {
+        toast.error(e.message);
+      }
+    },
+  };
+}
 
- async function createTag() {
- if (!tagName.trim()) return;
- try {
- await api.post('/ext/content/media/tags', { name: tagName, color: tagColor });
- showTagModal = false;
- tagName = '';
- await loadTags();
- } catch (e: any) { toast.error(e.message); }
- }
+async function createTag() {
+  if (!tagName.trim()) return;
+  try {
+    await api.post('/ext/content/media/tags', { name: tagName, color: tagColor });
+    showTagModal = false;
+    tagName = '';
+    await loadTags();
+  } catch (e: any) {
+    toast.error(e.message);
+  }
+}
 
- async function addTagToFile(fileId: string, tagId: string) {
- try {
- await api.post(`/ext/content/media/files/${fileId}/tags`, { tag_id: tagId });
- await loadFiles();
- } catch (e) { console.error('Failed to add tag:', e); }
- }
+async function addTagToFile(fileId: string, tagId: string) {
+  try {
+    await api.post(`/ext/content/media/files/${fileId}/tags`, { tag_id: tagId });
+    await loadFiles();
+  } catch (e) {
+    console.error('Failed to add tag:', e);
+  }
+}
 
- async function removeTagFromFile(fileId: string, tagId: string) {
- try {
- await api.delete(`/ext/content/media/files/${fileId}/tags/${tagId}`);
- await loadFiles();
- } catch (e) { console.error('Failed to remove tag:', e); }
- }
+async function removeTagFromFile(fileId: string, tagId: string) {
+  try {
+    await api.delete(`/ext/content/media/files/${fileId}/tags/${tagId}`);
+    await loadFiles();
+  } catch (e) {
+    console.error('Failed to remove tag:', e);
+  }
+}
 
- function toggleFileSelection(id: string) {
- const next = new Set(selectedFiles);
- if (next.has(id)) next.delete(id); else next.add(id);
- selectedFiles = next;
- }
+function toggleFileSelection(id: string) {
+  const next = new Set(selectedFiles);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedFiles = next;
+}
 
- function formatFileSize(bytes: number): string {
- if (bytes === 0) return '0 B';
- const k = 1024;
- const sizes = ['B', 'KB', 'MB', 'GB'];
- const i = Math.floor(Math.log(bytes) / Math.log(k));
- return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
- }
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
- function formatDate(s: string): string {
- return new Date(s).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
- }
+function formatDate(s: string): string {
+  return new Date(s).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
- let isAllSelected = $derived(files.length > 0 && selectedFiles.size === files.length);
+let isAllSelected = $derived(files.length > 0 && selectedFiles.size === files.length);
 </script>
 
 <ExtensionPageShell title={m['content.media.title']()} subtitle={m['content.media.subtitle']()}>

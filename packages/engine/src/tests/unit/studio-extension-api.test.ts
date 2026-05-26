@@ -11,11 +11,7 @@ import type { FormSchema, FormAlterHook, SlotContribution } from '@zveltio/sdk/e
  * guarantee correctness of the contributions surface.
  */
 
-import {
-  makeFormProxy,
-  applyFormAlterHooks,
-  sortSlotContributions,
-} from '@zveltio/sdk/studio';
+import { makeFormProxy, applyFormAlterHooks, sortSlotContributions } from '@zveltio/sdk/studio';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -119,8 +115,10 @@ describe('S3-02 form proxy: reorder', () => {
     const schema: FormSchema = {
       id: 'x',
       fields: [
-        { name: 'a', type: 't' }, { name: 'b', type: 't' },
-        { name: 'c', type: 't' }, { name: 'd', type: 't' },
+        { name: 'a', type: 't' },
+        { name: 'b', type: 't' },
+        { name: 'c', type: 't' },
+        { name: 'd', type: 't' },
       ],
     };
     const p = makeFormProxy(schema);
@@ -142,7 +140,8 @@ describe('S3-02 form proxy: reorder', () => {
 describe('S3-02 form proxy: addValidator', () => {
   it('attaches a validator to an existing field', () => {
     const p = makeFormProxy(userEditSchema());
-    const v = (val: unknown) => (typeof val === 'string' && val.startsWith('+')) ? null : 'Must start with +';
+    const v = (val: unknown) =>
+      typeof val === 'string' && val.startsWith('+') ? null : 'Must start with +';
     p.addValidator('email', v);
     const out = p.commit();
     const validators = out.fields.find((f) => f.name === 'email')?.validators ?? [];
@@ -173,7 +172,8 @@ describe('S3-02 form proxy: addValidator', () => {
 
 describe('S3-02 applyFormAlterHooks', () => {
   it('runs every hook in order against the schema', () => {
-    const a: FormAlterHook = (form) => form.addField({ after: 'name', field: { name: 'phone', type: 'tel' } });
+    const a: FormAlterHook = (form) =>
+      form.addField({ after: 'name', field: { name: 'phone', type: 'tel' } });
     const b: FormAlterHook = (form) => form.hideField('legacy_pin');
     const out = applyFormAlterHooks([a, b], userEditSchema());
     expect(out.fields.map((f) => f.name)).toEqual(['name', 'phone', 'email', 'legacy_pin']);
@@ -181,7 +181,9 @@ describe('S3-02 applyFormAlterHooks', () => {
   });
 
   it('keeps running subsequent hooks when one throws', () => {
-    const throwing: FormAlterHook = () => { throw new Error('boom'); };
+    const throwing: FormAlterHook = () => {
+      throw new Error('boom');
+    };
     const good: FormAlterHook = (form) => form.hideField('email');
     const out = applyFormAlterHooks([throwing, good], userEditSchema());
     expect(out.fields.find((f) => f.name === 'email')?.hidden).toBe(true);
@@ -195,7 +197,9 @@ describe('S3-02 applyFormAlterHooks', () => {
 
   it('forwards ctx to hooks so visibility/auth-aware logic works', () => {
     const seenBag: { ctx: Record<string, unknown> | null } = { ctx: null };
-    const h: FormAlterHook = (_form, ctx) => { seenBag.ctx = ctx; };
+    const h: FormAlterHook = (_form, ctx) => {
+      seenBag.ctx = ctx;
+    };
     applyFormAlterHooks([h], userEditSchema(), { user: { roles: ['admin'] } });
     expect(seenBag.ctx).toEqual({ user: { roles: ['admin'] } });
   });

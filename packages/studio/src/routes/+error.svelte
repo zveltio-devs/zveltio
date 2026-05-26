@@ -1,27 +1,27 @@
 <script lang="ts">
-  /**
-   * Root error boundary. Catches any unhandled error thrown by:
-   *   - +page.svelte, +page.ts, +layout.svelte, +layout.ts
-   *   - or a SvelteKit load function
-   *
-   * SvelteKit walks up the route tree looking for the closest +error.svelte
-   * — so this file is the safety net for everything that doesn't have its
-   * own (admin/client/intranet each get their own too, see siblings).
-   *
-   * Why this exists: before this file, a runtime error in any page (a
-   * stale fetch, a thrown promise, a Svelte 5 reactivity bug) would
-   * render SvelteKit's default white-screen-of-text fallback. Users
-   * couldn't recover without manually navigating home or refreshing.
-   */
-  import { page } from '$app/state';
-  import { goto, invalidateAll } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { AlertTriangle, Home, RotateCcw } from '@lucide/svelte';
+/**
+ * Root error boundary. Catches any unhandled error thrown by:
+ *   - +page.svelte, +page.ts, +layout.svelte, +layout.ts
+ *   - or a SvelteKit load function
+ *
+ * SvelteKit walks up the route tree looking for the closest +error.svelte
+ * — so this file is the safety net for everything that doesn't have its
+ * own (admin/client/intranet each get their own too, see siblings).
+ *
+ * Why this exists: before this file, a runtime error in any page (a
+ * stale fetch, a thrown promise, a Svelte 5 reactivity bug) would
+ * render SvelteKit's default white-screen-of-text fallback. Users
+ * couldn't recover without manually navigating home or refreshing.
+ */
+import { page } from '$app/state';
+import { goto, invalidateAll } from '$app/navigation';
+import { base } from '$app/paths';
+import { AlertTriangle, Home, RotateCcw } from '@lucide/svelte';
 
-  function retry() {
-    // Re-run all load functions; if the page recovers, the error is cleared.
-    invalidateAll();
-  }
+function retry() {
+  // Re-run all load functions; if the page recovers, the error is cleared.
+  invalidateAll();
+}
 </script>
 
 <div class="min-h-screen flex items-center justify-center p-4 bg-base-200">

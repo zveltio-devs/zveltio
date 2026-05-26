@@ -7,7 +7,12 @@ import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 export function useCollection<T = any>(
   collectionName: string,
   options?: CollectionOptions,
-): { data: Ref<T[] | null>; loading: Ref<boolean>; error: Ref<Error | null>; refetch: () => Promise<void> } {
+): {
+  data: Ref<T[] | null>;
+  loading: Ref<boolean>;
+  error: Ref<Error | null>;
+  refetch: () => Promise<void>;
+} {
   const client = inject<ZveltioClient>(ZVELTIO_CLIENT_KEY);
   if (!client) throw new Error('useCollection must be used within ZveltioPlugin');
 

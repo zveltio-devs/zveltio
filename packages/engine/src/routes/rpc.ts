@@ -15,14 +15,20 @@ import { checkPermission } from '../lib/permissions.js';
 import { getUserRoles } from '../lib/permissions.js';
 
 const ROLE_RANK: Record<string, number> = {
-  god: 100, admin: 80, member: 20,
+  god: 100,
+  admin: 80,
+  member: 20,
 };
 
 function roleRank(role: string): number {
   return ROLE_RANK[role] ?? 10;
 }
 
-async function userHasRole(userId: string, requiredRole: string, userRole: string): Promise<boolean> {
+async function userHasRole(
+  userId: string,
+  requiredRole: string,
+  userRole: string,
+): Promise<boolean> {
   if (userRole === 'god') return true;
   if (requiredRole === '*') return true;
   if (roleRank(userRole) >= roleRank(requiredRole)) return true;
@@ -74,7 +80,9 @@ export function rpcRoutes(db: Database, auth: any): Hono {
     try {
       const raw = await c.req.json();
       if (raw && typeof raw === 'object' && !Array.isArray(raw)) args = raw;
-    } catch { /* no body or non-JSON — call with no args */ }
+    } catch {
+      /* no body or non-JSON — call with no args */
+    }
 
     // Build parameterized call: SELECT * FROM fn(arg1 := $1, arg2 := $2)
     // Using named-parameter syntax prevents positional mismatch.
@@ -86,8 +94,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
         result = await sql`SELECT * FROM ${sql.raw(`"${fnName}"`)}()`.execute(db);
       } else {
         // Build named params: fn(key1 := val1, key2 := val2)
-        const paramParts = keys.map((k, _i) =>
-          sql`${sql.raw(`"${k.replace(/[^a-zA-Z0-9_]/g, '')}" :=`)} ${args[k]}`,
+        const paramParts = keys.map(
+          (k, _i) => sql`${sql.raw(`"${k.replace(/[^a-zA-Z0-9_]/g, '')}" :=`)} ${args[k]}`,
         );
         result = await sql`
           SELECT * FROM ${sql.raw(`"${fnName}"`)}(${sql.join(paramParts, sql`, `)})
@@ -106,7 +114,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
+    if (!(await checkPermission(session.user.id, 'admin', '*')))
+      return c.json({ error: 'Forbidden' }, 403);
 
     const rows = await sql`
       SELECT id, function_name, description, required_role, is_enabled, created_at
@@ -118,7 +127,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.post('/', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
+    if (!(await checkPermission(session.user.id, 'admin', '*')))
+      return c.json({ error: 'Forbidden' }, 403);
 
     const body = await c.req.json().catch(() => null);
     if (!body?.function_name || !FUNC_NAME_RE.test(body.function_name)) {
@@ -136,7 +146,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.patch('/:id', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
+    if (!(await checkPermission(session.user.id, 'admin', '*')))
+      return c.json({ error: 'Forbidden' }, 403);
 
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: 'Body required' }, 400);
@@ -157,7 +168,8 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.delete('/:id', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
+    if (!(await checkPermission(session.user.id, 'admin', '*')))
+      return c.json({ error: 'Forbidden' }, 403);
 
     await sql`DELETE FROM zvd_rpc_functions WHERE id = ${c.req.param('id')}`.execute(db);
     return c.json({ success: true });

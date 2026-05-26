@@ -90,10 +90,13 @@ export function electricRoutes(_db: Database, auth: any): Hono {
   app.get('/config', (c) => {
     const cfg = readConfig();
     if (!cfg) {
-      return c.json({
-        enabled: false,
-        reason: 'ELECTRIC_URL and ELECTRIC_AUTH_TOKEN must both be set on the engine',
-      }, 503);
+      return c.json(
+        {
+          enabled: false,
+          reason: 'ELECTRIC_URL and ELECTRIC_AUTH_TOKEN must both be set on the engine',
+        },
+        503,
+      );
     }
     return c.json({
       enabled: true,
@@ -111,14 +114,18 @@ export function electricRoutes(_db: Database, auth: any): Hono {
   app.post('/auth', async (c) => {
     const cfg = readConfig();
     if (!cfg) {
-      return c.json({
-        error: 'Electric is not configured on this engine. Use provider: "crdt" or ' +
-               'set ELECTRIC_URL + ELECTRIC_AUTH_TOKEN.',
-      }, 503);
+      return c.json(
+        {
+          error:
+            'Electric is not configured on this engine. Use provider: "crdt" or ' +
+            'set ELECTRIC_URL + ELECTRIC_AUTH_TOKEN.',
+        },
+        503,
+      );
     }
 
     const user = c.get('user') as { id: string; tenantId?: string };
-    const body = await c.req.json().catch(() => null) as { tables?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { tables?: unknown } | null;
     const tables = Array.isArray(body?.tables)
       ? (body!.tables as unknown[]).filter((t): t is string => typeof t === 'string')
       : undefined;

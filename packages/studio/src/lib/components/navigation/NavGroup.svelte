@@ -1,17 +1,17 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+import type { Snippet } from 'svelte';
 
-	let {
-		children,
-		label,
-		icon = null,
-		collapsed = $bindable(false)
-	}: {
-		children: Snippet;
-		label: string;
-		icon?: Snippet | null;
-		collapsed?: boolean;
-	} = $props();
+let {
+  children,
+  label,
+  icon = null,
+  collapsed = $bindable(false),
+}: {
+  children: Snippet;
+  label: string;
+  icon?: Snippet | null;
+  collapsed?: boolean;
+} = $props();
 </script>
 
 <div class="nav-group">

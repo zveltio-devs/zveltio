@@ -50,12 +50,16 @@ export async function createCollection(
     const body = await res.text().catch(() => '');
     throw new Error(`createCollection ${name} failed: ${res.status} ${body.slice(0, 300)}`);
   }
-  const data = await res.json() as { job_id?: string };
+  const data = (await res.json()) as { job_id?: string };
   if (data.job_id) await waitForJob(client, data.job_id);
   return { name };
 }
 
-async function waitForJob(client: BenchHttpClient, jobId: string, timeoutMs = 30_000): Promise<void> {
+async function waitForJob(
+  client: BenchHttpClient,
+  jobId: string,
+  timeoutMs = 30_000,
+): Promise<void> {
   // Route shape: GET /api/collections/jobs/:id returns `{ job: { status, ... } }`
   // where status ∈ pending | running | completed | failed (see
   // mapJobToPublic in packages/engine/src/lib/ddl-queue.ts).
@@ -66,7 +70,7 @@ async function waitForJob(client: BenchHttpClient, jobId: string, timeoutMs = 30
       headers: authHeader(client),
     });
     if (res.ok) {
-      const j = await res.json() as { job?: { status?: string; error?: string } };
+      const j = (await res.json()) as { job?: { status?: string; error?: string } };
       const status = j.job?.status;
       if (status) lastStatus = status;
       if (status === 'completed') return;
@@ -76,7 +80,9 @@ async function waitForJob(client: BenchHttpClient, jobId: string, timeoutMs = 30
     }
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(`DDL job ${jobId} did not complete within ${timeoutMs}ms (last status: ${lastStatus || 'unknown'})`);
+  throw new Error(
+    `DDL job ${jobId} did not complete within ${timeoutMs}ms (last status: ${lastStatus || 'unknown'})`,
+  );
 }
 
 export async function dropCollection(client: BenchHttpClient, name: string): Promise<void> {
@@ -92,5 +98,7 @@ export async function dropCollection(client: BenchHttpClient, name: string): Pro
 
 /** 4-char hex suffix so concurrent bench runs don't share collection names. */
 export function randomSuffix(): string {
-  return Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
+  return Math.floor(Math.random() * 0xffff)
+    .toString(16)
+    .padStart(4, '0');
 }

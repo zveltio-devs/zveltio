@@ -124,19 +124,19 @@ export interface ZvApiKeysTable {
   // JSONB columns: stored as plain unknown because the Bun.SQL dialect
   // expects callers to pass JSON.stringify(...) values (see admin route
   // INSERTs). Callers that need to READ them should cast at the use site.
-  scopes: Generated<unknown>;            // JSONB DEFAULT '[]'
-  rate_limit: Generated<number>;        // DEFAULT 1000
+  scopes: Generated<unknown>; // JSONB DEFAULT '[]'
+  rate_limit: Generated<number>; // DEFAULT 1000
   expires_at: Date | null;
   last_used_at: Date | null;
-  is_active: Generated<boolean>;        // DEFAULT true
+  is_active: Generated<boolean>; // DEFAULT true
   created_by: string | null;
   created_at: Generated<Date>;
-  allowed_ips: unknown;                  // JSONB array — cast to string[] at the read site
+  allowed_ips: unknown; // JSONB array — cast to string[] at the read site
   organization: string | null;
   description: string | null;
   permissions_mode: string | null;
   casbin_subject: string | null;
-  request_count: Generated<number>;      // DEFAULT 0
+  request_count: Generated<number>; // DEFAULT 0
   last_ip: string | null;
 }
 
@@ -146,7 +146,7 @@ export interface ZvApiKeyAccessLogTable {
   ip_address: string;
   method: string;
   path: string;
-  status_code: number | null;            // nullable in migration
+  status_code: number | null; // nullable in migration
   duration_ms: number | null;
   created_at: Generated<Date>;
 }
@@ -189,10 +189,10 @@ export interface ZvTenantUsersTable {
 export interface ZvTenantUsageTable {
   id: Generated<string>;
   tenant_id: string;
-  date: Generated<Date>;                  // DEFAULT CURRENT_DATE
-  api_calls: Generated<number>;           // DEFAULT 0
-  storage_bytes: Generated<number>;       // DEFAULT 0
-  record_count: Generated<number>;        // DEFAULT 0
+  date: Generated<Date>; // DEFAULT CURRENT_DATE
+  api_calls: Generated<number>; // DEFAULT 0
+  storage_bytes: Generated<number>; // DEFAULT 0
+  record_count: Generated<number>; // DEFAULT 0
 }
 
 export interface ZvEnvironmentsTable {
@@ -214,7 +214,7 @@ export interface ZvFlowsTable {
   description: string | null;
   trigger_type: Generated<'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook'>;
   trigger_config: Generated<unknown>; // JSONB DEFAULT '{}'
-  is_active: Generated<boolean>;      // DEFAULT true
+  is_active: Generated<boolean>; // DEFAULT true
   last_run_at: Date | null;
   next_run_at: Date | null;
   created_by: string | null;
@@ -227,8 +227,18 @@ export interface ZvFlowStepsTable {
   flow_id: string;
   step_order: Generated<number>; // DEFAULT 0
   name: string;
-  type: 'run_script' | 'send_email' | 'webhook' | 'query_db' | 'condition' | 'transform' | 'delay' | 'send_notification' | 'export_collection' | 'ai_decision';
-  config: Generated<unknown>;     // JSONB DEFAULT '{}'
+  type:
+    | 'run_script'
+    | 'send_email'
+    | 'webhook'
+    | 'query_db'
+    | 'condition'
+    | 'transform'
+    | 'delay'
+    | 'send_notification'
+    | 'export_collection'
+    | 'ai_decision';
+  config: Generated<unknown>; // JSONB DEFAULT '{}'
   on_error: Generated<'stop' | 'continue' | 'retry'>; // DEFAULT 'stop'
   created_at: Generated<Date>;
 }
@@ -238,7 +248,7 @@ export interface ZvFlowRunsTable {
   flow_id: string;
   status: Generated<'running' | 'success' | 'failed' | 'cancelled'>; // DEFAULT 'running'
   trigger_data: unknown; // JSONB (nullable)
-  output: unknown;       // JSONB (nullable)
+  output: unknown; // JSONB (nullable)
   error: string | null;
   started_at: Generated<Date>;
   finished_at: Date | null;
@@ -290,7 +300,7 @@ export interface ZvNotificationsTable {
   user_id: string;
   title: string;
   message: string;
-  type: Generated<string>;     // DEFAULT 'info'
+  type: Generated<string>; // DEFAULT 'info'
   action_url: string | null;
   is_read: Generated<boolean>; // DEFAULT false
   source: string | null;
@@ -324,6 +334,7 @@ export interface ZvMediaFoldersTable {
   parent_id: string | null;
   created_by: string | null;
   created_at: Generated<Date>;
+  deleted_at: Date | null; // soft-delete (037_cloud_storage)
 }
 
 export interface ZvMediaFilesTable {
@@ -332,9 +343,9 @@ export interface ZvMediaFilesTable {
   filename: string;
   original_name: string;
   mimetype: string;
-  size: number;
+  size: Generated<number>; // BIGINT DEFAULT 0
   storage_path: string;
-  url: string;
+  url: string | null; // nullable in migration
   width: number | null;
   height: number | null;
   metadata: unknown; // JSONB
@@ -346,6 +357,10 @@ export interface ZvMediaFilesTable {
   alt_text: string | null;
   thumbnail_url: string | null;
   duration_seconds: number | null;
+  // 037_cloud_storage adds soft-delete trio:
+  deleted_at: Date | null;
+  deleted_by: string | null;
+  restore_folder_id: string | null;
 }
 
 export interface ZvMediaTagsTable {
@@ -432,14 +447,14 @@ export interface ZvBackupsTable {
 export interface ZvBackupSchedulesTable {
   id: Generated<string>;
   name: string;
-  cron_expression: Generated<string>;          // DEFAULT '0 2 * * *'
-  retention_count: Generated<number>;          // DEFAULT 7
+  cron_expression: Generated<string>; // DEFAULT '0 2 * * *'
+  retention_count: Generated<number>; // DEFAULT 7
   storage_destination: Generated<'local' | 's3' | 'both'>; // DEFAULT 'local'
   s3_bucket: string | null;
   s3_prefix: string | null;
-  notify_on_failure: Generated<boolean>;       // DEFAULT true
-  notify_emails: Generated<string[]>;          // TEXT[] DEFAULT '{}'
-  is_active: Generated<boolean>;               // DEFAULT true
+  notify_on_failure: Generated<boolean>; // DEFAULT true
+  notify_emails: Generated<string[]>; // TEXT[] DEFAULT '{}'
+  is_active: Generated<boolean>; // DEFAULT true
   last_run_at: Date | null;
   last_run_status: string | null;
   next_run_at: Date | null;
@@ -648,7 +663,7 @@ export interface ZvdColumnPermissionsTable {
   id: Generated<string>;
   collection_name: string;
   column_name: string; // '*' for all columns
-  role: string;        // '*' for all roles
+  role: string; // '*' for all roles
   can_read: boolean;
   can_write: boolean;
   created_at: Generated<Date>;
@@ -683,21 +698,21 @@ export interface ZvdCollectionsTable {
   id: Generated<string>;
   name: string;
   display_name: string | null;
-  icon: Generated<string | null>;                    // DEFAULT 'Table'
-  route_group: Generated<string | null>;             // DEFAULT 'private'
-  is_permissioned: Generated<boolean>;               // DEFAULT true
-  sort: Generated<number | null>;                    // DEFAULT 99
+  icon: Generated<string | null>; // DEFAULT 'Table'
+  route_group: Generated<string | null>; // DEFAULT 'private'
+  is_permissioned: Generated<boolean>; // DEFAULT true
+  sort: Generated<number | null>; // DEFAULT 99
   singular_name: string | null;
   description: string | null;
-  fields: Generated<unknown>;                        // JSONB DEFAULT '[]'
+  fields: Generated<unknown>; // JSONB DEFAULT '[]'
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-  source_type: Generated<string>;                    // 031: NOT NULL DEFAULT 'collection'
-  virtual_config: unknown;                           // JSONB nullable
-  is_managed: Generated<boolean>;                    // DEFAULT true
-  is_system: Generated<boolean>;                     // DEFAULT false
-  schema_locked: Generated<boolean>;                 // DEFAULT false
-  has_trgm: Generated<boolean>;                      // 059: DEFAULT false (pg_trgm full-text)
+  source_type: Generated<string>; // 031: NOT NULL DEFAULT 'collection'
+  virtual_config: unknown; // JSONB nullable
+  is_managed: Generated<boolean>; // DEFAULT true
+  is_system: Generated<boolean>; // DEFAULT false
+  schema_locked: Generated<boolean>; // DEFAULT false
+  has_trgm: Generated<boolean>; // 059: DEFAULT false (pg_trgm full-text)
 }
 
 export interface ZvdRelationsTable {
@@ -833,7 +848,7 @@ export interface ZvdTranslationGlossaryTable {
   locale: string;
   translation: string;
   definition: string | null;
-  forbidden: Generated<boolean>;       // DEFAULT false
+  forbidden: Generated<boolean>; // DEFAULT false
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -986,7 +1001,6 @@ export interface ZvdCollectionViewsTable {
   updated_at: Generated<Date>;
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // NEW Portal tables — Zones / Pages / Views (migration 060)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1113,9 +1127,9 @@ export interface ZvApprovalWorkflowsTable {
   name: string;
   description: string | null;
   collection: string;
-  trigger_field: string;
-  trigger_value: string;
-  is_active: boolean;
+  trigger_field: string | null; // nullable in migration
+  trigger_value: string | null; // nullable in migration
+  is_active: Generated<boolean>; // DEFAULT true
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -1129,7 +1143,7 @@ export interface ZvApprovalStepsTable {
   approver_role: string | null;
   approver_user_id: string | null;
   deadline_hours: number | null;
-  is_required: boolean;
+  is_required: Generated<boolean>; // DEFAULT in migration
   created_at: Generated<Date>;
 }
 
@@ -1139,11 +1153,11 @@ export interface ZvApprovalRequestsTable {
   collection: string;
   record_id: string;
   current_step_id: string | null;
-  status: string;
+  status: Generated<string>; // DEFAULT 'pending'
   requested_by: string;
   requested_at: Generated<Date>;
   completed_at: Date | null;
-  metadata: unknown; // JSONB
+  metadata: Generated<unknown>; // JSONB DEFAULT '{}'
 }
 
 export interface ZvApprovalDecisionsTable {
@@ -1176,10 +1190,10 @@ export interface ZvContentDraftsTable {
 export interface ZvCollectionPublishSettingsTable {
   id: Generated<string>;
   collection: string;
-  drafts_enabled: boolean;
-  require_review: boolean;
-  reviewer_roles: unknown; // JSONB
-  auto_publish: boolean;
+  drafts_enabled: Generated<boolean>;
+  require_review: Generated<boolean>;
+  reviewer_roles: Generated<unknown>; // JSONB DEFAULT '[]'
+  auto_publish: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -1188,7 +1202,7 @@ export interface ZvPublishScheduleTable {
   id: Generated<string>;
   draft_id: string;
   scheduled_at: Date;
-  processed: boolean;
+  processed: Generated<boolean>; // DEFAULT false
   created_at: Generated<Date>;
 }
 
@@ -1221,10 +1235,10 @@ export interface ZvValidationRulesTable {
 export interface ZvQualityScansTable {
   id: Generated<string>;
   collection: string;
-  scan_type: Generated<string>;       // DEFAULT 'full'
-  status: Generated<string>;          // DEFAULT 'running'
+  scan_type: Generated<string>; // DEFAULT 'full'
+  status: Generated<string>; // DEFAULT 'running'
   records_scanned: Generated<number>; // DEFAULT 0
-  issues_found: Generated<number>;    // DEFAULT 0
+  issues_found: Generated<number>; // DEFAULT 0
   triggered_by: string | null;
   started_at: Generated<Date>;
   completed_at: Date | null;
@@ -1235,13 +1249,13 @@ export interface ZvQualityIssuesTable {
   scan_id: string;
   collection: string;
   issue_type: string;
-  severity: Generated<string>;        // DEFAULT 'warning'
-  record_ids: Generated<string[]>;    // TEXT[] DEFAULT '{}'
+  severity: Generated<string>; // DEFAULT 'warning'
+  record_ids: Generated<string[]>; // TEXT[] DEFAULT '{}'
   field_name: string | null;
   description: string;
   suggestion: string | null;
-  auto_fixable: Generated<boolean>;   // DEFAULT false
-  dismissed: Generated<boolean>;      // DEFAULT false
+  auto_fixable: Generated<boolean>; // DEFAULT false
+  dismissed: Generated<boolean>; // DEFAULT false
   created_at: Generated<Date>;
 }
 
@@ -1252,13 +1266,13 @@ export interface ZvDashboardsTable {
   id: Generated<string>;
   name: string;
   description: string | null;
-  icon: Generated<string | null>;            // legacy from 026, default 'BarChart'
-  is_default: Generated<boolean>;            // legacy from 026
-  layout: Generated<unknown>;                // JSONB, from 067
-  is_public: Generated<boolean>;             // from 067
-  tags: Generated<unknown>;                  // TEXT[] from 069
-  last_viewed_at: Date | null;               // from 068
-  view_count: Generated<number>;             // from 068
+  icon: Generated<string | null>; // legacy from 026, default 'BarChart'
+  is_default: Generated<boolean>; // legacy from 026
+  layout: Generated<unknown>; // JSONB, from 067
+  is_public: Generated<boolean>; // from 067
+  tags: Generated<unknown>; // TEXT[] from 069
+  last_viewed_at: Date | null; // from 068
+  view_count: Generated<number>; // from 068
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -1272,20 +1286,20 @@ export interface ZvPanelsTable {
   // upgraded from the pre-067 schema.
   id: Generated<string>;
   dashboard_id: string;
-  name: string | null;                       // legacy from 026, no longer NOT NULL after 002
-  title: string | null;                      // from 067 + 002 backfill
-  type: Generated<string>;                   // DEFAULT 'table'
-  query: string;                             // TEXT, not JSONB
-  config: Generated<unknown>;                // JSONB DEFAULT '{}'
-  position: Generated<unknown>;              // JSONB DEFAULT '{}', from 067
-  position_x: Generated<number>;             // legacy from 026, DEFAULT 0
-  position_y: Generated<number>;             // legacy from 026, DEFAULT 0
-  width: Generated<number>;                  // legacy from 026, DEFAULT 6
-  height: Generated<number>;                 // legacy from 026, DEFAULT 4
-  refresh_interval: number | null;           // from 067
-  last_executed_at: Date | null;             // from 068
-  avg_execution_ms: number | null;           // from 068
-  error_count: Generated<number>;            // from 068
+  name: string | null; // legacy from 026, no longer NOT NULL after 002
+  title: string | null; // from 067 + 002 backfill
+  type: Generated<string>; // DEFAULT 'table'
+  query: string; // TEXT, not JSONB
+  config: Generated<unknown>; // JSONB DEFAULT '{}'
+  position: Generated<unknown>; // JSONB DEFAULT '{}', from 067
+  position_x: Generated<number>; // legacy from 026, DEFAULT 0
+  position_y: Generated<number>; // legacy from 026, DEFAULT 0
+  width: Generated<number>; // legacy from 026, DEFAULT 6
+  height: Generated<number>; // legacy from 026, DEFAULT 4
+  refresh_interval: number | null; // from 067
+  last_executed_at: Date | null; // from 068
+  avg_execution_ms: number | null; // from 068
+  error_count: Generated<number>; // from 068
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }

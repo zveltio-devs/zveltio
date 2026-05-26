@@ -1,86 +1,113 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, CheckCircle, Trash2, FileText, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Plus, CheckCircle, Trash2, FileText, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  const DOC_TYPES = ['contract', 'pv', 'nir', 'dispozitie_plata', 'proces_verbal', 'notificare', 'other'];
-  const DOC_LABELS: Record<string, string> = {
-    contract: 'Contract', pv: 'Proces Verbal', nir: 'NIR',
-    dispozitie_plata: 'Dispozitie Plata', proces_verbal: 'Proces Verbal',
-    notificare: 'Notificare', other: 'Altele',
-  };
+const DOC_TYPES = [
+  'contract',
+  'pv',
+  'nir',
+  'dispozitie_plata',
+  'proces_verbal',
+  'notificare',
+  'other',
+];
+const DOC_LABELS: Record<string, string> = {
+  contract: 'Contract',
+  pv: 'Proces Verbal',
+  nir: 'NIR',
+  dispozitie_plata: 'Dispozitie Plata',
+  proces_verbal: 'Proces Verbal',
+  notificare: 'Notificare',
+  other: 'Altele',
+};
 
-  let documents = $state<any[]>([]);
-  let loading = $state(true);
-  let filter = $state('all');
-  let showCreateModal = $state(false);
-  let creating = $state(false);
+let documents = $state<any[]>([]);
+let loading = $state(true);
+let filter = $state('all');
+let showCreateModal = $state(false);
+let creating = $state(false);
 
-  let form = $state({
-    type: 'contract',
-    number: '',
-    date: new Date().toISOString().split('T')[0],
-    title: '',
-    parties: [{ name: '', cui: '', role: 'client' }],
-    content: '',
-  });
+let form = $state({
+  type: 'contract',
+  number: '',
+  date: new Date().toISOString().split('T')[0],
+  title: '',
+  parties: [{ name: '', cui: '', role: 'client' }],
+  content: '',
+});
 
-  async function loadDocuments() {
-    loading = true;
-    try {
-      const qs = filter !== 'all' ? `?type=${filter}` : '';
-      const r = await api.get<{ documents: any[] }>(`/ext/compliance/ro/documents${qs}`);
-      documents = r.documents ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadDocuments() {
+  loading = true;
+  try {
+    const qs = filter !== 'all' ? `?type=${filter}` : '';
+    const r = await api.get<{ documents: any[] }>(`/ext/compliance/ro/documents${qs}`);
+    documents = r.documents ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  $effect(() => { filter; loadDocuments(); });
-  onMount(loadDocuments);
+$effect(() => {
+  filter;
+  loadDocuments();
+});
+onMount(loadDocuments);
 
-  async function createDocument() {
-    if (!form.title || !form.number) return;
-    creating = true;
-    try {
-      await api.post('/ext/compliance/ro/documents', form);
-      showCreateModal = false;
-      await loadDocuments();
-      toast.success(m['compliance.ro.documents.toast.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { creating = false; }
+async function createDocument() {
+  if (!form.title || !form.number) return;
+  creating = true;
+  try {
+    await api.post('/ext/compliance/ro/documents', form);
+    showCreateModal = false;
+    await loadDocuments();
+    toast.success(m['compliance.ro.documents.toast.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  async function signDocument(id: string) {
-        askConfirm(m['compliance.ro.documents.confirmSign'](), () => signDocumentConfirmed(id));
+async function signDocument(id: string) {
+  askConfirm(m['compliance.ro.documents.confirmSign'](), () => signDocumentConfirmed(id));
+}
+async function signDocumentConfirmed(id: string) {
+  try {
+    await api.patch(`/ext/compliance/ro/documents/${id}/sign`, {});
+    await loadDocuments();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function signDocumentConfirmed(id: string) {
-    try { await api.patch(`/ext/compliance/ro/documents/${id}/sign`, {}); await loadDocuments(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  async function deleteDocument(id: string) {
-        askConfirm(m['compliance.ro.documents.confirmDelete'](), () => deleteDocumentConfirmed(id));
+async function deleteDocument(id: string) {
+  askConfirm(m['compliance.ro.documents.confirmDelete'](), () => deleteDocumentConfirmed(id));
+}
+async function deleteDocumentConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/compliance/ro/documents/${id}`);
+    await loadDocuments();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteDocumentConfirmed(id: string) {
-    try { await api.delete(`/ext/compliance/ro/documents/${id}`); await loadDocuments(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  function statusBadge(status: string): string {
-    if (status === 'signed') return 'badge-success';
-    if (status === 'archived') return 'badge-ghost';
-    return 'badge-warning';
-  }
+function statusBadge(status: string): string {
+  if (status === 'signed') return 'badge-success';
+  if (status === 'archived') return 'badge-ghost';
+  return 'badge-warning';
+}
 </script>
 
 <ExtensionPageShell title={m['compliance.ro.documents.title']()} subtitle={m['compliance.ro.documents.subtitle']()}>

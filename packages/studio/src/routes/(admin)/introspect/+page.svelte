@@ -1,61 +1,69 @@
 <script lang="ts">
- import { api } from '$lib/api.js';
- import { ScanSearch, RefreshCw, Download, CheckCircle, AlertCircle, Eye } from '@lucide/svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { api } from '$lib/api.js';
+import { ScanSearch, RefreshCw, Download, CheckCircle, AlertCircle, Eye } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- type TablePreview = {
- tableName: string;
- collectionName: string;
- fieldsCount: number;
- isNew: boolean;
- };
+type TablePreview = {
+  tableName: string;
+  collectionName: string;
+  fieldsCount: number;
+  isNew: boolean;
+};
 
- let schema = $state('public');
- let excludeInput = $state('');
- let previewing = $state(false);
- let importing = $state(false);
- let previewTables = $state<TablePreview[]>([]);
- let importResult = $state<{ imported: number; updated: number; tables: TablePreview[] } | null>(null);
- let previewed = $state(false);
+let schema = $state('public');
+let excludeInput = $state('');
+let previewing = $state(false);
+let importing = $state(false);
+let previewTables = $state<TablePreview[]>([]);
+let importResult = $state<{ imported: number; updated: number; tables: TablePreview[] } | null>(
+  null,
+);
+let previewed = $state(false);
 
- function excludeList(): string[] {
- return excludeInput.split(',').map((s) => s.trim()).filter(Boolean);
- }
+function excludeList(): string[] {
+  return excludeInput
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
- async function preview() {
- previewing = true;
- importResult = null;
- try {
- const params = new URLSearchParams({ schema });
- const ex = excludeList();
- if (ex.length) params.set('exclude', ex.join(','));
- const res = await api.get<{ tables: TablePreview[] }>(`/ext/developer/byod/preview?${params}`);
- previewTables = res.tables ?? [];
- previewed = true;
- } catch (e: any) {
- toast.error(e.message || 'Preview failed');
- } finally {
- previewing = false;
- }
- }
+async function preview() {
+  previewing = true;
+  importResult = null;
+  try {
+    const params = new URLSearchParams({ schema });
+    const ex = excludeList();
+    if (ex.length) params.set('exclude', ex.join(','));
+    const res = await api.get<{ tables: TablePreview[] }>(`/ext/developer/byod/preview?${params}`);
+    previewTables = res.tables ?? [];
+    previewed = true;
+  } catch (e: any) {
+    toast.error(e.message || 'Preview failed');
+  } finally {
+    previewing = false;
+  }
+}
 
- async function importTables() {
- importing = true;
- try {
- const res = await api.post<{ imported: number; updated: number; tables: TablePreview[] }>('/ext/developer/byod', {
- schema,
- exclude: excludeList(),
- });
- importResult = res;
- previewTables = [];
- previewed = false;
- } catch (e: any) {
- toast.error(e.message || 'Import failed');
- } finally {
- importing = false;
- }
- }
+async function importTables() {
+  importing = true;
+  try {
+    const res = await api.post<{ imported: number; updated: number; tables: TablePreview[] }>(
+      '/ext/developer/byod',
+      {
+        schema,
+        exclude: excludeList(),
+      },
+    );
+    importResult = res;
+    previewTables = [];
+    previewed = false;
+  } catch (e: any) {
+    toast.error(e.message || 'Import failed');
+  } finally {
+    importing = false;
+  }
+}
 </script>
 
 <div class="space-y-6">

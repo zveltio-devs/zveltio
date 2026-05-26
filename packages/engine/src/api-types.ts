@@ -115,10 +115,16 @@ export interface Collection {
   [k: string]: unknown;
 }
 
-export interface CollectionListResponse { collections: Collection[] }
-export interface CollectionResponse { collection: Collection }
+export interface CollectionListResponse {
+  collections: Collection[];
+}
+export interface CollectionResponse {
+  collection: Collection;
+}
 /** Async DDL — collection mutations return a job id that Studio polls. */
-export interface DdlJobResponse { jobId: string }
+export interface DdlJobResponse {
+  jobId: string;
+}
 export interface DdlJobStatusResponse {
   id: string;
   type: string;
@@ -141,13 +147,18 @@ export interface UserListResponse {
   users: UserSummary[];
   total: number;
 }
-export interface UserResponse { user: UserSummary }
+export interface UserResponse {
+  user: UserSummary;
+}
 export interface InviteUserBody {
   email: string;
   name?: string;
   role?: 'member' | 'manager' | 'admin';
 }
-export interface InviteUserResponse { ok: true; user: UserSummary }
+export interface InviteUserResponse {
+  ok: true;
+  user: UserSummary;
+}
 
 // ── /api/me ─────────────────────────────────────────────────────────────────
 
@@ -159,7 +170,9 @@ export interface MeResponse {
 
 // ── /api/health ─────────────────────────────────────────────────────────────
 
-export interface HealthResponse { status: 'ok' }
+export interface HealthResponse {
+  status: 'ok';
+}
 
 // ── /api/electric ───────────────────────────────────────────────────────────
 
@@ -199,9 +212,16 @@ const _collectionsRoutes = new Hono()
   .get('/:name', (c) => c.json<CollectionResponse>({ collection: { id: '', name: '' } }))
   .patch('/:name', (c) => c.json<CollectionResponse>({ collection: { id: '', name: '' } }))
   .delete('/:name', (c) => c.json<DdlJobResponse>({ jobId: '' }, 202))
-  .get('/:name/jobs/:jobId', (c) => c.json<DdlJobStatusResponse>({
-    id: '', type: '', status: 'pending', error: null, retry_count: 0, max_retries: 3,
-  }))
+  .get('/:name/jobs/:jobId', (c) =>
+    c.json<DdlJobStatusResponse>({
+      id: '',
+      type: '',
+      status: 'pending',
+      error: null,
+      retry_count: 0,
+      max_retries: 3,
+    }),
+  )
   .post('/:name/fields', (c) => c.json<DdlJobResponse>({ jobId: '' }, 202))
   .delete('/:name/fields/:fieldName', (c) => c.json<DdlJobResponse>({ jobId: '' }, 202));
 
@@ -209,28 +229,34 @@ const _collectionsRoutes = new Hono()
 
 const _usersRoutes = new Hono()
   .get('/', (c) => c.json<UserListResponse>({ users: [], total: 0 }))
-  .post('/invite', (c) => c.json<InviteUserResponse>({ ok: true, user: { id: '', name: null, email: '' } }, 201))
+  .post('/invite', (c) =>
+    c.json<InviteUserResponse>({ ok: true, user: { id: '', name: null, email: '' } }, 201),
+  )
   .get('/:id', (c) => c.json<UserResponse>({ user: { id: '', name: null, email: '' } }))
   .patch('/:id', (c) => c.json<UserResponse>({ user: { id: '', name: null, email: '' } }))
   .delete('/:id', (c) => c.json<DeleteResponse>({ ok: true, id: '' }));
 
 // ── /api/me ─────────────────────────────────────────────────────────────────
 
-const _meRoutes = new Hono()
-  .get('/', (c) => c.json<MeResponse>({ user: { id: '', name: null, email: '' } }));
+const _meRoutes = new Hono().get('/', (c) =>
+  c.json<MeResponse>({ user: { id: '', name: null, email: '' } }),
+);
 
 // ── /api/health + version ───────────────────────────────────────────────────
 
-const _healthRoutes = new Hono()
-  .get('/', (c) => c.json<HealthResponse>({ status: 'ok' }));
+const _healthRoutes = new Hono().get('/', (c) => c.json<HealthResponse>({ status: 'ok' }));
 
 // ── /api/electric ───────────────────────────────────────────────────────────
 
 const _electricRoutes = new Hono()
   .get('/config', (c) => c.json<ElectricConfigResponse>({ enabled: false }))
-  .post('/auth', (c) => c.json<ElectricAuthResponse>({
-    token: '', expiresAt: 0, electricUrl: '',
-  }));
+  .post('/auth', (c) =>
+    c.json<ElectricAuthResponse>({
+      token: '',
+      expiresAt: 0,
+      electricUrl: '',
+    }),
+  );
 
 // ── Engine root fixture ─────────────────────────────────────────────────────
 

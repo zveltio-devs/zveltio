@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { title = '', subtitle = '', button_text = '', button_url = '' } = $props();
+let { title = '', subtitle = '', button_text = '', button_url = '' } = $props();
 </script>
 
 <div class="bg-primary text-primary-content py-16 px-4 text-center">

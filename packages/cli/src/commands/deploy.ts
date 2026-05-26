@@ -3,12 +3,12 @@ import { join } from 'path';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
-  bold:   (s: string) => `\x1b[1m${s}\x1b[0m`,
-  green:  (s: string) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s: string) => `\x1b[31m${s}\x1b[0m`,
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s: string) => `\x1b[36m${s}\x1b[0m`,
-  dim:    (s: string) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
 };
 
 interface DeployOptions {
@@ -23,7 +23,10 @@ interface DeployOptions {
   env?: string;
 }
 
-async function runCommand(cmd: string[], opts?: { cwd?: string; env?: Record<string, string> }): Promise<void> {
+async function runCommand(
+  cmd: string[],
+  opts?: { cwd?: string; env?: Record<string, string> },
+): Promise<void> {
   const proc = Bun.spawn(cmd, {
     stdout: 'inherit',
     stderr: 'inherit',
@@ -47,7 +50,10 @@ export async function deployCommand(opts: DeployOptions) {
   const pkgPath = join(cwd, 'package.json');
   if (existsSync(pkgPath)) {
     const pkg = JSON.parse(await Bun.file(pkgPath).text());
-    projectName = (pkg.name || 'zveltio-app').replace(/[@/]/g, '').replace(/\s+/g, '-').toLowerCase();
+    projectName = (pkg.name || 'zveltio-app')
+      .replace(/[@/]/g, '')
+      .replace(/\s+/g, '-')
+      .toLowerCase();
   }
 
   const registry = opts.registry || process.env.DOCKER_REGISTRY || '';
@@ -93,11 +99,7 @@ export async function deployCommand(opts: DeployOptions) {
       console.log(c.dim('  Created: Dockerfile'));
     }
 
-    const buildArgs: string[] = [
-      'docker', 'build',
-      '--platform', platform,
-      '-t', imageName,
-    ];
+    const buildArgs: string[] = ['docker', 'build', '--platform', platform, '-t', imageName];
 
     if (dockerfile) {
       buildArgs.push('-f', dockerfile);

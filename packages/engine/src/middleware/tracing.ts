@@ -17,7 +17,9 @@ export function tracingMiddleware(): MiddlewareHandler {
 
     // Extract W3C trace context from incoming headers
     const carrier: Record<string, string> = {};
-    c.req.raw.headers.forEach((v, k) => { carrier[k] = v; });
+    c.req.raw.headers.forEach((v, k) => {
+      carrier[k] = v;
+    });
     const parentCtx = propagation.extract(context.active(), carrier);
 
     const tracer = trace.getTracer('zveltio-engine');
@@ -29,11 +31,11 @@ export function tracingMiddleware(): MiddlewareHandler {
         {
           kind: SpanKind.SERVER,
           attributes: {
-            'http.method':     c.req.method,
-            'http.url':        c.req.url,
-            'http.route':      c.req.path,
+            'http.method': c.req.method,
+            'http.url': c.req.url,
+            'http.route': c.req.path,
             'http.user_agent': c.req.header('user-agent') ?? '',
-            'net.peer.ip':     c.req.header('x-forwarded-for') ?? '',
+            'net.peer.ip': c.req.header('x-forwarded-for') ?? '',
           },
         },
         parentCtx,
@@ -54,7 +56,10 @@ export function tracingMiddleware(): MiddlewareHandler {
             resolve();
           } catch (err) {
             span.recordException(err as Error);
-            span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: err instanceof Error ? err.message : String(err),
+            });
             span.end();
             reject(err);
           }
@@ -73,7 +78,13 @@ export async function tracedFetch(url: string, init?: RequestInit): Promise<Resp
 
   const tracer = trace.getTracer('zveltio-engine');
   const method = (init?.method ?? 'GET').toUpperCase();
-  const parsed = (() => { try { return new URL(url); } catch { return null; } })();
+  const parsed = (() => {
+    try {
+      return new URL(url);
+    } catch {
+      return null;
+    }
+  })();
 
   return tracer.startActiveSpan(
     `HTTP ${method} ${parsed?.hostname ?? url}`,

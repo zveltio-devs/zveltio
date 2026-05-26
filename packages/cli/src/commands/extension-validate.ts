@@ -56,7 +56,11 @@ function recursiveSize(dir: string): number {
     // Skip node_modules + .zveltio (generated) + dist
     if (name === 'node_modules' || name === '.zveltio' || name === 'dist') continue;
     let st;
-    try { st = statSync(full); } catch { continue; }
+    try {
+      st = statSync(full);
+    } catch {
+      continue;
+    }
     if (st.isDirectory()) total += recursiveSize(full);
     else if (st.isFile()) total += st.size;
   }
@@ -132,9 +136,10 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
       expectedName: inferExpectedName(dir),
     },
     peerDeps: {
-      peerDependencies: (manifest && typeof manifest === 'object' && !Array.isArray(manifest))
-        ? (manifest as any).peerDependencies
-        : undefined,
+      peerDependencies:
+        manifest && typeof manifest === 'object' && !Array.isArray(manifest)
+          ? (manifest as any).peerDependencies
+          : undefined,
       allowedPackages: PEER_DEPS_ALLOWLIST,
     },
     migrations: {
@@ -144,23 +149,30 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     filePresence: { paths, required },
     bundleSize: {
       bundleBytes,
-      bundleSizeKbMax: (manifest && typeof manifest === 'object' && !Array.isArray(manifest))
-        ? (manifest as any)?.quotas?.bundleSizeKbMax
-        : undefined,
+      bundleSizeKbMax:
+        manifest && typeof manifest === 'object' && !Array.isArray(manifest)
+          ? (manifest as any)?.quotas?.bundleSizeKbMax
+          : undefined,
     },
     stats: { tables: parsedTableCount, migrations: sqlFiles.length },
   });
 
   // Print summary
   console.log(`  Manifest:      ${manifest ? c.green('OK') : c.red('missing or invalid')}`);
-  console.log(`  Migrations:    ${c.dim(`${result.stats.migrations} file(s), ${result.stats.tables} table(s) parsed`)}`);
+  console.log(
+    `  Migrations:    ${c.dim(`${result.stats.migrations} file(s), ${result.stats.tables} table(s) parsed`)}`,
+  );
   console.log(`  Peer deps:     ${c.dim(`${result.stats.peerDeps} declared`)}`);
   console.log(`  Bundle size:   ${c.dim(`${Math.ceil(bundleBytes / 1024)} KB`)}`);
   console.log('');
 
   if (result.ok) {
     console.log(c.green('Validation passed.'));
-    console.log(c.dim('  Run `zveltio extension types` to refresh generated types, then `zveltio extension publish` when ready.'));
+    console.log(
+      c.dim(
+        '  Run `zveltio extension types` to refresh generated types, then `zveltio extension publish` when ready.',
+      ),
+    );
     console.log('');
     return;
   }

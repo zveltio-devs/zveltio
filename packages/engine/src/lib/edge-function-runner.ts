@@ -146,7 +146,12 @@ export async function runEdgeFunction(
     const transpiler = new (Bun as any).Transpiler({ loader: 'ts' });
     jsCode = transpiler.transformSync(code);
   } catch (err: any) {
-    return { ok: false, error: `Transpile error: ${err.message}`, logs: [], duration_ms: Date.now() - start };
+    return {
+      ok: false,
+      error: `Transpile error: ${err.message}`,
+      logs: [],
+      duration_ms: Date.now() - start,
+    };
   }
 
   return new Promise((resolve) => {
@@ -157,7 +162,12 @@ export async function runEdgeFunction(
     // Hard kill after timeoutMs + 2s — catches cases where the Worker itself hangs
     const hardKill = setTimeout(() => {
       worker.terminate();
-      resolve({ ok: false, error: 'Worker hard timeout', logs: [], duration_ms: Date.now() - start });
+      resolve({
+        ok: false,
+        error: 'Worker hard timeout',
+        logs: [],
+        duration_ms: Date.now() - start,
+      });
     }, timeoutMs + 2000);
 
     worker.onmessage = (e: MessageEvent) => {

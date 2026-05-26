@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { FileText, ShoppingCart, TrendingUp } from '@lucide/svelte';
+import { FileText, ShoppingCart, TrendingUp } from '@lucide/svelte';
 
-  let { data } = $props();
+let { data } = $props();
 
-  // Exemplu: fetch comenzi sau documente partener (offline-first)
-  // import { useCollection } from '$stores/collection.svelte';
-  // const orders = useCollection('orders');
+// Exemplu: fetch comenzi sau documente partener (offline-first)
+// import { useCollection } from '$stores/collection.svelte';
+// const orders = useCollection('orders');
 </script>
 
 <div class="space-y-6">

@@ -65,7 +65,7 @@ describe.skipIf(skipAll)('Collections — Integration', () => {
       }),
     });
     expect(res.status).toBeOneOf([200, 202]);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body).toHaveProperty('name');
   });
 
@@ -74,7 +74,7 @@ describe.skipIf(skipAll)('Collections — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.collections ?? body)).toBe(true);
   });
 
@@ -83,7 +83,7 @@ describe.skipIf(skipAll)('Collections — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     const col = body.collection ?? body;
     expect(col.name).toBe(COL);
     expect(Array.isArray(col.fields)).toBe(true);

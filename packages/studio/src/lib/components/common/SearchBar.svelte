@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { Search, X } from '@lucide/svelte';
-  interface Props {
-    value: string;
-    placeholder?: string;
-    onchange: (v: string) => void;
-  }
-  let { value, placeholder = 'Search...', onchange } = $props();
+import { Search, X } from '@lucide/svelte';
+interface Props {
+  value: string;
+  placeholder?: string;
+  onchange: (v: string) => void;
+}
+let { value, placeholder = 'Search...', onchange } = $props();
 </script>
 
 <label class="input input-sm flex items-center gap-2 max-w-64">

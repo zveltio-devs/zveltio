@@ -11,9 +11,9 @@ const config = {
       fallback: 'index.html', // SPA mode — client-side routing
     }),
     alias: {
-      '$lib': './src/lib',
-      '$components': './src/lib/components',
-      '$stores': './src/lib/stores',
+      $lib: './src/lib',
+      $components: './src/lib/components',
+      $stores: './src/lib/stores',
     },
   },
 };

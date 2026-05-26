@@ -51,10 +51,31 @@ export interface ValidationResult {
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/;
 
 const KNOWN_CATEGORIES = new Set([
-  'auth', 'content', 'crm', 'finance', 'hr', 'operations', 'developer',
-  'compliance', 'communications', 'analytics', 'geospatial', 'ai',
-  'integrations', 'i18n', 'workflow', 'storage', 'ecommerce', 'projects',
-  'sms', 'forms', 'billing', 'intelligence', 'business', 'search', 'data',
+  'auth',
+  'content',
+  'crm',
+  'finance',
+  'hr',
+  'operations',
+  'developer',
+  'compliance',
+  'communications',
+  'analytics',
+  'geospatial',
+  'ai',
+  'integrations',
+  'i18n',
+  'workflow',
+  'storage',
+  'ecommerce',
+  'projects',
+  'sms',
+  'forms',
+  'billing',
+  'intelligence',
+  'business',
+  'search',
+  'data',
   'custom',
 ]);
 
@@ -95,10 +116,12 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
 
   const name = typeof obj.name === 'string' ? obj.name : '';
   if (input.expectedName && name && name !== input.expectedName) {
-    out.push(err(
-      'MANIFEST_NAME_MISMATCH',
-      `manifest "name": "${name}" does not match folder path "${input.expectedName}"`,
-    ));
+    out.push(
+      err(
+        'MANIFEST_NAME_MISMATCH',
+        `manifest "name": "${name}" does not match folder path "${input.expectedName}"`,
+      ),
+    );
   }
 
   if (typeof obj.version === 'string' && !SEMVER_RE.test(obj.version)) {
@@ -106,25 +129,31 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
   }
 
   if (typeof obj.zveltioMinVersion === 'string' && !SEMVER_RE.test(obj.zveltioMinVersion)) {
-    out.push(err(
-      'MANIFEST_BAD_MIN_VERSION',
-      `zveltioMinVersion "${obj.zveltioMinVersion}" is not valid semver`,
-    ));
+    out.push(
+      err(
+        'MANIFEST_BAD_MIN_VERSION',
+        `zveltioMinVersion "${obj.zveltioMinVersion}" is not valid semver`,
+      ),
+    );
   }
   if (typeof obj.zveltioMaxVersion === 'string' && !SEMVER_RE.test(obj.zveltioMaxVersion)) {
-    out.push(err(
-      'MANIFEST_BAD_MAX_VERSION',
-      `zveltioMaxVersion "${obj.zveltioMaxVersion}" is not valid semver`,
-    ));
+    out.push(
+      err(
+        'MANIFEST_BAD_MAX_VERSION',
+        `zveltioMaxVersion "${obj.zveltioMaxVersion}" is not valid semver`,
+      ),
+    );
   }
 
   if (typeof obj.category === 'string' && !KNOWN_CATEGORIES.has(obj.category)) {
     // Warning rather than error — categories are open-ended in practice.
     // Surface so authors notice typos like "finanace".
-    out.push(err(
-      'MANIFEST_UNKNOWN_CATEGORY',
-      `category "${obj.category}" isn't in the known set — typo? Known: ${[...KNOWN_CATEGORIES].sort().join(', ')}`,
-    ));
+    out.push(
+      err(
+        'MANIFEST_UNKNOWN_CATEGORY',
+        `category "${obj.category}" isn't in the known set — typo? Known: ${[...KNOWN_CATEGORIES].sort().join(', ')}`,
+      ),
+    );
   }
 
   return out;
@@ -144,22 +173,39 @@ export function validatePeerDependencies(input: PeerDepsValidationInput): Valida
   const deps = input.peerDependencies ?? {};
   for (const [pkg, version] of Object.entries(deps)) {
     if (typeof version !== 'string') {
-      out.push(err('PEERDEP_BAD_VERSION', `peerDependency "${pkg}" version must be a string, got ${typeof version}`));
+      out.push(
+        err(
+          'PEERDEP_BAD_VERSION',
+          `peerDependency "${pkg}" version must be a string, got ${typeof version}`,
+        ),
+      );
       continue;
     }
     if (!SAFE_PACKAGE_NAME.test(pkg)) {
-      out.push(err('PEERDEP_UNSAFE_NAME', `peerDependency "${pkg}" uses an unsupported name format (file:, git:, etc. are forbidden)`));
+      out.push(
+        err(
+          'PEERDEP_UNSAFE_NAME',
+          `peerDependency "${pkg}" uses an unsupported name format (file:, git:, etc. are forbidden)`,
+        ),
+      );
       continue;
     }
     if (!SAFE_VERSION_RANGE.test(version)) {
-      out.push(err('PEERDEP_UNSAFE_VERSION', `peerDependency "${pkg}" version range "${version}" is not a plain semver range`));
+      out.push(
+        err(
+          'PEERDEP_UNSAFE_VERSION',
+          `peerDependency "${pkg}" version range "${version}" is not a plain semver range`,
+        ),
+      );
       continue;
     }
     if (!input.allowedPackages.has(pkg)) {
-      out.push(err(
-        'PEERDEP_NOT_ALLOWED',
-        `peerDependency "${pkg}" is not on the platform allow-list — open a PR to peer-deps-allowlist.ts to request inclusion`,
-      ));
+      out.push(
+        err(
+          'PEERDEP_NOT_ALLOWED',
+          `peerDependency "${pkg}" is not on the platform allow-list — open a PR to peer-deps-allowlist.ts to request inclusion`,
+        ),
+      );
     }
   }
   return out;
@@ -201,19 +247,29 @@ export function validateMigrations(input: MigrationsValidationInput): Validation
     try {
       parsed = parseMigrationSql(file.sql);
     } catch (e) {
-      out.push(err('MIGRATION_PARSE', `could not parse migration: ${(e as Error).message}`, file.filename));
+      out.push(
+        err('MIGRATION_PARSE', `could not parse migration: ${(e as Error).message}`, file.filename),
+      );
       continue;
     }
     if (parsed.up.trim() === '') {
-      out.push(err('MIGRATION_NO_UP', 'migration has no UP section (everything before -- DOWN)', file.filename));
+      out.push(
+        err(
+          'MIGRATION_NO_UP',
+          'migration has no UP section (everything before -- DOWN)',
+          file.filename,
+        ),
+      );
       continue;
     }
     if (input.requireDownForDestructive && hasDestructiveDdl(parsed.up) && !parsed.down) {
-      out.push(err(
-        'MIGRATION_DESTRUCTIVE_NO_DOWN',
-        'migration contains destructive DDL (DROP TABLE/COLUMN or ALTER ... DROP) but has no "-- DOWN" section. Add one so uninstall --purgeData can roll back.',
-        file.filename,
-      ));
+      out.push(
+        err(
+          'MIGRATION_DESTRUCTIVE_NO_DOWN',
+          'migration contains destructive DDL (DROP TABLE/COLUMN or ALTER ... DROP) but has no "-- DOWN" section. Add one so uninstall --purgeData can roll back.',
+          file.filename,
+        ),
+      );
     }
   }
   return out;
@@ -253,10 +309,12 @@ export function validateBundleSize(input: BundleSizeInput): ValidationError[] {
   const cap = input.bundleSizeKbMax ?? DEFAULT_BUNDLE_KB_MAX;
   const observedKb = Math.ceil(input.bundleBytes / 1024);
   if (observedKb > cap) {
-    return [err(
-      'BUNDLE_TOO_LARGE',
-      `extension bundle is ${observedKb} KB; quota is ${cap} KB. Reduce the bundle or raise the quota in manifest.quotas.bundleSizeKbMax.`,
-    )];
+    return [
+      err(
+        'BUNDLE_TOO_LARGE',
+        `extension bundle is ${observedKb} KB; quota is ${cap} KB. Reduce the bundle or raise the quota in manifest.quotas.bundleSizeKbMax.`,
+      ),
+    ];
   }
   return [];
 }

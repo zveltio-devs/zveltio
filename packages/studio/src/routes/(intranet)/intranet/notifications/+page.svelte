@@ -1,71 +1,71 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { Bell, Check, Clock, Trash2 } from '@lucide/svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { Bell, Check, Clock, Trash2 } from '@lucide/svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  let notifications = $state<any[]>([]);
-  let loading = $state(true);
-  let filter = $state<'all' | 'unread'>('unread');
-  let busy = $state<string | null>(null);
+let notifications = $state<any[]>([]);
+let loading = $state(true);
+let filter = $state<'all' | 'unread'>('unread');
+let busy = $state<string | null>(null);
 
-  async function load() {
-    loading = true;
-    try {
-      const qs = filter === 'unread' ? '?unread_only=true' : '';
-      const res = await api.get<{ notifications: any[] }>(`/api/notifications${qs}`);
-      notifications = res.notifications ?? [];
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to load notifications');
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  try {
+    const qs = filter === 'unread' ? '?unread_only=true' : '';
+    const res = await api.get<{ notifications: any[] }>(`/api/notifications${qs}`);
+    notifications = res.notifications ?? [];
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to load notifications');
+  } finally {
+    loading = false;
   }
+}
 
-  async function markRead(id: string) {
-    busy = id;
-    try {
-      await api.patch(`/api/notifications/${id}`, { read: true });
-      await load();
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to mark as read');
-    } finally {
-      busy = null;
-    }
+async function markRead(id: string) {
+  busy = id;
+  try {
+    await api.patch(`/api/notifications/${id}`, { read: true });
+    await load();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to mark as read');
+  } finally {
+    busy = null;
   }
+}
 
-  async function markAllRead() {
-    busy = 'all';
-    try {
-      await api.post('/api/notifications/mark-all-read', {});
-      await load();
-      toast.success('All notifications marked as read');
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed');
-    } finally {
-      busy = null;
-    }
+async function markAllRead() {
+  busy = 'all';
+  try {
+    await api.post('/api/notifications/mark-all-read', {});
+    await load();
+    toast.success('All notifications marked as read');
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed');
+  } finally {
+    busy = null;
   }
+}
 
-  async function remove(id: string) {
-    busy = id;
-    try {
-      await api.delete(`/api/notifications/${id}`);
-      await load();
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to delete');
-    } finally {
-      busy = null;
-    }
+async function remove(id: string) {
+  busy = id;
+  try {
+    await api.delete(`/api/notifications/${id}`);
+    await load();
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to delete');
+  } finally {
+    busy = null;
   }
+}
 
-  $effect(() => {
-    // Re-fetch whenever the filter changes
-    void filter;
-    load();
-  });
+$effect(() => {
+  // Re-fetch whenever the filter changes
+  void filter;
+  load();
+});
 
-  onMount(load);
+onMount(load);
 </script>
 
 <div class="space-y-5 max-w-3xl">

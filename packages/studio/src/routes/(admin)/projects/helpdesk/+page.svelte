@@ -1,77 +1,127 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Headphones, Plus, X, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Headphones, Plus, X, LoaderCircle } from '@lucide/svelte';
 
-  let tickets = $state<any[]>([]);
-  let categories = $state<any[]>([]);
-  let loading = $state(true);
-  let statusFilter = $state<'all' | 'open' | 'pending' | 'resolved' | 'closed'>('open');
-  let activeTicket = $state<any | null>(null);
-  let messages = $state<any[]>([]);
-  let newMessage = $state('');
+let tickets = $state<any[]>([]);
+let categories = $state<any[]>([]);
+let loading = $state(true);
+let statusFilter = $state<'all' | 'open' | 'pending' | 'resolved' | 'closed'>('open');
+let activeTicket = $state<any | null>(null);
+let messages = $state<any[]>([]);
+let newMessage = $state('');
 
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({ subject: '', description: '', category_id: '', priority: 'medium', requester_email: '' });
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({
+  subject: '',
+  description: '',
+  category_id: '',
+  priority: 'medium',
+  requester_email: '',
+});
 
-  async function loadTickets() {
-    loading = true;
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets?${params}`);
-      tickets = r.data ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadTickets() {
+  loading = true;
+  try {
+    const params = new URLSearchParams();
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets?${params}`);
+    tickets = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadCategories() {
-    try { const r = await api.get<{ data: any[] }>('/ext/projects/helpdesk/categories'); categories = r.data ?? []; } catch {}
+}
+async function loadCategories() {
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/projects/helpdesk/categories');
+    categories = r.data ?? [];
+  } catch {}
+}
+async function loadMessages(id: string) {
+  try {
+    const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets/${id}/messages`);
+    messages = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function loadMessages(id: string) {
-    try { const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets/${id}/messages`); messages = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+}
+
+async function createTicket() {
+  saving = true;
+  try {
+    await api.post('/ext/projects/helpdesk/tickets', form);
+    showForm = false;
+    form = {
+      subject: '',
+      description: '',
+      category_id: '',
+      priority: 'medium',
+      requester_email: '',
+    };
+    await loadTickets();
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function createTicket() {
-    saving = true;
-    try {
-      await api.post('/ext/projects/helpdesk/tickets', form);
-      showForm = false;
-      form = { subject: '', description: '', category_id: '', priority: 'medium', requester_email: '' };
-      await loadTickets();
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+async function reply() {
+  if (!activeTicket || !newMessage.trim()) return;
+  try {
+    await api.post(`/ext/projects/helpdesk/tickets/${activeTicket.id}/messages`, {
+      body: newMessage,
+    });
+    newMessage = '';
+    await loadMessages(activeTicket.id);
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function reply() {
-    if (!activeTicket || !newMessage.trim()) return;
-    try {
-      await api.post(`/ext/projects/helpdesk/tickets/${activeTicket.id}/messages`, { body: newMessage });
-      newMessage = '';
-      await loadMessages(activeTicket.id);
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function resolve(id: string) {
+  try {
+    await api.post(`/ext/projects/helpdesk/tickets/${id}/resolve`, {});
+    await loadTickets();
+    if (activeTicket?.id === id) activeTicket = null;
+    toast.success(m['projects.helpdesk.toast.resolved']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function resolve(id: string) {
-    try {
-      await api.post(`/ext/projects/helpdesk/tickets/${id}/resolve`, {});
-      await loadTickets();
-      if (activeTicket?.id === id) activeTicket = null;
-      toast.success(m['projects.helpdesk.toast.resolved']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+$effect(() => {
+  statusFilter;
+  loadTickets();
+});
+$effect(() => {
+  if (activeTicket) loadMessages(activeTicket.id);
+});
+onMount(() => {
+  loadTickets();
+  loadCategories();
+});
 
-  $effect(() => { statusFilter; loadTickets(); });
-  $effect(() => { if (activeTicket) loadMessages(activeTicket.id); });
-  onMount(() => { loadTickets(); loadCategories(); });
-
-  function priorityBadge(p: string) { return ({ low: 'badge-ghost', medium: 'badge-info', high: 'badge-warning', urgent: 'badge-error' } as any)[p] ?? 'badge-ghost'; }
+function priorityBadge(p: string) {
+  return (
+    (
+      {
+        low: 'badge-ghost',
+        medium: 'badge-info',
+        high: 'badge-warning',
+        urgent: 'badge-error',
+      } as any
+    )[p] ?? 'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['projects.helpdesk.title']()} subtitle={m['projects.helpdesk.subtitle']()}>

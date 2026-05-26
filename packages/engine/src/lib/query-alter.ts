@@ -82,9 +82,7 @@ export class QueryAlterRegistryImpl {
    * that table.
    */
   count(table?: string): number {
-    return table
-      ? this.entries.filter((e) => e.table === table).length
-      : this.entries.length;
+    return table ? this.entries.filter((e) => e.table === table).length : this.entries.length;
   }
 
   /** List registered (table, owner) pairs. Useful for introspection. */
@@ -96,10 +94,7 @@ export class QueryAlterRegistryImpl {
   scope(extName: string): QueryAlterScope {
     return {
       register: (def) => this.registerAs(extName, def.table, def.alter),
-      list: () =>
-        this.entries
-          .filter((e) => e.owner === extName)
-          .map((e) => ({ table: e.table })),
+      list: () => this.entries.filter((e) => e.owner === extName).map((e) => ({ table: e.table })),
       unregisterAll: () => {
         this.unregisterAll(extName);
       },

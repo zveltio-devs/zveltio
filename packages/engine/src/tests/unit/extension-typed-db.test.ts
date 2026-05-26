@@ -74,7 +74,9 @@ describe('S4-02 typed ctx.db', () => {
     const typed: ZveltioExtension<FormsDB> = {
       name: 'forms',
       category: 'forms',
-      async register(_app, _ctx) { /* no-op */ },
+      async register(_app, _ctx) {
+        /* no-op */
+      },
       schedules() {
         return [
           {
@@ -99,7 +101,11 @@ describe('S4-02 typed ctx.db', () => {
       category: 'test',
       async register(_app: any, ctx: ExtensionContext) {
         // ctx.db is Kysely<any>; selectFrom takes string.
-        return ctx.db.selectFrom('whatever' as any).selectAll().execute().then(() => {});
+        return ctx.db
+          .selectFrom('whatever' as any)
+          .selectAll()
+          .execute()
+          .then(() => {});
       },
     } satisfies ZveltioExtension;
     expect(legacy.name).toBe('sample');

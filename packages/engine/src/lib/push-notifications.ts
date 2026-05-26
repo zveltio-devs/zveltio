@@ -35,7 +35,11 @@ async function sendFcm(token: string, payload: PushPayload): Promise<boolean> {
       },
       body: JSON.stringify({
         to: token,
-        notification: { title: payload.title, body: payload.body, sound: payload.sound ?? 'default' },
+        notification: {
+          title: payload.title,
+          body: payload.body,
+          sound: payload.sound ?? 'default',
+        },
         data: payload.data ?? {},
       }),
       signal: AbortSignal.timeout(10_000),
@@ -44,7 +48,7 @@ async function sendFcm(token: string, payload: PushPayload): Promise<boolean> {
       console.warn(`[push:fcm] HTTP ${res.status}: ${await res.text()}`);
       return false;
     }
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     if (json.failure > 0) {
       console.warn('[push:fcm] delivery failure:', json.results?.[0]);
       return false;
@@ -85,9 +89,11 @@ async function getApnsJwt(): Promise<string | null> {
     const der = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));
 
     const key = await crypto.subtle.importKey(
-      'pkcs8', der.buffer as ArrayBuffer,
+      'pkcs8',
+      der.buffer as ArrayBuffer,
       { name: 'ECDSA', namedCurve: 'P-256' },
-      false, ['sign'],
+      false,
+      ['sign'],
     );
     const sigBuf = await crypto.subtle.sign(
       { name: 'ECDSA', hash: 'SHA-256' },
@@ -95,7 +101,9 @@ async function getApnsJwt(): Promise<string | null> {
       new TextEncoder().encode(signingInput),
     );
     const sig = btoa(String.fromCharCode(...new Uint8Array(sigBuf)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
 
     const token = `${signingInput}.${sig}`;
     _apnsJwt = { token, issuedAt: now };
@@ -116,9 +124,8 @@ async function sendApns(token: string, payload: PushPayload): Promise<boolean> {
     return false;
   }
 
-  const host = process.env.APNS_PRODUCTION === 'true'
-    ? 'api.push.apple.com'
-    : 'api.sandbox.push.apple.com';
+  const host =
+    process.env.APNS_PRODUCTION === 'true' ? 'api.push.apple.com' : 'api.sandbox.push.apple.com';
 
   try {
     const res = await fetch(`https://${host}/3/device/${token}`, {
@@ -140,7 +147,7 @@ async function sendApns(token: string, payload: PushPayload): Promise<boolean> {
       signal: AbortSignal.timeout(10_000),
     });
     if (res.status !== 200) {
-      const err = await res.json().catch(() => ({})) as any;
+      const err = (await res.json().catch(() => ({}))) as any;
       console.warn(`[push:apns] HTTP ${res.status}: ${err.reason ?? 'unknown'}`);
       return false;
     }
@@ -158,11 +165,11 @@ export async function sendPushToUser(
   userId: string,
   payload: PushPayload,
 ): Promise<{ sent: number; failed: number }> {
-  const tokens = await db
+  const tokens = (await db
     .selectFrom('zvd_push_tokens')
     .select(['id', 'token', 'platform'])
     .where('user_id', '=', userId)
-    .execute() as { id: string; token: string; platform: string }[];
+    .execute()) as { id: string; token: string; platform: string }[];
 
   if (tokens.length === 0) return { sent: 0, failed: 0 };
 
@@ -192,12 +199,14 @@ export async function sendPushToUser(
   // Repeated failure here means we keep re-sending to dead tokens,
   // burning FCM/APNS quota — log so the trend is visible.
   if (staleTokens.length > 0) {
-    db
-      .deleteFrom('zvd_push_tokens')
+    db.deleteFrom('zvd_push_tokens')
       .where('id', 'in', staleTokens)
       .execute()
       .catch((err: Error) => {
-        console.warn(`[push-notifications] stale-token cleanup (${staleTokens.length}) failed:`, err.message);
+        console.warn(
+          `[push-notifications] stale-token cleanup (${staleTokens.length}) failed:`,
+          err.message,
+        );
       });
   }
 
@@ -209,9 +218,7 @@ export async function sendPushToUsers(
   userIds: string[],
   payload: PushPayload,
 ): Promise<{ sent: number; failed: number }> {
-  const results = await Promise.allSettled(
-    userIds.map((uid) => sendPushToUser(db, uid, payload)),
-  );
+  const results = await Promise.allSettled(userIds.map((uid) => sendPushToUser(db, uid, payload)));
   return results.reduce(
     (acc, r) => {
       if (r.status === 'fulfilled') {

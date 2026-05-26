@@ -40,14 +40,18 @@ export function useRealtime(
           if (payload.collection !== collection) return;
           if (event && payload.event !== event) return;
           callbackRef.current(payload);
-        } catch { /* ignore malformed */ }
+        } catch {
+          /* ignore malformed */
+        }
       };
 
       ws.onclose = () => {
         if (!destroyed) reconnectTimer = g.setTimeout(connect, 3000);
       };
 
-      ws.onerror = () => { ws.close(); };
+      ws.onerror = () => {
+        ws.close();
+      };
     }
 
     connect();

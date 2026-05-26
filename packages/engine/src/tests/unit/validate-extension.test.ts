@@ -12,12 +12,15 @@ const ALLOWED = new Set(['imapflow', 'nodemailer']);
 
 describe('validateManifest', () => {
   it('rejects non-object', () => {
-    expect(validateManifest({ manifest: 'string', expectedName: 'x' })[0].code)
-      .toBe('MANIFEST_NOT_OBJECT');
-    expect(validateManifest({ manifest: null, expectedName: 'x' })[0].code)
-      .toBe('MANIFEST_NOT_OBJECT');
-    expect(validateManifest({ manifest: [], expectedName: 'x' })[0].code)
-      .toBe('MANIFEST_NOT_OBJECT');
+    expect(validateManifest({ manifest: 'string', expectedName: 'x' })[0].code).toBe(
+      'MANIFEST_NOT_OBJECT',
+    );
+    expect(validateManifest({ manifest: null, expectedName: 'x' })[0].code).toBe(
+      'MANIFEST_NOT_OBJECT',
+    );
+    expect(validateManifest({ manifest: [], expectedName: 'x' })[0].code).toBe(
+      'MANIFEST_NOT_OBJECT',
+    );
   });
 
   it('flags missing required fields', () => {
@@ -29,8 +32,11 @@ describe('validateManifest', () => {
   it('flags name mismatch with folder', () => {
     const errors = validateManifest({
       manifest: {
-        name: 'foo/bar', displayName: 'F', category: 'finance',
-        description: 'desc', version: '1.0.0',
+        name: 'foo/bar',
+        displayName: 'F',
+        category: 'finance',
+        description: 'desc',
+        version: '1.0.0',
       },
       expectedName: 'finance/baz',
     });
@@ -55,8 +61,11 @@ describe('validateManifest', () => {
   it('flags bad semver', () => {
     const errors = validateManifest({
       manifest: {
-        name: 'a', displayName: 'A', category: 'custom',
-        description: '.', version: 'not-semver',
+        name: 'a',
+        displayName: 'A',
+        category: 'custom',
+        description: '.',
+        version: 'not-semver',
       },
     });
     expect(errors.find((e) => e.code === 'MANIFEST_BAD_VERSION')).toBeDefined();
@@ -65,8 +74,11 @@ describe('validateManifest', () => {
   it('warns on unknown category', () => {
     const errors = validateManifest({
       manifest: {
-        name: 'a', displayName: 'A', category: 'finanace', // typo
-        description: '.', version: '1.0.0',
+        name: 'a',
+        displayName: 'A',
+        category: 'finanace', // typo
+        description: '.',
+        version: '1.0.0',
       },
     });
     expect(errors.find((e) => e.code === 'MANIFEST_UNKNOWN_CATEGORY')).toBeDefined();
@@ -75,8 +87,11 @@ describe('validateManifest', () => {
   it('accepts pre-release versions', () => {
     const errors = validateManifest({
       manifest: {
-        name: 'a', displayName: 'A', category: 'custom',
-        description: '.', version: '1.0.0-beta.1',
+        name: 'a',
+        displayName: 'A',
+        category: 'custom',
+        description: '.',
+        version: '1.0.0-beta.1',
       },
     });
     expect(errors.find((e) => e.code === 'MANIFEST_BAD_VERSION')).toBeUndefined();
@@ -117,18 +132,22 @@ describe('validatePeerDependencies', () => {
   });
 
   it('tolerates no peerDependencies', () => {
-    expect(validatePeerDependencies({
-      peerDependencies: undefined,
-      allowedPackages: ALLOWED,
-    })).toEqual([]);
+    expect(
+      validatePeerDependencies({
+        peerDependencies: undefined,
+        allowedPackages: ALLOWED,
+      }),
+    ).toEqual([]);
   });
 });
 
 describe('validateMigrations', () => {
   it('passes a simple UP-only migration', () => {
-    expect(validateMigrations({
-      files: [{ filename: '001.sql', sql: 'CREATE TABLE t (id UUID PRIMARY KEY);' }],
-    })).toEqual([]);
+    expect(
+      validateMigrations({
+        files: [{ filename: '001.sql', sql: 'CREATE TABLE t (id UUID PRIMARY KEY);' }],
+      }),
+    ).toEqual([]);
   });
 
   it('flags empty file', () => {
@@ -155,10 +174,12 @@ describe('validateMigrations', () => {
 
   it('accepts destructive DDL with a DOWN section', () => {
     const errors = validateMigrations({
-      files: [{
-        filename: '005_drop.sql',
-        sql: 'DROP TABLE old_data;\n-- DOWN\nCREATE TABLE old_data (id UUID PRIMARY KEY);',
-      }],
+      files: [
+        {
+          filename: '005_drop.sql',
+          sql: 'DROP TABLE old_data;\n-- DOWN\nCREATE TABLE old_data (id UUID PRIMARY KEY);',
+        },
+      ],
       requireDownForDestructive: true,
     });
     expect(errors).toEqual([]);
@@ -166,10 +187,12 @@ describe('validateMigrations', () => {
 
   it('does NOT flag non-destructive migrations', () => {
     const errors = validateMigrations({
-      files: [{
-        filename: '006_add.sql',
-        sql: 'ALTER TABLE t ADD COLUMN x TEXT;',
-      }],
+      files: [
+        {
+          filename: '006_add.sql',
+          sql: 'ALTER TABLE t ADD COLUMN x TEXT;',
+        },
+      ],
       requireDownForDestructive: true,
     });
     expect(errors).toEqual([]);
@@ -178,10 +201,12 @@ describe('validateMigrations', () => {
 
 describe('validateFilePresence', () => {
   it('passes when all required files exist', () => {
-    expect(validateFilePresence({
-      paths: { 'a.txt': true, 'b.txt': true },
-      required: ['a.txt'],
-    })).toEqual([]);
+    expect(
+      validateFilePresence({
+        paths: { 'a.txt': true, 'b.txt': true },
+        required: ['a.txt'],
+      }),
+    ).toEqual([]);
   });
 
   it('flags each missing required file', () => {
@@ -219,7 +244,13 @@ describe('validateExtension composite', () => {
   it('aggregates errors across categories with ok=false', () => {
     const result = validateExtension({
       manifest: {
-        manifest: { name: 'wrong', displayName: 'X', category: 'finance', description: 'd', version: '1.0.0' },
+        manifest: {
+          name: 'wrong',
+          displayName: 'X',
+          category: 'finance',
+          description: 'd',
+          version: '1.0.0',
+        },
         expectedName: 'right',
       },
       peerDeps: {
@@ -241,8 +272,12 @@ describe('validateExtension composite', () => {
     const result = validateExtension({
       manifest: {
         manifest: {
-          name: 'finance/invoicing', displayName: 'Inv', category: 'finance',
-          description: 'd', version: '1.0.0', zveltioMinVersion: '1.0.0',
+          name: 'finance/invoicing',
+          displayName: 'Inv',
+          category: 'finance',
+          description: 'd',
+          version: '1.0.0',
+          zveltioMinVersion: '1.0.0',
         },
         expectedName: 'finance/invoicing',
       },

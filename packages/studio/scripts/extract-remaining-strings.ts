@@ -27,7 +27,25 @@ const patterns = [
   /<span class="label-text[^"]*">([^<{][^<]{2,50})</g,
 ];
 
-const skip = new Set(['RON', 'EUR', 'USD', 'POST', 'GET', 'PUT', 'DELETE', 'CSV', 'JSON', 'NDJSON', 'SQL', 'API', 'AI', 'ID', 'OK', 'Yes', 'No']);
+const skip = new Set([
+  'RON',
+  'EUR',
+  'USD',
+  'POST',
+  'GET',
+  'PUT',
+  'DELETE',
+  'CSV',
+  'JSON',
+  'NDJSON',
+  'SQL',
+  'API',
+  'AI',
+  'ID',
+  'OK',
+  'Yes',
+  'No',
+]);
 
 let total = 0;
 for (const ext of walk(EXT_ROOT)) {

@@ -1,108 +1,132 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { base } from '$app/paths';
-  import {
-    Layout, LayoutGrid, Globe, Lock, Users, LoaderCircle, Trash2,
-    ToggleLeft, ToggleRight, ExternalLink,
-  } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { base } from '$app/paths';
+import {
+  Layout,
+  LayoutGrid,
+  Globe,
+  Lock,
+  Users,
+  LoaderCircle,
+  Trash2,
+  ToggleLeft,
+  ToggleRight,
+  ExternalLink,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  let zones = $state<any[]>([]);
-  let loading = $state(true);
-  let showModal = $state(false);
-  let creating = $state(false);
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let zones = $state<any[]>([]);
+let loading = $state(true);
+let showModal = $state(false);
+let creating = $state(false);
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-  let form = $state({
-    name: '',
-    slug: '',
-    description: '',
-    base_path: '',
-    is_active: false,
-    nav_position: 'sidebar',
-  });
+let form = $state({
+  name: '',
+  slug: '',
+  description: '',
+  base_path: '',
+  is_active: false,
+  nav_position: 'sidebar',
+});
 
-  function extractError(e: unknown): string {
-    if (typeof e === 'string') return e;
-    if (e instanceof Error) return e.message;
-    if (e && typeof e === 'object') {
-      const o = e as Record<string, unknown>;
-      if (typeof o.message === 'string') return o.message;
-      if (typeof o.error === 'string') return o.error;
-    }
-    return 'An unexpected error occurred.';
+function extractError(e: unknown): string {
+  if (typeof e === 'string') return e;
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>;
+    if (typeof o.message === 'string') return o.message;
+    if (typeof o.error === 'string') return o.error;
   }
+  return 'An unexpected error occurred.';
+}
 
-  onMount(load);
+onMount(load);
 
-  async function load() {
-    loading = true;
-    try {
-      const res = await api.get<{ zones: any[] }>('/api/zones');
-      zones = res.zones ?? [];
-    } catch {
-      zones = [];
-    } finally {
-      loading = false;
-    }
+async function load() {
+  loading = true;
+  try {
+    const res = await api.get<{ zones: any[] }>('/api/zones');
+    zones = res.zones ?? [];
+  } catch {
+    zones = [];
+  } finally {
+    loading = false;
   }
+}
 
-  function slugify(s: string) {
-    return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function slugify(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function handleNameInput(name: string) {
+  form.name = name;
+  if (!form.slug || form.slug === slugify(form.name)) {
+    form.slug = slugify(name);
   }
-
-  function handleNameInput(name: string) {
-    form.name = name;
-    if (!form.slug || form.slug === slugify(form.name)) {
-      form.slug = slugify(name);
-    }
-    if (!form.base_path || form.base_path === `/${slugify(form.name)}`) {
-      form.base_path = `/${slugify(name)}`;
-    }
+  if (!form.base_path || form.base_path === `/${slugify(form.name)}`) {
+    form.base_path = `/${slugify(name)}`;
   }
+}
 
-  async function createZone() {
-    if (!form.name.trim() || !form.slug.trim() || !form.base_path.trim()) return;
-    creating = true;
-    try {
-      await api.post('/api/zones', {
-        name: form.name.trim(),
-        slug: form.slug.trim(),
-        description: form.description || undefined,
-        base_path: form.base_path.trim(),
-        is_active: form.is_active,
-        nav_position: form.nav_position,
-      });
-      showModal = false;
-      form = { name: '', slug: '', description: '', base_path: '', is_active: false, nav_position: 'sidebar' };
-      await load();
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      creating = false;
-    }
-  }
-
-  async function deleteZone(slug: string, name: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Zone',
-      message: `Delete zone "${name}" and all its pages? This cannot be undone.`,
-      confirmLabel: 'Delete Zone',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await api.delete(`/api/zones/${slug}`);
-          zones = zones.filter(z => z.slug !== slug);
-        } catch (e) {
-          toast.error(extractError(e));
-        }
-      },
+async function createZone() {
+  if (!form.name.trim() || !form.slug.trim() || !form.base_path.trim()) return;
+  creating = true;
+  try {
+    await api.post('/api/zones', {
+      name: form.name.trim(),
+      slug: form.slug.trim(),
+      description: form.description || undefined,
+      base_path: form.base_path.trim(),
+      is_active: form.is_active,
+      nav_position: form.nav_position,
+    });
+    showModal = false;
+    form = {
+      name: '',
+      slug: '',
+      description: '',
+      base_path: '',
+      is_active: false,
+      nav_position: 'sidebar',
     };
+    await load();
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    creating = false;
   }
+}
+
+async function deleteZone(slug: string, name: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Zone',
+    message: `Delete zone "${name}" and all its pages? This cannot be undone.`,
+    confirmLabel: 'Delete Zone',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/zones/${slug}`);
+        zones = zones.filter((z) => z.slug !== slug);
+      } catch (e) {
+        toast.error(extractError(e));
+      }
+    },
+  };
+}
 </script>
 
 <CrudListPage

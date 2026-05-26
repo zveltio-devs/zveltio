@@ -1,20 +1,20 @@
 <script lang="ts">
-  import { page } from '$app/state';
-  import { extensions } from '$lib/extensions.svelte.js';
-  import { Puzzle, CheckCircle } from '@lucide/svelte';
-  import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import { page } from '$app/state';
+import { extensions } from '$lib/extensions.svelte.js';
+import { Puzzle, CheckCircle } from '@lucide/svelte';
+import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 
-  const paramPath = $derived(page.params.path ?? '');
+const paramPath = $derived(page.params.path ?? '');
 
-  // Longest-prefix match against extension names (e.g. "compliance/ro/efactura")
-  const extMeta = $derived(
-    extensions.meta
-      .slice()
-      .sort((a, b) => b.name.length - a.name.length)
-      .find((m) => paramPath === m.name || paramPath.startsWith(m.name + '/')) ?? null,
-  );
+// Longest-prefix match against extension names (e.g. "compliance/ro/efactura")
+const extMeta = $derived(
+  extensions.meta
+    .slice()
+    .sort((a, b) => b.name.length - a.name.length)
+    .find((m) => paramPath === m.name || paramPath.startsWith(m.name + '/')) ?? null,
+);
 
-  const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
+const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
 </script>
 
 {#if !extensions.initialized}

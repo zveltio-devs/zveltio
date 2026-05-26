@@ -1,67 +1,73 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { auth } from '$lib/auth.svelte.js';
-  import { api } from '$lib/api.js';
-  import { User as UserIcon, Save, Lock, Mail, Calendar } from '@lucide/svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { auth } from '$lib/auth.svelte.js';
+import { api } from '$lib/api.js';
+import { User as UserIcon, Save, Lock, Mail, Calendar } from '@lucide/svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  let name = $state('');
-  let email = $state('');
-  let saving = $state(false);
-  let pwOld = $state('');
-  let pwNew = $state('');
-  let pwBusy = $state(false);
+let name = $state('');
+let email = $state('');
+let saving = $state(false);
+let pwOld = $state('');
+let pwNew = $state('');
+let pwBusy = $state(false);
 
-  onMount(async () => {
+onMount(async () => {
+  await auth.init();
+  name = auth.user?.name ?? '';
+  email = auth.user?.email ?? '';
+});
+
+async function saveProfile() {
+  if (!name.trim()) {
+    toast.error('Name is required');
+    return;
+  }
+  saving = true;
+  try {
+    // Better-Auth update-user endpoint
+    const res = await fetch('/api/auth/update-user', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast.success('Profile updated');
     await auth.init();
-    name = auth.user?.name ?? '';
-    email = auth.user?.email ?? '';
-  });
-
-  async function saveProfile() {
-    if (!name.trim()) { toast.error('Name is required'); return; }
-    saving = true;
-    try {
-      // Better-Auth update-user endpoint
-      const res = await fetch('/api/auth/update-user', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success('Profile updated');
-      await auth.init();
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to update profile');
-    } finally {
-      saving = false;
-    }
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to update profile');
+  } finally {
+    saving = false;
   }
+}
 
-  async function changePassword() {
-    if (pwNew.length < 8) { toast.error('New password must be at least 8 characters'); return; }
-    pwBusy = true;
-    try {
-      const res = await fetch('/api/auth/change-password', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword: pwOld, newPassword: pwNew }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message ?? `HTTP ${res.status}`);
-      }
-      toast.success('Password changed');
-      pwOld = '';
-      pwNew = '';
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to change password');
-    } finally {
-      pwBusy = false;
-    }
+async function changePassword() {
+  if (pwNew.length < 8) {
+    toast.error('New password must be at least 8 characters');
+    return;
   }
+  pwBusy = true;
+  try {
+    const res = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: pwOld, newPassword: pwNew }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message ?? `HTTP ${res.status}`);
+    }
+    toast.success('Password changed');
+    pwOld = '';
+    pwNew = '';
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to change password');
+  } finally {
+    pwBusy = false;
+  }
+}
 </script>
 
 <div class="space-y-6 max-w-2xl">

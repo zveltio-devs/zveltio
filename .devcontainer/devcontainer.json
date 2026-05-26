@@ -7,11 +7,7 @@
   },
   "customizations": {
     "vscode": {
-      "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "svelte.svelte-vscode"
-      ],
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "svelte.svelte-vscode"],
       "settings": {
         "typescript.tsdk": "./node_modules/typescript/lib",
         "editor.formatOnSave": true,

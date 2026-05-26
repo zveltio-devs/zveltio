@@ -1,26 +1,26 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { auth } from '$lib/auth.svelte.js';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { auth } from '$lib/auth.svelte.js';
 
-  let email = $state('');
-  let password = $state('');
-  let loading = $state(false);
-  let error = $state<string | null>(null);
+let email = $state('');
+let password = $state('');
+let loading = $state(false);
+let error = $state<string | null>(null);
 
-  async function handleLogin(e: Event) {
-    e.preventDefault();
-    loading = true;
-    error = null;
-    try {
-      await auth.signIn(email, password);
-      goto(`${base}/portal-client/`);
-    } catch (err: any) {
-      error = err?.message ?? 'Login failed';
-    } finally {
-      loading = false;
-    }
+async function handleLogin(e: Event) {
+  e.preventDefault();
+  loading = true;
+  error = null;
+  try {
+    await auth.signIn(email, password);
+    goto(`${base}/portal-client/`);
+  } catch (err: any) {
+    error = err?.message ?? 'Login failed';
+  } finally {
+    loading = false;
   }
+}
 </script>
 
 <div class="flex min-h-screen items-center justify-center bg-base-100 px-4">

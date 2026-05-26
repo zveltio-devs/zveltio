@@ -40,9 +40,7 @@ export async function sendNotification(
   // deleted account) does not cause the entire batch to fail silently.
   // Promise.allSettled ensures all valid entries are delivered even if some fail.
   const results = await Promise.allSettled(
-    values.map((v) =>
-      db.insertInto('zv_notifications').values(v).execute(),
-    ),
+    values.map((v) => db.insertInto('zv_notifications').values(v).execute()),
   );
   const failed = results.filter((r) => r.status === 'rejected');
   if (failed.length > 0) {
@@ -82,7 +80,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
     const lim = Math.min(parseInt(limit), 200);
     const offset = (parseInt(page) - 1) * lim;
 
-    let query = (tdb as any)
+    let query = tdb
       .selectFrom('zv_notifications')
       .selectAll()
       .where('user_id', '=', user.id)
@@ -94,7 +92,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
 
     const [notifications, countRow] = await Promise.all([
       query.execute(),
-      (tdb as any)
+      tdb
         .selectFrom('zv_notifications')
         .select((eb: any) => [
           eb.fn.count('id').as('total'),
@@ -117,7 +115,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.get('/:id', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    const notification = await (tdb as any)
+    const notification = await tdb
       .selectFrom('zv_notifications')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -132,7 +130,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.patch('/:id/read', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (tdb as any)
+    await tdb
       .updateTable('zv_notifications')
       .set({ is_read: true })
       .where('id', '=', c.req.param('id'))
@@ -145,7 +143,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.patch('/:id/unread', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (tdb as any)
+    await tdb
       .updateTable('zv_notifications')
       .set({ is_read: false })
       .where('id', '=', c.req.param('id'))
@@ -158,7 +156,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.post('/mark-all-read', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (tdb as any)
+    await tdb
       .updateTable('zv_notifications')
       .set({ is_read: true })
       .where('user_id', '=', user.id)
@@ -171,7 +169,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.delete('/clear-all', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (tdb as any)
+    await tdb
       .deleteFrom('zv_notifications')
       .where('user_id', '=', user.id)
       .where('is_read', '=', true)
@@ -183,7 +181,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.delete('/:id', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (tdb as any)
+    await tdb
       .deleteFrom('zv_notifications')
       .where('id', '=', c.req.param('id'))
       .where('user_id', '=', user.id)
@@ -196,12 +194,15 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // POST /push/subscribe — Subscribe to web push
   app.post(
     '/push/subscribe',
-    zValidator('json', z.object({
-      endpoint: z.string().url(),
-      p256dh: z.string(),
-      auth: z.string(),
-      user_agent: z.string().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        endpoint: z.string().url(),
+        p256dh: z.string(),
+        auth: z.string(),
+        user_agent: z.string().optional(),
+      }),
+    ),
     async (c) => {
       const user = c.get('user') as any;
       const { endpoint, p256dh, auth: authKey, user_agent } = c.req.valid('json');
@@ -225,7 +226,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
     const { endpoint } = await c.req.json();
-    await (tdb as any)
+    await tdb
       .deleteFrom('zv_push_subscriptions')
       .where('user_id', '=', user.id)
       .where('endpoint', '=', endpoint)
@@ -238,13 +239,16 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // POST /broadcast — Send notification to one or all users (admin)
   app.post(
     '/broadcast',
-    zValidator('json', z.object({
-      user_id: z.union([z.string(), z.array(z.string())]).optional(), // omit = all users
-      title: z.string().min(1).max(200),
-      message: z.string().min(1).max(2000),
-      type: z.enum(['info', 'success', 'warning', 'error']).default('info'),
-      action_url: z.string().url().optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        user_id: z.union([z.string(), z.array(z.string())]).optional(), // omit = all users
+        title: z.string().min(1).max(200),
+        message: z.string().min(1).max(2000),
+        type: z.enum(['info', 'success', 'warning', 'error']).default('info'),
+        action_url: z.string().url().optional(),
+      }),
+    ),
     async (c) => {
       const tdb = reqDb(c, db);
       const user = c.get('user') as any;
@@ -258,10 +262,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
         targetIds = Array.isArray(user_id) ? user_id : [user_id];
       } else {
         // Broadcast to all active users
-        const users = await (tdb as any)
-          .selectFrom('user')
-          .select('id')
-          .execute();
+        const users = await tdb.selectFrom('user').select('id').execute();
         targetIds = users.map((u: any) => u.id);
       }
 
@@ -283,21 +284,26 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   // POST /push-tokens — register a device token
   app.post(
     '/push-tokens',
-    zValidator('json', z.object({
-      token: z.string().min(1).max(4096),
-      platform: z.enum(['fcm', 'apns', 'web']),
-      device_name: z.string().max(100).optional(),
-    })),
+    zValidator(
+      'json',
+      z.object({
+        token: z.string().min(1).max(4096),
+        platform: z.enum(['fcm', 'apns', 'web']),
+        device_name: z.string().max(100).optional(),
+      }),
+    ),
     async (c) => {
       const tdb = reqDb(c, db);
       const user = c.get('user') as any;
       const { token, platform, device_name } = c.req.valid('json');
 
-      await (tdb as any)
+      await tdb
         .insertInto('zvd_push_tokens')
         .values({ user_id: user.id, token, platform, device_name: device_name ?? null })
         .onConflict((oc: any) =>
-          oc.columns(['user_id', 'token']).doUpdateSet({ platform, device_name: device_name ?? null, updated_at: new Date() }),
+          oc
+            .columns(['user_id', 'token'])
+            .doUpdateSet({ platform, device_name: device_name ?? null, updated_at: new Date() }),
         )
         .execute();
 
@@ -309,7 +315,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.get('/push-tokens', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    const tokens = await (tdb as any)
+    const tokens = await tdb
       .selectFrom('zvd_push_tokens')
       .select(['id', 'platform', 'device_name', 'created_at'])
       .where('user_id', '=', user.id)
@@ -321,7 +327,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
   app.delete('/push-tokens/:id', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user') as any;
-    await (tdb as any)
+    await tdb
       .deleteFrom('zvd_push_tokens')
       .where('id', '=', c.req.param('id'))
       .where('user_id', '=', user.id) // users can only delete their own tokens

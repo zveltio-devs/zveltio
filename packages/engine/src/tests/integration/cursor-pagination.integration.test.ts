@@ -94,7 +94,7 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
 
     expect(Array.isArray(body.records)).toBe(true);
     expect(body.records.length).toBe(10);
@@ -106,11 +106,14 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
   });
 
   it('GET ?cursor=<cursor1>&limit=10 — returns next 10 records with no overlap', async () => {
-    const res = await fetch(`${BASE_URL}/api/data/${COL}?cursor=${encodeURIComponent(cursor1)}&limit=10`, {
-      headers: { Cookie: sessionCookie },
-    });
+    const res = await fetch(
+      `${BASE_URL}/api/data/${COL}?cursor=${encodeURIComponent(cursor1)}&limit=10`,
+      {
+        headers: { Cookie: sessionCookie },
+      },
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
 
     expect(Array.isArray(body.records)).toBe(true);
     expect(body.records.length).toBe(10);
@@ -125,11 +128,14 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
   });
 
   it('GET ?cursor=<cursor2>&limit=10 — returns remaining 5 records, next_cursor is null', async () => {
-    const res = await fetch(`${BASE_URL}/api/data/${COL}?cursor=${encodeURIComponent(cursor2)}&limit=10`, {
-      headers: { Cookie: sessionCookie },
-    });
+    const res = await fetch(
+      `${BASE_URL}/api/data/${COL}?cursor=${encodeURIComponent(cursor2)}&limit=10`,
+      {
+        headers: { Cookie: sessionCookie },
+      },
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
 
     expect(Array.isArray(body.records)).toBe(true);
     expect(body.records.length).toBe(5);
@@ -142,7 +148,7 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
 
     expect(Array.isArray(body.records)).toBe(true);
     expect(body.records.length).toBe(10);
@@ -159,7 +165,7 @@ describe.skipIf(skipAll)('Cursor Pagination — Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
 
     expect(Array.isArray(body.records)).toBe(true);
     expect(body.records.length).toBe(25);

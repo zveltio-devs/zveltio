@@ -32,10 +32,9 @@ for (const { path, truncateAfter } of files) {
   }
   // For time-tracking: first block is main; second duplicate starts with {#if loading}
   // For accounting: duplicate starts {#if loading} after account form
-  const cut =
-    path.includes('time-tracking')
-      ? c.slice(0, c.indexOf('\n{#if loading}', c.indexOf('{#if showModal}')))
-      : c.slice(0, c.indexOf('\n{#if loading}', c.indexOf('{#if showAccountForm}')));
+  const cut = path.includes('time-tracking')
+    ? c.slice(0, c.indexOf('\n{#if loading}', c.indexOf('{#if showModal}')))
+    : c.slice(0, c.indexOf('\n{#if loading}', c.indexOf('{#if showAccountForm}')));
   if (cut.length < c.length) {
     writeFileSync(full, cut.trimEnd() + '\n');
     console.log(`[fixed] ${path}: ${c.length} → ${cut.length} chars`);

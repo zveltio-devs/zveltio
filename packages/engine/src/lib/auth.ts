@@ -133,7 +133,9 @@ async function getSmtpTransport(): Promise<import('nodemailer').Transporter> {
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' } : undefined,
+    auth: process.env.SMTP_USER
+      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' }
+      : undefined,
     pool: true,
     maxConnections: 3,
   });
@@ -178,14 +180,16 @@ export async function initAuth(db: Database) {
   try {
     const { networkInterfaces } = await import('os');
     for (const ifaces of Object.values(networkInterfaces())) {
-      for (const iface of (ifaces || [])) {
+      for (const iface of ifaces || []) {
         if (iface.family === 'IPv4' && !iface.internal) {
           localOrigins.push(`http://${iface.address}:${port}`);
           localOrigins.push(`https://${iface.address}:${port}`);
         }
       }
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   // CORS_ORIGINS, if set, is the explicit allowlist (split + trim).
   // Otherwise we restrict to the engine's own baseURL plus auto-detected
@@ -195,14 +199,16 @@ export async function initAuth(db: Database) {
   // "trusted" (which would defeat CSRF protection with `credentials:
   // include` cookies). In production set CORS_ORIGINS explicitly.
   const trustedOrigins: string[] = process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    ? process.env.CORS_ORIGINS.split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
     : localOrigins;
 
   if (!process.env.CORS_ORIGINS && process.env.NODE_ENV === 'production') {
     console.warn(
       '[auth] CORS_ORIGINS is not set in production — falling back to ' +
-      `auto-detected origins (${localOrigins.length} entries). Set ` +
-      'CORS_ORIGINS explicitly to lock down the allowlist.',
+        `auto-detected origins (${localOrigins.length} entries). Set ` +
+        'CORS_ORIGINS explicitly to lock down the allowlist.',
     );
   }
 
@@ -261,11 +267,24 @@ export async function initAuth(db: Database) {
 
     emailAndPassword: {
       enabled: true,
-      ...(process.env.SMTP_HOST ? {
-        sendResetPassword: async ({ user, url }: { user: { email: string; name?: string }, url: string }) => {
-          await sendEmail(user.email, 'Reset your password', `<p>Hi ${user.name || user.email},</p><p>Click <a href="${url}">here</a> to reset your password. This link expires in 1 hour.</p>`, `Reset your password: ${url}`);
-        },
-      } : {}),
+      ...(process.env.SMTP_HOST
+        ? {
+            sendResetPassword: async ({
+              user,
+              url,
+            }: {
+              user: { email: string; name?: string };
+              url: string;
+            }) => {
+              await sendEmail(
+                user.email,
+                'Reset your password',
+                `<p>Hi ${user.name || user.email},</p><p>Click <a href="${url}">here</a> to reset your password. This link expires in 1 hour.</p>`,
+                `Reset your password: ${url}`,
+              );
+            },
+          }
+        : {}),
       // Use argon2id via Bun.password (4 MB RAM) instead of better-auth's
       // default scrypt (32 MB RAM) so create-god and login work on small VMs.
       // Legacy scrypt hashes (salt:hexkey format) are verified transparently
@@ -275,8 +294,7 @@ export async function initAuth(db: Database) {
       // (S4-09 migration). After PASSWORD_LEGACY_SCRYPT_DEADLINE has
       // passed, scrypt verification fails — by then nobody should be left.
       password: {
-        hash: (password: string) =>
-          Bun.password.hash(password, argonOptions()),
+        hash: (password: string) => Bun.password.hash(password, argonOptions()),
         verify: async ({ hash, password }: { hash: string; password: string }) => {
           // New hashes: argon2id / bcrypt — start with '$'
           if (hash.startsWith('$')) {
@@ -285,7 +303,9 @@ export async function initAuth(db: Database) {
           // S4-09: legacy scrypt path. Verify, then schedule a silent
           // re-hash so the next sign-in goes through the argon2id branch.
           if (isLegacyScryptDeadlinePassed()) {
-            console.warn('[auth] Refusing legacy scrypt hash — past PASSWORD_LEGACY_SCRYPT_DEADLINE.');
+            console.warn(
+              '[auth] Refusing legacy scrypt hash — past PASSWORD_LEGACY_SCRYPT_DEADLINE.',
+            );
             return false;
           }
           // Legacy hashes: better-auth default scrypt format "salt:hexkey"
@@ -298,7 +318,10 @@ export async function initAuth(db: Database) {
             // Schedule re-hash — fire-and-forget so a DB error doesn't
             // block sign-in. The user is already authenticated.
             rehashLegacyAccountToArgon2id(_authDb, hash, password).catch((err) => {
-              console.warn('[auth] Re-hash to argon2id failed (will retry on next login):', err.message);
+              console.warn(
+                '[auth] Re-hash to argon2id failed (will retry on next login):',
+                err.message,
+              );
             });
             return true;
           } catch {
@@ -310,30 +333,70 @@ export async function initAuth(db: Database) {
 
     socialProviders: {
       ...(process.env.GOOGLE_CLIENT_ID
-        ? { google: { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET || '' } }
+        ? {
+            google: {
+              clientId: process.env.GOOGLE_CLIENT_ID,
+              clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+            },
+          }
         : {}),
       ...(process.env.GITHUB_CLIENT_ID
-        ? { github: { clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET || '' } }
+        ? {
+            github: {
+              clientId: process.env.GITHUB_CLIENT_ID,
+              clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
+            },
+          }
         : {}),
       ...(process.env.MICROSOFT_CLIENT_ID
-        ? { microsoft: { clientId: process.env.MICROSOFT_CLIENT_ID, clientSecret: process.env.MICROSOFT_CLIENT_SECRET || '', tenantId: process.env.MICROSOFT_TENANT_ID || 'common' } }
+        ? {
+            microsoft: {
+              clientId: process.env.MICROSOFT_CLIENT_ID,
+              clientSecret: process.env.MICROSOFT_CLIENT_SECRET || '',
+              tenantId: process.env.MICROSOFT_TENANT_ID || 'common',
+            },
+          }
         : {}),
       ...(process.env.DISCORD_CLIENT_ID
-        ? { discord: { clientId: process.env.DISCORD_CLIENT_ID, clientSecret: process.env.DISCORD_CLIENT_SECRET || '' } }
+        ? {
+            discord: {
+              clientId: process.env.DISCORD_CLIENT_ID,
+              clientSecret: process.env.DISCORD_CLIENT_SECRET || '',
+            },
+          }
         : {}),
       ...(process.env.TWITTER_CLIENT_ID
-        ? { twitter: { clientId: process.env.TWITTER_CLIENT_ID, clientSecret: process.env.TWITTER_CLIENT_SECRET || '' } }
+        ? {
+            twitter: {
+              clientId: process.env.TWITTER_CLIENT_ID,
+              clientSecret: process.env.TWITTER_CLIENT_SECRET || '',
+            },
+          }
         : {}),
       ...(process.env.APPLE_CLIENT_ID
-        ? { apple: { clientId: process.env.APPLE_CLIENT_ID, clientSecret: process.env.APPLE_CLIENT_SECRET || '', teamId: process.env.APPLE_TEAM_ID || '', keyId: process.env.APPLE_KEY_ID || '' } as any }
+        ? {
+            apple: {
+              clientId: process.env.APPLE_CLIENT_ID,
+              clientSecret: process.env.APPLE_CLIENT_SECRET || '',
+              teamId: process.env.APPLE_TEAM_ID || '',
+              keyId: process.env.APPLE_KEY_ID || '',
+            } as any,
+          }
         : {}),
     },
 
-    emailVerification: process.env.SMTP_HOST ? {
-      sendVerificationEmail: async ({ user, url }) => {
-        await sendEmail(user.email, 'Verify your email', `<p>Hi ${user.name || user.email},</p><p>Click <a href="${url}">here</a> to verify your email address.</p><p>This link expires in 24 hours.</p>`, `Verify your email: ${url}`);
-      },
-    } : undefined,
+    emailVerification: process.env.SMTP_HOST
+      ? {
+          sendVerificationEmail: async ({ user, url }) => {
+            await sendEmail(
+              user.email,
+              'Verify your email',
+              `<p>Hi ${user.name || user.email},</p><p>Click <a href="${url}">here</a> to verify your email address.</p><p>This link expires in 24 hours.</p>`,
+              `Verify your email: ${url}`,
+            );
+          },
+        }
+      : undefined,
 
     plugins: [
       // TOTP 2FA — always enabled; users can opt in from their profile
@@ -343,13 +406,20 @@ export async function initAuth(db: Database) {
       }),
 
       // Magic link + password reset — enabled only when SMTP is configured
-      ...(process.env.SMTP_HOST ? [
-        magicLink({
-          sendMagicLink: async ({ email, url }) => {
-            await sendEmail(email, 'Your sign-in link', `<p>Click <a href="${url}">here</a> to sign in. This link expires in 10 minutes.</p>`, `Sign in: ${url}`);
-          },
-        }),
-      ] : []),
+      ...(process.env.SMTP_HOST
+        ? [
+            magicLink({
+              sendMagicLink: async ({ email, url }) => {
+                await sendEmail(
+                  email,
+                  'Your sign-in link',
+                  `<p>Click <a href="${url}">here</a> to sign in. This link expires in 10 minutes.</p>`,
+                  `Sign in: ${url}`,
+                );
+              },
+            }),
+          ]
+        : []),
 
       // WebAuthn / Passkeys — phishing-resistant credentials.
       // RP (relying party) settings: ID is the effective domain (must NOT
@@ -357,8 +427,7 @@ export async function initAuth(db: Database) {
       // see during ceremonies. For dev, both default to localhost. Set
       // BETTER_AUTH_URL / PASSKEY_RP_ID in production.
       passkey({
-        rpID: process.env.PASSKEY_RP_ID
-          || new URL(baseURL).hostname,
+        rpID: process.env.PASSKEY_RP_ID || new URL(baseURL).hostname,
         rpName: process.env.APP_NAME || 'Zveltio',
         // Origin must match the page the user is authenticating from.
         // Most installations serve Studio + API on the same baseURL.
@@ -375,7 +444,7 @@ export async function initAuth(db: Database) {
   const origGetSession = authInstance.api.getSession.bind(authInstance.api);
   (authInstance.api as any).getSession = async (...args: any[]) => {
     try {
-      return await origGetSession(...args as [any]);
+      return await origGetSession(...(args as [any]));
     } catch (err) {
       const e = err as { name?: string; status?: number; statusCode?: number; message?: string };
       const isApiError =

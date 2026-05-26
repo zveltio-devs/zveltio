@@ -51,7 +51,8 @@ function findExtensions(base: string, prefix = ''): string[] {
     return names;
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+    if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules')
+      continue;
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (existsSync(join(base, entry.name, 'manifest.json'))) names.push(rel);
     else names.push(...findExtensions(join(base, entry.name), rel));
@@ -72,24 +73,36 @@ function patchPage(content: string, key: string): string {
   if (!content.includes("from '$lib/i18n")) {
     content = content.replace(
       /<script lang="ts">\n/,
-      "<script lang=\"ts\">\n  import { m } from '$lib/i18n.svelte.js';\n",
+      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
     );
   }
 
   const reps: [RegExp, string][] = [
-    [/toast\.error\(e\?\.message \?\? 'Failed to load[^']*'\)/g, "toast.error(e instanceof Error ? e.message : m['ext.loadFailed']())"],
-    [/toast\.error\(e\?\.message \?\? 'Error'\)/g, "toast.error(e instanceof Error ? e.message : m['ext.saveFailed']())"],
-    [/toast\.error\(e\?\.message \?\? 'Failed[^']*'\)/g, "toast.error(e instanceof Error ? e.message : m['ext.loadFailed']())"],
-    [/toast\.success\('([^']+)'\)/g, (_, msg) => {
-      const map: Record<string, string> = {
-        'Deleted.': "m['ext.deleted']()",
-        'Approved.': "m['ext.approved']()",
-        'Created.': "m['ext.created']()",
-      };
-      return `toast.success(${map[msg] ?? `'${msg}'`})`;
-    }],
-    [/>Cancel</g, '>{m[\'common.cancel\']()}<'],
-    [/>\s*Create\s*</g, '>{m[\'common.create\']()}<'],
+    [
+      /toast\.error\(e\?\.message \?\? 'Failed to load[^']*'\)/g,
+      "toast.error(e instanceof Error ? e.message : m['ext.loadFailed']())",
+    ],
+    [
+      /toast\.error\(e\?\.message \?\? 'Error'\)/g,
+      "toast.error(e instanceof Error ? e.message : m['ext.saveFailed']())",
+    ],
+    [
+      /toast\.error\(e\?\.message \?\? 'Failed[^']*'\)/g,
+      "toast.error(e instanceof Error ? e.message : m['ext.loadFailed']())",
+    ],
+    [
+      /toast\.success\('([^']+)'\)/g,
+      (_, msg) => {
+        const map: Record<string, string> = {
+          'Deleted.': "m['ext.deleted']()",
+          'Approved.': "m['ext.approved']()",
+          'Created.': "m['ext.created']()",
+        };
+        return `toast.success(${map[msg] ?? `'${msg}'`})`;
+      },
+    ],
+    [/>Cancel</g, ">{m['common.cancel']()}<"],
+    [/>\s*Create\s*</g, ">{m['common.create']()}<"],
   ];
   for (const [re, sub] of reps) content = content.replace(re, sub);
 

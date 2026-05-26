@@ -109,6 +109,10 @@ describe('S4-06 splitStatements', () => {
 
   it('emits an empty array for empty input', () => {
     expect(splitStatements('')).toEqual([]);
-    expect(splitStatements('   \n\t  ').map((s) => s.trim()).filter(Boolean)).toEqual([]);
+    expect(
+      splitStatements('   \n\t  ')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ).toEqual([]);
   });
 });

@@ -1,55 +1,68 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { ScanSearch, Play, AlertTriangle, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { ScanSearch, Play, AlertTriangle, LoaderCircle } from '@lucide/svelte';
 
-  let scans = $state<any[]>([]);
-  let issues = $state<any[]>([]);
-  let collections = $state<any[]>([]);
-  let selectedCollection = $state('');
-  let scanning = $state(false);
-  let loading = $state(true);
+let scans = $state<any[]>([]);
+let issues = $state<any[]>([]);
+let collections = $state<any[]>([]);
+let selectedCollection = $state('');
+let scanning = $state(false);
+let loading = $state(true);
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const [s, c] = await Promise.all([
-        api.get<{ data: any[] }>('/ext/analytics/quality/scans'),
-        api.get<{ collections: any[] }>('/api/collections').catch(() => ({ collections: [] })),
-      ]);
-      scans = s.data ?? [];
-      collections = c.collections ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadAll() {
+  loading = true;
+  try {
+    const [s, c] = await Promise.all([
+      api.get<{ data: any[] }>('/ext/analytics/quality/scans'),
+      api.get<{ collections: any[] }>('/api/collections').catch(() => ({ collections: [] })),
+    ]);
+    scans = s.data ?? [];
+    collections = c.collections ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function runScan() {
-    if (!selectedCollection) return;
-    scanning = true;
-    try {
-      const r = await api.post<{ issues: any[] }>('/ext/analytics/quality/scans', { collection: selectedCollection });
-      issues = r.issues ?? [];
-      await loadAll();
-    } catch (e: any) { toast.error(e?.message ?? 'Scan failed'); }
-    finally { scanning = false; }
+async function runScan() {
+  if (!selectedCollection) return;
+  scanning = true;
+  try {
+    const r = await api.post<{ issues: any[] }>('/ext/analytics/quality/scans', {
+      collection: selectedCollection,
+    });
+    issues = r.issues ?? [];
+    await loadAll();
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Scan failed');
+  } finally {
+    scanning = false;
   }
+}
 
-  async function viewIssues(scanId: string) {
-    try {
-      const r = await api.get<{ data: any[] }>(`/ext/analytics/quality/scans/${scanId}/issues`);
-      issues = r.data ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function viewIssues(scanId: string) {
+  try {
+    const r = await api.get<{ data: any[] }>(`/ext/analytics/quality/scans/${scanId}/issues`);
+    issues = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  onMount(loadAll);
+onMount(loadAll);
 
-  function severityBadge(s: string) {
-    return ({ critical: 'badge-error', high: 'badge-warning', info: 'badge-info' } as any)[s] ?? 'badge-ghost';
-  }
+function severityBadge(s: string) {
+  return (
+    ({ critical: 'badge-error', high: 'badge-warning', info: 'badge-info' } as any)[s] ??
+    'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['analytics.quality.title']()} subtitle={m['analytics.quality.subtitle']()}>

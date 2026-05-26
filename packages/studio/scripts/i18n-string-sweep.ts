@@ -19,7 +19,10 @@ const REPLACEMENTS: [string, string][] = [
   ['Chart of accounts', "m['finance.accounting.tab.accounts']()"],
   ['Fiscal years', "m['finance.accounting.tab.fiscal']()"],
   ['Entry posted.', "m['finance.accounting.toast.posted']()"],
-  ["toast.success(approved ? 'Approved.' : 'Rejected.')", "toast.success(approved ? m['ext.approved']() : m['ext.rejected']())"],
+  [
+    "toast.success(approved ? 'Approved.' : 'Rejected.')",
+    "toast.success(approved ? m['ext.approved']() : m['ext.rejected']())",
+  ],
   ['Delete this quote?', "m['finance.quotes.deleteConfirm']()"],
   ['No expenses.', "m['finance.expenses.empty']()"],
   ['No imports yet.', "m['data.import.empty']()"],
@@ -100,7 +103,10 @@ for (const ext of walk(EXT_ROOT)) {
       c = c.replaceAll(`"${from}"`, to);
     }
   }
-  if (c !== o) { writeFileSync(p, c); n++; }
+  if (c !== o) {
+    writeFileSync(p, c);
+    n++;
+  }
 }
 writeFileSync(EN_PATH, JSON.stringify(en, null, 2) + '\n');
 writeFileSync(RO_PATH, JSON.stringify(ro, null, 2) + '\n');

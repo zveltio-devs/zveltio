@@ -67,25 +67,29 @@ describe('S5-02 fixture — URL generators match expected paths', () => {
   const client = createRpcClient<ZveltioApi>({ baseUrl: 'http://localhost' });
 
   it('generates the right URLs for data routes', () => {
-    expect(client.api.data[':collection'].$url({ param: { collection: 'orders' } }).pathname)
-      .toBe('/api/data/orders');
-    expect(client.api.data[':collection'][':id'].$url({ param: { collection: 'orders', id: '7' } }).pathname)
-      .toBe('/api/data/orders/7');
+    expect(client.api.data[':collection'].$url({ param: { collection: 'orders' } }).pathname).toBe(
+      '/api/data/orders',
+    );
+    expect(
+      client.api.data[':collection'][':id'].$url({ param: { collection: 'orders', id: '7' } })
+        .pathname,
+    ).toBe('/api/data/orders/7');
   });
 
   it('generates the right URLs for collection management', () => {
     expect(client.api.collections.$url().pathname).toBe('/api/collections');
-    expect(client.api.collections[':name'].$url({ param: { name: 'contacts' } }).pathname)
-      .toBe('/api/collections/contacts');
-    expect(client.api.collections[':name'].fields.$url({ param: { name: 'contacts' } }).pathname)
-      .toBe('/api/collections/contacts/fields');
+    expect(client.api.collections[':name'].$url({ param: { name: 'contacts' } }).pathname).toBe(
+      '/api/collections/contacts',
+    );
+    expect(
+      client.api.collections[':name'].fields.$url({ param: { name: 'contacts' } }).pathname,
+    ).toBe('/api/collections/contacts/fields');
   });
 
   it('generates the right URLs for users', () => {
     expect(client.api.users.$url().pathname).toBe('/api/users');
     expect(client.api.users.invite.$url().pathname).toBe('/api/users/invite');
-    expect(client.api.users[':id'].$url({ param: { id: 'u1' } }).pathname)
-      .toBe('/api/users/u1');
+    expect(client.api.users[':id'].$url({ param: { id: 'u1' } }).pathname).toBe('/api/users/u1');
   });
 
   it('generates the right URLs for me + health', () => {
@@ -103,8 +107,13 @@ describe('S5-02 fixture — payload shapes are documented', () => {
   });
 
   it('DdlJobStatusResponse covers all 5 statuses', () => {
-    const statuses: Array<'pending' | 'running' | 'completed' | 'failed' | 'dlq'> =
-      ['pending', 'running', 'completed', 'failed', 'dlq'];
+    const statuses: Array<'pending' | 'running' | 'completed' | 'failed' | 'dlq'> = [
+      'pending',
+      'running',
+      'completed',
+      'failed',
+      'dlq',
+    ];
     expect(statuses).toHaveLength(5);
   });
 
@@ -120,9 +129,13 @@ describe('S5-02 — Hono ergonomics for typed client + mounted fixture', () => {
   // ever gets refactored to a different mount path, this regression
   // catches it before SDK consumers ship.
   it('typed client routes survive a roundtrip mount', () => {
-    const runtime = new Hono().route('/api/data', new Hono().get('/:collection', (c) => c.json({})));
+    const runtime = new Hono().route(
+      '/api/data',
+      new Hono().get('/:collection', (c) => c.json({})),
+    );
     const tinyClient = createRpcClient<typeof runtime>({ baseUrl: 'http://x' });
-    expect(tinyClient.api.data[':collection'].$url({ param: { collection: 'x' } }).pathname)
-      .toBe('/api/data/x');
+    expect(tinyClient.api.data[':collection'].$url({ param: { collection: 'x' } }).pathname).toBe(
+      '/api/data/x',
+    );
   });
 });

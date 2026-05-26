@@ -1,104 +1,113 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { api } from '$lib/api.js';
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { api } from '$lib/api.js';
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  const API = '/ext/operations/traceability';
+const API = '/ext/operations/traceability';
 
-  type Tab = 'simulate' | 'active';
+type Tab = 'simulate' | 'active';
 
-  let activeTab = $state<Tab>('simulate');
-  let recalls = $state<any[]>([]);
-  let loadingRecalls = $state(false);
+let activeTab = $state<Tab>('simulate');
+let recalls = $state<any[]>([]);
+let loadingRecalls = $state(false);
 
-  let lotId = $state('');
-  let simulating = $state(false);
-  let simulation = $state<any>(null);
-  let simError = $state('');
+let lotId = $state('');
+let simulating = $state(false);
+let simulation = $state<any>(null);
+let simError = $state('');
 
-  let initiateForm = $state({ reason: '', scope: 'internal' as string });
-  let initiating = $state(false);
-  let initiated = $state<any>(null);
+let initiateForm = $state({ reason: '', scope: 'internal' as string });
+let initiating = $state(false);
+let initiated = $state<any>(null);
 
-  let resolveForm = $state({ recallId: '', resolution_notes: '' });
-  let resolving = $state(false);
+let resolveForm = $state({ recallId: '', resolution_notes: '' });
+let resolving = $state(false);
 
-  $effect(() => {
-    if (activeTab === 'active') loadRecalls();
-  });
+$effect(() => {
+  if (activeTab === 'active') loadRecalls();
+});
 
-  async function loadRecalls() {
-    loadingRecalls = true;
-    const res = await api.fetch(`${API}/recalls?status=active`);
-    recalls = res.ok ? (await res.json()).data : [];
-    loadingRecalls = false;
+async function loadRecalls() {
+  loadingRecalls = true;
+  const res = await api.fetch(`${API}/recalls?status=active`);
+  recalls = res.ok ? (await res.json()).data : [];
+  loadingRecalls = false;
+}
+
+async function simulate() {
+  if (!lotId.trim()) return;
+  simulating = true;
+  simError = '';
+  simulation = null;
+  initiated = null;
+  try {
+    const res = await api.fetch(`${API}/recalls/simulate/${lotId.trim()}`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    simulation = (await res.json()).data;
+  } catch (e: any) {
+    simError = e.message;
+  } finally {
+    simulating = false;
   }
+}
 
-  async function simulate() {
-    if (!lotId.trim()) return;
-    simulating = true;
-    simError = '';
+async function initiateRecall(e: Event) {
+  e.preventDefault();
+  askConfirm(m['operations.traceability.recalls.confirm']({ scope: initiateForm.scope }), () =>
+    initiateRecallConfirmed(e),
+  );
+}
+async function initiateRecallConfirmed(e: Event) {
+  initiating = true;
+  simError = '';
+  try {
+    const res = await api.fetch(`${API}/recalls/initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lot_id: lotId.trim(),
+        reason: initiateForm.reason,
+        scope: initiateForm.scope,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    initiated = (await res.json()).data;
     simulation = null;
-    initiated = null;
-    try {
-      const res = await api.fetch(`${API}/recalls/simulate/${lotId.trim()}`, { method: 'POST' });
-      if (!res.ok) throw new Error(await res.text());
-      simulation = (await res.json()).data;
-    } catch (e: any) {
-      simError = e.message;
-    } finally {
-      simulating = false;
-    }
+    await loadRecalls();
+  } catch (e: any) {
+    simError = e.message;
+  } finally {
+    initiating = false;
   }
+}
 
-  async function initiateRecall(e: Event) {
-    e.preventDefault();
-        askConfirm(m['operations.traceability.recalls.confirm']({ scope: initiateForm.scope }), () => initiateRecallConfirmed(e));
+async function resolveRecall(e: Event) {
+  e.preventDefault();
+  resolving = true;
+  try {
+    const res = await api.fetch(`${API}/recalls/${resolveForm.recallId}/resolve`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolution_notes: resolveForm.resolution_notes }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    resolveForm = { recallId: '', resolution_notes: '' };
+    await loadRecalls();
+  } finally {
+    resolving = false;
   }
-  async function initiateRecallConfirmed(e: Event) {
-    initiating = true;
-    simError = '';
-    try {
-      const res = await api.fetch(`${API}/recalls/initiate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lot_id: lotId.trim(), reason: initiateForm.reason, scope: initiateForm.scope }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      initiated = (await res.json()).data;
-      simulation = null;
-      await loadRecalls();
-    } catch (e: any) {
-      simError = e.message;
-    } finally {
-      initiating = false;
-    }
-  }
+}
 
-
-  async function resolveRecall(e: Event) {
-    e.preventDefault();
-    resolving = true;
-    try {
-      const res = await api.fetch(`${API}/recalls/${resolveForm.recallId}/resolve`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resolution_notes: resolveForm.resolution_notes }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      resolveForm = { recallId: '', resolution_notes: '' };
-      await loadRecalls();
-    } finally {
-      resolving = false;
-    }
-  }
-
-  function actionColor(action: string): string {
-    return { consumer_recall: 'alert-error', market_withdrawal: 'alert-warning', internal: 'alert-info' }[action] ?? 'alert-info';
-  }
+function actionColor(action: string): string {
+  return (
+    { consumer_recall: 'alert-error', market_withdrawal: 'alert-warning', internal: 'alert-info' }[
+      action
+    ] ?? 'alert-info'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['operations.traceability.recalls.title']()}>

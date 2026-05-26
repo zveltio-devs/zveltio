@@ -13,7 +13,11 @@ import {
 } from '../lib/tenant-manager.js';
 
 const CreateTenantSchema = z.object({
-  slug: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/),
+  slug: z
+    .string()
+    .min(3)
+    .max(50)
+    .regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(200),
   plan: z.enum(['free', 'pro', 'enterprise', 'custom']).default('free'),
   billing_email: z.string().email().optional(),
@@ -21,7 +25,11 @@ const CreateTenantSchema = z.object({
 });
 
 const CreateEnvironmentSchema = z.object({
-  slug: z.string().min(2).max(30).regex(/^[a-z0-9-]+$/),
+  slug: z
+    .string()
+    .min(2)
+    .max(30)
+    .regex(/^[a-z0-9-]+$/),
   name: z.string().min(1).max(100),
 });
 
@@ -99,10 +107,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
         .execute();
     }
 
-    return c.json(
-      { tenant, default_schema: defaultSchema, environments: ['prod', 'dev'] },
-      201,
-    );
+    return c.json({ tenant, default_schema: defaultSchema, environments: ['prod', 'dev'] }, 201);
   });
 
   // PATCH /api/tenants/:id — update tenant
@@ -115,8 +120,15 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     const body = await c.req.json();
     const allowed = [
-      'name', 'plan', 'status', 'max_records', 'max_storage_gb',
-      'max_api_calls_day', 'max_users', 'billing_email', 'settings',
+      'name',
+      'plan',
+      'status',
+      'max_records',
+      'max_storage_gb',
+      'max_api_calls_day',
+      'max_users',
+      'billing_email',
+      'settings',
     ];
     const updateData: Record<string, any> = { updated_at: new Date() };
     for (const key of allowed) {

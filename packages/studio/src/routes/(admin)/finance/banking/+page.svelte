@@ -1,85 +1,87 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Landmark, Plus, X, ArrowLeftRight, FileSpreadsheet, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Landmark, Plus, X, ArrowLeftRight, FileSpreadsheet, LoaderCircle } from '@lucide/svelte';
 
-  let tab = $state<'accounts' | 'transactions' | 'reconciliation'>('accounts');
-  let accounts = $state<any[]>([]);
-  let transactions = $state<any[]>([]);
-  let unreconciled = $state<any[]>([]);
-  let openInvoices = $state<any[]>([]);
-  let loading = $state(true);
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({ name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 });
+let tab = $state<'accounts' | 'transactions' | 'reconciliation'>('accounts');
+let accounts = $state<any[]>([]);
+let transactions = $state<any[]>([]);
+let unreconciled = $state<any[]>([]);
+let openInvoices = $state<any[]>([]);
+let loading = $state(true);
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({ name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 });
 
-  async function loadAccounts() {
-    try {
-      const r = await api.get<{ data: any[] }>('/ext/finance/banking/accounts');
-      accounts = r.data ?? [];
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    }
+async function loadAccounts() {
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/finance/banking/accounts');
+    accounts = r.data ?? [];
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function loadTransactions() {
-    try {
-      const r = await api.get<{ data: any[] }>('/ext/finance/banking/transactions?limit=100');
-      transactions = r.data ?? [];
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    }
+async function loadTransactions() {
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/finance/banking/transactions?limit=100');
+    transactions = r.data ?? [];
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function loadReconciliation() {
-    try {
-      const [u, inv] = await Promise.all([
-        api.get<{ data: any[] }>('/ext/finance/banking/transactions?reconciled=false&limit=100'),
-        api.get<{ data: any[] }>('/ext/finance/invoicing/invoices?status=sent&limit=100').catch(() => ({ data: [] })),
-      ]);
-      unreconciled = u.data ?? [];
-      openInvoices = inv.data ?? [];
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    }
+async function loadReconciliation() {
+  try {
+    const [u, inv] = await Promise.all([
+      api.get<{ data: any[] }>('/ext/finance/banking/transactions?reconciled=false&limit=100'),
+      api
+        .get<{ data: any[] }>('/ext/finance/invoicing/invoices?status=sent&limit=100')
+        .catch(() => ({ data: [] })),
+    ]);
+    unreconciled = u.data ?? [];
+    openInvoices = inv.data ?? [];
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function loadTab() {
-    loading = true;
-    if (tab === 'accounts') await loadAccounts();
-    else if (tab === 'transactions') await loadTransactions();
-    else await loadReconciliation();
-    loading = false;
+async function loadTab() {
+  loading = true;
+  if (tab === 'accounts') await loadAccounts();
+  else if (tab === 'transactions') await loadTransactions();
+  else await loadReconciliation();
+  loading = false;
+}
+
+async function createAccount() {
+  saving = true;
+  try {
+    await api.post('/ext/finance/banking/accounts', form);
+    showForm = false;
+    form = { name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 };
+    await loadAccounts();
+    toast.success(m['ext.created']());
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function createAccount() {
-    saving = true;
-    try {
-      await api.post('/ext/finance/banking/accounts', form);
-      showForm = false;
-      form = { name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 };
-      await loadAccounts();
-      toast.success(m['ext.created']());
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-    } finally {
-      saving = false;
-    }
-  }
+$effect(() => {
+  tab;
+  loadTab();
+});
+onMount(() => loadAccounts());
 
-  $effect(() => {
-    tab;
-    loadTab();
-  });
-  onMount(() => loadAccounts());
-
-  function fmt(n: number, c = 'RON') {
-    return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: c }).format(n);
-  }
+function fmt(n: number, c = 'RON') {
+  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: c }).format(n);
+}
 </script>
 
 <ExtensionPageShell title={m['finance.banking.title']()} subtitle={m['finance.banking.subtitle']()}>

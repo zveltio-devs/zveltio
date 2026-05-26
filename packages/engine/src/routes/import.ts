@@ -33,7 +33,10 @@ function parseCsv(text: string, delimiter: string, skipHeader: boolean): Record<
 
     if (inQuote) {
       if (ch === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; }  // escaped quote
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } // escaped quote
         else inQuote = false;
       } else {
         field += ch;
@@ -41,10 +44,13 @@ function parseCsv(text: string, delimiter: string, skipHeader: boolean): Record<
     } else if (ch === '"') {
       inQuote = true;
     } else if (ch === delimiter) {
-      row.push(field); field = '';
+      row.push(field);
+      field = '';
     } else if (ch === '\n') {
-      row.push(field); field = '';
-      rows.push(row); row = [];
+      row.push(field);
+      field = '';
+      rows.push(row);
+      row = [];
     } else if (ch === '\r') {
       // skip CR — handled by \n
     } else {
@@ -52,28 +58,35 @@ function parseCsv(text: string, delimiter: string, skipHeader: boolean): Record<
     }
   }
   // last field / row
-  if (field || row.length > 0) { row.push(field); rows.push(row); }
+  if (field || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
 
   // Remove trailing empty row (common with files ending in \n)
-  if (rows.at(-1)?.every(c => c === '')) rows.pop();
+  if (rows.at(-1)?.every((c) => c === '')) rows.pop();
 
   if (rows.length === 0) return [];
 
-  const header = rows[0].map(h => h.trim());
+  const header = rows[0].map((h) => h.trim());
   const dataRows = skipHeader ? rows.slice(1) : rows;
 
   if (skipHeader) {
-    return dataRows.map(r => {
+    return dataRows.map((r) => {
       const obj: Record<string, string> = {};
-      header.forEach((h, i) => { obj[h] = r[i] ?? ''; });
+      header.forEach((h, i) => {
+        obj[h] = r[i] ?? '';
+      });
       return obj;
     });
   }
 
   // No header — use col0, col1, …
-  return dataRows.map(r => {
+  return dataRows.map((r) => {
     const obj: Record<string, string> = {};
-    r.forEach((v, i) => { obj[`col${i}`] = v; });
+    r.forEach((v, i) => {
+      obj[`col${i}`] = v;
+    });
     return obj;
   });
 }
@@ -91,7 +104,11 @@ function coerce(val: string, fieldDef: any): unknown {
     return val === 'true' || val === '1' || val === 'yes';
   }
   if (type === 'json' || type === 'jsonb') {
-    try { return JSON.parse(val); } catch { return val; }
+    try {
+      return JSON.parse(val);
+    } catch {
+      return val;
+    }
   }
   return val;
 }
@@ -112,8 +129,18 @@ export function importRoutes(db: Database, _auth: any) {
 
     let query = tdb
       .selectFrom('zv_import_logs')
-      .select(['id', 'collection', 'filename', 'file_format', 'status',
-               'total_rows', 'success_rows', 'error_rows', 'created_at', 'completed_at'])
+      .select([
+        'id',
+        'collection',
+        'filename',
+        'file_format',
+        'status',
+        'total_rows',
+        'success_rows',
+        'error_rows',
+        'created_at',
+        'completed_at',
+      ])
       .orderBy('created_at', 'desc')
       .limit(50);
 
@@ -143,8 +170,11 @@ export function importRoutes(db: Database, _auth: any) {
 
     // Parse multipart
     let formData: FormData;
-    try { formData = await c.req.formData(); }
-    catch { return c.json({ error: 'Expected multipart/form-data' }, 400); }
+    try {
+      formData = await c.req.formData();
+    } catch {
+      return c.json({ error: 'Expected multipart/form-data' }, 400);
+    }
 
     const fileBlob = formData.get('file');
     if (!(fileBlob instanceof File)) {
@@ -170,27 +200,33 @@ export function importRoutes(db: Database, _auth: any) {
       .executeTakeFirst();
     if (!schemaRow) return c.json({ error: `Collection "${collection}" not found` }, 404);
 
-    const fieldDefs: any[] = typeof (schemaRow as any).fields === 'string'
-      ? JSON.parse((schemaRow as any).fields)
-      : ((schemaRow as any).fields ?? []);
+    const fieldDefs: any[] =
+      typeof (schemaRow as any).fields === 'string'
+        ? JSON.parse((schemaRow as any).fields)
+        : ((schemaRow as any).fields ?? []);
 
     const fieldMap: Record<string, any> = {};
     for (const f of fieldDefs) fieldMap[f.name] = f;
 
     // Valid writeable columns (schema fields only — no system cols via import)
-    const validCols = new Set(fieldDefs.map((f: any) => f.name).filter((n: string) => SAFE_IDENT.test(n)));
+    const validCols = new Set(
+      fieldDefs.map((f: any) => f.name).filter((n: string) => SAFE_IDENT.test(n)),
+    );
 
     // Create log entry
     const logId = crypto.randomUUID();
-    await tdb.insertInto('zv_import_logs' as any).values({
-      id: logId,
-      collection,
-      filename: fileBlob.name,
-      file_format: format === 'ndjson' ? 'ndjson' : format,
-      status: 'processing',
-      options: JSON.stringify({ delimiter, skip_header: skipHeader }),
-      created_by: user.id,
-    } as any).execute();
+    await tdb
+      .insertInto('zv_import_logs' as any)
+      .values({
+        id: logId,
+        collection,
+        filename: fileBlob.name,
+        file_format: format === 'ndjson' ? 'ndjson' : format,
+        status: 'processing',
+        options: JSON.stringify({ delimiter, skip_header: skipHeader }),
+        created_by: user.id,
+      } as any)
+      .execute();
 
     // Parse file content
     const text = await fileBlob.text();
@@ -203,17 +239,27 @@ export function importRoutes(db: Database, _auth: any) {
       } else if (format === 'ndjson') {
         rawRecords = text
           .split('\n')
-          .filter(l => l.trim())
-          .map(l => JSON.parse(l));
+          .filter((l) => l.trim())
+          .map((l) => JSON.parse(l));
       } else {
         rawRecords = parseCsv(text, delimiter === '\\t' ? '\t' : delimiter, skipHeader) as any;
       }
     } catch (err) {
-      await tdb.updateTable('zv_import_logs' as any)
+      await tdb
+        .updateTable('zv_import_logs' as any)
         .set({ status: 'failed', completed_at: new Date() } as any)
         .where('id', '=', logId)
         .execute();
-      return c.json({ error: `Parse error: ${String(err)}`, status: 'failed', total_rows: 0, success_rows: 0, error_rows: 0 }, 400);
+      return c.json(
+        {
+          error: `Parse error: ${String(err)}`,
+          status: 'failed',
+          total_rows: 0,
+          success_rows: 0,
+          error_rows: 0,
+        },
+        400,
+      );
     }
 
     const totalRows = rawRecords.length;
@@ -243,7 +289,7 @@ export function importRoutes(db: Database, _auth: any) {
         }
 
         // Must have at least one schema field
-        const hasData = Object.keys(record).some(k => validCols.has(k));
+        const hasData = Object.keys(record).some((k) => validCols.has(k));
         if (!hasData) {
           errors.push({ row: rowNum, error: 'No valid columns in row' });
           errorRows++;
@@ -255,7 +301,10 @@ export function importRoutes(db: Database, _auth: any) {
 
       if (toInsert.length > 0) {
         try {
-          await tdb.insertInto(collection as any).values(toInsert as any).execute();
+          await tdb
+            .insertInto(collection as any)
+            .values(toInsert as any)
+            .execute();
           successRows += toInsert.length;
         } catch (err) {
           // Batch failed — record each row as error
@@ -269,7 +318,8 @@ export function importRoutes(db: Database, _auth: any) {
 
     const status = errorRows === 0 ? 'completed' : successRows === 0 ? 'failed' : 'partial';
 
-    await tdb.updateTable('zv_import_logs' as any)
+    await tdb
+      .updateTable('zv_import_logs' as any)
       .set({
         status,
         total_rows: totalRows,

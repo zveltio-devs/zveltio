@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { Component } from 'svelte';
-  import type { ExtensionTab } from './ExtensionPageShell.svelte';
+import type { Component } from 'svelte';
+import type { ExtensionTab } from './ExtensionPageShell.svelte';
 
-  interface Props {
-    tabs: ExtensionTab[];
-    activeId: string;
-    onchange: (id: string) => void;
-  }
-  let { tabs, activeId, onchange }: Props = $props();
+interface Props {
+  tabs: ExtensionTab[];
+  activeId: string;
+  onchange: (id: string) => void;
+}
+let { tabs, activeId, onchange }: Props = $props();
 </script>
 
 <div class="tabs tabs-boxed bg-base-200 w-fit" role="tablist">

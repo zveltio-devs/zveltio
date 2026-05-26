@@ -1,108 +1,132 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, Play, Trash2, Save, Code, CheckCircle, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Plus, Play, Trash2, Save, Code, CheckCircle, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let functions = $state<any[]>([]);
-  let loading = $state(true);
-  let selected = $state<any>(null);
-  let saving = $state(false);
-  let saved = $state(false);
-  let invoking = $state(false);
-  let invokeInput = $state('{}');
-  let invokeResult = $state<any>(null);
-  let showCreateModal = $state(false);
-  let creating = $state(false);
-  let form = $state({ name: '', display_name: '', description: '', http_method: 'POST' });
+let functions = $state<any[]>([]);
+let loading = $state(true);
+let selected = $state<any>(null);
+let saving = $state(false);
+let saved = $state(false);
+let invoking = $state(false);
+let invokeInput = $state('{}');
+let invokeResult = $state<any>(null);
+let showCreateModal = $state(false);
+let creating = $state(false);
+let form = $state({ name: '', display_name: '', description: '', http_method: 'POST' });
 
-  const DEFAULT_CODE = `// Edge function — runs inside the Zveltio engine
+const DEFAULT_CODE = `// Edge function — runs inside the Zveltio engine
 export default async function handler(ctx) {
   const body = await ctx.request.json().catch(() => ({}));
   return Response.json({ message: "Hello from edge!", input: body });
 }
 `;
 
-  onMount(loadFunctions);
+onMount(loadFunctions);
 
-  async function loadFunctions() {
-    loading = true;
-    try {
-      const data = await api.get<{ functions: any[] }>('/ext/developer/edge-functions');
-      functions = data.functions ?? [];
-      if (functions.length > 0 && !selected) await selectFunction(functions[0]);
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadFunctions() {
+  loading = true;
+  try {
+    const data = await api.get<{ functions: any[] }>('/ext/developer/edge-functions');
+    functions = data.functions ?? [];
+    if (functions.length > 0 && !selected) await selectFunction(functions[0]);
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function selectFunction(fn: any) {
-    try {
-      const data = await api.get<{ function: any }>(`/ext/developer/edge-functions/${fn.id}`);
-      selected = data.function;
-      invokeResult = null;
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function selectFunction(fn: any) {
+  try {
+    const data = await api.get<{ function: any }>(`/ext/developer/edge-functions/${fn.id}`);
+    selected = data.function;
+    invokeResult = null;
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function saveCode() {
-    if (!selected) return;
-    saving = true;
-    try {
-      await api.patch(`/ext/developer/edge-functions/${selected.id}`, { code: selected.code });
-      saved = true;
-      setTimeout(() => (saved = false), 2000);
-    } catch (e: any) { toast.error(e?.message ?? m['developer.edge-functions.error.save']()); }
-    finally { saving = false; }
+async function saveCode() {
+  if (!selected) return;
+  saving = true;
+  try {
+    await api.patch(`/ext/developer/edge-functions/${selected.id}`, { code: selected.code });
+    saved = true;
+    setTimeout(() => (saved = false), 2000);
+  } catch (e: any) {
+    toast.error(e?.message ?? m['developer.edge-functions.error.save']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function invoke() {
-    if (!selected) return;
-    invoking = true; invokeResult = null;
-    try {
-      const data = await api.post<{ result: any }>(`/ext/developer/edge-functions/${selected.id}/invoke`, JSON.parse(invokeInput));
-      invokeResult = data.result;
-    } catch (e: any) { toast.error(e?.message ?? m['developer.edge-functions.error.invoke']()); }
-    finally { invoking = false; }
+async function invoke() {
+  if (!selected) return;
+  invoking = true;
+  invokeResult = null;
+  try {
+    const data = await api.post<{ result: any }>(
+      `/ext/developer/edge-functions/${selected.id}/invoke`,
+      JSON.parse(invokeInput),
+    );
+    invokeResult = data.result;
+  } catch (e: any) {
+    toast.error(e?.message ?? m['developer.edge-functions.error.invoke']());
+  } finally {
+    invoking = false;
   }
+}
 
-  async function createFunction() {
-    if (!form.name || !form.display_name) return;
-    creating = true;
-    try {
-      const data = await api.post<{ function: any }>('/ext/developer/edge-functions', { ...form, code: DEFAULT_CODE });
-      showCreateModal = false;
-      form = { name: '', display_name: '', description: '', http_method: 'POST' };
-      await loadFunctions();
-      await selectFunction(data.function);
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { creating = false; }
+async function createFunction() {
+  if (!form.name || !form.display_name) return;
+  creating = true;
+  try {
+    const data = await api.post<{ function: any }>('/ext/developer/edge-functions', {
+      ...form,
+      code: DEFAULT_CODE,
+    });
+    showCreateModal = false;
+    form = { name: '', display_name: '', description: '', http_method: 'POST' };
+    await loadFunctions();
+    await selectFunction(data.function);
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  async function deleteFunction(id: string) {
-        askConfirm(m['developer.edgeFunctions.confirmDelete'](), () => deleteFunctionConfirmed(id));
+async function deleteFunction(id: string) {
+  askConfirm(m['developer.edgeFunctions.confirmDelete'](), () => deleteFunctionConfirmed(id));
+}
+async function deleteFunctionConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/developer/edge-functions/${id}`);
+    selected = null;
+    await loadFunctions();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteFunctionConfirmed(id: string) {
-    try {
-      await api.delete(`/ext/developer/edge-functions/${id}`);
-      selected = null;
-      await loadFunctions();
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  async function toggleActive(fn: any) {
-    try {
-      await api.patch(`/ext/developer/edge-functions/${fn.id}`, { is_active: !fn.is_active });
-      await loadFunctions();
-      if (selected?.id === fn.id) selected = { ...selected, is_active: !fn.is_active };
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function toggleActive(fn: any) {
+  try {
+    await api.patch(`/ext/developer/edge-functions/${fn.id}`, { is_active: !fn.is_active });
+    await loadFunctions();
+    if (selected?.id === fn.id) selected = { ...selected, is_active: !fn.is_active };
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 </script>
 
 <ExtensionPageShell title={m['developer.edge-functions.shell.title']()} subtitle={m['developer.edge-functions.shell.subtitle']()}>

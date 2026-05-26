@@ -49,7 +49,9 @@ const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
 export async function inMemoryMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prior = extensionLifecycleLocks.get(key);
   if (prior) {
-    await prior.catch(() => { /* swallow — not our concern */ });
+    await prior.catch(() => {
+      /* swallow — not our concern */
+    });
   }
   const current = fn();
   extensionLifecycleLocks.set(key, current);

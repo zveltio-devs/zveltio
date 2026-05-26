@@ -27,8 +27,17 @@ import { hashApiKey } from '../lib/api-key-hash.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
 import { tracedQuery } from '../lib/telemetry.js';
 import { getRlsFilters } from '../lib/rls.js';
-import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../lib/column-permissions.js';
-import { buildQueryCacheKey, getQueryCache, setQueryCache, invalidateQueryCache } from '../lib/query-cache.js';
+import {
+  getColumnAccess,
+  applyColumnAccess,
+  filterWritableFields,
+} from '../lib/column-permissions.js';
+import {
+  buildQueryCacheKey,
+  getQueryCache,
+  setQueryCache,
+  invalidateQueryCache,
+} from '../lib/query-cache.js';
 
 /** Minimal user shape attached to every authenticated request context */
 export interface RequestUser {
@@ -72,18 +81,23 @@ async function computeEtag(data: any[]): Promise<string> {
   // SHA-256: stronger than SHA-1 and not truncated — avoids collision risk
   // (truncated SHA-1 to 64 bits had birthday-attack probability of ~2^-32).
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 // Authenticate request — session or API key
-async function authenticate(c: any, auth: any, db: Database): Promise<{ user: any; authType: string } | null> {
+async function authenticate(
+  c: any,
+  auth: any,
+  db: Database,
+): Promise<{ user: any; authType: string } | null> {
   // Try session
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (session) return { user: session.user, authType: 'session' };
 
   // Try API key
-  const rawKey =
-    c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
+  const rawKey = c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
 
   if (rawKey?.startsWith('zvk_')) {
     const apiKey = await validateApiKey(db, rawKey);
@@ -104,7 +118,10 @@ async function authenticate(c: any, auth: any, db: Database): Promise<{ user: an
   return null;
 }
 
-async function validateApiKey(db: Database, rawKey: string): Promise<import('../db/schema.js').ZvApiKeyRow | null> {
+async function validateApiKey(
+  db: Database,
+  rawKey: string,
+): Promise<import('../db/schema.js').ZvApiKeyRow | null> {
   const hash = await hashApiKey(rawKey);
   const apiKey = await db
     .selectFrom('zv_api_keys')
@@ -171,9 +188,7 @@ async function checkAccess(
         return false;
       }
       if (scopes.length > 0) {
-        const match = scopes.find(
-          (s) => s.collection === collection || s.collection === '*',
-        );
+        const match = scopes.find((s) => s.collection === collection || s.collection === '*');
         if (!match) return false;
         if (!match.actions.includes(action) && !match.actions.includes('*')) return false;
       }
@@ -207,7 +222,14 @@ const INTERNAL_COLUMNS = new Set(['search_vector', 'search_text']);
  * the field is numeric. Postgres `numeric/decimal` come back as strings via
  * Bun.SQL — clients shouldn't have to remember which fields to coerce. */
 const NUMERIC_FIELD_TYPES = new Set([
-  'number', 'integer', 'int', 'bigint', 'smallint', 'float', 'double', 'decimal',
+  'number',
+  'integer',
+  'int',
+  'bigint',
+  'smallint',
+  'float',
+  'double',
+  'decimal',
 ]);
 
 // Serialize a record's field values using the registry
@@ -250,11 +272,17 @@ function mapPgError(err: unknown): { status: number; body: Record<string, unknow
   const e = err as Record<string, unknown>;
   const code = String((e.code as string | undefined) ?? (e.errno as string | undefined) ?? '');
   const message = String((e.message as string | undefined) ?? '');
-  const detail  = String((e.detail  as string | undefined) ?? '');
-  const constraint  = String((e.constraint_name as string | undefined) ?? (e.constraint  as string | undefined) ?? '');
-  const column      = String((e.column_name     as string | undefined) ?? (e.column      as string | undefined) ?? '');
+  const detail = String((e.detail as string | undefined) ?? '');
+  const constraint = String(
+    (e.constraint_name as string | undefined) ?? (e.constraint as string | undefined) ?? '',
+  );
+  const column = String(
+    (e.column_name as string | undefined) ?? (e.column as string | undefined) ?? '',
+  );
 
-  const matchKey = /Key \(([^)]+)\)=\(([^)]+)\)(?: is not present in table "([^"]+)")?/.exec(detail || message);
+  const matchKey = /Key \(([^)]+)\)=\(([^)]+)\)(?: is not present in table "([^"]+)")?/.exec(
+    detail || message,
+  );
 
   // 23503 — foreign_key_violation
   if (code === '23503' || /foreign key constraint/i.test(message)) {
@@ -271,7 +299,11 @@ function mapPgError(err: unknown): { status: number; body: Record<string, unknow
     };
   }
   // 23505 — unique_violation
-  if (code === '23505' || /duplicate key value/i.test(message) || /unique constraint/i.test(message)) {
+  if (
+    code === '23505' ||
+    /duplicate key value/i.test(message) ||
+    /unique constraint/i.test(message)
+  ) {
     return {
       status: 409,
       body: {
@@ -285,7 +317,11 @@ function mapPgError(err: unknown): { status: number; body: Record<string, unknow
     };
   }
   // 23502 — not_null_violation
-  if (code === '23502' || /not-null constraint/i.test(message) || /violates not-null/i.test(message)) {
+  if (
+    code === '23502' ||
+    /not-null constraint/i.test(message) ||
+    /violates not-null/i.test(message)
+  ) {
     return {
       status: 422,
       body: {
@@ -314,7 +350,8 @@ function mapPgError(err: unknown): { status: number; body: Record<string, unknow
       status: 422,
       body: {
         error: 'invalid_value',
-        message: 'One of the values has the wrong format (likely an invalid UUID, number, or date).',
+        message:
+          'One of the values has the wrong format (likely an invalid UUID, number, or date).',
         code: code || '22P02',
       },
     };
@@ -344,7 +381,14 @@ async function handlePgErrors<T>(c: any, fn: () => Promise<T>): Promise<T | Resp
     if (mapped) return c.json(mapped.body, mapped.status as any);
     // Surface the raw error shape so we can extend mapPgError() later.
     const e = err as { name?: string; code?: string; errno?: string; message?: string };
-    console.warn('[handlePgErrors] unmapped error:', e?.name, 'code=', e?.code ?? e?.errno, 'msg=', e?.message);
+    console.warn(
+      '[handlePgErrors] unmapped error:',
+      e?.name,
+      'code=',
+      e?.code ?? e?.errno,
+      'msg=',
+      e?.message,
+    );
     throw err;
   }
 }
@@ -357,7 +401,12 @@ async function resolveExpand(
   expandParam: string | undefined,
 ): Promise<Array<{ field: string; targetTable: string; targetCollection: string }>> {
   if (!expandParam || !collectionDef?.fields) return [];
-  const want = new Set(expandParam.split(',').map((s) => s.trim()).filter(Boolean));
+  const want = new Set(
+    expandParam
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
   if (want.size === 0) return [];
 
   const out: Array<{ field: string; targetTable: string; targetCollection: string }> = [];
@@ -396,8 +445,15 @@ async function applyExpand(
     for (const r of rows.rows as any[]) {
       const serialized = await serializeRecord(r, targetDef);
       // Add a default `_label` (best-effort: name → title → email → id slice)
-      const label = serialized.name ?? serialized.title ?? serialized.label ?? serialized.email
-        ?? serialized.full_name ?? serialized.display_name ?? serialized.id?.slice(0, 8) ?? '—';
+      const label =
+        serialized.name ??
+        serialized.title ??
+        serialized.label ??
+        serialized.email ??
+        serialized.full_name ??
+        serialized.display_name ??
+        serialized.id?.slice(0, 8) ??
+        '—';
       byId.set(r.id as string, { ...serialized, _label: label });
     }
     for (const rec of records) {
@@ -465,7 +521,6 @@ function isUuid(v: string): boolean {
   return UUID_RE.test(v);
 }
 
-
 /** Post-write side-effects: revision log, webhook, realtime broadcast, embeddings, events. */
 async function afterWrite(
   db: Database,
@@ -491,7 +546,8 @@ async function afterWrite(
 
   // Revision log — awaited so callers see a consistent DB state after the write,
   // but errors are swallowed (non-fatal).
-  await db.insertInto('zv_revisions')
+  await db
+    .insertInto('zv_revisions')
     .values({
       collection,
       record_id: recordId,
@@ -503,8 +559,7 @@ async function afterWrite(
     .execute()
     .catch((err) => console.error('[afterWrite] revision log failed:', err));
 
-  const eventName =
-    action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
+  const eventName = action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
 
   await broadcastWebhook(db, eventName, collection, data as { id: string; [key: string]: any });
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
@@ -516,14 +571,16 @@ async function afterWrite(
   // Publish to the cross-instance realtime bus (Valkey if
   // configured, else pg_notify). The bus filters its own echo so the
   // already-fired local `broadcastEvent` above doesn't double-deliver.
-  realtimeBus().publish({
-    event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
-    collection,
-    record_id: recordId as string,
-    data,
-    timestamp: new Date().toISOString(),
-    tenantId: tenantId ?? null,
-  }).catch((err) => console.error('[afterWrite] realtime publish failed:', err));
+  realtimeBus()
+    .publish({
+      event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
+      collection,
+      record_id: recordId as string,
+      data,
+      timestamp: new Date().toISOString(),
+      tenantId: tenantId ?? null,
+    })
+    .catch((err) => console.error('[afterWrite] realtime publish failed:', err));
 
   // Embedding triggered via engineEvents.emit('record.created' | 'record.updated')
   // below — the `ai` extension subscribes to those events. No core call needed.
@@ -543,7 +600,12 @@ async function afterWrite(
     console.error('[afterWrite] flow trigger failed:', err),
   );
 
-  const engineEvent = action === 'create' ? 'record.created' : action === 'update' ? 'record.updated' : 'record.deleted';
+  const engineEvent =
+    action === 'create'
+      ? 'record.created'
+      : action === 'update'
+        ? 'record.updated'
+        : 'record.deleted';
   engineEvents.emit(engineEvent, {
     collection,
     record: data,
@@ -580,7 +642,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Tenant id is part of the cache namespace so a user who is a member of
     // multiple tenants doesn't get tenant A's rows from cache while
     // querying as tenant B.
-    const qcKey = buildQueryCacheKey(collection, user.id, c.req.url, (c.get('tenant') as any)?.id ?? null);
+    const qcKey = buildQueryCacheKey(
+      collection,
+      user.id,
+      c.req.url,
+      (c.get('tenant') as any)?.id ?? null,
+    );
     if (!query.as_of && !query.cursor) {
       const cached = await getQueryCache(qcKey);
       if (cached) {
@@ -613,8 +680,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
       // Exclude deleted records; data column holds the snapshot
       const records = revs.rows
-        .filter(r => r.action !== 'delete')
-        .map(r => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+        .filter((r) => r.action !== 'delete')
+        .map((r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
 
       const total = records.length;
       const offset = (query.page - 1) * query.limit;
@@ -622,7 +689,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
       return c.json({
         records: page,
-        pagination: { total, page: query.page, limit: query.limit, pages: Math.ceil(total / query.limit) },
+        pagination: {
+          total,
+          page: query.page,
+          limit: query.limit,
+          pages: Math.ceil(total / query.limit),
+        },
         time_travel: { as_of: asOf.toISOString() },
       });
     }
@@ -644,7 +716,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
                 vFilters.push({ field: key, op: 'eq', value });
               }
             }
-          } catch { /* invalid JSON — skip */ }
+          } catch {
+            /* invalid JSON — skip */
+          }
         }
 
         const { data, total } = await virtualList(virtualConfig, {
@@ -676,11 +750,17 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Build the set of columns clients are allowed to sort/filter by. Hitting
     // Postgres with an unknown column surfaces as a 500 ("column X does not
     // exist") — we want a clean 400 at the edge instead.
-    const rawFields: any[] = typeof (collectionDef as any).fields === 'string'
-      ? JSON.parse((collectionDef as any).fields)
-      : ((collectionDef as any).fields ?? []);
+    const rawFields: any[] =
+      typeof (collectionDef as any).fields === 'string'
+        ? JSON.parse((collectionDef as any).fields)
+        : ((collectionDef as any).fields ?? []);
     const SYSTEM_COLS = new Set([
-      'id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by',
+      'id',
+      'created_at',
+      'updated_at',
+      'status',
+      'created_by',
+      'updated_by',
     ]);
     const allowedCols = new Set<string>([
       ...SYSTEM_COLS,
@@ -694,11 +774,21 @@ export function dataRoutes(db: Database, auth: any): Hono {
     //
     // When both are provided for the same field, JSON takes precedence.
     const OP_ALIAS: Record<string, FilterCondition['op']> = {
-      eq: 'eq', neq: 'neq', lt: 'lt', lte: 'lte', gt: 'gt', gte: 'gte',
-      like: 'ilike', contains: 'ilike', ilike: 'ilike',
-      in: 'in', not_in: 'not_in',
-      null: 'null', is_null: 'null',
-      not_null: 'not_null', is_not_null: 'not_null',
+      eq: 'eq',
+      neq: 'neq',
+      lt: 'lt',
+      lte: 'lte',
+      gt: 'gt',
+      gte: 'gte',
+      like: 'ilike',
+      contains: 'ilike',
+      ilike: 'ilike',
+      in: 'in',
+      not_in: 'not_in',
+      null: 'null',
+      is_null: 'null',
+      not_null: 'not_null',
+      is_not_null: 'not_null',
     };
 
     const filters: Record<string, FilterCondition> = {};
@@ -714,16 +804,21 @@ export function dataRoutes(db: Database, auth: any): Hono {
       if (!mappedOp) continue;
       // Coerce numeric-looking values to numbers for comparison operators
       const numericOps = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
-      const value = numericOps.has(mappedOp) && paramVal !== '' && !isNaN(Number(paramVal))
-        ? Number(paramVal)
-        : paramVal;
+      const value =
+        numericOps.has(mappedOp) && paramVal !== '' && !isNaN(Number(paramVal))
+          ? Number(paramVal)
+          : paramVal;
       filters[field] = { op: mappedOp, value };
     }
 
     // Format 1: JSON (overrides bracket for same field)
     if (query.filter) {
       let raw: Record<string, any> | null = null;
-      try { raw = JSON.parse(query.filter); } catch { /* malformed JSON — ignore */ }
+      try {
+        raw = JSON.parse(query.filter);
+      } catch {
+        /* malformed JSON — ignore */
+      }
       if (raw && typeof raw === 'object') {
         for (const [key, value] of Object.entries(raw)) {
           if (!allowedCols.has(key)) {
@@ -765,14 +860,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
       let decoded: { id: string; val: any } = { id: '', val: null };
       try {
         decoded = JSON.parse(Buffer.from(query.cursor!, 'base64url').toString());
-      } catch { /* malformed cursor — fall through to offset path */ }
+      } catch {
+        /* malformed cursor — fall through to offset path */
+      }
 
       if (decoded.id && decoded.val !== undefined) {
         // Build keyset query directly with Kysely for proper compound pagination
         // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-        let kQuery = (effectiveDb as any)
-          .selectFrom(tableName)
-          .selectAll();
+        let kQuery = (effectiveDb as any).selectFrom(tableName).selectAll();
 
         // Apply existing filters
         for (const [field, cond] of Object.entries(filters)) {
@@ -801,19 +896,24 @@ export function dataRoutes(db: Database, auth: any): Hono {
         kQuery = kQuery.limit(query.limit + 1);
         const rows: any[] = await kQuery.execute();
         const hasMore = rows.length > query.limit;
-        result = { records: hasMore ? rows.slice(0, query.limit) : rows, total: hasMore ? -1 : rows.length };
+        result = {
+          records: hasMore ? rows.slice(0, query.limit) : rows,
+          total: hasMore ? -1 : rows.length,
+        };
       } else {
         // Malformed cursor — fall back to offset
         const offset = (query.page - 1) * query.limit;
-        result = await tracedQuery(`${tableName}.list`, () => dynamicSelect(effectiveDb, tableName, {
-          filters,
-          sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
-          limit: query.limit,
-          offset,
-          fts: query.search ? query.search.trim().substring(0, 500) : undefined,
-          hasTrgm: !!(collectionDef as any).has_trgm,
-          applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
-        }));
+        result = await tracedQuery(`${tableName}.list`, () =>
+          dynamicSelect(effectiveDb, tableName, {
+            filters,
+            sort: query.sort ? { field: query.sort, direction: query.order } : undefined,
+            limit: query.limit,
+            offset,
+            fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+            hasTrgm: !!(collectionDef as any).has_trgm,
+            applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
+          }),
+        );
       }
     } else {
       // Standard OFFSET-based pagination (backwards-compatible)
@@ -832,8 +932,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
-    const serialized = (await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef))))
-      .map((r) => applyColumnAccess(r, colAccess));
+    const serialized = (
+      await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
+    ).map((r) => applyColumnAccess(r, colAccess));
 
     // ── Expand m2o relations on demand (?expand=customer_id,author_id) ──
     const expandPlan = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
@@ -854,9 +955,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Cursor mode: result.total === -1 means hasMore (limit+1 trick returned extra row)
     // Offset mode: compare offset+returned vs total count
     let next_cursor: string | null = null;
-    const offsetHasMore = result.total >= 0
-      ? (query.page - 1) * query.limit + serialized.length < result.total
-      : false;
+    const offsetHasMore =
+      result.total >= 0 ? (query.page - 1) * query.limit + serialized.length < result.total : false;
     const cursorHasMore = result.total === -1; // set by limit+1 trick above
     if (serialized.length > 0 && (cursorHasMore || offsetHasMore)) {
       const lastRow = serialized[serialized.length - 1];
@@ -923,10 +1023,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Per-row pre-insert hook. A hook abort becomes a per-row error so the
     // rest of the batch still proceeds. Non-abort exceptions roll back the
     // entire transaction (something is genuinely wrong).
-    await (effectiveDb as any).transaction().execute(async (trx: Database) => {
+    await effectiveDb.transaction().execute(async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { errors: valErrors, processed } = await processInput(body.records[i], collectionDef);
-        if (valErrors.length > 0) { errors.push({ index: i, errors: valErrors }); continue; }
+        if (valErrors.length > 0) {
+          errors.push({ index: i, errors: valErrors });
+          continue;
+        }
 
         let finalInsert: Record<string, unknown>;
         try {
@@ -951,12 +1054,22 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const tid = (c.get('tenant') as any)?.id ?? null;
     for (const record of created) {
-      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id, tenantId: tid }).catch((err: Error) => {
+      afterWrite(effectiveDb, {
+        collection,
+        recordId: record.id,
+        action: 'create',
+        data: record,
+        userId: user.id,
+        tenantId: tid,
+      }).catch((err: Error) => {
         console.warn(`[data] afterWrite(create, ${collection}/${record.id}) failed:`, err.message);
       });
     }
 
-    return c.json({ created: created.length, records: created, errors }, errors.length > 0 ? 207 : 201);
+    return c.json(
+      { created: created.length, records: created, errors },
+      errors.length > 0 ? 207 : 201,
+    );
   });
 
   // ── PATCH /:collection/bulk — Bulk partial update ─────────────────
@@ -990,18 +1103,24 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Per-row pre-update hook. Before-row fetched inside the transaction so
     // a concurrent write between read and update is at least visible in the
     // same tx snapshot. Hook abort becomes a per-row error.
-    await (effectiveDb as any).transaction().execute(async (trx: Database) => {
+    await effectiveDb.transaction().execute(async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { id, ...fields } = body.records[i];
         const { errors: valErrors, processed } = await processInput(fields, collectionDef, true);
-        if (valErrors.length > 0) { errors.push({ index: i, id, errors: valErrors }); continue; }
+        if (valErrors.length > 0) {
+          errors.push({ index: i, id, errors: valErrors });
+          continue;
+        }
 
         const beforeRow = await (trx as any)
           .selectFrom(tableName)
           .selectAll()
           .where('id', '=', id)
           .executeTakeFirst();
-        if (!beforeRow) { errors.push({ index: i, id, errors: ['Record not found'] }); continue; }
+        if (!beforeRow) {
+          errors.push({ index: i, id, errors: ['Record not found'] });
+          continue;
+        }
 
         let finalPatch: Record<string, unknown>;
         try {
@@ -1029,12 +1148,22 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const tid = (c.get('tenant') as any)?.id ?? null;
     for (const record of updated) {
-      afterWrite(effectiveDb, { collection, recordId: record.id, action: 'update', data: record, userId: user.id, tenantId: tid }).catch((err: Error) => {
+      afterWrite(effectiveDb, {
+        collection,
+        recordId: record.id,
+        action: 'update',
+        data: record,
+        userId: user.id,
+        tenantId: tid,
+      }).catch((err: Error) => {
         console.warn(`[data] afterWrite(update, ${collection}/${record.id}) failed:`, err.message);
       });
     }
 
-    return c.json({ updated: updated.length, records: updated, errors }, errors.length > 0 ? 207 : 200);
+    return c.json(
+      { updated: updated.length, records: updated, errors },
+      errors.length > 0 ? 207 : 200,
+    );
   });
 
   // ── DELETE /:collection/bulk — Bulk delete ────────────────────────
@@ -1096,22 +1225,39 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (allowed.length > 0) {
       await (effectiveDb as any)
         .deleteFrom(tableName)
-        .where('id', 'in', allowed.map((r) => r.id))
+        .where(
+          'id',
+          'in',
+          allowed.map((r) => r.id),
+        )
         .execute();
 
       const tid = (c.get('tenant') as any)?.id ?? null;
       for (const record of allowed) {
-        afterWrite(effectiveDb, { collection, recordId: record.id, action: 'delete', data: record, userId: user.id, tenantId: tid }).catch((err: Error) => {
-          console.warn(`[data] afterWrite(delete, ${collection}/${record.id}) failed:`, err.message);
+        afterWrite(effectiveDb, {
+          collection,
+          recordId: record.id,
+          action: 'delete',
+          data: record,
+          userId: user.id,
+          tenantId: tid,
+        }).catch((err: Error) => {
+          console.warn(
+            `[data] afterWrite(delete, ${collection}/${record.id}) failed:`,
+            err.message,
+          );
         });
       }
     }
 
-    return c.json({
-      deleted: allowed.length,
-      ids: allowed.map((r) => r.id),
-      ...(aborted.length > 0 ? { aborted } : {}),
-    }, aborted.length > 0 ? 207 : 200);
+    return c.json(
+      {
+        deleted: allowed.length,
+        ids: allowed.map((r) => r.id),
+        ...(aborted.length > 0 ? { aborted } : {}),
+      },
+      aborted.length > 0 ? 207 : 200,
+    );
   });
 
   // ── GET /:collection/:id — Get single record ─────────────────────
@@ -1144,11 +1290,17 @@ export function dataRoutes(db: Database, auth: any): Hono {
         LIMIT 1
       `.execute(effectiveDbTTSingle);
 
-      if (rev.rows.length === 0) return c.json({ error: 'Record not found at this point in time' }, 404);
-      if (rev.rows[0].action === 'delete') return c.json({ error: 'Record was deleted before this point in time' }, 404);
+      if (rev.rows.length === 0)
+        return c.json({ error: 'Record not found at this point in time' }, 404);
+      if (rev.rows[0].action === 'delete')
+        return c.json({ error: 'Record was deleted before this point in time' }, 404);
 
-      const data = typeof rev.rows[0].data === 'string' ? JSON.parse(rev.rows[0].data) : rev.rows[0].data;
-      return c.json({ record: data, time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at } });
+      const data =
+        typeof rev.rows[0].data === 'string' ? JSON.parse(rev.rows[0].data) : rev.rows[0].data;
+      return c.json({
+        record: data,
+        time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at },
+      });
     }
 
     // Virtual collection: proxy to external API
@@ -1173,14 +1325,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // they're not allowed to see by guessing its ID.
     const rlsSingle = await getRlsFilters(collection, user, c.get('authType'));
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-    let recordQuery = (effectiveDb as any)
-      .selectFrom(tableName)
-      .selectAll()
-      .where('id', '=', id);
+    let recordQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
 
     for (const { field, condition } of rlsSingle) {
       if (condition.op === 'eq') recordQuery = recordQuery.where(field, '=', condition.value);
-      else if (condition.op === 'neq') recordQuery = recordQuery.where(field, '!=', condition.value);
+      else if (condition.op === 'neq')
+        recordQuery = recordQuery.where(field, '!=', condition.value);
     }
 
     // Apply extension query alters (tenant isolation, soft-delete, etc.)
@@ -1197,7 +1347,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
-    const serializedRecord = applyColumnAccess(await serializeRecord(record, collectionDef), colAccess);
+    const serializedRecord = applyColumnAccess(
+      await serializeRecord(record, collectionDef),
+      colAccess,
+    );
 
     // Expand m2o relations on demand
     const singleExpand = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
@@ -1250,9 +1403,15 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (errors.length > 0) return c.json({ errors }, 422);
 
     const colAccessCreate = await getColumnAccess(db, collection, user.role ?? 'public');
-    const { data: allowedData, blocked: blockedCreate } = filterWritableFields(processed, colAccessCreate);
+    const { data: allowedData, blocked: blockedCreate } = filterWritableFields(
+      processed,
+      colAccessCreate,
+    );
     if (blockedCreate.length > 0) {
-      return c.json({ error: `Fields are read-only for your role: ${blockedCreate.join(', ')}` }, 403);
+      return c.json(
+        { error: `Fields are read-only for your role: ${blockedCreate.join(', ')}` },
+        403,
+      );
     }
 
     const effectiveDb = getDb(c, db);
@@ -1276,8 +1435,17 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     const result = await handlePgErrors(c, async () => {
-      const record = await tracedQuery(`${tableName}.create`, () => dynamicInsert(effectiveDb, tableName, finalInsert));
-      await afterWrite(effectiveDb, { collection, recordId: record.id, action: 'create', data: record, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
+      const record = await tracedQuery(`${tableName}.create`, () =>
+        dynamicInsert(effectiveDb, tableName, finalInsert),
+      );
+      await afterWrite(effectiveDb, {
+        collection,
+        recordId: record.id,
+        action: 'create',
+        data: record,
+        userId: user.id,
+        tenantId: (c.get('tenant') as any)?.id ?? null,
+      });
       return c.json(await serializeRecord(record, collectionDef), 201);
     });
     return result as Response;
@@ -1322,10 +1490,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Pre-update hooks need the current row for the `before` field. Read it
     // once — if the record doesn't exist (or extension query alters hide it)
     // we short-circuit before invoking any hooks.
-    let beforeQuery = (effectiveDb as any)
-      .selectFrom(tableName)
-      .selectAll()
-      .where('id', '=', id);
+    let beforeQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
     beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
     const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -1355,9 +1520,18 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     const result = await handlePgErrors(c, async () => {
-      const record = await tracedQuery(`${tableName}.update`, () => dynamicUpdate(effectiveDb, tableName, id, finalPatch));
+      const record = await tracedQuery(`${tableName}.update`, () =>
+        dynamicUpdate(effectiveDb, tableName, id, finalPatch),
+      );
       if (!record) return c.json({ error: 'Record not found' }, 404);
-      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
+      await afterWrite(effectiveDb, {
+        collection,
+        recordId: id,
+        action: 'update',
+        data: record,
+        userId: user.id,
+        tenantId: (c.get('tenant') as any)?.id ?? null,
+      });
       return c.json(await serializeRecord(record, collectionDef));
     });
     return result as Response;
@@ -1397,18 +1571,21 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (errors.length > 0) return c.json({ errors }, 422);
 
     const colAccessPatch = await getColumnAccess(db, collection, user.role ?? 'public');
-    const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(processed, colAccessPatch);
+    const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(
+      processed,
+      colAccessPatch,
+    );
     if (blockedPatch.length > 0) {
-      return c.json({ error: `Fields are read-only for your role: ${blockedPatch.join(', ')}` }, 403);
+      return c.json(
+        { error: `Fields are read-only for your role: ${blockedPatch.join(', ')}` },
+        403,
+      );
     }
 
     const effectiveDb = getDb(c, db);
     const toUpdate = { ...allowedPatch, updated_by: user.id };
 
-    let beforeQuery = (effectiveDb as any)
-      .selectFrom(tableName)
-      .selectAll()
-      .where('id', '=', id);
+    let beforeQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
     beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
     const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -1437,7 +1614,15 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const result = await handlePgErrors(c, async () => {
       const record = await dynamicUpdate(effectiveDb, tableName, id, finalPatch);
       if (!record) return c.json({ error: 'Record not found' }, 404);
-      await afterWrite(effectiveDb, { collection, recordId: id, action: 'update', data: record, delta: body, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
+      await afterWrite(effectiveDb, {
+        collection,
+        recordId: id,
+        action: 'update',
+        data: record,
+        delta: body,
+        userId: user.id,
+        tenantId: (c.get('tenant') as any)?.id ?? null,
+      });
       return c.json(await serializeRecord(record, collectionDef));
     });
     return result as Response;
@@ -1476,10 +1661,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
     // Fetch existing for revision log, then delete atomically. Apply query
     // alters so a row hidden by an extension filter cannot be deleted by ID.
-    let existingQuery = (effectiveDb as any)
-      .selectFrom(tableName)
-      .selectAll()
-      .where('id', '=', id);
+    let existingQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
     existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
     const existing = await existingQuery.executeTakeFirst();
 
@@ -1503,10 +1685,19 @@ export function dataRoutes(db: Database, auth: any): Hono {
       throw err;
     }
 
-    const deleted = await tracedQuery(`${tableName}.delete`, () => dynamicDelete(effectiveDb, tableName, id));
+    const deleted = await tracedQuery(`${tableName}.delete`, () =>
+      dynamicDelete(effectiveDb, tableName, id),
+    );
     if (!deleted) return c.json({ error: 'Record not found' }, 404);
 
-    await afterWrite(effectiveDb, { collection, recordId: id, action: 'delete', data: existing, userId: user.id, tenantId: (c.get('tenant') as any)?.id ?? null });
+    await afterWrite(effectiveDb, {
+      collection,
+      recordId: id,
+      action: 'delete',
+      data: existing,
+      userId: user.id,
+      tenantId: (c.get('tenant') as any)?.id ?? null,
+    });
 
     return c.json({ success: true, id });
   });

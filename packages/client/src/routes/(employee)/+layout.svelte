@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { LayoutDashboard, LogOut, Menu } from '@lucide/svelte';
-  import { useAuth } from '$stores/auth.svelte';
+import { LayoutDashboard, LogOut, Menu } from '@lucide/svelte';
+import { useAuth } from '$stores/auth.svelte';
 
-  let { data, children } = $props();
-  const auth = useAuth();
-  let drawerOpen = $state(false);
+let { data, children } = $props();
+const auth = useAuth();
+let drawerOpen = $state(false);
 </script>
 
 <div class="drawer lg:drawer-open">

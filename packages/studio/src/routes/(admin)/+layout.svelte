@@ -1,189 +1,189 @@
 <script lang="ts">
-  /**
-   * Admin shell.
-   *
-   * Owns:
-   *   - Auth init + the redirect to /login if unauthenticated.
-   *   - Extension bundle load (extensions must register routes/slots/form-alters
-   *     before any admin page renders).
-   *   - First-login redirect to onboarding (when no collections exist).
-   *   - Persistent sidebar collapse + theme state.
-   *   - Cmd+K palette open/close.
-   *
-   * Delegates:
-   *   - Desktop sidebar  → `lib/components/layout/Sidebar.svelte`
-   *   - Mobile drawer    → `lib/components/layout/MobileSidebar.svelte`
-   *   - Nav model        → `lib/nav-model.ts`
-   *
-   * Keeping the shell thin makes it easy to swap the sidebar layout without
-   * also touching auth/init/onboarding logic.
-   */
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { page } from '$app/state';
-  import { auth } from '$lib/auth.svelte.js';
-  import { realtime } from '$lib/stores/realtime.svelte.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { initExtensions, extensions } from '$lib/extensions.svelte.js';
-  // v2 extension model: extension Studio pages are now compiled INTO this
-  // Studio's SvelteKit route tree at install time (see
-  // packages/engine/src/lib/studio-builder.ts). The old runtime bundle
-  // loader is no longer wired — pages just exist as regular routes after
-  // a rebuild + swap. `extension-api.svelte.ts` still provides the
-  // window.__zveltio contribution API for any extension that wants to
-  // contribute slot items or topbar widgets at runtime.
-  import { installGlobalApi as installExtensionApi } from '$lib/extension-api.svelte.js';
-  import {
-    buildNavModel,
-    buildExtensionNavGroups,
-    buildPaletteNavItems,
-    type ExtensionNavGroupId,
-  } from '$lib/nav-model.js';
-  import { navLabel } from '$lib/nav-i18n.js';
-  import { m, i18n } from '$lib/i18n.svelte.js';
-  import { studioApi } from '$lib/extension-api.svelte.js';
-  import Sidebar from '$lib/components/layout/Sidebar.svelte';
-  import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
-  import DemoBanner from '$lib/components/common/DemoBanner.svelte';
-  import Slot from '$lib/components/common/Slot.svelte';
-  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
-  import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
-  import CommandPalette from '$lib/components/common/CommandPalette.svelte';
-  import { Menu, Search, Sun, Moon } from '@lucide/svelte';
+/**
+ * Admin shell.
+ *
+ * Owns:
+ *   - Auth init + the redirect to /login if unauthenticated.
+ *   - Extension bundle load (extensions must register routes/slots/form-alters
+ *     before any admin page renders).
+ *   - First-login redirect to onboarding (when no collections exist).
+ *   - Persistent sidebar collapse + theme state.
+ *   - Cmd+K palette open/close.
+ *
+ * Delegates:
+ *   - Desktop sidebar  → `lib/components/layout/Sidebar.svelte`
+ *   - Mobile drawer    → `lib/components/layout/MobileSidebar.svelte`
+ *   - Nav model        → `lib/nav-model.ts`
+ *
+ * Keeping the shell thin makes it easy to swap the sidebar layout without
+ * also touching auth/init/onboarding logic.
+ */
+import { onMount } from 'svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { page } from '$app/state';
+import { auth } from '$lib/auth.svelte.js';
+import { realtime } from '$lib/stores/realtime.svelte.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { initExtensions, extensions } from '$lib/extensions.svelte.js';
+// v2 extension model: extension Studio pages are now compiled INTO this
+// Studio's SvelteKit route tree at install time (see
+// packages/engine/src/lib/studio-builder.ts). The old runtime bundle
+// loader is no longer wired — pages just exist as regular routes after
+// a rebuild + swap. `extension-api.svelte.ts` still provides the
+// window.__zveltio contribution API for any extension that wants to
+// contribute slot items or topbar widgets at runtime.
+import { installGlobalApi as installExtensionApi } from '$lib/extension-api.svelte.js';
+import {
+  buildNavModel,
+  buildExtensionNavGroups,
+  buildPaletteNavItems,
+  type ExtensionNavGroupId,
+} from '$lib/nav-model.js';
+import { navLabel } from '$lib/nav-i18n.js';
+import { m, i18n } from '$lib/i18n.svelte.js';
+import { studioApi } from '$lib/extension-api.svelte.js';
+import Sidebar from '$lib/components/layout/Sidebar.svelte';
+import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
+import DemoBanner from '$lib/components/common/DemoBanner.svelte';
+import Slot from '$lib/components/common/Slot.svelte';
+import ToastContainer from '$lib/components/common/ToastContainer.svelte';
+import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
+import CommandPalette from '$lib/components/common/CommandPalette.svelte';
+import { Menu, Search, Sun, Moon } from '@lucide/svelte';
 
-  let { children } = $props();
-  let collapsed = $state(false);
-  let mobileOpen = $state(false);
-  let dark = $state(false);
-  let cmdOpen = $state(false);
-  let density = $state<'comfortable' | 'compact'>('comfortable');
+let { children } = $props();
+let collapsed = $state(false);
+let mobileOpen = $state(false);
+let dark = $state(false);
+let cmdOpen = $state(false);
+let density = $state<'comfortable' | 'compact'>('comfortable');
 
-  $effect(() => {
-    if (typeof localStorage !== 'undefined')
-      localStorage.setItem('zveltio-sidebar', String(collapsed));
-  });
+$effect(() => {
+  if (typeof localStorage !== 'undefined')
+    localStorage.setItem('zveltio-sidebar', String(collapsed));
+});
 
-  $effect(() => {
-    const theme = dark ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', theme);
-    if (typeof localStorage !== 'undefined')
-      localStorage.setItem('zveltio-theme', theme);
-  });
+$effect(() => {
+  const theme = dark ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+  if (typeof localStorage !== 'undefined') localStorage.setItem('zveltio-theme', theme);
+});
 
-  $effect(() => {
-    document.documentElement.setAttribute('data-density', density);
-    if (typeof localStorage !== 'undefined')
-      localStorage.setItem('zveltio-density', density);
-  });
+$effect(() => {
+  document.documentElement.setAttribute('data-density', density);
+  if (typeof localStorage !== 'undefined') localStorage.setItem('zveltio-density', density);
+});
 
-  onMount(async () => {
-    const sc = localStorage.getItem('zveltio-sidebar');
-    if (sc !== null) collapsed = sc === 'true';
-    const t = localStorage.getItem('zveltio-theme');
-    if (t) dark = t === 'dark';
-    const d = localStorage.getItem('zveltio-density');
-    if (d === 'compact' || d === 'comfortable') density = d;
+onMount(async () => {
+  const sc = localStorage.getItem('zveltio-sidebar');
+  if (sc !== null) collapsed = sc === 'true';
+  const t = localStorage.getItem('zveltio-theme');
+  if (t) dark = t === 'dark';
+  const d = localStorage.getItem('zveltio-density');
+  if (d === 'compact' || d === 'comfortable') density = d;
 
-    await auth.init();
-    if (!auth.isAuthenticated) {
-      // Preserve the deep link so the user lands on the page they wanted
-      // after sign-in instead of the dashboard.
-      const from = page.url.pathname + page.url.search;
-      const params = new URLSearchParams();
-      if (from && from !== '/' && !from.startsWith('/login')) params.set('redirect', from);
-      params.set('reason', 'session_required');
-      goto(`${base}/login?${params.toString()}`);
-      return;
-    }
-    await initExtensions();
-
-    // Install the contribution API on window for any extension that
-    // wants to register slot items at runtime. The compiled extension
-    // pages (now native SvelteKit routes after Studio rebuild) call
-    // into this from their <script> blocks.
-    const engineUrl = (window as { __ZVELTIO_ENGINE_URL__?: string }).__ZVELTIO_ENGINE_URL__ ?? '';
-    installExtensionApi(engineUrl);
-
-    // Listen for "studio:reloaded" events — emitted by the engine after
-    // it rebuilds the Studio dist following an extension install/enable.
-    // Browser's currently-loaded chunks are stale at this point; prompt
-    // the user to refresh so they pick up the new ext pages.
-    realtime.onSystem('studio:reloaded', (event) => {
-      const changed = (event?.changed as string[] | undefined) ?? [];
-      const label = changed.length === 1 ? changed[0] : `${changed.length} extensions`;
-      toast.info(`Studio updated (${label}) — refresh to load new pages.`, {
-        action: { label: 'Refresh now', handler: () => location.reload() },
-      });
-    });
-
-    // First-login redirect to onboarding when no collections exist.
-    const onboardingDone = localStorage.getItem('zveltio-onboarding-done');
-    const isOnboarding = page.url.pathname.includes('/onboarding');
-    if (!onboardingDone && !isOnboarding) {
-      try {
-        const { api: layoutApi } = await import('$lib/api.js');
-        const res = await layoutApi.fetch(`/api/collections`);
-        const data = await res.json();
-        if (!data?.collections?.length) goto(`${base}/onboarding`);
-      } catch { /* silently skip — don't block admin on network error */ }
-    }
-  });
-
-  $effect(() => {
-    function onKeydown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        cmdOpen = !cmdOpen;
-      }
-    }
-    window.addEventListener('keydown', onKeydown);
-    return () => window.removeEventListener('keydown', onKeydown);
-  });
-
-  const nav = $derived(buildNavModel(extensions));
-  const extNavGroups = $derived(buildExtensionNavGroups(extensions));
-
-  const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
-    business: () => m['nav.group.business'](),
-    finance: () => m['nav.group.finance'](),
-    hr: () => m['nav.group.hr'](),
-    operations: () => m['nav.group.operations'](),
-    compliance: () => m['nav.group.compliance'](),
-    content: () => m['nav.group.content'](),
-    communications: () => m['nav.group.communications'](),
-    developer: () => m['nav.group.developer'](),
-    projects: () => m['nav.group.projects'](),
-    other: () => m['nav.group.other'](),
-  };
-
-  const paletteNavItems = $derived.by(() => {
-    void i18n.locale;
-    return buildPaletteNavItems(
-      extensions,
-      navLabel,
-      (id) => extGroupLabels[id](),
-      m['palette.group.navigation'](),
-    );
-  });
-
-  // Conditional desktop top-bar — only renders if an extension contributed
-  // to topbar.center or topbar.right (e.g. AI extension's global prompt
-  // bar). Keeps chrome minimal when nothing wants the space.
-  const hasTopbarContent = $derived(
-    studioApi.getSlotContributions('topbar.center').length > 0
-      || studioApi.getSlotContributions('topbar.right').length > 0,
-  );
-
-  async function signOut() {
-    // Close the realtime WS first so the next signed-in user gets a
-    // fresh session instead of inheriting subscriptions from the
-    // previous one. realtime.disconnect() is idempotent so this is
-    // safe even if no WS was ever opened.
-    realtime.disconnect();
-    await auth.signOut();
-    goto(`${base}/login?reason=signed_out`);
+  await auth.init();
+  if (!auth.isAuthenticated) {
+    // Preserve the deep link so the user lands on the page they wanted
+    // after sign-in instead of the dashboard.
+    const from = page.url.pathname + page.url.search;
+    const params = new URLSearchParams();
+    if (from && from !== '/' && !from.startsWith('/login')) params.set('redirect', from);
+    params.set('reason', 'session_required');
+    goto(`${base}/login?${params.toString()}`);
+    return;
   }
+  await initExtensions();
+
+  // Install the contribution API on window for any extension that
+  // wants to register slot items at runtime. The compiled extension
+  // pages (now native SvelteKit routes after Studio rebuild) call
+  // into this from their <script> blocks.
+  const engineUrl = (window as { __ZVELTIO_ENGINE_URL__?: string }).__ZVELTIO_ENGINE_URL__ ?? '';
+  installExtensionApi(engineUrl);
+
+  // Listen for "studio:reloaded" events — emitted by the engine after
+  // it rebuilds the Studio dist following an extension install/enable.
+  // Browser's currently-loaded chunks are stale at this point; prompt
+  // the user to refresh so they pick up the new ext pages.
+  realtime.onSystem('studio:reloaded', (event) => {
+    const changed = (event?.changed as string[] | undefined) ?? [];
+    const label = changed.length === 1 ? changed[0] : `${changed.length} extensions`;
+    toast.info(`Studio updated (${label}) — refresh to load new pages.`, {
+      action: { label: 'Refresh now', handler: () => location.reload() },
+    });
+  });
+
+  // First-login redirect to onboarding when no collections exist.
+  const onboardingDone = localStorage.getItem('zveltio-onboarding-done');
+  const isOnboarding = page.url.pathname.includes('/onboarding');
+  if (!onboardingDone && !isOnboarding) {
+    try {
+      const { api: layoutApi } = await import('$lib/api.js');
+      const res = await layoutApi.fetch(`/api/collections`);
+      const data = await res.json();
+      if (!data?.collections?.length) goto(`${base}/onboarding`);
+    } catch {
+      /* silently skip — don't block admin on network error */
+    }
+  }
+});
+
+$effect(() => {
+  function onKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      cmdOpen = !cmdOpen;
+    }
+  }
+  window.addEventListener('keydown', onKeydown);
+  return () => window.removeEventListener('keydown', onKeydown);
+});
+
+const nav = $derived(buildNavModel(extensions));
+const extNavGroups = $derived(buildExtensionNavGroups(extensions));
+
+const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
+  business: () => m['nav.group.business'](),
+  finance: () => m['nav.group.finance'](),
+  hr: () => m['nav.group.hr'](),
+  operations: () => m['nav.group.operations'](),
+  compliance: () => m['nav.group.compliance'](),
+  content: () => m['nav.group.content'](),
+  communications: () => m['nav.group.communications'](),
+  developer: () => m['nav.group.developer'](),
+  projects: () => m['nav.group.projects'](),
+  other: () => m['nav.group.other'](),
+};
+
+const paletteNavItems = $derived.by(() => {
+  void i18n.locale;
+  return buildPaletteNavItems(
+    extensions,
+    navLabel,
+    (id) => extGroupLabels[id](),
+    m['palette.group.navigation'](),
+  );
+});
+
+// Conditional desktop top-bar — only renders if an extension contributed
+// to topbar.center or topbar.right (e.g. AI extension's global prompt
+// bar). Keeps chrome minimal when nothing wants the space.
+const hasTopbarContent = $derived(
+  studioApi.getSlotContributions('topbar.center').length > 0 ||
+    studioApi.getSlotContributions('topbar.right').length > 0,
+);
+
+async function signOut() {
+  // Close the realtime WS first so the next signed-in user gets a
+  // fresh session instead of inheriting subscriptions from the
+  // previous one. realtime.disconnect() is idempotent so this is
+  // safe even if no WS was ever opened.
+  realtime.disconnect();
+  await auth.signOut();
+  goto(`${base}/login?reason=signed_out`);
+}
 </script>
 
 {#if auth.loading}

@@ -1,4 +1,11 @@
-import type { ZveltioConfig, QueryOptions, QueryResponse, SingleResponse, CreateResponse, DeleteResponse } from '../types/index.js';
+import type {
+  ZveltioConfig,
+  QueryOptions,
+  QueryResponse,
+  SingleResponse,
+  CreateResponse,
+  DeleteResponse,
+} from '../types/index.js';
 import { QueryBuilder } from './QueryBuilder.js';
 import { Auth } from './Auth.js';
 import { RealtimeClient } from './RealtimeClient.js';

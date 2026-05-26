@@ -1,49 +1,68 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Shield, FileWarning, Users, Database, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Shield, FileWarning, Users, Database, LoaderCircle } from '@lucide/svelte';
 
-  let tab = $state<'requests' | 'breaches' | 'consents' | 'records'>('requests');
-  let requests = $state<any[]>([]);
-  let breaches = $state<any[]>([]);
-  let consents = $state<any[]>([]);
-  let records = $state<any[]>([]);
-  let loading = $state(true);
+let tab = $state<'requests' | 'breaches' | 'consents' | 'records'>('requests');
+let requests = $state<any[]>([]);
+let breaches = $state<any[]>([]);
+let consents = $state<any[]>([]);
+let records = $state<any[]>([]);
+let loading = $state(true);
 
-  async function loadTab() {
-    loading = true;
-    try {
-      if (tab === 'requests') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests'); requests = r.data ?? []; }
-      else if (tab === 'breaches') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/breach-incidents'); breaches = r.data ?? []; }
-      else if (tab === 'consents') { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/consents'); consents = r.data ?? []; }
-      else { const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/processing-records'); records = r.data ?? []; }
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
-  }
-
-  async function fulfill(id: string) {
-    try {
-      await api.post(`/ext/compliance/gdpr/access-requests/${id}/fulfill`, {});
+async function loadTab() {
+  loading = true;
+  try {
+    if (tab === 'requests') {
       const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
       requests = r.data ?? [];
-      toast.success(m['compliance.gdpr.toast.fulfilled']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+    } else if (tab === 'breaches') {
+      const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/breach-incidents');
+      breaches = r.data ?? [];
+    } else if (tab === 'consents') {
+      const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/consents');
+      consents = r.data ?? [];
+    } else {
+      const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/processing-records');
+      records = r.data ?? [];
+    }
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function reject(id: string) {
-    try {
-      await api.post(`/ext/compliance/gdpr/access-requests/${id}/reject`, {});
-      const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
-      requests = r.data ?? [];
-      toast.success(m['compliance.gdpr.toast.rejected']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function fulfill(id: string) {
+  try {
+    await api.post(`/ext/compliance/gdpr/access-requests/${id}/fulfill`, {});
+    const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
+    requests = r.data ?? [];
+    toast.success(m['compliance.gdpr.toast.fulfilled']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  $effect(() => { tab; loadTab(); });
+async function reject(id: string) {
+  try {
+    await api.post(`/ext/compliance/gdpr/access-requests/${id}/reject`, {});
+    const r = await api.get<{ data: any[] }>('/ext/compliance/gdpr/access-requests');
+    requests = r.data ?? [];
+    toast.success(m['compliance.gdpr.toast.rejected']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  }
+}
+
+$effect(() => {
+  tab;
+  loadTab();
+});
 </script>
 
 <ExtensionPageShell title={m['compliance.gdpr.title']()} subtitle={m['compliance.gdpr.subtitle']()}>

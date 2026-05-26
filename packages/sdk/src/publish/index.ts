@@ -76,11 +76,7 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
  *               ("zveltio-prod-2026") or to scope per-publisher.
  */
 export async function generateKeypair(keyId?: string): Promise<ZveltioKeypair> {
-  const pair = await crypto.subtle.generateKey(
-    { name: 'Ed25519' },
-    true,
-    ['sign', 'verify'],
-  );
+  const pair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
   const kp = pair as CryptoKeyPair;
   const publicJwk = await crypto.subtle.exportKey('jwk', kp.publicKey);
   const privateJwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
@@ -149,7 +145,10 @@ export async function verifyBundle(
   }
   const actualHash = await sha256Hex(archive);
   if (actualHash.toLowerCase() !== signature.bundleSha256.toLowerCase()) {
-    return { ok: false, reason: `bundleSha256 mismatch (expected ${signature.bundleSha256}, got ${actualHash})` };
+    return {
+      ok: false,
+      reason: `bundleSha256 mismatch (expected ${signature.bundleSha256}, got ${actualHash})`,
+    };
   }
   let sigBytes: Uint8Array;
   try {
@@ -162,7 +161,12 @@ export async function verifyBundle(
   }
   const key = await importPublicKey(publicJwk);
   const dataBytes = new TextEncoder().encode(signature.bundleSha256.toLowerCase());
-  const ok = await crypto.subtle.verify({ name: 'Ed25519' }, key, sigBytes as any, dataBytes as any);
+  const ok = await crypto.subtle.verify(
+    { name: 'Ed25519' },
+    key,
+    sigBytes as any,
+    dataBytes as any,
+  );
   return ok ? { ok: true } : { ok: false, reason: 'Ed25519 verification failed' };
 }
 
@@ -181,7 +185,9 @@ export async function exportTrustedKeyEntry(
   // Re-import as `extractable: true` — the cached `importPublicKey` produces
   // a non-extractable key for hot-path verification. Cheap (microseconds) and
   // keeps the exporter as a one-liner for callers.
-  const key = await crypto.subtle.importKey('jwk', publicJwk, { name: 'Ed25519' }, true, ['verify']);
+  const key = await crypto.subtle.importKey('jwk', publicJwk, { name: 'Ed25519' }, true, [
+    'verify',
+  ]);
   const rawBuf = await crypto.subtle.exportKey('raw', key);
   return { keyId, publicKeyHex: bytesToHex(new Uint8Array(rawBuf)) };
 }

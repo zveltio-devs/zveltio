@@ -49,7 +49,7 @@ beforeAll(async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: regularEmail, password: 'RegPass123!', name: 'Regular User' }),
   });
-  const regBody = await regSignup.json() as any;
+  const regBody = (await regSignup.json()) as any;
   regularUserId = regBody.user?.id ?? regBody.id;
 
   const regRes = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
@@ -71,7 +71,7 @@ describe.skipIf(skipAll)('Users — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(Array.isArray(body.users ?? body)).toBe(true);
   });
 
@@ -93,7 +93,7 @@ describe.skipIf(skipAll)('Users — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     const user = body.user ?? body;
     expect(user.email).toBe(regularEmail);
   });
@@ -113,7 +113,7 @@ describe.skipIf(skipAll)('Users — Integration', () => {
       headers: { Cookie: regularCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.user?.email ?? body.email).toBe(regularEmail);
   });
 

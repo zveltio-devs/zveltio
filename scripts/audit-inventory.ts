@@ -125,14 +125,22 @@ async function main() {
   md.push('');
   md.push('Every mutating route SHOULD call `auditLog()` for these classes of event:');
   md.push('');
-  md.push('1. **Authentication & authorization**: login (success/fail), logout, permission changes, role changes, API-key lifecycle.');
-  md.push('2. **Schema changes**: collection/field create / drop / rename, RLS rule edits, settings.');
-  md.push('3. **Privileged execution**: SQL editor, god-mode, extension load/unload, backup create/restore, PITR.');
+  md.push(
+    '1. **Authentication & authorization**: login (success/fail), logout, permission changes, role changes, API-key lifecycle.',
+  );
+  md.push(
+    '2. **Schema changes**: collection/field create / drop / rename, RLS rule edits, settings.',
+  );
+  md.push(
+    '3. **Privileged execution**: SQL editor, god-mode, extension load/unload, backup create/restore, PITR.',
+  );
   md.push('4. **Data exfiltration paths**: bulk export, backup download, large CSV imports.');
   md.push('');
   md.push('Per-record CRUD (`POST /api/data/:collection`) is NOT in scope — `zv_revisions`');
   md.push('captures the data-level change history. The audit log is for *operational* events.');
-  md.push('Handlers in the gap list below are flagged so a human can decide which category they fall into.');
+  md.push(
+    'Handlers in the gap list below are flagged so a human can decide which category they fall into.',
+  );
   md.push('');
   md.push('## Gaps (handlers without visible `auditLog`)');
   md.push('');
@@ -167,14 +175,23 @@ async function main() {
 
   await mkdir('docs', { recursive: true });
   await writeFile(OUTPUT_MD, md.join('\n') + '\n');
-  await writeFile(OUTPUT_JSON, JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    totals: { all: all.length, covered: covered.length, gaps: gaps.length, percent: totalPct },
-    gaps,
-    covered,
-  }, null, 2));
+  await writeFile(
+    OUTPUT_JSON,
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        totals: { all: all.length, covered: covered.length, gaps: gaps.length, percent: totalPct },
+        gaps,
+        covered,
+      },
+      null,
+      2,
+    ),
+  );
 
-  console.log(`✓ ${all.length} mutating handlers — ${covered.length} audited (${totalPct}%), ${gaps.length} gaps`);
+  console.log(
+    `✓ ${all.length} mutating handlers — ${covered.length} audited (${totalPct}%), ${gaps.length} gaps`,
+  );
   console.log(`  → ${OUTPUT_MD}`);
   console.log(`  → ${OUTPUT_JSON}`);
 }

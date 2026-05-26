@@ -47,7 +47,9 @@ function unwrap(content: string): string {
     .replace(/^<div>\s*<h1[\s\S]*?<\/div>\s*/m, '')
     .trim();
 
-  const afterShell = content.slice(content.indexOf('</ExtensionPageShell>') + '</ExtensionPageShell>'.length);
+  const afterShell = content.slice(
+    content.indexOf('</ExtensionPageShell>') + '</ExtensionPageShell>'.length,
+  );
 
   let headerActions = '';
   if (actions) {

@@ -1,53 +1,96 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Repeat, Plus, X, AlertCircle, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Repeat, Plus, X, AlertCircle, LoaderCircle } from '@lucide/svelte';
 
-  let tab = $state<'subscribers' | 'plans' | 'dunning'>('subscribers');
-  let subscribers = $state<any[]>([]);
-  let plans = $state<any[]>([]);
-  let dunning = $state<any[]>([]);
-  let loading = $state(true);
-  let showPlanForm = $state(false);
-  let saving = $state(false);
-  let planForm = $state({ name: '', code: '', price: 0, currency: 'RON', interval: 'monthly', trial_days: 0 });
+let tab = $state<'subscribers' | 'plans' | 'dunning'>('subscribers');
+let subscribers = $state<any[]>([]);
+let plans = $state<any[]>([]);
+let dunning = $state<any[]>([]);
+let loading = $state(true);
+let showPlanForm = $state(false);
+let saving = $state(false);
+let planForm = $state({
+  name: '',
+  code: '',
+  price: 0,
+  currency: 'RON',
+  interval: 'monthly',
+  trial_days: 0,
+});
 
-  async function loadSubs() { const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/subscribers'); subscribers = r.data ?? []; }
-  async function loadPlans() { const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/plans'); plans = r.data ?? []; }
-  async function loadDunning() { const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/dunning'); dunning = r.data ?? []; }
+async function loadSubs() {
+  const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/subscribers');
+  subscribers = r.data ?? [];
+}
+async function loadPlans() {
+  const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/plans');
+  plans = r.data ?? [];
+}
+async function loadDunning() {
+  const r = await api.get<{ data: any[] }>('/ext/finance/subscriptions/dunning');
+  dunning = r.data ?? [];
+}
 
-  async function loadTab() {
-    loading = true;
-    try {
-      if (tab === 'subscribers') await loadSubs();
-      else if (tab === 'plans') await loadPlans();
-      else await loadDunning();
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadTab() {
+  loading = true;
+  try {
+    if (tab === 'subscribers') await loadSubs();
+    else if (tab === 'plans') await loadPlans();
+    else await loadDunning();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function createPlan() {
-    saving = true;
-    try {
-      await api.post('/ext/finance/subscriptions/plans', planForm);
-      showPlanForm = false;
-      planForm = { name: '', code: '', price: 0, currency: 'RON', interval: 'monthly', trial_days: 0 };
-      await loadPlans();
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+async function createPlan() {
+  saving = true;
+  try {
+    await api.post('/ext/finance/subscriptions/plans', planForm);
+    showPlanForm = false;
+    planForm = {
+      name: '',
+      code: '',
+      price: 0,
+      currency: 'RON',
+      interval: 'monthly',
+      trial_days: 0,
+    };
+    await loadPlans();
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  $effect(() => { tab; loadTab(); });
+$effect(() => {
+  tab;
+  loadTab();
+});
 
-  function statusBadge(s: string) {
-    return ({ active: 'badge-success', trialing: 'badge-info', past_due: 'badge-warning', cancelled: 'badge-error' } as any)[s] ?? 'badge-ghost';
-  }
-  function fmt(n: number, c = 'RON') { return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: c }).format(n); }
+function statusBadge(s: string) {
+  return (
+    (
+      {
+        active: 'badge-success',
+        trialing: 'badge-info',
+        past_due: 'badge-warning',
+        cancelled: 'badge-error',
+      } as any
+    )[s] ?? 'badge-ghost'
+  );
+}
+function fmt(n: number, c = 'RON') {
+  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: c }).format(n);
+}
 </script>
 
 <ExtensionPageShell title={m['finance.subscriptions.title']()} subtitle={m['finance.subscriptions.subtitle']()}>

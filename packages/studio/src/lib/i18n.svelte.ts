@@ -39,8 +39,11 @@ function detectInitialLocale(): string {
   if (typeof window === 'undefined') return paraglide.baseLocale;
   // Persisted user choice wins.
   const stored = (() => {
-    try { return localStorage.getItem(STORAGE_KEY); }
-    catch { return null; }
+    try {
+      return localStorage.getItem(STORAGE_KEY);
+    } catch {
+      return null;
+    }
   })();
   if (stored && paraglide.locales.includes(stored as any)) return stored;
   // Browser-Detected fallback.
@@ -54,15 +57,22 @@ let _locale = $state<string>(detectInitialLocale());
 // Push the initial locale into the Paraglide runtime so `m.*()` calls
 // resolve correctly from the very first render.
 if (typeof window !== 'undefined') {
-  try { paraglide.setLocale(_locale as any, { reload: false }); }
-  catch { /* paraglide >=2.0 doesn't take a reload option; fall through */ }
+  try {
+    paraglide.setLocale(_locale as any, { reload: false });
+  } catch {
+    /* paraglide >=2.0 doesn't take a reload option; fall through */
+  }
 }
 
 export const i18n = {
   /** Current locale id, e.g. 'en' or 'ro'. Reactive. */
-  get locale() { return _locale; },
+  get locale() {
+    return _locale;
+  },
   /** List of locales the project ships translations for. */
-  get availableLocales(): readonly string[] { return paraglide.locales as unknown as readonly string[]; },
+  get availableLocales(): readonly string[] {
+    return paraglide.locales as unknown as readonly string[];
+  },
   /** Persist + apply a new locale. */
   setLocale(next: string): void {
     if (!paraglide.locales.includes(next as any)) {
@@ -70,9 +80,20 @@ export const i18n = {
       return;
     }
     _locale = next;
-    try { localStorage.setItem(STORAGE_KEY, next); } catch { /* */ }
-    try { paraglide.setLocale(next as any, { reload: false }); }
-    catch { /* paraglide >= 2 — newer API */ try { paraglide.setLocale(next as any); } catch { /* */ } }
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      /* */
+    }
+    try {
+      paraglide.setLocale(next as any, { reload: false });
+    } catch {
+      /* paraglide >= 2 — newer API */ try {
+        paraglide.setLocale(next as any);
+      } catch {
+        /* */
+      }
+    }
   },
 };
 

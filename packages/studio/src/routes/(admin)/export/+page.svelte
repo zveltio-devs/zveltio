@@ -1,53 +1,53 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api, collectionsApi } from '$lib/api.js';
- import { Download, LoaderCircle, Database } from '@lucide/svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { onMount } from 'svelte';
+import { api, collectionsApi } from '$lib/api.js';
+import { Download, LoaderCircle, Database } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
 
- let collections = $state<any[]>([]);
- let selectedCollection = $state('');
- let format = $state<'json' | 'csv' | 'ndjson'>('json');
- let limit = $state(1000);
- let exporting = $state(false);
- let error = $state('');
+let collections = $state<any[]>([]);
+let selectedCollection = $state('');
+let format = $state<'json' | 'csv' | 'ndjson'>('json');
+let limit = $state(1000);
+let exporting = $state(false);
+let error = $state('');
 
- onMount(async () => {
- const res = await collectionsApi.list();
- collections = res.collections || [];
- });
+onMount(async () => {
+  const res = await collectionsApi.list();
+  collections = res.collections || [];
+});
 
- async function doExport() {
- if (!selectedCollection) return;
- exporting = true;
- error = '';
- try {
- const params = new URLSearchParams({
- format,
- limit: String(limit),
- });
- const res = await fetch(`/ext/data/export/${selectedCollection}?${params}`, {
- credentials: 'include',
- });
- if (!res.ok) {
- const body = await res.json().catch(() => ({}));
- throw new Error(body.error || `Export failed (${res.status})`);
- }
+async function doExport() {
+  if (!selectedCollection) return;
+  exporting = true;
+  error = '';
+  try {
+    const params = new URLSearchParams({
+      format,
+      limit: String(limit),
+    });
+    const res = await fetch(`/ext/data/export/${selectedCollection}?${params}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Export failed (${res.status})`);
+    }
 
- const blob = await res.blob();
- const ext = format === 'ndjson' ? 'ndjson' : format;
- const fileName = `${selectedCollection}_${new Date().toISOString().split('T')[0]}.${ext}`;
- const url = URL.createObjectURL(blob);
- const a = document.createElement('a');
- a.href = url;
- a.download = fileName;
- a.click();
- URL.revokeObjectURL(url);
- } catch (err) {
- error = err instanceof Error ? err.message : 'Export failed';
- } finally {
- exporting = false;
- }
- }
+    const blob = await res.blob();
+    const ext = format === 'ndjson' ? 'ndjson' : format;
+    const fileName = `${selectedCollection}_${new Date().toISOString().split('T')[0]}.${ext}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    error = err instanceof Error ? err.message : 'Export failed';
+  } finally {
+    exporting = false;
+  }
+}
 </script>
 
 <div class="space-y-6">

@@ -2,15 +2,15 @@
 import type { Component } from 'svelte';
 
 let {
-    href,
-    label,
-    icon,
-    active = false
+  href,
+  label,
+  icon,
+  active = false,
 }: {
-    href: string;
-    label: string;
-    icon?: Component<{ size?: number }>;
-    active?: boolean;
+  href: string;
+  label: string;
+  icon?: Component<{ size?: number }>;
+  active?: boolean;
 } = $props();
 
 // Svelte 5 runes treat component values as first-class — call them

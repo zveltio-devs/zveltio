@@ -44,10 +44,7 @@ export function fuzzyMatch(query: string, text: string): number {
   let matchScore = 0;
 
   for (let i = 0; i < lowerText.length; i++) {
-    if (
-      queryIndex < lowerQuery.length &&
-      lowerText[i] === lowerQuery[queryIndex]
-    ) {
+    if (queryIndex < lowerQuery.length && lowerText[i] === lowerQuery[queryIndex]) {
       matchScore += 0.1;
       queryIndex++;
     }
@@ -63,10 +60,7 @@ export function fuzzyMatch(query: string, text: string): number {
  * @param collections - List of collections
  * @returns Matching collections with scores
  */
-export function searchCollections(
-  query: string,
-  collections: Collection[],
-): SearchResult[] {
+export function searchCollections(query: string, collections: Collection[]): SearchResult[] {
   if (!query || query.length < 2) return [];
 
   return collections

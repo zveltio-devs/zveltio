@@ -65,7 +65,7 @@ describe.skipIf(skipAll)('Settings — Integration', () => {
       headers: { Cookie: godCookie },
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(typeof (body.settings ?? body)).toBe('object');
   });
 
@@ -93,7 +93,7 @@ describe.skipIf(skipAll)('Settings — Integration', () => {
   it('GET /api/settings/public — returns public settings without auth', async () => {
     const res = await fetch(`${BASE_URL}/api/settings/public`);
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(typeof body).toBe('object');
   });
 

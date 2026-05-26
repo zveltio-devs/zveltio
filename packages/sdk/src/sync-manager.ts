@@ -65,10 +65,7 @@ export class SyncManager {
     }
 
     // Periodic sync
-    this.syncTimer = setInterval(
-      () => this.syncNow(),
-      this.config.syncInterval,
-    );
+    this.syncTimer = setInterval(() => this.syncNow(), this.config.syncInterval);
 
     // Initial sync
     await this.syncNow();
@@ -147,20 +144,10 @@ export class SyncManager {
         if (this.realtime) {
           unsubRealtime = this.realtime.subscribe(name, async (event) => {
             // Apply update from server to local store
-            if (
-              event.event === 'record.created' ||
-              event.event === 'record.updated'
-            ) {
+            if (event.event === 'record.created' || event.event === 'record.updated') {
               try {
-                const serverRecord = await this.client
-                  .collection(name)
-                  .get(event.record_id);
-                await this.store.applyServerUpdate(
-                  name,
-                  event.record_id,
-                  serverRecord,
-                  Date.now(),
-                );
+                const serverRecord = await this.client.collection(name).get(event.record_id);
+                await this.store.applyServerUpdate(name, event.record_id, serverRecord, Date.now());
                 this.notifyListeners(name);
               } catch {
                 /* offline or error — ignore, periodic sync will resolve */
@@ -196,10 +183,7 @@ export class SyncManager {
       },
 
       /** Resolve a conflict manually */
-      resolveConflict: async (
-        id: string,
-        resolvedData: Record<string, any>,
-      ) => {
+      resolveConflict: async (id: string, resolvedData: Record<string, any>) => {
         await this.store.resolveConflict(name, id, resolvedData);
         this.notifyListeners(name);
         this.syncNow();
@@ -221,15 +205,11 @@ export class SyncManager {
             type: blobItem.blob.type,
           });
           const result = (await this.client.storage.upload(file)) as any;
-          const url: string =
-            result?.url || result?.publicUrl || result?.path || '';
+          const url: string = result?.url || result?.publicUrl || result?.path || '';
           if (!url) continue; // Upload returned without URL — skip
 
           // Replace local_blob_* reference with real URL in record
-          const record = await this.store.get(
-            blobItem.collection,
-            blobItem.recordId,
-          );
+          const record = await this.store.get(blobItem.collection, blobItem.recordId);
           if (record && record.data[blobItem.field] === blobItem.id) {
             await this.store.put(blobItem.collection, blobItem.recordId, {
               ...record.data,
@@ -264,33 +244,21 @@ export class SyncManager {
                 .create({ id: op.recordId, ...crdtPayload });
               break;
             case 'update':
-              await this.client
-                .collection(op.collection)
-                .update(op.recordId, crdtPayload);
+              await this.client.collection(op.collection).update(op.recordId, crdtPayload);
               break;
             case 'delete':
               await this.client.collection(op.collection).delete(op.recordId);
               break;
           }
 
-          await this.store.markSynced(
-            op.id,
-            op.collection,
-            op.recordId,
-            serverVersion,
-          );
+          await this.store.markSynced(op.id, op.collection, op.recordId, serverVersion);
           this.notifyListeners(op.collection);
         } catch (err: any) {
           // Conflict from server (409) — apply conflict resolution
           if (err.message?.includes('409')) {
             try {
-              const serverRecord = await this.client
-                .collection(op.collection)
-                .get(op.recordId);
-              const localRecord = await this.store.get(
-                op.collection,
-                op.recordId,
-              );
+              const serverRecord = await this.client.collection(op.collection).get(op.recordId);
+              const localRecord = await this.store.get(op.collection, op.recordId);
               // CRDT LWW merge if both sides have CRDT docs and strategy is 'lww'
               if (
                 this.config.conflictResolution === 'lww' &&

@@ -24,16 +24,19 @@ export function useSyncCollection<T = any>(
     });
     syncRef.current = sync;
 
-    sync.start(options?.realtimeUrl).then(() => {
-      const unsub = sync.collection(collectionName).subscribe((records) => {
-        setData(records as T[]);
+    sync
+      .start(options?.realtimeUrl)
+      .then(() => {
+        const unsub = sync.collection(collectionName).subscribe((records) => {
+          setData(records as T[]);
+          setLoading(false);
+        });
+        return unsub;
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err : new Error(String(err)));
         setLoading(false);
       });
-      return unsub;
-    }).catch((err) => {
-      setError(err instanceof Error ? err : new Error(String(err)));
-      setLoading(false);
-    });
 
     return () => {
       sync.stop();

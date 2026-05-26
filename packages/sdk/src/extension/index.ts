@@ -185,9 +185,15 @@ export interface ExtensionInternals {
   /** Validate that a URL targets a public, non-internal address (SSRF safety). */
   validatePublicUrl: (url: string) => Promise<URL>;
   /** Extract plain text from an uploaded file (PDF/DOCX/etc.) for AI indexing. */
-  extractTextFromFile: (buffer: ArrayBuffer | Buffer | Uint8Array, mimeType: string) => Promise<string>;
+  extractTextFromFile: (
+    buffer: ArrayBuffer | Buffer | Uint8Array,
+    mimeType: string,
+  ) => Promise<string>;
   /** Send an in-app notification to a user (writes to zv_notifications system table). */
-  sendNotification: (db: any, input: { user_id: string; type?: string; title: string; message?: string; data?: unknown }) => Promise<void>;
+  sendNotification: (
+    db: any,
+    input: { user_id: string; type?: string; title: string; message?: string; data?: unknown },
+  ) => Promise<void>;
   /**
    * Create a Better-Auth session for an already-authenticated user (SSO bridge).
    *
@@ -513,10 +519,7 @@ export interface SlotContribution {
 }
 
 /** S3-02: signature of a form-alter hook. */
-export type FormAlterHook = (
-  form: FormAlterAPI,
-  ctx: Record<string, unknown>,
-) => void;
+export type FormAlterHook = (form: FormAlterAPI, ctx: Record<string, unknown>) => void;
 
 /** S3-02: the surface form-alter hooks operate on. */
 export interface FormAlterAPI {

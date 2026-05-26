@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { title = '', items = [], columns = 3 } = $props();
+let { title = '', items = [], columns = 3 } = $props();
 </script>
 
 <div class="py-12 px-4">

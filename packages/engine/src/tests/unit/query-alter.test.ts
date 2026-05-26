@@ -78,10 +78,7 @@ describe('QueryAlterRegistryImpl', () => {
     registry.scope('a').register({ table: 'zvd_x', alter: (q) => q });
     registry.scope('a').register({ table: 'zvd_y', alter: (q) => q });
     registry.scope('b').register({ table: 'zvd_x', alter: (q) => q });
-    expect(registry.scope('a').list()).toEqual([
-      { table: 'zvd_x' },
-      { table: 'zvd_y' },
-    ]);
+    expect(registry.scope('a').list()).toEqual([{ table: 'zvd_x' }, { table: 'zvd_y' }]);
     expect(registry.scope('b').list()).toEqual([{ table: 'zvd_x' }]);
   });
 
@@ -117,8 +114,7 @@ describe('QueryAlterRegistryImpl', () => {
       qb.where('tenant_id', '=', user.tenantId),
     );
 
-    const applyAlters = (qb: any) =>
-      registry.applyAll(qb, 'zvd_contacts', { tenantId: 't1' });
+    const applyAlters = (qb: any) => registry.applyAll(qb, 'zvd_contacts', { tenantId: 't1' });
 
     const rowsQb = applyAlters(new FakeQB()) as FakeQB;
     const countQb = applyAlters(new FakeQB()) as FakeQB;

@@ -20,7 +20,10 @@ import type { ServiceRegistry } from '@zveltio/sdk/extension';
  * `<extension>.<resource>.<verb>`. Examples: `ai.providers`, `ai.embed`,
  * `crm.contacts.lookup`.
  */
-interface Entry { value: unknown; owner: string }
+interface Entry {
+  value: unknown;
+  owner: string;
+}
 
 export class ServiceRegistryImpl {
   private services = new Map<string, Entry>();
@@ -51,7 +54,7 @@ export class ServiceRegistryImpl {
     if (existing && existing.owner !== owner) {
       throw new Error(
         `Service "${name}" is already registered by extension "${existing.owner}". ` +
-        `Extension "${owner}" must use a different name.`,
+          `Extension "${owner}" must use a different name.`,
       );
     }
     this.services.set(name, { value, owner });

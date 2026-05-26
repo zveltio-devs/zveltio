@@ -13,12 +13,7 @@
  */
 
 function intToIPv4(n: number): string {
-  return [
-    (n >>> 24) & 0xff,
-    (n >>> 16) & 0xff,
-    (n >>> 8)  & 0xff,
-    n          & 0xff,
-  ].join('.');
+  return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
 }
 
 /**
@@ -79,13 +74,13 @@ export function normalizeHost(host: string): string {
 
 const BLOCKED_PATTERNS: RegExp[] = [
   /^localhost$/,
-  /^127\.\d+\.\d+\.\d+$/,                  // 127.0.0.0/8
-  /^10\.\d+\.\d+\.\d+$/,                    // 10.0.0.0/8
-  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,   // 172.16.0.0/12
-  /^192\.168\.\d+\.\d+$/,                   // 192.168.0.0/16
-  /^169\.254\.\d+\.\d+$/,                   // 169.254.0.0/16 (link-local / cloud metadata)
-  /^::1$/,                                   // IPv6 loopback
-  /^fd[0-9a-f]{2}:/,                        // IPv6 ULA (fc00::/7)
+  /^127\.\d+\.\d+\.\d+$/, // 127.0.0.0/8
+  /^10\.\d+\.\d+\.\d+$/, // 10.0.0.0/8
+  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/, // 172.16.0.0/12
+  /^192\.168\.\d+\.\d+$/, // 192.168.0.0/16
+  /^169\.254\.\d+\.\d+$/, // 169.254.0.0/16 (link-local / cloud metadata)
+  /^::1$/, // IPv6 loopback
+  /^fd[0-9a-f]{2}:/, // IPv6 ULA (fc00::/7)
   /^0\.0\.0\.0$/,
   /host\.docker\.internal$/,
   /kubernetes\.default$/,

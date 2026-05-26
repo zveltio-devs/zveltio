@@ -69,10 +69,14 @@ export function mockDb(presets: MockDbPresets = {}): any & MockDb {
       get(_, prop) {
         if (typeof prop === 'symbol') return undefined;
         if (prop === 'calls') return calls;
-        if (prop === 'reset') return () => { calls.length = 0; };
-        if (prop === 'preset') return (chain: string, value: unknown) => {
-          presetMap.set(chain, value);
-        };
+        if (prop === 'reset')
+          return () => {
+            calls.length = 0;
+          };
+        if (prop === 'preset')
+          return (chain: string, value: unknown) => {
+            presetMap.set(chain, value);
+          };
         if (prop === 'then') return undefined;
         // Build next link in the chain.
         return buildChain([...prefix, prop]);
@@ -86,9 +90,10 @@ export function mockDb(presets: MockDbPresets = {}): any & MockDb {
         calls.push({ chain, args });
         const terminal = prefix[prefix.length - 1];
 
-        const isTerminal = terminal === 'execute'
-          || terminal === 'executeTakeFirst'
-          || terminal === 'executeTakeFirstOrThrow';
+        const isTerminal =
+          terminal === 'execute' ||
+          terminal === 'executeTakeFirst' ||
+          terminal === 'executeTakeFirstOrThrow';
 
         if (isTerminal) {
           const preset = matchPreset(chain, presetMap);
@@ -99,9 +104,11 @@ export function mockDb(presets: MockDbPresets = {}): any & MockDb {
           if (terminal === 'execute') return Promise.resolve([]);
           if (terminal === 'executeTakeFirst') return Promise.resolve(undefined);
           // executeTakeFirstOrThrow with no preset → reject
-          return Promise.reject(new Error(
-            `mockDb: no preset for chain "${chain}" and executeTakeFirstOrThrow has no fallback`,
-          ));
+          return Promise.reject(
+            new Error(
+              `mockDb: no preset for chain "${chain}" and executeTakeFirstOrThrow has no fallback`,
+            ),
+          );
         }
 
         // Non-terminal: keep chaining on the same proxy (its prefix is
@@ -193,7 +200,9 @@ export function mockEventBus(): MockEventBus {
       }
       return payload;
     },
-    get emitted() { return emitted; },
+    get emitted() {
+      return emitted;
+    },
     reset() {
       emitted.length = 0;
       listeners.clear();
@@ -214,11 +223,21 @@ export function mockServiceRegistry(): {
 } {
   const services = new Map<string, unknown>();
   return {
-    register(name, value) { services.set(name, value); },
-    unregister(name) { services.delete(name); },
-    get<T = unknown>(name: string) { return (services.get(name) as T | undefined) ?? null; },
-    has(name) { return services.has(name); },
-    list() { return [...services.keys()]; },
+    register(name, value) {
+      services.set(name, value);
+    },
+    unregister(name) {
+      services.delete(name);
+    },
+    get<T = unknown>(name: string) {
+      return (services.get(name) as T | undefined) ?? null;
+    },
+    has(name) {
+      return services.has(name);
+    },
+    list() {
+      return [...services.keys()];
+    },
     async waitFor<T = unknown>(name: string) {
       const v = services.get(name);
       if (v === undefined) throw new Error(`mockServiceRegistry: no service "${name}" registered`);
@@ -232,18 +251,30 @@ export function mockServiceRegistry(): {
 function mockQueryAlterScope() {
   const entries: Array<{ table: string; alter: any }> = [];
   return {
-    register(def: { table: string; alter: any }) { entries.push(def); },
-    list() { return entries.map((e) => ({ table: e.table })); },
-    unregisterAll() { entries.length = 0; },
+    register(def: { table: string; alter: any }) {
+      entries.push(def);
+    },
+    list() {
+      return entries.map((e) => ({ table: e.table }));
+    },
+    unregisterAll() {
+      entries.length = 0;
+    },
   };
 }
 
 function mockEntityAccessScope() {
   const entries: Array<{ table: string; check: any }> = [];
   return {
-    register(def: { table: string; check: any }) { entries.push(def); },
-    list() { return entries.map((e) => ({ table: e.table })); },
-    unregisterAll() { entries.length = 0; },
+    register(def: { table: string; check: any }) {
+      entries.push(def);
+    },
+    list() {
+      return entries.map((e) => ({ table: e.table }));
+    },
+    unregisterAll() {
+      entries.length = 0;
+    },
   };
 }
 
@@ -255,7 +286,8 @@ export interface MockAuthOptions {
 }
 
 export function mockAuth(opts: MockAuthOptions = {}): any {
-  const user = opts.user === undefined ? { id: 'test-user', email: 'test@example.com', roles: [] } : opts.user;
+  const user =
+    opts.user === undefined ? { id: 'test-user', email: 'test@example.com', roles: [] } : opts.user;
   return {
     api: {
       async getSession() {
@@ -339,9 +371,8 @@ export async function createTestApp(
     const outer = new Hono();
     const sub = new Hono();
     await extension.register(sub, ctx);
-    const mountPath = opts.mountSubappAt === false
-      ? '/'
-      : (opts.mountSubappAt ?? `/ext/${extension.name}`);
+    const mountPath =
+      opts.mountSubappAt === false ? '/' : (opts.mountSubappAt ?? `/ext/${extension.name}`);
     outer.route(mountPath, sub);
     return outer;
   }

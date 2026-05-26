@@ -80,7 +80,9 @@ export async function runRestCrud(opts: RunOptions): Promise<CrudResult> {
     }
     const patchDuration = await measureWallClock(async () => {
       await runParallel(iterations, concurrency, async (i) => {
-        const r = await timedPatch(client, `/api/data/${name}/${ids[i % ids.length]}`, { count: i + 1000 });
+        const r = await timedPatch(client, `/api/data/${name}/${ids[i % ids.length]}`, {
+          count: i + 1000,
+        });
         if (r.status !== 200) throw new Error(`patch returned ${r.status}`);
         patchSamples.push(r.durationMs);
       });

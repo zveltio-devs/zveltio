@@ -1,92 +1,134 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { MessageSquare, Send, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { MessageSquare, Send, LoaderCircle } from '@lucide/svelte';
 
-  let stats = $state<Record<string, number>>({});
-  let messages = $state<any[]>([]);
-  let templates = $state<any[]>([]);
-  let loading = $state(true);
+let stats = $state<Record<string, number>>({});
+let messages = $state<any[]>([]);
+let templates = $state<any[]>([]);
+let loading = $state(true);
 
-  let sendProvider = $state<'twilio' | 'vonage'>('twilio');
-  let sendTo = $state('');
-  let sendBody = $state('');
-  let sendTemplateId = $state('');
-  let sendVariables = $state('');
-  let sending = $state(false);
-  let sendResult = $state<{ ok: boolean; msg: string } | null>(null);
+let sendProvider = $state<'twilio' | 'vonage'>('twilio');
+let sendTo = $state('');
+let sendBody = $state('');
+let sendTemplateId = $state('');
+let sendVariables = $state('');
+let sending = $state(false);
+let sendResult = $state<{ ok: boolean; msg: string } | null>(null);
 
-  let newTplName = $state('');
-  let newTplBody = $state('');
-  let newTplProvider = $state<'twilio' | 'vonage'>('twilio');
-  let savingTpl = $state(false);
+let newTplName = $state('');
+let newTplBody = $state('');
+let newTplProvider = $state<'twilio' | 'vonage'>('twilio');
+let savingTpl = $state(false);
 
-  let sentToday = $derived(
-    messages.filter((m) => {
-      const d = new Date(m.created_at);
-      return d.toDateString() === new Date().toDateString();
-    }).length,
-  );
+let sentToday = $derived(
+  messages.filter((m) => {
+    const d = new Date(m.created_at);
+    return d.toDateString() === new Date().toDateString();
+  }).length,
+);
 
-  onMount(loadAll);
+onMount(loadAll);
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const [statsRes, msgsRes, tplRes] = await Promise.all([
-        api.get<{ stats: any[] }>('/extensions/sms/stats'),
-        api.get<{ messages: any[] }>('/extensions/sms/messages?limit=50'),
-        api.get<{ templates: any[] }>('/extensions/sms/templates'),
-      ]);
-      const agg: Record<string, number> = {};
-      for (const s of statsRes.stats ?? []) agg[s.status] = s.count;
-      stats = agg;
-      messages = msgsRes.messages ?? [];
-      templates = tplRes.templates ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadAll() {
+  loading = true;
+  try {
+    const [statsRes, msgsRes, tplRes] = await Promise.all([
+      api.get<{ stats: any[] }>('/extensions/sms/stats'),
+      api.get<{ messages: any[] }>('/extensions/sms/messages?limit=50'),
+      api.get<{ templates: any[] }>('/extensions/sms/templates'),
+    ]);
+    const agg: Record<string, number> = {};
+    for (const s of statsRes.stats ?? []) agg[s.status] = s.count;
+    stats = agg;
+    messages = msgsRes.messages ?? [];
+    templates = tplRes.templates ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function sendSms() {
-    if (!sendTo.trim()) { toast.error(m['sms.error.phoneRequired']()); return; }
-    if (!sendBody.trim() && !sendTemplateId) { toast.error(m['sms.error.bodyRequired']()); return; }
-    sending = true; sendResult = null;
-    try {
-      const payload: Record<string, unknown> = { provider: sendProvider, to: sendTo.trim() };
-      if (sendTemplateId) {
-        payload.template_id = sendTemplateId;
-        if (sendVariables.trim()) {
-          try { payload.variables = JSON.parse(sendVariables); }
-          catch { toast.error(m['sms.error.variablesJson']()); sending = false; return; }
+async function sendSms() {
+  if (!sendTo.trim()) {
+    toast.error(m['sms.error.phoneRequired']());
+    return;
+  }
+  if (!sendBody.trim() && !sendTemplateId) {
+    toast.error(m['sms.error.bodyRequired']());
+    return;
+  }
+  sending = true;
+  sendResult = null;
+  try {
+    const payload: Record<string, unknown> = { provider: sendProvider, to: sendTo.trim() };
+    if (sendTemplateId) {
+      payload.template_id = sendTemplateId;
+      if (sendVariables.trim()) {
+        try {
+          payload.variables = JSON.parse(sendVariables);
+        } catch {
+          toast.error(m['sms.error.variablesJson']());
+          sending = false;
+          return;
         }
-      } else {
-        payload.body = sendBody.trim();
       }
-      const res = await api.post<{ id: string }>('/extensions/sms/send', payload);
-      sendResult = { ok: true, msg: `Sent! ID: ${res.id}` };
-      sendTo = ''; sendBody = ''; sendTemplateId = ''; sendVariables = '';
-      await loadAll();
-    } catch (e: any) {
-      sendResult = { ok: false, msg: 'Error: ' + (e.message ?? 'Failed to send') };
-    } finally { sending = false; }
+    } else {
+      payload.body = sendBody.trim();
+    }
+    const res = await api.post<{ id: string }>('/extensions/sms/send', payload);
+    sendResult = { ok: true, msg: `Sent! ID: ${res.id}` };
+    sendTo = '';
+    sendBody = '';
+    sendTemplateId = '';
+    sendVariables = '';
+    await loadAll();
+  } catch (e: any) {
+    sendResult = { ok: false, msg: 'Error: ' + (e.message ?? 'Failed to send') };
+  } finally {
+    sending = false;
   }
+}
 
-  async function createTemplate() {
-    if (!newTplName.trim() || !newTplBody.trim()) { toast.error(m['sms.error.nameBodyRequired']()); return; }
-    savingTpl = true;
-    try {
-      const res = await api.post<{ template: any }>('/extensions/sms/templates', { name: newTplName.trim(), body: newTplBody.trim(), provider: newTplProvider });
-      templates = [...templates, res.template];
-      newTplName = ''; newTplBody = '';
-      toast.success(m['ext.created']());
-    } catch (e: any) { toast.error(m['ext.errorPrefix']() + (e.message ?? '')); }
-    finally { savingTpl = false; }
+async function createTemplate() {
+  if (!newTplName.trim() || !newTplBody.trim()) {
+    toast.error(m['sms.error.nameBodyRequired']());
+    return;
   }
+  savingTpl = true;
+  try {
+    const res = await api.post<{ template: any }>('/extensions/sms/templates', {
+      name: newTplName.trim(),
+      body: newTplBody.trim(),
+      provider: newTplProvider,
+    });
+    templates = [...templates, res.template];
+    newTplName = '';
+    newTplBody = '';
+    toast.success(m['ext.created']());
+  } catch (e: any) {
+    toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
+  } finally {
+    savingTpl = false;
+  }
+}
 
-  function statusBadge(s: string) { return ({ sent: 'badge-success', delivered: 'badge-success', failed: 'badge-error', pending: 'badge-warning' } as any)[s] ?? 'badge-ghost'; }
+function statusBadge(s: string) {
+  return (
+    (
+      {
+        sent: 'badge-success',
+        delivered: 'badge-success',
+        failed: 'badge-error',
+        pending: 'badge-warning',
+      } as any
+    )[s] ?? 'badge-ghost'
+  );
+}
 </script>
 
 <ExtensionPageShell title={m['sms.title']()} subtitle={m['sms.subtitle']()}>

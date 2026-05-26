@@ -3,11 +3,11 @@ import { dirname } from 'path';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
-  bold:  (s: string) => `\x1b[1m${s}\x1b[0m`,
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
   green: (s: string) => `\x1b[32m${s}\x1b[0m`,
-  cyan:  (s: string) => `\x1b[36m${s}\x1b[0m`,
-  dim:   (s: string) => `\x1b[2m${s}\x1b[0m`,
-  red:   (s: string) => `\x1b[31m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
 };
 
 export async function generateTypesCommand(
@@ -42,7 +42,9 @@ export async function generateTypesCommand(
       if (res.status === 401) {
         console.error(c.dim('  Set ZVELTIO_API_KEY env var or use an authenticated session.'));
       } else if (res.status === 404) {
-        console.error(c.dim('  Ensure the engine is running and the /api/admin/types endpoint is available.'));
+        console.error(
+          c.dim('  Ensure the engine is running and the /api/admin/types endpoint is available.'),
+        );
       }
       process.exit(1);
     }

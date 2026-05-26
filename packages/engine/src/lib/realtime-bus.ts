@@ -116,8 +116,11 @@ class ValkeyRealtimeBus implements RealtimeBus {
     this.subscriber.on('message', (channel: string, raw: string) => {
       if (channel !== CHANNEL_NAME) return;
       let msg: RealtimeBusMessage;
-      try { msg = JSON.parse(raw); }
-      catch { return; }
+      try {
+        msg = JSON.parse(raw);
+      } catch {
+        return;
+      }
       dispatchToWs(msg);
     });
     await this.subscriber.subscribe(CHANNEL_NAME);
@@ -127,12 +130,24 @@ class ValkeyRealtimeBus implements RealtimeBus {
 
   async stop(): Promise<void> {
     if (this.subscriber) {
-      try { await this.subscriber.unsubscribe(CHANNEL_NAME); } catch { /* */ }
-      try { await this.subscriber.quit(); } catch { /* */ }
+      try {
+        await this.subscriber.unsubscribe(CHANNEL_NAME);
+      } catch {
+        /* */
+      }
+      try {
+        await this.subscriber.quit();
+      } catch {
+        /* */
+      }
       this.subscriber = null;
     }
     if (this.publisher) {
-      try { await this.publisher.quit(); } catch { /* */ }
+      try {
+        await this.publisher.quit();
+      } catch {
+        /* */
+      }
       this.publisher = null;
     }
     this._running = false;
@@ -144,7 +159,9 @@ class ValkeyRealtimeBus implements RealtimeBus {
     await this.publisher.publish(CHANNEL_NAME, JSON.stringify(msg));
   }
 
-  get isRunning(): boolean { return this._running; }
+  get isRunning(): boolean {
+    return this._running;
+  }
 }
 
 // ── pg_notify backend ───────────────────────────────────────────────────────
@@ -187,8 +204,11 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       // @ts-ignore — Bun.SQL.subscribe runtime-only
       this.subscription = await sql.subscribe('zveltio_changes', (raw: string) => {
         let msg: RealtimeBusMessage;
-        try { msg = JSON.parse(raw); }
-        catch { return; }
+        try {
+          msg = JSON.parse(raw);
+        } catch {
+          return;
+        }
         dispatchToWs(msg);
       });
       this._running = true;
@@ -201,15 +221,27 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       }
       const delay = Math.min(1_000 * Math.pow(2, this.retryAttempt), 300_000);
       this.retryAttempt++;
-      console.warn(`[realtime-bus] LISTEN start failed (attempt ${this.retryAttempt}), retrying in ${delay}ms: ${err.message}`);
-      this.retryTimer = setTimeout(() => { this.retryTimer = null; this.start(); }, delay);
+      console.warn(
+        `[realtime-bus] LISTEN start failed (attempt ${this.retryAttempt}), retrying in ${delay}ms: ${err.message}`,
+      );
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = null;
+        this.start();
+      }, delay);
     }
   }
 
   async stop(): Promise<void> {
-    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     if (this.subscription) {
-      try { await this.subscription.unsubscribe(); } catch { /* */ }
+      try {
+        await this.subscription.unsubscribe();
+      } catch {
+        /* */
+      }
       this.subscription = null;
     }
     this._running = false;
@@ -227,7 +259,9 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       .catch((err: Error) => console.error('[realtime-bus] pg_notify failed:', err.message));
   }
 
-  get isRunning(): boolean { return this._running; }
+  get isRunning(): boolean {
+    return this._running;
+  }
 }
 
 // ── Null backend (no cross-instance) ────────────────────────────────────────
@@ -235,9 +269,15 @@ class PgNotifyRealtimeBus implements RealtimeBus {
 class NoopRealtimeBus implements RealtimeBus {
   readonly backend = 'none' as const;
   readonly isRunning = false;
-  async start(): Promise<void> { /* nothing to do */ }
-  async stop(): Promise<void> { /* nothing to do */ }
-  async publish(_payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void> { /* discard */ }
+  async start(): Promise<void> {
+    /* nothing to do */
+  }
+  async stop(): Promise<void> {
+    /* nothing to do */
+  }
+  async publish(_payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void> {
+    /* discard */
+  }
 }
 
 // ── Public singleton ───────────────────────────────────────────────────────

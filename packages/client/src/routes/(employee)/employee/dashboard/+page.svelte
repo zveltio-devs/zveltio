@@ -1,26 +1,26 @@
 <script lang="ts">
-  import { Activity, Database, Clock } from '@lucide/svelte';
+import { Activity, Database, Clock } from '@lucide/svelte';
 
-  let { data } = $props();
+let { data } = $props();
 
-  // Exemplu: fetch o colectie de tasks (offline-first)
-  // Developerii care folosesc template-ul inlocuiesc cu colectiile lor
-  // import { useCollection } from '$stores/collection.svelte';
-  // const tasks = useCollection('tasks');
+// Exemplu: fetch o colectie de tasks (offline-first)
+// Developerii care folosesc template-ul inlocuiesc cu colectiile lor
+// import { useCollection } from '$stores/collection.svelte';
+// const tasks = useCollection('tasks');
 
-  // Code example — avoid literal <script> tags to prevent Svelte parser confusion
-  const s = "<" + "script>";
-  const se = "<" + "/script>";
-  const codeExample = [
-    s,
-    "  import { useCollection } from '$stores/collection.svelte';",
-    "  const products = useCollection('products');",
-    se,
-    "",
-    "{#each products.data as product}",
-    "  <div>{product.name} — {product._syncStatus}</div>",
-    "{/each}",
-  ].join("\n");
+// Code example — avoid literal <script> tags to prevent Svelte parser confusion
+const s = '<' + 'script>';
+const se = '<' + '/script>';
+const codeExample = [
+  s,
+  "  import { useCollection } from '$stores/collection.svelte';",
+  "  const products = useCollection('products');",
+  se,
+  '',
+  '{#each products.data as product}',
+  '  <div>{product.name} — {product._syncStatus}</div>',
+  '{/each}',
+].join('\n');
 </script>
 
 <div class="space-y-6">

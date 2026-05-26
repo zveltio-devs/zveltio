@@ -1,44 +1,47 @@
 <script lang="ts">
-  import { api } from '$lib/api.js';
-  import { Terminal } from '@lucide/svelte';
+import { api } from '$lib/api.js';
+import { Terminal } from '@lucide/svelte';
 
-  let query = $state('SELECT * FROM "user" LIMIT 10;');
-  let rows: Record<string, any>[] = $state([]);
-  let columns: string[] = $state([]);
-  let rowCount = $state<number | null>(null);
-  let error = $state('');
-  let running = $state(false);
-  let elapsed = $state<number | null>(null);
+let query = $state('SELECT * FROM "user" LIMIT 10;');
+let rows: Record<string, any>[] = $state([]);
+let columns: string[] = $state([]);
+let rowCount = $state<number | null>(null);
+let error = $state('');
+let running = $state(false);
+let elapsed = $state<number | null>(null);
 
-  async function runQuery() {
-    if (!query.trim()) return;
-    running = true;
-    error = '';
-    rows = [];
-    columns = [];
-    rowCount = null;
-    elapsed = null;
-    const start = Date.now();
-    try {
-      const body = await api.post<{ rows: Record<string, any>[]; rowCount: number }>('/api/admin/sql', { query });
-      elapsed = Date.now() - start;
-      rows = body.rows ?? [];
-      rowCount = body.rowCount ?? rows.length;
-      columns = rows.length > 0 ? Object.keys(rows[0]) : [];
-    } catch (e: any) {
-      elapsed = Date.now() - start;
-      error = e.message ?? String(e);
-    } finally {
-      running = false;
-    }
+async function runQuery() {
+  if (!query.trim()) return;
+  running = true;
+  error = '';
+  rows = [];
+  columns = [];
+  rowCount = null;
+  elapsed = null;
+  const start = Date.now();
+  try {
+    const body = await api.post<{ rows: Record<string, any>[]; rowCount: number }>(
+      '/api/admin/sql',
+      { query },
+    );
+    elapsed = Date.now() - start;
+    rows = body.rows ?? [];
+    rowCount = body.rowCount ?? rows.length;
+    columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+  } catch (e: any) {
+    elapsed = Date.now() - start;
+    error = e.message ?? String(e);
+  } finally {
+    running = false;
   }
+}
 
-  function handleKeydown(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      runQuery();
-    }
+function handleKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    runQuery();
   }
+}
 </script>
 
 <div class="p-6 max-w-full">

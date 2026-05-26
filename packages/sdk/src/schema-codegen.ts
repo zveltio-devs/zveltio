@@ -39,23 +39,50 @@ export interface ParsedSchema {
 // ─── Postgres → TypeScript type map ────────────────────────────────────────
 
 const NUMERIC_TYPES = new Set([
-  'int', 'int2', 'int4', 'int8',
-  'integer', 'bigint', 'smallint',
-  'serial', 'bigserial', 'smallserial',
-  'numeric', 'decimal', 'real', 'double precision', 'float', 'float4', 'float8',
+  'int',
+  'int2',
+  'int4',
+  'int8',
+  'integer',
+  'bigint',
+  'smallint',
+  'serial',
+  'bigserial',
+  'smallserial',
+  'numeric',
+  'decimal',
+  'real',
+  'double precision',
+  'float',
+  'float4',
+  'float8',
 ]);
 
 const STRING_TYPES = new Set([
-  'text', 'varchar', 'char', 'character', 'character varying', 'name',
-  'uuid', 'citext', 'inet', 'cidr', 'macaddr',
+  'text',
+  'varchar',
+  'char',
+  'character',
+  'character varying',
+  'name',
+  'uuid',
+  'citext',
+  'inet',
+  'cidr',
+  'macaddr',
 ]);
 
 const BOOLEAN_TYPES = new Set(['boolean', 'bool']);
 const DATE_TYPES = new Set([
-  'date', 'time', 'timetz',
-  'timestamp', 'timestamptz',
-  'timestamp without time zone', 'timestamp with time zone',
-  'time without time zone', 'time with time zone',
+  'date',
+  'time',
+  'timetz',
+  'timestamp',
+  'timestamptz',
+  'timestamp without time zone',
+  'timestamp with time zone',
+  'time without time zone',
+  'time with time zone',
 ]);
 const JSON_TYPES = new Set(['json', 'jsonb']);
 const BYTES_TYPES = new Set(['bytea']);
@@ -64,7 +91,10 @@ function mapPgTypeToTs(pgType: string): string {
   // Normalize: lower-case, strip array brackets (handled separately), trim modifiers
   const lower = pgType.toLowerCase().trim();
   const isArray = /\[\]\s*$/.test(lower);
-  const base = lower.replace(/\[\]\s*$/, '').replace(/\(.*\)/, '').trim();
+  const base = lower
+    .replace(/\[\]\s*$/, '')
+    .replace(/\(.*\)/, '')
+    .trim();
 
   let tsBase: string;
   if (NUMERIC_TYPES.has(base)) tsBase = 'number';
@@ -107,9 +137,13 @@ function stripComments(sql: string): string {
     }
     if (inSingle) {
       out += ch;
-      if (ch === "'" && next === "'") { out += next; i += 2; }
-      else if (ch === "'") { inSingle = false; i++; }
-      else i++;
+      if (ch === "'" && next === "'") {
+        out += next;
+        i += 2;
+      } else if (ch === "'") {
+        inSingle = false;
+        i++;
+      } else i++;
       continue;
     }
     if (ch === '-' && next === '-') {
@@ -133,7 +167,12 @@ function stripComments(sql: string): string {
         continue;
       }
     }
-    if (ch === "'") { inSingle = true; out += ch; i++; continue; }
+    if (ch === "'") {
+      inSingle = true;
+      out += ch;
+      i++;
+      continue;
+    }
     out += ch;
     i++;
   }
@@ -154,19 +193,34 @@ function findMatchingParen(sql: string, openIdx: number): number {
   while (i < n) {
     const ch = sql[i];
     if (dollarTag !== null) {
-      if (sql.startsWith(dollarTag, i)) { dollarTag = null; i += sql.substring(i).match(/^\$[a-zA-Z_]*\$/)![0].length; continue; }
-      i++; continue;
+      if (sql.startsWith(dollarTag, i)) {
+        dollarTag = null;
+        i += sql.substring(i).match(/^\$[a-zA-Z_]*\$/)![0].length;
+        continue;
+      }
+      i++;
+      continue;
     }
     if (inSingle) {
       if (ch === "'" && sql[i + 1] === "'") i += 2;
-      else if (ch === "'") { inSingle = false; i++; }
-      else i++;
+      else if (ch === "'") {
+        inSingle = false;
+        i++;
+      } else i++;
       continue;
     }
-    if (ch === "'") { inSingle = true; i++; continue; }
+    if (ch === "'") {
+      inSingle = true;
+      i++;
+      continue;
+    }
     if (ch === '$') {
       const m = sql.substring(i).match(/^\$[a-zA-Z_]*\$/);
-      if (m) { dollarTag = m[0]; i += dollarTag.length; continue; }
+      if (m) {
+        dollarTag = m[0];
+        i += dollarTag.length;
+        continue;
+      }
     }
     if (ch === '(') depth++;
     else if (ch === ')') {
@@ -194,7 +248,11 @@ export function parseColumnList(body: string): Column[] {
     const ch = body[i];
     if (ch === '(') depth++;
     else if (ch === ')') depth--;
-    if (ch === ',' && depth === 0) { parts.push(buf); buf = ''; continue; }
+    if (ch === ',' && depth === 0) {
+      parts.push(buf);
+      buf = '';
+      continue;
+    }
     buf += ch;
   }
   if (buf.trim()) parts.push(buf);
@@ -203,7 +261,8 @@ export function parseColumnList(body: string): Column[] {
     const part = rawPart.trim();
     if (!part) continue;
     // Skip table-level constraints
-    if (/^(constraint|primary\s+key|foreign\s+key|unique|check|exclude|like)\b/i.test(part)) continue;
+    if (/^(constraint|primary\s+key|foreign\s+key|unique|check|exclude|like)\b/i.test(part))
+      continue;
 
     const col = parseColumnDef(part);
     if (col) columns.push(col);
@@ -259,7 +318,8 @@ export function parseSchema(sqlChunks: string[]): ParsedSchema {
   const allSql = sqlChunks.map(stripComments).join('\n');
 
   // CREATE TABLE [IF NOT EXISTS] <name> ( <body> )
-  const createRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s*\(/gi;
+  const createRe =
+    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s*\(/gi;
   let m: RegExpExecArray | null;
   while ((m = createRe.exec(allSql)) !== null) {
     const tableName = m[1] ?? m[2];
@@ -274,7 +334,8 @@ export function parseSchema(sqlChunks: string[]): ParsedSchema {
   }
 
   // ALTER TABLE <name> ADD COLUMN [IF NOT EXISTS] <col> <type> <rest>
-  const alterRe = /ALTER\s+TABLE\s+(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+([^;]+?)(?=;|$)/gi;
+  const alterRe =
+    /ALTER\s+TABLE\s+(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+([^;]+?)(?=;|$)/gi;
   while ((m = alterRe.exec(allSql)) !== null) {
     const tableName = m[1] ?? m[2];
     const colName = m[3] ?? m[4];

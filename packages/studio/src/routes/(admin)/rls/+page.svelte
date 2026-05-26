@@ -1,148 +1,159 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { Shield, Plus, Trash2, Pencil, Check, X, Info } from '@lucide/svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { Shield, Plus, Trash2, Pencil, Check, X, Info } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  interface RlsPolicy {
-    id: string;
-    collection: string;
-    role: string;
-    filter_field: string;
-    filter_op: string;
-    filter_value_source: string;
-    is_enabled: boolean;
-    description?: string | null;
+interface RlsPolicy {
+  id: string;
+  collection: string;
+  role: string;
+  filter_field: string;
+  filter_op: string;
+  filter_value_source: string;
+  is_enabled: boolean;
+  description?: string | null;
+}
+
+const FILTER_OPS = ['eq', 'neq', 'in', 'not_in'];
+const VALUE_SOURCES = [
+  { value: 'user_id', label: 'Current user ID' },
+  { value: 'user_email', label: 'Current user email' },
+  { value: 'user_role', label: 'Current user role' },
+];
+
+let policies = $state<RlsPolicy[]>([]);
+let collections = $state<string[]>([]);
+let roles = $state<string[]>([]);
+let loading = $state(true);
+
+let showForm = $state(false);
+let editingId = $state<string | null>(null);
+
+let form = $state({
+  collection: '',
+  role: '*',
+  filter_field: 'created_by',
+  filter_op: 'eq',
+  filter_value_source: 'user_id',
+  is_enabled: true,
+  description: '',
+});
+
+let saving = $state(false);
+
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+onMount(loadAll);
+
+async function loadAll() {
+  loading = true;
+  try {
+    const [rlsRes, colRes, roleRes] = await Promise.all([
+      api.get<{ policies: RlsPolicy[] }>('/api/admin/rls'),
+      api.get<{ collections: any[] }>('/api/collections'),
+      api.get<{ roles: any[] }>('/api/admin/roles'),
+    ]);
+    policies = rlsRes.policies ?? [];
+    collections = (colRes.collections ?? []).map((c: any) => c.slug ?? c.name);
+    const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
+    roles = ['*', 'god', 'admin', 'member', ...customRoles];
+  } catch (err) {
+    toast.error('Failed to load RLS policies');
+  } finally {
+    loading = false;
   }
+}
 
-  const FILTER_OPS = ['eq', 'neq', 'in', 'not_in'];
-  const VALUE_SOURCES = [
-    { value: 'user_id',    label: 'Current user ID' },
-    { value: 'user_email', label: 'Current user email' },
-    { value: 'user_role',  label: 'Current user role' },
-  ];
-
-  let policies = $state<RlsPolicy[]>([]);
-  let collections = $state<string[]>([]);
-  let roles = $state<string[]>([]);
-  let loading = $state(true);
-
-  let showForm = $state(false);
-  let editingId = $state<string | null>(null);
-
-  let form = $state({
-    collection: '',
+function openNew() {
+  editingId = null;
+  form = {
+    collection: collections[0] ?? '',
     role: '*',
     filter_field: 'created_by',
     filter_op: 'eq',
     filter_value_source: 'user_id',
     is_enabled: true,
     description: '',
-  });
+  };
+  showForm = true;
+}
 
-  let saving = $state(false);
+function openEdit(p: RlsPolicy) {
+  editingId = p.id;
+  form = {
+    collection: p.collection,
+    role: p.role,
+    filter_field: p.filter_field,
+    filter_op: p.filter_op,
+    filter_value_source: p.filter_value_source,
+    is_enabled: p.is_enabled,
+    description: p.description ?? '',
+  };
+  showForm = true;
+}
 
-  let confirmState = $state<{
-    open: boolean; title: string; message: string; onconfirm: () => void;
-  }>({ open: false, title: '', message: '', onconfirm: () => {} });
-
-  onMount(loadAll);
-
-  async function loadAll() {
-    loading = true;
-    try {
-      const [rlsRes, colRes, roleRes] = await Promise.all([
-        api.get<{ policies: RlsPolicy[] }>('/api/admin/rls'),
-        api.get<{ collections: any[] }>('/api/collections'),
-        api.get<{ roles: any[] }>('/api/admin/roles'),
-      ]);
-      policies = rlsRes.policies ?? [];
-      collections = (colRes.collections ?? []).map((c: any) => c.slug ?? c.name);
-      const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
-      roles = ['*', 'god', 'admin', 'member', ...customRoles];
-    } catch (err) {
-      toast.error('Failed to load RLS policies');
-    } finally {
-      loading = false;
+async function save() {
+  if (!form.collection || !form.filter_field) return;
+  saving = true;
+  try {
+    const body = { ...form, description: form.description || undefined };
+    if (editingId) {
+      await api.patch(`/api/admin/rls/${editingId}`, body);
+      toast.success('Policy updated');
+    } else {
+      await api.post('/api/admin/rls', body);
+      toast.success('Policy created');
     }
+    showForm = false;
+    await loadAll();
+  } catch (err) {
+    toast.error('Failed to save policy');
+  } finally {
+    saving = false;
   }
+}
 
-  function openNew() {
-    editingId = null;
-    form = { collection: collections[0] ?? '', role: '*', filter_field: 'created_by', filter_op: 'eq', filter_value_source: 'user_id', is_enabled: true, description: '' };
-    showForm = true;
-  }
-
-  function openEdit(p: RlsPolicy) {
-    editingId = p.id;
-    form = {
-      collection: p.collection,
-      role: p.role,
-      filter_field: p.filter_field,
-      filter_op: p.filter_op,
-      filter_value_source: p.filter_value_source,
-      is_enabled: p.is_enabled,
-      description: p.description ?? '',
-    };
-    showForm = true;
-  }
-
-  async function save() {
-    if (!form.collection || !form.filter_field) return;
-    saving = true;
-    try {
-      const body = { ...form, description: form.description || undefined };
-      if (editingId) {
-        await api.patch(`/api/admin/rls/${editingId}`, body);
-        toast.success('Policy updated');
-      } else {
-        await api.post('/api/admin/rls', body);
-        toast.success('Policy created');
+function confirmDelete(p: RlsPolicy) {
+  confirmState = {
+    open: true,
+    title: 'Delete RLS Policy',
+    message: `Remove the policy for "${p.collection}" / "${p.role}"? Records will no longer be filtered by this rule.`,
+    onconfirm: async () => {
+      try {
+        await api.delete(`/api/admin/rls/${p.id}`);
+        toast.success('Policy deleted');
+        await loadAll();
+      } catch {
+        toast.error('Failed to delete policy');
       }
-      showForm = false;
-      await loadAll();
-    } catch (err) {
-      toast.error('Failed to save policy');
-    } finally {
-      saving = false;
-    }
-  }
+    },
+  };
+}
 
-  function confirmDelete(p: RlsPolicy) {
-    confirmState = {
-      open: true,
-      title: 'Delete RLS Policy',
-      message: `Remove the policy for "${p.collection}" / "${p.role}"? Records will no longer be filtered by this rule.`,
-      onconfirm: async () => {
-        try {
-          await api.delete(`/api/admin/rls/${p.id}`);
-          toast.success('Policy deleted');
-          await loadAll();
-        } catch {
-          toast.error('Failed to delete policy');
-        }
-      },
-    };
+async function toggleEnabled(p: RlsPolicy) {
+  try {
+    await api.patch(`/api/admin/rls/${p.id}`, { is_enabled: !p.is_enabled });
+    p.is_enabled = !p.is_enabled;
+  } catch {
+    toast.error('Failed to update policy');
   }
+}
 
-  async function toggleEnabled(p: RlsPolicy) {
-    try {
-      await api.patch(`/api/admin/rls/${p.id}`, { is_enabled: !p.is_enabled });
-      p.is_enabled = !p.is_enabled;
-    } catch {
-      toast.error('Failed to update policy');
-    }
-  }
-
-  function sourceLabel(src: string): string {
-    const known = VALUE_SOURCES.find(v => v.value === src);
-    if (known) return known.label;
-    if (src.startsWith('static:')) return `"${src.slice(7)}"`;
-    return src;
-  }
+function sourceLabel(src: string): string {
+  const known = VALUE_SOURCES.find((v) => v.value === src);
+  if (known) return known.label;
+  if (src.startsWith('static:')) return `"${src.slice(7)}"`;
+  return src;
+}
 </script>
 
 <PageHeader title="Row-Level Security" subtitle="Control which records each role can see per collection.">

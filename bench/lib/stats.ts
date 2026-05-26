@@ -33,8 +33,14 @@ export interface SampleStats {
 export function summarize(samples: readonly number[], durationMs?: number): SampleStats {
   if (samples.length === 0) {
     return {
-      count: 0, min: Number.NaN, max: Number.NaN, mean: Number.NaN,
-      stddev: Number.NaN, p50: Number.NaN, p95: Number.NaN, p99: Number.NaN,
+      count: 0,
+      min: Number.NaN,
+      max: Number.NaN,
+      mean: Number.NaN,
+      stddev: Number.NaN,
+      p50: Number.NaN,
+      p95: Number.NaN,
+      p99: Number.NaN,
     };
   }
   const sum = samples.reduce((a, b) => a + b, 0);
@@ -50,9 +56,7 @@ export function summarize(samples: readonly number[], durationMs?: number): Samp
     p50: percentile(samples, 50),
     p95: percentile(samples, 95),
     p99: percentile(samples, 99),
-    throughput: durationMs && durationMs > 0
-      ? (samples.length * 1000) / durationMs
-      : undefined,
+    throughput: durationMs && durationMs > 0 ? (samples.length * 1000) / durationMs : undefined,
   };
 }
 
@@ -61,7 +65,7 @@ export function summarize(samples: readonly number[], durationMs?: number): Samp
  * Numbers in milliseconds.
  */
 export function formatStats(label: string, s: SampleStats): string {
-  const fmt = (n: number, d = 2) => Number.isFinite(n) ? n.toFixed(d) : '—';
+  const fmt = (n: number, d = 2) => (Number.isFinite(n) ? n.toFixed(d) : '—');
   const cols = [
     label.padEnd(28),
     `n=${s.count}`.padEnd(9),

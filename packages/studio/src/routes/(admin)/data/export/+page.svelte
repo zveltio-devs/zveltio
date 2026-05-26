@@ -1,54 +1,78 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-    import { onMount } from 'svelte';
-  import { Download, Plus, X } from '@lucide/svelte';
-  import { api as zApi } from '$lib/api.js';
-  import { ENGINE_URL } from '$lib/config.js';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { Download, Plus, X } from '@lucide/svelte';
+import { api as zApi } from '$lib/api.js';
+import { ENGINE_URL } from '$lib/config.js';
 
-  // engineUrl stays — it backs the direct <window.open> download link
-  // below. Programmatic JSON calls go through zApi.
-  const engineUrl = ENGINE_URL;
-  let jobs = $state<any[]>([]);
-  let collections = $state<any[]>([]);
-  let error = $state('');
+// engineUrl stays — it backs the direct <window.open> download link
+// below. Programmatic JSON calls go through zApi.
+const engineUrl = ENGINE_URL;
+let jobs = $state<any[]>([]);
+let collections = $state<any[]>([]);
+let error = $state('');
 
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({ collection: '', format: 'csv' as 'csv' | 'json' | 'ndjson' | 'xlsx', filter: '', limit: 0 });
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({
+  collection: '',
+  format: 'csv' as 'csv' | 'json' | 'ndjson' | 'xlsx',
+  filter: '',
+  limit: 0,
+});
 
-  async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-    const res = await zApi.fetch(path, init);
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-    return json as T;
+async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const res = await zApi.fetch(path, init);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json as T;
+}
+async function load() {
+  try {
+    const r = await api('/ext/data/export/jobs');
+    jobs = r.data ?? r.audit ?? [];
+  } catch (e: any) {
+    error = e.message;
   }
-  async function load() { try { const r = await api('/ext/data/export/jobs'); jobs = r.data ?? r.audit ?? []; } catch (e: any) { error = e.message; } }
-  async function loadCollections() { try { const r = await api('/api/collections'); collections = r.collections ?? r.data ?? []; } catch {} }
+}
+async function loadCollections() {
+  try {
+    const r = await api('/api/collections');
+    collections = r.collections ?? r.data ?? [];
+  } catch {}
+}
 
-  function downloadUrl(): string {
-    const params = new URLSearchParams({ format: form.format });
-    if (form.filter) params.set('filter', form.filter);
-    if (form.limit > 0) params.set('limit', String(form.limit));
-    return `${engineUrl}/ext/data/export/${encodeURIComponent(form.collection)}?${params}`;
+function downloadUrl(): string {
+  const params = new URLSearchParams({ format: form.format });
+  if (form.filter) params.set('filter', form.filter);
+  if (form.limit > 0) params.set('limit', String(form.limit));
+  return `${engineUrl}/ext/data/export/${encodeURIComponent(form.collection)}?${params}`;
+}
+
+function startExport() {
+  if (!form.collection) return;
+  window.open(downloadUrl(), '_blank');
+  showForm = false;
+  setTimeout(load, 1000);
+}
+
+onMount(() => {
+  load();
+  loadCollections();
+});
+
+function fmtBytes(n: number) {
+  if (!n) return '—';
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  while (n > 1024 && i < u.length - 1) {
+    n /= 1024;
+    i++;
   }
-
-  function startExport() {
-    if (!form.collection) return;
-    window.open(downloadUrl(), '_blank');
-    showForm = false;
-    setTimeout(load, 1000);
-  }
-
-  onMount(() => { load(); loadCollections(); });
-
-  function fmtBytes(n: number) {
-    if (!n) return '—';
-    const u = ['B', 'KB', 'MB', 'GB']; let i = 0;
-    while (n > 1024 && i < u.length - 1) { n /= 1024; i++; }
-    return `${n.toFixed(1)} ${u[i]}`;
-  }
+  return `${n.toFixed(1)} ${u[i]}`;
+}
 </script>
 
 <ExtensionPageShell title={m['data.export.title']()} subtitle={m['data.export.subtitle']()}>

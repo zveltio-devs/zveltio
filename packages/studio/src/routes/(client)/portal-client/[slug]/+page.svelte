@@ -1,28 +1,28 @@
 <script lang="ts">
-  import { page } from '$app/state';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
+import { page } from '$app/state';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
 
-  const ZONE_SLUG = 'client';
+const ZONE_SLUG = 'client';
 
-  let pageData = $state<{ page: any; zone: any; views: any[] } | null>(null);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
+let pageData = $state<{ page: any; zone: any; views: any[] } | null>(null);
+let loading = $state(true);
+let error = $state<string | null>(null);
 
-  const slug = $derived(page.params.slug);
+const slug = $derived(page.params.slug);
 
-  onMount(async () => {
-    try {
-      const res = await api.get<{ page: any; zone: any; views: any[] }>(
-        `/api/zones/${ZONE_SLUG}/render/${slug}`
-      );
-      pageData = res;
-    } catch (e: any) {
-      error = e?.message ?? 'Failed to load page';
-    } finally {
-      loading = false;
-    }
-  });
+onMount(async () => {
+  try {
+    const res = await api.get<{ page: any; zone: any; views: any[] }>(
+      `/api/zones/${ZONE_SLUG}/render/${slug}`,
+    );
+    pageData = res;
+  } catch (e: any) {
+    error = e?.message ?? 'Failed to load page';
+  } finally {
+    loading = false;
+  }
+});
 </script>
 
 {#if loading}

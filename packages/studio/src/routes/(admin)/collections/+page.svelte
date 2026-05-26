@@ -1,295 +1,319 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { SvelteSet } from 'svelte/reactivity';
-  import { collectionsApi } from '$lib/api.js';
-  import { Table, Trash2, Settings, Database, Shield, GitFork, Plus } from '@lucide/svelte';
-  import { base } from '$app/paths';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { onMount } from 'svelte';
+import { SvelteSet } from 'svelte/reactivity';
+import { collectionsApi } from '$lib/api.js';
+import { Table, Trash2, Settings, Database, Shield, GitFork, Plus } from '@lucide/svelte';
+import { base } from '$app/paths';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 
-  let collections = $state<any[]>([]);
-  let loading = $state(true);
-  let creating = $state(false);
-  let newCollectionName = $state('');
-  let nameError = $state('');
-  let showCreateModal = $state(false);
+let collections = $state<any[]>([]);
+let loading = $state(true);
+let creating = $state(false);
+let newCollectionName = $state('');
+let nameError = $state('');
+let showCreateModal = $state(false);
 
-  type NewField = {
-    name: string;
-    type: string;
-    required: boolean;
-    related_collection?: string;
-    enum_values_raw?: string;
-  };
-  let newFields = $state<NewField[]>([{ name: '', type: 'text', required: false }]);
-  let fieldTypes = $state<any[]>([]);
-  let allCollections = $state<any[]>([]);
-  let search = $state('');
+type NewField = {
+  name: string;
+  type: string;
+  required: boolean;
+  related_collection?: string;
+  enum_values_raw?: string;
+};
+let newFields = $state<NewField[]>([{ name: '', type: 'text', required: false }]);
+let fieldTypes = $state<any[]>([]);
+let allCollections = $state<any[]>([]);
+let search = $state('');
 
-  // Bulk-select state (L29). System collections (zv_*) can't be deleted —
-  // they're excluded from bulk selection to keep the action safe.
-  let selectedNames = $state<Set<string>>(new SvelteSet());
-  const selectableCollections = $derived(collections.filter((c) => !c.is_system));
-  const selectedCount = $derived(selectedNames.size);
-  const allSelectable = $derived(
-    selectableCollections.length > 0
-      && selectableCollections.every((c) => selectedNames.has(c.name)),
-  );
-  const someSelected = $derived(selectedCount > 0 && !allSelectable);
-  function toggleSelectCol(name: string) {
-    const next = new SvelteSet(selectedNames);
-    if (next.has(name)) next.delete(name); else next.add(name);
-    selectedNames = next;
+// Bulk-select state (L29). System collections (zv_*) can't be deleted —
+// they're excluded from bulk selection to keep the action safe.
+let selectedNames = $state<Set<string>>(new SvelteSet());
+const selectableCollections = $derived(collections.filter((c) => !c.is_system));
+const selectedCount = $derived(selectedNames.size);
+const allSelectable = $derived(
+  selectableCollections.length > 0 && selectableCollections.every((c) => selectedNames.has(c.name)),
+);
+const someSelected = $derived(selectedCount > 0 && !allSelectable);
+function toggleSelectCol(name: string) {
+  const next = new SvelteSet(selectedNames);
+  if (next.has(name)) next.delete(name);
+  else next.add(name);
+  selectedNames = next;
+}
+function toggleSelectAll() {
+  const next = new SvelteSet(selectedNames);
+  if (allSelectable) {
+    for (const c of selectableCollections) next.delete(c.name);
+  } else {
+    for (const c of selectableCollections) next.add(c.name);
   }
-  function toggleSelectAll() {
-    const next = new SvelteSet(selectedNames);
-    if (allSelectable) {
-      for (const c of selectableCollections) next.delete(c.name);
-    } else {
-      for (const c of selectableCollections) next.add(c.name);
-    }
-    selectedNames = next;
+  selectedNames = next;
+}
+function clearColSelection() {
+  selectedNames = new SvelteSet();
+}
+
+const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
+const SYSTEM_FIELDS = new Set([
+  'id',
+  'created_at',
+  'updated_at',
+  'status',
+  'created_by',
+  'updated_by',
+  'search_vector',
+  'search_text',
+]);
+
+const categories = [
+  { id: 'text', label: 'Text' },
+  { id: 'number', label: 'Number' },
+  { id: 'date', label: 'Date & Time' },
+  { id: 'media', label: 'Media' },
+  { id: 'relation', label: 'Relations' },
+  { id: 'location', label: 'Location' },
+  { id: 'special', label: 'Special' },
+  { id: 'advanced', label: 'Advanced' },
+];
+
+function getCategoryTypes(category: string) {
+  return fieldTypes.filter((t) => t.category === category);
+}
+
+function parseEnumValues(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+const filtered = $derived(
+  search.trim()
+    ? collections.filter(
+        (c) =>
+          c.name.includes(search.toLowerCase()) ||
+          (c.display_name ?? '').toLowerCase().includes(search.toLowerCase()),
+      )
+    : collections,
+);
+
+onMount(async () => {
+  try {
+    const typesRes = await collectionsApi.fieldTypes();
+    fieldTypes = typesRes.field_types ?? [];
+  } catch {
+    /* non-fatal */
   }
-  function clearColSelection() { selectedNames = new SvelteSet(); }
+  await loadCollections();
+});
 
-  const RELATION_NEEDS_TARGET = new Set(['m2o', 'reference', 'o2m', 'm2m']);
-  const SYSTEM_FIELDS = new Set(['id', 'created_at', 'updated_at', 'status', 'created_by', 'updated_by', 'search_vector', 'search_text']);
-
-  const categories = [
-    { id: 'text', label: 'Text' },
-    { id: 'number', label: 'Number' },
-    { id: 'date', label: 'Date & Time' },
-    { id: 'media', label: 'Media' },
-    { id: 'relation', label: 'Relations' },
-    { id: 'location', label: 'Location' },
-    { id: 'special', label: 'Special' },
-    { id: 'advanced', label: 'Advanced' },
-  ];
-
-  function getCategoryTypes(category: string) {
-    return fieldTypes.filter((t) => t.category === category);
+async function loadCollections() {
+  loading = true;
+  try {
+    const res = await collectionsApi.list();
+    collections = res.collections;
+    allCollections = res.collections ?? [];
+  } finally {
+    loading = false;
   }
+}
 
-  function parseEnumValues(raw: string | undefined): string[] {
-    if (!raw) return [];
-    return raw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+function addField() {
+  newFields = [...newFields, { name: '', type: 'text', required: false }];
+}
+
+function removeField(i: number) {
+  newFields = newFields.filter((_, idx) => idx !== i);
+}
+
+function validateName(name: string): string {
+  if (!name) return 'Name is required';
+  if (!/^[a-z][a-z0-9_]*$/.test(name))
+    return 'Use lowercase letters, digits, and underscores only (must start with a letter)';
+  if (collections.some((c) => c.name === name))
+    return `A collection named "${name}" already exists`;
+  return '';
+}
+
+async function createCollection() {
+  nameError = validateName(newCollectionName.trim());
+  if (nameError) return;
+  if (newFields.some((f) => !f.name.trim())) {
+    nameError = 'All fields must have a name';
+    return;
   }
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
-
-  const filtered = $derived(
-    search.trim()
-      ? collections.filter(
-          (c) =>
-            c.name.includes(search.toLowerCase()) ||
-            (c.display_name ?? '').toLowerCase().includes(search.toLowerCase()),
-        )
-      : collections,
-  );
-
-  onMount(async () => {
-    try {
-      const typesRes = await collectionsApi.fieldTypes();
-      fieldTypes = typesRes.field_types ?? [];
-    } catch { /* non-fatal */ }
-    await loadCollections();
-  });
-
-  async function loadCollections() {
-    loading = true;
-    try {
-      const res = await collectionsApi.list();
-      collections = res.collections;
-      allCollections = res.collections ?? [];
-    } finally {
-      loading = false;
-    }
-  }
-
-  function addField() {
-    newFields = [...newFields, { name: '', type: 'text', required: false }];
-  }
-
-  function removeField(i: number) {
-    newFields = newFields.filter((_, idx) => idx !== i);
-  }
-
-  function validateName(name: string): string {
-    if (!name) return 'Name is required';
-    if (!/^[a-z][a-z0-9_]*$/.test(name)) return 'Use lowercase letters, digits, and underscores only (must start with a letter)';
-    if (collections.some((c) => c.name === name)) return `A collection named "${name}" already exists`;
-    return '';
-  }
-
-  async function createCollection() {
-    nameError = validateName(newCollectionName.trim());
-    if (nameError) return;
-    if (newFields.some((f) => !f.name.trim())) {
-      nameError = 'All fields must have a name';
+  for (const f of newFields) {
+    if (SYSTEM_FIELDS.has(f.name.trim())) {
+      nameError = `"${f.name}" is a system field (added automatically — remove it from your fields)`;
       return;
     }
-    for (const f of newFields) {
-      if (SYSTEM_FIELDS.has(f.name.trim())) {
-        nameError = `"${f.name}" is a system field (added automatically — remove it from your fields)`;
-        return;
-      }
-      if (RELATION_NEEDS_TARGET.has(f.type) && !f.related_collection) {
-        nameError = `Field "${f.name}": select a target collection`;
-        return;
-      }
-      if (f.type === 'enum' && parseEnumValues(f.enum_values_raw).length === 0) {
-        nameError = `Field "${f.name}": add at least one enum value`;
-        return;
-      }
+    if (RELATION_NEEDS_TARGET.has(f.type) && !f.related_collection) {
+      nameError = `Field "${f.name}": select a target collection`;
+      return;
     }
-    creating = true;
-    try {
-      const payloadFields = newFields.map((f) => {
-        const options: Record<string, any> = {};
-        if (RELATION_NEEDS_TARGET.has(f.type) && f.related_collection) {
-          options.related_collection = f.related_collection;
-        }
-        if (f.type === 'enum') {
-          const values = parseEnumValues(f.enum_values_raw);
-          if (values.length > 0) options.values = values;
-        }
-        const body: Record<string, any> = { name: f.name.trim(), type: f.type, required: f.required };
-        if (Object.keys(options).length > 0) body.options = options;
-        return body;
-      });
-      await collectionsApi.create({ name: newCollectionName.trim(), fields: payloadFields });
-      showCreateModal = false;
-      newCollectionName = '';
-      newFields = [{ name: '', type: 'text', required: false }];
-      nameError = '';
-      await loadCollections();
-    } catch (err: any) {
-      nameError = err?.message ?? 'Failed to create collection';
-    } finally {
-      creating = false;
+    if (f.type === 'enum' && parseEnumValues(f.enum_values_raw).length === 0) {
+      nameError = `Field "${f.name}": add at least one enum value`;
+      return;
     }
   }
-
-  async function deleteCollection(name: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Collection',
-      message: `Delete collection "${name}"? This cannot be undone.`,
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        try {
-          await collectionsApi.delete(name);
-          await loadCollections();
-        } catch (err: any) {
-          toast.error(err?.message ?? 'Failed to delete collection');
-        }
-      },
-    };
-  }
-
-  async function deleteSelectedCollections() {
-    const names = Array.from(selectedNames);
-    if (names.length === 0) return;
-    confirmState = {
-      open: true,
-      title: `Delete ${names.length} collection${names.length === 1 ? '' : 's'}`,
-      message: `Permanently drop ${names.length} collection${names.length === 1 ? '' : 's'} and all their data? This cannot be undone.`,
-      confirmLabel: `Delete ${names.length}`,
-      onconfirm: async () => {
-        confirmState.open = false;
-        const results = await Promise.allSettled(names.map((n) => collectionsApi.delete(n)));
-        const failures = results.filter((r) => r.status === 'rejected').length;
-        if (failures > 0) {
-          toast.error(`Dropped ${names.length - failures}/${names.length} — ${failures} failed.`);
-        } else {
-          toast.success(`Dropped ${names.length} collection${names.length === 1 ? '' : 's'}.`);
-        }
-        clearColSelection();
-        await loadCollections();
-      },
-    };
-  }
-
-  function fieldCount(col: any): number {
-    const f = typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields;
-    return f?.length ?? 0;
-  }
-
-  // Note: system fields (id, status, created_at, updated_at, created_by, updated_by)
-  // are added automatically to every collection — do NOT include them here.
-  const TEMPLATES = [
-    {
-      id: 'blog',
-      label: 'Blog Posts',
-      fields: [
-        { name: 'title',        type: 'text',     required: true  },
-        { name: 'content',      type: 'richtext', required: false },
-        { name: 'slug',         type: 'text',     required: false },
-        { name: 'published_at', type: 'datetime', required: false },
-        { name: 'author',       type: 'text',     required: false },
-      ],
-    },
-    {
-      id: 'products',
-      label: 'Products',
-      fields: [
-        { name: 'name',        type: 'text',   required: true  },
-        { name: 'price',       type: 'number', required: false },
-        { name: 'description', type: 'text',   required: false },
-        { name: 'sku',         type: 'text',   required: false },
-        { name: 'stock',       type: 'number', required: false },
-      ],
-    },
-    {
-      id: 'team',
-      label: 'Team Members',
-      fields: [
-        { name: 'name',       type: 'text',  required: true  },
-        { name: 'email',      type: 'email', required: true  },
-        { name: 'role',       type: 'text',  required: false },
-        { name: 'department', type: 'text',  required: false },
-      ],
-    },
-    {
-      id: 'orders',
-      label: 'Orders',
-      fields: [
-        { name: 'order_number',   type: 'text',   required: true  },
-        { name: 'customer_name',  type: 'text',   required: true  },
-        { name: 'amount',         type: 'number', required: true  },
-        { name: 'payment_method', type: 'text',   required: false },
-        { name: 'notes',          type: 'text',   required: false },
-      ],
-    },
-    {
-      id: 'events',
-      label: 'Events',
-      fields: [
-        { name: 'title',       type: 'text',     required: true  },
-        { name: 'description', type: 'text',     required: false },
-        { name: 'start_date',  type: 'datetime', required: true  },
-        { name: 'end_date',    type: 'datetime', required: false },
-        { name: 'location',    type: 'text',     required: false },
-      ],
-    },
-  ];
-
-  let selectedTemplate = $state<string | null>(null);
-
-  function applyTemplate(tmpl: typeof TEMPLATES[0]) {
-    selectedTemplate = tmpl.id;
-    newFields = tmpl.fields.map(f => ({ ...f }));
-    if (!newCollectionName) {
-      newCollectionName = tmpl.id;
-      nameError = validateName(tmpl.id);
-    }
-  }
-
-  function clearTemplate() {
-    selectedTemplate = null;
+  creating = true;
+  try {
+    const payloadFields = newFields.map((f) => {
+      const options: Record<string, any> = {};
+      if (RELATION_NEEDS_TARGET.has(f.type) && f.related_collection) {
+        options.related_collection = f.related_collection;
+      }
+      if (f.type === 'enum') {
+        const values = parseEnumValues(f.enum_values_raw);
+        if (values.length > 0) options.values = values;
+      }
+      const body: Record<string, any> = { name: f.name.trim(), type: f.type, required: f.required };
+      if (Object.keys(options).length > 0) body.options = options;
+      return body;
+    });
+    await collectionsApi.create({ name: newCollectionName.trim(), fields: payloadFields });
+    showCreateModal = false;
+    newCollectionName = '';
     newFields = [{ name: '', type: 'text', required: false }];
+    nameError = '';
+    await loadCollections();
+  } catch (err: any) {
+    nameError = err?.message ?? 'Failed to create collection';
+  } finally {
+    creating = false;
   }
+}
+
+async function deleteCollection(name: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Collection',
+    message: `Delete collection "${name}"? This cannot be undone.`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await collectionsApi.delete(name);
+        await loadCollections();
+      } catch (err: any) {
+        toast.error(err?.message ?? 'Failed to delete collection');
+      }
+    },
+  };
+}
+
+async function deleteSelectedCollections() {
+  const names = Array.from(selectedNames);
+  if (names.length === 0) return;
+  confirmState = {
+    open: true,
+    title: `Delete ${names.length} collection${names.length === 1 ? '' : 's'}`,
+    message: `Permanently drop ${names.length} collection${names.length === 1 ? '' : 's'} and all their data? This cannot be undone.`,
+    confirmLabel: `Delete ${names.length}`,
+    onconfirm: async () => {
+      confirmState.open = false;
+      const results = await Promise.allSettled(names.map((n) => collectionsApi.delete(n)));
+      const failures = results.filter((r) => r.status === 'rejected').length;
+      if (failures > 0) {
+        toast.error(`Dropped ${names.length - failures}/${names.length} — ${failures} failed.`);
+      } else {
+        toast.success(`Dropped ${names.length} collection${names.length === 1 ? '' : 's'}.`);
+      }
+      clearColSelection();
+      await loadCollections();
+    },
+  };
+}
+
+function fieldCount(col: any): number {
+  const f = typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields;
+  return f?.length ?? 0;
+}
+
+// Note: system fields (id, status, created_at, updated_at, created_by, updated_by)
+// are added automatically to every collection — do NOT include them here.
+const TEMPLATES = [
+  {
+    id: 'blog',
+    label: 'Blog Posts',
+    fields: [
+      { name: 'title', type: 'text', required: true },
+      { name: 'content', type: 'richtext', required: false },
+      { name: 'slug', type: 'text', required: false },
+      { name: 'published_at', type: 'datetime', required: false },
+      { name: 'author', type: 'text', required: false },
+    ],
+  },
+  {
+    id: 'products',
+    label: 'Products',
+    fields: [
+      { name: 'name', type: 'text', required: true },
+      { name: 'price', type: 'number', required: false },
+      { name: 'description', type: 'text', required: false },
+      { name: 'sku', type: 'text', required: false },
+      { name: 'stock', type: 'number', required: false },
+    ],
+  },
+  {
+    id: 'team',
+    label: 'Team Members',
+    fields: [
+      { name: 'name', type: 'text', required: true },
+      { name: 'email', type: 'email', required: true },
+      { name: 'role', type: 'text', required: false },
+      { name: 'department', type: 'text', required: false },
+    ],
+  },
+  {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { name: 'order_number', type: 'text', required: true },
+      { name: 'customer_name', type: 'text', required: true },
+      { name: 'amount', type: 'number', required: true },
+      { name: 'payment_method', type: 'text', required: false },
+      { name: 'notes', type: 'text', required: false },
+    ],
+  },
+  {
+    id: 'events',
+    label: 'Events',
+    fields: [
+      { name: 'title', type: 'text', required: true },
+      { name: 'description', type: 'text', required: false },
+      { name: 'start_date', type: 'datetime', required: true },
+      { name: 'end_date', type: 'datetime', required: false },
+      { name: 'location', type: 'text', required: false },
+    ],
+  },
+];
+
+let selectedTemplate = $state<string | null>(null);
+
+function applyTemplate(tmpl: (typeof TEMPLATES)[0]) {
+  selectedTemplate = tmpl.id;
+  newFields = tmpl.fields.map((f) => ({ ...f }));
+  if (!newCollectionName) {
+    newCollectionName = tmpl.id;
+    nameError = validateName(tmpl.id);
+  }
+}
+
+function clearTemplate() {
+  selectedTemplate = null;
+  newFields = [{ name: '', type: 'text', required: false }];
+}
 </script>
 
 <CrudListPage

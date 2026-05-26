@@ -12,9 +12,8 @@ export async function safeFetch(
   init?: RequestInit,
   _hops = 0,
 ): Promise<Response> {
-  const url = typeof input === 'string' ? input
-    : input instanceof URL ? input.toString()
-    : input.url;
+  const url =
+    typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 
   validatePublicUrl(url);
 

@@ -1,0 +1,139 @@
+name: DR Smoke
+
+# Weekly disaster-recovery smoke test: proves that pg_dump produces a
+# restorable artifact against the current migration set.
+#
+# Why this exists: docs/DISASTER-RECOVERY.md describes the dump/restore
+# procedure and scripts/dr-drill.sh runs it end-to-end, but the full
+# drill needs a live engine + admin credentials + multiple environments
+# — not a fit for CI. This workflow covers the part that's both
+# reproducible and load-bearing: the SCHEMA + the dump/restore round
+# trip itself. A regression here (e.g. a migration that produces a
+# dump that can't be restored cleanly, or that drops a constraint
+# pg_dump can't serialize) would otherwise surface only the next time
+# someone runs a manual drill.
+
+on:
+  schedule:
+    # Mondays 04:00 UTC — quiet window, gives us an early-week signal.
+    - cron: '0 4 * * 1'
+  workflow_dispatch: # allow ad-hoc runs from the Actions UI
+
+permissions:
+  contents: read
+
+jobs:
+  dump-restore-roundtrip:
+    name: pg_dump + restore round-trip
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zveltio_drill
+          POSTGRES_USER: postgres
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_drill
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
+      - name: Install Postgres client tools
+        # The `pgvector/pgvector:pg18` image only ships the server.
+        # Need psql + pg_dump on the runner side for the round-trip.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-common postgresql-client
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build SDK (engine migrations import from it)
+        run: cd packages/sdk && bun run build
+
+      - name: Apply migrations to source DB
+        # No standalone "migrate" script — the migration runner is wired into
+        # initDatabase(). Spin up the engine briefly; it applies migrations on
+        # boot under an advisory lock and exits 0 once /api/health responds.
+        # We then kill it because the drill only needs the schema.
+        run: |
+          cd packages/engine
+          BETTER_AUTH_SECRET=$(openssl rand -hex 32) \
+          ENCRYPTION_KEY=$(openssl rand -base64 32) \
+          bun src/index.ts &
+          ENGINE_PID=$!
+          # wait up to 60s for /api/health to come up
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; then
+              echo "engine boot ok"; break
+            fi
+            sleep 1
+          done
+          kill $ENGINE_PID 2>/dev/null || true
+          wait $ENGINE_PID 2>/dev/null || true
+
+      - name: Seed a minimal data set so the dump exercises rows, not just DDL
+        # 1 tenant, 1 user, 1 collection, 1 settings row. Enough that an empty
+        # dump would obviously be wrong.
+        run: |
+          psql -c "INSERT INTO zv_tenants (slug, name) VALUES ('dr-smoke', 'DR Smoke');"
+          psql -c "INSERT INTO zv_settings (key, value, description) VALUES ('dr.smoke', '\"ok\"'::jsonb, 'inserted by dr-smoke workflow');"
+
+      - name: Capture source row counts
+        id: src_counts
+        run: |
+          {
+            echo "tenants_src=$(psql -tAc "SELECT count(*) FROM zv_tenants;")"
+            echo "settings_src=$(psql -tAc "SELECT count(*) FROM zv_settings;")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dump source DB
+        run: pg_dump -Fc -f /tmp/dr-smoke.dump zveltio_drill
+
+      - name: Create target DB and restore
+        run: |
+          psql -d postgres -c "CREATE DATABASE zveltio_drill_restored;"
+          pg_restore -d zveltio_drill_restored --no-owner --no-privileges /tmp/dr-smoke.dump
+
+      - name: Verify row counts match
+        run: |
+          T_REST=$(psql -d zveltio_drill_restored -tAc "SELECT count(*) FROM zv_tenants;")
+          S_REST=$(psql -d zveltio_drill_restored -tAc "SELECT count(*) FROM zv_settings;")
+          echo "Source tenants:   ${{ steps.src_counts.outputs.tenants_src }}"
+          echo "Restored tenants: $T_REST"
+          echo "Source settings:  ${{ steps.src_counts.outputs.settings_src }}"
+          echo "Restored settings:$S_REST"
+          if [ "$T_REST" != "${{ steps.src_counts.outputs.tenants_src }}" ]; then
+            echo "::error::Tenant count drift after restore"; exit 1
+          fi
+          if [ "$S_REST" != "${{ steps.src_counts.outputs.settings_src }}" ]; then
+            echo "::error::Settings count drift after restore"; exit 1
+          fi
+          # Probe a representative subset of zv_/zvd_ tables — if pg_dump
+          # silently skipped any of them (e.g. permission gap, missing
+          # SEQUENCE OWNED BY), the SELECT here will surface it.
+          for tbl in zv_tenants zv_settings zv_api_keys zv_audit_log zvd_collections; do
+            psql -d zveltio_drill_restored -c "SELECT count(*) FROM $tbl" >/dev/null
+          done
+
+      - name: Save dump as artifact (for forensic on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dr-smoke-dump-${{ github.run_id }}
+          path: /tmp/dr-smoke.dump
+          retention-days: 7

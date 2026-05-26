@@ -1,49 +1,55 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { FileEdit, Send, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { FileEdit, Send, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let drafts = $state<any[]>([]);
-  let loading = $state(true);
+let drafts = $state<any[]>([]);
+let loading = $state(true);
 
-  async function load() {
-    loading = true;
-    try {
-      const r = await api.get<{ data: any[] }>('/ext/content/drafts');
-      drafts = r.data ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function load() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/content/drafts');
+    drafts = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function publish(id: string) {
-    try {
-      await api.post(`/ext/content/drafts/${id}/publish`, {});
-      await load();
-      toast.success(m['content.drafts.toast.published']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function publish(id: string) {
+  try {
+    await api.post(`/ext/content/drafts/${id}/publish`, {});
+    await load();
+    toast.success(m['content.drafts.toast.published']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function discard(id: string) {
-        askConfirm(m['content.drafts.confirmDiscard'](), () => discardConfirmed(id));
+async function discard(id: string) {
+  askConfirm(m['content.drafts.confirmDiscard'](), () => discardConfirmed(id));
+}
+async function discardConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/content/drafts/${id}`);
+    drafts = drafts.filter((d) => d.id !== id);
+    toast.success(m['content.drafts.toast.discarded']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function discardConfirmed(id: string) {
-    try {
-      await api.delete(`/ext/content/drafts/${id}`);
-      drafts = drafts.filter(d => d.id !== id);
-      toast.success(m['content.drafts.toast.discarded']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  onMount(load);
+onMount(load);
 </script>
 
 <ExtensionPageShell title={m['content.drafts.title']()} subtitle={m['content.drafts.subtitle']()}>

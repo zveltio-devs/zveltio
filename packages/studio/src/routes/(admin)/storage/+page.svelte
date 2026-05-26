@@ -1,115 +1,144 @@
 <script lang="ts">
- import { onMount } from 'svelte';
- import { api } from '$lib/api.js';
- import { Upload, Trash2, Copy, Check, HardDrive, File, FileText, Image, LoaderCircle } from '@lucide/svelte';
- import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
- import PageHeader from '$lib/components/common/PageHeader.svelte';
- import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  Upload,
+  Trash2,
+  Copy,
+  Check,
+  HardDrive,
+  File,
+  FileText,
+  Image,
+  LoaderCircle,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
- interface MediaFile {
- id: string;
- original_name: string;
- mime_type: string;
- size: number;
- url: string;
- created_at: string;
- }
+interface MediaFile {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  url: string;
+  created_at: string;
+}
 
- let files = $state<MediaFile[]>([]);
- let loading = $state(true);
- let uploading = $state(false);
- let dragging = $state(false);
- let filter = $state<'all' | 'images' | 'documents'>('all');
- let copied = $state<string | null>(null);
- let selectedFiles = $state<Set<string>>(new Set());
- let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
+let files = $state<MediaFile[]>([]);
+let loading = $state(true);
+let uploading = $state(false);
+let dragging = $state(false);
+let filter = $state<'all' | 'images' | 'documents'>('all');
+let copied = $state<string | null>(null);
+let selectedFiles = $state<Set<string>>(new Set());
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
 
- const filtered = $derived(
- filter === 'all' ? files :
- filter === 'images' ? files.filter(f => f.mime_type.startsWith('image/')) :
- files.filter(f => !f.mime_type.startsWith('image/'))
- );
+const filtered = $derived(
+  filter === 'all'
+    ? files
+    : filter === 'images'
+      ? files.filter((f) => f.mime_type.startsWith('image/'))
+      : files.filter((f) => !f.mime_type.startsWith('image/')),
+);
 
- onMount(loadFiles);
+onMount(loadFiles);
 
- async function loadFiles() {
- loading = true;
- try {
- const data = await api.get<{ files: MediaFile[] }>('/api/storage/');
- files = data.files || [];
- } catch { files = []; }
- finally { loading = false; }
- }
+async function loadFiles() {
+  loading = true;
+  try {
+    const data = await api.get<{ files: MediaFile[] }>('/api/storage/');
+    files = data.files || [];
+  } catch {
+    files = [];
+  } finally {
+    loading = false;
+  }
+}
 
- async function upload(fileList: FileList | null) {
- if (!fileList?.length) return;
- uploading = true;
- try {
- for (const f of Array.from(fileList)) {
- const fd = new FormData();
- fd.append('file', f);
- const res = await fetch('/api/storage/upload', {
- method: 'POST', credentials: 'include', body: fd,
- });
- if (!res.ok) throw new Error(`Upload failed: ${f.name}`);
- }
- await loadFiles();
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Upload failed');
- } finally { uploading = false; }
- }
+async function upload(fileList: FileList | null) {
+  if (!fileList?.length) return;
+  uploading = true;
+  try {
+    for (const f of Array.from(fileList)) {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/storage/upload', {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      });
+      if (!res.ok) throw new Error(`Upload failed: ${f.name}`);
+    }
+    await loadFiles();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Upload failed');
+  } finally {
+    uploading = false;
+  }
+}
 
- async function deleteFile(id: string, name: string) {
- confirmState = {
- open: true,
- title: 'Delete File',
- message: `Delete "${name}"? This cannot be undone.`,
- confirmLabel: 'Delete',
- onconfirm: async () => {
- confirmState.open = false;
- try {
- await api.delete(`/api/storage/${id}`);
- files = files.filter(f => f.id !== id);
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Delete failed');
- }
- },
- };
- }
+async function deleteFile(id: string, name: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete File',
+    message: `Delete "${name}"? This cannot be undone.`,
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        await api.delete(`/api/storage/${id}`);
+        files = files.filter((f) => f.id !== id);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Delete failed');
+      }
+    },
+  };
+}
 
- async function bulkDelete() {
- if (selectedFiles.size === 0) return;
- for (const id of selectedFiles) {
- try {
- await api.delete(`/api/storage/${id}`);
- } catch (err) {
- toast.error(err instanceof Error ? err.message : 'Delete failed');
- }
- }
- selectedFiles = new Set();
- await loadFiles();
- }
+async function bulkDelete() {
+  if (selectedFiles.size === 0) return;
+  for (const id of selectedFiles) {
+    try {
+      await api.delete(`/api/storage/${id}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
+    }
+  }
+  selectedFiles = new Set();
+  await loadFiles();
+}
 
- async function copyUrl(url: string, id: string) {
- await navigator.clipboard.writeText(url);
- copied = id;
- setTimeout(() => (copied = null), 2000);
- }
+async function copyUrl(url: string, id: string) {
+  await navigator.clipboard.writeText(url);
+  copied = id;
+  setTimeout(() => (copied = null), 2000);
+}
 
- function fmt(bytes: number) {
- if (bytes < 1024) return `${bytes} B`;
- if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
- return `${(bytes / 1048576).toFixed(1)} MB`;
- }
+function fmt(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
 
- function isImage(mime: string) { return mime.startsWith('image/'); }
- function isPdf(mime: string) { return mime.includes('pdf'); }
+function isImage(mime: string) {
+  return mime.startsWith('image/');
+}
+function isPdf(mime: string) {
+  return mime.includes('pdf');
+}
 
- let previewFile = $state<MediaFile | null>(null);
+let previewFile = $state<MediaFile | null>(null);
 
- function openPreview(file: MediaFile) {
-   if (isPdf(file.mime_type) || isImage(file.mime_type)) previewFile = file;
- }
+function openPreview(file: MediaFile) {
+  if (isPdf(file.mime_type) || isImage(file.mime_type)) previewFile = file;
+}
 </script>
 
 <div class="space-y-6">

@@ -1,83 +1,119 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { ENGINE_URL } from '$lib/config.js';
-  import { Plug, Plus, X, Webhook, ListChecks, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { ENGINE_URL } from '$lib/config.js';
+import { Plug, Plus, X, Webhook, ListChecks, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let tab = $state<'connections' | 'webhooks' | 'logs'>('connections');
-  let connections = $state<any[]>([]);
-  let webhooks = $state<any[]>([]);
-  let logs = $state<any[]>([]);
-  let loading = $state(false);
+let tab = $state<'connections' | 'webhooks' | 'logs'>('connections');
+let connections = $state<any[]>([]);
+let webhooks = $state<any[]>([]);
+let logs = $state<any[]>([]);
+let loading = $state(false);
 
-  let showForm = $state(false);
-  let saving = $state(false);
-  let form = $state({
-    name: '',
-    base_url: '',
-    auth_type: 'none' as 'none' | 'bearer' | 'basic' | 'oauth2',
-    auth_token: '',
-    auth_username: '',
-    auth_password: '',
-    headers: '{}',
-  });
+let showForm = $state(false);
+let saving = $state(false);
+let form = $state({
+  name: '',
+  base_url: '',
+  auth_type: 'none' as 'none' | 'bearer' | 'basic' | 'oauth2',
+  auth_token: '',
+  auth_username: '',
+  auth_password: '',
+  headers: '{}',
+});
 
-  async function loadConnections() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/integrations/api-connector/connections'); connections = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadConnections() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/integrations/api-connector/connections');
+    connections = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadWebhooks() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/integrations/api-connector/incoming-webhooks'); webhooks = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+}
+async function loadWebhooks() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/integrations/api-connector/incoming-webhooks');
+    webhooks = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
-  async function loadLogs() {
-    loading = true;
-    try { const r = await api.get<{ data: any[] }>('/ext/integrations/api-connector/logs?limit=100'); logs = r.data ?? []; }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+}
+async function loadLogs() {
+  loading = true;
+  try {
+    const r = await api.get<{ data: any[] }>('/ext/integrations/api-connector/logs?limit=100');
+    logs = r.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function createConnection() {
-    saving = true;
+async function createConnection() {
+  saving = true;
+  try {
+    let extraHeaders: any = {};
     try {
-      let extraHeaders: any = {};
-      try { extraHeaders = JSON.parse(form.headers); } catch { throw new Error('Invalid JSON in headers'); }
-      await api.post('/ext/integrations/api-connector/connections', { ...form, headers: extraHeaders });
-      showForm = false;
-      form = { name: '', base_url: '', auth_type: 'none', auth_token: '', auth_username: '', auth_password: '', headers: '{}' };
-      await loadConnections();
-      toast.success(m['integrations.apiConnector.toast.created']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { saving = false; }
+      extraHeaders = JSON.parse(form.headers);
+    } catch {
+      throw new Error('Invalid JSON in headers');
+    }
+    await api.post('/ext/integrations/api-connector/connections', {
+      ...form,
+      headers: extraHeaders,
+    });
+    showForm = false;
+    form = {
+      name: '',
+      base_url: '',
+      auth_type: 'none',
+      auth_token: '',
+      auth_username: '',
+      auth_password: '',
+      headers: '{}',
+    };
+    await loadConnections();
+    toast.success(m['integrations.apiConnector.toast.created']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    saving = false;
   }
+}
 
-  async function deleteConnection(id: string) {
-        askConfirm(m['integrations.apiConnector.confirmDelete'](), () => deleteConnectionConfirmed(id));
+async function deleteConnection(id: string) {
+  askConfirm(m['integrations.apiConnector.confirmDelete'](), () => deleteConnectionConfirmed(id));
+}
+async function deleteConnectionConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/integrations/api-connector/connections/${id}`);
+    await loadConnections();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
-  async function deleteConnectionConfirmed(id: string) {
-    try { await api.delete(`/ext/integrations/api-connector/connections/${id}`); await loadConnections(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-  }
+}
 
-
-  $effect(() => {
-    if (tab === 'connections') loadConnections();
-    else if (tab === 'webhooks') loadWebhooks();
-    else loadLogs();
-  });
-  onMount(loadConnections);
+$effect(() => {
+  if (tab === 'connections') loadConnections();
+  else if (tab === 'webhooks') loadWebhooks();
+  else loadLogs();
+});
+onMount(loadConnections);
 </script>
 
 <ExtensionPageShell title={m['integrations.api-connector.title']()} subtitle={m['integrations.api-connector.subtitle']()}>

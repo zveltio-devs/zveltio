@@ -1,231 +1,270 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import {
-    GitBranch, RefreshCw, Trash2, Eye, Merge, AlertCircle,
-    CircleCheck, Clock, X, Globe, GlobeLock, ShieldCheck, ShieldX, MessageSquare,
-  } from '@lucide/svelte';
-  import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import {
+  GitBranch,
+  RefreshCw,
+  Trash2,
+  Eye,
+  Merge,
+  AlertCircle,
+  CircleCheck,
+  Clock,
+  X,
+  Globe,
+  GlobeLock,
+  ShieldCheck,
+  ShieldX,
+  MessageSquare,
+} from '@lucide/svelte';
+import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  interface SchemaBranch {
-    id: string;
-    name: string;
-    description: string | null;
-    base_schema: string;
-    branch_schema: string;
-    status: 'open' | 'merged' | 'closed';
-    changes: any[];
-    requires_approval: boolean;
-    review_status: 'approved' | 'rejected' | 'changes_requested' | null;
-    created_by: string | null;
-    merged_by: string | null;
-    merged_at: string | null;
-    created_at: string;
-    updated_at: string;
-    preview_enabled?: boolean;
-    preview_token?: string | null;
-    preview_expires_at?: string | null;
+interface SchemaBranch {
+  id: string;
+  name: string;
+  description: string | null;
+  base_schema: string;
+  branch_schema: string;
+  status: 'open' | 'merged' | 'closed';
+  changes: any[];
+  requires_approval: boolean;
+  review_status: 'approved' | 'rejected' | 'changes_requested' | null;
+  created_by: string | null;
+  merged_by: string | null;
+  merged_at: string | null;
+  created_at: string;
+  updated_at: string;
+  preview_enabled?: boolean;
+  preview_token?: string | null;
+  preview_expires_at?: string | null;
+}
+
+interface Diff {
+  collections_added: string[];
+  collections_removed: string[];
+  fields_modified: string[];
+}
+
+let branches = $state<SchemaBranch[]>([]);
+let loading = $state(true);
+let showCreateModal = $state(false);
+let newBranchName = $state('');
+let newBranchDesc = $state('');
+let creating = $state(false);
+
+let showDiffModal = $state(false);
+let selectedBranch = $state<SchemaBranch | null>(null);
+let branchDiff = $state<Diff | null>(null);
+let loadingDiff = $state(false);
+
+let showMergeModal = $state(false);
+let merging = $state(false);
+let mergeResult = $state<{
+  success: boolean;
+  applied: string[];
+  errors: string[];
+  review_status?: string;
+} | null>(null);
+
+let deleteTarget = $state<SchemaBranch | null>(null);
+let previewToken = $state<string | null>(null);
+let previewBranch = $state<SchemaBranch | null>(null);
+let enablingPreview = $state(false);
+
+// Review panel
+let showReviewModal = $state(false);
+let reviewBranch = $state<SchemaBranch | null>(null);
+let reviewStatus = $state<'approved' | 'rejected' | 'changes_requested'>('approved');
+let reviewNote = $state('');
+let submittingReview = $state(false);
+let reviews = $state<any[]>([]);
+let loadingReviews = $state(false);
+
+onMount(loadBranches);
+
+async function loadBranches() {
+  loading = true;
+  try {
+    const data = await api.get<{ branches: SchemaBranch[] }>('/api/schema/branches');
+    branches = data.branches || [];
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to load branches');
+  } finally {
+    loading = false;
   }
+}
 
-  interface Diff {
-    collections_added: string[];
-    collections_removed: string[];
-    fields_modified: string[];
+async function createBranch() {
+  if (!newBranchName.trim()) return;
+  creating = true;
+  try {
+    await api.post('/api/schema/branches', {
+      name: newBranchName.trim(),
+      description: newBranchDesc.trim() || undefined,
+    });
+    showCreateModal = false;
+    newBranchName = '';
+    newBranchDesc = '';
+    await loadBranches();
+    toast.success('Branch created');
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to create branch');
+  } finally {
+    creating = false;
   }
+}
 
-  let branches      = $state<SchemaBranch[]>([]);
-  let loading       = $state(true);
-  let showCreateModal = $state(false);
-  let newBranchName = $state('');
-  let newBranchDesc = $state('');
-  let creating      = $state(false);
-
-  let showDiffModal  = $state(false);
-  let selectedBranch = $state<SchemaBranch | null>(null);
-  let branchDiff     = $state<Diff | null>(null);
-  let loadingDiff    = $state(false);
-
-  let showMergeModal = $state(false);
-  let merging        = $state(false);
-  let mergeResult    = $state<{ success: boolean; applied: string[]; errors: string[]; review_status?: string } | null>(null);
-
-  let deleteTarget = $state<SchemaBranch | null>(null);
-  let previewToken = $state<string | null>(null);
-  let previewBranch = $state<SchemaBranch | null>(null);
-  let enablingPreview = $state(false);
-
-  // Review panel
-  let showReviewModal = $state(false);
-  let reviewBranch    = $state<SchemaBranch | null>(null);
-  let reviewStatus    = $state<'approved' | 'rejected' | 'changes_requested'>('approved');
-  let reviewNote      = $state('');
-  let submittingReview = $state(false);
-  let reviews         = $state<any[]>([]);
-  let loadingReviews  = $state(false);
-
-  onMount(loadBranches);
-
-  async function loadBranches() {
-    loading = true;
-    try {
-      const data = await api.get<{ branches: SchemaBranch[] }>('/api/schema/branches');
-      branches = data.branches || [];
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to load branches');
-    } finally {
-      loading = false;
-    }
+async function viewDiff(branch: SchemaBranch) {
+  selectedBranch = branch;
+  showDiffModal = true;
+  loadingDiff = true;
+  branchDiff = null;
+  try {
+    const data = await api.get<{ diff: Diff }>(`/api/schema/branches/${branch.id}/diff`);
+    branchDiff = data.diff;
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to load diff');
+  } finally {
+    loadingDiff = false;
   }
+}
 
-  async function createBranch() {
-    if (!newBranchName.trim()) return;
-    creating = true;
-    try {
-      await api.post('/api/schema/branches', {
-        name: newBranchName.trim(),
-        description: newBranchDesc.trim() || undefined,
-      });
-      showCreateModal = false;
-      newBranchName = '';
-      newBranchDesc = '';
-      await loadBranches();
-      toast.success('Branch created');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create branch');
-    } finally { creating = false; }
-  }
+function openMergeModal(branch: SchemaBranch) {
+  selectedBranch = branch;
+  mergeResult = null;
+  showMergeModal = true;
+}
 
-  async function viewDiff(branch: SchemaBranch) {
-    selectedBranch = branch;
-    showDiffModal = true;
-    loadingDiff = true;
-    branchDiff = null;
-    try {
-      const data = await api.get<{ diff: Diff }>(`/api/schema/branches/${branch.id}/diff`);
-      branchDiff = data.diff;
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to load diff');
-    } finally { loadingDiff = false; }
+async function mergeBranch() {
+  if (!selectedBranch) return;
+  merging = true;
+  try {
+    const result = await api.post<{
+      success: boolean;
+      applied: string[];
+      errors: string[];
+      review_status?: string;
+    }>(`/api/schema/branches/${selectedBranch.id}/merge`);
+    mergeResult = result;
+    if (result.success) await loadBranches();
+  } catch (e: any) {
+    // Approval gate returns 403 with structured error
+    const body = e?.body ?? e;
+    mergeResult = {
+      success: false,
+      applied: [],
+      errors: [body?.error ?? (e instanceof Error ? e.message : 'Merge failed')],
+      review_status: body?.review_status,
+    };
+  } finally {
+    merging = false;
   }
+}
 
-  function openMergeModal(branch: SchemaBranch) {
-    selectedBranch = branch;
-    mergeResult = null;
-    showMergeModal = true;
+async function closeBranch() {
+  if (!deleteTarget) return;
+  try {
+    await api.delete(`/api/schema/branches/${deleteTarget.id}`);
+    deleteTarget = null;
+    await loadBranches();
+    toast.success('Branch closed');
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to close branch');
   }
+}
 
-  async function mergeBranch() {
-    if (!selectedBranch) return;
-    merging = true;
-    try {
-      const result = await api.post<{ success: boolean; applied: string[]; errors: string[]; review_status?: string }>(
-        `/api/schema/branches/${selectedBranch.id}/merge`,
-      );
-      mergeResult = result;
-      if (result.success) await loadBranches();
-    } catch (e: any) {
-      // Approval gate returns 403 with structured error
-      const body = e?.body ?? e;
-      mergeResult = {
-        success: false,
-        applied: [],
-        errors: [body?.error ?? (e instanceof Error ? e.message : 'Merge failed')],
-        review_status: body?.review_status,
-      };
-    } finally { merging = false; }
+async function enablePreview(branch: SchemaBranch) {
+  enablingPreview = true;
+  try {
+    const res = await api.post<{ preview_token: string; expires_at: string | null }>(
+      `/api/schema/branches/${branch.id}/preview`,
+      { ttl_hours: 168 },
+    );
+    previewToken = res.preview_token;
+    previewBranch = branch;
+    await loadBranches();
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to enable preview');
+  } finally {
+    enablingPreview = false;
   }
+}
 
-  async function closeBranch() {
-    if (!deleteTarget) return;
-    try {
-      await api.delete(`/api/schema/branches/${deleteTarget.id}`);
-      deleteTarget = null;
-      await loadBranches();
-      toast.success('Branch closed');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to close branch');
-    }
+async function disablePreview(branch: SchemaBranch) {
+  try {
+    await api.delete(`/api/schema/branches/${branch.id}/preview`);
+    previewToken = null;
+    previewBranch = null;
+    await loadBranches();
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to disable preview');
   }
+}
 
-  async function enablePreview(branch: SchemaBranch) {
-    enablingPreview = true;
-    try {
-      const res = await api.post<{ preview_token: string; expires_at: string | null }>(
-        `/api/schema/branches/${branch.id}/preview`,
-        { ttl_hours: 168 },
-      );
-      previewToken = res.preview_token;
-      previewBranch = branch;
-      await loadBranches();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to enable preview');
-    } finally { enablingPreview = false; }
+async function openReviewModal(branch: SchemaBranch) {
+  reviewBranch = branch;
+  reviewStatus = 'approved';
+  reviewNote = '';
+  showReviewModal = true;
+  loadingReviews = true;
+  try {
+    const res = await api.get<{ reviews: any[] }>(`/api/schema/branches/${branch.id}/reviews`);
+    reviews = res.reviews ?? [];
+  } catch {
+    reviews = [];
+  } finally {
+    loadingReviews = false;
   }
+}
 
-  async function disablePreview(branch: SchemaBranch) {
-    try {
-      await api.delete(`/api/schema/branches/${branch.id}/preview`);
-      previewToken = null;
-      previewBranch = null;
-      await loadBranches();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to disable preview');
-    }
+async function submitReview() {
+  if (!reviewBranch) return;
+  submittingReview = true;
+  try {
+    await api.post(`/api/schema/branches/${reviewBranch.id}/review`, {
+      status: reviewStatus,
+      note: reviewNote || undefined,
+    });
+    toast.success(`Review submitted: ${reviewStatus}`);
+    showReviewModal = false;
+    await loadBranches();
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to submit review');
+  } finally {
+    submittingReview = false;
   }
+}
 
-  async function openReviewModal(branch: SchemaBranch) {
-    reviewBranch = branch;
-    reviewStatus = 'approved';
-    reviewNote = '';
-    showReviewModal = true;
-    loadingReviews = true;
-    try {
-      const res = await api.get<{ reviews: any[] }>(`/api/schema/branches/${branch.id}/reviews`);
-      reviews = res.reviews ?? [];
-    } catch { reviews = []; }
-    finally { loadingReviews = false; }
+async function toggleRequiresApproval(branch: SchemaBranch) {
+  try {
+    await api.patch(`/api/schema/branches/${branch.id}`, {
+      requires_approval: !branch.requires_approval,
+    });
+    await loadBranches();
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to update branch');
   }
+}
 
-  async function submitReview() {
-    if (!reviewBranch) return;
-    submittingReview = true;
-    try {
-      await api.post(`/api/schema/branches/${reviewBranch.id}/review`, {
-        status: reviewStatus,
-        note: reviewNote || undefined,
-      });
-      toast.success(`Review submitted: ${reviewStatus}`);
-      showReviewModal = false;
-      await loadBranches();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to submit review');
-    } finally { submittingReview = false; }
-  }
+function reviewBadge(status: string | null) {
+  if (!status) return 'badge-ghost';
+  return (
+    { approved: 'badge-success', rejected: 'badge-error', changes_requested: 'badge-warning' }[
+      status
+    ] ?? 'badge-ghost'
+  );
+}
 
-  async function toggleRequiresApproval(branch: SchemaBranch) {
-    try {
-      await api.patch(`/api/schema/branches/${branch.id}`, {
-        requires_approval: !branch.requires_approval,
-      });
-      await loadBranches();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to update branch');
-    }
-  }
+function statusBadge(status: string) {
+  return (
+    { open: 'badge-info', merged: 'badge-success', closed: 'badge-ghost' }[status] ?? 'badge-ghost'
+  );
+}
 
-  function reviewBadge(status: string | null) {
-    if (!status) return 'badge-ghost';
-    return { approved: 'badge-success', rejected: 'badge-error', changes_requested: 'badge-warning' }[status] ?? 'badge-ghost';
-  }
-
-  function statusBadge(status: string) {
-    return { open: 'badge-info', merged: 'badge-success', closed: 'badge-ghost' }[status] ?? 'badge-ghost';
-  }
-
-  function fmt(d: string | null) {
-    return d ? new Date(d).toLocaleString() : '—';
-  }
+function fmt(d: string | null) {
+  return d ? new Date(d).toLocaleString() : '—';
+}
 </script>
 
 <CrudListPage

@@ -1,9 +1,6 @@
 import { createInterface } from 'readline';
 
-async function prompt(
-  rl: ReturnType<typeof createInterface>,
-  question: string,
-): Promise<string> {
+async function prompt(rl: ReturnType<typeof createInterface>, question: string): Promise<string> {
   return new Promise((resolve) => {
     rl.question(question, resolve);
   });
@@ -42,13 +39,8 @@ async function promptHidden(question: string): Promise<string> {
   });
 }
 
-export async function createGodCommand(opts: {
-  url?: string;
-  email?: string;
-  name?: string;
-}) {
-  const engineUrl =
-    opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
+export async function createGodCommand(opts: { url?: string; email?: string; name?: string }) {
+  const engineUrl = opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
 
   console.log('\n⚠️  SYSTEM RECOVERY OVERRIDE ACCOUNT');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -97,10 +89,10 @@ export async function createGodCommand(opts: {
 
     // God accounts bypass ALL authorization — enforce a strong password policy.
     const pwErrors: string[] = [];
-    if (password.length < 16)          pwErrors.push('at least 16 characters');
-    if (!/[A-Z]/.test(password))        pwErrors.push('at least one uppercase letter');
-    if (!/[a-z]/.test(password))        pwErrors.push('at least one lowercase letter');
-    if (!/[0-9]/.test(password))        pwErrors.push('at least one digit');
+    if (password.length < 16) pwErrors.push('at least 16 characters');
+    if (!/[A-Z]/.test(password)) pwErrors.push('at least one uppercase letter');
+    if (!/[a-z]/.test(password)) pwErrors.push('at least one lowercase letter');
+    if (!/[0-9]/.test(password)) pwErrors.push('at least one digit');
     if (!/[^A-Za-z0-9]/.test(password)) pwErrors.push('at least one special character');
     if (pwErrors.length > 0) {
       console.error('\n❌ God account password is too weak. Required:');
@@ -145,9 +137,7 @@ export async function createGodCommand(opts: {
     });
 
     if (!loginRes.ok) {
-      console.warn(
-        '⚠️  Could not auto-grant admin role — grant manually via permissions API',
-      );
+      console.warn('⚠️  Could not auto-grant admin role — grant manually via permissions API');
       console.log(`\n✅ User created: ${email}\n`);
       return;
     }
@@ -173,9 +163,7 @@ export async function createGodCommand(opts: {
     } else {
       console.log(`\n✅ User created: ${email.trim()}`);
       console.warn('⚠️  Could not auto-assign god role.');
-      console.warn(
-        '   Use the Permissions page in Studio to assign the admin role manually.\n',
-      );
+      console.warn('   Use the Permissions page in Studio to assign the admin role manually.\n');
     }
   } catch (err: any) {
     rl.close();

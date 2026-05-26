@@ -1,104 +1,132 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Plus, CheckCircle, Package, Users, BarChart3, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Plus, CheckCircle, Package, Users, BarChart3, LoaderCircle } from '@lucide/svelte';
 
-  let activeTab = $state<'orders' | 'suppliers' | 'budget'>('orders');
-  let orders = $state<any[]>([]);
-  let suppliers = $state<any[]>([]);
-  let budgetLines = $state<any[]>([]);
-  let loading = $state(true);
+let activeTab = $state<'orders' | 'suppliers' | 'budget'>('orders');
+let orders = $state<any[]>([]);
+let suppliers = $state<any[]>([]);
+let budgetLines = $state<any[]>([]);
+let loading = $state(true);
 
-  let showOrderModal = $state(false);
-  let showSupplierModal = $state(false);
-  let creating = $state(false);
+let showOrderModal = $state(false);
+let showSupplierModal = $state(false);
+let creating = $state(false);
 
-  let orderForm = $state({
-    number: '',
-    date: new Date().toISOString().split('T')[0],
-    supplier_name: '',
-    supplier_cui: '',
-    description: '',
-    currency: 'RON',
-    subtotal: 0,
-    vat_total: 0,
-    total: 0,
-    items: [{ description: '', quantity: 1, unit: 'BUC', unit_price: 0, total: 0 }],
-  });
+let orderForm = $state({
+  number: '',
+  date: new Date().toISOString().split('T')[0],
+  supplier_name: '',
+  supplier_cui: '',
+  description: '',
+  currency: 'RON',
+  subtotal: 0,
+  vat_total: 0,
+  total: 0,
+  items: [{ description: '', quantity: 1, unit: 'BUC', unit_price: 0, total: 0 }],
+});
 
-  let supplierForm = $state({ name: '', cui: '', county: '', category: '', contact_email: '' });
+let supplierForm = $state({ name: '', cui: '', county: '', category: '', contact_email: '' });
 
-  onMount(loadAll);
+onMount(loadAll);
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const [ord, sup, bud] = await Promise.all([
-        api.get<{ orders: any[] }>('/ext/compliance/ro/procurement/orders'),
-        api.get<{ suppliers: any[] }>('/ext/compliance/ro/procurement/suppliers'),
-        api.get<{ budget_lines: any[] }>(`/ext/compliance/ro/procurement/budget?year=${new Date().getFullYear()}`),
-      ]);
-      orders = ord.orders ?? [];
-      suppliers = sup.suppliers ?? [];
-      budgetLines = bud.budget_lines ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadAll() {
+  loading = true;
+  try {
+    const [ord, sup, bud] = await Promise.all([
+      api.get<{ orders: any[] }>('/ext/compliance/ro/procurement/orders'),
+      api.get<{ suppliers: any[] }>('/ext/compliance/ro/procurement/suppliers'),
+      api.get<{ budget_lines: any[] }>(
+        `/ext/compliance/ro/procurement/budget?year=${new Date().getFullYear()}`,
+      ),
+    ]);
+    orders = ord.orders ?? [];
+    suppliers = sup.suppliers ?? [];
+    budgetLines = bud.budget_lines ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  function recalcItem(item: any) {
-    item.total = Math.round(item.quantity * item.unit_price * 100) / 100;
-    orderForm.subtotal = orderForm.items.reduce((s, i) => s + i.total, 0);
-    orderForm.vat_total = Math.round(orderForm.subtotal * 0.19 * 100) / 100;
-    orderForm.total = orderForm.subtotal + orderForm.vat_total;
-  }
+function recalcItem(item: any) {
+  item.total = Math.round(item.quantity * item.unit_price * 100) / 100;
+  orderForm.subtotal = orderForm.items.reduce((s, i) => s + i.total, 0);
+  orderForm.vat_total = Math.round(orderForm.subtotal * 0.19 * 100) / 100;
+  orderForm.total = orderForm.subtotal + orderForm.vat_total;
+}
 
-  async function createOrder() {
-    if (!orderForm.number || !orderForm.supplier_name) return;
-    creating = true;
-    try {
-      await api.post('/ext/compliance/ro/procurement/orders', orderForm);
-      showOrderModal = false;
-      await loadAll();
-      toast.success(m['compliance.ro.procurement.toast.orderCreated']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { creating = false; }
+async function createOrder() {
+  if (!orderForm.number || !orderForm.supplier_name) return;
+  creating = true;
+  try {
+    await api.post('/ext/compliance/ro/procurement/orders', orderForm);
+    showOrderModal = false;
+    await loadAll();
+    toast.success(m['compliance.ro.procurement.toast.orderCreated']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  async function createSupplier() {
-    if (!supplierForm.name || !supplierForm.cui) return;
-    creating = true;
-    try {
-      await api.post('/ext/compliance/ro/procurement/suppliers', supplierForm);
-      showSupplierModal = false;
-      supplierForm = { name: '', cui: '', county: '', category: '', contact_email: '' };
-      await loadAll();
-      toast.success(m['compliance.ro.procurement.toast.vendorRegistered']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
-    finally { creating = false; }
+async function createSupplier() {
+  if (!supplierForm.name || !supplierForm.cui) return;
+  creating = true;
+  try {
+    await api.post('/ext/compliance/ro/procurement/suppliers', supplierForm);
+    showSupplierModal = false;
+    supplierForm = { name: '', cui: '', county: '', category: '', contact_email: '' };
+    await loadAll();
+    toast.success(m['compliance.ro.procurement.toast.vendorRegistered']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  } finally {
+    creating = false;
   }
+}
 
-  async function approveOrder(id: string) {
-    try { await api.post(`/ext/compliance/ro/procurement/orders/${id}/approve`, {}); await loadAll(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function approveOrder(id: string) {
+  try {
+    await api.post(`/ext/compliance/ro/procurement/orders/${id}/approve`, {});
+    await loadAll();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function receiveOrder(id: string) {
-    try { await api.post(`/ext/compliance/ro/procurement/orders/${id}/receive`, {}); await loadAll(); }
-    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function receiveOrder(id: string) {
+  try {
+    await api.post(`/ext/compliance/ro/procurement/orders/${id}/receive`, {});
+    await loadAll();
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  function statusBadge(status: string): string {
-    return ({ draft: 'badge-warning', approved: 'badge-info', received: 'badge-success', cancelled: 'badge-error' } as Record<string, string>)[status] ?? 'badge-ghost';
-  }
+function statusBadge(status: string): string {
+  return (
+    (
+      {
+        draft: 'badge-warning',
+        approved: 'badge-info',
+        received: 'badge-success',
+        cancelled: 'badge-error',
+      } as Record<string, string>
+    )[status] ?? 'badge-ghost'
+  );
+}
 
-  function budgetPercent(line: any): number {
-    if (!line.allocated || line.allocated === 0) return 0;
-    return Math.min(100, Math.round((line.spent / line.allocated) * 100));
-  }
+function budgetPercent(line: any): number {
+  if (!line.allocated || line.allocated === 0) return 0;
+  return Math.min(100, Math.round((line.spent / line.allocated) * 100));
+}
 </script>
 
 <ExtensionPageShell title={m['compliance.ro.procurement.title']()} subtitle={m['compliance.ro.procurement.subtitle']()}>

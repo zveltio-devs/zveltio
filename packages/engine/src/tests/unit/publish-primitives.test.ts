@@ -129,8 +129,11 @@ describe('@zveltio/sdk/publish — engine compatibility', () => {
     const sig = await signBundle(archive, kp);
     const tampered = new TextEncoder().encode('tampered');
     let caught: Error | null = null;
-    try { await verifySignature(tampered, sig, 'test-ext'); }
-    catch (e) { caught = e as Error; }
+    try {
+      await verifySignature(tampered, sig, 'test-ext');
+    } catch (e) {
+      caught = e as Error;
+    }
     expect(caught).not.toBeNull();
     expect(caught!.message).toMatch(/bundleSha256 mismatch/);
   });
@@ -140,8 +143,11 @@ describe('@zveltio/sdk/publish — engine compatibility', () => {
     const sig = await signBundle(archive, kp);
     const renamed = { ...sig, keyId: 'totally-unknown-key' };
     let caught: Error | null = null;
-    try { await verifySignature(archive, renamed, 'test-ext'); }
-    catch (e) { caught = e as Error; }
+    try {
+      await verifySignature(archive, renamed, 'test-ext');
+    } catch (e) {
+      caught = e as Error;
+    }
     expect(caught).not.toBeNull();
     expect(caught!.message).toMatch(/unknown keyId/);
   });

@@ -1,141 +1,168 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import {
-    Plus, Trash2, Save, LoaderCircle, ChevronRight,
-    CheckSquare, BarChart2, ClipboardList,
-  } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  Plus,
+  Trash2,
+  Save,
+  LoaderCircle,
+  ChevronRight,
+  CheckSquare,
+  BarChart2,
+  ClipboardList,
+} from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  type ChecklistItem = { id: string; text: string; required?: boolean };
-  type Checklist = { id: string; name: string; description: string | null; items: ChecklistItem[]; is_active: boolean; created_at: string };
-  type Response = { id: string; checklist_id: string; submitted_by: string | null; answers: Record<string, boolean | string>; notes: string | null; created_at: string };
+type ChecklistItem = { id: string; text: string; required?: boolean };
+type Checklist = {
+  id: string;
+  name: string;
+  description: string | null;
+  items: ChecklistItem[];
+  is_active: boolean;
+  created_at: string;
+};
+type Response = {
+  id: string;
+  checklist_id: string;
+  submitted_by: string | null;
+  answers: Record<string, boolean | string>;
+  notes: string | null;
+  created_at: string;
+};
 
-  let checklists = $state<Checklist[]>([]);
-  let loading = $state(true);
-  let selected = $state<Checklist | null>(null);
-  let responses = $state<Response[]>([]);
-  let loadingResponses = $state(false);
-  let view = $state<'list' | 'edit' | 'responses'>('list');
+let checklists = $state<Checklist[]>([]);
+let loading = $state(true);
+let selected = $state<Checklist | null>(null);
+let responses = $state<Response[]>([]);
+let loadingResponses = $state(false);
+let view = $state<'list' | 'edit' | 'responses'>('list');
 
-  let showNew = $state(false);
-  let saving = $state(false);
-  let form = $state({ name: '', description: '' });
-  let editItems = $state<ChecklistItem[]>([]);
-  let newItemText = $state('');
+let showNew = $state(false);
+let saving = $state(false);
+let form = $state({ name: '', description: '' });
+let editItems = $state<ChecklistItem[]>([]);
+let newItemText = $state('');
 
-  function extractError(e: unknown): string {
-    if (e instanceof Error) return e.message;
-    if (e && typeof e === 'object') {
-      const o = e as any;
-      return o.message ?? o.error ?? 'Unknown error';
+function extractError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === 'object') {
+    const o = e as any;
+    return o.message ?? o.error ?? 'Unknown error';
+  }
+  return String(e);
+}
+
+onMount(load);
+
+async function load() {
+  loading = true;
+  try {
+    const res = await api.get<{ checklists: Checklist[] }>('/ext/workflow/checklists');
+    checklists = res.checklists ?? [];
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    loading = false;
+  }
+}
+
+async function createChecklist() {
+  if (!form.name.trim()) return;
+  saving = true;
+  try {
+    const res = await api.post<{ checklist: Checklist }>('/ext/workflow/checklists', {
+      name: form.name.trim(),
+      description: form.description || null,
+      items: [],
+    });
+    checklists = [res.checklist, ...checklists];
+    form = { name: '', description: '' };
+    showNew = false;
+    openEdit(res.checklist);
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    saving = false;
+  }
+}
+
+function openEdit(c: Checklist) {
+  selected = c;
+  editItems = (c.items ?? []).map((i) => ({ ...i }));
+  view = 'edit';
+}
+
+async function saveChecklist() {
+  if (!selected) return;
+  saving = true;
+  try {
+    const res = await api.put<{ checklist: Checklist }>(`/ext/workflow/checklists/${selected.id}`, {
+      name: selected.name,
+      description: selected.description || null,
+      items: editItems,
+      is_active: selected.is_active,
+    });
+    selected = res.checklist;
+    checklists = checklists.map((c) => (c.id === res.checklist.id ? res.checklist : c));
+    toast.success(m['workflow.checklists.toast.saved']());
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    saving = false;
+  }
+}
+
+async function deleteChecklist(id: string) {
+  askConfirm(m['workflow.checklists.confirmDelete'](), () => deleteChecklistConfirmed(id));
+}
+async function deleteChecklistConfirmed(id: string) {
+  try {
+    await api.delete(`/ext/workflow/checklists/${id}`);
+    checklists = checklists.filter((c) => c.id !== id);
+    if (selected?.id === id) {
+      selected = null;
+      view = 'list';
     }
-    return String(e);
+  } catch (e) {
+    toast.error(extractError(e));
   }
+}
 
-  onMount(load);
-
-  async function load() {
-    loading = true;
-    try {
-      const res = await api.get<{ checklists: Checklist[] }>('/ext/workflow/checklists');
-      checklists = res.checklists ?? [];
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      loading = false;
-    }
+async function openResponses(c: Checklist) {
+  selected = c;
+  view = 'responses';
+  loadingResponses = true;
+  try {
+    const res = await api.get<{ responses: Response[] }>(
+      `/ext/workflow/checklists/${c.id}/responses`,
+    );
+    responses = res.responses ?? [];
+  } catch (e) {
+    toast.error(extractError(e));
+  } finally {
+    loadingResponses = false;
   }
+}
 
-  async function createChecklist() {
-    if (!form.name.trim()) return;
-    saving = true;
-    try {
-      const res = await api.post<{ checklist: Checklist }>('/ext/workflow/checklists', {
-        name: form.name.trim(),
-        description: form.description || null,
-        items: [],
-      });
-      checklists = [res.checklist, ...checklists];
-      form = { name: '', description: '' };
-      showNew = false;
-      openEdit(res.checklist);
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      saving = false;
-    }
-  }
+function addItem() {
+  if (!newItemText.trim()) return;
+  editItems = [
+    ...editItems,
+    { id: crypto.randomUUID(), text: newItemText.trim(), required: false },
+  ];
+  newItemText = '';
+}
 
-  function openEdit(c: Checklist) {
-    selected = c;
-    editItems = (c.items ?? []).map(i => ({ ...i }));
-    view = 'edit';
-  }
-
-  async function saveChecklist() {
-    if (!selected) return;
-    saving = true;
-    try {
-      const res = await api.put<{ checklist: Checklist }>(`/ext/workflow/checklists/${selected.id}`, {
-        name: selected.name,
-        description: selected.description || null,
-        items: editItems,
-        is_active: selected.is_active,
-      });
-      selected = res.checklist;
-      checklists = checklists.map(c => c.id === res.checklist.id ? res.checklist : c);
-      toast.success(m['workflow.checklists.toast.saved']());
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function deleteChecklist(id: string) {
-        askConfirm(m['workflow.checklists.confirmDelete'](), () => deleteChecklistConfirmed(id));
-  }
-  async function deleteChecklistConfirmed(id: string) {
-    try {
-      await api.delete(`/ext/workflow/checklists/${id}`);
-      checklists = checklists.filter(c => c.id !== id);
-      if (selected?.id === id) { selected = null; view = 'list'; }
-    } catch (e) {
-      toast.error(extractError(e));
-    }
-  }
-
-
-  async function openResponses(c: Checklist) {
-    selected = c;
-    view = 'responses';
-    loadingResponses = true;
-    try {
-      const res = await api.get<{ responses: Response[] }>(`/ext/workflow/checklists/${c.id}/responses`);
-      responses = res.responses ?? [];
-    } catch (e) {
-      toast.error(extractError(e));
-    } finally {
-      loadingResponses = false;
-    }
-  }
-
-  function addItem() {
-    if (!newItemText.trim()) return;
-    editItems = [...editItems, { id: crypto.randomUUID(), text: newItemText.trim(), required: false }];
-    newItemText = '';
-  }
-
-  function removeItem(id: string) {
-    editItems = editItems.filter(i => i.id !== id);
-  }
+function removeItem(id: string) {
+  editItems = editItems.filter((i) => i.id !== id);
+}
 </script>
 
 <ExtensionPageShell

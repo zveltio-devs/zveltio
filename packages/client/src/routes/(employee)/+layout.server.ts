@@ -6,7 +6,8 @@ import type { LayoutServerLoad } from './$types';
  * Zero flash of unauthenticated content.
  */
 export const load: LayoutServerLoad = async ({ fetch, url }) => {
-  const engineUrl = import.meta.env.PUBLIC_ENGINE_URL ?? process.env.PUBLIC_ENGINE_URL ?? 'http://localhost:3000';
+  const engineUrl =
+    import.meta.env.PUBLIC_ENGINE_URL ?? process.env.PUBLIC_ENGINE_URL ?? 'http://localhost:3000';
 
   const res = await fetch(`${engineUrl}/api/auth/get-session`, {
     credentials: 'include',

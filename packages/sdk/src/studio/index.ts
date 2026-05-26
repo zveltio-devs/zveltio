@@ -43,14 +43,18 @@ export function makeFormProxy(initial: FormSchema): FormProxy {
   const hiddenSet = new Set<string>();
 
   return {
-    get fields() { return fields; },
+    get fields() {
+      return fields;
+    },
     addField({ after, before, field }) {
       if (!field?.name) {
         console.warn('[form-alter] addField: field.name is required');
         return;
       }
       if (fields.some((f) => f.name === field.name)) {
-        console.warn(`[form-alter] addField: field "${field.name}" already exists — use mutate-by-name instead`);
+        console.warn(
+          `[form-alter] addField: field "${field.name}" already exists — use mutate-by-name instead`,
+        );
         return;
       }
       const target = after ?? before;
@@ -59,7 +63,9 @@ export function makeFormProxy(initial: FormSchema): FormProxy {
         const idx = fields.findIndex((f) => f.name === target);
         if (idx < 0) {
           // Anchor not found → push to end. Warn so the author knows.
-          console.warn(`[form-alter] addField: anchor "${target}" not found; appending "${field.name}" at end`);
+          console.warn(
+            `[form-alter] addField: anchor "${target}" not found; appending "${field.name}" at end`,
+          );
           fields.push(cloned);
         } else {
           const at = after ? idx + 1 : idx;
@@ -69,7 +75,9 @@ export function makeFormProxy(initial: FormSchema): FormProxy {
         fields.push(cloned);
       }
     },
-    hideField(name: string) { hiddenSet.add(name); },
+    hideField(name: string) {
+      hiddenSet.add(name);
+    },
     reorder(order: string[]) {
       // Reorder only what's in `order`. Fields not mentioned keep their
       // original relative order, appended after the reordered block.
@@ -108,8 +116,11 @@ export function applyFormAlterHooks(
   if (hooks.length === 0) return schema;
   const proxy = makeFormProxy(schema);
   for (const hook of hooks) {
-    try { hook(proxy, ctx); }
-    catch (err) { console.error('[form-alter] hook threw:', err); }
+    try {
+      hook(proxy, ctx);
+    } catch (err) {
+      console.error('[form-alter] hook threw:', err);
+    }
   }
   return proxy.commit();
 }
@@ -149,7 +160,9 @@ function getStudioGlobal(): StudioGlobal | null {
   if (typeof window === 'undefined') return null;
   const g = (window as any).__zveltio as StudioGlobal | undefined;
   if (!g) {
-    console.warn('[zveltio/sdk/studio] window.__zveltio is not installed. Is the bundle running inside Studio?');
+    console.warn(
+      '[zveltio/sdk/studio] window.__zveltio is not installed. Is the bundle running inside Studio?',
+    );
     return null;
   }
   return g;

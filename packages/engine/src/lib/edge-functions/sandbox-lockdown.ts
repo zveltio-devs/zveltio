@@ -52,9 +52,9 @@ function buildThrower(name: string): () => never {
   return () => {
     throw new Error(
       `[sandbox] access to "${name}" is blocked. Edge functions cannot reach ` +
-      `Bun/Node internals, spawn processes, read the filesystem, or load ` +
-      `modules. Use the allowlisted globals (fetch, Request, Response, ` +
-      `crypto, JSON, Math, Date, ...) instead.`,
+        `Bun/Node internals, spawn processes, read the filesystem, or load ` +
+        `modules. Use the allowlisted globals (fetch, Request, Response, ` +
+        `crypto, JSON, Math, Date, ...) instead.`,
     );
   };
 }
@@ -79,7 +79,11 @@ export function lockdownGlobals(): void {
     } catch {
       // Property was already non-configurable (e.g. `eval` on some runtimes).
       // Best-effort: shadow via a wrapper function that throws.
-      try { g[name] = buildThrower(name); } catch { /* truly read-only — give up */ }
+      try {
+        g[name] = buildThrower(name);
+      } catch {
+        /* truly read-only — give up */
+      }
     }
   }
 
@@ -93,7 +97,7 @@ export function lockdownGlobals(): void {
   const throwingCtor = function ThrowingCtor(): never {
     throw new Error(
       '[sandbox] dynamic code construction (Function / new Function / eval) ' +
-      'is blocked inside edge functions.',
+        'is blocked inside edge functions.',
     );
   } as unknown as FunctionConstructor;
 
@@ -105,20 +109,58 @@ export function lockdownGlobals(): void {
         writable: false,
         enumerable: false,
       });
-    } catch { /* prototype frozen — skip */ }
+    } catch {
+      /* prototype frozen — skip */
+    }
   };
 
-  lockProto((function () { /* noop */ }).constructor.prototype);                  // Function.prototype
-  lockProto(Object.getPrototypeOf(async function () { /* noop */ }));             // AsyncFunction
-  lockProto(Object.getPrototypeOf(function* () { /* noop */ }));                  // GeneratorFunction
-  lockProto(Object.getPrototypeOf(async function* () { /* noop */ }));            // AsyncGeneratorFunction
+  lockProto(
+    function () {
+      /* noop */
+    }.constructor.prototype,
+  ); // Function.prototype
+  lockProto(
+    Object.getPrototypeOf(async function () {
+      /* noop */
+    }),
+  ); // AsyncFunction
+  lockProto(
+    Object.getPrototypeOf(function* () {
+      /* noop */
+    }),
+  ); // GeneratorFunction
+  lockProto(
+    Object.getPrototypeOf(async function* () {
+      /* noop */
+    }),
+  ); // AsyncGeneratorFunction
 
   // Freeze Object.prototype so prototype pollution can't reach getters added
   // after lockdown (e.g. user adds a getter on Object.prototype that fires
   // on every property access in caller-stashed state).
-  try { Object.freeze(Object.prototype); } catch { /* already frozen */ }
-  try { Object.freeze(Array.prototype); } catch { /* already frozen */ }
-  try { Object.freeze(String.prototype); } catch { /* already frozen */ }
-  try { Object.freeze(Number.prototype); } catch { /* already frozen */ }
-  try { Object.freeze(Function.prototype); } catch { /* already frozen */ }
+  try {
+    Object.freeze(Object.prototype);
+  } catch {
+    /* already frozen */
+  }
+  try {
+    Object.freeze(Array.prototype);
+  } catch {
+    /* already frozen */
+  }
+  try {
+    Object.freeze(String.prototype);
+  } catch {
+    /* already frozen */
+  }
+  try {
+    Object.freeze(Number.prototype);
+  } catch {
+    /* already frozen */
+  }
+  try {
+    Object.freeze(Function.prototype);
+  } catch {
+    /* already frozen */
+  }
 }

@@ -92,7 +92,7 @@ export class CronRunnerImpl {
     if (schedule.cron) {
       console.warn(
         `[cron-runner] extension "${extName}" schedule "${schedule.name}" uses cron expression — ` +
-        `not yet supported; the schedule will be skipped. Use intervalMs or at instead.`,
+          `not yet supported; the schedule will be skipped. Use intervalMs or at instead.`,
       );
       return;
     }
@@ -222,7 +222,14 @@ export class CronRunnerImpl {
               ? spanCtx.traceId
               : runId;
           try {
-            await this._insertRun(runId, entry.ownerExt, entry.schedule.name, attempt, 'running', traceId);
+            await this._insertRun(
+              runId,
+              entry.ownerExt,
+              entry.schedule.name,
+              attempt,
+              'running',
+              traceId,
+            );
             await entry.schedule.handler(this.ctx!, runId);
             await this._finishRun(runId, 'ok');
             span.setStatus({ code: SpanStatusCode.OK });

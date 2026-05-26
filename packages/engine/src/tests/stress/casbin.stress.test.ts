@@ -71,9 +71,7 @@ async function createTestUser(role = 'user'): Promise<string> {
 
 /** Deletes a test user by ID. */
 async function deleteTestUser(userId: string): Promise<void> {
-  await sql`DELETE FROM "user" WHERE id = ${userId}`
-    .execute(db)
-    .catch(() => {});
+  await sql`DELETE FROM "user" WHERE id = ${userId}`.execute(db).catch(() => {});
 }
 
 describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
@@ -97,19 +95,11 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       await invalidateUserPermCache(normalUserId);
 
       // God user should ALWAYS have access (hardcoded bypass)
-      const godResult = await checkPermission(
-        godUserId,
-        'any_resource',
-        'any_action',
-      );
+      const godResult = await checkPermission(godUserId, 'any_resource', 'any_action');
       expect(godResult).toBe(true);
 
       // Normal user should be denied (no policies)
-      const normalResult = await checkPermission(
-        normalUserId,
-        'any_resource',
-        'any_action',
-      );
+      const normalResult = await checkPermission(normalUserId, 'any_resource', 'any_action');
       expect(normalResult).toBe(false);
     } finally {
       await deleteTestUser(godUserId);
@@ -122,20 +112,14 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
 
     try {
       // Ensure no policies for god user
-      await sql`DELETE FROM zvd_permissions WHERE v0 = ${godUserId}`.execute(
-        db,
-      );
+      await sql`DELETE FROM zvd_permissions WHERE v0 = ${godUserId}`.execute(db);
       const enforcer = await getEnforcer();
       await enforcer.loadPolicy();
       await invalidateGodCache(godUserId);
       await invalidateUserPermCache(godUserId);
 
       // Even with no "allow" policies — god bypass fires first
-      const result = await checkPermission(
-        godUserId,
-        'secret_resource',
-        'delete',
-      );
+      const result = await checkPermission(godUserId, 'secret_resource', 'delete');
       expect(result).toBe(true);
     } finally {
       await deleteTestUser(godUserId);
@@ -231,12 +215,8 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       const { getCache } = await import('../../lib/cache.js');
       const cache = getCache();
       if (cache) {
-        vi.spyOn(cache, 'get').mockRejectedValue(
-          new Error('Cache unavailable'),
-        );
-        vi.spyOn(cache, 'setex').mockRejectedValue(
-          new Error('Cache unavailable'),
-        );
+        vi.spyOn(cache, 'get').mockRejectedValue(new Error('Cache unavailable'));
+        vi.spyOn(cache, 'setex').mockRejectedValue(new Error('Cache unavailable'));
 
         try {
           // Must still work via direct Casbin check

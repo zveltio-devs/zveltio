@@ -37,8 +37,8 @@ export class SignatureMissingError extends Error {
   constructor(public readonly extensionName: string) {
     super(
       `Extension "${extensionName}" has no signature.json sibling. ` +
-      `Either install signatures on the registry side, or set ` +
-      `REQUIRE_EXTENSION_SIGNATURES=false to allow unsigned installs.`,
+        `Either install signatures on the registry side, or set ` +
+        `REQUIRE_EXTENSION_SIGNATURES=false to allow unsigned installs.`,
     );
     this.name = 'SignatureMissingError';
   }
@@ -130,7 +130,10 @@ export async function verifySignature(
   try {
     sigBytes = base64ToBytes(signature.signature);
   } catch (err) {
-    throw new SignatureInvalidError(extensionName, `signature is not valid base64: ${(err as Error).message}`);
+    throw new SignatureInvalidError(
+      extensionName,
+      `signature is not valid base64: ${(err as Error).message}`,
+    );
   }
   if (sigBytes.length !== 64) {
     throw new SignatureInvalidError(
@@ -141,7 +144,13 @@ export async function verifySignature(
 
   let cryptoKey: CryptoKey;
   try {
-    cryptoKey = await crypto.subtle.importKey('raw', key.publicKey as any, { name: 'Ed25519' }, false, ['verify']);
+    cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      key.publicKey as any,
+      { name: 'Ed25519' },
+      false,
+      ['verify'],
+    );
   } catch (err) {
     throw new SignatureInvalidError(
       extensionName,
@@ -150,9 +159,17 @@ export async function verifySignature(
   }
 
   const dataBytes = new TextEncoder().encode(signature.bundleSha256.toLowerCase());
-  const ok = await crypto.subtle.verify({ name: 'Ed25519' }, cryptoKey, sigBytes as any, dataBytes as any);
+  const ok = await crypto.subtle.verify(
+    { name: 'Ed25519' },
+    cryptoKey,
+    sigBytes as any,
+    dataBytes as any,
+  );
   if (!ok) {
-    throw new SignatureInvalidError(extensionName, 'Ed25519 verification failed (signature does not match data + key)');
+    throw new SignatureInvalidError(
+      extensionName,
+      'Ed25519 verification failed (signature does not match data + key)',
+    );
   }
 }
 

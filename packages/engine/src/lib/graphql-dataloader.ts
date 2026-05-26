@@ -41,9 +41,7 @@ export class DataLoaderRegistry {
 
   constructor(private db: Database) {}
 
-  get(
-    tableName: string,
-  ): (keys: readonly string[]) => Promise<Array<Record<string, any> | null>> {
+  get(tableName: string): (keys: readonly string[]) => Promise<Array<Record<string, any> | null>> {
     if (!this.loaders.has(tableName)) {
       this.loaders.set(tableName, createCollectionLoader(this.db, tableName));
     }
@@ -55,10 +53,7 @@ export class DataLoaderRegistry {
  * Simple query depth validator - counts nesting level without external dependencies.
  * Returns an error message if depth exceeds maxDepth, null otherwise.
  */
-export function checkQueryDepth(
-  query: string,
-  maxDepth: number = 5,
-): string | null {
+export function checkQueryDepth(query: string, maxDepth: number = 5): string | null {
   try {
     let currentDepth = 0;
     let maxFound = 0;
@@ -91,9 +86,7 @@ export function checkQueryDepth(
       }
     }
 
-    return maxFound > maxDepth
-      ? `Query exceeds maximum depth of ${maxDepth}`
-      : null;
+    return maxFound > maxDepth ? `Query exceeds maximum depth of ${maxDepth}` : null;
   } catch {
     return null;
   }

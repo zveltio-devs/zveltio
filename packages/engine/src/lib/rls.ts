@@ -56,7 +56,9 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
     try {
       const raw = await cache.get(cacheKey);
       if (raw) return JSON.parse(raw) as RlsPolicy[];
-    } catch { /* cache unavailable */ }
+    } catch {
+      /* cache unavailable */
+    }
   }
 
   const rows = await sql<RlsPolicy>`
@@ -72,7 +74,9 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
   if (cache) {
     try {
       await cache.setex(cacheKey, RLS_CACHE_TTL, JSON.stringify(policies));
-    } catch { /* cache unavailable */ }
+    } catch {
+      /* cache unavailable */
+    }
   }
 
   return policies;
@@ -85,7 +89,9 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
   try {
     await cache.del(`rls:policies:${collection}`);
     await cache.del('rls:policies:*'); // also clear wildcard collection cache
-  } catch { /* cache unavailable */ }
+  } catch {
+    /* cache unavailable */
+  }
 }
 
 /**

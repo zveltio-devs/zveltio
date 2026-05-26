@@ -1,86 +1,101 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { page } from '$app/state';
-  import { auth } from '$lib/auth.svelte.js';
-  import { api } from '$lib/api.js';
-  import {
-    LogOut, Sun, Moon, Menu, X, ShieldCheck, Home, Bell, SquareCheck, User as UserIcon,
-  } from '@lucide/svelte';
-  import ToastContainer from '$lib/components/common/ToastContainer.svelte';
+import { onMount } from 'svelte';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { page } from '$app/state';
+import { auth } from '$lib/auth.svelte.js';
+import { api } from '$lib/api.js';
+import {
+  LogOut,
+  Sun,
+  Moon,
+  Menu,
+  X,
+  ShieldCheck,
+  Home,
+  Bell,
+  SquareCheck,
+  User as UserIcon,
+} from '@lucide/svelte';
+import ToastContainer from '$lib/components/common/ToastContainer.svelte';
 
-  type NavPage = { slug: string; title: string; icon: string | null; children?: NavPage[]; is_homepage?: boolean };
+type NavPage = {
+  slug: string;
+  title: string;
+  icon: string | null;
+  children?: NavPage[];
+  is_homepage?: boolean;
+};
 
-  let { children } = $props();
-  let mobileOpen = $state(false);
-  let dark = $state(false);
+let { children } = $props();
+let mobileOpen = $state(false);
+let dark = $state(false);
 
-  const ZONE_SLUG = 'intranet';
-  let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
-  let navPages = $state<NavPage[]>([]);
+const ZONE_SLUG = 'intranet';
+let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
+let navPages = $state<NavPage[]>([]);
 
-  /** Built-in routes shipped with Studio. These exist as real SvelteKit routes
-   *  (no zone-page configuration required) and are always present in the nav. */
-  const builtIns = $derived([
-    { href: `${base}/intranet`,               title: 'Home',         Icon: Home,        external: false },
-    { href: `${base}/intranet/tasks`,         title: 'Tasks',        Icon: SquareCheck, external: false },
-    { href: `${base}/intranet/notifications`, title: 'Notifications', Icon: Bell,       external: false },
-    { href: `${base}/intranet/profile`,       title: 'Profile',      Icon: UserIcon,    external: false },
-  ]);
+/** Built-in routes shipped with Studio. These exist as real SvelteKit routes
+ *  (no zone-page configuration required) and are always present in the nav. */
+const builtIns = $derived([
+  { href: `${base}/intranet`, title: 'Home', Icon: Home, external: false },
+  { href: `${base}/intranet/tasks`, title: 'Tasks', Icon: SquareCheck, external: false },
+  { href: `${base}/intranet/notifications`, title: 'Notifications', Icon: Bell, external: false },
+  { href: `${base}/intranet/profile`, title: 'Profile', Icon: UserIcon, external: false },
+]);
 
-  $effect(() => {
-    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-    if (typeof localStorage !== 'undefined')
-      localStorage.setItem('zveltio-theme', dark ? 'dark' : 'light');
-  });
+$effect(() => {
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  if (typeof localStorage !== 'undefined')
+    localStorage.setItem('zveltio-theme', dark ? 'dark' : 'light');
+});
 
-  function isActive(href: string): boolean {
-    const cur = page.url.pathname;
-    if (href === `${base}/intranet`) return cur === `${base}/intranet`;
-    return cur === href || cur.startsWith(href + '/');
-  }
+function isActive(href: string): boolean {
+  const cur = page.url.pathname;
+  if (href === `${base}/intranet`) return cur === `${base}/intranet`;
+  return cur === href || cur.startsWith(href + '/');
+}
 
-  onMount(async () => {
-    const t = localStorage.getItem('zveltio-theme');
-    if (t) dark = t === 'dark';
+onMount(async () => {
+  const t = localStorage.getItem('zveltio-theme');
+  if (t) dark = t === 'dark';
 
-    await auth.init();
-    if (!auth.isAuthenticated) {
-      goto(`${base}/login`);
-      return;
-    }
-
-    try {
-      const res = await api.get<{ zone: any; nav: NavPage[] }>(`/api/zones/${ZONE_SLUG}/render`);
-      zone = res.zone;
-      // Filter out the homepage entry — the user clicks the title/logo to get
-      // there, so showing "Home" twice (once built-in, once from zone) is noise.
-      navPages = (res.nav ?? []).filter((p) => !p.is_homepage);
-    } catch {
-      // Zone not configured / forbidden — built-in nav still works.
-      navPages = [];
-    }
-  });
-
-  const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Intranet');
-
-  async function signOut() {
-    await auth.signOut();
+  await auth.init();
+  if (!auth.isAuthenticated) {
     goto(`${base}/login`);
+    return;
   }
 
-  /** Recursively flatten zone pages so the sidebar can render arbitrary tree
-   *  depth without needing a separate component. Indentation is handled by
-   *  passing a `depth` to the row renderer. */
-  function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage }> {
-    const out: Array<{ depth: number; p: NavPage }> = [];
-    for (const p of pages) {
-      out.push({ depth, p });
-      if (p.children?.length) out.push(...flatten(p.children, depth + 1));
-    }
-    return out;
+  try {
+    const res = await api.get<{ zone: any; nav: NavPage[] }>(`/api/zones/${ZONE_SLUG}/render`);
+    zone = res.zone;
+    // Filter out the homepage entry — the user clicks the title/logo to get
+    // there, so showing "Home" twice (once built-in, once from zone) is noise.
+    navPages = (res.nav ?? []).filter((p) => !p.is_homepage);
+  } catch {
+    // Zone not configured / forbidden — built-in nav still works.
+    navPages = [];
   }
+});
+
+const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Intranet');
+
+async function signOut() {
+  await auth.signOut();
+  goto(`${base}/login`);
+}
+
+/** Recursively flatten zone pages so the sidebar can render arbitrary tree
+ *  depth without needing a separate component. Indentation is handled by
+ *  passing a `depth` to the row renderer. */
+function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage }> {
+  const out: Array<{ depth: number; p: NavPage }> = [];
+  for (const p of pages) {
+    out.push({ depth, p });
+    if (p.children?.length) out.push(...flatten(p.children, depth + 1));
+  }
+  return out;
+}
 </script>
 
 {#if auth.loading}

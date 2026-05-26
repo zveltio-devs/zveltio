@@ -104,14 +104,7 @@ export async function runFunction(
 
     worker.onmessage = (e) => {
       cleanup();
-      const {
-        success,
-        status,
-        body: respBody,
-        logs,
-        duration_ms,
-        error,
-      } = e.data;
+      const { success, status, body: respBody, logs, duration_ms, error } = e.data;
       resolve({
         status: success ? status : 500,
         body: respBody ?? '',

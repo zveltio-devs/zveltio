@@ -81,11 +81,7 @@ function extractImageDimensions(
             width: (buffer.readUInt16LE(26) & 0x3fff) + 1,
             height: (buffer.readUInt16LE(28) & 0x3fff) + 1,
           };
-        } else if (
-          chunkType === 'VP8L' &&
-          buffer.length >= 26 &&
-          buffer[20] === 0x2f
-        ) {
+        } else if (chunkType === 'VP8L' && buffer.length >= 26 && buffer[20] === 0x2f) {
           // Lossless VP8L: packed 28-bit fields (14 bits each) starting at byte 21.
           const bits = buffer.readUInt32LE(21);
           return {
@@ -135,18 +131,39 @@ function sanitizeSvgString(svg: string): string {
   s = s.replace(/(href|xlink:href)\s*=\s*'\s*(?:javascript|data|vbscript):[^']*'/gi, "$1='#'");
   // Strip <use href="data:..."> — Chrome and Firefox both allow script:
   // execution through external SVG references.
-  s = s.replace(/<use\b[^>]*\b(?:href|xlink:href)\s*=\s*(?:"|')\s*(?:javascript|data|vbscript):/gi, '<use ');
+  s = s.replace(
+    /<use\b[^>]*\b(?:href|xlink:href)\s*=\s*(?:"|')\s*(?:javascript|data|vbscript):/gi,
+    '<use ',
+  );
   return s;
 }
 
 const MIME_BY_EXT: Record<string, string> = {
-  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
-  webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml',
-  pdf: 'application/pdf', txt: 'text/plain', md: 'text/plain', csv: 'text/csv',
-  json: 'application/json', xml: 'application/xml',
-  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo',
-  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac',
-  zip: 'application/zip', tar: 'application/x-tar', gz: 'application/gzip', '7z': 'application/x-7z-compressed',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  svg: 'image/svg+xml',
+  pdf: 'application/pdf',
+  txt: 'text/plain',
+  md: 'text/plain',
+  csv: 'text/csv',
+  json: 'application/json',
+  xml: 'application/xml',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  avi: 'video/x-msvideo',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  flac: 'audio/flac',
+  zip: 'application/zip',
+  tar: 'application/x-tar',
+  gz: 'application/gzip',
+  '7z': 'application/x-7z-compressed',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   xls: 'application/vnd.ms-excel',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -165,16 +182,19 @@ const MIME_BY_EXT: Record<string, string> = {
  */
 function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
   if (buf.length >= 4) {
-    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47)
+      return 'image/png';
     if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
-    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return 'image/gif';
-    if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'application/pdf';
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38)
+      return 'image/gif';
+    if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46)
+      return 'application/pdf';
     if (buf[0] === 0x50 && buf[1] === 0x4b) return MIME_BY_EXT[ext] ?? 'application/zip';
-    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return 'image/webp'; // RIFF — could be WAV/AVI too, prefer ext
+    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46)
+      return 'image/webp'; // RIFF — could be WAV/AVI too, prefer ext
   }
   return MIME_BY_EXT[ext] ?? null;
 }
-
 
 export function storageRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -194,10 +214,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 50, 200);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    let query = (effectiveDb as any)
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .orderBy('created_at', 'desc');
+    let query = effectiveDb.selectFrom('zv_media_files').selectAll().orderBy('created_at', 'desc');
 
     if (folder_id) query = query.where('folder_id', '=', folder_id);
     else query = query.where('folder_id', 'is', null);
@@ -219,8 +236,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'No file provided' }, 400);
 
     // Enforce upload size limit (default 50 MB, configurable via MAX_UPLOAD_BYTES env var)
-    const maxBytes =
-      parseInt(process.env.MAX_UPLOAD_BYTES ?? '') || 50 * 1024 * 1024;
+    const maxBytes = parseInt(process.env.MAX_UPLOAD_BYTES ?? '') || 50 * 1024 * 1024;
     if (file.size > maxBytes) {
       return c.json(
         {
@@ -269,9 +285,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
       'xml',
     ]);
 
-    const rawExt = (file.name.split('.').pop() ?? '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
+    const rawExt = (file.name.split('.').pop() ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
     if (!rawExt || !ALLOWED_EXTENSIONS.has(rawExt)) {
       return c.json(
         {
@@ -333,7 +347,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     }
 
     const uploadDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const record = await (uploadDb as any)
+    const record = await uploadDb
       .insertInto('zv_media_files')
       .values({
         folder_id: folderId || null,
@@ -358,7 +372,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // GET /folders — List folders (must be before GET /:id to prevent route conflict)
   app.get('/folders', async (c) => {
     const foldersDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const folders = await (foldersDb as any)
+    const folders = await foldersDb
       .selectFrom('zv_media_folders')
       .selectAll()
       .orderBy('name')
@@ -375,7 +389,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!name) return c.json({ error: 'Folder name required' }, 400);
 
     try {
-      const folder = await (foldersWriteDb as any)
+      const folder = await foldersWriteDb
         .insertInto('zv_media_folders')
         .values({ name, parent_id: parent_id || null, created_by: user.id })
         .returningAll()
@@ -384,17 +398,14 @@ export function storageRoutes(db: Database, auth: any): Hono {
       return c.json({ folder }, 201);
     } catch (err) {
       console.error('[Storage] POST /folders error:', err);
-      return c.json(
-        { error: 'Failed to create folder', detail: String(err) },
-        503,
-      );
+      return c.json({ error: 'Failed to create folder', detail: String(err) }, 503);
     }
   });
 
   // GET /:id — Get file metadata
   app.get('/:id', async (c) => {
     const metaDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const file = await (metaDb as any)
+    const file = await metaDb
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -410,7 +421,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!client) return c.json({ error: 'Storage not configured' }, 503);
     const signedDb = (c.get('tenantTrx') as Database | null) ?? db;
 
-    const file = await (signedDb as any)
+    const file = await signedDb
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -432,7 +443,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // GET /:id/transform — On-the-fly image resize/convert using imagescript (no native deps)
   app.get('/:id/transform', async (c) => {
     const transformDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const file = await (transformDb as any)
+    const file = await transformDb
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -477,7 +488,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
         // Maintain aspect ratio (cover/contain both keep ratio; default = contain)
         const ratioW = dstW / srcW;
         const ratioH = dstH / srcH;
-        const ratio = (fit === 'cover') ? Math.max(ratioW, ratioH) : Math.min(ratioW, ratioH);
+        const ratio = fit === 'cover' ? Math.max(ratioW, ratioH) : Math.min(ratioW, ratioH);
         dstW = Math.round(srcW * ratio);
         dstH = Math.round(srcH * ratio);
       }
@@ -510,7 +521,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const client = getAws();
-    const file = await (deleteDb as any)
+    const file = await deleteDb
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', c.req.param('id'))
@@ -525,14 +536,12 @@ export function storageRoutes(db: Database, auth: any): Hono {
     }
 
     if (client) {
-      await client
-        .fetch(s3Url((file as any).storage_path), { method: 'DELETE' })
-        .catch(() => {
-          /* non-fatal if file missing from storage */
-        });
+      await client.fetch(s3Url((file as any).storage_path), { method: 'DELETE' }).catch(() => {
+        /* non-fatal if file missing from storage */
+      });
     }
 
-    await (deleteDb as any)
+    await deleteDb
       .deleteFrom('zv_media_files')
       .where('id', '=', (file as any).id)
       .execute();

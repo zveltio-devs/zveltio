@@ -24,9 +24,9 @@ describe('mockDb', () => {
 
   it('throws on .executeTakeFirstOrThrow() with no preset', async () => {
     const db = mockDb();
-    await expect(
-      db.selectFrom('users').selectAll().executeTakeFirstOrThrow(),
-    ).rejects.toThrow('no preset');
+    await expect(db.selectFrom('users').selectAll().executeTakeFirstOrThrow()).rejects.toThrow(
+      'no preset',
+    );
   });
 
   it('returns presets matched by exact chain', async () => {
@@ -63,7 +63,7 @@ describe('mockDb', () => {
   });
 
   it('reset() clears calls but keeps presets', async () => {
-    const db = mockDb({ 'execute': [{ kept: true }] });
+    const db = mockDb({ execute: [{ kept: true }] });
     await db.selectFrom('x').execute();
     // Each call in the chain is recorded — selectFrom('x') + execute() = 2.
     expect(db.calls.length).toBeGreaterThan(0);
@@ -193,7 +193,7 @@ describe('createTestContext', () => {
   });
 
   it('respects per-test overrides', () => {
-    const customDb = mockDb({ 'execute': [{ override: true }] });
+    const customDb = mockDb({ execute: [{ override: true }] });
     const ctx = createTestContext({ db: customDb });
     expect(ctx.db).toBe(customDb);
   });
@@ -258,7 +258,9 @@ describe('createTestApp', () => {
     const ext: ZveltioExtension = {
       name: 'spy',
       category: 'test',
-      async register(_app, ctx) { receivedCtx = ctx; },
+      async register(_app, ctx) {
+        receivedCtx = ctx;
+      },
     };
     const customCtx = createTestContext({
       auth: mockAuth({ user: { id: 'spy-user' } }),

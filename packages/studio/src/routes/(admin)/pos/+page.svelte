@@ -1,54 +1,67 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-      import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { ScanLine, Play, Square, Receipt, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { ScanLine, Play, Square, Receipt, LoaderCircle } from '@lucide/svelte';
 
-  let activeSession = $state<any>(null);
-  let recentOrders = $state<any[]>([]);
-  let zReports = $state<any[]>([]);
-  let loading = $state(true);
-  let openingFloat = $state(0);
-  let closingFloat = $state(0);
+let activeSession = $state<any>(null);
+let recentOrders = $state<any[]>([]);
+let zReports = $state<any[]>([]);
+let loading = $state(true);
+let openingFloat = $state(0);
+let closingFloat = $state(0);
 
-  async function loadAll() {
-    loading = true;
-    try {
-      const [active, orders, reports] = await Promise.all([
-        api.get<{ data: any }>('/ext/operations/pos/sessions/active').catch(() => ({ data: null })),
-        api.get<{ data: any[] }>('/ext/operations/pos/orders?limit=20'),
-        api.get<{ data: any[] }>('/ext/operations/pos/z-reports?limit=10').catch(() => ({ data: [] })),
-      ]);
-      activeSession = active.data;
-      recentOrders = orders.data ?? [];
-      zReports = reports.data ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadAll() {
+  loading = true;
+  try {
+    const [active, orders, reports] = await Promise.all([
+      api.get<{ data: any }>('/ext/operations/pos/sessions/active').catch(() => ({ data: null })),
+      api.get<{ data: any[] }>('/ext/operations/pos/orders?limit=20'),
+      api
+        .get<{ data: any[] }>('/ext/operations/pos/z-reports?limit=10')
+        .catch(() => ({ data: [] })),
+    ]);
+    activeSession = active.data;
+    recentOrders = orders.data ?? [];
+    zReports = reports.data ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function openSession() {
-    try {
-      await api.post('/ext/operations/pos/sessions/open', { opening_float: openingFloat });
-      await loadAll();
-      toast.success(m['operations.pos.toast.sessionOpened']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function openSession() {
+  try {
+    await api.post('/ext/operations/pos/sessions/open', { opening_float: openingFloat });
+    await loadAll();
+    toast.success(m['operations.pos.toast.sessionOpened']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  async function closeSession() {
-    if (!activeSession) return;
-    try {
-      await api.post(`/ext/operations/pos/sessions/${activeSession.id}/close`, { closing_float: closingFloat });
-      await loadAll();
-      toast.success(m['operations.pos.toast.sessionClosed']());
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+async function closeSession() {
+  if (!activeSession) return;
+  try {
+    await api.post(`/ext/operations/pos/sessions/${activeSession.id}/close`, {
+      closing_float: closingFloat,
+    });
+    await loadAll();
+    toast.success(m['operations.pos.toast.sessionClosed']());
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
+}
 
-  onMount(loadAll);
+onMount(loadAll);
 
-  function fmtMoney(n: number) { return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n); }
+function fmtMoney(n: number) {
+  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n);
+}
 </script>
 
 <ExtensionPageShell title={m['operations.pos.title']()} subtitle={m['operations.pos.subtitle']()}>

@@ -1,194 +1,236 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { BarChart2, Plus, Trash2, Play, Grid, Code2, X, GripVertical, RefreshCw } from '@lucide/svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import { api } from '$lib/api.js';
+import { onMount } from 'svelte';
+import {
+  BarChart2,
+  Plus,
+  Trash2,
+  Play,
+  Grid,
+  Code2,
+  X,
+  GripVertical,
+  RefreshCw,
+} from '@lucide/svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import { api } from '$lib/api.js';
 
-  // ── Types ─────────────────────────────────────────────────────────────────────
-  interface Panel {
-    id: string;
-    name: string;
-    type: string;
-    query: string;
-    config: any;
-    position_x: number;
-    position_y: number;
-    width: number;
-    height: number;
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface Panel {
+  id: string;
+  name: string;
+  type: string;
+  query: string;
+  config: any;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+}
+
+interface Dashboard {
+  id: string;
+  name: string;
+  description?: string;
+  icon: string;
+  is_default: boolean;
+  panel_count: number;
+  created_at: string;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let dashboards = $state<Dashboard[]>([]);
+let activeDashboard = $state<Dashboard | null>(null);
+let panels = $state<Panel[]>([]);
+let panelResults = $state<Record<string, { data: any[]; error?: string; loading?: boolean }>>({});
+
+let loadingDashboards = $state(true);
+let loadingPanels = $state(false);
+
+// New dashboard
+let showNewDash = $state(false);
+let newDashName = $state('');
+let newDashDescription = $state('');
+let newDashIcon = $state('BarChart');
+
+// New panel
+let showNewPanel = $state(false);
+let newPanelName = $state('');
+let newPanelType = $state('table');
+let newPanelQuery = $state('');
+let newPanelWidth = $state(6);
+let newPanelHeight = $state(4);
+
+// Ad-hoc query
+let showAdHoc = $state(false);
+let adHocQuery = $state('SELECT');
+let adHocResult = $state<any>(null);
+let adHocError = $state('');
+let adHocRunning = $state(false);
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+const PANEL_TYPES = ['table', 'bar', 'line', 'pie', 'stat', 'text'];
+const DASH_ICONS = [
+  'BarChart',
+  'LineChart',
+  'PieChart',
+  'Activity',
+  'Database',
+  'Globe',
+  'Users',
+  'ShoppingCart',
+];
+
+onMount(loadDashboards);
+
+async function loadDashboards() {
+  loadingDashboards = true;
+  const res = await api
+    .fetch(`/api/insights/dashboards`, { credentials: 'include' })
+    .then((r) => r.json());
+  dashboards = res.dashboards ?? [];
+  if (dashboards.length > 0 && !activeDashboard) {
+    await selectDashboard(dashboards[0]);
   }
+  loadingDashboards = false;
+}
 
-  interface Dashboard {
-    id: string;
-    name: string;
-    description?: string;
-    icon: string;
-    is_default: boolean;
-    panel_count: number;
-    created_at: string;
-  }
+async function selectDashboard(d: Dashboard) {
+  activeDashboard = d;
+  loadingPanels = true;
+  panelResults = {};
+  const res = await api
+    .fetch(`/api/insights/dashboards/${d.id}`, { credentials: 'include' })
+    .then((r) => r.json());
+  panels = res.panels ?? [];
+  loadingPanels = false;
+  // Auto-run all panels
+  panels.forEach((p) => runPanel(p));
+}
 
-  // ── State ─────────────────────────────────────────────────────────────────────
-  let dashboards = $state<Dashboard[]>([]);
-  let activeDashboard = $state<Dashboard | null>(null);
-  let panels = $state<Panel[]>([]);
-  let panelResults = $state<Record<string, { data: any[]; error?: string; loading?: boolean }>>({});
-
-  let loadingDashboards = $state(true);
-  let loadingPanels = $state(false);
-
-  // New dashboard
-  let showNewDash = $state(false);
-  let newDashName = $state('');
-  let newDashDescription = $state('');
-  let newDashIcon = $state('BarChart');
-
-  // New panel
-  let showNewPanel = $state(false);
-  let newPanelName = $state('');
-  let newPanelType = $state('table');
-  let newPanelQuery = $state('');
-  let newPanelWidth = $state(6);
-  let newPanelHeight = $state(4);
-
-  // Ad-hoc query
-  let showAdHoc = $state(false);
-  let adHocQuery = $state('SELECT');
-  let adHocResult = $state<any>(null);
-  let adHocError = $state('');
-  let adHocRunning = $state(false);
-  let confirmState = $state<{ open: boolean; title: string; message: string; confirmLabel?: string; onconfirm: () => void }>({ open: false, title: '', message: '', onconfirm: () => {} });
-
-  const PANEL_TYPES = ['table', 'bar', 'line', 'pie', 'stat', 'text'];
-  const DASH_ICONS = ['BarChart', 'LineChart', 'PieChart', 'Activity', 'Database', 'Globe', 'Users', 'ShoppingCart'];
-
-  onMount(loadDashboards);
-
-  async function loadDashboards() {
-    loadingDashboards = true;
-    const res = await api.fetch(`/api/insights/dashboards`, { credentials: 'include' }).then(r => r.json());
-    dashboards = res.dashboards ?? [];
-    if (dashboards.length > 0 && !activeDashboard) {
-      await selectDashboard(dashboards[0]);
-    }
-    loadingDashboards = false;
-  }
-
-  async function selectDashboard(d: Dashboard) {
-    activeDashboard = d;
-    loadingPanels = true;
-    panelResults = {};
-    const res = await api.fetch(`/api/insights/dashboards/${d.id}`, { credentials: 'include' }).then(r => r.json());
-    panels = res.panels ?? [];
-    loadingPanels = false;
-    // Auto-run all panels
-    panels.forEach(p => runPanel(p));
-  }
-
-  async function createDashboard() {
-    if (!newDashName) return;
-    const res = await api.fetch(`/api/insights/dashboards`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ name: newDashName, description: newDashDescription, icon: newDashIcon }),
-    }).then(r => r.json());
-    showNewDash = false;
-    newDashName = '';
-    newDashDescription = '';
-    await loadDashboards();
-  }
-
-  async function deleteDashboard(id: string) {
-    confirmState = {
-      open: true,
-      title: 'Delete Dashboard',
-      message: 'Delete this dashboard and all its panels?',
-      confirmLabel: 'Delete',
-      onconfirm: async () => {
-        confirmState.open = false;
-        await api.fetch(`/api/insights/dashboards/${id}`, { method: 'DELETE', credentials: 'include' });
-        if (activeDashboard?.id === id) {
-          activeDashboard = null;
-          panels = [];
-        }
-        await loadDashboards();
-      },
-    };
-  }
-
-  async function addPanel() {
-    if (!activeDashboard || !newPanelName || !newPanelQuery) return;
-    await api.fetch(`/api/insights/dashboards/${activeDashboard.id}/panels`, {
+async function createDashboard() {
+  if (!newDashName) return;
+  const res = await api
+    .fetch(`/api/insights/dashboards`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({
-        name: newPanelName,
-        type: newPanelType,
-        query: newPanelQuery,
-        width: newPanelWidth,
-        height: newPanelHeight,
+        name: newDashName,
+        description: newDashDescription,
+        icon: newDashIcon,
       }),
-    });
-    showNewPanel = false;
-    newPanelName = '';
-    newPanelQuery = 'SELECT';
-    await selectDashboard(activeDashboard);
-  }
+    })
+    .then((r) => r.json());
+  showNewDash = false;
+  newDashName = '';
+  newDashDescription = '';
+  await loadDashboards();
+}
 
-  async function deletePanel(id: string) {
-    await api.fetch(`/api/insights/panels/${id}`, { method: 'DELETE', credentials: 'include' });
-    panels = panels.filter(p => p.id !== id);
-    const r = { ...panelResults };
-    delete r[id];
-    panelResults = r;
-  }
+async function deleteDashboard(id: string) {
+  confirmState = {
+    open: true,
+    title: 'Delete Dashboard',
+    message: 'Delete this dashboard and all its panels?',
+    confirmLabel: 'Delete',
+    onconfirm: async () => {
+      confirmState.open = false;
+      await api.fetch(`/api/insights/dashboards/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (activeDashboard?.id === id) {
+        activeDashboard = null;
+        panels = [];
+      }
+      await loadDashboards();
+    },
+  };
+}
 
-  async function runPanel(p: Panel) {
-    panelResults = { ...panelResults, [p.id]: { data: [], loading: true } };
-    const res = await api.fetch(`/api/insights/panels/${p.id}/execute`, {
+async function addPanel() {
+  if (!activeDashboard || !newPanelName || !newPanelQuery) return;
+  await api.fetch(`/api/insights/dashboards/${activeDashboard.id}/panels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      name: newPanelName,
+      type: newPanelType,
+      query: newPanelQuery,
+      width: newPanelWidth,
+      height: newPanelHeight,
+    }),
+  });
+  showNewPanel = false;
+  newPanelName = '';
+  newPanelQuery = 'SELECT';
+  await selectDashboard(activeDashboard);
+}
+
+async function deletePanel(id: string) {
+  await api.fetch(`/api/insights/panels/${id}`, { method: 'DELETE', credentials: 'include' });
+  panels = panels.filter((p) => p.id !== id);
+  const r = { ...panelResults };
+  delete r[id];
+  panelResults = r;
+}
+
+async function runPanel(p: Panel) {
+  panelResults = { ...panelResults, [p.id]: { data: [], loading: true } };
+  const res = await api
+    .fetch(`/api/insights/panels/${p.id}/execute`, {
       method: 'POST',
       credentials: 'include',
-    }).then(r => r.json());
-    panelResults = {
-      ...panelResults,
-      [p.id]: {
-        data: res.data ?? [],
-        error: res.error,
-        loading: false,
-      },
-    };
-  }
+    })
+    .then((r) => r.json());
+  panelResults = {
+    ...panelResults,
+    [p.id]: {
+      data: res.data ?? [],
+      error: res.error,
+      loading: false,
+    },
+  };
+}
 
-  async function runAdHoc() {
-    adHocRunning = true;
-    adHocError = '';
-    adHocResult = null;
-    const res = await api.fetch(`/api/insights/query`, {
+async function runAdHoc() {
+  adHocRunning = true;
+  adHocError = '';
+  adHocResult = null;
+  const res = await api
+    .fetch(`/api/insights/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ query: adHocQuery }),
-    }).then(r => r.json());
-    if (res.error) adHocError = res.error;
-    else adHocResult = res;
-    adHocRunning = false;
-  }
+    })
+    .then((r) => r.json());
+  if (res.error) adHocError = res.error;
+  else adHocResult = res;
+  adHocRunning = false;
+}
 
-  function panelColumns(p: Panel): string[] {
-    const res = panelResults[p.id];
-    if (!res?.data?.length) return [];
-    return Object.keys(res.data[0]);
-  }
+function panelColumns(p: Panel): string[] {
+  const res = panelResults[p.id];
+  if (!res?.data?.length) return [];
+  return Object.keys(res.data[0]);
+}
 
-  function statValue(p: Panel): string {
-    const res = panelResults[p.id];
-    if (!res?.data?.length) return '—';
-    const first = res.data[0];
-    const val = Object.values(first)[0];
-    return String(val ?? '—');
-  }
+function statValue(p: Panel): string {
+  const res = panelResults[p.id];
+  if (!res?.data?.length) return '—';
+  const first = res.data[0];
+  const val = Object.values(first)[0];
+  return String(val ?? '—');
+}
 </script>
 
 <div class="space-y-0">

@@ -415,7 +415,10 @@ function walkPages(dir: string, out: string[] = []): string[] {
 function ensureMImport(c: string): string {
   if (c.includes("from '$lib/i18n")) return c;
   if (!c.includes("m['") && !c.includes('m[')) return c;
-  return c.replace(/<script lang="ts">\n/, "<script lang=\"ts\">\n  import { m } from '$lib/i18n.svelte.js';\n");
+  return c.replace(
+    /<script lang="ts">\n/,
+    '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+  );
 }
 
 function applyGlobal(c: string): string {
@@ -477,8 +480,9 @@ function autoKeyLabels(c: string, extKey: string): { content: string; added: num
       ro[key] = translateRo(text);
       added++;
       const mCall = `m['${key}']()`;
-      const replacement =
-        m[0].includes('placeholder="') ? m[0].replace(`placeholder="${text}"`, `placeholder={${mCall}}`) : m[0].replace(text, `{${mCall}}`);
+      const replacement = m[0].includes('placeholder="')
+        ? m[0].replace(`placeholder="${text}"`, `placeholder={${mCall}}`)
+        : m[0].replace(text, `{${mCall}}`);
       out = out.replaceAll(m[0], replacement);
     }
     c = out;
@@ -489,11 +493,11 @@ function autoKeyLabels(c: string, extKey: string): { content: string; added: num
 function translateRo(text: string): string {
   const exact: Record<string, string> = {
     'New Chat': 'Chat nou',
-    'Send': 'Trimite',
-    'Add': 'Adaugă',
-    'Remove': 'Elimină',
-    'Upload': 'Încarcă',
-    'Download': 'Descarcă',
+    Send: 'Trimite',
+    Add: 'Adaugă',
+    Remove: 'Elimină',
+    Upload: 'Încarcă',
+    Download: 'Descarcă',
     'Search…': 'Caută…',
     'No data yet.': 'Nicio dată încă.',
     'Loading…': 'Se încarcă…',
@@ -540,7 +544,7 @@ function patchAiTabs(c: string): string {
     { id: 'settings', labelKey: 'ai.tab.settings', icon: Settings2 },
   ];`,
     )
-    .replaceAll('{tab.label}', "{m[tab.labelKey]()}")
+    .replaceAll('{tab.label}', '{m[tab.labelKey]()}')
     .replaceAll('>{tab.label}<', '>{m[tab.labelKey]()}<');
 }
 

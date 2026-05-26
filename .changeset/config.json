@@ -3,9 +3,7 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [],
-  "linked": [
-    ["@zveltio/sdk", "@zveltio/react", "@zveltio/vue", "@zveltio/cli"]
-  ],
+  "linked": [["@zveltio/sdk", "@zveltio/react", "@zveltio/vue", "@zveltio/cli"]],
   "access": "public",
   "baseBranch": "master",
   "updateInternalDependencies": "patch",

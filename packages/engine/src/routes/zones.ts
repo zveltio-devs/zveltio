@@ -45,37 +45,59 @@ import { zoneRenderRequests, zoneAccessDenied, viewQueryDuration } from '../lib/
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
 const ZoneCreateSchema = z.object({
-  name:             z.string().min(1).max(100),
-  slug:             z.string().min(1).max(50).regex(/^[a-z0-9-]+$/),
-  description:      z.string().max(500).optional(),
-  is_active:        z.boolean().optional(),
-  access_roles:     z.array(z.string()).optional(),
+  name: z.string().min(1).max(100),
+  slug: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z0-9-]+$/),
+  description: z.string().max(500).optional(),
+  is_active: z.boolean().optional(),
+  access_roles: z.array(z.string()).optional(),
   // base_path = URL prefix for this zone's pages.
   // Use "/" to serve pages at root (ddd.com/pagina instead of ddd.com/client-portal/pagina).
   // Defaults to "/<slug>" if not provided.
-  base_path:        z.string().min(1).max(200).optional(),
-  site_name:        z.string().max(100).nullable().optional(),
-  site_logo_url:    z.preprocess(v => v === '' ? null : v, z.string().url().nullable().optional()),
-  primary_color:    z.preprocess(v => v === '' ? null : v, z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional()),
-  secondary_color:  z.preprocess(v => v === '' ? null : v, z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional()),
-  custom_css:       z.string().max(50_000).nullable().optional(),
-  nav_position:     z.enum(['sidebar', 'topbar', 'both']).optional(),
+  base_path: z.string().min(1).max(200).optional(),
+  site_name: z.string().max(100).nullable().optional(),
+  site_logo_url: z.preprocess((v) => (v === '' ? null : v), z.string().url().nullable().optional()),
+  primary_color: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .nullable()
+      .optional(),
+  ),
+  secondary_color: z.preprocess(
+    (v) => (v === '' ? null : v),
+    z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .nullable()
+      .optional(),
+  ),
+  custom_css: z.string().max(50_000).nullable().optional(),
+  nav_position: z.enum(['sidebar', 'topbar', 'both']).optional(),
   show_breadcrumbs: z.boolean().optional(),
 });
 
 const ZoneUpdateSchema = ZoneCreateSchema.partial();
 
 const PageCreateSchema = z.object({
-  title:         z.string().min(1).max(200),
-  slug:          z.string().min(1).max(100).regex(/^[a-z0-9/-]+$/),
-  icon:          z.string().max(50).optional(),
-  description:   z.string().max(500).optional(),
-  is_active:     z.boolean().optional(),
-  is_homepage:   z.boolean().optional(),
+  title: z.string().min(1).max(200),
+  slug: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-z0-9/-]+$/),
+  icon: z.string().max(50).optional(),
+  description: z.string().max(500).optional(),
+  is_active: z.boolean().optional(),
+  is_homepage: z.boolean().optional(),
   auth_required: z.boolean().optional(),
   allowed_roles: z.array(z.string()).optional(),
-  parent_id:     z.string().uuid().nullable().optional(),
-  sort_order:    z.number().int().min(0).optional(),
+  parent_id: z.string().uuid().nullable().optional(),
+  sort_order: z.number().int().min(0).optional(),
 });
 
 const PageUpdateSchema = PageCreateSchema.partial();
@@ -85,26 +107,35 @@ const ReorderSchema = z.object({
 });
 
 const ViewCreateSchema = z.object({
-  name:        z.string().min(1).max(100),
+  name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
-  collection:  z.string().min(1).max(100),
-  view_type:   z.enum(['table', 'kanban', 'calendar', 'gallery', 'stats', 'chart', 'list', 'timeline']),
-  fields:      z.array(z.record(z.string(), z.unknown())).optional(),
-  filters:     z.array(z.record(z.string(), z.unknown())).optional(),
-  sort_field:  z.string().optional(),
-  sort_dir:    z.enum(['asc', 'desc']).optional(),
-  page_size:   z.number().int().min(1).max(500).optional(),
-  config:      z.record(z.string(), z.unknown()).optional(),
-  is_public:   z.boolean().optional(),
+  collection: z.string().min(1).max(100),
+  view_type: z.enum([
+    'table',
+    'kanban',
+    'calendar',
+    'gallery',
+    'stats',
+    'chart',
+    'list',
+    'timeline',
+  ]),
+  fields: z.array(z.record(z.string(), z.unknown())).optional(),
+  filters: z.array(z.record(z.string(), z.unknown())).optional(),
+  sort_field: z.string().optional(),
+  sort_dir: z.enum(['asc', 'desc']).optional(),
+  page_size: z.number().int().min(1).max(500).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+  is_public: z.boolean().optional(),
 });
 
 const ViewUpdateSchema = ViewCreateSchema.partial();
 
 const PageViewAddSchema = z.object({
-  view_id:        z.string().uuid(),
+  view_id: z.string().uuid(),
   title_override: z.string().max(200).nullable().optional(),
-  col_span:       z.number().int().min(1).max(12).optional(),
-  sort_order:     z.number().int().min(0).optional(),
+  col_span: z.number().int().min(1).max(12).optional(),
+  sort_order: z.number().int().min(0).optional(),
   config_override: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -149,11 +180,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const denied = await requireAdmin(c);
     if (denied) return denied;
 
-    const zones = await db
-      .selectFrom('zvd_zones')
-      .selectAll()
-      .orderBy('name asc')
-      .execute();
+    const zones = await db.selectFrom('zvd_zones').selectAll().orderBy('name asc').execute();
 
     return c.json({ zones });
   });
@@ -168,18 +195,18 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const zone = await db
       .insertInto('zvd_zones')
       .values({
-        name:             data.name,
-        slug:             data.slug,
-        description:      data.description ?? null,
-        is_active:        data.is_active ?? false,
-        access_roles:     data.access_roles ?? [],
-        base_path:        data.base_path ?? `/${data.slug}`,
-        site_name:        data.site_name ?? null,
-        site_logo_url:    data.site_logo_url ?? null,
-        primary_color:    data.primary_color ?? '#069494',
-        secondary_color:  data.secondary_color ?? null,
-        custom_css:       data.custom_css ?? null,
-        nav_position:     data.nav_position ?? 'sidebar',
+        name: data.name,
+        slug: data.slug,
+        description: data.description ?? null,
+        is_active: data.is_active ?? false,
+        access_roles: data.access_roles ?? [],
+        base_path: data.base_path ?? `/${data.slug}`,
+        site_name: data.site_name ?? null,
+        site_logo_url: data.site_logo_url ?? null,
+        primary_color: data.primary_color ?? '#069494',
+        secondary_color: data.secondary_color ?? null,
+        custom_css: data.custom_css ?? null,
+        nav_position: data.nav_position ?? 'sidebar',
         show_breadcrumbs: data.show_breadcrumbs ?? true,
       })
       .returningAll()
@@ -225,10 +252,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const denied = await requireAdmin(c);
     if (denied) return denied;
 
-    await db
-      .deleteFrom('zvd_zones')
-      .where('slug', '=', c.req.param('slug'))
-      .execute();
+    await db.deleteFrom('zvd_zones').where('slug', '=', c.req.param('slug')).execute();
 
     return c.json({ success: true });
   });
@@ -286,17 +310,17 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const page = await db
       .insertInto('zvd_pages')
       .values({
-        zone_id:       zone.id,
-        title:         data.title,
-        slug:          data.slug,
-        icon:          data.icon ?? null,
-        description:   data.description ?? null,
-        is_active:     data.is_active ?? true,
-        is_homepage:   data.is_homepage ?? false,
+        zone_id: zone.id,
+        title: data.title,
+        slug: data.slug,
+        icon: data.icon ?? null,
+        description: data.description ?? null,
+        is_active: data.is_active ?? true,
+        is_homepage: data.is_homepage ?? false,
         auth_required: data.auth_required ?? true,
         allowed_roles: data.allowed_roles ?? [],
-        parent_id:     data.parent_id ?? null,
-        sort_order:    data.sort_order ?? 0,
+        parent_id: data.parent_id ?? null,
+        sort_order: data.sort_order ?? 0,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -371,11 +395,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
     await Promise.all(
       ids.map((id, index) =>
-        db
-          .updateTable('zvd_pages')
-          .set({ sort_order: index })
-          .where('id', '=', id)
-          .execute(),
+        db.updateTable('zvd_pages').set({ sort_order: index }).where('id', '=', id).execute(),
       ),
     );
 
@@ -404,8 +424,15 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .innerJoin('zvd_views as v', 'v.id', 'pv.view_id')
       .selectAll('pv')
       .select([
-        'v.name', 'v.collection', 'v.view_type', 'v.fields',
-        'v.filters', 'v.sort_field', 'v.sort_dir', 'v.page_size', 'v.config',
+        'v.name',
+        'v.collection',
+        'v.view_type',
+        'v.fields',
+        'v.filters',
+        'v.sort_field',
+        'v.sort_dir',
+        'v.page_size',
+        'v.config',
       ])
       .where('pv.page_id', '=', page.id)
       .orderBy('pv.sort_order asc')
@@ -434,11 +461,11 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const pv = await db
       .insertInto('zvd_page_views')
       .values({
-        page_id:         page.id,
-        view_id:         data.view_id,
-        title_override:  data.title_override ?? null,
-        col_span:        data.col_span ?? 12,
-        sort_order:      data.sort_order ?? 0,
+        page_id: page.id,
+        view_id: data.view_id,
+        title_override: data.title_override ?? null,
+        col_span: data.col_span ?? 12,
+        sort_order: data.sort_order ?? 0,
         config_override: JSON.stringify(data.config_override ?? {}),
       })
       .returningAll()
@@ -480,11 +507,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
     await Promise.all(
       ids.map((id, index) =>
-        db
-          .updateTable('zvd_page_views')
-          .set({ sort_order: index })
-          .where('id', '=', id)
-          .execute(),
+        db.updateTable('zvd_page_views').set({ sort_order: index }).where('id', '=', id).execute(),
       ),
     );
 
@@ -584,8 +607,15 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .innerJoin('zvd_views as v', 'v.id', 'pv.view_id')
       .selectAll('pv')
       .select([
-        'v.name', 'v.collection', 'v.view_type', 'v.fields',
-        'v.filters', 'v.sort_field', 'v.sort_dir', 'v.page_size', 'v.config',
+        'v.name',
+        'v.collection',
+        'v.view_type',
+        'v.fields',
+        'v.filters',
+        'v.sort_field',
+        'v.sort_dir',
+        'v.page_size',
+        'v.config',
       ])
       .where('pv.page_id', '=', page.id)
       .orderBy('pv.sort_order asc')
@@ -594,14 +624,19 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     // Track view query duration per view
     const viewQueryMs = Date.now() - _viewQueryStart;
     for (const vr of viewRows) {
-      viewQueryDuration.observe({ view_id: vr.view_id, collection: vr.collection }, viewQueryMs / viewRows.length);
+      viewQueryDuration.observe(
+        { view_id: vr.view_id, collection: vr.collection },
+        viewQueryMs / viewRows.length,
+      );
     }
 
     // Resolve view definitions + fetch data for each view from its collection
     const views = await Promise.all(
       viewRows.map(async (vr) => {
-        const parsedFields: any[] = typeof vr.fields === 'string' ? JSON.parse(vr.fields) : (vr.fields ?? []);
-        const parsedFilters: any[] = typeof vr.filters === 'string' ? JSON.parse(vr.filters) : (vr.filters ?? []);
+        const parsedFields: any[] =
+          typeof vr.fields === 'string' ? JSON.parse(vr.fields) : (vr.fields ?? []);
+        const parsedFilters: any[] =
+          typeof vr.filters === 'string' ? JSON.parse(vr.filters) : (vr.filters ?? []);
         const pageSize = vr.page_size ?? 20;
         const tableName = `zvd_${vr.collection}`;
 
@@ -616,28 +651,30 @@ export function zonesRoutes(db: Database, auth: any): Hono {
             if (!f.field || !f.op) continue;
             if (f.op === 'eq') q = q.where(f.field, '=', f.value);
             else if (f.op === 'neq') q = q.where(f.field, '!=', f.value);
-            else if (f.op === 'gt')  q = q.where(f.field, '>', f.value);
-            else if (f.op === 'lt')  q = q.where(f.field, '<', f.value);
+            else if (f.op === 'gt') q = q.where(f.field, '>', f.value);
+            else if (f.op === 'lt') q = q.where(f.field, '<', f.value);
             else if (f.op === 'gte') q = q.where(f.field, '>=', f.value);
             else if (f.op === 'lte') q = q.where(f.field, '<=', f.value);
           }
 
           records = await q.execute();
-        } catch { /* table may not exist yet */ }
+        } catch {
+          /* table may not exist yet */
+        }
 
         return {
-          id:             vr.id,
+          id: vr.id,
           title_override: vr.title_override,
-          col_span:       vr.col_span,
+          col_span: vr.col_span,
           definition: {
-            name:       vr.name,
-            view_type:  vr.view_type,
+            name: vr.name,
+            view_type: vr.view_type,
             collection: vr.collection,
-            fields:     parsedFields,
-            filters:    parsedFilters,
+            fields: parsedFields,
+            filters: parsedFilters,
             sort_field: vr.sort_field,
-            sort_dir:   vr.sort_dir,
-            config:     typeof vr.config === 'string' ? JSON.parse(vr.config) : (vr.config ?? {}),
+            sort_dir: vr.sort_dir,
+            config: typeof vr.config === 'string' ? JSON.parse(vr.config) : (vr.config ?? {}),
           },
           data: { records },
         };
@@ -646,12 +683,12 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
     return c.json({
       zone: {
-        id:            zone.id,
-        name:          zone.name,
-        slug:          zone.slug,
-        base_path:     zone.base_path,
+        id: zone.id,
+        name: zone.name,
+        slug: zone.slug,
+        base_path: zone.base_path,
         primary_color: zone.primary_color,
-        nav_position:  zone.nav_position,
+        nav_position: zone.nav_position,
         show_breadcrumbs: zone.show_breadcrumbs,
       },
       page,
@@ -700,7 +737,8 @@ export function viewsRoutes(db: Database, auth: any): Hono {
 
     const [views, countRow] = await Promise.all([
       query.orderBy('name asc').limit(limit).offset(offset).execute(),
-      db.selectFrom('zvd_views')
+      db
+        .selectFrom('zvd_views')
         .select((eb) => eb.fn.countAll().as('total'))
         .executeTakeFirst(),
     ]);
@@ -719,18 +757,18 @@ export function viewsRoutes(db: Database, auth: any): Hono {
     const view = await db
       .insertInto('zvd_views')
       .values({
-        name:        data.name,
+        name: data.name,
         description: data.description ?? null,
-        collection:  data.collection,
-        view_type:   data.view_type,
-        fields:      JSON.stringify(data.fields ?? []),
-        filters:     JSON.stringify(data.filters ?? []),
-        sort_field:  data.sort_field ?? null,
-        sort_dir:    data.sort_dir ?? 'desc',
-        page_size:   data.page_size ?? 20,
-        config:      JSON.stringify(data.config ?? {}),
-        is_public:   data.is_public ?? false,
-        created_by:  user?.id ?? null,
+        collection: data.collection,
+        view_type: data.view_type,
+        fields: JSON.stringify(data.fields ?? []),
+        filters: JSON.stringify(data.filters ?? []),
+        sort_field: data.sort_field ?? null,
+        sort_dir: data.sort_dir ?? 'desc',
+        page_size: data.page_size ?? 20,
+        config: JSON.stringify(data.config ?? {}),
+        is_public: data.is_public ?? false,
+        created_by: user?.id ?? null,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -780,10 +818,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
     const denied = await requireAdmin(c);
     if (denied) return denied;
 
-    await db
-      .deleteFrom('zvd_views')
-      .where('id', '=', c.req.param('id'))
-      .execute();
+    await db.deleteFrom('zvd_views').where('id', '=', c.req.param('id')).execute();
 
     return c.json({ success: true });
   });

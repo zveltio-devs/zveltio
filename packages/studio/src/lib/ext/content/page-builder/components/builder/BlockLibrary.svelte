@@ -1,23 +1,23 @@
 <script lang="ts">
-  import { LIBRARY, type LibraryBlock } from '../../lib/builder-types.js';
+import { LIBRARY, type LibraryBlock } from '../../lib/builder-types.js';
 
-  let { onAdd }: { onAdd: (b: any) => void } = $props();
+let { onAdd }: { onAdd: (b: any) => void } = $props();
 
-  const cats = [
-    { key: 'layout',  label: 'Layout' },
-    { key: 'content', label: 'Content' },
-    { key: 'media',   label: 'Media' },
-    { key: 'zveltio', label: 'Zveltio' },
-  ] as const;
+const cats = [
+  { key: 'layout', label: 'Layout' },
+  { key: 'content', label: 'Content' },
+  { key: 'media', label: 'Media' },
+  { key: 'zveltio', label: 'Zveltio' },
+] as const;
 
-  function make(item: LibraryBlock) {
-    return { id: crypto.randomUUID(), type: item.type, props: { ...item.defaultProps }, style: {} };
-  }
+function make(item: LibraryBlock) {
+  return { id: crypto.randomUUID(), type: item.type, props: { ...item.defaultProps }, style: {} };
+}
 
-  function onDragStart(e: DragEvent, item: LibraryBlock) {
-    e.dataTransfer!.setData('text/block-type', item.type);
-    e.dataTransfer!.effectAllowed = 'copy';
-  }
+function onDragStart(e: DragEvent, item: LibraryBlock) {
+  e.dataTransfer!.setData('text/block-type', item.type);
+  e.dataTransfer!.effectAllowed = 'copy';
+}
 </script>
 
 <div class="w-52 shrink-0 bg-base-100 border-r border-base-300 overflow-y-auto flex flex-col">

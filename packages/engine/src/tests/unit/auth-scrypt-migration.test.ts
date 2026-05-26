@@ -79,8 +79,14 @@ describe('S4-09 countLegacyScryptHashes — query shape', () => {
       selectFrom(table: string) {
         calls.push({ method: 'selectFrom', args: [table] });
         const builder: any = {
-          select(_fn: any) { calls.push({ method: 'select', args: [] }); return builder; },
-          where(...args: unknown[]) { calls.push({ method: 'where', args }); return builder; },
+          select(_fn: any) {
+            calls.push({ method: 'select', args: [] });
+            return builder;
+          },
+          where(...args: unknown[]) {
+            calls.push({ method: 'where', args });
+            return builder;
+          },
           executeTakeFirst: async () => ({ count: 5 }),
         };
         return builder;
@@ -98,7 +104,9 @@ describe('S4-09 countLegacyScryptHashes — query shape', () => {
 
   it('returns 0 when the table does not exist (fresh install)', async () => {
     const stubDb: any = {
-      selectFrom() { throw new Error('relation "account" does not exist'); },
+      selectFrom() {
+        throw new Error('relation "account" does not exist');
+      },
     };
     const n = await countLegacyScryptHashes(stubDb);
     expect(n).toBe(0);

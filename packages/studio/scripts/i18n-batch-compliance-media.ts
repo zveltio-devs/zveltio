@@ -17,14 +17,20 @@ const KEYS: Record<string, { en: string; ro: string }> = {
   'compliance.ro.saft.tab.exports': { en: 'Exports', ro: 'Exporturi' },
   'compliance.ro.saft.tab.accounts': { en: 'Accounts', ro: 'Conturi' },
   'compliance.ro.saft.tab.entries': { en: 'Journal Entries', ro: 'Înregistrări jurnal' },
-  'compliance.ro.saft.emptyExports': { en: 'No SAF-T exports yet.', ro: 'Niciun export SAF-T încă.' },
+  'compliance.ro.saft.emptyExports': {
+    en: 'No SAF-T exports yet.',
+    ro: 'Niciun export SAF-T încă.',
+  },
   'compliance.ro.saft.col.period': { en: 'Period', ro: 'Perioadă' },
   'compliance.ro.saft.col.company': { en: 'Company', ro: 'Companie' },
   'compliance.ro.saft.col.cui': { en: 'CUI', ro: 'CUI' },
   'compliance.ro.saft.col.document': { en: 'Document', ro: 'Document' },
   'compliance.ro.saft.btn.generateXml': { en: 'XML', ro: 'XML' },
   'compliance.ro.saft.btn.createExport': { en: 'Create Export', ro: 'Creează export' },
-  'compliance.ro.saft.toast.submissionFailed': { en: 'Submission failed', ro: 'Trimiterea a eșuat' },
+  'compliance.ro.saft.toast.submissionFailed': {
+    en: 'Submission failed',
+    ro: 'Trimiterea a eșuat',
+  },
   'compliance.ro.saft.accountType.balance': { en: 'Balance', ro: 'Bilanț' },
   'ecommerce.store.btn.newProduct': { en: 'New Product', ro: 'Produs nou' },
   'ecommerce.store.stat.revenue': { en: 'Revenue', ro: 'Venituri' },
@@ -41,7 +47,10 @@ const KEYS: Record<string, { en: string; ro: string }> = {
   'ecommerce.store.btn.create': { en: 'Create', ro: 'Creează' },
   'content.media.section.storage': { en: 'Storage', ro: 'Stocare' },
   'content.media.empty.files': { en: 'No files found', ro: 'Niciun fișier' },
-  'content.media.empty.filesHint': { en: 'Upload files or change filters', ro: 'Încarcă fișiere sau schimbă filtrele' },
+  'content.media.empty.filesHint': {
+    en: 'Upload files or change filters',
+    ro: 'Încarcă fișiere sau schimbă filtrele',
+  },
   'content.media.detail.size': { en: 'Size', ro: 'Dimensiune' },
   'content.media.detail.dimensions': { en: 'Dimensions', ro: 'Dimensiuni' },
   'content.media.detail.uploaded': { en: 'Uploaded', ro: 'Încărcat' },
@@ -84,24 +93,48 @@ dedupeAtSecondLoading('compliance/ro/saft/studio/pages/+page.svelte');
 dedupeAtSecondLoading('ecommerce/store/studio/pages/+page.svelte');
 
 patch('compliance/ro/saft/studio/pages/+page.svelte', [
-  ['<Plus size={14} /> New Export</button>', '<Plus size={14} /> {m[\'compliance.ro.saft.btn.newExport\']()}</button>'],
-  ['<Plus size={14} /> Add Account</button>', '<Plus size={14} /> {m[\'compliance.ro.saft.btn.addAccount\']()}</button>'],
-  ['<Plus size={14} /> Add Entry</button>', '<Plus size={14} /> {m[\'compliance.ro.saft.btn.addEntry\']()}</button>'],
-  ["[['exports', 'Exports'], ['accounts', 'Accounts'], ['entries', 'Journal Entries']]", "[['exports', m['compliance.ro.saft.tab.exports']()], ['accounts', m['compliance.ro.saft.tab.accounts']()], ['entries', m['compliance.ro.saft.tab.entries']()]]"],
+  [
+    '<Plus size={14} /> New Export</button>',
+    "<Plus size={14} /> {m['compliance.ro.saft.btn.newExport']()}</button>",
+  ],
+  [
+    '<Plus size={14} /> Add Account</button>',
+    "<Plus size={14} /> {m['compliance.ro.saft.btn.addAccount']()}</button>",
+  ],
+  [
+    '<Plus size={14} /> Add Entry</button>',
+    "<Plus size={14} /> {m['compliance.ro.saft.btn.addEntry']()}</button>",
+  ],
+  [
+    "[['exports', 'Exports'], ['accounts', 'Accounts'], ['entries', 'Journal Entries']]",
+    "[['exports', m['compliance.ro.saft.tab.exports']()], ['accounts', m['compliance.ro.saft.tab.accounts']()], ['entries', m['compliance.ro.saft.tab.entries']()]]",
+  ],
   ['No SAF-T exports yet.', "{m['compliance.ro.saft.emptyExports']()}"],
-  ['<th>Period</th>', '<th>{m[\'compliance.ro.saft.col.period\']()}</th>'],
-  ['<th>Company</th>', '<th>{m[\'compliance.ro.saft.col.company\']()}</th>'],
-  ['<th>CUI</th>', '<th>{m[\'compliance.ro.saft.col.cui\']()}</th>'],
-  ['<th>Document</th>', '<th>{m[\'compliance.ro.saft.col.document\']()}</th>'],
+  ['<th>Period</th>', "<th>{m['compliance.ro.saft.col.period']()}</th>"],
+  ['<th>Company</th>', "<th>{m['compliance.ro.saft.col.company']()}</th>"],
+  ['<th>CUI</th>', "<th>{m['compliance.ro.saft.col.cui']()}</th>"],
+  ['<th>Document</th>', "<th>{m['compliance.ro.saft.col.document']()}</th>"],
   [
     `onclick={() => {m['compliance.ro.saft.ui.generatexml_exp_id_xml']()}</button>`,
     `onclick={() => generateXML(exp.id)}>{m['compliance.ro.saft.btn.generateXml']()}</button>`,
   ],
   [' Create Export', " {m['compliance.ro.saft.btn.createExport']()}"],
-  ['<span class="label-text text-xs">Description</span>', '<span class="label-text text-xs">{m[\'common.col.description\']()}</span>'],
-  ['<span class="label-text text-xs">Type</span>', '<span class="label-text text-xs">{m[\'common.col.type\']()}</span>'],
-  ['<span class="label-text text-xs">Date</span>', '<span class="label-text text-xs">{m[\'common.col.date\']()}</span>'],
-  ["toast.error(e?.message ?? 'Submission failed')", "toast.error(e?.message ?? m['compliance.ro.saft.toast.submissionFailed']())"],
+  [
+    '<span class="label-text text-xs">Description</span>',
+    '<span class="label-text text-xs">{m[\'common.col.description\']()}</span>',
+  ],
+  [
+    '<span class="label-text text-xs">Type</span>',
+    '<span class="label-text text-xs">{m[\'common.col.type\']()}</span>',
+  ],
+  [
+    '<span class="label-text text-xs">Date</span>',
+    '<span class="label-text text-xs">{m[\'common.col.date\']()}</span>',
+  ],
+  [
+    "toast.error(e?.message ?? 'Submission failed')",
+    "toast.error(e?.message ?? m['compliance.ro.saft.toast.submissionFailed']())",
+  ],
 ]);
 
 patch('ecommerce/store/studio/pages/+page.svelte', [
@@ -149,25 +182,49 @@ patch('ecommerce/store/studio/pages/+page.svelte', [
     </div>
   {/if}`,
   ],
-  ['<Tag size={13} class="mr-1.5" /> Products', '<Tag size={13} class="mr-1.5" /> {m[\'ecommerce.store.tab.products\']()}'],
-  ['<ShoppingCart size={13} class="mr-1.5" /> Orders', '<ShoppingCart size={13} class="mr-1.5" /> {m[\'ecommerce.store.tab.orders\']()}'],
+  [
+    '<Tag size={13} class="mr-1.5" /> Products',
+    '<Tag size={13} class="mr-1.5" /> {m[\'ecommerce.store.tab.products\']()}',
+  ],
+  [
+    '<ShoppingCart size={13} class="mr-1.5" /> Orders',
+    '<ShoppingCart size={13} class="mr-1.5" /> {m[\'ecommerce.store.tab.orders\']()}',
+  ],
   ['No products yet', "{m['ecommerce.store.empty.products']()}"],
   ['No orders yet', "{m['ecommerce.store.empty.orders']()}"],
-  ['<th>Stock</th>', '<th>{m[\'ecommerce.store.col.stock\']()}</th>'],
+  ['<th>Stock</th>', "<th>{m['ecommerce.store.col.stock']()}</th>"],
   ["'Inactive'", "m['ecommerce.store.status.inactive']()"],
-  ['<th>Order #</th>', '<th>{m[\'ecommerce.store.col.orderNumber\']()}</th>'],
-  ['<th>Customer</th>', '<th>{m[\'ecommerce.store.col.customer\']()}</th>'],
-  ['{/if}Create', '{/if}{m[\'ecommerce.store.btn.create\']()}'],
+  ['<th>Order #</th>', "<th>{m['ecommerce.store.col.orderNumber']()}</th>"],
+  ['<th>Customer</th>', "<th>{m['ecommerce.store.col.customer']()}</th>"],
+  ['{/if}Create', "{/if}{m['ecommerce.store.btn.create']()}"],
 ]);
 
 patch('content/media/studio/pages/+page.svelte', [
-  ['<h4 class="font-bold text-sm mb-2">Storage</h4>', '<h4 class="font-bold text-sm mb-2">{m[\'content.media.section.storage\']()}</h4>'],
-  ['<p>No files found</p>', '<p>{m[\'content.media.empty.files\']()}</p>'],
-  ['<p class="text-sm">Upload files or change filters</p>', '<p class="text-sm">{m[\'content.media.empty.filesHint\']()}</p>'],
-  ['<div class="text-xs opacity-60">Size</div>', '<div class="text-xs opacity-60">{m[\'content.media.detail.size\']()}</div>'],
-  ['<div class="text-xs opacity-60">Dimensions</div>', '<div class="text-xs opacity-60">{m[\'content.media.detail.dimensions\']()}</div>'],
-  ['<div class="text-xs opacity-60">Uploaded</div>', '<div class="text-xs opacity-60">{m[\'content.media.detail.uploaded\']()}</div>'],
-  ['<div class="text-xs opacity-60 mb-1">Tags</div>', '<div class="text-xs opacity-60 mb-1">{m[\'content.media.detail.tags\']()}</div>'],
+  [
+    '<h4 class="font-bold text-sm mb-2">Storage</h4>',
+    '<h4 class="font-bold text-sm mb-2">{m[\'content.media.section.storage\']()}</h4>',
+  ],
+  ['<p>No files found</p>', "<p>{m['content.media.empty.files']()}</p>"],
+  [
+    '<p class="text-sm">Upload files or change filters</p>',
+    '<p class="text-sm">{m[\'content.media.empty.filesHint\']()}</p>',
+  ],
+  [
+    '<div class="text-xs opacity-60">Size</div>',
+    '<div class="text-xs opacity-60">{m[\'content.media.detail.size\']()}</div>',
+  ],
+  [
+    '<div class="text-xs opacity-60">Dimensions</div>',
+    '<div class="text-xs opacity-60">{m[\'content.media.detail.dimensions\']()}</div>',
+  ],
+  [
+    '<div class="text-xs opacity-60">Uploaded</div>',
+    '<div class="text-xs opacity-60">{m[\'content.media.detail.uploaded\']()}</div>',
+  ],
+  [
+    '<div class="text-xs opacity-60 mb-1">Tags</div>',
+    '<div class="text-xs opacity-60 mb-1">{m[\'content.media.detail.tags\']()}</div>',
+  ],
 ]);
 
 writeFileSync(EN, JSON.stringify(en, null, 2) + '\n');

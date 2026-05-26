@@ -1,59 +1,68 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-        import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { FileInput, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { FileInput, LoaderCircle } from '@lucide/svelte';
 
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  let forms = $state<any[]>([]);
-  let loading = $state(true);
-  let togglingId = $state<string | null>(null);
+let forms = $state<any[]>([]);
+let loading = $state(true);
+let togglingId = $state<string | null>(null);
 
-  onMount(loadForms);
+onMount(loadForms);
 
-  async function loadForms() {
-    loading = true;
-    try {
-      const res = await api.get<{ forms: any[] }>('/ext/forms');
-      forms = res.forms ?? [];
-    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
-    finally { loading = false; }
+async function loadForms() {
+  loading = true;
+  try {
+    const res = await api.get<{ forms: any[] }>('/ext/forms');
+    forms = res.forms ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  } finally {
+    loading = false;
   }
+}
 
-  async function toggleActive(form: any) {
-    togglingId = form.id;
-    try {
-      await api.patch(`/ext/forms/${form.id}`, { active: !form.active });
-      form.active = !form.active;
-      forms = [...forms];
-    } catch (e: any) { toast.error(m['forms.error.updatePrefix']() + (e.message ?? '')); }
-    finally { togglingId = null; }
+async function toggleActive(form: any) {
+  togglingId = form.id;
+  try {
+    await api.patch(`/ext/forms/${form.id}`, { active: !form.active });
+    form.active = !form.active;
+    forms = [...forms];
+  } catch (e: any) {
+    toast.error(m['forms.error.updatePrefix']() + (e.message ?? ''));
+  } finally {
+    togglingId = null;
   }
+}
 
-  async function deleteForm(id: string, name: string) {
-        askConfirm(m['ext.confirm.deleteForm']({ name }), () => deleteFormConfirmed(id, name));
+async function deleteForm(id: string, name: string) {
+  askConfirm(m['ext.confirm.deleteForm']({ name }), () => deleteFormConfirmed(id, name));
+}
+async function deleteFormConfirmed(id: string, name: string) {
+  try {
+    await api.delete(`/ext/forms/${id}`);
+    forms = forms.filter((f) => f.id !== id);
+    toast.success(m['forms.toast.deleted']());
+  } catch (e: any) {
+    toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
   }
-  async function deleteFormConfirmed(id: string, name: string) {
-    try {
-      await api.delete(`/ext/forms/${id}`);
-      forms = forms.filter((f) => f.id !== id);
-      toast.success(m['forms.toast.deleted']());
-    } catch (e: any) { toast.error(m['ext.errorPrefix']() + (e.message ?? '')); }
-  }
+}
 
-
-  function fieldCount(form: any): number {
-    try {
-      const fields = typeof form.fields === 'string' ? JSON.parse(form.fields) : form.fields;
-      return Array.isArray(fields) ? fields.length : 0;
-    } catch { return 0; }
+function fieldCount(form: any): number {
+  try {
+    const fields = typeof form.fields === 'string' ? JSON.parse(form.fields) : form.fields;
+    return Array.isArray(fields) ? fields.length : 0;
+  } catch {
+    return 0;
   }
+}
 </script>
 
 <ExtensionPageShell title={m['forms.title']()} subtitle={m['forms.subtitle']()}>

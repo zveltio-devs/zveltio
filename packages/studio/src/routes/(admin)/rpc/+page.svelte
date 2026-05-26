@@ -1,103 +1,106 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { Zap, Plus, Trash2, Info, X, Check } from '@lucide/svelte';
-  import PageHeader from '$lib/components/common/PageHeader.svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-  import { toast } from '$lib/stores/toast.svelte.js';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { Zap, Plus, Trash2, Info, X, Check } from '@lucide/svelte';
+import PageHeader from '$lib/components/common/PageHeader.svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
+import { toast } from '$lib/stores/toast.svelte.js';
 
-  interface RpcFunction {
-    id: string;
-    function_name: string;
-    description: string | null;
-    required_role: string;
-    is_enabled: boolean;
-    created_at: string;
+interface RpcFunction {
+  id: string;
+  function_name: string;
+  description: string | null;
+  required_role: string;
+  is_enabled: boolean;
+  created_at: string;
+}
+
+const ROLES = ['*', 'god', 'admin', 'member'];
+
+let functions = $state<RpcFunction[]>([]);
+let loading = $state(true);
+let showForm = $state(false);
+let saving = $state(false);
+
+let form = $state({
+  function_name: '',
+  description: '',
+  required_role: 'member',
+  is_enabled: true,
+});
+
+let confirmState = $state<{
+  open: boolean;
+  title: string;
+  message: string;
+  onconfirm: () => void;
+}>({ open: false, title: '', message: '', onconfirm: () => {} });
+
+onMount(loadAll);
+
+async function loadAll() {
+  loading = true;
+  try {
+    const res = await api.get<{ functions: RpcFunction[] }>('/api/rpc/');
+    functions = res.functions ?? [];
+  } catch {
+    toast.error('Failed to load RPC functions');
+  } finally {
+    loading = false;
   }
+}
 
-  const ROLES = ['*', 'god', 'admin', 'member'];
+function openNew() {
+  form = { function_name: '', description: '', required_role: 'member', is_enabled: true };
+  showForm = true;
+}
 
-  let functions = $state<RpcFunction[]>([]);
-  let loading = $state(true);
-  let showForm = $state(false);
-  let saving = $state(false);
-
-  let form = $state({
-    function_name: '',
-    description: '',
-    required_role: 'member',
-    is_enabled: true,
-  });
-
-  let confirmState = $state<{
-    open: boolean; title: string; message: string; onconfirm: () => void;
-  }>({ open: false, title: '', message: '', onconfirm: () => {} });
-
-  onMount(loadAll);
-
-  async function loadAll() {
-    loading = true;
-    try {
-      const res = await api.get<{ functions: RpcFunction[] }>('/api/rpc/');
-      functions = res.functions ?? [];
-    } catch {
-      toast.error('Failed to load RPC functions');
-    } finally {
-      loading = false;
-    }
+async function save() {
+  if (!form.function_name) return;
+  saving = true;
+  try {
+    await api.post('/api/rpc/', {
+      function_name: form.function_name,
+      description: form.description || null,
+      required_role: form.required_role,
+      is_enabled: form.is_enabled,
+    });
+    toast.success('Function registered');
+    showForm = false;
+    await loadAll();
+  } catch {
+    toast.error('Failed to register function');
+  } finally {
+    saving = false;
   }
+}
 
-  function openNew() {
-    form = { function_name: '', description: '', required_role: 'member', is_enabled: true };
-    showForm = true;
+async function toggleEnabled(fn: RpcFunction) {
+  try {
+    await api.patch(`/api/rpc/${fn.id}`, { is_enabled: !fn.is_enabled });
+    functions = functions.map((f) => (f.id === fn.id ? { ...f, is_enabled: !f.is_enabled } : f));
+  } catch {
+    toast.error('Failed to update function');
   }
+}
 
-  async function save() {
-    if (!form.function_name) return;
-    saving = true;
-    try {
-      await api.post('/api/rpc/', {
-        function_name: form.function_name,
-        description: form.description || null,
-        required_role: form.required_role,
-        is_enabled: form.is_enabled,
-      });
-      toast.success('Function registered');
-      showForm = false;
-      await loadAll();
-    } catch {
-      toast.error('Failed to register function');
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function toggleEnabled(fn: RpcFunction) {
-    try {
-      await api.patch(`/api/rpc/${fn.id}`, { is_enabled: !fn.is_enabled });
-      functions = functions.map(f => f.id === fn.id ? { ...f, is_enabled: !f.is_enabled } : f);
-    } catch {
-      toast.error('Failed to update function');
-    }
-  }
-
-  function confirmDelete(fn: RpcFunction) {
-    confirmState = {
-      open: true,
-      title: 'Remove RPC Function',
-      message: `Remove "${fn.function_name}" from the whitelist?`,
-      onconfirm: async () => {
-        try {
-          await api.delete(`/api/rpc/${fn.id}`);
-          toast.success('Function removed');
-          await loadAll();
-        } catch {
-          toast.error('Failed to remove function');
-        }
-      },
-    };
-  }
+function confirmDelete(fn: RpcFunction) {
+  confirmState = {
+    open: true,
+    title: 'Remove RPC Function',
+    message: `Remove "${fn.function_name}" from the whitelist?`,
+    onconfirm: async () => {
+      try {
+        await api.delete(`/api/rpc/${fn.id}`);
+        toast.success('Function removed');
+        await loadAll();
+      } catch {
+        toast.error('Failed to remove function');
+      }
+    },
+  };
+}
 </script>
 
 <PageHeader title="RPC Functions" subtitle="Whitelist PostgreSQL functions callable via POST /api/rpc/:function.">

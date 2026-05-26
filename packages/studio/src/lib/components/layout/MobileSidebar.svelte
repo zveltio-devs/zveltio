@@ -1,54 +1,54 @@
 <script lang="ts">
-  import { base } from '$app/paths';
-  import { page } from '$app/state';
-  import { X } from '@lucide/svelte';
-  import { m, i18n } from '$lib/i18n.svelte.js';
-  import { navLabel } from '$lib/nav-i18n.js';
-  import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
+import { base } from '$app/paths';
+import { page } from '$app/state';
+import { X } from '@lucide/svelte';
+import { m, i18n } from '$lib/i18n.svelte.js';
+import { navLabel } from '$lib/nav-i18n.js';
+import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
 
-  interface Props {
-    open: boolean;
-    nav: NavGroup[];
-    extNavGroups: ExtensionNavGroup[];
-    onClose: () => void;
-  }
+interface Props {
+  open: boolean;
+  nav: NavGroup[];
+  extNavGroups: ExtensionNavGroup[];
+  onClose: () => void;
+}
 
-  let { open, nav, extNavGroups, onClose }: Props = $props();
+let { open, nav, extNavGroups, onClose }: Props = $props();
 
-  const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
-    business: () => m['nav.group.business'](),
-    finance: () => m['nav.group.finance'](),
-    hr: () => m['nav.group.hr'](),
-    operations: () => m['nav.group.operations'](),
-    compliance: () => m['nav.group.compliance'](),
-    content: () => m['nav.group.content'](),
-    communications: () => m['nav.group.communications'](),
-    developer: () => m['nav.group.developer'](),
-    projects: () => m['nav.group.projects'](),
-    other: () => m['nav.group.other'](),
-  };
+const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
+  business: () => m['nav.group.business'](),
+  finance: () => m['nav.group.finance'](),
+  hr: () => m['nav.group.hr'](),
+  operations: () => m['nav.group.operations'](),
+  compliance: () => m['nav.group.compliance'](),
+  content: () => m['nav.group.content'](),
+  communications: () => m['nav.group.communications'](),
+  developer: () => m['nav.group.developer'](),
+  projects: () => m['nav.group.projects'](),
+  other: () => m['nav.group.other'](),
+};
 
-  const _locale = $derived(i18n.locale);
-  const groupLabel = (id: ExtensionNavGroupId) => {
-    void _locale;
-    return extGroupLabels[id]();
-  };
+const _locale = $derived(i18n.locale);
+const groupLabel = (id: ExtensionNavGroupId) => {
+  void _locale;
+  return extGroupLabels[id]();
+};
 
-  const coreGroupLabel = (key: string | undefined) => {
-    void _locale;
-    return key ? navLabel(key) : undefined;
-  };
+const coreGroupLabel = (key: string | undefined) => {
+  void _locale;
+  return key ? navLabel(key) : undefined;
+};
 
-  const coreItemLabel = (key: string) => {
-    void _locale;
-    return navLabel(key);
-  };
+const coreItemLabel = (key: string) => {
+  void _locale;
+  return navLabel(key);
+};
 
-  function isActive(href: string): boolean {
-    const cur = page.url.pathname;
-    if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
-    return cur.startsWith(href);
-  }
+function isActive(href: string): boolean {
+  const cur = page.url.pathname;
+  if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
+  return cur.startsWith(href);
+}
 </script>
 
 {#if open}

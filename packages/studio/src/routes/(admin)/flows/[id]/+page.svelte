@@ -1,144 +1,163 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { page } from '$app/state';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import {
-    ArrowLeft, Save, Plus, Trash2, GripVertical, ChevronDown,
-    LoaderCircle, Globe, Mail, Database, Brain, Webhook, GitBranch, Play,
-  } from '@lucide/svelte';
+import { onMount } from 'svelte';
+import { page } from '$app/state';
+import { goto } from '$app/navigation';
+import { base } from '$app/paths';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import {
+  ArrowLeft,
+  Save,
+  Plus,
+  Trash2,
+  GripVertical,
+  ChevronDown,
+  LoaderCircle,
+  Globe,
+  Mail,
+  Database,
+  Brain,
+  Webhook,
+  GitBranch,
+  Play,
+} from '@lucide/svelte';
 
-  const STEP_TYPES = [
-    { value: 'http_request', label: 'HTTP Request', icon: Globe },
-    { value: 'send_email', label: 'Send Email', icon: Mail },
-    { value: 'create_record', label: 'Create Record', icon: Database },
-    { value: 'update_record', label: 'Update Record', icon: Database },
-    { value: 'ai_decision', label: 'AI Decision', icon: Brain },
-    { value: 'webhook', label: 'Webhook', icon: Webhook },
-    { value: 'condition', label: 'Condition', icon: GitBranch },
-  ] as const;
+const STEP_TYPES = [
+  { value: 'http_request', label: 'HTTP Request', icon: Globe },
+  { value: 'send_email', label: 'Send Email', icon: Mail },
+  { value: 'create_record', label: 'Create Record', icon: Database },
+  { value: 'update_record', label: 'Update Record', icon: Database },
+  { value: 'ai_decision', label: 'AI Decision', icon: Brain },
+  { value: 'webhook', label: 'Webhook', icon: Webhook },
+  { value: 'condition', label: 'Condition', icon: GitBranch },
+] as const;
 
-  type StepType = typeof STEP_TYPES[number]['value'];
+type StepType = (typeof STEP_TYPES)[number]['value'];
 
-  interface Step {
-    id: string;
-    name: string;
-    type: StepType;
-    config: Record<string, any>;
-    order: number;
+interface Step {
+  id: string;
+  name: string;
+  type: StepType;
+  config: Record<string, any>;
+  order: number;
+}
+
+interface Flow {
+  id: string;
+  name: string;
+  description: string | null;
+  trigger_type: string;
+  trigger_config: Record<string, any>;
+  is_active: boolean;
+  steps: Step[];
+}
+
+let flowId = $derived(page.params.id ?? '');
+let flow = $state<Flow | null>(null);
+let loading = $state(true);
+let saving = $state(false);
+let saveError = $state('');
+
+let selectedStep = $state<Step | null>(null);
+let showAddStep = $state(false);
+let dragIdx = $state<number | null>(null);
+let dragOverIdx = $state<number | null>(null);
+
+onMount(() => loadFlow());
+
+async function loadFlow() {
+  loading = true;
+  try {
+    const data = await api.get<{ flow: Flow }>(`/api/flows/${flowId}`);
+    flow = data.flow;
+    if (flow && !flow.steps) flow.steps = [];
+  } catch (e: any) {
+    toast.error(e.message ?? 'Failed to load flow');
+  } finally {
+    loading = false;
   }
+}
 
-  interface Flow {
-    id: string;
-    name: string;
-    description: string | null;
-    trigger_type: string;
-    trigger_config: Record<string, any>;
-    is_active: boolean;
-    steps: Step[];
+async function saveFlow() {
+  if (!flow) return;
+  saving = true;
+  saveError = '';
+  try {
+    await api.patch(`/api/flows/${flow.id}`, {
+      name: flow.name,
+      description: flow.description,
+      steps: flow.steps,
+    });
+  } catch (e: any) {
+    saveError = e.message;
+  } finally {
+    saving = false;
   }
+}
 
-  let flowId = $derived(page.params.id ?? '');
-  let flow = $state<Flow | null>(null);
-  let loading = $state(true);
-  let saving = $state(false);
-  let saveError = $state('');
+function addStep(type: StepType) {
+  if (!flow) return;
+  const newStep: Step = {
+    id: crypto.randomUUID(),
+    name: STEP_TYPES.find((s) => s.value === type)?.label ?? type,
+    type,
+    config: {},
+    order: flow.steps.length,
+  };
+  flow.steps = [...flow.steps, newStep];
+  selectedStep = newStep;
+  showAddStep = false;
+}
 
-  let selectedStep = $state<Step | null>(null);
-  let showAddStep = $state(false);
-  let dragIdx = $state<number | null>(null);
-  let dragOverIdx = $state<number | null>(null);
+function deleteStep(id: string) {
+  if (!flow) return;
+  if (selectedStep?.id === id) selectedStep = null;
+  flow.steps = flow.steps.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i }));
+}
 
-  onMount(() => loadFlow());
+function selectStep(step: Step) {
+  selectedStep = selectedStep?.id === step.id ? null : step;
+}
 
-  async function loadFlow() {
-    loading = true;
-    try {
-      const data = await api.get<{ flow: Flow }>(`/api/flows/${flowId}`);
-      flow = data.flow;
-      if (flow && !flow.steps) flow.steps = [];
-    } catch (e: any) {
-      toast.error(e.message ?? 'Failed to load flow');
-    } finally {
-      loading = false;
-    }
+function stepIcon(type: string) {
+  return STEP_TYPES.find((s) => s.value === type)?.icon ?? Globe;
+}
+
+// Drag reorder helpers
+function onDragStart(i: number) {
+  dragIdx = i;
+}
+function onDragOver(i: number) {
+  dragOverIdx = i;
+}
+function onDrop() {
+  if (!flow || dragIdx === null || dragOverIdx === null || dragIdx === dragOverIdx) {
+    dragIdx = null;
+    dragOverIdx = null;
+    return;
   }
-
-  async function saveFlow() {
-    if (!flow) return;
-    saving = true;
-    saveError = '';
-    try {
-      await api.patch(`/api/flows/${flow.id}`, {
-        name: flow.name,
-        description: flow.description,
-        steps: flow.steps,
-      });
-    } catch (e: any) {
-      saveError = e.message;
-    } finally {
-      saving = false;
-    }
+  const steps = [...flow.steps];
+  const [moved] = steps.splice(dragIdx, 1);
+  steps.splice(dragOverIdx, 0, moved);
+  flow.steps = steps.map((s, i) => ({ ...s, order: i }));
+  if (selectedStep) {
+    selectedStep = flow.steps.find((s) => s.id === selectedStep?.id) ?? null;
   }
+  dragIdx = null;
+  dragOverIdx = null;
+}
 
-  function addStep(type: StepType) {
-    if (!flow) return;
-    const newStep: Step = {
-      id: crypto.randomUUID(),
-      name: STEP_TYPES.find(s => s.value === type)?.label ?? type,
-      type,
-      config: {},
-      order: flow.steps.length,
-    };
-    flow.steps = [...flow.steps, newStep];
-    selectedStep = newStep;
-    showAddStep = false;
-  }
+function updateStepConfig(key: string, value: any) {
+  if (!selectedStep || !flow) return;
+  selectedStep = { ...selectedStep, config: { ...selectedStep.config, [key]: value } };
+  flow.steps = flow.steps.map((s) => (s.id === selectedStep!.id ? selectedStep! : s));
+}
 
-  function deleteStep(id: string) {
-    if (!flow) return;
-    if (selectedStep?.id === id) selectedStep = null;
-    flow.steps = flow.steps.filter(s => s.id !== id).map((s, i) => ({ ...s, order: i }));
-  }
-
-  function selectStep(step: Step) {
-    selectedStep = selectedStep?.id === step.id ? null : step;
-  }
-
-  function stepIcon(type: string) {
-    return STEP_TYPES.find(s => s.value === type)?.icon ?? Globe;
-  }
-
-  // Drag reorder helpers
-  function onDragStart(i: number) { dragIdx = i; }
-  function onDragOver(i: number) { dragOverIdx = i; }
-  function onDrop() {
-    if (!flow || dragIdx === null || dragOverIdx === null || dragIdx === dragOverIdx) {
-      dragIdx = null; dragOverIdx = null; return;
-    }
-    const steps = [...flow.steps];
-    const [moved] = steps.splice(dragIdx, 1);
-    steps.splice(dragOverIdx, 0, moved);
-    flow.steps = steps.map((s, i) => ({ ...s, order: i }));
-    if (selectedStep) {
-      selectedStep = flow.steps.find(s => s.id === selectedStep?.id) ?? null;
-    }
-    dragIdx = null; dragOverIdx = null;
-  }
-
-  function updateStepConfig(key: string, value: any) {
-    if (!selectedStep || !flow) return;
-    selectedStep = { ...selectedStep, config: { ...selectedStep.config, [key]: value } };
-    flow.steps = flow.steps.map(s => s.id === selectedStep!.id ? selectedStep! : s);
-  }
-
-  function updateStepName(name: string) {
-    if (!selectedStep || !flow) return;
-    selectedStep = { ...selectedStep, name };
-    flow.steps = flow.steps.map(s => s.id === selectedStep!.id ? selectedStep! : s);
-  }
+function updateStepName(name: string) {
+  if (!selectedStep || !flow) return;
+  selectedStep = { ...selectedStep, name };
+  flow.steps = flow.steps.map((s) => (s.id === selectedStep!.id ? selectedStep! : s));
+}
 </script>
 
 <div class="flex flex-col h-full min-h-screen">

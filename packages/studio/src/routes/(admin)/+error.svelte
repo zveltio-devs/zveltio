@@ -1,17 +1,17 @@
 <script lang="ts">
-  /**
-   * Admin-zone error boundary. Renders inside the admin shell so the user
-   * stays oriented (sidebar visible, can navigate elsewhere) instead of
-   * dropping into the root error page.
-   *
-   * Keeps SvelteKit's default behaviour: 404s and per-route load errors
-   * surface here. Unhandled component-render errors bubble up to the
-   * root +error.svelte fallback.
-   */
-  import { page } from '$app/state';
-  import { goto, invalidateAll } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { AlertTriangle, ArrowLeft, RotateCcw } from '@lucide/svelte';
+/**
+ * Admin-zone error boundary. Renders inside the admin shell so the user
+ * stays oriented (sidebar visible, can navigate elsewhere) instead of
+ * dropping into the root error page.
+ *
+ * Keeps SvelteKit's default behaviour: 404s and per-route load errors
+ * surface here. Unhandled component-render errors bubble up to the
+ * root +error.svelte fallback.
+ */
+import { page } from '$app/state';
+import { goto, invalidateAll } from '$app/navigation';
+import { base } from '$app/paths';
+import { AlertTriangle, ArrowLeft, RotateCcw } from '@lucide/svelte';
 </script>
 
 <div class="flex items-center justify-center min-h-[60vh] p-6">

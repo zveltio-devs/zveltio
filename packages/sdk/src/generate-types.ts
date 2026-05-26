@@ -18,40 +18,40 @@
 // ── Field type → TypeScript type mapping ─────────────────────────────────────
 
 const FIELD_TYPE_MAP: Record<string, string> = {
-  text:         'string',
-  textarea:     'string',
-  richtext:     'string',
-  markdown:     'string',
-  email:        'string',
-  url:          'string',
-  password:     'string',
-  slug:         'string',
-  uuid:         'string',
-  color:        'string',
-  number:       'number',
-  integer:      'number',
-  decimal:      'number',
-  float:        'number',
-  currency:     'number',
-  percentage:   'number',
-  boolean:      'boolean',
-  toggle:       'boolean',
-  date:         'string',    // ISO 8601 date string
-  datetime:     'string',    // ISO 8601 datetime string
-  time:         'string',
-  timestamp:    'string',
-  json:         'Record<string, unknown>',
-  jsonb:        'Record<string, unknown>',
-  object:       'Record<string, unknown>',
-  array:        'unknown[]',
-  tags:         'string[]',
-  select:       'string',
-  multiselect:  'string[]',
-  relation:     'string',    // UUID of related record
-  file:         'string',    // storage path
-  image:        'string',    // storage path
-  point:        '{ lat: number; lng: number }',
-  geojson:      'GeoJSON.Geometry',
+  text: 'string',
+  textarea: 'string',
+  richtext: 'string',
+  markdown: 'string',
+  email: 'string',
+  url: 'string',
+  password: 'string',
+  slug: 'string',
+  uuid: 'string',
+  color: 'string',
+  number: 'number',
+  integer: 'number',
+  decimal: 'number',
+  float: 'number',
+  currency: 'number',
+  percentage: 'number',
+  boolean: 'boolean',
+  toggle: 'boolean',
+  date: 'string', // ISO 8601 date string
+  datetime: 'string', // ISO 8601 datetime string
+  time: 'string',
+  timestamp: 'string',
+  json: 'Record<string, unknown>',
+  jsonb: 'Record<string, unknown>',
+  object: 'Record<string, unknown>',
+  array: 'unknown[]',
+  tags: 'string[]',
+  select: 'string',
+  multiselect: 'string[]',
+  relation: 'string', // UUID of related record
+  file: 'string', // storage path
+  image: 'string', // storage path
+  point: '{ lat: number; lng: number }',
+  geojson: 'GeoJSON.Geometry',
 };
 
 function fieldTypeToTs(fieldType: string): string {
@@ -119,7 +119,9 @@ function generateCollectionInterface(col: CollectionSchema): string {
 
 function generateIndexInterface(collections: CollectionSchema[]): string {
   const lines: string[] = [];
-  lines.push(`/** Index of all Zveltio collections — use with \`ZveltioClient<ZveltioCollections>\` */`);
+  lines.push(
+    `/** Index of all Zveltio collections — use with \`ZveltioClient<ZveltioCollections>\` */`,
+  );
   lines.push(`export interface ZveltioCollections {`);
   for (const col of collections) {
     const interfaceName = toPascalCase(col.name) + 'Collection';
@@ -154,8 +156,11 @@ export interface GenerateTypesOptions {
  * the collection schema returned by `/api/collections`.
  */
 export async function generateTypes(options: GenerateTypesOptions = {}): Promise<string> {
-  const engineUrl = (options.url ?? process.env.ZVELTIO_URL ?? 'http://localhost:3000').replace(/\/$/, '');
-  const apiKey    = options.apiKey ?? process.env.ZVELTIO_API_KEY ?? '';
+  const engineUrl = (options.url ?? process.env.ZVELTIO_URL ?? 'http://localhost:3000').replace(
+    /\/$/,
+    '',
+  );
+  const apiKey = options.apiKey ?? process.env.ZVELTIO_API_KEY ?? '';
   const headers: Record<string, string> = {};
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
@@ -171,7 +176,9 @@ export async function generateTypes(options: GenerateTypesOptions = {}): Promise
     }
     // Fall through to manual generation on 404/401/500
     if (res.status !== 404) {
-      console.warn(`[generate-types] Engine /api/admin/types returned ${res.status}, falling back to manual generation.`);
+      console.warn(
+        `[generate-types] Engine /api/admin/types returned ${res.status}, falling back to manual generation.`,
+      );
     }
   } catch {
     // Engine unreachable or endpoint absent — use fallback
@@ -184,10 +191,15 @@ export async function generateTypes(options: GenerateTypesOptions = {}): Promise
 
   const res = await fetch(collectionsUrl, { headers });
   if (!res.ok) {
-    throw new Error(`Failed to fetch collections from ${collectionsUrl}: ${res.status} ${res.statusText}`);
+    throw new Error(
+      `Failed to fetch collections from ${collectionsUrl}: ${res.status} ${res.statusText}`,
+    );
   }
 
-  const data = await res.json() as { collections?: CollectionSchema[]; collection?: CollectionSchema };
+  const data = (await res.json()) as {
+    collections?: CollectionSchema[];
+    collection?: CollectionSchema;
+  };
 
   const collections: CollectionSchema[] = Array.isArray(data.collections)
     ? data.collections.filter((c: any) => !c.is_system)
@@ -197,7 +209,7 @@ export async function generateTypes(options: GenerateTypesOptions = {}): Promise
 
   const header = `// Auto-generated by Zveltio\n// Do not edit manually — run: zveltio generate-types\n// Generated: ${new Date().toISOString()}\n`;
   const interfaces = collections.map(generateCollectionInterface).join('\n\n');
-  const indexType  = options.collection ? '' : '\n\n' + generateIndexInterface(collections);
+  const indexType = options.collection ? '' : '\n\n' + generateIndexInterface(collections);
 
   return `${header}\n${interfaces}${indexType}\n`;
 }

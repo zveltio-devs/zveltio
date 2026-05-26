@@ -93,9 +93,7 @@ function generateTypesFile(collections: CollectionSchema[]): string {
   const interfaces = collections.map(collectionToInterface).join('\n\n');
 
   const collectionNames = collections.map((c) => `'${c.name}'`).join(' | ');
-  const collectionMap = collections
-    .map((c) => `  ${c.name}: ${toPascalCase(c.name)};`)
-    .join('\n');
+  const collectionMap = collections.map((c) => `  ${c.name}: ${toPascalCase(c.name)};`).join('\n');
 
   const clientType = `
 export type CollectionName = ${collectionNames || 'never'};

@@ -38,8 +38,11 @@ function makeFakeLoader(reloadResult: { ok: boolean; error?: string } = { ok: tr
       if (process.env.NODE_ENV === 'production') return;
       app.post('/__zveltio_dev_reload', async (c) => {
         let body: any;
-        try { body = await c.req.json(); }
-        catch { return c.json({ error: 'body must be JSON' }, 400); }
+        try {
+          body = await c.req.json();
+        } catch {
+          return c.json({ error: 'body must be JSON' }, 400);
+        }
         const name = typeof body?.name === 'string' ? body.name.trim() : '';
         if (!name) return c.json({ error: 'name is required' }, 400);
         const result = await loader.reloadExtensionFromDisk(name);
@@ -98,7 +101,7 @@ describe('S4-03 dev reload endpoint', () => {
       body: 'not json {{{',
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.error).toMatch(/JSON/);
   });
 
@@ -134,7 +137,7 @@ describe('S4-03 dev reload endpoint', () => {
       body: JSON.stringify({ name: 'forms' }),
     });
     expect(res.status).toBe(500);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(false);
     expect(body.error).toBe('extension is not loaded');
     expect(loader.__lastCalledWith).toBe('forms');
@@ -166,15 +169,20 @@ describe('S4-03 reloadExtensionFromDisk semantics', () => {
     modules: Set<string>;
     loaded: Set<string>;
     lastLoadError: Map<string, string>;
-    unregisterAllCalls: string[];   // captures the order
-    triggerReloadCalls: string[];   // capture the reason strings
-    onReload: () => Promise<void>;  // optional side-effect (e.g. populate lastLoadError)
+    unregisterAllCalls: string[]; // captures the order
+    triggerReloadCalls: string[]; // capture the reason strings
+    onReload: () => Promise<void>; // optional side-effect (e.g. populate lastLoadError)
   }
 
   function makeReloader(deps: ReloadSpyDeps) {
-    return async function reloadExtensionFromDisk(name: string): Promise<{ ok: boolean; error?: string }> {
+    return async function reloadExtensionFromDisk(
+      name: string,
+    ): Promise<{ ok: boolean; error?: string }> {
       if (!deps.modules.has(name) && !deps.loaded.has(name)) {
-        return { ok: false, error: `extension "${name}" is not currently loaded — restart the engine first` };
+        return {
+          ok: false,
+          error: `extension "${name}" is not currently loaded — restart the engine first`,
+        };
       }
       deps.modules.delete(name);
       deps.loaded.delete(name);
@@ -197,9 +205,14 @@ describe('S4-03 reloadExtensionFromDisk semantics', () => {
 
   it('rejects when the extension is not currently loaded', async () => {
     const deps: ReloadSpyDeps = {
-      modules: new Set(), loaded: new Set(), lastLoadError: new Map(),
-      unregisterAllCalls: [], triggerReloadCalls: [],
-      onReload: async () => { /* noop */ },
+      modules: new Set(),
+      loaded: new Set(),
+      lastLoadError: new Map(),
+      unregisterAllCalls: [],
+      triggerReloadCalls: [],
+      onReload: async () => {
+        /* noop */
+      },
     };
     const reload = makeReloader(deps);
     const r = await reload('ghost');
@@ -217,7 +230,10 @@ describe('S4-03 reloadExtensionFromDisk semantics', () => {
       unregisterAllCalls: [],
       triggerReloadCalls: [],
       // Simulate the reload re-loading the extension successfully.
-      onReload: async () => { deps.loaded.add('forms'); deps.modules.add('forms'); },
+      onReload: async () => {
+        deps.loaded.add('forms');
+        deps.modules.add('forms');
+      },
     };
     const reload = makeReloader(deps);
     const r = await reload('forms');
@@ -238,7 +254,9 @@ describe('S4-03 reloadExtensionFromDisk semantics', () => {
       lastLoadError: new Map(),
       unregisterAllCalls: [],
       triggerReloadCalls: [],
-      onReload: async () => { deps.lastLoadError.set('broken', 'SyntaxError on line 14'); },
+      onReload: async () => {
+        deps.lastLoadError.set('broken', 'SyntaxError on line 14');
+      },
     };
     const reload = makeReloader(deps);
     const r = await reload('broken');
@@ -254,7 +272,9 @@ describe('S4-03 reloadExtensionFromDisk semantics', () => {
       unregisterAllCalls: [],
       triggerReloadCalls: [],
       // Rebuild runs but does NOT re-add the extension to `loaded`.
-      onReload: async () => { /* noop */ },
+      onReload: async () => {
+        /* noop */
+      },
     };
     const reload = makeReloader(deps);
     const r = await reload('quiet');

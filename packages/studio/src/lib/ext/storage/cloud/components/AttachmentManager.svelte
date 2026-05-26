@@ -1,88 +1,88 @@
 <script lang="ts">
-	/**
-	 * AttachmentManager - File upload/management component
-	 * Standalone, works with any storage backend
-	 */
+/**
+ * AttachmentManager - File upload/management component
+ * Standalone, works with any storage backend
+ */
 
-	interface FileItem {
-		id: string;
-		name: string;
-		size: number;
-		type: string;
-		url?: string;
-		created_at: string;
-	}
+interface FileItem {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  url?: string;
+  created_at: string;
+}
 
-	let {
-		files = [],
-		onUpload,
-		onDelete,
-		onDownload = null,
-		acceptedTypes = '*',
-		readOnly = false,
-		maxFiles = 10
-	}: {
-		files: FileItem[];
-		onUpload: (files: FileList) => Promise<void>;
-		onDelete: (fileId: string) => Promise<void>;
-		onDownload?: ((fileId: string) => void) | null;
-		acceptedTypes?: string;
-		readOnly?: boolean;
-		maxFiles?: number;
-	} = $props();
+let {
+  files = [],
+  onUpload,
+  onDelete,
+  onDownload = null,
+  acceptedTypes = '*',
+  readOnly = false,
+  maxFiles = 10,
+}: {
+  files: FileItem[];
+  onUpload: (files: FileList) => Promise<void>;
+  onDelete: (fileId: string) => Promise<void>;
+  onDownload?: ((fileId: string) => void) | null;
+  acceptedTypes?: string;
+  readOnly?: boolean;
+  maxFiles?: number;
+} = $props();
 
-	let uploading = $state(false);
-	let dragOver = $state(false);
-	let fileInput: HTMLInputElement;
+let uploading = $state(false);
+let dragOver = $state(false);
+let fileInput: HTMLInputElement;
 
-	function formatSize(bytes: number): string {
-		if (bytes < 1024) return bytes + ' B';
-		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-	}
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
 
-	function getFileIcon(type: string): string {
-		if (type.startsWith('image/')) return '🖼️';
-		if (type.startsWith('video/')) return '🎥';
-		if (type.startsWith('audio/')) return '🎵';
-		if (type.includes('pdf')) return '📄';
-		if (type.includes('zip') || type.includes('rar')) return '📦';
-		return '📁';
-	}
+function getFileIcon(type: string): string {
+  if (type.startsWith('image/')) return '🖼️';
+  if (type.startsWith('video/')) return '🎥';
+  if (type.startsWith('audio/')) return '🎵';
+  if (type.includes('pdf')) return '📄';
+  if (type.includes('zip') || type.includes('rar')) return '📦';
+  return '📁';
+}
 
-	async function handleUpload(fileList: FileList | null) {
-		if (!fileList || fileList.length === 0 || readOnly) return;
+async function handleUpload(fileList: FileList | null) {
+  if (!fileList || fileList.length === 0 || readOnly) return;
 
-		if (files.length + fileList.length > maxFiles) {
-			alert(`Maximum ${maxFiles} files allowed`);
-			return;
-		}
+  if (files.length + fileList.length > maxFiles) {
+    alert(`Maximum ${maxFiles} files allowed`);
+    return;
+  }
 
-		uploading = true;
-		try {
-			await onUpload(fileList);
-		} finally {
-			uploading = false;
-		}
-	}
+  uploading = true;
+  try {
+    await onUpload(fileList);
+  } finally {
+    uploading = false;
+  }
+}
 
-	async function handleDelete(fileId: string) {
-		if (!confirm('Delete this file?')) return;
-		await onDelete(fileId);
-	}
+async function handleDelete(fileId: string) {
+  if (!confirm('Delete this file?')) return;
+  await onDelete(fileId);
+}
 
-	function handleDrop(e: DragEvent) {
-		e.preventDefault();
-		dragOver = false;
-		if (e.dataTransfer?.files) {
-			handleUpload(e.dataTransfer.files);
-		}
-	}
+function handleDrop(e: DragEvent) {
+  e.preventDefault();
+  dragOver = false;
+  if (e.dataTransfer?.files) {
+    handleUpload(e.dataTransfer.files);
+  }
+}
 
-	function handleDragOver(e: DragEvent) {
-		e.preventDefault();
-		dragOver = true;
-	}
+function handleDragOver(e: DragEvent) {
+  e.preventDefault();
+  dragOver = true;
+}
 </script>
 
 <div class="space-y-4">

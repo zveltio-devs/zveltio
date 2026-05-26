@@ -1,27 +1,21 @@
 <script lang="ts">
-  /**
-   * Loading / empty / table wrapper for extension list pages.
-   */
-  import type { Snippet } from 'svelte';
-  import { LoaderCircle } from '@lucide/svelte';
-  import EmptyState from '$lib/components/common/EmptyState.svelte';
-  import { m } from '$lib/i18n.svelte.js';
+/**
+ * Loading / empty / table wrapper for extension list pages.
+ */
+import type { Snippet } from 'svelte';
+import { LoaderCircle } from '@lucide/svelte';
+import EmptyState from '$lib/components/common/EmptyState.svelte';
+import { m } from '$lib/i18n.svelte.js';
 
-  interface Props {
-    loading?: boolean;
-    empty?: boolean;
-    emptyTitle?: string;
-    emptyDescription?: string;
-    table: Snippet;
-  }
+interface Props {
+  loading?: boolean;
+  empty?: boolean;
+  emptyTitle?: string;
+  emptyDescription?: string;
+  table: Snippet;
+}
 
-  let {
-    loading = false,
-    empty = false,
-    emptyTitle,
-    emptyDescription,
-    table,
-  }: Props = $props();
+let { loading = false, empty = false, emptyTitle, emptyDescription, table }: Props = $props();
 </script>
 
 {#if loading}

@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import {
-  WASM_HOST_ABI_VERSION,
-  _internalForTests,
-} from '../../lib/wasm-extension-host.js';
+import { WASM_HOST_ABI_VERSION, _internalForTests } from '../../lib/wasm-extension-host.js';
 
 /**
  * S5-05 full — WASM extension host runtime tests.
@@ -75,8 +72,7 @@ describe('S5-05 WASM host — capability bridge', () => {
 describe('S5-05 WASM host — CPU budget', () => {
   it('withCpuBudget resolves when the work finishes inside the budget', async () => {
     const fast = new Promise<void>((r) => setTimeout(r, 10));
-    await expect(_internalForTests.withCpuBudget(fast, 1000, 'test/fast'))
-      .resolves.toBeUndefined();
+    await expect(_internalForTests.withCpuBudget(fast, 1000, 'test/fast')).resolves.toBeUndefined();
   });
 
   it('withCpuBudget rejects when the work exceeds the budget', async () => {

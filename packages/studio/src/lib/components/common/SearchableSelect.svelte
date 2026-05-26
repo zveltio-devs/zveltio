@@ -1,66 +1,66 @@
 <script lang="ts">
-	/**
-	 * SearchableSelect - Dropdown with server-side search
-	 * Zero dependencies, callback-based
-	 */
-	
-	let {
-		value = $bindable(),
-		options = [],
-		onSearch = null,
-		placeholder = 'Search...',
-		disabled = false,
-		label = ''
-	}: {
-		value?: any;
-		options?: Array<{value: any; label: string}>;
-		onSearch?: ((term: string) => Promise<Array<{value: any; label: string}>>) | null;
-		placeholder?: string;
-		disabled?: boolean;
-		label?: string;
-	} = $props();
+/**
+ * SearchableSelect - Dropdown with server-side search
+ * Zero dependencies, callback-based
+ */
 
-	let searchTerm = $state('');
-	let isOpen = $state(false);
-	let filteredOptions = $state<Array<{value: any; label: string}>>([]);
-	let loading = $state(false);
+let {
+  value = $bindable(),
+  options = [],
+  onSearch = null,
+  placeholder = 'Search...',
+  disabled = false,
+  label = '',
+}: {
+  value?: any;
+  options?: Array<{ value: any; label: string }>;
+  onSearch?: ((term: string) => Promise<Array<{ value: any; label: string }>>) | null;
+  placeholder?: string;
+  disabled?: boolean;
+  label?: string;
+} = $props();
 
-	// Display label for selected value
-	const selectedLabel = $derived(
-		options.find(o => o.value === value)?.label || filteredOptions.find(o => o.value === value)?.label || ''
-	);
+let searchTerm = $state('');
+let isOpen = $state(false);
+let filteredOptions = $state<Array<{ value: any; label: string }>>([]);
+let loading = $state(false);
 
-	async function handleSearch(term: string) {
-		searchTerm = term;
-		
-		if (onSearch) {
-			// Server-side search
-			loading = true;
-			try {
-				filteredOptions = await onSearch(term);
-			} finally {
-				loading = false;
-			}
-		} else {
-			// Client-side filter
-			filteredOptions = options.filter(o => 
-				o.label.toLowerCase().includes(term.toLowerCase())
-			);
-		}
-	}
+// Display label for selected value
+const selectedLabel = $derived(
+  options.find((o) => o.value === value)?.label ||
+    filteredOptions.find((o) => o.value === value)?.label ||
+    '',
+);
 
-	function selectOption(opt: {value: any; label: string}) {
-		value = opt.value;
-		isOpen = false;
-		searchTerm = '';
-	}
+async function handleSearch(term: string) {
+  searchTerm = term;
 
-	// Initialize options on mount
-	$effect(() => {
-		if (options.length > 0 && filteredOptions.length === 0) {
-			filteredOptions = options;
-		}
-	});
+  if (onSearch) {
+    // Server-side search
+    loading = true;
+    try {
+      filteredOptions = await onSearch(term);
+    } finally {
+      loading = false;
+    }
+  } else {
+    // Client-side filter
+    filteredOptions = options.filter((o) => o.label.toLowerCase().includes(term.toLowerCase()));
+  }
+}
+
+function selectOption(opt: { value: any; label: string }) {
+  value = opt.value;
+  isOpen = false;
+  searchTerm = '';
+}
+
+// Initialize options on mount
+$effect(() => {
+  if (options.length > 0 && filteredOptions.length === 0) {
+    filteredOptions = options;
+  }
+});
 </script>
 
 <div class="relative w-full">
