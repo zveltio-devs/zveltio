@@ -34,7 +34,7 @@ function warnMissingKeyOnce(): void {
 export async function checkFieldEncryptionAtBoot(db: import('../db/index.js').Database): Promise<void> {
   if (KEY_HEX) return; // key is set — nothing to flag
   try {
-    const rows = await (db as any)
+    const rows = await db
       .selectFrom('zvd_collections')
       .select(['name', 'fields'])
       .execute() as Array<{ name: string; fields: unknown }>;

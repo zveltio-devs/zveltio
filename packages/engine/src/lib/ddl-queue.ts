@@ -246,7 +246,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
 
   // The rest run inside a tx for atomicity (errors roll back partial DDL).
   await boss.work(QUEUE_NAMES.drop_collection, async ([job]: any[]) => {
-    await (db as any).transaction().execute(async (trx: any) => {
+    await db.transaction().execute(async (trx: any) => {
       if (await skipForByod(trx, job.data, 'drop_collection')) return;
       const payload = job.data as { name: string; force?: boolean };
       await DDLManager.dropCollection(trx, payload.name, { force: payload.force === true });
@@ -254,7 +254,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   });
 
   await boss.work(QUEUE_NAMES.add_field, async ([job]: any[]) => {
-    await (db as any).transaction().execute(async (trx: any) => {
+    await db.transaction().execute(async (trx: any) => {
       if (await skipForByod(trx, job.data, 'add_field')) return;
       const payload = job.data as { collection: string; field: any };
       await DDLManager.addField(trx, payload.collection, payload.field);
@@ -262,7 +262,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   });
 
   await boss.work(QUEUE_NAMES.remove_field, async ([job]: any[]) => {
-    await (db as any).transaction().execute(async (trx: any) => {
+    await db.transaction().execute(async (trx: any) => {
       if (await skipForByod(trx, job.data, 'remove_field')) return;
       const payload = job.data as { collection: string; fieldName: string };
       await DDLManager.removeField(trx, payload.collection, payload.fieldName);
@@ -270,13 +270,13 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   });
 
   await boss.work(QUEUE_NAMES.create_relation, async ([job]: any[]) => {
-    await (db as any).transaction().execute(async (trx: any) => {
+    await db.transaction().execute(async (trx: any) => {
       await runCreateRelation(trx, job.data);
     });
   });
 
   await boss.work(QUEUE_NAMES.drop_relation, async ([job]: any[]) => {
-    await (db as any).transaction().execute(async (trx: any) => {
+    await db.transaction().execute(async (trx: any) => {
       await runDropRelation(trx, job.data);
     });
   });

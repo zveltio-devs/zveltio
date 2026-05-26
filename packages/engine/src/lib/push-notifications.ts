@@ -158,7 +158,7 @@ export async function sendPushToUser(
   userId: string,
   payload: PushPayload,
 ): Promise<{ sent: number; failed: number }> {
-  const tokens = await (db as any)
+  const tokens = await db
     .selectFrom('zvd_push_tokens')
     .select(['id', 'token', 'platform'])
     .where('user_id', '=', userId)
@@ -192,7 +192,7 @@ export async function sendPushToUser(
   // Repeated failure here means we keep re-sending to dead tokens,
   // burning FCM/APNS quota — log so the trend is visible.
   if (staleTokens.length > 0) {
-    (db as any)
+    db
       .deleteFrom('zvd_push_tokens')
       .where('id', 'in', staleTokens)
       .execute()

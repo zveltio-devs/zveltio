@@ -243,13 +243,14 @@ async function runScanAsync(
     allIssues.push(...(await detectOutliers(db, tableName, fields)));
   }
   if (scanType === 'normalization' || scanType === 'full') {
+    // tableName is dynamic (zvd_<collection>), not in DbSchema.
     const sample = await (db as any)
       .selectFrom(tableName).selectAll().limit(20).execute().catch(() => []);
     allIssues.push(...(await aiAnalyzeQuality(collection, sample, fields)));
   }
 
   if (allIssues.length > 0) {
-    await (db as any)
+    await db
       .insertInto('zv_quality_issues')
       .values(allIssues.map((issue) => ({
         scan_id: scanId,
@@ -266,7 +267,7 @@ async function runScanAsync(
       .catch(() => {});
   }
 
-  await (db as any)
+  await db
     .updateTable('zv_quality_scans')
     .set({ status: 'completed', records_scanned: recordsScanned, issues_found: allIssues.length, completed_at: new Date() })
     .where('id', '=', scanId)
@@ -283,18 +284,19 @@ export async function runQualityScan(
   userId: string,
   tenantSchema?: string,
 ): Promise<string> {
-  const scan = await (db as any)
+  const scan = await db
     .insertInto('zv_quality_scans')
     .values({ collection, scan_type: scanType, status: 'running', triggered_by: userId })
     .returningAll()
     .executeTakeFirst();
 
+  if (!scan) throw new Error('Failed to create quality scan record');
   const scanId: string = scan.id;
   const tableName = tenantSchema ? `${tenantSchema}.zvd_${collection}` : `zvd_${collection}`;
 
   runScanAsync(db, scanId, collection, tableName, scanType).catch((err) => {
     console.error(`Quality scan ${scanId} failed:`, err);
-    (db as any)
+    db
       .updateTable('zv_quality_scans')
       .set({ status: 'failed', completed_at: new Date() })
       .where('id', '=', scanId)

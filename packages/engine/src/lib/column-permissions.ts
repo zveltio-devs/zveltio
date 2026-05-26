@@ -37,7 +37,7 @@ export async function getColumnAccess(
     } catch { /* cache miss */ }
   }
 
-  const rows = await (db as any)
+  const rows = await db
     .selectFrom('zvd_column_permissions')
     .select(['column_name', 'can_read', 'can_write'])
     .where('collection_name', '=', collection)

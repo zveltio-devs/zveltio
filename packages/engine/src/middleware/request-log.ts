@@ -18,7 +18,7 @@ export function requestLogMiddleware(db: Database): MiddlewareHandler {
     const duration = Math.round(performance.now() - start);
     const user = c.get('user') as any;
 
-    (db as any)
+    db
       .insertInto('zv_request_logs')
       .values({
         method: c.req.method,

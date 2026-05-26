@@ -36,7 +36,7 @@ export function tenantQuota(db: Database) {
       if (cached !== null) {
         maxCalls = parseInt(cached, 10);
       } else {
-        const row = await (db as any)
+        const row = await db
           .selectFrom('zv_tenants')
           .select('max_api_calls_day')
           .where('id', '=', tenant.id)
@@ -77,7 +77,7 @@ export function tenantQuota(db: Database) {
 
       // ── Async DB sync every 50 calls (non-blocking, for billing reports) ──
       if (count % 50 === 0) {
-        (db as any)
+        db
           .insertInto('zv_tenant_usage')
           .values({ tenant_id: tenant.id, date: new Date(), api_calls: count })
           .onConflict((oc: any) =>

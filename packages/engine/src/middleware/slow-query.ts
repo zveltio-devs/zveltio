@@ -25,7 +25,7 @@ export function slowQueryMiddleware(db: Database): MiddlewareHandler {
       }
 
       // Persist to DB (fire-and-forget, non-fatal)
-      (db as any)
+      db
         .insertInto('zv_slow_queries')
         .values({
           method: entry.method,

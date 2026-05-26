@@ -269,9 +269,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
   app.get('/glossary', async (c) => {
     const { locale } = c.req.query();
-    // `zvd_translation_glossary` isn't (yet) in DbSchema — keep the cast.
-    // TODO: add the migration + schema entry; the table is already referenced by raw SQL below.
-    let query = (db as any).selectFrom('zvd_translation_glossary').selectAll().orderBy('term', 'asc');
+    let query = db.selectFrom('zvd_translation_glossary').selectAll().orderBy('term', 'asc');
     if (locale) query = query.where('locale', '=', locale);
     return c.json({ glossary: await query.execute() });
   });
