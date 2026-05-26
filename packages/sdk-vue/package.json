@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/vue",
-  "version": "1.0.0-alpha.101",
+  "version": "1.0.0-alpha.102",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
