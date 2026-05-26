@@ -128,7 +128,7 @@ export async function introspectSchema(
     }
 
     // Upsert into zvd_collections
-    const existing = await (db as any)
+    const existing = await db
       .selectFrom('zvd_collections')
       .select('id')
       .where('name', '=', table_name)
@@ -137,7 +137,7 @@ export async function introspectSchema(
 
     if (existing) {
       // Update fields but DON'T change is_managed — it may have been already managed
-      await (db as any)
+      await db
         .updateTable('zvd_collections')
         .set({ fields: JSON.stringify(fields), updated_at: new Date() })
         .where('name', '=', table_name)
@@ -153,7 +153,7 @@ export async function introspectSchema(
         .replace(/_/g, ' ')
         .replace(/\b\w/g, (c) => c.toUpperCase());
 
-      await (db as any)
+      await db
         .insertInto('zvd_collections')
         .values({
           name: table_name,

@@ -508,7 +508,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     if (data.notify_emails !== undefined) updateData.notify_emails = JSON.stringify(data.notify_emails);
     if (data.is_active !== undefined) updateData.is_active = data.is_active;
 
-    await (db as any)
+    await db
       .updateTable('zv_backup_schedules')
       .set(updateData)
       .where('id', '=', id)

@@ -107,7 +107,7 @@ async function executeStep(
       // can hand out a different pool connection per call — so the timeout
       // MUST live in the same transaction as the user query, otherwise a
       // cartesian join can monopolise a pool connection indefinitely.
-      const result = await (db as any).transaction().execute(async (trx: Database) => {
+      const result = await db.transaction().execute(async (trx: Database) => {
         await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
         return sql.raw(cfg.query as string).execute(trx);
       });

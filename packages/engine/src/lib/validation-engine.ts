@@ -22,7 +22,7 @@ export interface ValidationRule {
   field_name: string;
   rule_type: string;
   rule_config: Record<string, any>;
-  error_message: string;
+  error_message: string | null;
 }
 
 // In-memory rules cache (TTL 60s)
@@ -37,7 +37,7 @@ export async function getValidationRules(
   const cached = rulesCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < 60_000) return cached.rules;
 
-  let query = (db as any)
+  let query = db
     .selectFrom('zv_validation_rules')
     .select(['field_name', 'rule_type', 'rule_config', 'error_message'])
     .where('collection', '=', collection)
@@ -45,7 +45,13 @@ export async function getValidationRules(
 
   if (fieldName) query = query.where('field_name', '=', fieldName);
 
-  const rules = await query.execute();
+  // rule_config is JSONB → typed as unknown; coerce to the runtime contract.
+  const rules: ValidationRule[] = (await query.execute()).map((row) => ({
+    field_name:    row.field_name,
+    rule_type:     row.rule_type,
+    rule_config:   (row.rule_config ?? {}) as Record<string, any>,
+    error_message: row.error_message,
+  }));
   rulesCache.set(cacheKey, { rules, ts: Date.now() });
   return rules;
 }
@@ -177,7 +183,7 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
         break;
     }
 
-    if (violated) errors.push(rule.error_message);
+    if (violated) errors.push(rule.error_message ?? `Validation failed: ${rule.rule_type}`);
   }
 
   return errors;

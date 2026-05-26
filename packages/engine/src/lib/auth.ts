@@ -62,7 +62,7 @@ async function rehashLegacyAccountToArgon2id(
   password: string,
 ): Promise<void> {
   if (!db) return;
-  const row = await (db as any)
+  const row = await db
     .selectFrom('account')
     .select(['id', 'password'])
     .where('password', '=', oldHash)
@@ -70,7 +70,7 @@ async function rehashLegacyAccountToArgon2id(
   if (!row) return; // row updated already by a concurrent login? Either way: stop.
 
   const newHash = await Bun.password.hash(password, argonOptions());
-  await (db as any)
+  await db
     .updateTable('account')
     .set({ password: newHash, updatedAt: new Date() })
     .where('id', '=', row.id)
@@ -89,7 +89,7 @@ async function rehashLegacyAccountToArgon2id(
  */
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
   try {
-    const rows = await (db as any)
+    const rows = await db
       .selectFrom('account')
       .select((eb: any) => eb.fn.count('id').as('count'))
       .where('password', 'is not', null)

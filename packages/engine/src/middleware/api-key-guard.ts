@@ -18,7 +18,7 @@ export function apiKeyGuard(db: Database) {
 
     // 1. Validate key
     const keyHash = await hashApiKey(rawKey);
-    const apiKey = await (db as any)
+    const apiKey = await db
       .selectFrom('zv_api_keys')
       .selectAll()
       .where('key_hash', '=', keyHash)
@@ -46,8 +46,10 @@ export function apiKeyGuard(db: Database) {
     const realIp = trustedProxy ? c.req.header('x-real-ip') ?? null : null;
     const clientIp = forwardedIp || realIp || 'unknown';
 
-    if (apiKey.allowed_ips && apiKey.allowed_ips.length > 0) {
-      const allowed = apiKey.allowed_ips.some((ip: string) =>
+    // allowed_ips is JSONB on disk — typed as unknown so we narrow here.
+    const allowedIps = Array.isArray(apiKey.allowed_ips) ? (apiKey.allowed_ips as string[]) : [];
+    if (allowedIps.length > 0) {
+      const allowed = allowedIps.some((ip) =>
         ip.includes('/') ? isIpInCidr(clientIp, ip) : ip === clientIp,
       );
       if (!allowed) {
@@ -159,7 +161,7 @@ async function logAccess(
   status?: number,
   duration?: number,
 ): Promise<void> {
-  await (db as any)
+  await db
     .insertInto('zv_api_key_access_log')
     .values({
       api_key_id: keyId,
