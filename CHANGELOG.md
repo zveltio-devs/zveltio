@@ -2,6 +2,66 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.104] - 2026-05-26
+
+### AI extension — four broken subsystems repaired (extensions `528b900`)
+
+The AI extension routes use a local `reqDb(c): any` helper that
+short-circuits Kysely's type-checking, and most reads/writes wrap
+in `.catch(() => …)`. Net effect on every previous alpha: schema
+mismatches surfaced as empty UI tabs or silently-dropped INSERTs
+rather than crashes — so the bugs were invisible until the
+post-alpha.103 audit went looking. Four subsystems were dead:
+
+  1. **Prompt templates** (`/api/ext/ai/prompts*`) — routes
+     referenced `zv_ai_prompts`, no such table exists. Real table
+     is `zv_prompt_templates`. Admin prompt-template manager has
+     been a no-op since the extension shipped. Fixed by renaming.
+
+  2. **Usage tracking** (`/api/ext/ai/chat` + `/embed` + billing
+     analytics) — every successful AI call INSERTed into a
+     `zv_ai_usage` table that didn't exist. `.catch(() => {})`
+     made it invisible. No billing data ever collected. New
+     migration `002_ai_complete.sql` creates the table matching
+     the INSERTs' shape + indexes.
+
+  3. **Feature gating** (`/api/ext/ai/admin/features*`) — admin
+     toggle UI for chat/search/generate/decide/embed read from
+     `zv_ai_features`, table didn't exist. UI silently empty.
+     Migration creates it + seeds the five standard feature rows.
+
+  4. **Chat history + multi-turn memory** — both `lib/zveltio-ai/
+     engine.ts` (Studio AI assistant) and `routes/zveltio-ai.ts`
+     (public `/conversations`) queried `zv_ai_conversations` +
+     `zv_ai_messages` (and the alias `zv_ai_chat_history`), none
+     existed. `getConversationHistory()` always returned `[]` —
+     every chat turn was one-shot with no memory of prior
+     messages within a single session. `persistConversation()`
+     silently dropped the INSERT. Migration creates both tables
+     with the schema the code already expects; the route's alias
+     is changed to point at `zv_ai_messages` directly so both
+     consumers share storage.
+
+Plus a handful of secondary AI bugs:
+
+  - `zv_users` → `user` (Better-Auth's actual table name). Admin
+    stats counter was reporting `users=0` regardless of reality.
+  - `zv_collections` → `zvd_collections` at six call sites.
+    Affected the AI's collection listing, schema introspection
+    before text-to-SQL, and admin stats.
+  - `c.schema` / `colDef.schema` on `zvd_collections` — the real
+    column is named `fields`. The schema-context builder used by
+    text-to-SQL was always silently returning empty fields, so
+    the generated SQL referenced tables with no column context.
+    Also fixed a sibling bug where the same builder rendered
+    table names as `zv_<name>` — concrete data tables are
+    `zvd_<name>` (DDLManager convention).
+
+### Migrations
+
+New extension migration `002_ai_complete.sql` is idempotent and
+safe to apply to alpha.103-installed instances.
+
 ## [1.0.0-alpha.103] - 2026-05-26
 
 ### Schema / runtime bug pass (continued)
