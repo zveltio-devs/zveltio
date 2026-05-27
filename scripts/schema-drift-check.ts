@@ -114,7 +114,11 @@ type TableInfo = {
 // ────────────────────────────────────────────────────────────────────
 
 function* walkSqlFiles(start: string): Generator<string> {
+  // Yields .sql files in a deterministic alphabetical order so that
+  // ALTER TABLE migrations are processed AFTER the CREATE TABLE that
+  // introduced the table. See schema-codegen.ts for the same fix.
   if (!safeStat(start)) return;
+  const collected: string[] = [];
   const stack: string[] = [start];
   while (stack.length > 0) {
     const dir = stack.pop()!;
@@ -135,9 +139,11 @@ function* walkSqlFiles(start: string): Generator<string> {
         continue;
       }
       if (s.isDirectory()) stack.push(full);
-      else if (s.isFile() && full.endsWith('.sql')) yield full;
+      else if (s.isFile() && full.endsWith('.sql')) collected.push(full);
     }
   }
+  collected.sort((a, b) => a.replace(/\\/g, '/').localeCompare(b.replace(/\\/g, '/')));
+  for (const f of collected) yield f;
 }
 
 function safeStat(p: string): boolean {
