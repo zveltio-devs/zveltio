@@ -111,6 +111,19 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
     });
   });
 
+  // GET /push-tokens — list own tokens. MUST precede /:id, else the param
+  // route captures "push-tokens" as :id and the UUID cast 500s.
+  app.get('/push-tokens', async (c) => {
+    const tdb = reqDb(c, db);
+    const user = c.get('user') as any;
+    const tokens = await tdb
+      .selectFrom('zvd_push_tokens')
+      .select(['id', 'platform', 'device_name', 'created_at'])
+      .where('user_id', '=', user.id)
+      .execute();
+    return c.json({ tokens });
+  });
+
   // GET /:id — Get single notification
   app.get('/:id', async (c) => {
     const tdb = reqDb(c, db);
@@ -310,18 +323,6 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       return c.json({ success: true });
     },
   );
-
-  // GET /push-tokens — list own tokens
-  app.get('/push-tokens', async (c) => {
-    const tdb = reqDb(c, db);
-    const user = c.get('user') as any;
-    const tokens = await tdb
-      .selectFrom('zvd_push_tokens')
-      .select(['id', 'platform', 'device_name', 'created_at'])
-      .where('user_id', '=', user.id)
-      .execute();
-    return c.json({ tokens });
-  });
 
   // DELETE /push-tokens/:id — unregister a token
   app.delete('/push-tokens/:id', async (c) => {

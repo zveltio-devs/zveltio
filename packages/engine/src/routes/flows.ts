@@ -7,6 +7,8 @@ import { executeFlow } from '../lib/flow-executor.js';
 import { validateStepConfig } from '../lib/flow-step-schemas.js';
 import { checkPermission } from '../lib/permissions.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -100,9 +102,40 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     return c.json({ flows });
   });
 
+  // GET /dlq — dead letter queue. MUST be registered before /:id, otherwise
+  // the param route swallows `/dlq` (id="dlq") and the UUID cast on
+  // zv_flows.id throws "invalid input syntax for type uuid" → 500.
+  app.get('/dlq', async (c) => {
+    const flowId = c.req.query('flow_id');
+    let query = db.selectFrom('zv_flow_dlq').selectAll().orderBy('created_at', 'desc').limit(100);
+
+    if (flowId) query = query.where('flow_id', '=', flowId);
+
+    const entries = await query.execute();
+    return c.json({ entries });
+  });
+
+  // GET /runs/:runId — run detail. Also a static-prefix route, kept above
+  // /:id for the same reason.
+  app.get('/runs/:runId', async (c) => {
+    const run = await db
+      .selectFrom('zv_flow_runs')
+      .selectAll()
+      .where('id', '=', c.req.param('runId'))
+      .executeTakeFirst();
+
+    if (!run) return c.json({ error: 'Run not found' }, 404);
+    return c.json({ run });
+  });
+
   // GET /:id — get a flow with its steps
   app.get('/:id', async (c) => {
-    const flow = await loadFlowWithSteps(db, c.req.param('id'));
+    const id = c.req.param('id');
+    // Guard: zv_flows.id is UUID. A non-UUID param (e.g. a stray static
+    // path that fell through) would make Postgres throw on the cast and
+    // surface as a 500. Treat it as not-found instead.
+    if (!UUID_RE.test(id)) return c.json({ error: 'Flow not found' }, 404);
+    const flow = await loadFlowWithSteps(db, id);
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
     return c.json({ flow });
   });
@@ -293,29 +326,6 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       .execute();
 
     return c.json({ runs });
-  });
-
-  // GET /runs/:runId — run detail
-  app.get('/runs/:runId', async (c) => {
-    const run = await db
-      .selectFrom('zv_flow_runs')
-      .selectAll()
-      .where('id', '=', c.req.param('runId'))
-      .executeTakeFirst();
-
-    if (!run) return c.json({ error: 'Run not found' }, 404);
-    return c.json({ run });
-  });
-
-  // GET /dlq — dead letter queue
-  app.get('/dlq', async (c) => {
-    const flowId = c.req.query('flow_id');
-    let query = db.selectFrom('zv_flow_dlq').selectAll().orderBy('created_at', 'desc').limit(100);
-
-    if (flowId) query = query.where('flow_id', '=', flowId);
-
-    const entries = await query.execute();
-    return c.json({ entries });
   });
 
   // POST /dlq/:id/retry — requeue a DLQ entry

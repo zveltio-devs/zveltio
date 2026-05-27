@@ -191,6 +191,15 @@ export function translationsRoutes(db: Database, auth: any): Hono {
     },
   );
 
+  // GET /glossary — MUST precede /:keyId, else the param route captures
+  // "glossary" as :keyId and the UUID cast 500s.
+  app.get('/glossary', async (c) => {
+    const { locale } = c.req.query();
+    let query = db.selectFrom('zvd_translation_glossary').selectAll().orderBy('term', 'asc');
+    if (locale) query = query.where('locale', '=', locale);
+    return c.json({ glossary: await query.execute() });
+  });
+
   app.get('/:keyId', async (c) => {
     const rows = await sql`
       SELECT tk.*,
@@ -312,13 +321,6 @@ export function translationsRoutes(db: Database, auth: any): Hono {
   });
 
   // ── Glossary ──────────────────────────────────────────────────
-
-  app.get('/glossary', async (c) => {
-    const { locale } = c.req.query();
-    let query = db.selectFrom('zvd_translation_glossary').selectAll().orderBy('term', 'asc');
-    if (locale) query = query.where('locale', '=', locale);
-    return c.json({ glossary: await query.execute() });
-  });
 
   app.post(
     '/glossary',

@@ -2,6 +2,68 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.107] - 2026-05-28
+
+### Route-ordering collisions — static routes shadowed by /:id (multiple 500s)
+
+WSL smoke-testing alpha.106 exposed a systemic bug class. The engine's
+Hono router resolves routes in **registration order**: a static route
+registered AFTER a same-method parameterized route that could match it
+is unreachable. The param route captures the static segment as `:id`,
+and because most id columns are UUID, the cast throws → 500.
+
+Confirmed empirically: `GET /api/notifications/push-tokens` → 500
+(matched `/:id`, id="push-tokens"); `DELETE /clear-all` (registered
+*before* `/:id`) → 200. Definitive proof the router honors order.
+
+Fixed every collision by moving the static route before the param one:
+
+  - **engine** `flows.ts`        — `GET /dlq`, `GET /runs/:runId` before `/:id`
+                                    (+ UUID-format guard on `/:id`)
+  - **engine** `backup.ts`       — `GET /pitr/status` before `/:id/status`
+  - **engine** `notifications.ts`— `GET /push-tokens` before `/:id`
+  - **engine** `translations.ts` — `GET /glossary` before `/:keyId`
+  - **ext** `compliance/ro/efactura` — `GET /stats` before `/:id`
+  - **ext** `operations/assets`      — `GET /stats` before `/:id`
+  - **ext** `i18n/translations`      — `GET /glossary` before `/:keyId`
+
+Every one of these endpoints returned 500 on every call before the fix.
+
+New `scripts/route-collision-check.ts` walks all route files (engine +
+extensions), splits each into router scopes at `new Hono()` boundaries
+(so multi-router files don't false-positive), and fails CI if any
+static route is shadowed by an earlier same-method param route.
+
+### Smoke-test validation
+
+Full WSL smoke test on a fresh binary install passed: health/ready/deep,
+login + session, collections CRUD, flows CRUD + run execution, the
+complete invite flow (invite → metadata → accept → login with correct
+role), audit log capture, and Studio UI.
+
+## [1.0.0-alpha.106] - 2026-05-27
+
+### Embedded migrations fix (critical — affected all binary installs)
+
+Smoke-testing on WSL revealed migrations 002–005 (panels title,
+glossary, invitations, flow_dlq) were never applied on fresh binary
+installs. Root cause: `release.yml`'s binary build ran `bun build
+--compile` directly, which embeds `embedded.ts` — an auto-generated
+file that lists each migration for the compiled binary. But the
+release workflow never ran `gen-embedded-migrations.ts` first, so the
+committed `embedded.ts` (only `001_initial.sql` from the original
+squash) was what shipped. Every alpha.100–105 binary booted with just
+the initial schema; tables created by 002–005 (`zv_invitations`,
+`zv_flow_dlq`, panels.title reconcile, translation_glossary) were
+silently missing → 500s on `/users/invite`, `/flows/dlq`, etc.
+
+Dev/source-mode installs (reading the `sql/` dir directly) were NOT
+affected — only compiled binaries.
+
+Fixes: regenerated `embedded.ts` with all 5 migrations + added a
+"Generate embedded migrations" step to `release.yml` before the
+compile so the binary always embeds the current set.
+
 ## [1.0.0-alpha.105] - 2026-05-27
 
 ### Schema drift checker + codegen + 3 more real bugs fixed
