@@ -112,6 +112,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '1.3.10' }
       - run: bun install --frozen-lockfile
+      - name: Generate embedded migrations
+        # The committed embedded.ts may lag behind the sql/ directory
+        # if a migration was added without regenerating. Regenerate at
+        # build time so the binary always has the full set.
+        run: cd packages/engine && bun scripts/gen-embedded-migrations.ts
       - name: Build binary
         run: |
           bun build packages/engine/src/index.ts \
