@@ -91,8 +91,15 @@ function safeStat(p: string): boolean {
   }
 }
 
-function* walkSql(start: string): Generator<string> {
-  if (!safeStat(start)) return;
+function walkSql(start: string): string[] {
+  // Collect every *.sql file under `start`, then return them in a
+  // deterministic alphabetical order by normalized path. Critical
+  // because Linux readdir() vs Windows enumerate in different orders
+  // — without sorting, an ALTER TABLE migration could be processed
+  // BEFORE its CREATE TABLE, producing different column ordering on
+  // the two platforms and a non-reproducible generated file.
+  if (!safeStat(start)) return [];
+  const out: string[] = [];
   const stack = [start];
   while (stack.length > 0) {
     const dir = stack.pop()!;
@@ -113,9 +120,10 @@ function* walkSql(start: string): Generator<string> {
         continue;
       }
       if (s.isDirectory()) stack.push(full);
-      else if (s.isFile() && full.endsWith('.sql')) yield full;
+      else if (s.isFile() && full.endsWith('.sql')) out.push(full);
     }
   }
+  return out.sort((a, b) => a.replace(/\\/g, '/').localeCompare(b.replace(/\\/g, '/')));
 }
 
 // ────────────────────────────────────────────────────────────────────
