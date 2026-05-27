@@ -51,11 +51,15 @@ jobs:
         # what's committed. This keeps the generated file in lockstep
         # with the SQL on disk — a stale generated file is a sign that
         # someone added a migration but forgot to re-run the codegen.
-        # Local fix: `bun run scripts/schema-codegen.ts` then commit.
+        # Local fix: `bun run scripts/schema-codegen.ts && bun run format` then commit.
+        # The format step is required because biome reformats long
+        # union literals to multi-line; codegen emits single-line, so
+        # without format the diff is just whitespace noise.
         run: |
           bun run scripts/schema-codegen.ts
+          bun run format >/dev/null
           if ! git diff --exit-code packages/engine/src/db/schema.generated.ts; then
-            echo "::error::schema.generated.ts is stale — run \`bun run scripts/schema-codegen.ts\` and commit the diff."
+            echo "::error::schema.generated.ts is stale — run \`bun run scripts/schema-codegen.ts && bun run format\` and commit the diff."
             exit 1
           fi
 
