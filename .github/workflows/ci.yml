@@ -38,6 +38,20 @@ jobs:
         # The script is also useful locally — `bun run scripts/schema-drift-check.ts`.
         run: bun run scripts/schema-drift-check.ts
 
+      - name: Schema codegen freshness
+        # Regenerates packages/engine/src/db/schema.generated.ts from
+        # the current migrations and fails the build if it differs from
+        # what's committed. This keeps the generated file in lockstep
+        # with the SQL on disk — a stale generated file is a sign that
+        # someone added a migration but forgot to re-run the codegen.
+        # Local fix: `bun run scripts/schema-codegen.ts` then commit.
+        run: |
+          bun run scripts/schema-codegen.ts
+          if ! git diff --exit-code packages/engine/src/db/schema.generated.ts; then
+            echo "::error::schema.generated.ts is stale — run \`bun run scripts/schema-codegen.ts\` and commit the diff."
+            exit 1
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
