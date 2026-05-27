@@ -15,6 +15,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 'latest'
+      # Drift checker + codegen walk migration files in BOTH repos. CI
+      # only checks out one at a time, so we shallow-clone the
+      # extensions sibling next to the workspace. Path matches
+      # EXTENSIONS_ROOT default in both scripts (../zveltio-extensions
+      # relative to the engine repo root).
+      - name: Clone zveltio-extensions sibling (for drift checker + codegen)
+        run: git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Build SDK
