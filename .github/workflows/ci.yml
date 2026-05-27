@@ -28,6 +28,16 @@ jobs:
           bun run scripts/audit-inventory.ts
           bun run scripts/audit-regression-check.ts
 
+      - name: Schema drift check
+        # Walks all migrations + DbSchema.ts + every route/lib file and
+        # reports three classes of drift:
+        #   - tables/columns referenced in code but not declared by any
+        #     migration (FATAL — these crash at runtime against Postgres)
+        #   - DbSchema.ts ↔ migration interface drift (WARN only — typing
+        #     gap, closed by the upcoming codegen pass)
+        # The script is also useful locally — `bun run scripts/schema-drift-check.ts`.
+        run: bun run scripts/schema-drift-check.ts
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
