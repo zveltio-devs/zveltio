@@ -180,6 +180,22 @@ export function backupRoutes(db: Database, auth: any): Hono {
     return c.json({ backup_id: backupId, status: 'in_progress', filename });
   });
 
+  // GET /api/backup/pitr/status — MUST precede /:id/status, else the param
+  // route captures "pitr" as :id and the UUID cast on zv_backups.id 500s.
+  router.get('/pitr/status', async (c) => {
+    const result = await sql<{ lsn: string; last_checkpoint: string; db_size_bytes: string }>`
+      SELECT pg_current_wal_lsn()::text AS lsn,
+             pg_last_checkpoint()::text AS last_checkpoint,
+             pg_database_size(current_database())::text AS db_size_bytes`.execute(db);
+    const row = result.rows[0];
+    return c.json({
+      current_lsn: row?.lsn ?? null,
+      last_checkpoint: row?.last_checkpoint ?? null,
+      db_size_bytes: row?.db_size_bytes ? Number(row.db_size_bytes) : null,
+      db_size_human: row?.db_size_bytes ? formatBytes(Number(row.db_size_bytes)) : null,
+    });
+  });
+
   // GET /api/backup/:id/status
   router.get('/:id/status', async (c) => {
     const id = c.req.param('id');
@@ -431,20 +447,6 @@ export function backupRoutes(db: Database, auth: any): Hono {
       ],
       warning:
         'This will REPLACE your current database with data from the target point in time. All changes after that point will be LOST.',
-    });
-  });
-
-  router.get('/pitr/status', async (c) => {
-    const result = await sql<{ lsn: string; last_checkpoint: string; db_size_bytes: string }>`
-      SELECT pg_current_wal_lsn()::text AS lsn,
-             pg_last_checkpoint()::text AS last_checkpoint,
-             pg_database_size(current_database())::text AS db_size_bytes`.execute(db);
-    const row = result.rows[0];
-    return c.json({
-      current_lsn: row?.lsn ?? null,
-      last_checkpoint: row?.last_checkpoint ?? null,
-      db_size_bytes: row?.db_size_bytes ? Number(row.db_size_bytes) : null,
-      db_size_human: row?.db_size_bytes ? formatBytes(Number(row.db_size_bytes)) : null,
     });
   });
 

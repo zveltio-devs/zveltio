@@ -35,6 +35,13 @@ jobs:
           bun run scripts/audit-inventory.ts
           bun run scripts/audit-regression-check.ts
 
+      - name: Route collision check
+        # Fails if a static route is registered after a same-method param
+        # route that would shadow it (Hono resolves in registration order;
+        # the param route wins and the UUID cast on :id 500s). See
+        # scripts/route-collision-check.ts.
+        run: bun run scripts/route-collision-check.ts
+
       - name: Schema drift check
         # Walks all migrations + DbSchema.ts + every route/lib file and
         # reports three classes of drift:
