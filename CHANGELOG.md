@@ -2,6 +2,63 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.105] - 2026-05-27
+
+### Schema drift checker + codegen + 3 more real bugs fixed
+
+Two new repo-wide diagnostics land in this release, plus the bug fixes
+the first run of the checker surfaced.
+
+**B — `scripts/schema-drift-check.ts`:**
+Walks every migration SQL file (engine + sibling extensions), the
+hand-written `schema.ts`, and every route/lib TS file. Reports three
+classes of drift:
+
+  - TABLE_MISSING — code references a table no migration creates.
+  - COLUMN_MISSING — code references a column not declared on that
+                     table by any migration.
+  - SCHEMA_TS_DRIFT — `schema.ts` is missing a table or column the
+                     migration declares (warning-only — typing gap,
+                     no crashloop).
+
+First-run surfaced these real bugs:
+
+  - `zv_flow_dlq` — table referenced by `routes/flows.ts` (DLQ list,
+    retry, executor failure-path INSERTs) but no migration created
+    it. New `005_flow_dlq.sql` (engine).
+  - `zv_ai_memory.{importance, source, embedding}` — three columns
+    referenced by `lib/zveltio-ai/engine.ts` for ranked memory +
+    pgvector semantic recall, never created. New
+    `003_ai_memory_columns.sql` in the AI extension (commit
+    `zveltio-extensions@8723ce4`).
+
+Also caught several parser-side bugs in the checker itself
+during validation:
+
+  - `checksum` was being mistaken for a `CHECK` table constraint
+    (name starts with `check`). Fixed.
+  - ALTER TABLE bodies with multi-clause `ADD COLUMN priority TEXT
+    NOT NULL DEFAULT 'normal' CHECK (priority IN ('low','normal'))`
+    were eating the inner comma in `('low','normal')` as a column
+    boundary. Fixed.
+  - Better-Auth `"camelCase"` columns were being lowercased on one
+    side of the diff and not the other. Fixed (case preserved for
+    quoted identifiers).
+
+**A — `scripts/schema-codegen.ts`:**
+Emits `packages/engine/src/db/schema.generated.ts` from the same
+migration walk. 353 table interfaces with proper `Generated<>` /
+nullable / enum-literal typing. CI gate ("Schema codegen freshness")
+re-runs codegen on every PR and fails if the output differs from
+what's committed — net effect: a migration change without a matching
+regenerated schema fails the build.
+
+Hand-written `schema.ts` is NOT replaced yet. Generated lives
+alongside as a parallel source; consumers can opt in. Migrating all
+consumers to import from `.generated` is deferred (would cascade
+typecheck errors because generated includes ~240 tables — mostly
+extension-managed — that hand-written omits).
+
 ## [1.0.0-alpha.104] - 2026-05-26
 
 ### AI extension — four broken subsystems repaired (extensions `528b900`)
