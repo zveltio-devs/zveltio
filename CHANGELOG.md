@@ -2,6 +2,51 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.110] - 2026-05-28
+
+### Extension loader hardening — 4 polish fixes on top of alpha.109
+
+alpha.109 fixed the cache-buster crash by detecting compiled binary mode
+via `Bun.embeddedFiles.length > 0`. A follow-up audit by a second
+reviewer surfaced 4 improvements worth shipping together:
+
+1. **Cache-buster gated by explicit dev flag, not heuristic detection.**
+   `Bun.embeddedFiles` shape can vary across Bun versions; relying on
+   it is fragile. The cache-buster now activates only when
+   `ZVELTIO_EXTENSION_DEV_RELOAD=1`. Binary installs and ordinary dev
+   runs both get clean imports. The CLI's `zveltio extension dev`
+   workflow can set the env var when hot-reload is actually desired.
+
+2. **Imports anchored to file location via `pathToFileURL().href`.**
+   The previous string-path import resolved bare specifiers from the
+   binary's CWD (which is correct only after the symlink in #3 below
+   exists). Resolving from the file URL anchors the walk to the
+   extension's actual filesystem location and is more robust against
+   CWD changes.
+
+3. **`maybeSymlinkNodeModules` re-runs on every load.** Previously it
+   only ran during `ensureExtensionCoreDeps` at boot. A
+   marketplace-installed extension that arrived after boot got its
+   `node_modules` populated but no symlink refresh → import failed.
+   Now the symlink is reasserted before every dynamic load.
+
+4. **`maybeSymlinkNodeModules` logs loud on failure.** The old `catch
+   {}` swallowed permission errors silently. Operators now see a
+   warning that names the source/target paths and explains the
+   consequence ("extensions importing bare specifiers may fail to
+   load"), so a misconfigured deployment is obvious.
+
+### Audit log — `userId: 'system'` FK violations
+
+`zv_audit_log.user_id` is `TEXT REFERENCES "user"(id) ON DELETE SET NULL`.
+The extension loader was writing `userId: 'system'` on
+`extension.loaded` / `extension.load_failed` / `extension.unloaded`
+events, triggering FK violations (`zv_audit_log_user_id_fkey`). The
+audit log entries were dropped silently; non-fatal but noisy.
+
+Fix: omit `userId` for these system-triggered events (NULL is
+allowed). Actor is recorded in `metadata.actor: 'system'` instead.
+
 ## [1.0.0-alpha.109] - 2026-05-28
 
 ### Extension loader — cache-buster broke Bun resolution in compiled binary

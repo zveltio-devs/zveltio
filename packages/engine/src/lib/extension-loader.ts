@@ -12,6 +12,7 @@ import type { FieldTypeRegistry } from './field-type-registry.js';
 import { existsSync, writeFileSync, mkdirSync, unlinkSync, symlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'path';
+import { pathToFileURL } from 'node:url';
 import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
@@ -522,8 +523,15 @@ function maybeSymlinkNodeModules(extBase: string): void {
   if (existsSync(cwdModules)) return; // already exists (real dir or prior symlink)
   try {
     symlinkSync(extModules, cwdModules);
-  } catch {
-    /* non-fatal — may fail on unusual setups or missing permissions */
+  } catch (err) {
+    // Non-fatal — fail loud so operators can investigate. Without this
+    // symlink, dynamic-import resolution of `kysely`/`hono` from
+    // extension files won't find the packages installed under
+    // <EXTENSIONS_DIR>/node_modules/.
+    console.warn(
+      `[extensions] failed to symlink ${cwdModules} → ${extModules}: ${(err as Error).message}. ` +
+        `Extensions importing bare specifiers (kysely, hono, …) may fail to load.`,
+    );
   }
 }
 
@@ -1219,23 +1227,33 @@ class ExtensionLoader {
         // Keep a reference so reloads + unloads can call shutdown().
         (extension as any).__wasmHandle = wasm;
       } else {
-        // Import and register extension. In dev (source mode), append a
-        // cache-buster query string so re-loading an edited extension picks
-        // up changes. Skip the cache-buster in COMPILED BINARY mode —
-        // Bun.embed dynamic-import resolution treats the `?v=...` suffix
-        // as part of the importer path, which breaks the node_modules
-        // walk-up that resolves bare specifiers like `kysely`. (Live
-        // reload is irrelevant in a binary install.)
+        // Import and register extension.
+        //
+        // History: we previously appended `?v=<timestamp>` whenever
+        // NODE_ENV !== 'production' for hot-reload during dev. In a
+        // compiled Bun binary, the `?v=…` suffix becomes part of the
+        // importer path, which breaks the node_modules walk-up that
+        // resolves bare specifiers like `kysely`. The fix is to:
+        //
+        //   1. Gate the cache-buster on an EXPLICIT dev-reload flag
+        //      (ZVELTIO_EXTENSION_DEV_RELOAD=1) rather than NODE_ENV.
+        //      Detecting "compiled binary" via Bun.embeddedFiles was
+        //      fragile across Bun versions.
+        //   2. Import via `pathToFileURL(...).href` so resolution is
+        //      anchored to the file's own location (which has a path
+        //      walk to <EXTENSIONS_DIR>/node_modules) and not to the
+        //      binary's CWD.
+        //   3. Re-run maybeSymlinkNodeModules at every load — first-time
+        //      install adds new node_modules at the EXTENSIONS_DIR but
+        //      the CWD symlink only gets refreshed by ensureExtensionCoreDeps,
+        //      which runs once at boot.
         const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
-        // `Bun.embeddedFiles` is an empty array in source mode and non-empty
-        // in a `bun build --compile` binary (each bundled module is an entry).
-        const isCompiledBinary =
-          typeof Bun !== 'undefined' &&
-          Array.isArray((Bun as any).embeddedFiles) &&
-          (Bun as any).embeddedFiles.length > 0;
-        const useCacheBuster = !isCompiledBinary && process.env.NODE_ENV !== 'production';
-        const cacheBuster = useCacheBuster ? `?v=${Date.now()}` : '';
-        const module = await import(`${resolvedPath}${cacheBuster}`);
+        maybeSymlinkNodeModules(resolveExtensionsBase());
+        const useCacheBuster = process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
+        const importHref = useCacheBuster
+          ? `${pathToFileURL(resolvedPath).href}?v=${Date.now()}`
+          : pathToFileURL(resolvedPath).href;
+        const module = await import(importHref);
         extension = module.default;
       }
 
@@ -1398,13 +1416,14 @@ class ExtensionLoader {
       });
       console.log(`🔌 Extension loaded: ${extName}${bundleUrl ? ' (with Studio UI)' : ''}`);
 
-      // Audit trail — record successful load
+      // Audit trail — record successful load. No userId: system events
+      // are tracked by event type, and 'system' is not a real user id —
+      // setting it triggers the zv_audit_log_user_id_fkey FK violation.
       auditLog(ctx.db, {
         type: 'extension.loaded',
-        userId: 'system',
         resourceId: extName,
         resourceType: 'extension',
-        metadata: { version: extension.name },
+        metadata: { version: extension.name, actor: 'system' },
       }).catch((err: Error) => {
         console.error('[extension-loader] audit log failed:', err.message);
       });
@@ -1416,10 +1435,9 @@ class ExtensionLoader {
       if (this.ctx) {
         auditLog(this.ctx.db, {
           type: 'extension.load_failed',
-          userId: 'system',
           resourceId: extName,
           resourceType: 'extension',
-          metadata: { error: (err as Error).message },
+          metadata: { error: (err as Error).message, actor: 'system' },
         }).catch((err: Error) => {
           console.error('[extension-loader] audit log failed:', err.message);
         });
@@ -2407,14 +2425,14 @@ class ExtensionLoader {
     this.loaded.delete(name);
     console.log(`🔌 Extension unloaded from memory: ${name}`);
 
-    // Audit trail — record unload
+    // Audit trail — record unload (system-triggered; userId omitted to
+    // avoid FK violation against 'user' table)
     if (this.ctx) {
       auditLog(this.ctx.db, {
         type: 'extension.unloaded',
-        userId: 'system',
         resourceId: name,
         resourceType: 'extension',
-        metadata: { needs_restart: ext.registeredRoutes },
+        metadata: { needs_restart: ext.registeredRoutes, actor: 'system' },
       }).catch((err: Error) => {
         console.error('[extension-loader] audit log failed:', err.message);
       });
