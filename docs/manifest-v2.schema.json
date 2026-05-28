@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zveltio.com/schemas/manifest-v2.json",
+  "title": "Zveltio Extension Manifest v2",
+  "description": "Contract for extensions published to the marketplace. Replaces the v1 `.ts` source-shipping path entirely — engine v2 refuses any extension whose engine.entry doesn't end in .js (outside the local ZVELTIO_EXTENSION_DEV_RELOAD=1 dev workflow, which doesn't go through the marketplace). All fields here mirror what the engine's ManifestSchema (packages/engine/src/lib/extension-loader.ts) parses today, plus the new v2 additions (engine block, integrity, bundlePeers). See docs/EXTENSIONS-V2-PHASE1.md.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "name",
+    "version",
+    "category",
+    "zveltioMinVersion",
+    "engine",
+    "integrity"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-_/]*$",
+      "description": "Slug. MUST match the extension folder slug exactly. Forward slashes allowed for nested categories (e.g. compliance/ro/efactura)."
+    },
+    "displayName": {
+      "type": "string",
+      "description": "Human-readable name shown in Studio + marketplace UI."
+    },
+    "description": {
+      "type": "string",
+      "description": "One-paragraph summary shown in the marketplace listing."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$",
+      "description": "Strict semver."
+    },
+    "category": {
+      "type": "string",
+      "description": "Top-level catalog category. See zveltio-extensions/README.md for the canonical list."
+    },
+    "package": {
+      "type": "string",
+      "description": "Optional npm package name (e.g. `@zveltio/ext-crm`). Used by the publish pipeline."
+    },
+    "zveltioMinVersion": {
+      "type": "string",
+      "description": "Lowest engine version this extension is known to work against. Engine compares against its own ENGINE_VERSION at enable time."
+    },
+    "zveltioMaxVersion": {
+      "type": ["string", "null"],
+      "description": "Highest engine version this extension was validated against. `null` means no upper bound."
+    },
+    "engine": {
+      "type": "object",
+      "required": ["entry", "format", "target", "bundled"],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "pattern": "\\.js$",
+          "description": "Relative path to the engine entry point. MUST end in `.js`. Authors editing live use ZVELTIO_EXTENSION_DEV_RELOAD=1 + a `.ts` on disk, but every PUBLISHED manifest names the `.js` artifact."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["esm"],
+          "description": "Module format. ESM only — CommonJS unsupported."
+        },
+        "target": {
+          "type": "string",
+          "enum": ["bun", "node", "*"],
+          "default": "bun",
+          "description": "Runtime requirement. Future-proofs for Node-only extensions (native addons Bun doesn't support)."
+        },
+        "bundled": {
+          "type": "boolean",
+          "description": "true = hono/zod/kysely/@hono/zod-validator are bundled into entry. The engine's CORE_NPM_PACKAGES presence check is skipped for bundled:true. false = these come from peerDependencies (reserved for the runtime-barrel path, Phase 1.5)."
+        },
+        "bundlePeers": {
+          "type": "boolean",
+          "default": false,
+          "description": "true = the publisher bundled all peerDependencies into entry as well. false (default) = peerDependencies come from an allow-list of native/oversized packages and are installed by the engine at enable time."
+        }
+      }
+    },
+    "studio": {
+      "type": "object",
+      "properties": {
+        "pages": {
+          "type": "array",
+          "description": "Studio page contributions. Each entry registers a Svelte page in the admin Studio. The path is the URL under /admin where the page mounts; the engine merges these into the Studio nav at enable time.",
+          "items": {
+            "type": "object",
+            "required": ["path", "label"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^/(admin|portal)/",
+                "description": "URL path, e.g. `/admin/crm`. Either /admin/* (Studio) or /portal/* (client portal)."
+              },
+              "label": {
+                "type": "string",
+                "description": "Sidebar label."
+              },
+              "icon": {
+                "type": "string",
+                "description": "Lucide icon name (e.g. Users, Mail)."
+              },
+              "navGroup": {
+                "type": "string",
+                "description": "Optional per-page nav group. Falls back to the top-level `studio.navGroup`."
+              }
+            }
+          }
+        },
+        "navGroup": {
+          "type": "string",
+          "description": "Default sidebar group for all pages declared above (business, communications, hr, …)."
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "description": "Inter-extension dependencies. The engine refuses to enable until all listed dependencies are themselves enabled.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "minVersion": { "type": "string" }
+        }
+      }
+    },
+    "peerDependencies": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Bare-specifier npm packages from a curated allow-list (imapflow, sharp, native-binding deps). Core deps (hono/zod/kysely/@hono/zod-validator) MUST NOT appear here — they live in engine.entry per engine.bundled=true. When engine.bundlePeers=true, the engine SKIPS the install step; otherwise it runs `bun install` at enable time."
+    },
+    "requires": {
+      "type": "object",
+      "description": "Database-level requirements the engine asserts before enable.",
+      "properties": {
+        "postgres_extensions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Postgres extensions to CREATE EXTENSION IF NOT EXISTS, e.g. postgis, pg_trgm."
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability flags the extension requests (database, settings, secrets, network, etc.)."
+    },
+    "contributes": {
+      "type": "object",
+      "description": "Declares what this extension contributes to the engine + Studio.",
+      "properties": {
+        "engine": { "type": "boolean" },
+        "studio": { "type": "boolean" },
+        "client": { "type": "boolean" },
+        "fieldTypes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Custom field types this extension registers (e.g. `vector`, `geometry`)."
+        },
+        "stepTypes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Workflow step types contributed."
+        },
+        "collections": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Collection slugs this extension manages."
+        }
+      }
+    },
+    "quotas": {
+      "type": "object",
+      "description": "Resource limits the engine enforces at install time. Defaults are generous; publishers can tighten per-extension.",
+      "properties": {
+        "bundleSizeKbMax": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50000,
+          "description": "Maximum size of engine.entry (KB)."
+        },
+        "nodeModulesSizeMbMax": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 200,
+          "description": "Maximum disk size of installed peerDependencies (MB)."
+        },
+        "migrationsMax": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum number of SQL migrations the engine will run for this extension."
+        }
+      }
+    },
+    "runtime": {
+      "type": "string",
+      "enum": ["js", "wasm"],
+      "default": "js",
+      "description": "Extension runtime. `js` = ESM module loaded via dynamic import. `wasm` = experimental capability-bound WebAssembly host. WASM remains experimental in v2 and is not on the Phase 1 critical path."
+    },
+    "integrity": {
+      "type": "object",
+      "required": ["engineSha256", "archiveSha256"],
+      "properties": {
+        "engineSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of the bundled engine/index.js file. Engine recomputes at load time and refuses on mismatch."
+        },
+        "archiveSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of the .zvext archive itself. Registry recomputes on upload and at download/install time on the client."
+        }
+      }
+    }
+  }
+}
