@@ -222,9 +222,10 @@ ext
   .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
   .option('--key-id <id>', 'Signing key id (default: the only key in ~/.zveltio/keys/)')
   .option('--output <dir>', 'Local-only mode: write .zvext + .sig here, skip upload')
-  .option('--no-build', 'Skip the Studio + engine build step')
+  .option('--no-build', 'Skip both engine pack and Studio build')
+  .option('--no-pack', 'Skip engine pack (use existing engine/index.js if present)')
   .option('--no-validate', 'Skip the validate step (NOT recommended)')
-  .option('--dry-run', 'Run validate + build, skip archive/sign/upload')
+  .option('--dry-run', 'Run validate + pack + build, skip archive/sign/upload')
   .action((opts) => extensionPublishCommand(opts));
 
 ext
