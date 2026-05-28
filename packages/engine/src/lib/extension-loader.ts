@@ -1248,7 +1248,27 @@ class ExtensionLoader {
         //      the CWD symlink only gets refreshed by ensureExtensionCoreDeps,
         //      which runs once at boot.
         const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
-        maybeSymlinkNodeModules(resolveExtensionsBase());
+        const extBase = resolveExtensionsBase();
+        maybeSymlinkNodeModules(extBase);
+
+        // Sanity check: if the core packages aren't on disk, the dynamic
+        // import will fail with the cryptic "Cannot find package 'kysely'
+        // from <ext>/index.ts" — operators have spent hours debugging
+        // this. Surface a clear, actionable message in lastLoadError
+        // before we even attempt the import.
+        for (const pkg of CORE_NPM_PACKAGES) {
+          const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
+          if (!existsSync(join(extBase, 'node_modules', pkgFolder))) {
+            const msg =
+              `Core package '${pkg}' not found in ${join(extBase, 'node_modules')}. ` +
+              `Boot-time install of core deps failed or the directory is missing. ` +
+              `Fix: ensure EXTENSIONS_DIR is set correctly and writable, then restart the engine.`;
+            this.lastLoadError.set(extName, msg);
+            console.error(`❌ Extension "${extName}":`, msg);
+            return;
+          }
+        }
+
         const useCacheBuster = process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
         const importHref = useCacheBuster
           ? `${pathToFileURL(resolvedPath).href}?v=${Date.now()}`
