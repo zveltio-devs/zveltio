@@ -202,6 +202,19 @@ ext
   .action((opts) => extensionDevCommand(opts));
 
 ext
+  .command('pack')
+  .description(
+    'Bundle engine/index.ts → engine/index.js (target=bun, ESM) and write engine + integrity blocks into manifest.json. Required before publish on v2 channels.',
+  )
+  .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .option('--sourcemap', 'Emit engine/index.js.map alongside the bundle')
+  .option('--no-manifest-update', 'Build the bundle but do not patch manifest.json')
+  .action(async (opts) => {
+    const { extensionPackCommand } = await import('./commands/extension-pack.js');
+    return extensionPackCommand(opts);
+  });
+
+ext
   .command('publish')
   .description('Validate, build, archive, sign, and upload an extension to the registry (S4-05)')
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
