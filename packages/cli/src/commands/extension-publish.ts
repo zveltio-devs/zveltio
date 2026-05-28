@@ -24,6 +24,7 @@ import { join, basename, dirname, resolve } from 'path';
 import { tmpdir } from 'os';
 import { signBundle, sha256Hex } from '@zveltio/sdk/publish';
 import { extensionValidateCommand } from './extension-validate.js';
+import { extensionPackCommand } from './extension-pack.js';
 import { readKeyFile, resolveKeyId } from './keys.js';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -40,9 +41,11 @@ export interface ExtensionPublishOptions {
   dir?: string;
   /**
    * Commander sets `build: false` when the user passes `--no-build`.
-   * Default is `true` (Studio bundle runs unless disabled).
+   * Default is `true` (Studio bundle + engine pack run unless disabled).
    */
   build?: boolean;
+  /** Commander sets `pack: false` when the user passes `--no-pack`. */
+  pack?: boolean;
   /** Commander sets `validate: false` when the user passes `--no-validate`. */
   validate?: boolean;
   /** Write the .zvext + .sig locally and skip the HTTP upload. */
@@ -118,22 +121,20 @@ async function createArchive(dir: string, outFile: string): Promise<void> {
   if (code !== 0) throw new Error(`tar failed (exit ${code})`);
 }
 
-async function runBuild(dir: string): Promise<void> {
-  // Studio bundle (only if `studio/` exists).
-  if (existsSync(join(dir, 'studio'))) {
-    const proc = Bun.spawn(['bun', 'run', 'build'], {
-      cwd: join(dir, 'studio'),
-      stdout: 'inherit',
-      stderr: 'inherit',
-    });
-    const code = await proc.exited;
-    if (code !== 0) throw new Error(`Studio build failed (exit ${code})`);
-  }
-  // Engine code is shipped as plain `.ts` — the engine's extension loader
-  // compiles on import (Bun-native). We don't pre-bundle here because
-  // bundling resolves type-only re-exports from peer deps (Hono, Kysely)
-  // that don't exist at install time. Syntax errors in the engine source
-  // surface at first-load on the host, which is acceptable for v1.
+async function runStudioBuild(dir: string): Promise<void> {
+  if (!existsSync(join(dir, 'studio'))) return;
+  const proc = Bun.spawn(['bun', 'run', 'build'], {
+    cwd: join(dir, 'studio'),
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
+  const code = await proc.exited;
+  if (code !== 0) throw new Error(`Studio build failed (exit ${code})`);
+}
+
+async function runEnginePack(dir: string): Promise<void> {
+  if (!existsSync(join(dir, 'engine', 'index.ts'))) return;
+  await extensionPackCommand({ dir });
 }
 
 async function uploadToRegistry(opts: {
@@ -179,7 +180,8 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   console.log(`\n${c.bold('Extension publish')}\n`);
   console.log(`  Extension dir: ${c.dim(dir)}`);
 
-  // 1. Manifest (must succeed for everything downstream).
+  // 1. Manifest (must succeed for everything downstream). `let` because
+  //    we re-read it after `pack` patches engine + integrity.engineSha256.
   let manifest: Manifest;
   try {
     manifest = readManifest(dir);
@@ -205,12 +207,29 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
     console.log(c.yellow('\nSkipping validate (--no-validate)'));
   }
 
-  // 3. Build.
+  // 3. Pack engine (Bun.build of engine/index.ts → engine/index.js, plus
+  //    manifest patch with engine + integrity.engineSha256).
+  const runPackStep = opts.pack !== false && opts.build !== false;
+  if (runPackStep) {
+    console.log(`\n${c.bold('Step 2/6: pack engine')}`);
+    try {
+      await runEnginePack(dir);
+      // Re-read manifest — pack patched engine + integrity blocks.
+      manifest = readManifest(dir);
+    } catch (e) {
+      console.error(c.red((e as Error).message));
+      process.exit(1);
+    }
+  } else {
+    console.log(c.yellow(`\nSkipping pack (${opts.build === false ? '--no-build' : '--no-pack'})`));
+  }
+
+  // 4. Studio build.
   const runBuildStep = opts.build !== false;
   if (runBuildStep) {
-    console.log(`\n${c.bold('Step 2/5: build')}`);
+    console.log(`\n${c.bold('Step 3/6: studio build')}`);
     try {
-      await runBuild(dir);
+      await runStudioBuild(dir);
     } catch (e) {
       console.error(c.red((e as Error).message));
       process.exit(1);
@@ -225,8 +244,8 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
     return;
   }
 
-  // 4. Archive.
-  console.log(`\n${c.bold('Step 3/5: archive')}`);
+  // 5. Archive.
+  console.log(`\n${c.bold('Step 4/6: archive')}`);
   const tmpDir = opts.output
     ? resolve(opts.output)
     : join(tmpdir(), `zveltio-publish-${Date.now()}`);
@@ -242,8 +261,8 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   const stat = statSync(zvextPath);
   console.log(`  ${c.dim(zvextPath)} ${c.dim(`(${(stat.size / 1024).toFixed(1)} KB)`)}`);
 
-  // 5. Sign.
-  console.log(`\n${c.bold('Step 4/5: sign')}`);
+  // 6. Sign.
+  console.log(`\n${c.bold('Step 5/6: sign')}`);
   let keyId: string;
   try {
     keyId = resolveKeyId(opts.keyId);
@@ -290,7 +309,7 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
     process.exit(1);
   }
 
-  console.log(`\n${c.bold('Step 5/5: upload')}`);
+  console.log(`\n${c.bold('Step 6/6: upload')}`);
   console.log(`  Registry:      ${c.dim(registryUrl)}`);
   try {
     const result = await uploadToRegistry({
