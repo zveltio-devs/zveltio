@@ -17,12 +17,7 @@ import type { BunPlugin } from 'bun';
 const require = createRequire(import.meta.url);
 
 /** Packages that must be bundled and resolved to .js (not .d.ts). */
-export const EXTENSION_BUNDLE_CORE_DEPS = [
-  'hono',
-  'zod',
-  'kysely',
-  '@hono/zod-validator',
-] as const;
+export const EXTENSION_BUNDLE_CORE_DEPS = ['hono', 'zod', 'kysely', '@hono/zod-validator'] as const;
 
 const BUNDLE_CONDITIONS = ['import', 'bun', 'node', 'default'] as const;
 
