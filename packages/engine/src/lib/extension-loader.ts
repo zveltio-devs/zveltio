@@ -1219,11 +1219,22 @@ class ExtensionLoader {
         // Keep a reference so reloads + unloads can call shutdown().
         (extension as any).__wasmHandle = wasm;
       } else {
-        // Import and register extension. In development, append a cache-buster
-        // query string so re-loading an edited extension picks up changes; in
-        // production the module is loaded once at startup and the cache is a feature.
+        // Import and register extension. In dev (source mode), append a
+        // cache-buster query string so re-loading an edited extension picks
+        // up changes. Skip the cache-buster in COMPILED BINARY mode —
+        // Bun.embed dynamic-import resolution treats the `?v=...` suffix
+        // as part of the importer path, which breaks the node_modules
+        // walk-up that resolves bare specifiers like `kysely`. (Live
+        // reload is irrelevant in a binary install.)
         const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
-        const cacheBuster = process.env.NODE_ENV === 'production' ? '' : `?v=${Date.now()}`;
+        // `Bun.embeddedFiles` is an empty array in source mode and non-empty
+        // in a `bun build --compile` binary (each bundled module is an entry).
+        const isCompiledBinary =
+          typeof Bun !== 'undefined' &&
+          Array.isArray((Bun as any).embeddedFiles) &&
+          (Bun as any).embeddedFiles.length > 0;
+        const useCacheBuster = !isCompiledBinary && process.env.NODE_ENV !== 'production';
+        const cacheBuster = useCacheBuster ? `?v=${Date.now()}` : '';
         const module = await import(`${resolvedPath}${cacheBuster}`);
         extension = module.default;
       }
