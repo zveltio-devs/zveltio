@@ -4,8 +4,9 @@
  *
  * Pipeline:
  *   1. Read manifest.json from the extension root.
- *   2. Compile `engine/index.ts` → `engine/index.js` via `bun build`
- *      with --target=bun --format=esm. By default core deps
+ *   2. Compile `engine/index.ts` → `engine/index.js` via `Bun.build`
+ *      (with a resolve plugin that avoids hono's .d.ts exports bug).
+ *      By default core deps
  *      (hono / zod / kysely / @hono/zod-validator) are BUNDLED into
  *      the artifact; allow-listed peer deps stay external and are
  *      installed by the engine at enable time.
@@ -31,6 +32,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import {
+  bundleExtensionEngine,
+  EXTENSION_BUNDLE_CORE_DEPS,
+} from '../lib/extension-bundle.js';
 
 // Native + oversized deps that DON'T bundle cleanly. Stay external at
 // build time; the engine installs them at enable. Keep this list in
@@ -60,9 +65,8 @@ const PEER_DEP_ALLOWLIST = new Set([
   '@aws-sdk/client-sqs',
 ]);
 
-// Core deps that MUST be bundled (the loader can't find them at
-// runtime on a compiled binary install — see scoping doc).
-const CORE_DEPS = ['hono', 'zod', 'kysely', '@hono/zod-validator'];
+// Re-export for bare-import sanity check after bundle.
+const CORE_DEPS = [...EXTENSION_BUNDLE_CORE_DEPS];
 
 const c = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
@@ -156,42 +160,45 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
       : peers.filter((p) => PEER_DEP_ALLOWLIST.has(p)); // keep allow-listed peers external
   void CORE_DEPS;
 
-  // Run bun build.
-  const args = ['build', entry, '--outfile', outfile, '--target=bun', '--format=esm'];
-  if (opts.sourcemap) args.push('--sourcemap');
-  for (const ext of externals) args.push('--external', ext);
-
-  console.log(`  ${c.dim('$ bun ' + args.join(' '))}`);
-  const proc = Bun.spawn(['bun', ...args], {
-    cwd: dir,
-    stdout: 'inherit',
-    stderr: 'inherit',
-  });
-  const code = await proc.exited;
-  if (code !== 0) {
-    throw new Error(`bun build failed (exit ${code})`);
-  }
-
-  if (!existsSync(outfile)) {
-    throw new Error(`bun build claimed success but ${outfile} was not produced.`);
+  console.log(
+    `  ${c.dim(`$ bun build ${entry} (zveltio extension-bundle plugin)`)}` +
+      (externals.length > 0 ? c.dim(` external:${externals.join(',')}`) : ''),
+  );
+  try {
+    await bundleExtensionEngine({
+      entry,
+      outfile,
+      external: externals,
+      sourcemap: opts.sourcemap,
+      resolveDir: dir,
+    });
+  } catch (err) {
+    throw new Error(`Bun bundle failed: ${(err as Error).message}`);
   }
 
   const bundleBytes = readFileSync(outfile);
   const engineSha256 = createHash('sha256').update(bundleBytes).digest('hex');
 
   // Quick sanity check: confirm core deps are NOT left as bare imports
-  // in the bundle (would mean they weren't actually bundled). This
-  // catches misconfigured tsconfig paths and similar.
-  const bundleText = bundleBytes.toString('utf8');
+  // in the bundle (would mean they weren't actually bundled). Strip
+  // JSDoc + block comments first — bundled libraries often reproduce
+  // example snippets like `* import { Hono } from 'hono'` that would
+  // otherwise trip the check.
+  const bundleText = bundleBytes
+    .toString('utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '') // block comments + JSDoc
+    .replace(/(^|\s)\/\/[^\n]*/g, '$1'); // line comments
+
   for (const dep of CORE_DEPS) {
     const baseImportRe = new RegExp(
-      `(?:from|import)\\s*['"]${dep.replace(/[.*+?^${}()|[\\]/g, '\\$&')}['"]`,
+      `(?:from|import\\()\\s*['"]${dep.replace(/[.*+?^${}()|[\\]/g, '\\$&')}['"]`,
       'm',
     );
     if (baseImportRe.test(bundleText)) {
       throw new Error(
         `Bundled output still contains a bare import of '${dep}'. ` +
-          `Bun build couldn't resolve it — check that the dep is installed in the extension's node_modules.`,
+          `Bun couldn't bundle it — check that the dep is installed in node_modules ` +
+          `(extension dir or a parent workspace).`,
       );
     }
   }
