@@ -2,6 +2,33 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.109] - 2026-05-28
+
+### Extension loader — cache-buster broke Bun resolution in compiled binary
+
+WSL smoke test: tried to enable any marketplace extension → "Cannot find
+package 'kysely' from '/opt/zveltio/extensions/<ext>/engine/index.ts?v=…'".
+
+Root cause: the dynamic-import cache-buster (`?v=<timestamp>`) was being
+appended whenever `NODE_ENV !== 'production'`. In a compiled Bun binary
+the `?v=…` suffix becomes part of the importer's path for module
+resolution, which breaks the `node_modules` walk-up that resolves bare
+specifiers like `kysely`. The core packages were installed correctly
+under `/opt/zveltio/extensions/node_modules/` (verified) but
+unreachable from any extension file that had the cache-buster suffix.
+
+This affected EVERY extension enable on every binary install since the
+loader was written — the marketplace install path was fully dead from
+the user's perspective.
+
+Fix: skip the cache-buster entirely when running in a compiled binary
+(`Bun.embeddedFiles.length > 0`). Live reload doesn't apply there
+anyway — extensions are loaded once at boot/enable. Source-mode dev
+keeps the cache-buster for hot-edit workflow.
+
+Found by attempting `POST /api/marketplace/crm/enable` after a fresh
+alpha.108 binary install.
+
 ## [1.0.0-alpha.108] - 2026-05-28
 
 ### `/api/backup/pitr/status` — fix invalid Postgres function
