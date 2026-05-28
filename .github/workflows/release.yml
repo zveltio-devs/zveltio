@@ -84,6 +84,118 @@ jobs:
           retention-days: 1
 
   # ── Job 2: Build Binaries ────────────────────────────────────
+  # Smoke test on the freshly-compiled linux-x64 binary. Catches the class
+  # of bugs typecheck + dev-mode CI can't see — only the compiled binary
+  # exposes them. Real bugs this would have caught:
+  #   - alpha.106: gen-embedded-migrations.ts not run → tables missing
+  #   - alpha.107: route-ordering collisions surface only at HTTP layer
+  #   - alpha.108: pg_last_checkpoint() invalid only against real PG
+  #   - alpha.109/110: extension loader cache-buster + audit FK + symlink
+  #
+  # Strategy: spin up a real Postgres, boot the binary, create a god
+  # user, install + enable the CRM extension via marketplace API. Any
+  # 500 fails the build.
+  smoke-binary:
+    name: Smoke (compiled binary + Postgres)
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zveltio_smoke
+          POSTGRES_USER: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-zveltio-linux-x64
+          path: ./
+      - name: Clone extensions sibling
+        run: git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ./extensions
+
+      - name: Boot binary + smoke marketplace enable
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_smoke
+          BETTER_AUTH_SECRET: smoke-secret-32-chars-long-zzzzzz
+          BETTER_AUTH_URL: http://localhost:3000
+          ENCRYPTION_KEY: smoke-encryption-key-32-bytes-aaaaaaaaaaaaaaaa
+          EXTENSIONS_DIR: ${{ github.workspace }}/extensions
+          PORT: '3000'
+          NODE_ENV: production
+        run: |
+          chmod +x zveltio-linux-x64
+          ./zveltio-linux-x64 &
+          ENGINE_PID=$!
+
+          # Wait up to 60s for health/ready (covers migration apply time)
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/api/health/ready >/dev/null 2>&1; then
+              echo "✓ Engine booted"; break
+            fi
+            sleep 1
+            if [ $i -eq 60 ]; then
+              echo "::error::Engine did not become ready in 60s"
+              kill $ENGINE_PID 2>/dev/null || true
+              exit 1
+            fi
+          done
+
+          # Verify migrations 002-005 applied (catches alpha.106-style
+          # missing embedded migrations).
+          MIGCOUNT=$(curl -fsS http://localhost:3000/api/health/ready 2>&1 | grep -o '"migrations":{[^}]*"ok":true' || true)
+          if [ -z "$MIGCOUNT" ]; then
+            echo "::error::Migrations report not OK on health/ready"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+
+          # Create a god user via CLI so we can hit privileged endpoints.
+          ./zveltio-linux-x64 create-god \
+            --email smoke@test.invalid \
+            --password SmokePass123! \
+            --name "Smoke Bot" || true
+
+          # Sign in and grab cookie.
+          curl -fsS -X POST http://localhost:3000/api/auth/sign-in/email \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"smoke@test.invalid","password":"SmokePass123!"}' \
+            -c cookies.txt -o /tmp/signin.json
+          if ! grep -q '"redirect"' /tmp/signin.json; then
+            echo "::error::Sign-in failed"; cat /tmp/signin.json
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+
+          # Marketplace install + enable the CRM extension. This is the
+          # path that broke in alpha.100–109 with "Cannot find package
+          # 'kysely'" — would have caught it.
+          curl -fsS -X POST http://localhost:3000/api/marketplace/crm/install \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/install.json
+          if ! grep -q '"success":true' /tmp/install.json; then
+            echo "::error::Install failed"; cat /tmp/install.json
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+
+          curl -fsS -X POST http://localhost:3000/api/marketplace/crm/enable \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/enable.json
+          if ! grep -q '"success":true' /tmp/enable.json; then
+            echo "::error::Enable failed — likely a module-resolution or schema-mismatch regression."
+            echo "::error::Body: $(cat /tmp/enable.json)"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+
+          echo "✅ CRM enabled successfully on the compiled binary."
+          kill $ENGINE_PID 2>/dev/null || true
+          wait $ENGINE_PID 2>/dev/null || true
+
   # The binary itself does NOT embed studio/client — they are served at runtime
   # from ./studio-dist and ./client-dist (Docker: in image, Native: downloaded separately)
   build-binaries:
