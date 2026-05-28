@@ -183,9 +183,17 @@ export function backupRoutes(db: Database, auth: any): Hono {
   // GET /api/backup/pitr/status — MUST precede /:id/status, else the param
   // route captures "pitr" as :id and the UUID cast on zv_backups.id 500s.
   router.get('/pitr/status', async (c) => {
-    const result = await sql<{ lsn: string; last_checkpoint: string; db_size_bytes: string }>`
+    // pg_last_checkpoint() does NOT exist in standard Postgres — the
+    // correct function is pg_control_checkpoint(), which returns a row
+    // with checkpoint_lsn + checkpoint_time among other fields. The old
+    // query 500'd on every call against any vanilla PG install.
+    const result = await sql<{
+      lsn: string;
+      last_checkpoint: string | null;
+      db_size_bytes: string;
+    }>`
       SELECT pg_current_wal_lsn()::text AS lsn,
-             pg_last_checkpoint()::text AS last_checkpoint,
+             (SELECT checkpoint_time::text FROM pg_control_checkpoint()) AS last_checkpoint,
              pg_database_size(current_database())::text AS db_size_bytes`.execute(db);
     const row = result.rows[0];
     return c.json({

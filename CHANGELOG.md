@@ -2,6 +2,20 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.108] - 2026-05-28
+
+### `/api/backup/pitr/status` — fix invalid Postgres function
+
+`pg_last_checkpoint()` doesn't exist in standard Postgres. The route
+was 500ing on every call against any vanilla PG install. The correct
+function is `pg_control_checkpoint()`, which returns a row with
+`checkpoint_lsn` + `checkpoint_time` (the latter is what the route
+intends to surface as "last checkpoint").
+
+Found while validating alpha.107 — 5 of 6 route fixes confirmed green,
+this one stayed 500 because the underlying SQL itself was broken, not
+the route ordering. Fixed inline; no migration needed.
+
 ## [1.0.0-alpha.107] - 2026-05-28
 
 ### Route-ordering collisions — static routes shadowed by /:id (multiple 500s)
