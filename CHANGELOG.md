@@ -2,6 +2,53 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.111] - 2026-05-28
+
+### Extensions v2 — Phase 1 ships (bundled extension artifacts)
+
+Concludes the EXTENSIONS-V2-PHASE1 scoping work. Marketplace
+install/enable now works on the compiled binary, which has been
+broken since the first alpha that shipped marketplace support.
+
+**Root cause of the original bug**: Bun compiled binaries cannot
+resolve bare specifiers like `kysely` from on-disk `node_modules`
+for dynamically-imported external files. The runtime has no
+node_modules walk-up for those imports — the only thing it sees
+is what's bundled into the binary itself.
+
+**Fix**: each extension now ships a fully-bundled `engine/index.js`
+artifact with hono/zod/kysely/@hono/zod-validator inlined. The
+engine loader detects `manifest.engine.bundled === true` and
+imports the .js directly, skipping the symlink dance and the
+CORE_NPM_PACKAGES presence check entirely.
+
+What landed:
+
+  - **CLI** (`packages/cli/src/lib/extension-bundle.ts`): a custom
+    Bun plugin that resolves `import 'hono'` to its ESM .js entry
+    instead of the .d.ts that Bun's default exports-condition
+    matching picks. Plus `extension pack` command +
+    smoke-test script.
+  - **Engine** (`packages/engine/src/lib/extension-loader.ts`):
+    `ManifestSchema` extended with `engine` + `integrity` blocks.
+    When `engine.bundled` is true, the loader skips the legacy
+    code paths and verifies the on-disk bundle's SHA-256 against
+    `integrity.engineSha256` before import.
+  - **5 pilot extensions packed** (`zveltio-extensions@9c6d142`):
+    crm (918 KB), communications/mail (776 KB, with imapflow/
+    mailparser/nodemailer external), finance/invoicing (741 KB),
+    ai (1303 KB), forms (603 KB). Each manifest now declares the
+    v2 `engine` + `integrity` blocks.
+
+The remaining 49 official extensions can be packed via the same
+CLI in the next migration wave; the loader handles both v1 (legacy
+.ts on disk + symlink) and v2 (bundled) extensions correctly so
+the rollout doesn't need to be atomic.
+
+See `docs/EXTENSIONS-V2-PHASE1.md` for the full scoping doc and
+`docs/manifest-v2.schema.json` for the machine-checkable manifest
+contract.
+
 ## [1.0.0-alpha.110] - 2026-05-28
 
 ### Extension loader hardening — 4 polish fixes on top of alpha.109

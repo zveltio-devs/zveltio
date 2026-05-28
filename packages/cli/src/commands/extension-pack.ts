@@ -32,10 +32,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import {
-  bundleExtensionEngine,
-  EXTENSION_BUNDLE_CORE_DEPS,
-} from '../lib/extension-bundle.js';
+import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 
 // Native + oversized deps that DON'T bundle cleanly. Stay external at
 // build time; the engine installs them at enable. Keep this list in
