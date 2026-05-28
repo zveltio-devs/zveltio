@@ -9,7 +9,14 @@ import type { FieldTypeRegistry } from './field-type-registry.js';
 // Bun deliberately exposes node:fs as the native install-time API — there
 // is no synchronous Bun.file equivalent for mkdir/symlink/writeFile. The
 // explicit `node:` prefix makes that intent visible.
-import { existsSync, writeFileSync, mkdirSync, unlinkSync, symlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'path';
 import { pathToFileURL } from 'node:url';
@@ -720,6 +727,30 @@ const ManifestSchema = z
      * of a small ABI surface; see `docs/EXTENSION-DEVELOPER-GUIDE.md` §16.
      */
     runtime: z.enum(['js', 'wasm']).default('js').optional(),
+    /**
+     * v2 engine block. When present with `bundled: true`, the loader
+     * imports `engine.entry` (a pre-built `.js` artifact) directly
+     * without checking for the CORE_NPM_PACKAGES on disk — the bundle
+     * has them inlined. See docs/EXTENSIONS-V2-PHASE1.md.
+     */
+    engine: z
+      .object({
+        entry: z.string(),
+        format: z.literal('esm').default('esm'),
+        target: z.enum(['bun', 'node', '*']).default('bun'),
+        bundled: z.boolean(),
+        bundlePeers: z.boolean().default(false),
+      })
+      .optional(),
+    integrity: z
+      .object({
+        engineSha256: z.string().regex(/^[a-f0-9]{64}$/),
+        archiveSha256: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
+      })
+      .optional(),
   })
   .passthrough();
 
@@ -1065,10 +1096,13 @@ class ExtensionLoader {
       // migrationsLimit + extCategory. Defaults to 'js' for back-compat.
       let extRuntime: 'js' | 'wasm' = 'js';
 
+      // Hoisted out of the if-block so the v2 `engine.bundled` check
+      // below (in the JS-runtime path) can see it.
+      let manifest: any = null;
+
       // Validate manifest.json if present, then check compatibility + dependencies
       const manifestPath = join(extDir, 'manifest.json');
       if (existsSync(manifestPath)) {
-        let manifest: any;
         try {
           const rawManifest = JSON.parse(await Bun.file(manifestPath).text());
           manifest = ManifestSchema.parse(rawManifest);
@@ -1247,29 +1281,69 @@ class ExtensionLoader {
         //      install adds new node_modules at the EXTENSIONS_DIR but
         //      the CWD symlink only gets refreshed by ensureExtensionCoreDeps,
         //      which runs once at boot.
-        const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
+        // Manifest v2: when `engine.bundled: true` the extension ships
+        // a pre-built engine/index.js with hono/zod/kysely/@hono/zod-validator
+        // inlined. The Bun compiled binary CAN'T resolve those bare
+        // specifiers from disk-installed node_modules at runtime, so
+        // bundling is the ONLY path that works on production binaries.
+        // When bundled, we skip the CORE_NPM_PACKAGES presence check
+        // and import the .js artifact directly.
+        const isBundled = manifest.engine?.bundled === true;
         const extBase = resolveExtensionsBase();
-        maybeSymlinkNodeModules(extBase);
 
-        // Sanity check: if the core packages aren't on disk, the dynamic
-        // import will fail with the cryptic "Cannot find package 'kysely'
-        // from <ext>/index.ts" — operators have spent hours debugging
-        // this. Surface a clear, actionable message in lastLoadError
-        // before we even attempt the import.
-        for (const pkg of CORE_NPM_PACKAGES) {
-          const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
-          if (!existsSync(join(extBase, 'node_modules', pkgFolder))) {
+        let resolvedPath: string;
+        if (isBundled) {
+          const bundledEntry = join(extDir, manifest.engine!.entry);
+          if (!existsSync(bundledEntry)) {
             const msg =
-              `Core package '${pkg}' not found in ${join(extBase, 'node_modules')}. ` +
-              `Boot-time install of core deps failed or the directory is missing. ` +
-              `Fix: ensure EXTENSIONS_DIR is set correctly and writable, then restart the engine.`;
+              `Extension "${extName}" manifest declares engine.bundled=true ` +
+              `but engine.entry "${manifest.engine!.entry}" is not on disk at ${bundledEntry}. ` +
+              `Run \`zveltio extension pack\` before publishing.`;
             this.lastLoadError.set(extName, msg);
-            console.error(`❌ Extension "${extName}":`, msg);
+            console.error(`❌ ${msg}`);
             return;
+          }
+          // Optional: verify integrity hash if the manifest declares one.
+          if (manifest.integrity?.engineSha256) {
+            const { createHash } = await import('node:crypto');
+            const actual = createHash('sha256').update(readFileSync(bundledEntry)).digest('hex');
+            if (actual !== manifest.integrity.engineSha256) {
+              const msg =
+                `Extension "${extName}" integrity check failed: ` +
+                `manifest declares engineSha256=${manifest.integrity.engineSha256} ` +
+                `but the on-disk bundle hashes to ${actual}. ` +
+                `Re-pack and re-publish, or the bundle was tampered with.`;
+              this.lastLoadError.set(extName, msg);
+              console.error(`❌ ${msg}`);
+              return;
+            }
+          }
+          resolvedPath = bundledEntry;
+        } else {
+          // Legacy / dev path: .ts source + on-disk core deps.
+          // Loader hardening already shipped in alpha.110 (no ?v=,
+          // pathToFileURL, audit-FK fix). The CORE_NPM_PACKAGES
+          // presence check below catches the kysely-missing case
+          // with a clear error before the cryptic dynamic-import
+          // throw bites operators.
+          resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
+          maybeSymlinkNodeModules(extBase);
+          for (const pkg of CORE_NPM_PACKAGES) {
+            const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
+            if (!existsSync(join(extBase, 'node_modules', pkgFolder))) {
+              const msg =
+                `Core package '${pkg}' not found in ${join(extBase, 'node_modules')}. ` +
+                `Boot-time install of core deps failed or the directory is missing. ` +
+                `Fix: ensure EXTENSIONS_DIR is set correctly and writable, then restart the engine. ` +
+                `(Or migrate this extension to manifest v2 with engine.bundled=true via \`zveltio extension pack\`.)`;
+              this.lastLoadError.set(extName, msg);
+              console.error(`❌ Extension "${extName}":`, msg);
+              return;
+            }
           }
         }
 
-        const useCacheBuster = process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
+        const useCacheBuster = !isBundled && process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
         const importHref = useCacheBuster
           ? `${pathToFileURL(resolvedPath).href}?v=${Date.now()}`
           : pathToFileURL(resolvedPath).href;
