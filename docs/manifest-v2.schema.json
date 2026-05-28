@@ -5,14 +5,7 @@
   "description": "Contract for extensions published to the marketplace. Replaces the v1 `.ts` source-shipping path entirely — engine v2 refuses any extension whose engine.entry doesn't end in .js (outside the local ZVELTIO_EXTENSION_DEV_RELOAD=1 dev workflow, which doesn't go through the marketplace). All fields here mirror what the engine's ManifestSchema (packages/engine/src/lib/extension-loader.ts) parses today, plus the new v2 additions (engine block, integrity, bundlePeers). See docs/EXTENSIONS-V2-PHASE1.md.",
   "type": "object",
   "additionalProperties": true,
-  "required": [
-    "name",
-    "version",
-    "category",
-    "zveltioMinVersion",
-    "engine",
-    "integrity"
-  ],
+  "required": ["name", "version", "category", "zveltioMinVersion", "engine", "integrity"],
   "properties": {
     "name": {
       "type": "string",
