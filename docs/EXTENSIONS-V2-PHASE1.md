@@ -20,9 +20,13 @@ migration of the 54 official extensions, test pyramid.
 
 Phase 1 ships extensions as **fully-bundled `engine/index.js` ESM
 artifacts**. `bun build engine/index.ts --target=bun --format=esm`
-without `--external` for core deps. Engine loads them via
-`import(pathToFileURL(entry).href)` — no cache-buster, no symlink
-dance, no runtime module map.
+without `--external` for core deps (hono, zod, kysely,
+@hono/zod-validator). Allow-listed peer deps (e.g. imapflow,
+nodemailer, sharp) STAY external at build time and the engine
+installs them at enable. Engine loads bundled artifacts via
+`import(pathToFileURL(entry).href)` — no cache-buster, no
+node_modules symlink dependency, no runtime module map. The
+symlink path remains only for the dev-reload `.ts` workflow.
 
 There is **no legacy channel**. The 54 official extensions are all
 ours, all in one repo; converting them is a single scripted batch
@@ -180,10 +184,10 @@ entry point.
 | --- | --- |
 | `zveltio extension new <name>` | scaffolds from `templates/minimal/`, sets manifest v2 defaults |
 | `zveltio extension dev` | sets `ZVELTIO_EXTENSION_DEV_RELOAD=1`, watches `engine/*.ts` + `studio/pages/**`, hot-reload via existing `reloadExtensionFromDisk` |
-| `zveltio extension validate` | manifest schema check, slug match, migration paths, `engine/index.js` existence on production channel, `peerDependencies` against allow-list |
+| `zveltio extension validate` | manifest schema check, slug match, migration paths, `engine/index.js` existence in archive, `peerDependencies` against allow-list |
 | `zveltio extension pack` | (NEW) runs `bun build engine/index.ts --outfile engine/index.js --target=bun --format=esm`, computes `engineSha256`, then archives + manifest with hash filled in |
 | `zveltio extension sign` | (extracted from existing publish) ED25519 over archive |
-| `zveltio extension publish` | `validate → pack → sign → upload`. Replaces today's "publish .ts as-is" behavior on production channel |
+| `zveltio extension publish` | `validate → pack → sign → upload`. Replaces today's "publish .ts as-is" behavior — every published `.zvext` is bundled |
 
 Files:
 - `packages/cli/src/commands/extension-pack.ts` (NEW)
@@ -263,7 +267,7 @@ hello-ext/
 
 ---
 
-## 7b. Gap between this contract and the code today
+## 8. PR order — and the gap between this contract and the code today
 
 At ratification time, the v2 contract above is NOT implemented in
 engine or CLI. The following items are still TODO and each maps to a
@@ -280,7 +284,7 @@ PR in §8 below:
 | Skip CORE_NPM_PACKAGES presence check when `engine.bundled: true` | Loader always checks `extensions/node_modules/{kysely,hono,zod,@hono/zod-validator}`, contradicting the bundle-first promise | PR #4 — add `engine.bundled` short-circuit |
 | `integrity.archiveSha256` mismatch refusal | Not checked at install. | PR #8 — registry endpoint |
 
-The doc represents the **target contract**. Code lands in the PRs of §8.
+The doc represents the **target contract**. Code lands in the PRs below.
 
 1. **This document + `manifest-v2.schema.json`** (zero code) — gives reviewers a single contract surface for everything that follows.
 2. **Engine: extension-loader runtime hardening already shipped** (alpha.110 + `c64b11b`). Confirm via post-merge smoke.
