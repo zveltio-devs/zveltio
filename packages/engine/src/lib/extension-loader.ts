@@ -1347,11 +1347,25 @@ class ExtensionLoader {
           resolvedPath = bundledEntry;
         } else {
           // Legacy / dev path: .ts source + on-disk core deps.
-          // Loader hardening already shipped in alpha.110 (no ?v=,
-          // pathToFileURL, audit-FK fix). The CORE_NPM_PACKAGES
-          // presence check below catches the kysely-missing case
-          // with a clear error before the cryptic dynamic-import
-          // throw bites operators.
+          // Refuse legacy .ts in production. ZVELTIO_EXTENSION_DEV_RELOAD=1
+          // keeps the door open for local development against unbundled
+          // extensions, but the production binary should never load a
+          // .ts because that pulls in the kysely/hono module-resolution
+          // bug we spent 16 alpha releases fixing. Hard-fail here
+          // surfaces "this extension wasn't packed" loudly instead of
+          // letting it slip through to a cryptic dynamic-import throw.
+          const allowLegacy = process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
+          if (!allowLegacy && process.env.NODE_ENV === 'production') {
+            const msg =
+              `Extension "${extName}" is not bundled (manifest.engine.bundled !== true). ` +
+              `Production refuses legacy .ts extensions because Bun's compiled-binary ` +
+              `resolver cannot find core deps via disk node_modules walks. ` +
+              `Run \`zveltio extension pack --dir <ext>\` and re-deploy the ` +
+              `extension, or set ZVELTIO_EXTENSION_DEV_RELOAD=1 in dev environments.`;
+            this.lastLoadError.set(extName, msg);
+            console.error(`❌ ${msg}`);
+            return;
+          }
           resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
           maybeSymlinkNodeModules(extBase);
           for (const pkg of CORE_NPM_PACKAGES) {
