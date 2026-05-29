@@ -12,6 +12,10 @@ import type { ZveltioExtension } from '@zveltio/sdk/extension';
 const extension: ZveltioExtension = {
   name: 'hello-ext',
   category: 'fixture',
+  // Mount under /ext/hello-ext/* (current convention for first-party
+  // extensions). Default is 'global', which would put /health at the
+  // engine root and miss the smoke's /ext/hello-ext/health probe.
+  mountStrategy: 'subapp',
   async register(app, _ctx) {
     const routes = new Hono();
     routes.get('/health', (c) => c.json({ ok: true, name: 'hello-ext', version: '1.0.0' }));
