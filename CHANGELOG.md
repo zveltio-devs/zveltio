@@ -2,6 +2,47 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.117] - 2026-05-29
+
+### Beta-readiness backlog (Phase 2 prep)
+
+Six fixes that turn the engine from "marketplace works" into
+"marketplace works AND is hard to break by accident":
+
+- **Bun SQL race**: the engine crashed during studio rebuild when
+  a transaction's `release()` raced Bun's pool idle-timeout. The
+  release call threw `ERR_POSTGRES_CONNECTION_CLOSED` as an
+  unhandled rejection and the binary exited. Fix: dialect's
+  `release()` now swallows that specific code (the connection is
+  already gone; there is nothing to roll back), and a global
+  `unhandledRejection` handler keeps the process alive for the
+  same code + ECONNRESET / EPIPE on broken websocket peers.
+  Every other rejection still aborts.
+
+- **Loader refuses legacy .ts in production**. `NODE_ENV=production`
+  + non-bundled extension is now a hard fail with a clear message
+  pointing at `zveltio extension pack`. Dev installs still work via
+  `ZVELTIO_EXTENSION_DEV_RELOAD=1`. Closes the "extension slipped
+  through unpacked, mystery dynamic-import error" class of bugs.
+
+- **`zveltio extension validate` enforces manifest v2**. v1 (no
+  `engine` block) prints a warning that recommends running pack.
+  Partial v2 (engine block present but missing `entry`, `bundled`,
+  or `integrity.engineSha256`) is a hard error — the engine would
+  refuse to load it at enable time, so failing in validate
+  surfaces it during publish prep.
+
+Registry side:
+
+- `/api/admin/upload-package/:name` now computes the archive
+  SHA-256 server-side and returns it in the response + persists it
+  as R2 customMetadata. The engine doesn't enforce this against a
+  manifest-declared value yet (engineSha256 stays load-bearing),
+  but operators can now verify byte-identical archives across
+  publisher → R2 → install.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.116] - 2026-05-29
 
 ### hello-ext fixture: mountStrategy = subapp

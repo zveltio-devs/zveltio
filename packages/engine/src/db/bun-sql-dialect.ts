@@ -365,7 +365,20 @@ class BunSqlSmartConnection implements DatabaseConnection {
 
   release(): void {
     if (this.#reserved) {
-      this.#reserved.release();
+      try {
+        this.#reserved.release();
+      } catch (err) {
+        // Bun's pool can race idle-timeout against a transaction
+        // release, leaving the connection in CLOSED state by the
+        // time we get here. Swallow ERR_POSTGRES_CONNECTION_CLOSED
+        // — there is nothing to release, the connection is already
+        // gone. Any other error must surface so it can be fixed.
+        const e = err as { code?: string; message?: string };
+        const isClosed =
+          e?.code === 'ERR_POSTGRES_CONNECTION_CLOSED' ||
+          /Connection closed/i.test(e?.message ?? '');
+        if (!isClosed) throw err;
+      }
       this.#reserved = null;
     }
     // No-op for non-transaction connections — pool manages itself

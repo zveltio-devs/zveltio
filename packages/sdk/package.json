@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/sdk",
-  "version": "1.0.0-alpha.116",
+  "version": "1.0.0-alpha.117",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
