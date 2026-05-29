@@ -217,7 +217,12 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     };
     manifest.integrity = {
       engineSha256,
-      archiveSha256: manifest.integrity?.archiveSha256 ?? '',
+      // Only carry archiveSha256 forward if a prior valid value exists —
+      // never write an empty placeholder (the engine's manifest schema
+      // rejects it). The registry computes archiveSha256 on upload.
+      ...(manifest.integrity?.archiveSha256
+        ? { archiveSha256: manifest.integrity.archiveSha256 }
+        : {}),
     };
     writeManifest(dir, manifest);
     console.log(`  ${c.green('✓')} manifest.json updated with engine + integrity blocks`);

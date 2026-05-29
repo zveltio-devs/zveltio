@@ -745,9 +745,11 @@ const ManifestSchema = z
     integrity: z
       .object({
         engineSha256: z.string().regex(/^[a-f0-9]{64}$/),
+        // archiveSha256 is computed by the registry on upload. The pack
+        // command writes an empty string as a placeholder (registry fills
+        // it in later); accept either missing/empty OR a valid hash.
         archiveSha256: z
-          .string()
-          .regex(/^[a-f0-9]{64}$/)
+          .union([z.literal(''), z.string().regex(/^[a-f0-9]{64}$/)])
           .optional(),
       })
       .optional(),
@@ -1107,10 +1109,9 @@ class ExtensionLoader {
           const rawManifest = JSON.parse(await Bun.file(manifestPath).text());
           manifest = ManifestSchema.parse(rawManifest);
         } catch (err) {
-          console.warn(
-            `⚠️  Extension "${extName}": invalid manifest.json —`,
-            (err as Error).message,
-          );
+          const msg = `invalid manifest.json — ${(err as Error).message}`;
+          this.lastLoadError.set(extName, msg);
+          console.warn(`⚠️  Extension "${extName}": ${msg}`);
           return;
         }
         if (typeof manifest.category === 'string') extCategory = manifest.category;
