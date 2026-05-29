@@ -2,6 +2,35 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.114] - 2026-05-29
+
+### Phase 1 of EXTENSIONS-V2 closes
+
+Marketplace install + enable validated end-to-end on the compiled
+binary across 8 representative extensions in WSL, including the
+6 cases with peerDependencies that needed `bundlePeers: true`:
+crm, ai, communications/mail, auth/ldap, billing, search, sms,
+data/import. All 54 official extensions are packed with manifest v2 +
+integrity.engineSha256; sync workflow uploads 54/54 with hash drift
+detection in place.
+
+Two follow-ups land in this release:
+
+- **hello-ext fixture** — a self-contained Hono router under
+  `packages/engine/src/tests/fixtures/hello-ext/`, listed in the
+  local `EXTENSION_CATALOG` with category `'fixture'`. The release
+  smoke job no longer clones `zveltio-extensions` and no longer
+  depends on the registry being reachable — it copies the fixture
+  into `EXTENSIONS_DIR` and exercises install + enable + a real
+  GET against `/ext/hello-ext/health`. Removes the entire class
+  of "release fails because the marketplace pipeline regressed."
+
+- **Docs §8 refresh** — `docs/EXTENSIONS-V2-PHASE1.md` Section 8
+  was last updated before pack/publish existed. Status table now
+  reflects what's actually shipped through alpha.113.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.113] - 2026-05-29
 
 ### Drop the "peer deps installed at enable time" model

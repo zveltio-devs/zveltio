@@ -118,8 +118,17 @@ jobs:
         with:
           name: binary-zveltio-linux-x64
           path: ./
-      - name: Clone extensions sibling
-        run: git clone --depth=1 https://github.com/zveltio-devs/zveltio-extensions.git ./extensions
+      - name: Stage hello-ext smoke fixture
+        # The release smoke does not depend on the official extensions
+        # repo (zveltio-extensions). Hello-ext is a self-contained
+        # bundled fixture committed in this repo at
+        # packages/engine/src/tests/fixtures/hello-ext/. Copying it into
+        # EXTENSIONS_DIR lets the binary's marketplace install detect
+        # files-on-disk and skip the registry download — keeping the
+        # smoke hermetic across registry/CDN outages.
+        run: |
+          mkdir -p ./extensions
+          cp -r packages/engine/src/tests/fixtures/hello-ext ./extensions/hello-ext
 
       - name: Boot binary + smoke marketplace enable
         env:
@@ -172,10 +181,13 @@ jobs:
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
 
-          # Marketplace install + enable the CRM extension. This is the
-          # path that broke in alpha.100–109 with "Cannot find package
-          # 'kysely'" — would have caught it.
-          curl -fsS -X POST http://localhost:3000/api/marketplace/crm/install \
+          # Marketplace install + enable the hello-ext fixture. This
+          # exercises the exact code path that broke alpha.100–113
+          # (kysely / hono-types / peer-deps / bundle-hash-drift /
+          # autocrlf etc.) on the compiled binary. The fixture is on
+          # disk under EXTENSIONS_DIR so no registry round-trip — the
+          # smoke job stays green even if registry.zveltio.com is down.
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext/install \
             -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
             -o /tmp/install.json
           if ! grep -q '"success":true' /tmp/install.json; then
@@ -183,7 +195,7 @@ jobs:
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
 
-          curl -fsS -X POST http://localhost:3000/api/marketplace/crm/enable \
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext/enable \
             -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
             -o /tmp/enable.json
           if ! grep -q '"success":true' /tmp/enable.json; then
@@ -192,7 +204,17 @@ jobs:
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
 
-          echo "✅ CRM enabled successfully on the compiled binary."
+          # Hit the extension's route — proves register() actually ran,
+          # not just that enable returned 200.
+          ROUTE_BODY=$(curl -fsS http://localhost:3000/ext/hello-ext/health \
+            -b cookies.txt || true)
+          if ! echo "$ROUTE_BODY" | grep -q '"ok":true'; then
+            echo "::error::hello-ext route /ext/hello-ext/health did not return ok"
+            echo "::error::Body: $ROUTE_BODY"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+
+          echo "✅ hello-ext install + enable + route OK on the compiled binary."
           kill $ENGINE_PID 2>/dev/null || true
           wait $ENGINE_PID 2>/dev/null || true
 

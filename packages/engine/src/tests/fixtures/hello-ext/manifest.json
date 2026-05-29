@@ -1,0 +1,23 @@
+{
+  "name": "hello-ext",
+  "displayName": "Hello Smoke Fixture",
+  "category": "fixture",
+  "description": "Minimal Hono router used by release.yml smoke job — proves marketplace install + enable on a freshly-compiled binary.",
+  "version": "1.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "permissions": [],
+  "contributes": {
+    "engine": true,
+    "studio": false
+  },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false
+  },
+  "integrity": {
+    "engineSha256": "f6b334696f52fd760d2b8061ffe17ef53d2afc82ccc4aa79a8bd405f73adda2c"
+  }
+}
