@@ -1549,6 +1549,7 @@ var Hono2 = class extends Hono {
 var extension = {
   name: "hello-ext",
   category: "fixture",
+  mountStrategy: "subapp",
   async register(app, _ctx) {
     const routes = new Hono2;
     routes.get("/health", (c) => c.json({ ok: true, name: "hello-ext", version: "1.0.0" }));

@@ -2,6 +2,23 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.116] - 2026-05-29
+
+### hello-ext fixture: mountStrategy = subapp
+
+alpha.115's smoke job failed because the fixture used the default
+mountStrategy ('global'), which would have mounted /health at the
+engine root rather than under /ext/hello-ext/. The smoke test was
+correctly hitting /ext/hello-ext/health and getting 404.
+
+First-party extensions (CRM, ai, mail, …) all set
+`mountStrategy: 'subapp'` so their routes land under
+/ext/<name>/*. The fixture has to match.
+
+Re-packed; engineSha256 = 83d2b7dd60b6…
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.115] - 2026-05-29
 
 ### hello-ext fixture bundle re-packed under .gitattributes
