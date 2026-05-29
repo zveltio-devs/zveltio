@@ -1317,6 +1317,33 @@ class ExtensionLoader {
               return;
             }
           }
+          // Bundled extensions that declare peer deps must inline them
+          // (`engine.bundlePeers: true` at pack time). The compiled
+          // Bun binary cannot resolve bare specifiers from dynamic
+          // imports of disk files — neither via CWD node_modules nor
+          // adjacent-to-the-bundle node_modules walks (verified live
+          // alpha.112: imapflow import threw despite the peer being
+          // installed in EXTENSIONS_DIR/node_modules AND a CWD
+          // symlink AND a sibling engine/node_modules). For native
+          // bindings that cannot be bundled, the extension author
+          // must ship them via a separate engine plugin instead.
+          if (
+            manifest.peerDependencies &&
+            Object.keys(manifest.peerDependencies).length > 0 &&
+            manifest.engine?.bundlePeers !== true
+          ) {
+            const peers = Object.keys(manifest.peerDependencies).join(', ');
+            const msg =
+              `Extension "${extName}" declares peerDependencies (${peers}) but ` +
+              `engine.bundlePeers is not true. Bun's compiled binary cannot ` +
+              `resolve bare specifiers from a dynamically-imported disk file, ` +
+              `so peers must be inlined at pack time. Re-pack with ` +
+              `\`engine.bundlePeers: true\` in manifest.json, or remove the ` +
+              `peerDependencies entry if the import was inadvertent.`;
+            this.lastLoadError.set(extName, msg);
+            console.error(`❌ ${msg}`);
+            return;
+          }
           resolvedPath = bundledEntry;
         } else {
           // Legacy / dev path: .ts source + on-disk core deps.
