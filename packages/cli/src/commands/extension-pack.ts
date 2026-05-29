@@ -34,33 +34,12 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 
-// Native + oversized deps that DON'T bundle cleanly. Stay external at
-// build time; the engine installs them at enable. Keep this list in
-// sync with the engine's CORE_NPM_PACKAGES + native-binding allow-list
-// referenced by the manifest schema's `peerDependencies` description.
-const PEER_DEP_ALLOWLIST = new Set([
-  // Communication / mail
-  'imapflow',
-  'mailparser',
-  'nodemailer',
-  // SAML/LDAP/auth
-  'ldapts',
-  'samlify',
-  'node-saml',
-  '@node-saml/node-saml',
-  // Image processing
-  'sharp',
-  // PDF / docs
-  'pdfkit',
-  'puppeteer',
-  // Cloud SDKs (oversized)
-  '@aws-sdk/client-s3',
-  '@aws-sdk/client-textract',
-  // Storage / queues
-  'redis',
-  'ioredis',
-  '@aws-sdk/client-sqs',
-]);
+// Historically this was a list of peer deps allowed to stay external —
+// the engine would install them at enable time into a shared
+// node_modules. That model never worked on the Bun compiled binary,
+// so it was retired in alpha.113. Kept as a const-empty marker; the
+// only valid configuration today is `engine.bundlePeers: true`.
+const PEER_DEP_ALLOWLIST = new Set<string>();
 
 // Re-export for bare-import sanity check after bundle.
 const CORE_DEPS = [...EXTENSION_BUNDLE_CORE_DEPS];
@@ -114,9 +93,18 @@ function writeManifest(dir: string, m: Manifest): void {
 
 function validatePeerDeps(m: Manifest): string[] {
   const peers = Object.keys(m.peerDependencies ?? {});
+  if (peers.length === 0) return [];
   const bundlePeers = m.engine?.bundlePeers === true;
-  if (bundlePeers) return []; // when bundling all peers, no allow-list constraint
-  return peers.filter((p) => !PEER_DEP_ALLOWLIST.has(p));
+  if (!bundlePeers) {
+    // The compiled Bun binary can't resolve bare specifiers from
+    // dynamically-imported disk files (verified live, alpha.112). Treat
+    // ANY non-empty peerDependencies as a hard error unless the extension
+    // explicitly opts to bundle them. Truly-native bindings (sharp) need
+    // to ship via a separate mechanism — peerDependencies + external is
+    // never a working production configuration on the binary install.
+    return peers;
+  }
+  return [];
 }
 
 export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<void> {
@@ -140,22 +128,25 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
   const violations = validatePeerDeps(manifest);
   if (violations.length > 0) {
     throw new Error(
-      `peerDependencies contains packages outside the allow-list:\n` +
+      `peerDependencies declared without engine.bundlePeers=true:\n` +
         violations.map((v) => `  - ${v}`).join('\n') +
         `\n\n` +
-        `Either remove them, add to the engine's allow-list, or set ` +
-        `engine.bundlePeers = true to bundle them into engine/index.js.`,
+        `Bun compiled binary cannot resolve bare specifiers from a ` +
+        `dynamically-imported extension bundle, so external peer deps don't ` +
+        `work in production. Either set engine.bundlePeers=true in ` +
+        `manifest.json (and install the deps locally so Bun.build can ` +
+        `inline them), or drop the peerDependencies entry if the import ` +
+        `is dead code.`,
     );
   }
 
-  // Externals: core deps are BUNDLED (so removed from externals);
-  // allow-list peer-deps stay external unless bundlePeers=true.
-  const peers = Object.keys(manifest.peerDependencies ?? {});
-  const externals: string[] =
-    manifest.engine?.bundlePeers === true
-      ? [] // bundle EVERYTHING
-      : peers.filter((p) => PEER_DEP_ALLOWLIST.has(p)); // keep allow-listed peers external
+  // bundlePeers=true bundles everything including peerDependencies. There
+  // is no remaining "stay external" path on the binary install (see
+  // PEER_DEP_ALLOWLIST comment). bundlePeers=false is rejected upstream
+  // by validatePeerDeps.
+  void PEER_DEP_ALLOWLIST;
   void CORE_DEPS;
+  const externals: string[] = [];
 
   console.log(
     `  ${c.dim(`$ bun build ${entry} (zveltio extension-bundle plugin)`)}` +

@@ -2,6 +2,41 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.113] - 2026-05-29
+
+### Drop the "peer deps installed at enable time" model
+
+The compiled Bun binary cannot resolve bare specifiers from a
+dynamically-imported disk file. Verified live: imapflow imports inside
+`communications/mail`'s bundle threw `Cannot find package 'imapflow'`
+on alpha.112 even though the peer dep was correctly installed in
+`/opt/zveltio/extensions/node_modules`, the CWD symlink pointed at
+it, AND a sibling `engine/node_modules` symlink existed. Bun's
+compiled-binary resolver only sees modules embedded at build time;
+disk node_modules walks don't apply.
+
+Consequence: the only working configuration on the binary install is
+`engine.bundlePeers: true` — peers must be inlined into
+`engine/index.js` at pack time. There is no "external peer dep"
+path that works in production anymore.
+
+- Loader rejects bundled extensions with non-empty `peerDependencies`
+  unless `engine.bundlePeers` is true. Clear error pointing at the
+  fix instead of the cryptic "Cannot find package".
+- `zveltio extension pack` enforces the same at pack time — refuses
+  to build a known-broken artifact.
+- `PEER_DEP_ALLOWLIST` retired (now empty). Truly-native bindings
+  (sharp, etc.) need a separate mechanism — ship via engine plugin,
+  not peerDependencies.
+
+Migration: extensions that previously listed peers as external must
+either set `bundlePeers: true` (and install the peers locally so
+Bun.build can resolve them) or remove the entries. `communications/mail`
+is the reference: 958KB → 3.2MB bundle with imapflow/mailparser/nodemailer
+inlined.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.112] - 2026-05-29
 
 ### Marketplace enable validated end-to-end on the compiled binary
