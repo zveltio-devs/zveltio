@@ -748,9 +748,7 @@ const ManifestSchema = z
         // archiveSha256 is computed by the registry on upload. The pack
         // command writes an empty string as a placeholder (registry fills
         // it in later); accept either missing/empty OR a valid hash.
-        archiveSha256: z
-          .union([z.literal(''), z.string().regex(/^[a-f0-9]{64}$/)])
-          .optional(),
+        archiveSha256: z.union([z.literal(''), z.string().regex(/^[a-f0-9]{64}$/)]).optional(),
       })
       .optional(),
   })
