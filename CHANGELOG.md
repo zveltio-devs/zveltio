@@ -2,6 +2,23 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.115] - 2026-05-29
+
+### hello-ext fixture bundle re-packed under .gitattributes
+
+The fixture committed in alpha.114 was packed BEFORE
+`.gitattributes` pinned `**/engine/index.js` as binary in this repo,
+so the bundle bytes drifted vs the manifest's `engineSha256`
+(50,142 stored vs 48,955 packed — same CRLF de-sync class that hit
+zveltio-extensions @ a382d8c). The smoke job would have failed on
+that mismatch.
+
+Re-packed now that the gitattributes are in place. Verified
+`git ls-files -s | git cat-file -p | sha256sum` matches the
+committed `integrity.engineSha256`.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.114] - 2026-05-29
 
 ### Phase 1 of EXTENSIONS-V2 closes
