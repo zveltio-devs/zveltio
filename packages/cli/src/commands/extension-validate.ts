@@ -157,6 +157,22 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     stats: { tables: parsedTableCount, migrations: sqlFiles.length },
   });
 
+  // v2 enforcement: warn if manifest is v1 (no engine.bundled block).
+  // Hard error if v2 metadata is partial (engine block present but
+  // missing required fields or integrity.engineSha256 absent).
+  const m = manifest as
+    | { engine?: { bundled?: boolean; entry?: string }; integrity?: { engineSha256?: string } }
+    | null
+    | undefined;
+  const v2Status = (() => {
+    if (!m) return 'unknown' as const;
+    if (!m.engine) return 'v1-legacy' as const;
+    if (m.engine.bundled !== true) return 'engine-not-bundled' as const;
+    if (!m.engine.entry) return 'missing-engine-entry' as const;
+    if (!m.integrity?.engineSha256) return 'missing-engine-sha' as const;
+    return 'v2-ok' as const;
+  })();
+
   // Print summary
   console.log(`  Manifest:      ${manifest ? c.green('OK') : c.red('missing or invalid')}`);
   console.log(
@@ -164,7 +180,36 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   );
   console.log(`  Peer deps:     ${c.dim(`${result.stats.peerDeps} declared`)}`);
   console.log(`  Bundle size:   ${c.dim(`${Math.ceil(bundleBytes / 1024)} KB`)}`);
+  const v2Label =
+    v2Status === 'v2-ok'
+      ? c.green('v2 (bundled)')
+      : v2Status === 'v1-legacy'
+        ? c.yellow('v1 (no engine block — run `zveltio extension pack`)')
+        : v2Status === 'engine-not-bundled'
+          ? c.red('engine.bundled !== true — re-pack required')
+          : v2Status === 'missing-engine-entry'
+            ? c.red('engine.entry missing')
+            : v2Status === 'missing-engine-sha'
+              ? c.red('integrity.engineSha256 missing — re-pack required')
+              : c.dim('unknown');
+  console.log(`  Manifest v2:   ${v2Label}`);
   console.log('');
+
+  // Hard-fail partial v2 metadata. v1 is a warning today (so existing
+  // extensions don't suddenly fail validate), but partial v2 is always
+  // a bug — the engine will refuse to load it.
+  if (
+    v2Status === 'engine-not-bundled' ||
+    v2Status === 'missing-engine-entry' ||
+    v2Status === 'missing-engine-sha'
+  ) {
+    console.error(c.red('Validation failed: manifest declares v2 engine block but is incomplete.'));
+    console.error(
+      c.dim('  Run `zveltio extension pack --dir <ext>` to regenerate engine + integrity blocks.'),
+    );
+    if (opts.silentExit) throw new Error('Validation failed: incomplete v2 manifest');
+    process.exit(1);
+  }
 
   if (result.ok) {
     console.log(c.green('Validation passed.'));

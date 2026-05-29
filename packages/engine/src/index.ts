@@ -801,6 +801,37 @@ async function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
+// Bun crashes the process on any unhandled promise rejection. A handful
+// of recoverable error classes shouldn't take the engine down:
+//
+//   - ERR_POSTGRES_CONNECTION_CLOSED: the Bun SQL pool can race idle
+//     timeout against a transaction release; the connection is already
+//     gone, no work to roll back. Surfaced live alpha.112 during
+//     concurrent marketplace enable + studio rebuild.
+//
+//   - ECONNRESET / EPIPE on websocket peers: client navigated away,
+//     not our problem.
+//
+// Everything else still aborts so real bugs aren't masked.
+process.on('unhandledRejection', (reason: unknown) => {
+  const err = reason as { code?: string; message?: string } | undefined;
+  const code = err?.code;
+  const msg = err?.message ?? String(reason);
+
+  const recoverable =
+    code === 'ERR_POSTGRES_CONNECTION_CLOSED' ||
+    /Connection closed/i.test(msg) ||
+    code === 'ECONNRESET' ||
+    code === 'EPIPE';
+
+  if (recoverable) {
+    console.warn(`[engine] swallowed recoverable rejection: ${code ?? 'unknown'} — ${msg}`);
+    return;
+  }
+  console.error('❌ unhandledRejection:', reason);
+  process.exit(1);
+});
+
 bootstrap().catch((err) => {
   console.error('❌ Bootstrap failed:', err);
   process.exit(1);
