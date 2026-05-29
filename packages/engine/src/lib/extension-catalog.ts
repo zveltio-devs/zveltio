@@ -12,6 +12,22 @@ export interface ExtensionCatalogEntry {
 }
 
 export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
+  // ── Smoke fixture ─────────────────────────────────────────────
+  // Used by the release-binary smoke job. Not surfaced in Studio (the
+  // marketplace UI filters category 'fixture'); install/enable from
+  // the API works because the catalog is the source of truth.
+  {
+    name: 'hello-ext',
+    displayName: 'Hello Smoke Fixture',
+    description:
+      'Minimal Hono router used by release.yml to prove marketplace install + enable on a freshly-compiled binary. Skip in Studio.',
+    category: 'fixture',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['internal', 'smoke'],
+    permissions: [],
+  },
+
   // ── AI ────────────────────────────────────────────────────────
   {
     name: 'ai',
