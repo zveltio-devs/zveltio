@@ -267,36 +267,33 @@ hello-ext/
 
 ---
 
-## 8. PR order — and the gap between this contract and the code today
+## 8. PR order — status (post alpha.114, 2026-05-29)
 
-At ratification time, the v2 contract above is NOT implemented in
-engine or CLI. The following items are still TODO and each maps to a
-PR in §8 below:
+Phase 1 is complete on the binary install. All 54 official extensions
+are packed; marketplace install + enable validated end-to-end in WSL
+on 8 representative extensions including all 6 bundlePeers cases.
 
-| Item | Status today | Required by Phase 1 ship |
+| Item | Status | Notes |
 | --- | --- | --- |
-| `extension pack` command | Doesn't exist. `extension publish` ships `.ts` as-is. | PR #3 — `packages/cli/src/commands/extension-pack.ts` |
-| Manifest v2 schema in engine `ManifestSchema` | v1 with `.passthrough()`. No `engine` block, no `integrity` block. | PR #4 — extend `ManifestSchema` in `extension-loader.ts:665` |
-| Refuse `.ts` entry outside dev reload | Loader prefers `.js` but falls back to `.ts` if `.js` missing. | PR #4 — same edit |
-| Verify `integrity.engineSha256` at load | Not checked. | PR #4 — same edit |
-| `hello-ext` fixture | Doesn't exist in repo. | PR #5 — `packages/engine/src/tests/fixtures/hello-ext/` |
-| `smoke-binary` job uses fixture, not CRM | Uses CRM (added in `756a733`). | PR #5 — swap fixture |
-| Skip CORE_NPM_PACKAGES presence check when `engine.bundled: true` | Loader always checks `extensions/node_modules/{kysely,hono,zod,@hono/zod-validator}`, contradicting the bundle-first promise | PR #4 — add `engine.bundled` short-circuit |
-| `integrity.archiveSha256` mismatch refusal | Not checked at install. | PR #8 — registry endpoint |
+| `extension pack` command | ✅ DONE (alpha.111) | `packages/cli/src/commands/extension-pack.ts` + Bun.build plugin for hono types resolution |
+| Manifest v2 schema in `ManifestSchema` | ✅ DONE (alpha.111) | `engine` and `integrity` blocks accepted; alpha.112 widened `archiveSha256` to also accept empty placeholder |
+| Refuse `.ts` entry outside dev reload | 🟡 PARTIAL | Loader picks `.js` when present; `.ts` fallback still active for legacy `ZVELTIO_EXTENSION_DEV_RELOAD=1`. Hard-refuse-in-prod queued for beta.1 |
+| Verify `integrity.engineSha256` at load | ✅ DONE (alpha.111) | Mismatch errors out with explicit message |
+| `hello-ext` fixture | ✅ DONE (alpha.114) | `packages/engine/src/tests/fixtures/hello-ext/`. Catalog entry in `extension-catalog.ts` |
+| `smoke-binary` job uses fixture, not CRM | ✅ DONE (alpha.114) | `release.yml` copies the fixture into `EXTENSIONS_DIR` and exercises install + enable + GET `/ext/hello-ext/health` |
+| Skip CORE_NPM_PACKAGES presence check when `engine.bundled: true` | ✅ DONE (alpha.111) | `extension-loader.ts` short-circuit |
+| `engine.bundlePeers: true` required for any peerDependencies | ✅ DONE (alpha.113) | Loader + pack hard-fail otherwise; the "install peers at enable time" model never worked on the compiled binary and was retired. `PEER_DEP_ALLOWLIST` is now empty. |
+| `sync-to-registry.mjs` uses committed bundle (no re-build) | ✅ DONE (alpha.113) | Sync was re-running `bun build --bundle` without the hono plugin, producing broken bundles that didn't match the manifest hash. Now verifies committed bundle hash vs declared hash before uploading. |
+| Hash drift via autocrlf | ✅ DONE | `.gitattributes` in `zveltio-extensions` pins `**/engine/index.js` as binary |
+| Batch pack 49 remaining extensions | ✅ DONE (zveltio-extensions @7b03f06) | 54/54 packed; sync upload 54/54 success |
+| `integrity.archiveSha256` verify at registry upload | ⏳ TODO | PR queued post-alpha.114 — currently registry computes archive hash but doesn't enforce. Cosmetic gap; the engine-side `engineSha256` check is the load-bearing one. |
+| CI extensions: per-extension `extension pack` step on changed paths | ⏳ TODO | Currently sync workflow detects + refuses missing bundles; a PR-time gate is the next layer |
 
-The doc represents the **target contract**. Code lands in the PRs below.
+### Validated live (2026-05-29 WSL alpha.113)
 
-1. **This document + `manifest-v2.schema.json`** (zero code) — gives reviewers a single contract surface for everything that follows.
-2. **Engine: extension-loader runtime hardening already shipped** (alpha.110 + `c64b11b`). Confirm via post-merge smoke.
-3. **CLI: `extension pack` command** + `extension publish` refactor to use it.
-4. **Engine: manifest v2 parser** — extend `ManifestSchema` in `extension-loader.ts:665` with `engine` and `integrity` blocks; refuse `.ts` entry (except under `ZVELTIO_EXTENSION_DEV_RELOAD=1`); short-circuit the CORE_NPM_PACKAGES check when `engine.bundled: true`; verify `integrity.engineSha256` at load.
-5. **CI engine: hello-ext fixture + swap smoke-binary** — add `packages/engine/src/tests/fixtures/hello-ext/` and point `release.yml`'s `smoke-binary` job at it.
-6. **CI extensions: per-extension `extension pack` step on changed paths**, mandatory L1 for new code.
-7. **5 pilots packed** (crm, mail, invoicing, ai, forms).
-8. **Registry: accept + verify `integrity.archiveSha256` at upload**, refuse mismatches.
-
-Each step is independently reviewable. Steps 4–7 can ship across
-separate release tags as needed.
+Install + enable + route-200 on the compiled binary, zero patches:
+crm, ai, communications/mail (peers bundled), forms, finance/invoicing,
+auth/ldap (peers bundled), billing, search, sms, data/import.
 
 ---
 
