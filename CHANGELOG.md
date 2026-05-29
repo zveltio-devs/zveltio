@@ -2,6 +2,44 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.112] - 2026-05-29
+
+### Marketplace enable validated end-to-end on the compiled binary
+
+Closes the marketplace install/enable loop that's been broken on
+binary installs since alpha.99 (when marketplace first shipped).
+WSL validation today: CRM installed from marketplace, enabled, two
+migrations ran, routes registered at `/ext/crm/*`, marketplace state
+reports `is_enabled=true is_running=true`.
+
+Three follow-up fixes after the alpha.111 release surfaced live:
+
+- **Loader**: `integrity.archiveSha256` schema now accepts an empty
+  string (or a valid 64-hex hash). alpha.111's pack wrote an empty
+  placeholder; alpha.111's loader rejected it → manifest parse
+  threw → silent return → opaque "engine/index.ts not found"
+  fallback error. The loader path was correct, just gated by an
+  over-strict schema.
+
+- **Loader**: manifest-parse failures now set `lastLoadError` instead
+  of returning silently. Operators see the actual Zod issue list
+  instead of a generic "not found" fallback.
+
+- **Pack**: `zveltio extension pack` no longer writes
+  `archiveSha256: ""` into manifest.integrity. The field is now
+  omitted entirely when no prior valid value exists. The registry
+  computes archiveSha256 on upload.
+
+### CLI: `extension publish` is single-shot
+
+`zveltio extension publish` now runs `extension pack` as Step 2/6
+(after validate, before studio build). Previously publishers had to
+remember to run pack manually before publish; the engine bundle was
+shipped as raw `.ts`. New flags: `--no-pack` skips engine pack;
+`--no-build` skips both pack + Studio build.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.111] - 2026-05-28
 
 ### Extensions v2 — Phase 1 ships (bundled extension artifacts)
