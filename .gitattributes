@@ -6,3 +6,8 @@ install/proxmox-lxc.sh executable
 install/install.sh executable
 install/update.sh executable
 install/uninstall.sh executable
+
+# Packed extension bundles must not be touched by EOL conversion —
+# manifest.integrity.engineSha256 is computed over the exact bytes.
+packages/engine/src/tests/fixtures/**/engine/index.js binary
+packages/engine/src/tests/fixtures/**/engine/index.js.map binary
