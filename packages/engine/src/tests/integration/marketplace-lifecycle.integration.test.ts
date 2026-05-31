@@ -35,8 +35,7 @@ const PASSWORD = process.env.TEST_USER_PASSWORD || 'SmokePass123!';
 
 // Explicit opt-in: skip unless caller has the full marketplace fixture
 // pipeline staged (live engine + god user + fixtures in EXTENSIONS_DIR).
-const skipAll =
-  !TEST_DB_URL || process.env.ENABLE_MARKETPLACE_INTEGRATION_TESTS !== '1';
+const skipAll = !TEST_DB_URL || process.env.ENABLE_MARKETPLACE_INTEGRATION_TESTS !== '1';
 
 let sessionCookie = '';
 
