@@ -22,11 +22,22 @@ export async function initDatabase(): Promise<Database> {
     throw new Error('DATABASE_URL environment variable is required');
   }
 
+  // Idle timeout default raised to 5min in alpha.128 to close the
+  // Bun.SQL transaction race during studio rebuild (`bun run build`
+  // can hold 5–15s of subprocess work, the previous 30s window made
+  // it likely the connection got evicted mid-transaction and the C++
+  // binding threw `connection must be a PostgresSQLConnection`).
+  // BUN_SQL_IDLE_TIMEOUT_MS is the documented knob in the dialect;
+  // DB_IDLE_TIMEOUT_MS stays accepted for backward compat with
+  // operators who already set it. Either env var wins over the
+  // default; if both are set, BUN_SQL_IDLE_TIMEOUT_MS wins because
+  // it's the one documented in EXTENSION-DEVELOPER-GUIDE.
+  const idleEnv = process.env.BUN_SQL_IDLE_TIMEOUT_MS ?? process.env.DB_IDLE_TIMEOUT_MS;
   _db = new Kysely({
     dialect: new BunSqlDialect({
       connectionString: databaseUrl,
       max: Number(process.env.DB_POOL_MAX ?? 10), // PgDog handles real pooling; 10 is sufficient
-      idleTimeoutMs: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30_000),
+      idleTimeoutMs: idleEnv ? Number(idleEnv) : 300_000,
     }),
   });
 
