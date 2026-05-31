@@ -107,9 +107,9 @@ Zveltio includes several built-in extensions:
 
 ### AI Extensions (`extensions/ai/`)
 
-| Extension   | Routes                                                       | Description                                                                                                  |
-| ----------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| **core-ai** | `/api/ai/alchemist`, `/api/ai/query`, `/api/ai` (schema-gen) | Documents → DB (Alchemist), Text-to-SQL copilot, Prompt → schema generator, native tool-calling AI assistant |
+| Extension | Routes                                                       | Description                                                                                                  |
+| --------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| **ai**    | `/api/ai/alchemist`, `/api/ai/query`, `/api/ai` (schema-gen) | Documents → DB (Alchemist), Text-to-SQL copilot, Prompt → schema generator, native tool-calling AI assistant |
 
 > **Note:** Core AI chat (`/api/ai/chat`), semantic search (`/api/ai/search`), embeddings, and provider management are **engine-core** features, not extension-provided.
 

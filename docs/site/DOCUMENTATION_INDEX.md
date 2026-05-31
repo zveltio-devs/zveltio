@@ -172,14 +172,15 @@ zveltio/
 │   ├── sdk-vue/                  # Vue 3 composables
 │   ├── studio/                   # Admin UI
 │   └── client/                   # Public-facing app
-└── extensions/                   # Built-in extensions
-    ├── ai/core-ai/
-    ├── automation/flows/
+└── extensions/                   # First-party extensions (zveltio-extensions repo)
+    ├── ai/
     ├── compliance/ro/
     ├── content/page-builder/
     ├── developer/edge-functions/
     ├── geospatial/postgis/
     └── workflow/{approvals,checklists}/
+    # Note: flows, backup, insights, saved-queries, schema-branches,
+    # tenants are all in engine core, not extensions.
 ```
 
 ---
