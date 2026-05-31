@@ -23,7 +23,7 @@ Zveltio is a self-hosted foundation for building business applications. It bundl
 
 Modern TypeScript stack (Bun + Hono + Postgres). AI-native. GDPR-compliant by default. MIT-licensed.
 
-> 🟢 **Beta (1.0.0-beta.2)** — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#alpha-caveats) for what's locked vs. still moving.
+> 🟢 **Beta (1.0.0-beta.2)** — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#beta-caveats) for what's locked vs. still moving.
 
 ```bash
 curl -fsSL https://get.zveltio.com/install.sh | bash
@@ -74,7 +74,7 @@ Activate the bundled plugins for the SaaS subscriptions you'd rather not pay for
 |---|---|
 | HubSpot / Pipedrive | `crm` — contacts, organizations, deals pipeline |
 | Hosted IMAP+SMTP / Front | `communications/mail` — full mail client with AI compose |
-| Zapier / Make / n8n | `flows` — visual automation with DLQ + retry |
+| Zapier / Make / n8n | engine `/api/flows` — visual automation with DLQ + retry (built-in) |
 | Square / Shopify POS | `operations/pos` — point of sale + inventory + procurement |
 | Monday / Asana approvals | `workflow/approvals` — multi-step approval chains, SLA tracking |
 | Notion / Coda templates | `content/document-templates` — HTML/PDF template engine |
@@ -124,13 +124,13 @@ Build your own: `zveltio extension init <name>` scaffolds. `zveltio extension pu
 
 ## What you can install today
 
-60+ first-party plugins, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
+54 first-party plugins, organized by domain. Browse the full catalog at `/admin/marketplace` after install.
 
 **Data & Content** · `collections` (core) · `views` (kanban, calendar, gallery, map) · `content/page-builder` (CMS) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts`
 
 **Customer & Business** · `crm` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking`
 
-**Workflow & Automation** · `flows` · `webhooks` · `notifications` · `workflow/approvals` · `workflow/checklists` · `projects/management` · `projects/helpdesk`
+**Workflow & Automation** · `webhooks` · `notifications` · `workflow/approvals` · `workflow/checklists` · `projects/management` · `projects/helpdesk` _(automation `flows` live in engine core, not as a plugin)_
 
 **Communications & HR** · `communications/mail` · `hr/employees` · `hr/time-tracking` · `hr/leave`
 
