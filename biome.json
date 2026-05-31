@@ -25,7 +25,8 @@
       "!packages/engine/src/db/migrations/embedded.ts",
       "!packages/engine/src/db/migrations/sql/**",
       "!packages/engine/src/tests/fixtures/**/engine/index.js",
-      "!packages/engine/src/tests/fixtures/**/engine/index.js.map"
+      "!packages/engine/src/tests/fixtures/**/engine/index.js.map",
+      "!packages/engine/src/lib/worker-extension-runtime-source.generated.ts"
     ]
   },
   "assist": {

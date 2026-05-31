@@ -284,6 +284,13 @@ jobs:
         # if a migration was added without regenerating. Regenerate at
         # build time so the binary always has the full set.
         run: cd packages/engine && bun scripts/gen-embedded-migrations.ts
+      - name: Generate worker runtime source bundle
+        # Bun --compile doesn't auto-bundle workers; we ship the worker
+        # JS as a string constant the host writes to /tmp at first
+        # spawn. The committed file may lag if the runtime source
+        # changed without regen — regenerate at build time so the
+        # binary always carries the latest worker code.
+        run: cd packages/engine && bun scripts/gen-worker-source.ts
       - name: Build binary
         run: |
           bun build packages/engine/src/index.ts \
