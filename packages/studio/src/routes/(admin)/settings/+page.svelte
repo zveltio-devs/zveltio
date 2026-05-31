@@ -27,7 +27,7 @@ let s = $state({
   app_name: 'Zveltio',
   site_url: '',
   logo_url: '',
-  primary_color: '#069494',
+  primary_color: '#4F46E5',
   smtp_host: '',
   smtp_port: 587,
   smtp_user: '',
@@ -184,7 +184,7 @@ const TABS = [
  <label class="label" for="setting-primary-color-text"><span class="label-text font-medium">Primary Color</span></label>
  <div class="flex gap-3 items-center">
  <input type="color" class="w-12 h-10 rounded cursor-pointer border border-base-300 bg-transparent" bind:value={s.primary_color} aria-label="Primary color picker" />
- <input id="setting-primary-color-text" class="input font-mono flex-1" bind:value={s.primary_color} placeholder="#069494" />
+ <input id="setting-primary-color-text" class="input font-mono flex-1" bind:value={s.primary_color} placeholder="#4F46E5" />
  </div>
  </div>
 

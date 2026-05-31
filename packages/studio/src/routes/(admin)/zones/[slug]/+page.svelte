@@ -415,7 +415,7 @@ async function applyTemplate(templateKey: string) {
                 <input type="color" bind:value={zone.primary_color}
                   class="w-10 h-8 rounded border border-base-300 cursor-pointer p-0.5"/>
                 <input id="zone-primary-color" type="text" bind:value={zone.primary_color}
-                  class="input input-sm flex-1 font-mono text-xs" placeholder="#069494"/>
+                  class="input input-sm flex-1 font-mono text-xs" placeholder="#4F46E5"/>
               </div>
             </div>
             <div class="form-control gap-1 sm:col-span-2">
@@ -444,7 +444,7 @@ async function applyTemplate(templateKey: string) {
             <p class="text-xs text-base-content/40 mb-2">Portal header preview:</p>
             <div class="flex items-center gap-3 bg-base-100 rounded-xl px-4 py-3 border border-base-300">
               <div class="w-8 h-8 rounded-lg flex items-center justify-center"
-                style="background-color: {zone.primary_color ?? '#069494'}">
+                style="background-color: {zone.primary_color ?? '#4F46E5'}">
                 <span class="text-white font-bold text-sm leading-none">
                   {(zone.site_name ?? zone.name)?.[0]?.toUpperCase() ?? 'Z'}
                 </span>

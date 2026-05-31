@@ -54,7 +54,7 @@ async function signOut() {
   goto(`${base}/portal-client/login`);
 }
 
-const primaryColor = $derived(zone?.primary_color ?? '#069494');
+const primaryColor = $derived(zone?.primary_color ?? '#4F46E5');
 const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
 </script>
 
