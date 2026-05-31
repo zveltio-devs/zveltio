@@ -3,6 +3,10 @@
 > **Status: 1.0.0-beta.2** — extensions platform + marketplace are
 > API-stable. Engine internals + Studio still iterating toward v1.0.
 > See [Beta caveats](https://github.com/zveltio-devs/zveltio#beta-caveats) for what's locked vs. still moving.
+>
+> **Alpha track EOL:** `1.0.0-alpha.*` is closed (last: alpha.129). New installs
+> should use beta only — see
+> [Alpha track EOL](https://github.com/zveltio-devs/zveltio/blob/master/docs/ALPHA-TRACK-EOL.md).
 
 Zveltio is a self-hosted **Business OS** — not just a BaaS, but a complete operating layer for your business. Data, API, CRM, automation, compliance, AI, and real-time sync — all in a single binary that runs on a €20 VPS.
 

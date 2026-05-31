@@ -1,5 +1,8 @@
 # Migrating from Zveltio Alpha to Beta (1.0.0-beta.1)
 
+> **Alpha track is EOL** — no new `1.0.0-alpha.*` releases after `alpha.129`.
+> Use the latest beta (currently **1.0.0-beta.2**). See [ALPHA-TRACK-EOL.md](./ALPHA-TRACK-EOL.md).
+
 ## Overview
 
 `1.0.0-beta.1` introduces several new features, 8 new database migrations (054–061), and a handful of new environment variables. The upgrade is backward-compatible for data; existing collections and records are unaffected.

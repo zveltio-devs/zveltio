@@ -310,6 +310,8 @@ Honest about where we are: **1.0.0-beta.2** as of the latest release.
 
 **Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. We test on every commit (399 unit + 148 integration tests in CI).
 
+**Alpha track EOL**: `1.0.0-alpha.*` is **closed** as of beta.1 (2026-05-31). Last alpha: **alpha.129**. We do not publish new alpha tags; releases stay on GitHub for audit only. **Install beta** (`get.zveltio.com`) or run `zveltio update --version 1.0.0-beta.2`. Full policy: [docs/ALPHA-TRACK-EOL.md](docs/ALPHA-TRACK-EOL.md).
+
 **Migration from alpha**: see [docs/MIGRATION-ALPHA-TO-BETA.md](docs/MIGRATION-ALPHA-TO-BETA.md). If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
 
 **v1.0 target**: tracked in [docs/REFACTORING-V1-PLAN.md](docs/REFACTORING-V1-PLAN.md) (extension platform: ✅ done at beta.1; remaining v1.0 work is product/GTM — benchmarks, demo.zveltio.com, case studies).
