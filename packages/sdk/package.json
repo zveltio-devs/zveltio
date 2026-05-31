@@ -1,6 +1,6 @@
 {
   "name": "@zveltio/sdk",
-  "version": "1.0.0-alpha.122",
+  "version": "1.0.0-alpha.123",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -28,6 +28,10 @@
     "./publish": {
       "types": "./dist/publish/index.d.ts",
       "import": "./dist/publish/index.js"
+    },
+    "./build": {
+      "types": "./dist/build/index.d.ts",
+      "import": "./dist/build/index.js"
     },
     "./studio": {
       "types": "./dist/studio/index.d.ts",

@@ -2,6 +2,53 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.123] - 2026-05-31
+
+### Trust chain + DX + tests (the P2/P3/P4 backlog from the agent review)
+
+**P2 — archive SHA-256 trust chain end-to-end**
+
+- Registry returns `X-Archive-Sha256` header on every download
+  (pulled from R2 customMetadata stored at upload, alpha.117).
+- Engine verifies the downloaded ZIP bytes against that header
+  before extraction; mismatch refuses the install with an explicit
+  message naming both hashes.
+- Cost: one SHA-256 pass over the ZIP at install time
+  (~10ms for a 1-2 MB archive). Zero per-request overhead.
+
+**P3 — DX for public marketplace authors**
+
+- `@zveltio/sdk/build` exports `createExtensionBuildConfig` and
+  `createExtensionBundleResolvePlugin`. The CLI's `extension pack`
+  command now imports the plugin from the SDK — single source of
+  truth. Authors with custom build pipelines (monorepo orchestrators,
+  IDE integrations, alternative entrypoints) can `Bun.build(...
+  createExtensionBuildConfig(...))` and produce byte-identical
+  artifacts.
+- `zveltio extension create` template now scaffolds two files
+  every published extension needs:
+  - `.gitattributes` — pins `engine/index.js` + `.map` as binary so
+    autocrlf can't drift the hash across OSes (same protection
+    `zveltio-extensions` carries for all 54 official packs).
+  - `.github/workflows/ci.yml` — runs `extension pack` + verifies
+    committed bundle hash matches manifest engineSha256 + runs
+    `extension validate`. PR red = no merge.
+- `docs/MARKETPLACE-POLICY.md` (new) — submission rules, isolation
+  tier requirements per publisher tier (community / verified
+  partner / first-party), permission scopes, review checklist,
+  lifecycle, takedown criteria. Honest about Tier 3 limitations.
+
+**P4 — unit test coverage for WorkerExtensionHost**
+
+- New `worker-extension-host.test.ts` (7 tests): lifecycle helpers
+  (`isRunning`, `stopAll`, `stop`), health record shape (workers
+  generation, last crash/hang, in-flight counts, integrity, **no**
+  rssBytes), duplicate start guard. Smoke release continues to
+  exercise the full IPC chain; these tests pin the host-side
+  bookkeeping the smoke can't easily inspect.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.122] - 2026-05-31
 
 ### Worker isolation: reliability + observability + service bridge
