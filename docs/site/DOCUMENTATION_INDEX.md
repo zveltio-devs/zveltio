@@ -66,6 +66,8 @@ This index provides a complete map of Zveltio documentation.
 - ✅ [Quick Start](../README.md#-quick-start) - Fastest way to get running
 - ✅ [Installation Guide](INSTALLATION.md) - Detailed setup
 - ✅ [Configuration](INSTALLATION.md#step-4-configure-environment) - Environment setup
+- ✅ [Alpha Track EOL](../ALPHA-TRACK-EOL.md) - Policy for the closed `1.0.0-alpha.*` line
+- ✅ [Migration Alpha → Beta](../MIGRATION-ALPHA-TO-BETA.md) - Upgrade path from alpha installs
 
 ### Core Concepts
 
