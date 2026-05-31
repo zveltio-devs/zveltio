@@ -6,6 +6,9 @@ All notable changes to Zveltio will be documented in this file.
 
 ### Marketplace admin team (owner-managed review roster)
 
+> **Reminder:** The alpha track (`1.0.0-alpha.*`) is EOL as of beta.1. See
+> [docs/ALPHA-TRACK-EOL.md](docs/ALPHA-TRACK-EOL.md).
+
 Until beta.1, the registry recognized exactly one admin — the user
 whose email matched `ADMIN_EMAIL` env var. That bottlenecked all
 review-queue actions through a single identity. beta.2 adds a real
@@ -49,6 +52,14 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 ## [1.0.0-beta.1] - 2026-05-31
 
 ### Extensions v2 stable on the compiled binary; marketplace controlled-launch
+
+### Alpha track end-of-life
+
+**`1.0.0-alpha.*` is closed.** Last alpha: `v1.0.0-alpha.129`. Alpha GitHub
+releases are kept for history; no new alpha tags will be published. Upgrade to
+beta: `zveltio update --version 1.0.0-beta.2` (or latest from get.zveltio.com).
+See [docs/ALPHA-TRACK-EOL.md](docs/ALPHA-TRACK-EOL.md) and
+[docs/MIGRATION-ALPHA-TO-BETA.md](docs/MIGRATION-ALPHA-TO-BETA.md).
 
 13 alpha releases (.117 → .129) closed every Phase 1 bundle-first,
 worker isolation, trust chain, and marketplace review-queue gap.
