@@ -27,6 +27,17 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     tags: ['internal', 'smoke'],
     permissions: [],
   },
+  {
+    name: 'hello-ext-worker',
+    displayName: 'Hello Worker Smoke Fixture',
+    description:
+      'Same as hello-ext but with engine.isolation=worker to exercise the C-minimal Bun.Worker isolation path. Used by release.yml.',
+    category: 'fixture',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['internal', 'smoke', 'worker-isolation'],
+    permissions: [],
+  },
 
   // ── AI ────────────────────────────────────────────────────────
   {

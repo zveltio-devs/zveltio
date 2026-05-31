@@ -740,6 +740,17 @@ const ManifestSchema = z
         target: z.enum(['bun', 'node', '*']).default('bun'),
         bundled: z.boolean(),
         bundlePeers: z.boolean().default(false),
+        /**
+         * Isolation strategy. `'inline'` (default) runs the extension
+         * in the engine's main thread — same as today, max speed and
+         * full access. `'worker'` spawns a Bun.Worker per enabled
+         * extension; the worker has no DATABASE_URL, no service
+         * registry write access, and all SQL is proxied through the
+         * host. Use for third-party / untrusted extensions where
+         * security trumps the +0.5-2ms IPC overhead per route hit.
+         * See docs/EXTENSIONS-V2-PHASE1.md §10 for the threat model.
+         */
+        isolation: z.enum(['inline', 'worker']).default('inline'),
       })
       .optional(),
     integrity: z
@@ -1477,10 +1488,22 @@ class ExtensionLoader {
       // Hono instance; the engine mounts it at `/ext/<name>`. Disable simply
       // drops the sub-app on the next app rebuild — no orphan routes.
       // The default 'global' path remains unchanged for backward compatibility.
+      //
+      // C-minimal worker isolation (manifest.engine.isolation === 'worker'):
+      // delegate register() to WorkerExtensionHost. The worker spawns,
+      // re-imports the SAME bundle, and runs register() in its own thread.
+      // Migrations + field types + services etc. already ran in this main
+      // thread above. Worker is responsible only for serving routes.
       let routeRegistrationDeferred = false;
       const mountStrategy = extension.mountStrategy ?? 'global';
+      const workerIsolation =
+        manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
       try {
-        if (mountStrategy === 'subapp') {
+        if (workerIsolation) {
+          const { getWorkerHost } = await import('./worker-extension-host.js');
+          const host = getWorkerHost(app);
+          await host.start(extName, extDir, manifest!.engine!.entry);
+        } else if (mountStrategy === 'subapp') {
           const subApp = new Hono();
           await extension.register(subApp, restrictedCtx);
           app.route(`/ext/${extName}`, subApp);

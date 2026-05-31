@@ -69,6 +69,7 @@ interface Manifest {
     target?: string;
     bundled?: boolean;
     bundlePeers?: boolean;
+    isolation?: 'inline' | 'worker';
   };
   integrity?: {
     engineSha256?: string;
@@ -205,6 +206,10 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
       target: 'bun',
       bundled: true,
       bundlePeers: manifest.engine?.bundlePeers ?? false,
+      // Preserve isolation if the author set it. Default omitted so the
+      // engine schema picks its default ('inline'). Worker mode is
+      // explicitly opt-in for third-party / untrusted extensions.
+      ...(manifest.engine?.isolation ? { isolation: manifest.engine.isolation } : {}),
     };
     manifest.integrity = {
       engineSha256,
