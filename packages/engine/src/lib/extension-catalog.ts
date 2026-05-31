@@ -38,6 +38,17 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     tags: ['internal', 'smoke', 'worker-isolation'],
     permissions: [],
   },
+  {
+    name: 'hello-ext-global',
+    displayName: 'Hello Global Mount Fixture',
+    description:
+      "Fixture for mountStrategy='global' — route at /hello-global/health (not /ext/<name>/). Used by release.yml to cover both mount strategies.",
+    category: 'fixture',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['internal', 'smoke', 'mount-strategy'],
+    permissions: [],
+  },
 
   // ── AI ────────────────────────────────────────────────────────
   {

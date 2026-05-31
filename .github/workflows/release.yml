@@ -118,19 +118,19 @@ jobs:
         with:
           name: binary-zveltio-linux-x64
           path: ./
-      - name: Stage smoke fixtures (inline + worker isolation)
-        # The release smoke does not depend on the official extensions
-        # repo (zveltio-extensions). Both fixtures are self-contained
-        # bundles committed in this repo at
-        # packages/engine/src/tests/fixtures/{hello-ext,hello-ext-worker}/.
-        # Copying them into EXTENSIONS_DIR lets the binary's marketplace
-        # install detect files-on-disk and skip the registry download.
-        # hello-ext exercises the inline path; hello-ext-worker
-        # exercises the C-minimal Bun.Worker isolation path.
+      - name: Stage smoke fixtures (inline subapp, worker isolation, global mount)
+        # Three fixtures, three code paths:
+        #   hello-ext        — inline + subapp (default for first-party)
+        #   hello-ext-worker — Bun.Worker isolation + subapp
+        #   hello-ext-global — inline + global mount (route at engine root)
+        # All three are self-contained bundles committed in this repo
+        # so the smoke job doesn't depend on registry.zveltio.com or
+        # zveltio-extensions sibling clones.
         run: |
           mkdir -p ./extensions
           cp -r packages/engine/src/tests/fixtures/hello-ext ./extensions/hello-ext
           cp -r packages/engine/src/tests/fixtures/hello-ext-worker ./extensions/hello-ext-worker
+          cp -r packages/engine/src/tests/fixtures/hello-ext-global ./extensions/hello-ext-global
 
       - name: Boot binary + smoke marketplace enable
         env:
@@ -247,6 +247,51 @@ jobs:
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
           echo "✅ hello-ext-worker isolation path OK on the compiled binary."
+
+          # Repeat for hello-ext-global — exercises mountStrategy='global'
+          # which is what extensions use when they need a route outside
+          # the per-extension /ext/<name>/ namespace.
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-global/install \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/install-global.json
+          if ! grep -q '"success":true' /tmp/install-global.json; then
+            echo "::error::hello-ext-global install failed"; cat /tmp/install-global.json
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-global/enable \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/enable-global.json
+          if ! grep -q '"success":true' /tmp/enable-global.json; then
+            echo "::error::hello-ext-global enable failed"
+            echo "::error::Body: $(cat /tmp/enable-global.json)"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+          GLOBAL_BODY=$(curl -fsS http://localhost:3000/hello-global/health \
+            -b cookies.txt || true)
+          if ! echo "$GLOBAL_BODY" | grep -q '"mount":"global"'; then
+            echo "::error::hello-ext-global /hello-global/health did not return mount=global"
+            echo "::error::Body: $GLOBAL_BODY"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+          echo "✅ hello-ext-global mount strategy OK on the compiled binary."
+
+          # Hit the new admin health endpoint to confirm it serves all
+          # three extensions with sensible per-extension records.
+          HEALTH_BODY=$(curl -fsS http://localhost:3000/api/admin/extensions/health \
+            -b cookies.txt || true)
+          for ext in hello-ext hello-ext-worker hello-ext-global; do
+            if ! echo "$HEALTH_BODY" | grep -q "\"name\":\"$ext\""; then
+              echo "::error::extensions/health did not list $ext"
+              echo "::error::Body: $HEALTH_BODY"
+              kill $ENGINE_PID 2>/dev/null || true; exit 1
+            fi
+          done
+          if ! echo "$HEALTH_BODY" | grep -q '"isolation":"worker"'; then
+            echo "::error::extensions/health missing isolation=worker for hello-ext-worker"
+            echo "::error::Body: $HEALTH_BODY"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+          echo "✅ /api/admin/extensions/health reports all 3 extensions correctly."
 
           kill $ENGINE_PID 2>/dev/null || true
           wait $ENGINE_PID 2>/dev/null || true

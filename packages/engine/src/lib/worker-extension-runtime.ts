@@ -27,6 +27,8 @@ import type {
   RouteInvokeRequest,
   DbQueryResponse,
   ServiceCallResponse,
+  ServiceInvokeRequest,
+  ServiceRegisterResponse,
 } from './worker-extension-protocol.js';
 
 declare const self: {
@@ -37,6 +39,10 @@ declare const self: {
 let nextId = 0;
 const pendingDbQueries = new Map<string, (res: DbQueryResponse) => void>();
 const pendingServiceCalls = new Map<string, (res: ServiceCallResponse) => void>();
+const pendingServiceRegistrations = new Map<string, (res: ServiceRegisterResponse) => void>();
+
+/** Services this worker registered. Host invokes them via service:invoke. */
+const localServices = new Map<string, (...args: unknown[]) => unknown>();
 
 function send(msg: WorkerToHostMessage): void {
   self.postMessage(msg);
@@ -113,17 +119,24 @@ function buildShadowCtx() {
       },
     },
     services: {
-      register: (name: string, _impl: unknown): void => {
-        // Worker-side service registration is meaningful only for
-        // OUTBOUND callers in the same worker. Inter-extension service
-        // calls (worker A → service registered by worker B) must go
-        // through the host registry. C-minimal does not bridge
-        // registrations from workers back to the host registry.
-        // Document and no-op; future iteration can wire this.
-        console.warn(
-          `[worker] ctx.services.register("${name}") is a no-op in worker isolation mode. ` +
-            `Other extensions cannot call this service. Move the service to the host or to an inline extension.`,
-        );
+      register: (name: string, impl: (...args: unknown[]) => unknown): void => {
+        // Bridge through to the host registry — the host wraps this
+        // worker so other extensions can call back via service:invoke.
+        if (typeof impl !== 'function') {
+          throw new Error(`ctx.services.register("${name}"): impl must be a function`);
+        }
+        localServices.set(name, impl);
+        const id = rpcId('reg');
+        // Fire-and-forget — register() returns void synchronously in
+        // the SDK contract. Failures are surfaced via console; the
+        // service simply won't be reachable.
+        pendingServiceRegistrations.set(id, (res) => {
+          if (res.type === 'service:register:err') {
+            console.error(`[worker] failed to register service "${name}" with host: ${res.error}`);
+            localServices.delete(name);
+          }
+        });
+        send({ type: 'service:register', id, name });
       },
       get: serviceCall,
     },
@@ -210,6 +223,24 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
   }
 }
 
+async function handleServiceInvoke(msg: ServiceInvokeRequest): Promise<void> {
+  const impl = localServices.get(msg.name);
+  if (!impl) {
+    send({
+      type: 'service:invoke:err',
+      id: msg.id,
+      error: `service "${msg.name}" not registered in this worker`,
+    });
+    return;
+  }
+  try {
+    const result = await Promise.resolve(impl(...msg.args));
+    send({ type: 'service:invoke:ok', id: msg.id, result });
+  } catch (err) {
+    send({ type: 'service:invoke:err', id: msg.id, error: (err as Error).message });
+  }
+}
+
 self.onmessage = (e) => {
   const msg = e.data;
   switch (msg.type) {
@@ -223,6 +254,23 @@ self.onmessage = (e) => {
       // Bun shuts the worker down when the host calls .terminate();
       // this is just for clean intent. No-op here.
       break;
+    case 'ping':
+      // Heartbeat — reply immediately. Host respawns us if it doesn't
+      // get a pong within 60s of any ping.
+      send({ type: 'pong', id: msg.id });
+      break;
+    case 'service:invoke':
+      void handleServiceInvoke(msg);
+      break;
+    case 'service:register:ok':
+    case 'service:register:err': {
+      const cb = pendingServiceRegistrations.get(msg.id);
+      if (cb) {
+        pendingServiceRegistrations.delete(msg.id);
+        cb(msg);
+      }
+      break;
+    }
     case 'db:ok':
     case 'db:err': {
       const cb = pendingDbQueries.get(msg.id);

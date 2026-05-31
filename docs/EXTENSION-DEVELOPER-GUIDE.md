@@ -1308,6 +1308,109 @@ Republishing the same version is forbidden.
 
 ---
 
+## 13.5. Isolation tiers (be honest about what you ship)
+
+Zveltio offers three runtime tiers for extensions. Pick based on
+**who wrote the code** and **what they're trusted with**, not based on
+performance hopes.
+
+### Tier 1 — `inline` (default)
+
+The extension runs in the same V8 isolate as the engine. Maximum
+speed (zero IPC), full API surface, transactions work naturally.
+
+- **Performance:** ★★★★★ — direct function calls, no serialization
+- **Crash isolation:** ❌ — an uncaught exception can take the
+  engine down (the global `unhandledRejection` handler from
+  alpha.117 mitigates the most common DB-driver races, but
+  arbitrary throws still escape)
+- **Memory isolation:** ❌ — a leak in the extension is a leak in
+  the engine
+- **DB credentials:** the extension sees the same `Bun.SQL` pool as
+  the engine; nothing prevents it from running arbitrary SQL within
+  its declared permissions
+- **Use for:** first-party / audited code (the 54 official
+  extensions), workloads chatty with the DB (RLS-bound multi-tenant
+  queries), anything that needs transactions or streaming
+  responses
+
+Set in manifest: omit `engine.isolation` (default is `inline`).
+
+### Tier 2 — `worker` (opt-in, since alpha.121)
+
+The extension runs in a separate `Bun.Worker` thread. V8 heap is
+isolated; the host postMessage-forwards each route invocation and
+proxies SQL queries through its own pool.
+
+- **Performance:** ★★★★ — +0.5–2 ms per route hit (one IPC hop),
+  +5–20 ms per chatty DB workload (one IPC hop per query)
+- **Crash isolation:** ✅ — an uncaught exception in worker code
+  doesn't take the engine down. alpha.122 added auto-respawn with
+  exponential backoff + heartbeat-based hang detection
+- **Memory isolation:** ⚠️ partial — separate V8 isolate, **shared
+  OS process**. RSS is not measurable per-extension. There are NO
+  per-extension memory limits.
+- **DB credentials:** ✅ — worker never sees `DATABASE_URL`. Every
+  query crosses the IPC boundary; the host gatekeeps execution
+- **Limitations:** no streaming responses (body buffered as text),
+  no cross-process transactions (each `db.query()` is independent),
+  worker-published services routed via the host registry bridge
+- **Use for:** third-party / community extensions where the
+  publisher isn't audited, code where crash isolation matters more
+  than the latency cost
+
+Set in manifest:
+
+```json
+{
+  "engine": {
+    "entry": "engine/index.js",
+    "bundled": true,
+    "isolation": "worker"
+  }
+}
+```
+
+Inspect runtime state at `GET /api/admin/extensions/health`:
+
+```json
+{
+  "engine_rss_mb": 412,
+  "engine_heap_used_mb": 187,
+  "extensions": [
+    { "name": "crm", "isolation": "inline", "status": "running" },
+    {
+      "name": "third-party-thing",
+      "isolation": "worker",
+      "status": "running",
+      "workerGeneration": 3,
+      "lastCrashAt": "2026-05-31T12:14:02.000Z",
+      "inFlightRequests": 2,
+      "totalRequests": 1847,
+      "routes": 7
+    }
+  ]
+}
+```
+
+### Tier 3 — subprocess / WASM (not implemented)
+
+True OS-level RSS isolation, OOM-kill per extension, sandboxed
+filesystem and network would require either subprocess workers
+(`Bun.spawn` with stdin/stdout JSON-RPC) or WASM extensions. Both
+are large investments: subprocess adds fork + serialization cost
+to every query (estimated 5–10× slower for chatty workloads); WASM
+needs a complete ABI redesign (~6 months of work) before existing
+extensions could migrate.
+
+The honest position: until there's evidence of a third-party
+extension actively abusing memory or trying to exfiltrate
+credentials, Tier 3 stays a "future if needed" item. Don't
+oversell Tier 2 as a sandbox — `worker` mode is crash isolation +
+credential separation, not OS sandboxing.
+
+---
+
 ## 14. Best practices & anti-patterns
 
 ### Do

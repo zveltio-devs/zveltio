@@ -1054,6 +1054,40 @@ export function adminRoutes(db: Database, auth: any): Hono {
     },
   );
 
+  // GET /extensions/health — per-extension runtime status.
+  //
+  // Returns inline + worker extensions in a single list. Worker
+  // extensions carry isolation bookkeeping (workerGeneration, crash /
+  // hang timestamps, in-flight + total request counts, integrity).
+  // Inline extensions return a minimal record because there's no
+  // separate runtime to observe.
+  //
+  // NOTE: rssBytes is NOT included per-extension. Bun.Worker is a
+  // thread, so per-thread RSS is not measurable from the OS layer.
+  // engine_rss_mb at the response root is the total process RSS —
+  // useful for capacity planning, NOT a per-extension breakdown.
+  app.get('/extensions/health', async (c) => {
+    const { getWorkerHostIfInitialized } = await import('../lib/worker-extension-host.js');
+    const { extensionLoader } = await import('../lib/extension-loader.js');
+    const host = getWorkerHostIfInitialized();
+    const workers = host ? host.getHealth() : [];
+    const inlineNames = extensionLoader
+      .getActive()
+      .filter((n) => !workers.some((w) => w.name === n));
+    const inline = inlineNames.map((name) => ({
+      name,
+      isolation: 'inline' as const,
+      status: 'running' as const,
+      loadError: extensionLoader.getLastLoadError(name),
+    }));
+    const memoryUsage = process.memoryUsage();
+    return c.json({
+      engine_rss_mb: Math.round(memoryUsage.rss / 1024 / 1024),
+      engine_heap_used_mb: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+      extensions: [...inline, ...workers],
+    });
+  });
+
   return app;
 }
 
