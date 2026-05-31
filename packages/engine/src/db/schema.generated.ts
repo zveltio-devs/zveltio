@@ -965,16 +965,7 @@ export interface ZvFlowStepsTable {
   flow_id: string;
   step_order: Generated<number>;
   name: string;
-  type:
-    | 'run_script'
-    | 'send_email'
-    | 'webhook'
-    | 'query_db'
-    | 'condition'
-    | 'transform'
-    | 'delay'
-    | 'send_notification'
-    | 'export_collection';
+  type: 'run_script' | 'send_email' | 'webhook' | 'query_db' | 'condition' | 'transform' | 'delay' | 'send_notification' | 'export_collection';
   config: Generated<unknown>;
   on_error: Generated<'stop' | 'continue' | 'retry'>;
   created_at: Generated<Date>;
@@ -1429,10 +1420,6 @@ export interface ZvMediaFilesTable {
   deleted_at: Generated<Date | null>;
   deleted_by: string | null;
   restore_folder_id: string | null;
-  original_filename: string;
-  mime_type: string;
-  size_bytes: Generated<number>;
-  uploaded_by: string;
   tenant_id: string | null;
 }
 
@@ -1567,19 +1554,7 @@ export interface ZvPageSectionsTable {
   id: Generated<string>;
   page_id: string;
   name: string;
-  type:
-    | 'hero'
-    | 'grid'
-    | 'list'
-    | 'carousel'
-    | 'text'
-    | 'html'
-    | 'map'
-    | 'form'
-    | 'stats'
-    | 'banner'
-    | 'cta'
-    | 'divider';
+  type: 'hero' | 'grid' | 'list' | 'carousel' | 'text' | 'html' | 'map' | 'form' | 'stats' | 'banner' | 'cta' | 'divider';
   sort_order: Generated<number>;
   is_visible: Generated<boolean>;
   collection: string | null;
@@ -2461,9 +2436,7 @@ export interface ZvdAssetsTable {
   code: string;
   name: string;
   description: string | null;
-  category: Generated<
-    'building' | 'equipment' | 'vehicle' | 'furniture' | 'software' | 'land' | 'other'
-  >;
+  category: Generated<'building' | 'equipment' | 'vehicle' | 'furniture' | 'software' | 'land' | 'other'>;
   status: Generated<'active' | 'disposed' | 'in_maintenance'>;
   purchase_date: Date;
   purchase_cost: number;
@@ -2553,9 +2526,7 @@ export interface ZvdBankRulesTable {
   account_id: string | null;
   name: string;
   match_field: Generated<'description' | 'counterparty_name' | 'reference' | 'amount'>;
-  match_operator: Generated<
-    'contains' | 'equals' | 'starts_with' | 'ends_with' | 'regex' | 'gt' | 'lt'
-  >;
+  match_operator: Generated<'contains' | 'equals' | 'starts_with' | 'ends_with' | 'regex' | 'gt' | 'lt'>;
   match_value: string;
   category: string;
   type_override: 'credit' | 'debit' | null;
@@ -2797,16 +2768,7 @@ export interface ZvdCrmActivitiesTable {
   id: Generated<string>;
   entity_type: 'contact' | 'organization' | 'transaction';
   entity_id: string;
-  type:
-    | 'call'
-    | 'email'
-    | 'meeting'
-    | 'note'
-    | 'task'
-    | 'stage_change'
-    | 'deal_created'
-    | 'deal_won'
-    | 'deal_lost';
+  type: 'call' | 'email' | 'meeting' | 'note' | 'task' | 'stage_change' | 'deal_created' | 'deal_won' | 'deal_lost';
   title: string;
   body: string | null;
   outcome: string | null;
@@ -2823,9 +2785,7 @@ export interface ZvdCrmCustomFieldsTable {
   entity_type: 'contact' | 'organization' | 'transaction';
   name: string;
   label: string;
-  field_type: Generated<
-    'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect' | 'url' | 'email' | 'phone'
-  >;
+  field_type: Generated<'text' | 'number' | 'date' | 'boolean' | 'select' | 'multiselect' | 'url' | 'email' | 'phone'>;
   options: unknown | null;
   is_required: Generated<boolean>;
   sort_order: Generated<number>;
@@ -3309,16 +3269,7 @@ export interface ZvdExpensesTable {
   id: Generated<string>;
   report_id: string;
   date: Date;
-  category: Generated<
-    | 'travel'
-    | 'meals'
-    | 'accommodation'
-    | 'supplies'
-    | 'software'
-    | 'fuel'
-    | 'entertainment'
-    | 'other'
-  >;
+  category: Generated<'travel' | 'meals' | 'accommodation' | 'supplies' | 'software' | 'fuel' | 'entertainment' | 'other'>;
   description: string;
   amount: number;
   currency: Generated<string>;
@@ -3397,13 +3348,7 @@ export interface ZvdGdprAccessRequestsTable {
   id: Generated<string>;
   requester_email: string;
   requester_name: string;
-  request_type:
-    | 'access'
-    | 'erasure'
-    | 'portability'
-    | 'rectification'
-    | 'restriction'
-    | 'objection';
+  request_type: 'access' | 'erasure' | 'portability' | 'rectification' | 'restriction' | 'objection';
   description: string | null;
   status: Generated<'pending' | 'in_progress' | 'completed' | 'rejected' | 'withdrawn'>;
   due_date: Generated<Date>;
@@ -3455,13 +3400,7 @@ export interface ZvdGdprProcessingRecordsTable {
   id: Generated<string>;
   name: string;
   purpose: string;
-  legal_basis:
-    | 'consent'
-    | 'contract'
-    | 'legal_obligation'
-    | 'vital_interests'
-    | 'public_task'
-    | 'legitimate_interests';
+  legal_basis: 'consent' | 'contract' | 'legal_obligation' | 'vital_interests' | 'public_task' | 'legitimate_interests';
   data_categories: Generated<string[]>;
   data_subjects: Generated<string[]>;
   retention_period_days: number | null;
@@ -5091,9 +5030,7 @@ export interface ZvdViewsTable {
   name: string;
   description: string | null;
   collection: string;
-  view_type: Generated<
-    'table' | 'kanban' | 'calendar' | 'gallery' | 'stats' | 'chart' | 'list' | 'timeline'
-  >;
+  view_type: Generated<'table' | 'kanban' | 'calendar' | 'gallery' | 'stats' | 'chart' | 'list' | 'timeline'>;
   fields: Generated<unknown>;
   filters: Generated<unknown>;
   sort_field: string | null;
