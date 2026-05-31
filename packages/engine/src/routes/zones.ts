@@ -203,7 +203,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
         base_path: data.base_path ?? `/${data.slug}`,
         site_name: data.site_name ?? null,
         site_logo_url: data.site_logo_url ?? null,
-        primary_color: data.primary_color ?? '#069494',
+        primary_color: data.primary_color ?? '#4F46E5',
         secondary_color: data.secondary_color ?? null,
         custom_css: data.custom_css ?? null,
         nav_position: data.nav_position ?? 'sidebar',
