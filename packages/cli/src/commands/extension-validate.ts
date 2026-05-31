@@ -223,9 +223,21 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   }
   console.log('');
 
-  // Hard-fail partial v2 metadata. v1 is a warning today (so existing
-  // extensions don't suddenly fail validate), but partial v2 is always
-  // a bug — the engine will refuse to load it.
+  // beta.1: hard-fail v1 manifests AND partial v2. All 54 first-party
+  // extensions are v2; any v1 today is either dev-time work-in-progress
+  // (should run `zveltio extension pack`) or a third-party submission
+  // that won't load on the binary anyway.
+  if (v2Status === 'v1-legacy') {
+    console.error(c.red('Validation failed: manifest is v1 (no engine.bundled block).'));
+    console.error(
+      c.dim(
+        '  v1 manifests are unsupported since 1.0.0-beta.1. Run `zveltio extension pack` to ' +
+          'generate the v2 engine + integrity blocks. See docs/EXTENSION-DEVELOPER-GUIDE.md §4.',
+      ),
+    );
+    if (opts.silentExit) throw new Error('Validation failed: v1 manifest unsupported');
+    process.exit(1);
+  }
   if (
     v2Status === 'engine-not-bundled' ||
     v2Status === 'missing-engine-entry' ||
