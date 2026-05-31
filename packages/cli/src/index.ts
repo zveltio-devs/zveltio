@@ -229,6 +229,15 @@ ext
   .action((opts) => extensionPublishCommand(opts));
 
 ext
+  .command('status <name>')
+  .description('Show marketplace submission status (pending / published / rejected / taken_down)')
+  .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
+  .action(async (name: string, opts) => {
+    const { extensionStatusCommand } = await import('./commands/extension-status.js');
+    await extensionStatusCommand(name, opts);
+  });
+
+ext
   .command('types')
   .description(
     "Generate a .d.ts from the extension's SQL migrations (S4-01). Writes <extension>/.zveltio/db.d.ts.",
@@ -266,6 +275,83 @@ keys
   .command('export <keyId>')
   .description('Print the public key as a trusted-key JSON entry for REGISTRY_PUBLIC_KEYS_JSON')
   .action((keyId: string) => keysExportCommand(keyId));
+
+// ── zveltio admin marketplace ────────────────────────────────────────────────
+// Registry review-queue commands (alpha.129). All require admin session
+// cookie via --cookie or ZVELTIO_ADMIN_COOKIE.
+const admin = program.command('admin').description('Registry admin commands (operator-only)');
+const adminMarketplace = admin
+  .command('marketplace')
+  .description('Review-queue management for community extension submissions');
+
+adminMarketplace
+  .command('pending')
+  .description('List extension submissions awaiting review')
+  .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
+  .option('--cookie <cookie>', 'Admin session cookie (env: ZVELTIO_ADMIN_COOKIE)')
+  .action(async (opts) => {
+    const { adminMarketplacePending } = await import('./commands/admin-marketplace.js');
+    await adminMarketplacePending(opts);
+  });
+
+adminMarketplace
+  .command('approve <nameOrId>')
+  .description('Approve a pending submission (status → published)')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .option('--note <note>', 'Optional internal note for the audit trail')
+  .action(async (nameOrId: string, opts) => {
+    const { adminMarketplaceApprove } = await import('./commands/admin-marketplace.js');
+    await adminMarketplaceApprove(nameOrId, opts);
+  });
+
+adminMarketplace
+  .command('reject <nameOrId>')
+  .description('Reject a pending submission with a reason (visible to publisher)')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .requiredOption('--reason <reason>', 'Rejection reason')
+  .action(async (nameOrId: string, opts) => {
+    const { adminMarketplaceReject } = await import('./commands/admin-marketplace.js');
+    await adminMarketplaceReject(nameOrId, opts);
+  });
+
+adminMarketplace
+  .command('takedown <extensionId>')
+  .description('Pull a previously approved extension (status → taken_down)')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .requiredOption('--reason <reason>', 'Takedown reason')
+  .action(async (id: string, opts) => {
+    const { adminMarketplaceTakedown } = await import('./commands/admin-marketplace.js');
+    await adminMarketplaceTakedown(id, opts);
+  });
+
+adminMarketplace
+  .command('publishers')
+  .description('List enrolled allowed publishers')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .action(async (opts) => {
+    const { adminMarketplacePublishers } = await import('./commands/admin-marketplace.js');
+    await adminMarketplacePublishers(opts);
+  });
+
+adminMarketplace
+  .command('enroll-publisher')
+  .description('Add a new publisher to the allowlist (key-based submissions)')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .requiredOption('--name <name>', 'Publisher display name')
+  .requiredOption('--email <email>', 'Publisher contact email')
+  .requiredOption('--key-id <keyId>', 'Ed25519 key id (used at signature time)')
+  .requiredOption('--key-file <path>', 'Path to JSON file containing the public JWK')
+  .option('--tier <tier>', 'Trust tier: first-party | verified | community', 'community')
+  .option('--notes <notes>', 'Internal notes')
+  .action(async (opts) => {
+    const { adminMarketplaceEnrollPublisher } = await import('./commands/admin-marketplace.js');
+    await adminMarketplaceEnrollPublisher(opts);
+  });
 
 // IMPORTANT: use parseAsync so async action handlers (e.g. `extension publish`,
 // `keys generate`) finish before the script exits. With plain `parse()`,

@@ -1,10 +1,26 @@
 # Zveltio Marketplace Policy
 
-> Status: **DRAFT — pre-public-marketplace**.
-> The 54 first-party extensions ship under different rules (audited,
-> built into the release pipeline, no review queue). This document
-> covers third-party / community submissions once the marketplace
-> opens for external publishers.
+> Status: **v1.0 (effective at 1.0.0-beta.1)** — the review queue,
+> enforcement, and tooling described here are all live in code.
+> What's NOT live yet is the human review team / SLA / takedown
+> committee — those are operational decisions documented separately.
+> Until the team is staffed, community submissions land in `pending`
+> and stay there; nothing auto-publishes.
+
+## 0. Mechanics — what runs in code (alpha.129)
+
+| Mechanic | Where |
+| --- | --- |
+| New submissions land `status = 'pending'` | `zveltio-registry/src/routes/publish.ts` |
+| Public catalog filters `status = 'published'` only | `zveltio-registry/src/routes/store.ts` |
+| Download refuses non-published with HTTP 403 | same |
+| Engine surfaces "pending review" message on 403 download | `zveltio/packages/engine/src/lib/extension-loader.ts` |
+| Admin endpoints (approve / reject / takedown / pending / publishers) | `zveltio-registry/src/routes/admin.ts` |
+| CLI admin commands: `zveltio admin marketplace ...` | `zveltio/packages/cli/src/commands/admin-marketplace.ts` |
+| Publisher status command: `zveltio extension status <name>` | `zveltio/packages/cli/src/commands/extension-status.ts` |
+| Engine refuses `inline` for non-official extensions at enable | `extension-loader.ts` (alpha.124) |
+| Trust chain: archive SHA-256 verified end-to-end (publisher → R2 → engine) | alpha.123 / .124 |
+| Audit trail (`reviewed_by` / `reviewed_at` / `reviewed_note` / `taken_down_*`) | migration `008_review_queue.sql` |
 
 ## 1. Submission ground rules
 
@@ -152,6 +168,81 @@ working without a re-pack as long as you're within the declared
 
 ---
 
-This document will evolve once the public marketplace opens for
-submissions. Feedback to `extensions@zveltio.com` or via GitHub
-issues on the `zveltio` repo.
+This document will evolve as the marketplace matures. Feedback to
+`extensions@zveltio.com` or via GitHub issues on the `zveltio` repo.
+
+## 8. Operator runbook (alpha.129+)
+
+### Daily — process the review queue
+
+```bash
+# 1. Sign in to https://registry.zveltio.com as admin, copy session cookie.
+export ZVELTIO_ADMIN_COOKIE='better-auth.session_token=...'
+
+# 2. List pending submissions
+zveltio admin marketplace pending
+
+# 3. Inspect the submission
+#    - Pull the .zvext from the registry storage URL
+#    - Unzip, read engine/index.ts (or the bundle)
+#    - Confirm manifest matches §4 checklist below
+
+# 4. Decision
+zveltio admin marketplace approve <name-or-id> --note "Reviewed by alice; signed off OK"
+# or
+zveltio admin marketplace reject <name-or-id> --reason "engine/index.ts contains hardcoded API key (line 42)"
+```
+
+### As-needed — takedown after publication
+
+```bash
+zveltio admin marketplace takedown <extensionId> --reason "Security advisory CVE-2026-XXXX — leaks tenant_id in error responses"
+```
+
+The extension's download endpoint immediately returns 403; existing
+installs keep running (engine doesn't poll status post-install), but
+no new installs succeed.
+
+### As-needed — onboard a new publisher
+
+```bash
+# Publisher generates their Ed25519 key locally:
+zveltio keys generate
+
+# They send you the public JWK (e.g. ~/.zveltio/keys/their-key.pub.jwk).
+# You enroll it:
+zveltio admin marketplace enroll-publisher \
+  --name "Acme Software" \
+  --email "publisher@acme.example" \
+  --key-id "acme-prod-2026" \
+  --key-file ./their-key.pub.jwk \
+  --tier community
+```
+
+### To suspend a publisher
+
+```bash
+# Get publisher id
+zveltio admin marketplace publishers
+
+# Suspend (existing extensions stay published; future submissions blocked)
+curl -X PATCH https://registry.zveltio.com/api/admin/publishers/<id> \
+  -H "Cookie: $ZVELTIO_ADMIN_COOKIE" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"suspended","notes":"Multiple low-quality submissions"}'
+```
+
+## 9. SLA & process — for the operator to fill in
+
+Once the review team is staffed:
+
+- **Initial response SLA** — how long does a publisher wait between
+  submission and first response? (Suggest: 7 business days for v1.)
+- **Reviewer assignment** — round-robin? Specialized by category?
+- **Escalation path** — who decides on edge cases?
+- **Appeal process** — what does a rejected publisher do next?
+- **Takedown trigger criteria** — what evidence is required before
+  pulling a published extension?
+
+These belong in a separate ops doc, not here. The CODE is ready;
+the PROCESS is the operator's call.

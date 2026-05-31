@@ -2,6 +2,65 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.129] - 2026-05-31
+
+### Marketplace review queue (code complete; ops process pending)
+
+The mechanics for accepting community extension submissions are
+now wired end-to-end. The 54 first-party extensions are unaffected
+(they bypass the queue via SYNC_TOKEN); third-party submissions
+land `status='pending'` and require explicit admin approval before
+becoming downloadable.
+
+**Registry side** (`zveltio-registry`):
+  - Migration 008: extension status enum widened with `taken_down`;
+    audit columns `reviewed_by`, `reviewed_at`, `reviewed_note`,
+    `taken_down_at`, `taken_down_reason`. New `allowed_publishers`
+    table (Ed25519 key allowlist with trust tiers).
+  - `GET /api/admin/pending` — list submissions awaiting review.
+  - `POST /api/admin/approve/:id` — sets status='published', writes
+    reviewer + timestamp. Optional `note`.
+  - `POST /api/admin/reject/:id` — sets status='rejected' with reason
+    (visible to publisher).
+  - `POST /api/admin/takedown/:id` — pulls a published extension
+    with required reason. Refuses if extension is first-party.
+  - `GET /api/admin/publishers` + `POST /api/admin/publishers` +
+    `PATCH /api/admin/publishers/:id` — enroll / list / suspend
+    allowed publishers.
+  - `GET /api/dev/extensions/by-name/:name` — public status check
+    (no auth), used by `zveltio extension status`.
+
+**Engine side** (`zveltio`):
+  - Download endpoint already 403s for non-published extensions;
+    error message now surfaces "pending review" instead of generic
+    "not available", with link to registry.zveltio.com.
+
+**CLI side**:
+  - `zveltio admin marketplace pending | approve | reject | takedown
+    | publishers | enroll-publisher` — registry admin commands.
+    Requires admin session cookie via `--cookie` or
+    `ZVELTIO_ADMIN_COOKIE`.
+  - `zveltio extension status <name>` — publisher-facing status
+    check (no auth). Shows pending/published/rejected/taken_down +
+    reason text.
+  - `zveltio extension publish` output now ends with "submission
+    received, status: pending" + link to status check command.
+
+**Docs**:
+  - `MARKETPLACE-POLICY.md` is no longer DRAFT. Section 0 maps every
+    policy claim to the file where it's enforced. New §8 operator
+    runbook with copy-paste commands for daily review + onboarding
+    + takedown. New §9 lists the human-process decisions the
+    operator must still make (SLA, escalation, appeals) — those
+    don't ship with code.
+
+What's still pending (human/process, not code):
+  - Staff the review team
+  - Pick a published SLA
+  - Onboard first community publishers
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.128] - 2026-05-31
 
 ### Fix: `initDatabase` idle timeout was overriding alpha.126's fix
