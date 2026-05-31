@@ -337,6 +337,57 @@ adminMarketplace
     await adminMarketplacePublishers(opts);
   });
 
+// Admin team commands (beta.2)
+const adminTeam = admin
+  .command('team')
+  .description('Marketplace admin roster (review-queue access). Owner-only writes.');
+
+adminTeam
+  .command('list')
+  .description('List current admin team members + roles')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .action(async (opts) => {
+    const { adminTeamList } = await import('./commands/admin-marketplace.js');
+    await adminTeamList(opts);
+  });
+
+adminTeam
+  .command('add <email>')
+  .description('Add a user to the admin team (they must have an apps account first)')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .option('--role <role>', "Role: 'owner' | 'admin'", 'admin')
+  .option('--notes <notes>', 'Internal notes')
+  .action(async (email: string, opts) => {
+    const { adminTeamAdd } = await import('./commands/admin-marketplace.js');
+    await adminTeamAdd(email, opts);
+  });
+
+adminTeam
+  .command('set-role <email> <role>')
+  .description("Change a team member's role (owner|admin). Refuses to demote the last owner.")
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .action(async (email: string, role: string, opts) => {
+    if (role !== 'owner' && role !== 'admin') {
+      console.error(`Invalid role "${role}" — must be 'owner' or 'admin'`);
+      process.exit(1);
+    }
+    const { adminTeamSetRole } = await import('./commands/admin-marketplace.js');
+    await adminTeamSetRole(email, role, opts);
+  });
+
+adminTeam
+  .command('remove <email>')
+  .description('Remove a user from the admin team')
+  .option('--registry-url <url>', 'Registry base URL')
+  .option('--cookie <cookie>', 'Admin session cookie')
+  .action(async (email: string, opts) => {
+    const { adminTeamRemove } = await import('./commands/admin-marketplace.js');
+    await adminTeamRemove(email, opts);
+  });
+
 adminMarketplace
   .command('enroll-publisher')
   .description('Add a new publisher to the allowlist (key-based submissions)')

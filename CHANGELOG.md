@@ -2,6 +2,50 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-beta.2] - 2026-05-31
+
+### Marketplace admin team (owner-managed review roster)
+
+Until beta.1, the registry recognized exactly one admin — the user
+whose email matched `ADMIN_EMAIL` env var. That bottlenecked all
+review-queue actions through a single identity. beta.2 adds a real
+team model.
+
+**Registry** (`zveltio-registry@e2b32c8`):
+  - Migration 009: `admin_users` table joining better-auth's `user`
+    table. Two roles: `owner` (review + team management) and
+    `admin` (review only).
+  - `verifyAdmin` refactored to consult `admin_users` first, with
+    a bootstrap path: when `ADMIN_EMAIL` matches the signed-in user
+    AND no `admin_users` row exists, auto-promote them to `owner`.
+    First-deploy operators don't need to manually insert a row.
+  - New endpoints: `GET /api/admin/me` (UI role check), `GET/POST/
+    PATCH/DELETE /api/admin/team[/:userId]`. Last-owner protection
+    on demote + remove.
+
+**Apps UI** (`zveltio-apps@e212176`):
+  - `/admin/team` page lists members + their roles. Owner sees
+    Promote / Demote / Remove buttons + Invite-by-email form
+    (invited user must already have an account on apps.zveltio.com).
+  - Layout now drives admin gating via `/api/admin/me` (server-side
+    authoritative) instead of frontend email comparison. Header
+    shows the current user's role badge. Team nav link hidden for
+    non-owners.
+
+**CLI** (`zveltio@<this commit>`):
+  - `zveltio admin team list | add | set-role | remove` for operators
+    who prefer terminal. Same last-owner protections as the UI.
+
+**Bootstrap workflow for first deploy:**
+  1. Set `ADMIN_EMAIL=you@example.com` in Cloudflare Worker secrets.
+  2. Sign in to `apps.zveltio.com` with that email.
+  3. Navigate to `/admin/marketplace/pending` — you're auto-promoted
+     to owner.
+  4. Use `/admin/team` (visible in nav now) to invite the rest of
+     the review team.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-beta.1] - 2026-05-31
 
 ### Extensions v2 stable on the compiled binary; marketplace controlled-launch
