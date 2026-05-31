@@ -320,8 +320,17 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
       manifest,
     });
     if (result.ok) {
-      console.log(c.green(`  HTTP ${result.status} — published.`));
+      console.log(c.green(`  HTTP ${result.status} — submission received.`));
       console.log(c.dim(`  Body: ${result.body.slice(0, 200)}`));
+      console.log('');
+      console.log(c.yellow('  ⏳ Your submission is in the review queue (status: pending).'));
+      console.log(
+        c.dim(`     Marketplace admins review community submissions before they go live.`),
+      );
+      console.log(
+        c.dim(`     You'll be notified at your registered email when the decision lands.`),
+      );
+      console.log(c.dim(`     Check status: zveltio extension status ${manifest.name}`));
     } else if (result.status === 404) {
       // Friendly message: this is the expected state until the registry
       // endpoint lands in zveltio-registry.

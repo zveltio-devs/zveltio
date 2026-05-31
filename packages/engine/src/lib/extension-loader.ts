@@ -380,6 +380,19 @@ async function downloadExtension(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
+    // 403 from the registry's download endpoint means the extension
+    // exists but its status is not 'published' — pending review,
+    // rejected, or taken_down. Surface a friendlier error than the
+    // raw HTTP status so users understand "wait for review" vs
+    // "registry is down".
+    if (res.status === 403 && /not.*available|not.*published|not yet published/i.test(body)) {
+      throw new Error(
+        `Extension "${entry.name}" is not yet approved by the marketplace ` +
+          `review queue. The submission exists but admins haven't ` +
+          `published it. Wait for the publisher to receive notification, ` +
+          `or check ${REGISTRY_URL}/extensions/${encodeURIComponent(entry.name)} for status.`,
+      );
+    }
     throw new Error(
       `Registry returned ${res.status} for extension "${entry.name}" download${body ? `: ${body.slice(0, 200)}` : ''}`,
     );
