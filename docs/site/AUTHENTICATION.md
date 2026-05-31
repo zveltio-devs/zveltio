@@ -27,6 +27,8 @@ Zveltio uses **Better-Auth** (v1.x) for all authentication. It provides:
 - Session cookies with optional Valkey/Redis secondary storage
 - JWT-less — sessions stored server-side
 
+> **Self-hosted vs Zveltio cloud:** this guide covers your **self-hosted** engine, where all three OAuth providers can be enabled. The Zveltio cloud login on [zveltio.com/login](https://zveltio.com/login) (used for marketplace + dev portal accounts) currently exposes only Google and GitHub — Microsoft will be added when there's enough demand from cloud users.
+
 ### Required configuration
 
 ```env
