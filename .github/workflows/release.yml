@@ -114,7 +114,7 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: binary-zveltio-linux-x64
           path: ./
@@ -305,7 +305,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: studio-dist
           path: packages/studio/dist/
@@ -370,26 +370,26 @@ jobs:
           echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
       - name: Download all binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: binary-*
           path: dist/
           merge-multiple: true
 
       - name: Download studio
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: studio-dist
           path: studio-dist-download/
 
       - name: Download studio source
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: studio-source
           path: studio-source-download/
 
       - name: Download client
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: client-dist
           path: client-dist-download/
@@ -475,7 +475,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-assets
           path: all-assets/
@@ -558,7 +558,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-assets
           path: release-assets/
