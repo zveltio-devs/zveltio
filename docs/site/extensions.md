@@ -277,7 +277,7 @@ await loadExtensions();
 
 ## Creating Extensions
 
-> **As of 1.0.0-beta.1**, extensions ship as **bundled artifacts**
+> **Since 1.0.0-beta.1**, extensions ship as **bundled artifacts**
 > (`engine/index.js` produced by `zveltio extension pack`), not raw
 > `.ts` source. The engine binary refuses to load v1-style manifests
 > in production. See the full developer guide at
@@ -397,9 +397,11 @@ resolve it at pack time.
 
 ## Publishing to the marketplace
 
-> **Controlled launch** at beta.1: community submissions are
+> **Controlled launch (active through beta):** community submissions are
 > accepted, but every submission lands in `pending` until a
-> marketplace admin approves manually. See
+> marketplace admin approves manually. As of beta.2 the marketplace
+> admin team is multi-user — owner + reviewers managed at
+> `/admin/team` on `apps.zveltio.com`. See
 > [`MARKETPLACE-POLICY.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/MARKETPLACE-POLICY.md)
 > for review criteria, SLA expectations, and takedown process.
 
