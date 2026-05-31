@@ -267,17 +267,22 @@ hello-ext/
 
 ---
 
-## 8. PR order — status (post alpha.114, 2026-05-29)
+## 8. PR order — status (post alpha.122, 2026-05-31)
 
 Phase 1 is complete on the binary install. All 54 official extensions
 are packed; marketplace install + enable validated end-to-end in WSL
-on 8 representative extensions including all 6 bundlePeers cases.
+on 11 representative extensions including all 6 bundlePeers cases.
+Worker isolation (C-minimal) shipped alpha.121 + observability
+hardening alpha.122 — full crash recovery, hang detection, cross-
+worker service bridge, admin health endpoint.
+
+### Bundle pipeline
 
 | Item | Status | Notes |
 | --- | --- | --- |
 | `extension pack` command | ✅ DONE (alpha.111) | `packages/cli/src/commands/extension-pack.ts` + Bun.build plugin for hono types resolution |
 | Manifest v2 schema in `ManifestSchema` | ✅ DONE (alpha.111) | `engine` and `integrity` blocks accepted; alpha.112 widened `archiveSha256` to also accept empty placeholder |
-| Refuse `.ts` entry outside dev reload | 🟡 PARTIAL | Loader picks `.js` when present; `.ts` fallback still active for legacy `ZVELTIO_EXTENSION_DEV_RELOAD=1`. Hard-refuse-in-prod queued for beta.1 |
+| Refuse `.ts` entry in production | ✅ DONE (alpha.117) | `NODE_ENV=production` + non-bundled → hard fail with pointer at `zveltio extension pack`. Dev still works via `ZVELTIO_EXTENSION_DEV_RELOAD=1`. |
 | Verify `integrity.engineSha256` at load | ✅ DONE (alpha.111) | Mismatch errors out with explicit message |
 | `hello-ext` fixture | ✅ DONE (alpha.114) | `packages/engine/src/tests/fixtures/hello-ext/`. Catalog entry in `extension-catalog.ts` |
 | `smoke-binary` job uses fixture, not CRM | ✅ DONE (alpha.114) | `release.yml` copies the fixture into `EXTENSIONS_DIR` and exercises install + enable + GET `/ext/hello-ext/health` |
@@ -286,14 +291,45 @@ on 8 representative extensions including all 6 bundlePeers cases.
 | `sync-to-registry.mjs` uses committed bundle (no re-build) | ✅ DONE (alpha.113) | Sync was re-running `bun build --bundle` without the hono plugin, producing broken bundles that didn't match the manifest hash. Now verifies committed bundle hash vs declared hash before uploading. |
 | Hash drift via autocrlf | ✅ DONE | `.gitattributes` in `zveltio-extensions` pins `**/engine/index.js` as binary |
 | Batch pack 49 remaining extensions | ✅ DONE (zveltio-extensions @7b03f06) | 54/54 packed; sync upload 54/54 success |
-| `integrity.archiveSha256` verify at registry upload | ⏳ TODO | PR queued post-alpha.114 — currently registry computes archive hash but doesn't enforce. Cosmetic gap; the engine-side `engineSha256` check is the load-bearing one. |
-| CI extensions: per-extension `extension pack` step on changed paths | ⏳ TODO | Currently sync workflow detects + refuses missing bundles; a PR-time gate is the next layer |
+| CI extensions: pack-on-PR hash gate | ✅ DONE (alpha.117) | `zveltio-extensions/.github/workflows/ci.yml` rejects PRs with bundle ↔ manifest hash drift |
+| `extension validate` enforces v2 manifest | ✅ DONE (alpha.117) | v1 prints warning; partial v2 (engine block present but missing entry / bundled / engineSha256) is hard fail |
 
-### Validated live (2026-05-29 WSL alpha.113)
+### Worker isolation (C-minimal)
 
-Install + enable + route-200 on the compiled binary, zero patches:
-crm, ai, communications/mail (peers bundled), forms, finance/invoicing,
-auth/ldap (peers bundled), billing, search, sms, data/import.
+| Item | Status | Notes |
+| --- | --- | --- |
+| `engine.isolation: 'worker'` opt-in manifest field | ✅ DONE (alpha.121) | Default stays `inline`; per-extension opt-in |
+| `WorkerExtensionHost` + protocol + runtime | ✅ DONE (alpha.121) | `worker-extension-{host,protocol,runtime}.ts`. RPC: init, route invoke, db query, service call, log forward, ping/pong, service register/invoke |
+| Pre-compiled worker source embedded in binary | ✅ DONE (alpha.121) | `scripts/gen-worker-source.ts` emits string constant; host writes to `/tmp` at first spawn. Bun --compile doesn't auto-bundle workers; this is the bulletproof workaround. |
+| Worker DB proxy via host pool (zero credentials in worker) | ✅ DONE (alpha.121) | Every `ctx.db.query()` traverses IPC; host runs SQL on shared `Bun.SQL` pool |
+| Crash auto-recovery with exponential backoff | ✅ DONE (alpha.122) | `worker.onerror` → terminate + respawn (500ms → 30s ceiling); `workerGeneration` bumped per respawn |
+| Hang detection (30s ping / 60s pong timeout) | ✅ DONE (alpha.122) | Stuck worker is terminated + respawned; proxy routes 503 during respawn window |
+| Cross-worker service registry bridge | ✅ DONE (alpha.122) | `ctx.services.register()` in worker now publishes a host-side stub that proxies invocations back via `service:invoke` RPC |
+| `GET /api/admin/extensions/health` | ✅ DONE (alpha.122) | Per-extension records (isolation, workerGeneration, lastCrash/HangAt, inFlight/totalRequests, integrityOk, routes) + `engine_rss_mb` at root. **No per-extension RSS** by design — Bun.Worker is a thread |
+| `hello-ext-worker` fixture | ✅ DONE (alpha.121) | Exercises `isolation: 'worker'` in release smoke |
+| `hello-ext-global` fixture | ✅ DONE (alpha.122) | Exercises `mountStrategy: 'global'` (route at engine root, not `/ext/<name>/`) |
+| 3-tier isolation docs (inline / worker / future subprocess+WASM) | ✅ DONE (alpha.122) | `EXTENSION-DEVELOPER-GUIDE.md` §13.5 — honest about thread limits, no oversell |
+
+### Remaining (not Phase 1 blockers)
+
+| Item | Status | Priority |
+| --- | --- | --- |
+| Registry computes archive SHA-256 on upload | ✅ DONE (alpha.117) | Returned in response + stored as R2 customMetadata |
+| Registry enforces `integrity.archiveSha256` declared in manifest | ⏳ TODO | Cosmetic — engine-side `engineSha256` check is load-bearing. Useful for marketplace trust chain when public. |
+| Engine verifies `archiveSha256` at extract time | ⏳ TODO | Same — `engineSha256` is what protects runtime |
+| `createExtensionBuildConfig` export in `@zveltio/sdk` | ⏳ TODO | DX for authors who build without the CLI |
+| `extension validate` hard-fail on v1 manifests | ⏳ TODO | Wait until all 54 official + likely first third-parties are v2 |
+| Marketplace public policy doc (when worker mandatory for third-party, review process) | ⏳ TODO | Required before opening third-party submissions |
+| Unit tests for worker respawn / heartbeat | ⏳ TODO | Smoke release covers happy path; unit coverage for failure modes is nice-to-have |
+| Subprocess workers / WASM | ⏸ Tier 3 | Don't promise per-extension RSS or OS sandbox until this lands |
+
+### Validated live
+
+| Alpha | Path | Validation |
+| --- | --- | --- |
+| .113 | Inline / bundled extensions | WSL: crm, ai, mail, forms, invoicing, auth/ldap, billing, search, sms, data/import — install + enable + route-200, zero patches |
+| .121 | Worker isolation (`mountStrategy: 'subapp'`) | WSL: hello-ext-worker enabled, `runtime: 'bun-worker'` returned by `/ext/hello-ext-worker/health` — handler executed inside `Bun.Worker`, not main thread |
+| .122 | Inline + worker + global mount + health endpoint | release smoke: 3 fixtures × install + enable + route + `/api/admin/extensions/health` lists all three with correct isolation tier |
 
 ---
 
