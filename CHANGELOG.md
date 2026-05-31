@@ -2,6 +2,47 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.122] - 2026-05-31
+
+### Worker isolation: reliability + observability + service bridge
+
+Five additions on top of the alpha.121 worker isolation foundation:
+
+- **Crash auto-recovery**: a worker that crashes (`worker.onerror`)
+  is automatically respawned with exponential backoff (500ms → 30s
+  ceiling). `workerGeneration` is bumped per respawn so operators
+  can detect flapping. The Hono proxy sub-app stays mounted; the
+  new worker takes over the same routes.
+- **Hang detection**: every 30s the host sends `ping` to each
+  worker. If no `pong` arrives within 60s the worker is terminated
+  and respawned. Prevents a stuck handler from holding proxy
+  routes open forever.
+- **Cross-worker service registry bridge**: `ctx.services.register()`
+  inside a worker is no longer a no-op. The host wraps each
+  worker-registered service so that inline extensions / other
+  workers can call it transparently — calls route to the publishing
+  worker via `service:invoke`, the worker runs the impl in its
+  own thread, and the reply travels back through the host.
+- **`GET /api/admin/extensions/health`** (admin-only). Returns
+  per-extension records with isolation tier, status, worker
+  generation, last crash / hang timestamps, in-flight + total
+  request counts, integrity status, route count, plus
+  `engine_rss_mb` at the response root. **NO per-extension RSS
+  field** — Bun.Worker is a thread, so per-extension RSS isn't
+  measurable from the OS layer. Don't promise what the runtime
+  can't give.
+- **`hello-ext-global` fixture**: covers `mountStrategy: 'global'`
+  in release.yml smoke alongside the existing `hello-ext` (inline
+  subapp) and `hello-ext-worker` (worker subapp) fixtures. Three
+  fixtures × three code paths.
+
+Docs: `EXTENSION-DEVELOPER-GUIDE.md` §13.5 adds the 3-tier
+isolation policy (inline / worker / future subprocess+WASM) with
+explicit limits — calling out that worker mode is "crash isolation
++ credential separation", not OS sandboxing.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.121] - 2026-05-31
 
 ### Worker isolation: embed runtime source, write to /tmp at first spawn

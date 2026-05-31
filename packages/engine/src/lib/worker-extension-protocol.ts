@@ -119,6 +119,47 @@ export interface LogMessage {
   message: string;
 }
 
+// ── Heartbeat (host → worker → host) ────────────────────────────────
+
+export interface PingRequest {
+  type: 'ping';
+  id: WorkerMessageId;
+}
+
+export interface PongResponse {
+  type: 'pong';
+  id: WorkerMessageId;
+}
+
+// ── Service registry bridge (worker A → host → worker B / inline) ───
+
+export interface ServiceRegisterRequest {
+  type: 'service:register';
+  id: WorkerMessageId;
+  name: string;
+}
+
+export interface ServiceRegisterResponse {
+  type: 'service:register:ok' | 'service:register:err';
+  id: WorkerMessageId;
+  error?: string;
+}
+
+/** Host → worker: invoke a service that this worker previously registered. */
+export interface ServiceInvokeRequest {
+  type: 'service:invoke';
+  id: WorkerMessageId;
+  name: string;
+  args: unknown[];
+}
+
+export interface ServiceInvokeResponse {
+  type: 'service:invoke:ok' | 'service:invoke:err';
+  id: WorkerMessageId;
+  result?: unknown;
+  error?: string;
+}
+
 // ── Union ───────────────────────────────────────────────────────────
 
 export type HostToWorkerMessage =
@@ -126,11 +167,17 @@ export type HostToWorkerMessage =
   | ShutdownRequest
   | RouteInvokeRequest
   | DbQueryResponse
-  | ServiceCallResponse;
+  | ServiceCallResponse
+  | PingRequest
+  | ServiceRegisterResponse
+  | ServiceInvokeRequest;
 
 export type WorkerToHostMessage =
   | InitResponse
   | RouteInvokeResponse
   | DbQueryRequest
   | ServiceCallRequest
-  | LogMessage;
+  | LogMessage
+  | PongResponse
+  | ServiceRegisterRequest
+  | ServiceInvokeResponse;
