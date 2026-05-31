@@ -23,7 +23,7 @@ Complete reference for all three Zveltio client packages.
 | `@zveltio/react` | React 18+ | `npm i @zveltio/react` |
 | `@zveltio/vue` | Vue 3.3+ | `npm i @zveltio/vue` |
 
-`sdk-react` and `sdk-vue` depend on `@zveltio/sdk` as a direct dependency — you don't need to install the base package separately.
+`@zveltio/react` and `@zveltio/vue` depend on `@zveltio/sdk` as a direct dependency — you don't need to install the base package separately.
 
 ---
 
