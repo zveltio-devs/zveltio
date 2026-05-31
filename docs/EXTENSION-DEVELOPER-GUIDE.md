@@ -184,7 +184,7 @@ Limits (intentional):
 
 ## 4. The manifest
 
-Minimal valid manifest:
+Minimal valid manifest (v2 — what `zveltio extension pack` produces):
 
 ```json
 {
@@ -199,9 +199,24 @@ Minimal valid manifest:
   "contributes": {
     "engine": true,
     "studio": true
+  },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false,
+    "isolation": "inline"
+  },
+  "integrity": {
+    "engineSha256": "<filled by pack>"
   }
 }
 ```
+
+You don't write the `engine` and `integrity` blocks by hand — run
+`zveltio extension pack` and the CLI bundles `engine/index.ts` → `engine/index.js`,
+computes the SHA-256, and patches these blocks in place.
 
 ### All fields
 
@@ -218,18 +233,26 @@ Minimal valid manifest:
 | `author` | string | no | "Your Name <email>". |
 | `homepage` | string | no | URL. |
 | `permissions` | string[] | no | Declarative — `database`, `settings`, `network`, `filesystem`. Used in marketplace UI. |
-| `peerDependencies` | object | no | npm packages auto-installed. |
+| `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
 | `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. |
 | `contributes.engine` | bool | no | `false` for UI-only extensions. |
 | `contributes.studio` | bool | no | |
 | `contributes.client` | bool | no | |
 | `contributes.fieldTypes` | string[] | no | List of field type IDs registered. |
 | `contributes.stepTypes` | string[] | no | For workflow steps. |
-| `contributes.schedules` | string[] | no | Names of cron schedules declared. (v1.0) |
-| `quotas.bundleSizeKbMax` | number | no | Default 50000. (v1.0) |
-| `quotas.nodeModulesSizeMbMax` | number | no | Default 200. (v1.0) |
-| `quotas.migrationsMax` | number | no | Default 100. (v1.0) |
-| `signature` | object | no | Filled by `zveltio extension publish`. Do not edit by hand. (v1.0) |
+| `contributes.schedules` | string[] | no | Names of cron schedules declared. |
+| `quotas.bundleSizeKbMax` | number | no | Default 50000. |
+| `quotas.nodeModulesSizeMbMax` | number | no | Default 200. |
+| `quotas.migrationsMax` | number | no | Default 100. |
+| `engine.entry` | string | yes (v2) | Path to bundled JS. Default `engine/index.js`. |
+| `engine.format` | `"esm"` | no | Always `esm`. |
+| `engine.target` | `"bun" \| "node" \| "*"` | no | Default `"bun"`. |
+| `engine.bundled` | bool | yes (v2) | Always `true` post-alpha.111. Bun compiled binary can't resolve bare specifiers at runtime, so deps must be bundled at pack time. |
+| `engine.bundlePeers` | bool | no | Default `false`. Set `true` to inline the `peerDependencies` into the bundle. Required when the extension uses any peer dep — external peers don't work on the binary install. See alpha.113 in CHANGELOG. |
+| `engine.isolation` | `"inline" \| "worker"` | no | Default `"inline"`. **`"worker"` is REQUIRED for community/third-party submissions** per MARKETPLACE-POLICY.md §2 — the loader hard-fails the enable otherwise. See §13.5 below for the trade-offs. |
+| `integrity.engineSha256` | hex64 | yes (v2) | SHA-256 of `engine/index.js`. Filled by pack; engine refuses to load a bundle whose bytes don't match. |
+| `integrity.archiveSha256` | hex64 | no | SHA-256 of the `.zvext` archive. Optional; the registry computes and stores this on upload. Engine verifies it against the `X-Archive-Sha256` response header at install time. |
+| `signature` | object | no | Filled by `zveltio extension publish`. Do not edit by hand. |
 
 ---
 
