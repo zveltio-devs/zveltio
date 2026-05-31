@@ -319,7 +319,7 @@ worker service bridge, admin health endpoint.
 | Engine verifies archive bytes against header at install | ✅ DONE (alpha.123) | `extension-loader.ts` SHA-256s the ZIP, refuses extract on mismatch |
 | Registry enforces `integrity.archiveSha256` declared in manifest at upload | ✅ DONE (alpha.124) | Sync flow now compares manifest hash against ZIP bytes; mismatch rejected with 400 |
 | `createExtensionBuildConfig` export in `@zveltio/sdk` | ✅ DONE (alpha.123) | `@zveltio/sdk/build` — CLI imports from there (single source of truth) |
-| Marketplace public policy doc | ✅ DONE (alpha.123) | `docs/MARKETPLACE-POLICY.md` — draft pre-public; includes isolation per tier, review checklist, lifecycle |
+| Marketplace public policy doc | ✅ DONE (alpha.129) | `docs/MARKETPLACE-POLICY.md` — v1.0 effective beta.1. §0 maps each policy claim to enforcing code; §8 operator runbook; §9 lists what's still human (review team / SLA / appeals) |
 | Enforce `isolation: 'worker'` for third-party at engine load | ✅ DONE (alpha.124) | Catalog entry carries `is_official`; loader refuses to enable non-official extensions without `engine.isolation: 'worker'` |
 | Unit tests for worker host bookkeeping | ✅ DONE (alpha.123) | 7 tests covering lifecycle, health record shape, duplicate guard |
 | Unit test: archive SHA mismatch refused | ✅ DONE (alpha.124) | `extension-loader-archive.test.ts` |
@@ -339,6 +339,7 @@ worker service bridge, admin health endpoint.
 | .126 | Operational hardening (B1-B5) | Bun SQL `uncaughtException` handler + studio rebuild coalescing (debounce + content-hash skip); marketplace lifecycle integration tests added; manifest docs refreshed to v2; `check:schema` + `prepush` package.json scripts |
 | .127 | Marketplace integration tests gated by env var | `ENABLE_MARKETPLACE_INTEGRATION_TESTS=1` opt-in; CI stays green without staged fixtures, release-binary smoke covers the path anyway |
 | .128 | `initDatabase` idle timeout aligned with dialect (real B1 fix) | `BUN_SQL_IDLE_TIMEOUT_MS` (or legacy `DB_IDLE_TIMEOUT_MS`) honored; default 300s instead of the previous 30s that bypassed alpha.126's dialect change |
+| .129 | Marketplace review queue (code complete) | Registry: migration 008 (status enum + audit cols + allowed_publishers); admin endpoints approve/reject/takedown/pending/publishers with reviewer audit trail. Engine: friendlier "pending review" 403 message. CLI: `admin marketplace ...` + `extension status <name>`. Apps: `/admin/marketplace/{pending,publishers,[name]}` UI with bundle preview + audit history. Policy doc DRAFT → v1.0. |
 
 ---
 
