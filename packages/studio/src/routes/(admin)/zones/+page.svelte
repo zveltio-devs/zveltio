@@ -152,8 +152,8 @@ async function deleteZone(slug: string, name: string) {
           <div class="card-body p-4 gap-3">
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
-                <div class="p-1.5 rounded-lg shrink-0" style="background-color: {z.primary_color ?? '#069494'}20">
-                  <LayoutGrid size={14} style="color: {z.primary_color ?? '#069494'}"/>
+                <div class="p-1.5 rounded-lg shrink-0" style="background-color: {z.primary_color ?? '#4F46E5'}20">
+                  <LayoutGrid size={14} style="color: {z.primary_color ?? '#4F46E5'}"/>
                 </div>
                 <div class="min-w-0">
                   <h3 class="font-semibold text-sm truncate">{z.name}</h3>
