@@ -2,6 +2,39 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.125] - 2026-05-31
+
+### Marketplace polish — pre-validate + fail-closed + enforcement tests
+
+Four small items the external review flagged on alpha.124. Not
+critical, but each closes a specific surprise vector:
+
+- **`zveltio extension validate` warns at pre-publish time** when
+  `engine.isolation !== 'worker'`. The runtime enforcement landed
+  in alpha.124 but only fires at enable time — authors found out
+  late. Now the publisher sees it before pushing to the registry.
+  Suppress for vendor builds with `--first-party`.
+
+- **`ZVELTIO_REQUIRE_CATALOG=1` fail-closed mode**. By default the
+  engine falls through to local-only assumptions when the catalog
+  fetch fails (offline-friendly self-hosted). Operators who want
+  strict enforcement set this env var; the loader refuses to
+  enable non-worker extensions whenever the registry is unreachable.
+  Worker isolation still passes either way — no point refusing if
+  the extension is already sandboxed.
+
+- **10 unit tests for the enforcement decision logic**. Covers:
+  first-party inline allowed, community + worker allowed,
+  community inline refused, missing isolation refused, env-var
+  escape hatch, unknown extension treated as community, fail-closed
+  refusal, worker overrides fail-closed.
+
+- **`EXTENSIONS-V2-PHASE1.md` "Validated live" table** extended with
+  rows for .123 (trust chain), .124 (marketplace enforcement),
+  .125 (this release).
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.124] - 2026-05-31
 
 ### Marketplace public readiness — enforcement + trust chain closure
