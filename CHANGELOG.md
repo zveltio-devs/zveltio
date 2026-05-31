@@ -2,6 +2,45 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.121] - 2026-05-31
+
+### Worker isolation: embed runtime source, write to /tmp at first spawn
+
+alpha.118 → .120 chased the same symptom (`BuildMessage: ModuleNotFound
+resolving /$bunfs/root/worker-extension-runtime.ts (entry point)`) with
+progressively-more-correct theory:
+  - alpha.118: inline `new URL(...)` instead of hoisted const
+  - alpha.119: same, plus the schema-format fix
+  - alpha.120: static-import the host so Bun's static analysis sees the
+    worker URL expression
+
+None of them worked. Bun's `--compile` mode genuinely does not bundle
+workers, even with a textbook-correct `new Worker(new URL(...,
+import.meta.url))` call site at a statically-reachable location.
+
+Bulletproof fix: pre-compile the worker runtime at engine build time
+into a string constant, embed it in the binary, write it to a temp
+file on first worker spawn, and pass the temp path to the Worker
+constructor. Bun's worker constructor accepts an absolute disk path
+without needing any bundler involvement.
+
+Three pieces:
+  - `packages/engine/scripts/gen-worker-source.ts` — pre-build step
+    that runs Bun.build on worker-extension-runtime.ts and emits
+    `worker-extension-runtime-source.generated.ts` exporting the
+    compiled JS as a `WORKER_RUNTIME_SOURCE` string constant.
+  - `worker-extension-host.ts` — imports the constant, lazily
+    writes it to `mkdtemp(/tmp/zveltio-worker-)/worker-extension-
+    runtime.mjs` on first spawn, points `new Worker(...)` at the
+    file URL.
+  - release.yml — runs gen-worker-source.ts before
+    `bun build --compile` so the embedded string is always fresh.
+
+The generated file is committed (treated like `db/migrations/embedded.ts`)
+so cold checkouts work without a manual codegen step.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.120] - 2026-05-31
 
 ### Worker isolation: static-import the host so Bun bundles the worker entry
