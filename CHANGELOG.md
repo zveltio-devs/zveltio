@@ -2,6 +2,73 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.126] - 2026-05-31
+
+### Operational hardening — the "B1-B5" backlog from in-session observations
+
+Five fixes attacked together: each addressed a real pain point
+observed during the alpha.118 → .125 sessions, not speculation.
+
+**B1 — Bun SQL race during studio rebuild (the only real bug)**
+
+We saw the engine crash 4–5 times in WSL when a transaction held a
+connection during the `bun run build` studio rebuild window
+(5–15s). The C++ binding throws `connection must be a
+PostgresSQLConnection` synchronously, which escapes `await` context
+and lands as an `uncaughtException`, NOT a Promise rejection — so
+the alpha.117 `unhandledRejection` handler missed it.
+
+Two changes:
+- New `uncaughtException` handler mirrors the rejection one with
+  the same recoverable-error gate (`ERR_POSTGRES_CONNECTION_CLOSED`
+  / `Connection closed` / `must be a PostgresSQLConnection` /
+  `ECONNRESET` / `EPIPE`).
+- Bun.SQL idle timeout raised from 30s to 5min (override via
+  `BUN_SQL_IDLE_TIMEOUT_MS`). Wider window closes the race in
+  practice; the studio rebuild now fits comfortably under the
+  eviction threshold.
+
+**B2 — Studio rebuild coalescing**
+
+Each marketplace `enable` triggered an immediate full Vite build.
+Five enables in a row = 5 × 15s of CPU + I/O. Now:
+- Rebuild requests within 750ms coalesce into a single in-flight
+  build. The latest call's arguments win.
+- Before invoking Vite, the host hashes (sorted extension names +
+  pages/ mtimes + sizes). If hash matches the last successful
+  build, the rebuild short-circuits. Common when WS-driven
+  refreshes fire after no actual change.
+
+**B3 — Manifest doc refresh**
+
+`EXTENSION-DEVELOPER-GUIDE.md` §4 was last touched before manifest
+v2 landed (alpha.111). The "All fields" table now lists the
+`engine.*` and `integrity.*` blocks that `extension pack`
+produces, plus the v2 minimal-valid-manifest example. Author-
+facing notes call out that `engine.isolation: 'worker'` is
+mandatory for community submissions.
+
+**B4 — Marketplace lifecycle integration tests**
+
+`marketplace-lifecycle.integration.test.ts` (5 specs): install,
+enable, GET `/ext/hello-ext/health`, same for hello-ext-worker
+(asserts `runtime: 'bun-worker'`), `/api/admin/extensions/health`
+records inline + worker correctly, unknown extension → 404. Same
+shape as the release-binary smoke job but runs in `bun test` —
+catches regressions earlier in the dev loop.
+
+**B5 — `check:schema` + `prepush` scripts**
+
+Two new package.json scripts:
+- `check:schema` — codegen + format + drift check, in one command
+- `prepush` — runs check:schema + format:check + typecheck for
+  authors who want a pre-push validation
+
+Doesn't install a hook (intrusive); makes it one command for
+authors who want a faster feedback loop than CI.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.125] - 2026-05-31
 
 ### Marketplace polish — pre-validate + fail-closed + enforcement tests

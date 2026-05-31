@@ -813,22 +813,46 @@ process.on('SIGTERM', shutdown);
 //     not our problem.
 //
 // Everything else still aborts so real bugs aren't masked.
-process.on('unhandledRejection', (reason: unknown) => {
-  const err = reason as { code?: string; message?: string } | undefined;
+function isRecoverableDbError(err: { code?: string; message?: string } | undefined): boolean {
   const code = err?.code;
-  const msg = err?.message ?? String(reason);
-
-  const recoverable =
+  const msg = err?.message ?? '';
+  return (
     code === 'ERR_POSTGRES_CONNECTION_CLOSED' ||
     /Connection closed/i.test(msg) ||
+    /must be a PostgresSQLConnection/i.test(msg) ||
     code === 'ECONNRESET' ||
-    code === 'EPIPE';
+    code === 'EPIPE'
+  );
+}
 
-  if (recoverable) {
-    console.warn(`[engine] swallowed recoverable rejection: ${code ?? 'unknown'} — ${msg}`);
+process.on('unhandledRejection', (reason: unknown) => {
+  const err = reason as { code?: string; message?: string } | undefined;
+  if (isRecoverableDbError(err)) {
+    console.warn(
+      `[engine] swallowed recoverable rejection: ${err?.code ?? 'unknown'} — ${err?.message}`,
+    );
     return;
   }
   console.error('❌ unhandledRejection:', reason);
+  process.exit(1);
+});
+
+// Bun.SQL's C++ transaction handler throws synchronously when the
+// underlying socket dies mid-transaction (`connection must be a
+// PostgresSQLConnection`). That throw escapes await context and lands
+// as an uncaughtException, NOT a Promise rejection — the
+// unhandledRejection handler above doesn't see it. Mirror the
+// recoverable-error gate here so the engine survives a transient
+// connection death instead of crash-restarting (verified live during
+// alpha.121 → .125 WSL testing).
+process.on('uncaughtException', (err: Error & { code?: string }) => {
+  if (isRecoverableDbError(err)) {
+    console.warn(
+      `[engine] swallowed recoverable uncaught exception: ${err.code ?? 'unknown'} — ${err.message}`,
+    );
+    return;
+  }
+  console.error('❌ uncaughtException:', err);
   process.exit(1);
 });
 

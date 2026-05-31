@@ -1,6 +1,6 @@
 {
   "name": "zveltio",
-  "version": "1.0.0-alpha.125",
+  "version": "1.0.0-alpha.126",
   "private": true,
   "packageManager": "bun@1.3.13",
   "description": "Self-hosted Business OS — own your hardware, own your data.",
@@ -19,6 +19,8 @@
     "format:check": "biome format",
     "check": "biome check",
     "check:fix": "biome check --write",
+    "check:schema": "bun run scripts/schema-codegen.ts && bun run format && bun run scripts/schema-drift-check.ts",
+    "prepush": "bun run check:schema && bun run format:check && bun run typecheck",
     "studio:build": "cd packages/studio && bun run build",
     "studio:embed": "cp -r packages/studio/dist packages/engine/src/studio-dist",
     "changeset": "changeset",

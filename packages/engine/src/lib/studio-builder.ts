@@ -16,7 +16,9 @@
 // rebuild pipeline. Bun.file is async-only, so we use node:fs here —
 // the `node:` prefix flags this as "intentionally not Bun.file" rather
 // than an accidental Node.js import.
-import { existsSync, mkdirSync, cpSync, rmSync, renameSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, cpSync, rmSync, renameSync, readFileSync, statSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'path';
 
 function studioSrcDir(): string | null {
@@ -25,6 +27,55 @@ function studioSrcDir(): string | null {
 
 function studioDistDir(): string {
   return process.env.STUDIO_DIST_PATH ?? join(process.cwd(), 'studio-dist');
+}
+
+// ─── Rebuild coalescing (alpha.126) ──────────────────────────────────
+//
+// Each marketplace enable/disable used to trigger an immediate full
+// Vite build (5–15s). Operators that enable five extensions back-to-back
+// burned 5 × 15s of CPU + I/O instead of 1 × 15s. The host now
+// debounces rebuild requests: a call schedules a build after a short
+// quiet window, and overlapping calls return the same in-flight
+// promise. The "what's actually changing" check below also short-
+// circuits when the resolved input set hashes to the same value as
+// the last successful build — common when enable racing with
+// re-broadcasts.
+const REBUILD_DEBOUNCE_MS = 750;
+let _pendingRebuild: {
+  promise: Promise<{ rebuilt: boolean; error?: string }>;
+  resolve: (v: { rebuilt: boolean; error?: string }) => void;
+  timer: ReturnType<typeof setTimeout>;
+  latestArgs: { extNames: string[]; extensionsBase: string };
+} | null = null;
+let _lastSuccessfulInputHash: string | null = null;
+
+async function studioInputHash(activeExtNames: string[], extensionsBase: string): Promise<string> {
+  const h = createHash('sha256');
+  const sorted = [...activeExtNames].sort();
+  h.update(sorted.join('\n'));
+  for (const name of sorted) {
+    const pagesDir = join(extensionsBase, name, 'studio', 'pages');
+    if (!existsSync(pagesDir)) continue;
+    h.update(`|${name}|`);
+    try {
+      const walk = async (dir: string): Promise<void> => {
+        const entries = await readdir(dir, { withFileTypes: true });
+        for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+          const full = join(dir, e.name);
+          if (e.isDirectory()) {
+            await walk(full);
+          } else {
+            const s = statSync(full);
+            h.update(`${full}|${s.size}|${s.mtimeMs}|`);
+          }
+        }
+      };
+      await walk(pagesDir);
+    } catch {
+      /* ignore — best effort */
+    }
+  }
+  return h.digest('hex');
 }
 
 /**
@@ -38,6 +89,54 @@ export async function rebuildStudio(
   activeExtNames: string[],
   extensionsBase: string,
 ): Promise<{ rebuilt: boolean; error?: string }> {
+  // Coalesce multiple back-to-back enables into a single build. Each
+  // call within REBUILD_DEBOUNCE_MS of the previous call shares the
+  // same in-flight promise; the latest arguments win.
+  if (_pendingRebuild) {
+    _pendingRebuild.latestArgs = { extNames: activeExtNames, extensionsBase };
+    clearTimeout(_pendingRebuild.timer);
+    _pendingRebuild.timer = setTimeout(() => void runDebouncedRebuild(), REBUILD_DEBOUNCE_MS);
+    return _pendingRebuild.promise;
+  }
+  let resolve!: (v: { rebuilt: boolean; error?: string }) => void;
+  const promise = new Promise<{ rebuilt: boolean; error?: string }>((r) => {
+    resolve = r;
+  });
+  _pendingRebuild = {
+    promise,
+    resolve,
+    timer: setTimeout(() => void runDebouncedRebuild(), REBUILD_DEBOUNCE_MS),
+    latestArgs: { extNames: activeExtNames, extensionsBase },
+  };
+  return promise;
+}
+
+async function runDebouncedRebuild(): Promise<void> {
+  if (!_pendingRebuild) return;
+  const { latestArgs, resolve } = _pendingRebuild;
+  _pendingRebuild = null;
+  const result = await rebuildStudioImpl(latestArgs.extNames, latestArgs.extensionsBase);
+  resolve(result);
+}
+
+async function rebuildStudioImpl(
+  activeExtNames: string[],
+  extensionsBase: string,
+): Promise<{ rebuilt: boolean; error?: string }> {
+  // Skip if the input set hashes to the last successful build's hash.
+  // Common when ENABLE racing re-broadcasts (e.g. websocket-driven
+  // refresh fires rebuild even though nothing about the page tree
+  // actually changed).
+  try {
+    const inputHash = await studioInputHash(activeExtNames, extensionsBase);
+    if (inputHash === _lastSuccessfulInputHash) {
+      console.log('[studio-builder] inputs unchanged since last build — skipping rebuild');
+      return { rebuilt: true };
+    }
+  } catch {
+    /* hash failure → proceed with rebuild */
+  }
+
   // Docker mode: delegate rebuild to the studio-builder sidecar container
   const builderUrl = process.env.STUDIO_BUILDER_URL;
   if (builderUrl) {
@@ -147,6 +246,13 @@ export async function rebuildStudio(
     if (existsSync(liveDist)) renameSync(liveDist, bakDist);
     cpSync(newDist, liveDist, { recursive: true });
     if (existsSync(bakDist)) rmSync(bakDist, { recursive: true, force: true });
+    // Cache the input hash so the next call with identical inputs
+    // short-circuits at the top of rebuildStudioImpl.
+    try {
+      _lastSuccessfulInputHash = await studioInputHash(activeExtNames, extensionsBase);
+    } catch {
+      _lastSuccessfulInputHash = null;
+    }
     console.log('[studio-builder] Studio rebuilt and swapped successfully.');
     return { rebuilt: true };
   } catch (err) {

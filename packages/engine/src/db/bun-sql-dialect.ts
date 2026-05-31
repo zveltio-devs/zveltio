@@ -143,9 +143,20 @@ class BunSqlDriver implements Driver {
     // and extensions repo (the latter exposes Bun as `any` per its
     // types/bun-globals.d.ts, so the previous `@ts-expect-error` was
     // unused when typecheck ran cross-repo).
+    // Idle timeout default raised to 5min in alpha.126. Studio rebuild
+    // spawns a `bun run build` subprocess that can take 5–15 seconds;
+    // any in-flight transaction held during that window used to race
+    // the previous 30-second idle-eviction and surface as a
+    // `connection must be a PostgresSQLConnection` throw from
+    // bun:sql's C++ transaction handler. Wider window closes the
+    // race in practice. Override via BUN_SQL_IDLE_TIMEOUT_MS for
+    // memory-constrained deployments.
+    const idleTimeoutMs =
+      this.#config.idleTimeoutMs ??
+      (process.env.BUN_SQL_IDLE_TIMEOUT_MS ? Number(process.env.BUN_SQL_IDLE_TIMEOUT_MS) : 300_000);
     this.#pool = new (Bun as any).SQL(cleanUrl, {
       max: this.#config.max ?? 20,
-      idleTimeout: Math.ceil((this.#config.idleTimeoutMs ?? 30_000) / 1000),
+      idleTimeout: Math.ceil(idleTimeoutMs / 1000),
       ...(sslEnabled ? {} : { ssl: false, tls: false }),
     }) as BunSQLPool;
     _activeBunPool = this.#pool;
