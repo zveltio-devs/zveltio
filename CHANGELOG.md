@@ -2,6 +2,28 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.128] - 2026-05-31
+
+### Fix: `initDatabase` idle timeout was overriding alpha.126's fix
+
+External review caught that alpha.126's B1 fix in
+`bun-sql-dialect.ts` (raise idle timeout from 30s to 5min) had
+zero runtime effect — `initDatabase()` in `db/index.ts` explicitly
+passes `Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30_000)` which
+overrides the dialect's default. So the only Bun SQL race
+mitigation actually running in production was the
+`uncaughtException` handler.
+
+Fix: `initDatabase` now reads `BUN_SQL_IDLE_TIMEOUT_MS` (the env
+var documented in the dialect's comment) or falls back to legacy
+`DB_IDLE_TIMEOUT_MS` for backward compat, with default 300s
+matching the dialect's intent.
+
+Plus: `EXTENSIONS-V2-PHASE1.md` "Validated live" table extended
+with .126 / .127 / .128 rows.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.127] - 2026-05-31
 
 ### Fix: marketplace-lifecycle integration tests gate-by-default

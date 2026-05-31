@@ -336,6 +336,9 @@ worker service bridge, admin health endpoint.
 | .123 | Trust chain — archive SHA-256 verify at install | release smoke continues green; 5 unit tests cover accept/reject paths including single-bit tamper. SDK build export, marketplace policy doc, worker host bookkeeping tests all land |
 | .124 | Marketplace enforcement: worker mandatory for community | unit tests cover allow/refuse decisions for catalog × isolation combinations; registry rejects upload on X-Manifest-Archive-Sha256 mismatch; sync sends header from publisher hash |
 | .125 | Validate-time isolation warning + fail-closed catalog flag | `extension validate` flags non-worker for community submissions before publish (avoids late surprise at enable); `ZVELTIO_REQUIRE_CATALOG=1` adds fail-closed mode when catalog fetch fails |
+| .126 | Operational hardening (B1-B5) | Bun SQL `uncaughtException` handler + studio rebuild coalescing (debounce + content-hash skip); marketplace lifecycle integration tests added; manifest docs refreshed to v2; `check:schema` + `prepush` package.json scripts |
+| .127 | Marketplace integration tests gated by env var | `ENABLE_MARKETPLACE_INTEGRATION_TESTS=1` opt-in; CI stays green without staged fixtures, release-binary smoke covers the path anyway |
+| .128 | `initDatabase` idle timeout aligned with dialect (real B1 fix) | `BUN_SQL_IDLE_TIMEOUT_MS` (or legacy `DB_IDLE_TIMEOUT_MS`) honored; default 300s instead of the previous 30s that bypassed alpha.126's dialect change |
 
 ---
 
