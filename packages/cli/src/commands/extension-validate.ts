@@ -46,6 +46,9 @@ export interface ExtensionValidateOptions {
   dir?: string;
   /** Suppress process.exit on validation failure (useful for embedding). */
   silentExit?: boolean;
+  /** Silence the community-isolation warning (vendor builds where
+   *  the publisher already has first-party signing). */
+  firstParty?: boolean;
 }
 
 function recursiveSize(dir: string): number {
@@ -161,7 +164,10 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   // Hard error if v2 metadata is partial (engine block present but
   // missing required fields or integrity.engineSha256 absent).
   const m = manifest as
-    | { engine?: { bundled?: boolean; entry?: string }; integrity?: { engineSha256?: string } }
+    | {
+        engine?: { bundled?: boolean; entry?: string; isolation?: 'inline' | 'worker' };
+        integrity?: { engineSha256?: string };
+      }
     | null
     | undefined;
   const v2Status = (() => {
@@ -193,6 +199,28 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
               ? c.red('integrity.engineSha256 missing — re-pack required')
               : c.dim('unknown');
   console.log(`  Manifest v2:   ${v2Label}`);
+
+  // MARKETPLACE-POLICY §2 reminder: community / third-party submissions
+  // MUST declare engine.isolation: 'worker'. The engine enforces this
+  // at enable time (alpha.124) but authors find out late. Flag at
+  // validate time so the publisher sees it before pushing to registry.
+  // First-party publishers (Zveltio team, registered with --first-party)
+  // are exempt — they can ship inline.
+  const isolation = m?.engine?.isolation ?? 'inline';
+  if (opts.firstParty) {
+    console.log(`  Isolation:     ${c.dim(`${isolation} (first-party — inline allowed)`)}`);
+  } else if (isolation === 'worker') {
+    console.log(`  Isolation:     ${c.green('worker (community-ready)')}`);
+  } else {
+    console.log(
+      `  Isolation:     ${c.yellow(`${isolation} — community submissions MUST use 'worker'`)}`,
+    );
+    console.log(
+      c.dim(
+        '  See docs/MARKETPLACE-POLICY.md §2. Pass --first-party to silence this for vendor builds.',
+      ),
+    );
+  }
   console.log('');
 
   // Hard-fail partial v2 metadata. v1 is a warning today (so existing
