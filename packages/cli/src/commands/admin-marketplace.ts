@@ -226,6 +226,117 @@ export async function adminMarketplacePublishers(opts: AdminMarketplaceOptions):
   }
 }
 
+// ── Admin team commands (beta.2) ────────────────────────────────────
+
+export async function adminTeamList(opts: AdminMarketplaceOptions): Promise<void> {
+  const res = await adminFetch(opts, '/api/admin/team');
+  if (!res.ok) {
+    console.error(c.red(`Registry returned ${res.status}: ${await res.text()}`));
+    process.exit(1);
+  }
+  const body = (await res.json()) as {
+    team: Array<{
+      role: 'owner' | 'admin';
+      email: string;
+      name: string | null;
+      added_at: string;
+      added_by_email: string | null;
+      notes: string | null;
+    }>;
+    count: number;
+  };
+  console.log(`\n${c.bold('Admin team:')} ${body.count}\n`);
+  if (body.count === 0) {
+    console.log(c.dim('  (empty — sign in with the ADMIN_EMAIL user to bootstrap)'));
+    return;
+  }
+  for (const m of body.team) {
+    const roleColor = m.role === 'owner' ? c.green : c.dim;
+    console.log(`  ${c.bold(m.name ?? m.email)} ${c.dim(`(${m.email})`)} [${roleColor(m.role)}]`);
+    console.log(
+      `    added: ${c.dim(m.added_at)}${m.added_by_email ? ` by ${m.added_by_email}` : ' (bootstrap)'}`,
+    );
+    if (m.notes) console.log(`    notes: ${c.dim(m.notes)}`);
+    console.log('');
+  }
+}
+
+export async function adminTeamAdd(
+  email: string,
+  opts: AdminMarketplaceOptions & { role?: 'owner' | 'admin' },
+): Promise<void> {
+  const res = await adminFetch(opts, '/api/admin/team', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      role: opts.role ?? 'admin',
+      notes: opts.notes ?? null,
+    }),
+  });
+  if (!res.ok) {
+    console.error(c.red(`Add failed (${res.status}): ${await res.text()}`));
+    process.exit(1);
+  }
+  console.log(c.green(`✓ Added ${email} as ${opts.role ?? 'admin'}`));
+}
+
+export async function adminTeamSetRole(
+  email: string,
+  role: 'owner' | 'admin',
+  opts: AdminMarketplaceOptions,
+): Promise<void> {
+  // Lookup user_id by email via the team list (we don't expose a
+  // dedicated lookup endpoint; the team list already returns email).
+  const listRes = await adminFetch(opts, '/api/admin/team');
+  if (!listRes.ok) {
+    console.error(c.red(`Could not list team: ${listRes.status}`));
+    process.exit(1);
+  }
+  const body = (await listRes.json()) as {
+    team: Array<{ user_id: string; email: string }>;
+  };
+  const match = body.team.find((m) => m.email.toLowerCase() === email.toLowerCase());
+  if (!match) {
+    console.error(c.red(`No team member with email ${email}`));
+    process.exit(1);
+  }
+  const res = await adminFetch(opts, `/api/admin/team/${match.user_id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+  if (!res.ok) {
+    console.error(c.red(`Role change failed (${res.status}): ${await res.text()}`));
+    process.exit(1);
+  }
+  console.log(c.green(`✓ ${email} is now ${role}`));
+}
+
+export async function adminTeamRemove(email: string, opts: AdminMarketplaceOptions): Promise<void> {
+  const listRes = await adminFetch(opts, '/api/admin/team');
+  if (!listRes.ok) {
+    console.error(c.red(`Could not list team: ${listRes.status}`));
+    process.exit(1);
+  }
+  const body = (await listRes.json()) as {
+    team: Array<{ user_id: string; email: string }>;
+  };
+  const match = body.team.find((m) => m.email.toLowerCase() === email.toLowerCase());
+  if (!match) {
+    console.error(c.red(`No team member with email ${email}`));
+    process.exit(1);
+  }
+  const res = await adminFetch(opts, `/api/admin/team/${match.user_id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    console.error(c.red(`Remove failed (${res.status}): ${await res.text()}`));
+    process.exit(1);
+  }
+  console.log(c.green(`✓ Removed ${email} from admin team`));
+}
+
 export async function adminMarketplaceEnrollPublisher(
   opts: AdminMarketplaceOptions,
 ): Promise<void> {
