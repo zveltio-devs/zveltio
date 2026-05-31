@@ -309,7 +309,7 @@ jobs:
         with:
           name: studio-dist
           path: packages/studio/dist/
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v3
         with:
           version: v0.20.0
