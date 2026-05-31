@@ -1,5 +1,9 @@
 # Zveltio Documentation
 
+> **Status: 1.0.0-beta.2** — extensions platform + marketplace are
+> API-stable. Engine internals + Studio still iterating toward v1.0.
+> See [Beta caveats](https://github.com/zveltio-devs/zveltio#beta-caveats) for what's locked vs. still moving.
+
 Zveltio is a self-hosted **Business OS** — not just a BaaS, but a complete operating layer for your business. Data, API, CRM, automation, compliance, AI, and real-time sync — all in a single binary that runs on a €20 VPS.
 
 Unlike Supabase, Appwrite, or Directus — which stop at the backend layer — Zveltio ships a full business stack that no competitor offers in a single binary:
