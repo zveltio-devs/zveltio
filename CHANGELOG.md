@@ -2,6 +2,25 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.119] - 2026-05-31
+
+### Worker isolation: fix worker entry not embedded in compiled binary
+
+alpha.118's release smoke caught a real bug in the C-minimal worker
+host: `BuildMessage: ModuleNotFound resolving
+/$bunfs/root/worker-extension-runtime.ts (entry point)`. Bun's
+compile-time bundler detects worker entry points only when the
+constructor receives a literal `new URL('./relative.ts',
+import.meta.url)` expression at the call site — hoisting the URL to
+a const and passing `.href` (a string) sidesteps that detection, so
+the bundled binary shipped without the worker source embedded.
+
+Fix: construct the URL inline inside `WorkerExtensionHost.start()`.
+hello-ext (inline path) was already green; hello-ext-worker (worker
+path) now wires through end-to-end.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.118] - 2026-05-31
 
 ### C-minimal: opt-in Bun.Worker isolation for extensions
