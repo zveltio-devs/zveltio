@@ -8,8 +8,8 @@ Complete reference for all three Zveltio client packages.
 
 - [Overview](#overview)
 - [@zveltio/sdk — Base Client](#zveltiosdk--base-client)
-- [@zveltio/sdk-react — React Hooks](#zveltiosdk-react--react-hooks)
-- [@zveltio/sdk-vue — Vue Composables](#zveltiosdk-vue--vue-composables)
+- [@zveltio/react — React Hooks](#zveltioreact--react-hooks)
+- [@zveltio/vue — Vue Composables](#zveltiovue--vue-composables)
 - [Local-First & Offline Sync](#local-first--offline-sync)
 - [Real-Time WebSocket](#real-time-websocket)
 
@@ -20,8 +20,8 @@ Complete reference for all three Zveltio client packages.
 | Package | Framework | Install |
 |---------|-----------|---------|
 | `@zveltio/sdk` | Vanilla JS / TypeScript / Svelte | `npm i @zveltio/sdk` |
-| `@zveltio/sdk-react` | React 18+ | `npm i @zveltio/sdk-react` |
-| `@zveltio/sdk-vue` | Vue 3.3+ | `npm i @zveltio/sdk-vue` |
+| `@zveltio/react` | React 18+ | `npm i @zveltio/react` |
+| `@zveltio/vue` | Vue 3.3+ | `npm i @zveltio/vue` |
 
 `sdk-react` and `sdk-vue` depend on `@zveltio/sdk` as a direct dependency — you don't need to install the base package separately.
 
@@ -160,13 +160,13 @@ const result = await client.upload('/api/storage/upload', fd);
 
 ---
 
-## @zveltio/sdk-react — React Hooks
+## @zveltio/react — React Hooks
 
 ### Setup
 
 ```tsx
 import { createZveltioClient } from '@zveltio/sdk';
-import { ZveltioProvider } from '@zveltio/sdk-react';
+import { ZveltioProvider } from '@zveltio/react';
 
 const client = createZveltioClient({ baseUrl: 'https://api.yourapp.com' });
 
@@ -182,7 +182,7 @@ function App() {
 ### useCollection
 
 ```tsx
-import { useCollection } from '@zveltio/sdk-react';
+import { useCollection } from '@zveltio/react';
 
 function PostsList() {
   const { data, loading, error, refetch } = useCollection('posts', {
@@ -206,7 +206,7 @@ function PostsList() {
 ### useRecord
 
 ```tsx
-import { useRecord } from '@zveltio/sdk-react';
+import { useRecord } from '@zveltio/react';
 
 function PostDetail({ id }: { id: string }) {
   const { data: post, loading, error, refetch } = useRecord('posts', id);
@@ -221,7 +221,7 @@ function PostDetail({ id }: { id: string }) {
 ### useAuth
 
 ```tsx
-import { useAuth } from '@zveltio/sdk-react';
+import { useAuth } from '@zveltio/react';
 
 function AuthButton() {
   const { data, loading, login, logout, signup } = useAuth();
@@ -248,7 +248,7 @@ function AuthButton() {
 ### useStorage
 
 ```tsx
-import { useStorage } from '@zveltio/sdk-react';
+import { useStorage } from '@zveltio/react';
 
 function FileUpload() {
   const { upload, list, remove, uploading, error } = useStorage();
@@ -273,7 +273,7 @@ function FileUpload() {
 ### useRealtime
 
 ```tsx
-import { useRealtime } from '@zveltio/sdk-react';
+import { useRealtime } from '@zveltio/react';
 
 function LiveOrders() {
   const [orders, setOrders] = useState([]);
@@ -294,7 +294,7 @@ function LiveOrders() {
 ### useSyncCollection (Offline-First)
 
 ```tsx
-import { useSyncCollection } from '@zveltio/sdk-react';
+import { useSyncCollection } from '@zveltio/react';
 
 function OfflineNotes() {
   const { data, loading, error } = useSyncCollection('notes', {
@@ -308,7 +308,7 @@ function OfflineNotes() {
 
 ---
 
-## @zveltio/sdk-vue — Vue Composables
+## @zveltio/vue — Vue Composables
 
 ### Setup
 
@@ -316,7 +316,7 @@ function OfflineNotes() {
 // main.ts
 import { createApp } from 'vue';
 import { createZveltioClient } from '@zveltio/sdk';
-import { ZveltioPlugin } from '@zveltio/sdk-vue';
+import { ZveltioPlugin } from '@zveltio/vue';
 import App from './App.vue';
 
 const client = createZveltioClient({ baseUrl: 'https://api.yourapp.com' });
@@ -330,7 +330,7 @@ createApp(App)
 
 ```vue
 <script setup lang="ts">
-import { useCollection } from '@zveltio/sdk-vue';
+import { useCollection } from '@zveltio/vue';
 
 const { data: posts, loading, error, refetch } = useCollection('posts', {
   sort: 'created_at',
@@ -351,7 +351,7 @@ const { data: posts, loading, error, refetch } = useCollection('posts', {
 
 ```vue
 <script setup lang="ts">
-import { useRecord } from '@zveltio/sdk-vue';
+import { useRecord } from '@zveltio/vue';
 
 const props = defineProps<{ id: string }>();
 const { data: post, loading, error } = useRecord('posts', props.id);
@@ -362,7 +362,7 @@ const { data: post, loading, error } = useRecord('posts', props.id);
 
 ```vue
 <script setup lang="ts">
-import { useAuth } from '@zveltio/sdk-vue';
+import { useAuth } from '@zveltio/vue';
 
 const { user, session, loading, login, logout, signup } = useAuth();
 </script>
@@ -381,7 +381,7 @@ const { user, session, loading, login, logout, signup } = useAuth();
 
 ```vue
 <script setup lang="ts">
-import { useStorage } from '@zveltio/sdk-vue';
+import { useStorage } from '@zveltio/vue';
 
 const { upload, list, remove, uploading, error } = useStorage();
 
@@ -396,7 +396,7 @@ async function onFileChange(e: Event) {
 
 ```vue
 <script setup lang="ts">
-import { useRealtime } from '@zveltio/sdk-vue';
+import { useRealtime } from '@zveltio/vue';
 import { ref } from 'vue';
 
 const orders = ref<any[]>([]);
@@ -422,7 +422,7 @@ useRealtime(
 
 ```vue
 <script setup lang="ts">
-import { useSyncCollection } from '@zveltio/sdk-vue';
+import { useSyncCollection } from '@zveltio/vue';
 
 const { data: notes, loading } = useSyncCollection('notes', {
   realtimeUrl: 'https://api.yourapp.com',

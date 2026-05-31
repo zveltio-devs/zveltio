@@ -40,10 +40,10 @@ Unlike Supabase, Appwrite, or Directus — which stop at the backend layer — Z
 ### Core Features
 
 - [Collections](/collections) - Dynamic schema with 20+ field types
-- [AI Schema Generation](/ai-schema) - Natural language to database schema
-- [Bring Your Own Database](/byod) - Introspect and manage existing Postgres
-- [Per-Field Encryption](/security#field-encryption) - AES-256-GCM transparent field-level encryption
-- [Audit Trail](/audit) - Immutable audit log and GDPR export
+- [AI Schema Generation](/self-hosted-ai) - Natural language to database schema (covered in self-hosted AI guide)
+- [Bring Your Own Database](/collections) - Introspect and manage existing Postgres (see Collections + BYOD section)
+- [Per-Field Encryption](/security) - AES-256-GCM transparent field-level encryption
+- [Audit Trail](/security) - Immutable audit log and GDPR export
 - [Extensions](/extensions) - Plugin system and marketplace
 - [Webhooks](/webhooks) - Event-driven integrations
 - [GraphQL](/graphql) - Auto-generated GraphQL API with mutations, persisted queries, and playground (via `developer/graphql` extension)
