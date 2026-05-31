@@ -190,6 +190,67 @@ export default defineConfig({
     ),
   );
 
+  // .gitattributes — keep the packed engine/index.js byte-identical
+  // across Windows / macOS / Linux checkouts. Without this, autocrlf
+  // mutates the bundle bytes and the manifest's engineSha256 stops
+  // matching what's on disk. This is the same protection
+  // zveltio-extensions ships across all 54 official packs.
+  await writeFile(
+    join(targetDir, '.gitattributes'),
+    `* text=auto eol=lf
+
+# Packed engine bundle: byte-identical across OSes. Manifest
+# integrity.engineSha256 is computed over these exact bytes.
+engine/index.js binary
+engine/index.js.map binary
+`,
+  );
+
+  // .github/workflows/ci.yml — minimal CI that proves the extension
+  // builds, packs cleanly, and the committed bundle matches the
+  // declared engineSha256. Required for marketplace submission.
+  await mkdir(join(targetDir, '.github', 'workflows'), { recursive: true });
+  await writeFile(
+    join(targetDir, '.github', 'workflows', 'ci.yml'),
+    `name: Extension CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  pack-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Pack extension (engine/index.ts → engine/index.js + manifest hash)
+        run: bunx @zveltio/cli extension pack
+
+      - name: Verify committed bundle matches manifest engineSha256
+        # If pack changed engine/index.js, the committed bytes drift
+        # from manifest.integrity.engineSha256. The publishing pipeline
+        # would reject this — fail PR before merging.
+        run: |
+          actual=$(sha256sum engine/index.js | awk '{print $1}')
+          declared=$(node -e "console.log(require('./manifest.json').integrity?.engineSha256 ?? '')")
+          if [ "$actual" != "$declared" ]; then
+            echo "::error::Bundle hash $actual ≠ manifest engineSha256 $declared"
+            echo "::error::Run \\\`bunx @zveltio/cli extension pack\\\` locally and commit the result."
+            exit 1
+          fi
+
+      - name: Validate manifest + structure
+        run: bunx @zveltio/cli extension validate
+`,
+  );
+
   console.log(`Extension scaffolded at extensions/${category}/${safeName}/
 
 Structure:
@@ -202,11 +263,20 @@ Structure:
       pages/          <- Svelte UI components
     vite.config.ts
   manifest.json
+  .gitattributes      <- pins engine/index.js as binary (no EOL conversion)
+  .github/workflows/
+    ci.yml            <- pack + hash verify + validate on every PR
 
 Next steps:
   1. Add your business logic in engine/index.ts
   2. Create your UI in studio/src/pages/
-  3. Enable the extension: ZVELTIO_EXTENSIONS=${category}/${safeName}
+  3. Run \`bunx @zveltio/cli extension pack\` to build the bundle
+  4. Enable the extension: ZVELTIO_EXTENSIONS=${category}/${safeName}
+
+For third-party / untrusted code, add to manifest.json:
+  "engine": { ..., "isolation": "worker" }
+This runs the extension in a Bun.Worker with crash isolation and no DB
+credentials. See https://github.com/zveltio-devs/zveltio/blob/master/docs/EXTENSION-DEVELOPER-GUIDE.md#135-isolation-tiers-be-honest-about-what-you-ship
 `);
 }
 

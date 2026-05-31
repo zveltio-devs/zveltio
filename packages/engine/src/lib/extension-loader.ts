@@ -380,6 +380,25 @@ async function downloadExtension(
     throw new Error(`Empty package received for "${entry.name}"`);
   }
 
+  // Trust chain: archive SHA-256 — publisher computed at pack time,
+  // registry stored in R2 customMetadata at upload, returned here in
+  // the X-Archive-Sha256 response header. If the bytes in `buf` don't
+  // hash to the declared value, the package was tampered with in
+  // transit (R2 corruption, MITM, proxy mutation). Refuse to extract.
+  const declaredArchiveSha = res.headers.get('x-archive-sha256');
+  if (declaredArchiveSha) {
+    const { createHash } = await import('node:crypto');
+    const actualArchiveSha = createHash('sha256').update(buf).digest('hex');
+    if (actualArchiveSha !== declaredArchiveSha.toLowerCase()) {
+      throw new Error(
+        `Extension "${entry.name}" archive SHA-256 mismatch: ` +
+          `registry declared ${declaredArchiveSha.slice(0, 12)}… but ` +
+          `downloaded bytes hash to ${actualArchiveSha.slice(0, 12)}…. ` +
+          `Refusing to extract a tampered package.`,
+      );
+    }
+  }
+
   // S1-01: signature verification. Try to fetch `<download_url>.sig` next to
   // the archive. The registry publishes the sig file as a sibling of the
   // tarball. Missing-signature behaviour is gated by REQUIRE_EXTENSION_SIGNATURES.
