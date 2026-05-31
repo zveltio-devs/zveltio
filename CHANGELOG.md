@@ -2,6 +2,33 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.120] - 2026-05-31
+
+### Worker isolation: static-import the host so Bun bundles the worker entry
+
+alpha.119's smoke still failed with the same
+`BuildMessage: ModuleNotFound resolving
+/$bunfs/root/worker-extension-runtime.ts (entry point)` despite the
+inline `new URL(...)` fix. Reason: extension-loader.ts loaded
+worker-extension-host.ts via dynamic `await import(...)` from inside
+the enable handler, which means Bun's compile-time static analysis
+never walked into the host file and never saw the worker URL
+expression. The compiled binary shipped without the worker source
+embedded.
+
+Fix: switch to a static `import { getWorkerHost } from
+'./worker-extension-host.js'` at the top of extension-loader.ts.
+Bun now walks the host module at build time, finds the
+`new Worker(new URL('./worker-extension-runtime.ts',
+import.meta.url))` call site, and bundles the worker entry into
+the binary.
+
+If alpha.120 smoke also fails with the same ModuleNotFound, the
+fallback is to extract the worker source to /tmp at runtime — see
+the worker-extension-host TODO comment for the next iteration.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.119] - 2026-05-31
 
 ### Worker isolation: fix worker entry not embedded in compiled binary
