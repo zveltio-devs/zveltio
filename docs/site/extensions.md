@@ -113,13 +113,16 @@ Zveltio includes several built-in extensions:
 
 > **Note:** Core AI chat (`/api/ai/chat`), semantic search (`/api/ai/search`), embeddings, and provider management are **engine-core** features, not extension-provided.
 
-### Automation (`extensions/automation/`)
+### Automation
 
-| Extension      | Routes            | Description                                                                                |
-| -------------- | ----------------- | ------------------------------------------------------------------------------------------ |
-| **flows**      | `/api/flows`      | Workflow automation with triggers, conditions, actions, DLQ retry, and idempotency support |
-| **approvals**  | `/api/approvals`  | Multi-step approval workflows with configurable reviewers                                  |
-| **checklists** | `/api/checklists` | Checklist management tied to records or workflows                                          |
+> **Note:** Automation `flows` (`/api/flows`) are **engine-core**, not an extension. Triggers, conditions, actions, DLQ retry, and idempotency are all built into the engine binary — no install step needed.
+
+The two extensions in this space build on top of core flows:
+
+| Extension      | Path                       | Routes            | Description                                                                |
+| -------------- | -------------------------- | ----------------- | -------------------------------------------------------------------------- |
+| **approvals**  | `workflow/approvals`       | `/api/approvals`  | Multi-step approval workflows with configurable reviewers                  |
+| **checklists** | `workflow/checklists`      | `/api/checklists` | Checklist management tied to records or workflows                          |
 
 ### Billing (`extensions/billing/`)
 
