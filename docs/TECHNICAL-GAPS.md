@@ -565,7 +565,7 @@
 ## 7. Ecosystem & Community
 
 ### 7.1 3rd party extension contributions 🔴 P0
-**Gap.** All 60+ extensions are first-party. For marketplace to be a "marketplace" (not a "catalog"), need 3rd party contributors.
+**Gap.** All 54 extensions are first-party. For marketplace to be a "marketplace" (not a "catalog"), need 3rd party contributors.
 
 **Why it matters.** Sustainability post-grant. Evidence of platform vitality for evaluators.
 
