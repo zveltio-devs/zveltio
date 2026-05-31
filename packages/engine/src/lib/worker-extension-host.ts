@@ -49,10 +49,16 @@ import type {
   InitResponse,
 } from './worker-extension-protocol.js';
 
-// Worker file URL — resolved at module load so it works in both the
-// engine source tree (packages/engine/src/...) and the compiled binary
-// (Bun embeds source files into the binary; the URL is /$bunfs/...).
-const RUNTIME_URL = new URL('./worker-extension-runtime.ts', import.meta.url).href;
+// Worker constructor MUST receive a literal URL expression — Bun's
+// compile-time bundler only detects worker entry points when the
+// argument is `new URL('./relative.ts', import.meta.url)` syntactically
+// at the call site. Stashing the URL in a const stringified by `.href`
+// breaks that detection: the bundled binary ends up without the
+// worker source embedded, and the spawn fails with
+// `BuildMessage: ModuleNotFound resolving /$bunfs/root/worker-...ts`.
+// We construct a fresh URL inside spawnWorkerRuntime() below so the
+// detection succeeds in both `bun run` (dev) and `bun build --compile`
+// (production binary).
 
 interface ManagedWorker {
   name: string;
@@ -83,7 +89,11 @@ export class WorkerExtensionHost {
       throw new Error(`Worker for "${extName}" is already running`);
     }
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
-    const worker = new Worker(RUNTIME_URL, { type: 'module' });
+    // Construct the URL inline — see the comment at the top of the file
+    // about why this CANNOT be hoisted to a const.
+    const worker = new Worker(new URL('./worker-extension-runtime.ts', import.meta.url), {
+      type: 'module',
+    });
     const managed: ManagedWorker = {
       name: extName,
       worker,
