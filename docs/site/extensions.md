@@ -274,110 +274,172 @@ await loadExtensions();
 
 ## Creating Extensions
 
-### Prerequisites
+> **As of 1.0.0-beta.1**, extensions ship as **bundled artifacts**
+> (`engine/index.js` produced by `zveltio extension pack`), not raw
+> `.ts` source. The engine binary refuses to load v1-style manifests
+> in production. See the full developer guide at
+> [`docs/EXTENSION-DEVELOPER-GUIDE.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/EXTENSION-DEVELOPER-GUIDE.md).
 
-Before creating an extension:
-
-1. Clone the `zveltio-extensions` repository
-2. Set `EXTENSIONS_DIR` to point to your extensions folder
-3. Ensure `ZVELTIO_EXTENSIONS` env var includes your extension
-
-### Step 1: Create Extension Directory
+### Quick start
 
 ```bash
-mkdir -p category/my-extension/{engine/migrations,studio/src}
+# Scaffold a new extension (includes .gitattributes + CI workflow)
+zveltio extension create my-feature --category content
+
+cd extensions/content/my-feature
+
+# Write your engine code
+edit engine/index.ts
+
+# Bundle + write integrity hash into manifest
+zveltio extension pack
+
+# Sanity check before publish
+zveltio extension validate
 ```
 
-### Step 2: Create manifest.json
+### The manifest (v2)
+
+The bundle pipeline writes `engine` and `integrity` blocks for you;
+the rest you author by hand:
 
 ```json
 {
-  "name": "my-extension",
-  "package": "@zveltio/ext-my-extension",
-  "category": "developer",
-  "displayName": "My Extension",
-  "description": "A custom extension",
+  "name": "content/my-feature",
+  "displayName": "My Feature",
+  "category": "content",
+  "description": "What this extension does, in one sentence.",
   "version": "1.0.0",
   "zveltioMinVersion": "1.0.0",
-  "runtime": "js",
   "permissions": ["database"],
-  "contributes": {
-    "engine": true,
-    "studio": true,
-    "fieldTypes": []
+  "contributes": { "engine": true, "studio": true },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false,
+    "isolation": "inline"
+  },
+  "integrity": {
+    "engineSha256": "<filled by pack>"
   }
 }
 ```
 
-### Runtime: `js` (default) vs `wasm`
-
-Zveltio supports two extension runtimes, picked via the manifest's
-`runtime` field:
-
-| Runtime | Isolation | Languages | When to use |
-|---|---|---|---|
-| `js` (default) | Shared V8 heap; sandboxed via capability policy | TypeScript / JavaScript | Anything that needs Bun's full module ecosystem (Hono, Kysely, …) |
-| `wasm` | Separate WebAssembly linear memory; no V8 heap access | Rust, TinyGo, AssemblyScript, … | Pure-compute extensions where strict isolation matters more than Bun ergonomics |
-
-For `wasm`, drop a precompiled `engine/extension.wasm` into your
-extension directory. The host instantiates it with a capability-bound
-imports table (db, fetch, crypto, env, fs — each gated by the same
-policy that gates JS extensions). The module must export a `register()`
-function; `shutdown()` is optional.
-
-CPU + memory ceilings come from the same policy quotas used for JS
-extensions (`memoryKbMax`, `cpuMsPerRequest`). See [Security](/security)
-for the policy model.
-
-### Step 3: Create Engine Entry Point
+### Engine entry point
 
 ```typescript
-// category/my-extension/engine/index.ts
-import type { ZveltioExtension } from '@zveltio/extensions/extension';
+// engine/index.ts
+import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import { join } from 'path';
 import { myRoutes } from './routes.js';
 
 const extension: ZveltioExtension = {
-  name: 'category/my-extension',
-  category: 'developer',
+  name: 'content/my-feature',
+  category: 'content',
+  mountStrategy: 'subapp', // routes mounted under /ext/content/my-feature/*
 
   getMigrations() {
-    return [join(import.meta.dir, 'migrations/001_my_extension.sql')];
+    return [join(import.meta.dir, 'migrations/001_initial.sql')];
   },
 
   async register(app, ctx) {
-    app.route('/api/my-extension', myRoutes(ctx.db, ctx.auth));
+    app.route('/', myRoutes(ctx));
   },
 };
 
 export default extension;
 ```
 
-### Step 4: Create Routes
+The host wraps `app` in a sub-app rooted at `/ext/<name>/*`, so
+`app.get('/items')` becomes `/ext/content/my-feature/items` on the
+engine. Use `mountStrategy: 'global'` only when you genuinely need
+a route at the engine root (rare — CDN-style links, dynamic
+user-deployed endpoints).
 
-```typescript
-// category/my-extension/engine/routes.ts
-import { Hono } from 'hono';
-import { Database } from '@zveltio/extensions/database';
-import { checkPermission } from '@zveltio/extensions/auth';
+### Isolation tiers
 
-export function myRoutes(db: Database, auth: any): Hono {
-  const app = new Hono();
+| Tier | `engine.isolation` | Use for | Tradeoff |
+|---|---|---|---|
+| **Inline** (default) | omit or `"inline"` | First-party / audited code | Max speed, full functionality, no crash isolation |
+| **Worker** | `"worker"` | Community / third-party / untrusted code | Crash isolation + no DB credentials in worker. **MANDATORY** for community submissions per [`MARKETPLACE-POLICY.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/MARKETPLACE-POLICY.md) §2. ~1-2ms IPC overhead per route hit. |
+| **Subprocess / WASM** | _not yet implemented_ | True OS sandbox + RSS limit | Future track. See `EXTENSION-DEVELOPER-GUIDE.md` §13.5 for the threat model. |
 
-  // Auth guard
-  app.use('*', async (c, next) => {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    c.set('user', session.user);
-    await next();
-  });
+The engine refuses to enable a non-official extension that doesn't
+declare `engine.isolation: "worker"` (override via
+`ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1` for trusted self-hosted code).
 
-  app.get('/hello', (c) => {
-    return c.json({ message: 'Hello from my extension!' });
-  });
+### Peer dependencies
 
-  return app;
+If your extension uses packages that ship with native bindings (e.g.
+`imapflow`, `sharp`, AWS SDK), declare them in `peerDependencies`
+**and** set `engine.bundlePeers: true`. The "install peers at enable
+time" model never worked on the compiled binary — bundling is the
+only path that runs in production.
+
+```json
+{
+  "peerDependencies": {
+    "imapflow": "^1.0.0"
+  },
+  "engine": { "bundled": true, "bundlePeers": true }
 }
 ```
+
+Install the peer locally (`bun add imapflow`) so `Bun.build` can
+resolve it at pack time.
+
+---
+
+## Publishing to the marketplace
+
+> **Controlled launch** at beta.1: community submissions are
+> accepted, but every submission lands in `pending` until a
+> marketplace admin approves manually. See
+> [`MARKETPLACE-POLICY.md`](https://github.com/zveltio-devs/zveltio/blob/master/docs/MARKETPLACE-POLICY.md)
+> for review criteria, SLA expectations, and takedown process.
+
+### Step-by-step
+
+```bash
+# 1. Generate your signing key (one-time)
+zveltio keys generate
+
+# 2. Get your public key for marketplace enrollment
+zveltio keys export <keyId>
+# Email the JSON to marketplace@zveltio.com — an admin enrolls you
+# via `zveltio admin marketplace enroll-publisher` and you receive
+# confirmation.
+
+# 3. After you're enrolled, mint a developer token via
+# apps.zveltio.com — you'll need it to authenticate publish.
+export ZVELTIO_REGISTRY_TOKEN="zvt_..."
+
+# 4. Pack, validate, publish — all-in-one
+zveltio extension publish
+```
+
+The publish command runs validate → pack → archive → sign → upload.
+The registry verifies the publisher-declared archive SHA-256, stores
+the signed `.zvext` in R2, and marks the extension `pending` for
+review.
+
+### Tracking your submission
+
+```bash
+zveltio extension status content/my-feature
+# → Status: pending / published / rejected / taken_down + reason
+```
+
+You'll also receive email notifications on approve/reject/takedown.
+
+### Updates
+
+To publish a new version, bump `manifest.version` and re-run
+`zveltio extension publish`. The new version goes through the same
+pending → approved cycle; the old version stays available to
+existing installs until the new one is approved.
 
 ---
 
