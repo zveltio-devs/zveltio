@@ -243,6 +243,7 @@ ext
     'Pre-publish checks: manifest schema, peerDeps allow-list, migrations parse, destructive DDL has DOWN, bundle quota (S4-04)',
   )
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .option('--first-party', 'Vendor build (silence MARKETPLACE-POLICY §2 worker-isolation warning)')
   .action((opts) => extensionValidateCommand(opts));
 
 // ── zveltio keys <subcommand> ────────────────────────────────────────────────

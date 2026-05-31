@@ -1344,15 +1344,36 @@ class ExtensionLoader {
         // entry — if it's NOT explicitly is_official=true, we treat it
         // as a community submission. Local hardcoded catalog defaults
         // is_official to true via fetchRegistryCatalog merging, so the
-        // 54 first-party + smoke fixtures stay exempt. Override via
-        // ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 for self-hosted operators
-        // who trust their own extensions and accept the risk.
+        // 54 first-party + smoke fixtures stay exempt.
+        //
+        // Two operator overrides:
+        //   ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 — trusted self-hosted,
+        //     accept inline for any extension (skip the gate entirely)
+        //   ZVELTIO_REQUIRE_CATALOG=1 — fail-closed: if catalog fetch
+        //     fails (network, registry down) refuse rather than
+        //     fall through to local-only assumptions
         if (
           process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY !== '1' &&
           manifest.engine?.isolation !== 'worker'
         ) {
+          let catalog: ExtensionCatalogEntry[] | null = null;
+          let catalogFetchFailed = false;
           try {
-            const catalog = await fetchRegistryCatalog();
+            catalog = await fetchRegistryCatalog();
+          } catch {
+            catalogFetchFailed = true;
+          }
+          if (catalogFetchFailed && process.env.ZVELTIO_REQUIRE_CATALOG === '1') {
+            const msg =
+              `Extension "${extName}" cannot be enabled: catalog fetch ` +
+              `failed and ZVELTIO_REQUIRE_CATALOG=1 forbids falling back ` +
+              `to local-only first-party assumptions. Retry when the ` +
+              `registry is reachable, or unset the env var.`;
+            this.lastLoadError.set(extName, msg);
+            console.error(`❌ ${msg}`);
+            return;
+          }
+          if (catalog) {
             const catEntry = catalog.find((e) => e.name === extName);
             if (catEntry && catEntry.is_official !== true) {
               const msg =
@@ -1366,8 +1387,6 @@ class ExtensionLoader {
               console.error(`❌ ${msg}`);
               return;
             }
-          } catch {
-            // Catalog fetch failed — proceed (loader has other gates).
           }
         }
 

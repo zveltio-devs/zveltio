@@ -333,6 +333,9 @@ worker service bridge, admin health endpoint.
 | .113 | Inline / bundled extensions | WSL: crm, ai, mail, forms, invoicing, auth/ldap, billing, search, sms, data/import — install + enable + route-200, zero patches |
 | .121 | Worker isolation (`mountStrategy: 'subapp'`) | WSL: hello-ext-worker enabled, `runtime: 'bun-worker'` returned by `/ext/hello-ext-worker/health` — handler executed inside `Bun.Worker`, not main thread |
 | .122 | Inline + worker + global mount + health endpoint | release smoke: 3 fixtures × install + enable + route + `/api/admin/extensions/health` lists all three with correct isolation tier |
+| .123 | Trust chain — archive SHA-256 verify at install | release smoke continues green; 5 unit tests cover accept/reject paths including single-bit tamper. SDK build export, marketplace policy doc, worker host bookkeeping tests all land |
+| .124 | Marketplace enforcement: worker mandatory for community | unit tests cover allow/refuse decisions for catalog × isolation combinations; registry rejects upload on X-Manifest-Archive-Sha256 mismatch; sync sends header from publisher hash |
+| .125 | Validate-time isolation warning + fail-closed catalog flag | `extension validate` flags non-worker for community submissions before publish (avoids late surprise at enable); `ZVELTIO_REQUIRE_CATALOG=1` adds fail-closed mode when catalog fetch fails |
 
 ---
 
