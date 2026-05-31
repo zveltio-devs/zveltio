@@ -215,19 +215,20 @@ GITHUB_CLIENT_SECRET=abc123...
 ### Format
 
 ```env
-ZVELTIO_EXTENSIONS=ai/core-ai,compliance/ro/efactura,workflow/approvals
+ZVELTIO_EXTENSIONS=ai,compliance/ro/efactura,workflow/approvals
 ZVELTIO_EXTENSIONS_PATH=/app/extensions
 ```
 
 ### Available extensions
 
+> **Note:** Automation `flows` are **engine-core** (`/api/flows`), not an installable extension. No entry needed in `ZVELTIO_EXTENSIONS`.
+
 | ID | Description |
 |----|-------------|
-| `ai/core-ai` | Multi-provider AI, embeddings, semantic search, AI agent |
+| `ai` | Multi-provider AI: chat, embeddings, semantic search, schema generation, agentic workflows |
 | `workflow/approvals` | Multi-step approval workflows |
 | `workflow/checklists` | Reusable checklists attached to records |
 | `content/page-builder` | Block-based CMS page editor |
-| `automation/flows` | Visual trigger/step automation builder |
 | `developer/edge-functions` | Deploy TypeScript functions inside the engine |
 | `geospatial/postgis` | PostGIS proximity search, bbox, clustering, geofences |
 | `compliance/ro/efactura` | Romanian e-Factura (UBL 2.1 XML + ANAF submission) |
@@ -341,7 +342,7 @@ S3_PUBLIC_URL=http://localhost:9000/zveltio
 OPENAI_API_KEY=sk-...
 
 # Extensions
-ZVELTIO_EXTENSIONS=ai/core-ai,workflow/approvals
+ZVELTIO_EXTENSIONS=ai,workflow/approvals
 ```
 
 ### Production
@@ -385,7 +386,7 @@ OPENAI_MODEL=gpt-4o
 ANTHROPIC_API_KEY=sk-ant-...
 
 # Extensions
-ZVELTIO_EXTENSIONS=ai/core-ai,workflow/approvals,workflow/checklists
+ZVELTIO_EXTENSIONS=ai,workflow/approvals,workflow/checklists
 
 # Observability
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
