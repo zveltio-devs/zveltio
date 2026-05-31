@@ -380,10 +380,7 @@ Zveltio supports a plugin-based architecture through extensions:
 
 ```
 extensions/
-├── ai/                     # AI extensions
-│   └── core-ai/           # Chat, alchemist, query, schema-gen (AI features beyond engine core)
-├── automation/            # Workflow automation
-│   └── flows/            # Flow executor with DLQ retry
+├── ai/                     # AI: chat, alchemist, query, schema-gen, agentic workflows (single extension)
 ├── communications/        # Communication channels
 │   └── mail/             # IMAP/SMTP mail client with AI features and Sieve filtering
 ├── compliance/           # Regional compliance
@@ -417,12 +414,13 @@ Each extension follows the structure:
 
 | Extension              | Key Feature                                                                            |
 | ---------------------- | -------------------------------------------------------------------------------------- |
-| `flows`                | DLQ with exponential backoff retry, idempotency via SHA-256                            |
-| `core-ai`              | Alchemist (documents → DB), Text-to-SQL, Prompt → Schema, native tool-calling AI chat  |
+| `ai`                   | Alchemist (documents → DB), Text-to-SQL, Prompt → Schema, native tool-calling AI chat  |
 | `communications/mail`  | Full IMAP/SMTP mail client, Sieve filters, AI compose and reply                        |
 | `storage/cloud`        | S3 file versioning, soft-delete trash bin, public token-based share links              |
 | `content/page-builder` | CMS pages with Tiptap editor, slug routing, i18n                                       |
-| `postgis`              | Custom field types: `location`, `polygon`, `linestring`                                |
+| `geospatial/postgis`   | Custom field types: `location`, `polygon`, `linestring`                                |
+
+> **Note:** Automation `flows` (DLQ with exponential backoff retry, idempotency via SHA-256) are part of the **engine core**, not an extension. Same goes for `analytics/insights`, `developer/saved-queries`, `developer/schema-branches`, `operations/backup`, and `multitenancy/tenants` — all promoted to core during the alpha → beta transition.
 
 ---
 
@@ -435,16 +433,11 @@ If the extension is not active, routes return `404`.
 
 | Route | Extension | Category |
 |-------|-----------|----------|
-| `/api/flows` | `automation/flows` | automation |
-| `/api/backup` | `operations/backup` | operations |
 | `/api/gdpr/*` | `compliance/gdpr` | compliance |
 | `/api/database` | `developer/database` | developer |
 | `/api/introspect` | `developer/byod` | developer |
 | `/api/docs` | `developer/api-docs` | developer |
-| `/api/schema/branches` | `developer/schema-branches` | developer |
-| `/api/insights` | `analytics/insights` | analytics |
 | `/api/quality` | `analytics/quality` | analytics |
-| `/api/saved-queries` | `developer/saved-queries` | developer |
 | `/api/validation` | `developer/validation` | developer |
 | `/api/export` | `data/export` | data |
 | `/api/import` | `data/import` | data |
@@ -453,9 +446,8 @@ If the extension is not active, routes return `404`.
 | `/api/drafts` | `content/drafts` | content |
 | `/api/media` | `content/media` | content |
 | `/api/documents` | `content/documents` | content |
-| `/api/ai/*` | `ai/core-ai` | ai |
+| `/api/ai/*` | `ai` | ai |
 | `/api/graphql` | `developer/graphql` | developer |
-| `/api/tenants` | `multitenancy` | infrastructure |
 | `/api/contacts` | `crm` | business |
 | `/api/organizations` | `crm` | business |
 | `/api/transactions` | `crm` | business |
@@ -464,6 +456,8 @@ If the extension is not active, routes return `404`.
 | `/api/auth/ldap/*` | `auth/ldap` | auth |
 | `/api/edge-functions` | `developer/edge-functions` | developer |
 | `/api/fn/*` | `developer/edge-functions` | developer |
+
+> **Core routes (always available, no extension required):** `/api/flows`, `/api/backup`, `/api/insights`, `/api/saved-queries`, `/api/schema/branches`, `/api/tenants`.
 
 > **Modular architecture:** The Zveltio Engine exposes a minimal set of core routes.
 > Optional functionality is delivered via extensions that register dynamically at startup.

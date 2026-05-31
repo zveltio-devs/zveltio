@@ -13,7 +13,7 @@ These are required if the corresponding feature is in use:
 | Variable | Required when | Description |
 |----------|---------------|-------------|
 | `MAIL_ENCRYPTION_KEY` | Using the `communications/mail` extension | 32-byte hex key for encrypting stored IMAP/SMTP passwords. Generate: `openssl rand -hex 32` |
-| `AI_KEY_ENCRYPTION_KEY` | Using the `ai/core-ai` extension | 32-byte hex key for encrypting stored AI provider API keys. Generate: `openssl rand -hex 32` |
+| `AI_KEY_ENCRYPTION_KEY` | Using the `ai` extension | 32-byte hex key for encrypting stored AI provider API keys. Generate: `openssl rand -hex 32` |
 
 ---
 

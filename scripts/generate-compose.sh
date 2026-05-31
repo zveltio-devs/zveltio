@@ -149,7 +149,7 @@ services:
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
       AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
-      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
     depends_on:
       postgres:
         condition: service_healthy
@@ -291,7 +291,7 @@ services:
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
       AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
-      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai/core-ai,automation/flows,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,analytics/insights,data/export,data/import,i18n/translations,crm,communications/mail}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/page-builder,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s

@@ -155,7 +155,7 @@ Install an extension from the marketplace or a local path.
 
 ```bash
 # Install from marketplace
-zveltio install ai/core-ai
+zveltio install ai
 
 # Install from local directory
 zveltio install my-extension --path ./extensions/my-extension
@@ -195,7 +195,7 @@ zveltio extensions list --json
 Enable an installed extension (hot-loads if supported, otherwise requires restart).
 
 ```bash
-zveltio extensions enable ai/core-ai
+zveltio extensions enable ai
 ```
 
 ---
@@ -205,7 +205,7 @@ zveltio extensions enable ai/core-ai
 Disable an active extension.
 
 ```bash
-zveltio extensions disable ai/core-ai
+zveltio extensions disable ai
 ```
 
 ---
@@ -311,7 +311,7 @@ zveltio start            # Start in production mode
 ### Add a new extension
 
 ```bash
-zveltio install ai/core-ai
+zveltio install ai
 # Add to ZVELTIO_EXTENSIONS in .env
 zveltio dev              # Restart to load
 ```
