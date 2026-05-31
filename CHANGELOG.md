@@ -2,6 +2,26 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.127] - 2026-05-31
+
+### Fix: marketplace-lifecycle integration tests gate-by-default
+
+The alpha.126 suite triggered 6 CI failures because the standard
+`test:integration` runner has `TEST_DATABASE_URL` set (engine running)
+but does NOT stage the hello-ext / hello-ext-worker fixtures or
+provision a god user. The tests assumed both.
+
+Fix: gated behind `ENABLE_MARKETPLACE_INTEGRATION_TESTS=1` explicit
+opt-in. CI doesn't set it; the suite stays skipped there. The
+release-binary smoke job in `.github/workflows/release.yml` already
+exercises the same flow against the compiled binary, so CI coverage
+of the path is unchanged.
+
+To run the suite locally, follow the comment block at the top of
+`marketplace-lifecycle.integration.test.ts`.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.126] - 2026-05-31
 
 ### Operational hardening — the "B1-B5" backlog from in-session observations

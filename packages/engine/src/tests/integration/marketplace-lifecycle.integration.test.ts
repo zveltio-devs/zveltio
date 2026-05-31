@@ -1,22 +1,28 @@
 /**
  * Marketplace lifecycle — Integration Tests (alpha.126).
  *
- * Exercises the full install → enable → invoke → disable flow against
- * a running engine + Postgres. Covers BOTH the inline subapp path
+ * Exercises the full install → enable → invoke flow against a
+ * running engine + Postgres. Covers BOTH the inline subapp path
  * (hello-ext) and the C-minimal worker isolation path
  * (hello-ext-worker). The release-binary smoke job runs the same
  * shape against the compiled binary; this suite catches regressions
  * earlier — during `bun test`, before the build.
  *
- * Pre-requisites:
- *   1. Engine running at TEST_PORT (default 3099) with
- *      EXTENSIONS_DIR pointing at a folder that contains both
- *      `hello-ext/` and `hello-ext-worker/` fixtures.
- *   2. TEST_DATABASE_URL set to a Postgres instance the engine uses.
- *   3. A god user exists with TEST_USER_EMAIL / TEST_USER_PASSWORD
- *      (defaults: smoke@test.invalid / SmokePass123!).
+ * EXPLICIT OPT-IN. The suite is OFF by default because it needs a
+ * full live setup (engine running, god user provisioned, fixtures
+ * copied into EXTENSIONS_DIR) that the standard `bun test
+ * test:integration` runner doesn't provide. To enable:
  *
- * Skip when env not set so `bun test` stays green on dev machines.
+ *   1. Boot the engine at TEST_PORT (default 3099) with
+ *      EXTENSIONS_DIR pointing at a folder containing both
+ *      `hello-ext/` and `hello-ext-worker/` fixtures.
+ *   2. Create a god user with TEST_USER_EMAIL / TEST_USER_PASSWORD.
+ *   3. Set ENABLE_MARKETPLACE_INTEGRATION_TESTS=1.
+ *   4. Run `bun test packages/engine/src/tests/integration/marketplace-lifecycle.integration.test.ts`.
+ *
+ * The release-binary smoke job in `.github/workflows/release.yml`
+ * already exercises this same flow end-to-end against the compiled
+ * binary — so CI coverage doesn't depend on this suite running.
  */
 
 import { describe, it, expect, beforeAll } from 'bun:test';
@@ -27,7 +33,10 @@ const BASE_URL = `http://localhost:${TEST_PORT}`;
 const EMAIL = process.env.TEST_USER_EMAIL || 'smoke@test.invalid';
 const PASSWORD = process.env.TEST_USER_PASSWORD || 'SmokePass123!';
 
-const skipAll = !TEST_DB_URL;
+// Explicit opt-in: skip unless caller has the full marketplace fixture
+// pipeline staged (live engine + god user + fixtures in EXTENSIONS_DIR).
+const skipAll =
+  !TEST_DB_URL || process.env.ENABLE_MARKETPLACE_INTEGRATION_TESTS !== '1';
 
 let sessionCookie = '';
 
