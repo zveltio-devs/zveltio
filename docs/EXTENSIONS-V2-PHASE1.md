@@ -315,13 +315,16 @@ worker service bridge, admin health endpoint.
 | Item | Status | Priority |
 | --- | --- | --- |
 | Registry computes archive SHA-256 on upload | ✅ DONE (alpha.117) | Returned in response + stored as R2 customMetadata |
-| Registry enforces `integrity.archiveSha256` declared in manifest | ⏳ TODO | Cosmetic — engine-side `engineSha256` check is load-bearing. Useful for marketplace trust chain when public. |
-| Engine verifies `archiveSha256` at extract time | ⏳ TODO | Same — `engineSha256` is what protects runtime |
-| `createExtensionBuildConfig` export in `@zveltio/sdk` | ⏳ TODO | DX for authors who build without the CLI |
-| `extension validate` hard-fail on v1 manifests | ⏳ TODO | Wait until all 54 official + likely first third-parties are v2 |
-| Marketplace public policy doc (when worker mandatory for third-party, review process) | ⏳ TODO | Required before opening third-party submissions |
-| Unit tests for worker respawn / heartbeat | ⏳ TODO | Smoke release covers happy path; unit coverage for failure modes is nice-to-have |
-| Subprocess workers / WASM | ⏸ Tier 3 | Don't promise per-extension RSS or OS sandbox until this lands |
+| Registry returns `X-Archive-Sha256` on download | ✅ DONE (alpha.123) | `store.ts` reads R2 customMetadata, sets header |
+| Engine verifies archive bytes against header at install | ✅ DONE (alpha.123) | `extension-loader.ts` SHA-256s the ZIP, refuses extract on mismatch |
+| Registry enforces `integrity.archiveSha256` declared in manifest at upload | ✅ DONE (alpha.124) | Sync flow now compares manifest hash against ZIP bytes; mismatch rejected with 400 |
+| `createExtensionBuildConfig` export in `@zveltio/sdk` | ✅ DONE (alpha.123) | `@zveltio/sdk/build` — CLI imports from there (single source of truth) |
+| Marketplace public policy doc | ✅ DONE (alpha.123) | `docs/MARKETPLACE-POLICY.md` — draft pre-public; includes isolation per tier, review checklist, lifecycle |
+| Enforce `isolation: 'worker'` for third-party at engine load | ✅ DONE (alpha.124) | Catalog entry carries `is_official`; loader refuses to enable non-official extensions without `engine.isolation: 'worker'` |
+| Unit tests for worker host bookkeeping | ✅ DONE (alpha.123) | 7 tests covering lifecycle, health record shape, duplicate guard |
+| Unit test: archive SHA mismatch refused | ✅ DONE (alpha.124) | `extension-loader-archive.test.ts` |
+| `extension validate` hard-fail on v1 manifests | ⏳ TODO | Wait for first third-party submissions (all 54 official are v2 already) |
+| Subprocess workers / WASM (Tier 3) | ⏸ Future | Don't promise per-extension RSS or OS sandbox until this lands |
 
 ### Validated live
 

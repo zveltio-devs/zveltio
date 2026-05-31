@@ -235,6 +235,11 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
       download_url:
         e.download_url ??
         `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(e.name)}/download`,
+      // Used by the enable-time enforcement of MARKETPLACE-POLICY.md §2.
+      // Registry exposes `is_official` on the catalog list response;
+      // anything that isn't explicitly first-party is treated as a
+      // community submission and must run in worker isolation.
+      is_official: e.is_official === true,
     }));
   } catch (err) {
     console.warn(
@@ -246,9 +251,17 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   // Always merge: remote entries win over local for the same name,
   // but local catalog fills in anything the registry doesn't list
   // (local/dev extensions, self-hosted, extensions not yet published).
+  //
+  // Local catalog entries default to is_official=true (they're
+  // hardcoded in this binary — the 54 official + smoke fixtures).
+  // Remote entries carry whatever the registry returned.
   const remoteNames = new Set(remoteEntries.map((e) => e.name));
-  const merged = [...remoteEntries, ...EXTENSION_CATALOG.filter((e) => !remoteNames.has(e.name))];
-  const result = merged.length > 0 ? merged : EXTENSION_CATALOG;
+  const localWithDefaults = EXTENSION_CATALOG.filter((e) => !remoteNames.has(e.name)).map((e) => ({
+    ...e,
+    is_official: e.is_official ?? true,
+  }));
+  const merged = [...remoteEntries, ...localWithDefaults];
+  const result = merged.length > 0 ? merged : localWithDefaults;
 
   if (remoteEntries.length > 0) {
     catalogCache = result;
@@ -1325,6 +1338,38 @@ class ExtensionLoader {
         // and import the .js artifact directly.
         const isBundled = manifest.engine?.bundled === true;
         const extBase = resolveExtensionsBase();
+
+        // MARKETPLACE-POLICY.md §2 enforcement: third-party (community)
+        // extensions must opt into worker isolation. Lookup the catalog
+        // entry — if it's NOT explicitly is_official=true, we treat it
+        // as a community submission. Local hardcoded catalog defaults
+        // is_official to true via fetchRegistryCatalog merging, so the
+        // 54 first-party + smoke fixtures stay exempt. Override via
+        // ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 for self-hosted operators
+        // who trust their own extensions and accept the risk.
+        if (
+          process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY !== '1' &&
+          manifest.engine?.isolation !== 'worker'
+        ) {
+          try {
+            const catalog = await fetchRegistryCatalog();
+            const catEntry = catalog.find((e) => e.name === extName);
+            if (catEntry && catEntry.is_official !== true) {
+              const msg =
+                `Extension "${extName}" is a third-party submission ` +
+                `(catalog.is_official is not true) but does not declare ` +
+                `engine.isolation: "worker". Per MARKETPLACE-POLICY §2, ` +
+                `community extensions must run in worker isolation. ` +
+                `Republish with isolation: "worker" or, for trusted ` +
+                `self-hosted installs, set ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
+              this.lastLoadError.set(extName, msg);
+              console.error(`❌ ${msg}`);
+              return;
+            }
+          } catch {
+            // Catalog fetch failed — proceed (loader has other gates).
+          }
+        }
 
         let resolvedPath: string;
         if (isBundled) {

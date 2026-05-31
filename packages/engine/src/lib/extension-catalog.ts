@@ -9,6 +9,17 @@ export interface ExtensionCatalogEntry {
   permissions: string[];
   /** Direct download URL for the extension package (.tar.gz). Present when the registry serves packages. */
   download_url?: string;
+  /**
+   * First-party extension (Zveltio-published, audited, allowed to use
+   * `engine.isolation: 'inline'`). Third-party (community) extensions
+   * MUST declare `isolation: 'worker'` per `docs/MARKETPLACE-POLICY.md`
+   * §2 — the loader hard-fails the enable otherwise.
+   *
+   * Local hardcoded entries default to `true` (the 54 official + the
+   * smoke fixtures); the registry-merged path sets this from the
+   * `is_official` column on the marketplace DB.
+   */
+  is_official?: boolean;
 }
 
 export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
