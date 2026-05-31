@@ -51,6 +51,12 @@ import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js
 import { cronRunner } from './cron-runner.js';
 import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
 import { isPackageAllowed } from './peer-deps-allowlist.js';
+// Static-import so Bun's compile-time bundler walks into the worker
+// host and sees the `new Worker(new URL('./worker-extension-runtime.ts',
+// import.meta.url))` call site. Dynamic-import hid the worker entry
+// from static analysis and the compiled binary shipped without the
+// worker source embedded (verified alpha.118 + alpha.119 smoke).
+import { getWorkerHost as _getWorkerHost } from './worker-extension-host.js';
 import {
   parseSignature,
   verifySignature,
@@ -1500,8 +1506,7 @@ class ExtensionLoader {
         manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
       try {
         if (workerIsolation) {
-          const { getWorkerHost } = await import('./worker-extension-host.js');
-          const host = getWorkerHost(app);
+          const host = _getWorkerHost(app);
           await host.start(extName, extDir, manifest!.engine!.entry);
         } else if (mountStrategy === 'subapp') {
           const subApp = new Hono();
