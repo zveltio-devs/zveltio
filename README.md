@@ -12,7 +12,7 @@
 > **The open-source platform for any business application.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange)](https://github.com/zveltio-devs/zveltio/releases)
+[![Status: Beta](https://img.shields.io/badge/Status-Beta-blue)](https://github.com/zveltio-devs/zveltio/releases)
 [![Bun](https://img.shields.io/badge/Bun-1.3+-red)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4+-blue)](https://www.typescriptlang.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-17+-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
@@ -23,7 +23,7 @@ Zveltio is a self-hosted foundation for building business applications. It bundl
 
 Modern TypeScript stack (Bun + Hono + Postgres). AI-native. GDPR-compliant by default. MIT-licensed.
 
-> ⚠️ **Alpha** — APIs evolve between versions. Build with us; early adopters shape the product. See [Alpha caveats](#alpha-caveats).
+> 🟢 **Beta (1.0.0-beta.2)** — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#alpha-caveats) for what's locked vs. still moving.
 
 ```bash
 curl -fsSL https://get.zveltio.com/install.sh | bash
@@ -285,19 +285,34 @@ Building extensions: [docs/EXTENSION-DEVELOPER-GUIDE.md](docs/EXTENSION-DEVELOPE
 
 ---
 
-## Alpha caveats
+## Beta caveats
 
-Honest about where we are: **alpha.82** as of the latest release.
+Honest about where we are: **1.0.0-beta.2** as of the latest release.
 
-✅ **Stable enough for**: agency-built apps with one operator, internal tools, vertical SaaS pilots, custom platforms with engineering ownership.
+**What's API-stable in beta (will NOT break between beta.x and v1.0):**
+- Extension manifest v2 (`engine.bundled`, `engine.isolation`,
+  `integrity.engineSha256`, `bundlePeers`)
+- `ZveltioExtension` SDK interface + `@zveltio/sdk/extension` types
+- `@zveltio/sdk/build` plugin config (custom build pipelines)
+- Marketplace publish flow + review queue endpoints
+- Worker isolation contract (no DB credentials in worker, ping/pong heartbeat, crash respawn)
 
-⚠️ **Not yet for**: business-critical paths in regulated industries (no SOC2 / ISO 27001 yet), enterprise contracts requiring SLAs, headless multi-region deployments at >10k users without operational maturity.
+**What may still move in beta.x:**
+- Engine internal helpers not exported via SDK
+- Studio admin UI layout + components
+- Beta releases may introduce schema migrations (run via `zveltio start` auto-migrate)
 
-**APIs may break between alpha versions.** We publish migration notes in [CHANGELOG.md](CHANGELOG.md) and the [Migration Guide](docs/MIGRATION-ALPHA-TO-BETA.md). Expect to read the changelog before upgrading.
+✅ **Stable enough for**: production self-hosted deploys, agency-built apps, internal tools, vertical SaaS, custom platforms with engineering ownership.
 
-**Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. Zveltio's own glue code is what's alpha — and we test it (377 unit + 142 integration tests in CI on every commit).
+⚠️ **Not yet for**: business-critical paths in regulated industries (no SOC2 / ISO 27001 yet — those are post-1.0), enterprise contracts requiring formal SLAs, headless multi-region at scale without operational maturity.
 
-**v1.0 target**: when feature freeze is announced, current alpha-track installs get a migration path. We track v1.0 readiness in [docs/REFACTORING-V1-PLAN.md](docs/REFACTORING-V1-PLAN.md).
+**Marketplace controlled launch**: community extension submissions are technically accepted, but every submission lands `pending` and stays there until an admin approves manually via `apps.zveltio.com/admin/marketplace/*` or the `zveltio admin marketplace` CLI. The review team and SLA are documented as operator decisions in [`docs/MARKETPLACE-POLICY.md`](docs/MARKETPLACE-POLICY.md) §9.
+
+**Production stability**: the underlying stack (Postgres + Bun + Hono + Better-Auth + Casbin) is production-mature. We test on every commit (399 unit + 148 integration tests in CI).
+
+**Migration from alpha**: see [docs/MIGRATION-ALPHA-TO-BETA.md](docs/MIGRATION-ALPHA-TO-BETA.md). If you ran any alpha.111+ release you'll auto-migrate cleanly; for older alpha-track installs the migration is one-way.
+
+**v1.0 target**: tracked in [docs/REFACTORING-V1-PLAN.md](docs/REFACTORING-V1-PLAN.md) (extension platform: ✅ done at beta.1; remaining v1.0 work is product/GTM — benchmarks, demo.zveltio.com, case studies).
 
 ---
 
