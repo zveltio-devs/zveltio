@@ -1,6 +1,9 @@
 # Extensions v2 — Phase 1 plan (engine artifact + manifest v2 + CLI)
 
-**Status**: ratified scoping document. Implementation gated on this contract.
+**Status**: ✅ COMPLETE at 1.0.0-beta.1 (2026-05-31). All items in §8
+landed across alpha.111 → beta.2. The original scoping document
+below is preserved for historical context; live status is in
+§8 "PR order — status".
 
 **Scope**: per-extension `engine/index.js` artifact, manifest v2, CLI `pack`,
 migration of the 54 official extensions, test pyramid.
@@ -323,7 +326,7 @@ worker service bridge, admin health endpoint.
 | Enforce `isolation: 'worker'` for third-party at engine load | ✅ DONE (alpha.124) | Catalog entry carries `is_official`; loader refuses to enable non-official extensions without `engine.isolation: 'worker'` |
 | Unit tests for worker host bookkeeping | ✅ DONE (alpha.123) | 7 tests covering lifecycle, health record shape, duplicate guard |
 | Unit test: archive SHA mismatch refused | ✅ DONE (alpha.124) | `extension-loader-archive.test.ts` |
-| `extension validate` hard-fail on v1 manifests | ⏳ TODO | Wait for first third-party submissions (all 54 official are v2 already) |
+| `extension validate` hard-fail on v1 manifests | ✅ DONE (beta.1) | v1 manifests now exit 1 with a pointer at `zveltio extension pack`. All 54 official are v2; the warning-only mode is retired. |
 | Subprocess workers / WASM (Tier 3) | ⏸ Future | Don't promise per-extension RSS or OS sandbox until this lands |
 
 ### Validated live
@@ -340,6 +343,8 @@ worker service bridge, admin health endpoint.
 | .127 | Marketplace integration tests gated by env var | `ENABLE_MARKETPLACE_INTEGRATION_TESTS=1` opt-in; CI stays green without staged fixtures, release-binary smoke covers the path anyway |
 | .128 | `initDatabase` idle timeout aligned with dialect (real B1 fix) | `BUN_SQL_IDLE_TIMEOUT_MS` (or legacy `DB_IDLE_TIMEOUT_MS`) honored; default 300s instead of the previous 30s that bypassed alpha.126's dialect change |
 | .129 | Marketplace review queue (code complete) | Registry: migration 008 (status enum + audit cols + allowed_publishers); admin endpoints approve/reject/takedown/pending/publishers with reviewer audit trail. Engine: friendlier "pending review" 403 message. CLI: `admin marketplace ...` + `extension status <name>`. Apps: `/admin/marketplace/{pending,publishers,[name]}` UI with bundle preview + audit history. Policy doc DRAFT → v1.0. |
+| beta.1 | Extensions v2 stable; controlled-launch marketplace | Hard-fail v1 manifests in `extension validate`. All 54 official extensions verified. CHANGELOG documents the platform contract guarantees that hold from beta.1 → v1.0. |
+| beta.2 | Admin team (multi-user review roster) | Registry migration 009 + `admin_users` table + `/api/admin/team` endpoints + bootstrap path (ADMIN_EMAIL → first owner). Apps `/admin/team` UI with invite/promote/demote/remove. CLI `zveltio admin team list/add/set-role/remove`. Last-owner protections everywhere. |
 
 ---
 
