@@ -2,6 +2,42 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.124] - 2026-05-31
+
+### Marketplace public readiness — enforcement + trust chain closure
+
+Three small pieces that close the gap between
+`docs/MARKETPLACE-POLICY.md` (the contract) and the runtime (which
+previously just trusted the publisher).
+
+- **Engine enforces `isolation: 'worker'` for third-party
+  extensions.** Catalog entries now carry `is_official` (defaults
+  to `true` for the 54 hardcoded first-party + smoke fixtures;
+  registry returns `false` for community submissions). At enable
+  time the loader hard-fails non-official extensions that don't
+  declare `engine.isolation: 'worker'`. Operators with their own
+  audited extensions can override via
+  `ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1`.
+
+- **Registry verifies publisher-declared archive SHA-256 at
+  upload.** Sync workflow now sends `X-Manifest-Archive-Sha256`
+  with the upload; registry computes the hash server-side, compares
+  with the header, and rejects with HTTP 400 on mismatch. Catches
+  MITM / proxy mutation between publisher pack and registry
+  upload. Pairs with the alpha.123 engine-side verify-on-download
+  to close the publisher → R2 → engine chain end-to-end.
+
+- **Unit tests for archive SHA-256 verification.** Five tests
+  covering accept/reject paths: matching hash, uppercase header,
+  wrong hash, missing header (backward compat), single-bit
+  tamper detection. Complements the alpha.123 worker host
+  bookkeeping tests.
+
+Doc: `EXTENSIONS-V2-PHASE1.md` §8 "Remaining" table updated —
+items closed by alpha.123 and .124 moved from ⏳ TODO to ✅ DONE.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.123] - 2026-05-31
 
 ### Trust chain + DX + tests (the P2/P3/P4 backlog from the agent review)
