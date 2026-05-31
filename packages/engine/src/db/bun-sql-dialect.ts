@@ -105,6 +105,12 @@ export class BunSqlDialect implements Dialect {
 // commands. Migrations need simple-query, so they use this reference directly.
 export let _activeBunPool: BunSQLPool | null = null;
 
+/** Exposed for the worker-extension-host (C-minimal isolation): worker
+ *  RPC `db:query` runs against this pool with the host as gatekeeper. */
+export function getActiveBunPool(): BunSQLPool | null {
+  return _activeBunPool;
+}
+
 // ─── Driver ──────────────────────────────────────────────────────────────────
 
 class BunSqlDriver implements Driver {

@@ -1,0 +1,24 @@
+{
+  "name": "hello-ext-worker",
+  "displayName": "Hello Worker Smoke Fixture",
+  "category": "fixture",
+  "description": "Same as hello-ext but with engine.isolation='worker' to exercise the C-minimal Bun.Worker isolation path on the binary install.",
+  "version": "1.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "permissions": [],
+  "contributes": {
+    "engine": true,
+    "studio": false
+  },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false,
+    "isolation": "worker"
+  },
+  "integrity": {
+    "engineSha256": "e7cb2b86939dcebe8aafc2ee95530b25bd9887adc071311df3104e89b870c6da"
+  }
+}
