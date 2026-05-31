@@ -1,0 +1,298 @@
+/**
+ * WorkerExtensionHost — spawns one Bun.Worker per isolated extension and
+ * coordinates the RPC bridge described in worker-extension-protocol.ts.
+ *
+ * Lifecycle:
+ *   1. `start(name, bundleUrl, ctx)` spawns the worker, sends `init`,
+ *      receives the route table, mounts proxy routes under `/ext/<name>/*`.
+ *   2. Inbound HTTP hits the proxy → IPC to worker → handler runs → IPC
+ *      back → response written to client.
+ *   3. Worker DB queries arrive as `db:query` → host executes via the
+ *      real shared pool → posts `db:ok` / `db:err` back.
+ *   4. `stop(name)` calls Worker.terminate() and removes proxy routes.
+ *
+ * Security envelope:
+ *   - Worker never receives DATABASE_URL or any other env credential.
+ *   - All SQL is executed by the host with the host's pool — RLS still
+ *     applies, tenant scoping still works.
+ *   - Worker can publish nothing back to the host registry by default
+ *     (service.register() is a no-op in worker mode; documented).
+ */
+
+import type { Hono } from 'hono';
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+
+let _instance: WorkerExtensionHost | null = null;
+
+/**
+ * Lazy singleton — first call wires the host to the engine's main
+ * Hono app. Subsequent calls return the same instance.
+ */
+export function getWorkerHost(app: Hono): WorkerExtensionHost {
+  if (!_instance) _instance = new WorkerExtensionHost(app);
+  return _instance;
+}
+
+/**
+ * Resets the singleton (test helper / hot-reload teardown). Real
+ * cleanup of running workers must be done via `stopAll()` first.
+ */
+export function _resetWorkerHostForTests(): void {
+  _instance = null;
+}
+import type {
+  HostToWorkerMessage,
+  WorkerToHostMessage,
+  RouteDescriptor,
+  RouteInvokeResponse,
+  InitResponse,
+} from './worker-extension-protocol.js';
+
+// Worker file URL — resolved at module load so it works in both the
+// engine source tree (packages/engine/src/...) and the compiled binary
+// (Bun embeds source files into the binary; the URL is /$bunfs/...).
+const RUNTIME_URL = new URL('./worker-extension-runtime.ts', import.meta.url).href;
+
+interface ManagedWorker {
+  name: string;
+  worker: Worker;
+  routes: RouteDescriptor[];
+  pendingInvokes: Map<string, (res: RouteInvokeResponse) => void>;
+  pendingInits: Map<string, (res: InitResponse) => void>;
+  proxyUnmount: () => void;
+}
+
+let nextRpcId = 0;
+function rpcId(prefix: string): string {
+  return `${prefix}-${++nextRpcId}`;
+}
+
+export class WorkerExtensionHost {
+  private readonly workers = new Map<string, ManagedWorker>();
+
+  constructor(private readonly app: Hono) {}
+
+  /**
+   * Spawn a worker for the extension at `extDir` and mount its routes
+   * under `/ext/<name>/*` in the main Hono app. Returns when the worker
+   * has reported its route table (i.e. `register()` ran successfully).
+   */
+  async start(extName: string, extDir: string, bundleEntry: string): Promise<void> {
+    if (this.workers.has(extName)) {
+      throw new Error(`Worker for "${extName}" is already running`);
+    }
+    const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
+    const worker = new Worker(RUNTIME_URL, { type: 'module' });
+    const managed: ManagedWorker = {
+      name: extName,
+      worker,
+      routes: [],
+      pendingInvokes: new Map(),
+      pendingInits: new Map(),
+      proxyUnmount: () => {},
+    };
+    this.workers.set(extName, managed);
+
+    worker.onmessage = (e) => this.handleWorkerMessage(managed, e.data as WorkerToHostMessage);
+    worker.onerror = (e) => {
+      console.error(`[worker:${extName}] error:`, (e as ErrorEvent).message);
+    };
+
+    const initId = rpcId('init');
+    const initPromise = new Promise<InitResponse>((resolve, reject) => {
+      managed.pendingInits.set(initId, resolve);
+      setTimeout(() => {
+        if (managed.pendingInits.has(initId)) {
+          managed.pendingInits.delete(initId);
+          reject(new Error(`worker "${extName}" did not init within 15s`));
+        }
+      }, 15_000);
+    });
+
+    this.post(managed, {
+      type: 'init',
+      id: initId,
+      bundleUrl,
+      extName,
+      env: {
+        NODE_ENV: process.env.NODE_ENV ?? 'production',
+        extensionPath: extDir,
+      },
+    });
+
+    const init = await initPromise;
+    if (init.type === 'init:err') {
+      worker.terminate();
+      this.workers.delete(extName);
+      throw new Error(`worker "${extName}" init failed: ${init.error}`);
+    }
+    managed.routes = init.routes ?? [];
+    managed.proxyUnmount = this.mountProxyRoutes(managed);
+    console.log(`🧵 Extension "${extName}" loaded in worker (${managed.routes.length} routes)`);
+  }
+
+  /** Tear down a worker and remove its proxy routes. */
+  async stop(extName: string): Promise<void> {
+    const managed = this.workers.get(extName);
+    if (!managed) return;
+    managed.proxyUnmount();
+    managed.worker.terminate();
+    this.workers.delete(extName);
+  }
+
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.workers.keys()].map((n) => this.stop(n)));
+  }
+
+  isRunning(extName: string): boolean {
+    return this.workers.has(extName);
+  }
+
+  // ── Internals ─────────────────────────────────────────────────────
+
+  private post(managed: ManagedWorker, msg: HostToWorkerMessage): void {
+    managed.worker.postMessage(msg);
+  }
+
+  private handleWorkerMessage(managed: ManagedWorker, msg: WorkerToHostMessage): void {
+    switch (msg.type) {
+      case 'init:ok':
+      case 'init:err': {
+        const cb = managed.pendingInits.get(msg.id);
+        if (cb) {
+          managed.pendingInits.delete(msg.id);
+          cb(msg);
+        }
+        break;
+      }
+      case 'route:ok':
+      case 'route:err': {
+        const cb = managed.pendingInvokes.get(msg.id);
+        if (cb) {
+          managed.pendingInvokes.delete(msg.id);
+          cb(msg);
+        }
+        break;
+      }
+      case 'db:query':
+        void this.handleDbQuery(managed, msg);
+        break;
+      case 'service:call':
+        // C-minimal does not bridge cross-worker service registry. Reply
+        // with "not found" so the worker code paths still complete.
+        this.post(managed, {
+          type: 'service:err',
+          id: msg.id,
+          error: `Service "${msg.name}" not available in worker isolation mode.`,
+        });
+        break;
+      case 'log':
+        console[msg.level](`[worker:${managed.name}] ${msg.message}`);
+        break;
+    }
+  }
+
+  private async handleDbQuery(
+    managed: ManagedWorker,
+    msg: Extract<WorkerToHostMessage, { type: 'db:query' }>,
+  ): Promise<void> {
+    try {
+      const rows = await runRawWithParams(msg.sql, msg.params);
+      this.post(managed, { type: 'db:ok', id: msg.id, rows });
+    } catch (err) {
+      this.post(managed, { type: 'db:err', id: msg.id, error: (err as Error).message });
+    }
+  }
+
+  /**
+   * Mount Hono proxy routes that forward each worker-declared route to
+   * the worker via IPC. Returns a teardown function that unmounts them.
+   *
+   * Hono v4 has no built-in unmount, so we use a routes-array filter
+   * after the fact. This works for sub-app style mounts where the
+   * proxy sub-app is what we replace, but for now we leave a TODO for
+   * dynamic unmount and just no-op on stop. The proxy sub-app remains
+   * mounted but its `fetch` returns 503 when the worker is gone.
+   */
+  private mountProxyRoutes(managed: ManagedWorker): () => void {
+    // Lazy import to avoid hoisting Hono into the file's top-level
+    // module graph when worker isolation isn't used.
+    const { Hono } = require('hono') as typeof import('hono');
+    const sub = new Hono();
+    type HonoLike = Record<string, (path: string, handler: unknown) => unknown>;
+    const subAny = sub as unknown as HonoLike;
+    for (const r of managed.routes) {
+      const method = r.method.toLowerCase();
+      if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
+      if (typeof subAny[method] !== 'function') continue;
+      // Bun's structured clone can't handle ReadableStream; serialize
+      // body to text first. C-minimal does not stream — extensions
+      // that need streaming must run inline.
+      subAny[method](
+        r.path,
+        async (c: {
+          req: {
+            raw: Request;
+            param: () => Record<string, string>;
+            query: () => Record<string, string>;
+          };
+        }) => {
+          if (!this.workers.has(managed.name)) {
+            return new Response('Extension worker is not running', { status: 503 });
+          }
+          const bodyText = await c.req.raw.text().catch(() => '');
+          const headers: Record<string, string> = {};
+          c.req.raw.headers.forEach((v, k) => {
+            headers[k] = v;
+          });
+          const id = rpcId('inv');
+          const resp = await new Promise<RouteInvokeResponse>((resolve, reject) => {
+            managed.pendingInvokes.set(id, resolve);
+            setTimeout(() => {
+              if (managed.pendingInvokes.has(id)) {
+                managed.pendingInvokes.delete(id);
+                reject(new Error('worker route handler timeout (30s)'));
+              }
+            }, 30_000);
+            this.post(managed, {
+              type: 'route:invoke',
+              id,
+              method: r.method,
+              path: new URL(c.req.raw.url).pathname.replace(`/ext/${managed.name}`, '') || '/',
+              headers,
+              query: c.req.query(),
+              body: bodyText || undefined,
+            });
+          });
+          if (resp.type === 'route:err') {
+            return new Response(resp.error ?? 'worker error', { status: 500 });
+          }
+          return new Response(resp.body ?? '', {
+            status: resp.status ?? 200,
+            headers: resp.headers,
+          });
+        },
+      );
+    }
+    this.app.route(`/ext/${managed.name}`, sub);
+    return () => {
+      // Hono v4 doesn't expose unmount; leaving the sub-app live is OK
+      // because its handlers check workers map and 503 cleanly.
+    };
+  }
+}
+
+/**
+ * Execute `sql` with `params` against the engine's database, returning
+ * the rows. Uses the Bun.SQL pool exposed by BunSqlDialect.
+ */
+async function runRawWithParams(sql: string, params: unknown[]): Promise<unknown[]> {
+  const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
+  const pool = getActiveBunPool();
+  if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
+  if (params.length > 0) {
+    return (await pool.unsafe(sql, params)) as unknown[];
+  }
+  return (await pool.unsafe(sql)) as unknown[];
+}

@@ -118,17 +118,19 @@ jobs:
         with:
           name: binary-zveltio-linux-x64
           path: ./
-      - name: Stage hello-ext smoke fixture
+      - name: Stage smoke fixtures (inline + worker isolation)
         # The release smoke does not depend on the official extensions
-        # repo (zveltio-extensions). Hello-ext is a self-contained
-        # bundled fixture committed in this repo at
-        # packages/engine/src/tests/fixtures/hello-ext/. Copying it into
-        # EXTENSIONS_DIR lets the binary's marketplace install detect
-        # files-on-disk and skip the registry download — keeping the
-        # smoke hermetic across registry/CDN outages.
+        # repo (zveltio-extensions). Both fixtures are self-contained
+        # bundles committed in this repo at
+        # packages/engine/src/tests/fixtures/{hello-ext,hello-ext-worker}/.
+        # Copying them into EXTENSIONS_DIR lets the binary's marketplace
+        # install detect files-on-disk and skip the registry download.
+        # hello-ext exercises the inline path; hello-ext-worker
+        # exercises the C-minimal Bun.Worker isolation path.
         run: |
           mkdir -p ./extensions
           cp -r packages/engine/src/tests/fixtures/hello-ext ./extensions/hello-ext
+          cp -r packages/engine/src/tests/fixtures/hello-ext-worker ./extensions/hello-ext-worker
 
       - name: Boot binary + smoke marketplace enable
         env:
@@ -215,6 +217,37 @@ jobs:
           fi
 
           echo "✅ hello-ext install + enable + route OK on the compiled binary."
+
+          # Repeat for hello-ext-worker — exercises the C-minimal
+          # worker isolation path (manifest.engine.isolation: 'worker').
+          # If anything in the IPC chain (route proxy / DB proxy /
+          # bundle re-import inside worker) regresses, this fails.
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-worker/install \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/install-worker.json
+          if ! grep -q '"success":true' /tmp/install-worker.json; then
+            echo "::error::hello-ext-worker install failed"; cat /tmp/install-worker.json
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-worker/enable \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/enable-worker.json
+          if ! grep -q '"success":true' /tmp/enable-worker.json; then
+            echo "::error::hello-ext-worker enable failed — likely a worker-host wiring regression."
+            echo "::error::Body: $(cat /tmp/enable-worker.json)"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+
+          WORKER_BODY=$(curl -fsS http://localhost:3000/ext/hello-ext-worker/health \
+            -b cookies.txt || true)
+          if ! echo "$WORKER_BODY" | grep -q '"runtime":"bun-worker"'; then
+            echo "::error::hello-ext-worker /health did not return runtime=bun-worker"
+            echo "::error::Body: $WORKER_BODY"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+          echo "✅ hello-ext-worker isolation path OK on the compiled binary."
+
           kill $ENGINE_PID 2>/dev/null || true
           wait $ENGINE_PID 2>/dev/null || true
 

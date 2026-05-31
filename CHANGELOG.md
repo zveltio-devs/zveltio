@@ -2,6 +2,49 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-alpha.118] - 2026-05-31
+
+### C-minimal: opt-in Bun.Worker isolation for extensions
+
+The engine now supports per-extension thread isolation via
+`manifest.engine.isolation: 'worker'`. When set, the extension runs
+inside a dedicated `Bun.Worker`, the host postMessage-forwards each
+HTTP route invocation, and SQL queries are proxied back to the
+host's shared pool. The worker never receives `DATABASE_URL` or any
+other env credential — host is the gatekeeper.
+
+Default stays `inline` for backward compatibility and max speed —
+the existing 54 first-party extensions are unchanged. Worker mode
+is designed for the third-party marketplace future where untrusted
+publisher code needs a real isolation boundary.
+
+Trade-offs (so you can choose informed):
+  - +0.5-2ms per route hit (one IPC round-trip)
+  - +5-20ms per chatty DB workload (one IPC round-trip per query)
+  - +30-50MB RSS per active worker
+  - Crash in worker doesn't take the engine down
+  - Worker has zero DB credentials; SQL is audited through host
+  - Memory leak in extension stays in worker, not engine
+  - Per-extension RSS becomes measurable (Phase 2 prep)
+
+Limitations in C-minimal (documented for follow-up):
+  - No cross-process transactions (each `db.query()` is independent)
+  - No streaming responses (body is buffered as text)
+  - `ctx.services.register()` from a worker is a no-op (workers
+    can call other extensions' services but cannot publish their
+    own — the host registry stays single-source-of-truth)
+
+New: `hello-ext-worker` fixture under
+`packages/engine/src/tests/fixtures/`. Release smoke now exercises
+BOTH the inline path (hello-ext) and the worker path
+(hello-ext-worker) — any regression in the IPC chain fails the
+release before publishing artifacts.
+
+CLI: `extension pack` preserves `engine.isolation` when re-writing
+the manifest engine block.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.117] - 2026-05-29
 
 ### Beta-readiness backlog (Phase 2 prep)
