@@ -1,0 +1,23 @@
+{
+  "name": "hello-ext-global",
+  "displayName": "Hello Global Mount Fixture",
+  "category": "fixture",
+  "description": "Fixture for mountStrategy='global' — route lives at /hello-global/health rather than /ext/<name>/health. Used by release.yml smoke to cover both mount strategies.",
+  "version": "1.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "permissions": [],
+  "contributes": {
+    "engine": true,
+    "studio": false
+  },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false
+  },
+  "integrity": {
+    "engineSha256": "fe43fd1ea9df5de677c0d199752f77b70008a08380289688dd1fd6dddaa3271c"
+  }
+}

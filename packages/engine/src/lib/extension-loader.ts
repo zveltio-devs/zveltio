@@ -2788,6 +2788,14 @@ class ExtensionLoader {
     return this.loaded.has(name);
   }
 
+  /** Exposes the last load error for the given extension (or undefined
+   *  if the load succeeded / was never attempted). Used by
+   *  /api/admin/extensions/health to surface failed-to-load extensions
+   *  with their reason. */
+  getLastLoadError(name: string): string | undefined {
+    return this.lastLoadError.get(name);
+  }
+
   /** Mark an extension as active (used after manual enable without a full dynamic load). */
   markActive(name: string): void {
     if (!this.loaded.has(name)) {
