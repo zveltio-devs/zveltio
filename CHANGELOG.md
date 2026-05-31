@@ -2,6 +2,69 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-beta.1] - 2026-05-31
+
+### Extensions v2 stable on the compiled binary; marketplace controlled-launch
+
+13 alpha releases (.117 → .129) closed every Phase 1 bundle-first,
+worker isolation, trust chain, and marketplace review-queue gap.
+Beta 1 is the stabilization tag: the platform extension model is
+now considered API-stable; engine binary + 54 first-party
+extensions + marketplace submissions are all validated end-to-end.
+
+**Headline guarantees this tag promises:**
+
+- Every extension ships as a self-contained bundled `engine/index.js`
+  with `manifest.integrity.engineSha256` verified at install AND at
+  enable. Bun's compiled-binary dynamic-import bug class is closed.
+- Worker isolation (`engine.isolation: 'worker'`) is opt-in for
+  trusted code, MANDATORY for community submissions (engine refuses
+  the enable otherwise). Crash isolation + zero DB credentials in
+  the worker thread. Honest about Tier 3 limits — no per-extension
+  RSS or OOM kill (that's a future subprocess track).
+- Marketplace trust chain: archive SHA-256 computed by publisher,
+  verified by registry on upload, verified by engine on download
+  before extraction.
+- Review queue mechanics live: community submissions land `pending`,
+  admin approves/rejects/takes down via CLI or the new
+  `apps.zveltio.com/admin/marketplace/*` UI. Email notifications
+  + audit trail + bundle preview in-browser.
+- CI gates: hash-drift refusal on PR, smoke binary exercises three
+  fixtures (inline subapp, worker, global mount) + `/api/admin/
+  extensions/health` endpoint shape.
+
+**This release adds:**
+
+- `extension validate` is now a hard-fail on v1 manifests (warning
+  in .125-.129). All 54 official are v2; community submissions
+  must run `zveltio extension pack` before publish. Override the
+  community-isolation warning for vendor builds with
+  `--first-party`.
+
+**What this release is NOT:**
+
+- Public marketplace ships as **controlled launch** — submissions
+  are technically accepted but every community extension stays
+  `pending` until an admin approves manually via the apps UI or
+  CLI. Until the review team is staffed + SLA published, expect
+  delays.
+- `MARKETPLACE-POLICY.md` v1.0 is effective but the operational
+  pieces (review team, escalation, appeals process) are documented
+  as "operator decisions, not code".
+- v1.0 GA-blockers from `TECHNICAL-GAPS.md` (benchmarks, DR drill
+  in CI, demo.zveltio.com, case studies) remain — separate track.
+
+**Migrating from alpha:**
+
+- See `docs/MIGRATION-ALPHA-TO-BETA.md`.
+- If you run a custom extension, ensure `manifest.engine.bundled:
+  true` and run `zveltio extension pack` once. Community-tier
+  extensions must additionally set `engine.isolation: 'worker'`.
+- Default Bun.SQL idle timeout is now 5 min (was 30s). Override
+  via `BUN_SQL_IDLE_TIMEOUT_MS` for memory-constrained deployments.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
 ## [1.0.0-alpha.129] - 2026-05-31
 
 ### Marketplace review queue (code complete; ops process pending)
