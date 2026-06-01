@@ -45,6 +45,10 @@ jobs:
       PGPORT: '5432'
       PGUSER: postgres
       PGPASSWORD: postgres
+      # PGDATABASE is what psql/pg_dump fall back to when no -d / positional
+      # database is passed. Without this, the seed + source-count steps below
+      # connect to the default `postgres` DB and miss the schema entirely.
+      PGDATABASE: zveltio_drill
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_drill
     steps:
       - uses: actions/checkout@v4
