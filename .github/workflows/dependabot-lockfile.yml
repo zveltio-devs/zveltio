@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # `pull_request_target` defaults to checking out the BASE.
           # We need the PR head so `bun install` sees the bumped
