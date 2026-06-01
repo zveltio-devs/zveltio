@@ -56,12 +56,17 @@ jobs:
         with:
           bun-version: 'latest'
 
-      - name: Install Postgres client tools
+      - name: Install Postgres 18 client tools
         # The `pgvector/pgvector:pg18` image only ships the server.
-        # Need psql + pg_dump on the runner side for the round-trip.
+        # Ubuntu 24.04's default `postgresql-client` is pg16 — pg_dump 16
+        # refuses to dump a pg18 server ("aborting because of server
+        # version mismatch"). Pull the matching client from PGDG.
         run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
-          sudo apt-get install -y postgresql-client-common postgresql-client
+          sudo apt-get install -y postgresql-client-18
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
