@@ -239,7 +239,10 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
       // Registry exposes `is_official` on the catalog list response;
       // anything that isn't explicitly first-party is treated as a
       // community submission and must run in worker isolation.
-      is_official: e.is_official === true,
+      // D1/SQLite returns booleans as integers (0/1), so coerce here —
+      // a strict `=== true` flagged all 54 first-party extensions as
+      // community submissions and blocked every enable.
+      is_official: e.is_official === true || e.is_official === 1,
     }));
   } catch (err) {
     console.warn(
