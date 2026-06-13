@@ -26,7 +26,12 @@ import { auth } from './auth.js';
 import { checkPermission, getUserRoles } from './permissions.js';
 import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.js';
-import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
+import {
+  EXTENSION_CATALOG,
+  resolvePublisherTier,
+  tierAllowsInline,
+  type ExtensionCatalogEntry,
+} from './extension-catalog.js';
 import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
 import { dynamicInsert } from '../db/dynamic.js';
@@ -243,6 +248,16 @@ async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
       // a strict `=== true` flagged all 54 first-party extensions as
       // community submissions and blocked every enable.
       is_official: e.is_official === true || e.is_official === 1,
+      // Three-tier model (registry migration 010). When the registry is
+      // new enough to send `publisher_tier`, carry it through so verified
+      // partners are allowed to run inline. Older registries omit it and
+      // the loader falls back to `is_official` via resolvePublisherTier().
+      publisher_tier:
+        e.publisher_tier === 'first-party' ||
+        e.publisher_tier === 'verified' ||
+        e.publisher_tier === 'community'
+          ? e.publisher_tier
+          : undefined,
     }));
   } catch (err) {
     console.warn(
@@ -1355,12 +1370,16 @@ class ExtensionLoader {
         const isBundled = manifest.engine?.bundled === true;
         const extBase = resolveExtensionsBase();
 
-        // MARKETPLACE-POLICY.md §2 enforcement: third-party (community)
-        // extensions must opt into worker isolation. Lookup the catalog
-        // entry — if it's NOT explicitly is_official=true, we treat it
-        // as a community submission. Local hardcoded catalog defaults
-        // is_official to true via fetchRegistryCatalog merging, so the
+        // MARKETPLACE-POLICY.md §2 enforcement: publisher tier governs
+        // whether an extension may run inline. The registry catalog
+        // carries `publisher_tier` (migration 010); older registries
+        // omit it and resolvePublisherTier() falls back to is_official
+        // (official → first-party, otherwise → community). Local
+        // hardcoded catalog entries default to is_official=true, so the
         // 54 first-party + smoke fixtures stay exempt.
+        //
+        //   first-party / verified → inline allowed
+        //   community (or unknown) → worker REQUIRED
         //
         // Two operator overrides:
         //   ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 — trusted self-hosted,
@@ -1391,17 +1410,20 @@ class ExtensionLoader {
           }
           if (catalog) {
             const catEntry = catalog.find((e) => e.name === extName);
-            if (catEntry && catEntry.is_official !== true) {
-              const msg =
-                `Extension "${extName}" is a third-party submission ` +
-                `(catalog.is_official is not true) but does not declare ` +
-                `engine.isolation: "worker". Per MARKETPLACE-POLICY §2, ` +
-                `community extensions must run in worker isolation. ` +
-                `Republish with isolation: "worker" or, for trusted ` +
-                `self-hosted installs, set ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
-              this.lastLoadError.set(extName, msg);
-              console.error(`❌ ${msg}`);
-              return;
+            if (catEntry) {
+              const tier = resolvePublisherTier(catEntry);
+              if (!tierAllowsInline(tier)) {
+                const msg =
+                  `Extension "${extName}" is a ${tier} submission but does ` +
+                  `not declare engine.isolation: "worker". Per ` +
+                  `MARKETPLACE-POLICY §2, ${tier} extensions must run in ` +
+                  `worker isolation. Republish with isolation: "worker" ` +
+                  `or, for trusted self-hosted installs, set ` +
+                  `ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
+                this.lastLoadError.set(extName, msg);
+                console.error(`❌ ${msg}`);
+                return;
+              }
             }
           }
         }
