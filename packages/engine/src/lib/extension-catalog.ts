@@ -18,8 +18,44 @@ export interface ExtensionCatalogEntry {
    * Local hardcoded entries default to `true` (the 54 official + the
    * smoke fixtures); the registry-merged path sets this from the
    * `is_official` column on the marketplace DB.
+   *
+   * @deprecated Prefer `publisher_tier` — `is_official` is retained for
+   * backward compatibility with older registries that don't surface the
+   * tier. Treat `is_official === true` as `publisher_tier === 'first-party'`.
    */
   is_official?: boolean;
+  /**
+   * Publisher trust tier (MARKETPLACE-POLICY §2). Drives isolation
+   * enforcement at enable:
+   *   - `first-party` / `verified` → may run `isolation: 'inline'`
+   *   - `community` (or unknown)   → MUST declare `isolation: 'worker'`
+   *
+   * Populated from the registry catalog (`publisher_tier` column, added
+   * in registry migration 010). When absent — older registries, local
+   * hardcoded entries — the loader falls back to `is_official`:
+   * official → first-party, otherwise → community.
+   */
+  publisher_tier?: 'first-party' | 'verified' | 'community';
+}
+
+/**
+ * Resolve the effective publisher tier for an entry, with the
+ * `is_official` fallback for catalogs that predate `publisher_tier`.
+ * Single source of truth so the catalog mapper and the enable-time
+ * enforcement agree.
+ */
+export function resolvePublisherTier(
+  entry: Pick<ExtensionCatalogEntry, 'publisher_tier' | 'is_official'>,
+): 'first-party' | 'verified' | 'community' {
+  if (entry.publisher_tier) return entry.publisher_tier;
+  return entry.is_official ? 'first-party' : 'community';
+}
+
+/** Whether a tier may run inline (vs. requiring worker isolation). */
+export function tierAllowsInline(
+  tier: 'first-party' | 'verified' | 'community',
+): boolean {
+  return tier === 'first-party' || tier === 'verified';
 }
 
 export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
