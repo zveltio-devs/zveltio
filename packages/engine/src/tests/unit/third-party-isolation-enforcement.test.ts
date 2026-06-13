@@ -3,17 +3,25 @@ import { describe, it, expect } from 'bun:test';
 /**
  * Third-party isolation enforcement — alpha.124 closed the gap
  * between MARKETPLACE-POLICY.md §2 (worker mandatory for community
- * submissions) and the runtime. This test pins the decision logic
- * the loader runs at enable time.
+ * submissions) and the runtime. beta.2 extended the binary
+ * official/community decision into the full three-tier model
+ * (first-party / verified / community) so verified partners may run
+ * inline. This test pins the decision logic the loader runs at enable
+ * time.
  *
- * Rather than spinning up the full extension loader (which pulls in
- * the entire engine), we replicate the exact predicate. If the
- * production code changes, this test updates accordingly.
+ * The tier-resolution helpers come straight from the production
+ * extension-catalog module; the surrounding decision flow replicates
+ * the loader predicate. If the production code changes, this test
+ * updates accordingly.
  */
+import { resolvePublisherTier, tierAllowsInline } from '../../lib/extension-catalog.js';
+
+type PublisherTier = 'first-party' | 'verified' | 'community';
 
 interface CatalogEntry {
   name: string;
   is_official?: boolean;
+  publisher_tier?: PublisherTier;
 }
 
 interface ManifestEngineBlock {
@@ -49,9 +57,12 @@ function decide(input: PolicyDecisionInput): Decision {
     return { allow: false, reason: 'catalog-required-but-missing' };
   }
 
-  // Default: if catalog says is_official=true (or extension is local
-  // hardcoded, where default is true), allow inline. Otherwise refuse.
-  if (catalog?.is_official === true) return { allow: true };
+  // Tier-driven: first-party / verified may run inline; community (or
+  // unknown, which resolves to community) must declare worker.
+  if (catalog) {
+    const tier = resolvePublisherTier(catalog);
+    if (tierAllowsInline(tier)) return { allow: true };
+  }
 
   // Unknown extension OR explicitly community → refuse without worker.
   return { allow: false, reason: 'community-no-worker' };
@@ -76,6 +87,48 @@ describe('third-party isolation enforcement (alpha.124)', () => {
         envAllowInlineThirdParty: false,
       }),
     ).toEqual({ allow: true });
+  });
+
+  it('allows verified-tier inline (beta.2 — verified may run inline)', () => {
+    expect(
+      decide({
+        catalog: { name: 'acme-crm', is_official: false, publisher_tier: 'verified' },
+        engine: { isolation: 'inline' },
+        envAllowInlineThirdParty: false,
+      }),
+    ).toEqual({ allow: true });
+  });
+
+  it('allows first-party-tier inline via publisher_tier (not just is_official)', () => {
+    expect(
+      decide({
+        catalog: { name: 'crm', publisher_tier: 'first-party' },
+        engine: { isolation: 'inline' },
+        envAllowInlineThirdParty: false,
+      }),
+    ).toEqual({ allow: true });
+  });
+
+  it('refuses community-tier inline even when publisher_tier is explicit', () => {
+    const decision = decide({
+      catalog: { name: 'newcomer', is_official: false, publisher_tier: 'community' },
+      engine: { isolation: 'inline' },
+      envAllowInlineThirdParty: false,
+    });
+    expect(decision.allow).toBe(false);
+    expect((decision as { reason: string }).reason).toBe('community-no-worker');
+  });
+
+  it('publisher_tier takes precedence over is_official when both present', () => {
+    // A row that's is_official=false but tier=verified (e.g. a verified
+    // partner) must be allowed inline — the tier wins.
+    expect(
+      decide({
+        catalog: { name: 'partner-ext', is_official: false, publisher_tier: 'verified' },
+        engine: { isolation: 'inline' },
+        envAllowInlineThirdParty: false,
+      }).allow,
+    ).toBe(true);
   });
 
   it('refuses community inline (the load-bearing enforcement)', () => {
