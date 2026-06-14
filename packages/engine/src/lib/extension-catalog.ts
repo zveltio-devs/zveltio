@@ -52,9 +52,7 @@ export function resolvePublisherTier(
 }
 
 /** Whether a tier may run inline (vs. requiring worker isolation). */
-export function tierAllowsInline(
-  tier: 'first-party' | 'verified' | 'community',
-): boolean {
+export function tierAllowsInline(tier: 'first-party' | 'verified' | 'community'): boolean {
   return tier === 'first-party' || tier === 'verified';
 }
 

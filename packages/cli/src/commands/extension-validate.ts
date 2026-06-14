@@ -233,9 +233,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   if (isolation === 'worker') {
     console.log(`  Isolation:     ${c.green('worker (runs in any tier)')}`);
   } else if (inlineOk) {
-    console.log(
-      `  Isolation:     ${c.dim(`inline (${resolved.tier} — allowed, via ${tierSrc})`)}`,
-    );
+    console.log(`  Isolation:     ${c.dim(`inline (${resolved.tier} — allowed, via ${tierSrc})`)}`);
   } else {
     console.log(
       `  Isolation:     ${c.red(`inline — ${resolved.tier} publishers MUST use 'worker'`)}`,
