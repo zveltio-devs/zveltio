@@ -61,24 +61,28 @@ jobs:
           cd packages/sdk-vue && bun run build && cd -
           cd packages/cli && bun run build && cd -
 
-      # NOTE: deliberately NO `registry-url` here. setup-node's registry-url
-      # writes an .npmrc with `_authToken=${NODE_AUTH_TOKEN}` and exports a
-      # placeholder token, which makes npm attempt (failing) token auth and
-      # never fall through to OIDC. Default registry is npmjs.org anyway.
+      # Trusted publishing needs the registry CONFIGURED (so npm knows where
+      # to run the OIDC exchange) but WITHOUT a token. setup-node's
+      # registry-url gives us the registry + the NPM_CONFIG_USERCONFIG path,
+      # but it also writes a placeholder `_authToken` that makes npm attempt
+      # (failing) token auth instead of OIDC — we strip that below.
+      # Node must be >= 22.14.0 for OIDC trusted publishing (npm docs).
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
 
-      # Trusted Publishing (OIDC) requires npm >= 11.5.1. Node 22 ships
-      # npm 10.x, so upgrade explicitly. With a trusted publisher
-      # configured on npmjs.com for each package (org/repo + this workflow)
-      # and `id-token: write` above, `npm publish` authenticates via the
-      # GitHub OIDC token — NO npm token needed, nothing to expire.
-      # Provenance is attached automatically under trusted publishing.
-      - name: Upgrade npm for trusted publishing
+      # Trusted Publishing (OIDC) requires npm >= 11.5.1. Upgrade explicitly,
+      # then replace the user .npmrc with a registry-only config (no token).
+      # With `id-token: write` above and a trusted publisher configured on
+      # npmjs.com for each package (org/repo + this workflow), `npm publish`
+      # authenticates via the GitHub OIDC token — NO npm token, nothing to
+      # expire. Provenance is attached automatically.
+      - name: Upgrade npm + clear token placeholder for OIDC
         run: |
           npm install -g npm@latest
           echo "npm version: $(npm --version)"
+          printf 'registry=https://registry.npmjs.org/\n' > "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
 
       - name: Publish to npm (OIDC trusted publishing)
         run: |
