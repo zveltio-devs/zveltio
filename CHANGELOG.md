@@ -2,6 +2,30 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.1] - 2026-06-14
+
+### Version line realigned to 3.x
+
+The version jumps from `1.0.0-beta.3` to `3.0.0-beta.1`. This is a
+**numbering correction, not a feature release** — the code is identical
+to `1.0.0-beta.3`.
+
+Why: early in the project a handful of npm packages (`@zveltio/sdk`,
+`@zveltio/cli`, `@zveltio/react`, `@zveltio/vue`) were mistakenly
+published at `2.0.x`, which can never be unpublished or reused. Staying
+on the `1.0.0` line meant `npm i` resolved to those orphaned `2.0.x`
+builds, and a future legitimate `2.0.0` would have collided with them
+permanently. Moving to `3.0.0` puts every package cleanly above the
+orphans: `npm i` now resolves to real code, npm sets `latest`
+automatically at the `3.0.0` stable, and there is no future collision.
+
+**Still beta.** "beta" is the platform maturity (expressed via the
+release `channel` + the `-beta.N` suffix), independent of the now-3.x
+version number. The extensions + marketplace API remain API-stable;
+engine internals + Studio keep iterating toward stable `3.0.0`.
+
+Everything in `1.0.0-beta.3` below ships unchanged under this version.
+
 ## [1.0.0-beta.3] - 2026-06-14
 
 ### Three-tier marketplace publisher policy (first-party / verified / community)
