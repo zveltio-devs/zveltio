@@ -50,8 +50,11 @@ async function createExtension(name: string, category: string) {
         displayName: name,
         description: `${name} extension for Zveltio`,
         version: '1.0.0',
-        zveltioMinVersion: '2.0.0',
-        zveltioMaxVersion: '3.0.0',
+        // Broad, current-line compatible: matches the first-party
+        // extensions ([1.0.0, 4.0.0]) so a freshly scaffolded extension
+        // loads on the 3.x engine. Bump the max when the platform nears 4.0.
+        zveltioMinVersion: '1.0.0',
+        zveltioMaxVersion: '4.0.0',
         permissions: ['database'],
         contributes: { engine: true, studio: true, fieldTypes: [] },
       },
