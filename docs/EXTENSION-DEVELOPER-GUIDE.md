@@ -1416,6 +1416,60 @@ Inspect runtime state at `GET /api/admin/extensions/health`:
 }
 ```
 
+### How the tier is decided — and what the CLI does for you
+
+Your **publisher tier** (not a per-extension setting) determines which
+isolation values you're allowed to ship:
+
+| Publisher tier | `engine.isolation` allowed | How you get it |
+|----------------|----------------------------|----------------|
+| `first-party`  | `inline` or `worker`       | Zveltio team (the 54 official extensions) |
+| `verified`     | `inline` or `worker`       | Enrolled by a marketplace admin after review of your identity / track record |
+| `community`    | `worker` only              | Default for any newly enrolled publisher |
+
+The registry stores your tier against your signing key
+(`allowed_publishers.tier`) and exposes it at
+`GET /api/dev/publisher/self`. Enforcement runs at **four** points so
+you never get surprised late:
+
+1. **`extension pack`** — if `engine.isolation` isn't already set, the
+   CLI resolves your tier and **auto-injects `"isolation": "worker"`**
+   for community publishers. First-party / verified keep the inline
+   default. Pass `--first-party` for vendor / monorepo builds (offline,
+   no registry call), or set `ZVELTIO_REGISTRY_TOKEN` so a verified tier
+   is confirmed.
+2. **`extension validate`** — hard-fails (exit 1) if a community
+   publisher ships `inline`. Same tier resolution as pack.
+3. **`extension publish` / registry submit** — the registry re-checks
+   and returns `422 ISOLATION_POLICY_VIOLATION` rather than letting an
+   un-enable-able extension into the review queue.
+4. **engine enable** — final backstop: the loader refuses inline for a
+   community/unknown publisher (`ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1`
+   overrides this on trusted self-hosted installs only).
+
+#### Before your first publish
+
+```bash
+# 1. Generate + export your signing key, email it for enrollment
+zveltio keys generate
+zveltio keys export <keyId>   # → marketplace@zveltio.com
+
+# 2. Check what tier you've been granted
+curl -H "Authorization: Bearer $ZVELTIO_REGISTRY_TOKEN" \
+  https://registry.zveltio.com/api/dev/publisher/self   # → { "tier": "...", "allows_inline": ... }
+
+# 3. Pack — community publishers get worker auto-injected
+zveltio extension pack
+
+# 4. Publish
+ZVELTIO_REGISTRY_TOKEN=zvt_… zveltio extension publish
+```
+
+If you're a community publisher and you'd rather ship `inline` for
+performance, you need to be enrolled as `verified` first — open a
+request with the marketplace admins. There's no self-service path to
+inline for unaudited code; that's the whole point of §2.
+
 ### Tier 3 — subprocess / WASM (not implemented)
 
 True OS-level RSS isolation, OOM-kill per extension, sandboxed

@@ -58,6 +58,8 @@ export interface ExtensionPublishOptions {
   keyId?: string;
   /** Dry-run — go through validate + build but skip archive/sign/publish. */
   dryRun?: boolean;
+  /** First-party (vendor / monorepo) — allow inline isolation offline. */
+  firstParty?: boolean;
 }
 
 interface Manifest {
@@ -132,9 +134,12 @@ async function runStudioBuild(dir: string): Promise<void> {
   if (code !== 0) throw new Error(`Studio build failed (exit ${code})`);
 }
 
-async function runEnginePack(dir: string): Promise<void> {
+async function runEnginePack(
+  dir: string,
+  tierOpts: { firstParty?: boolean; token?: string; registryUrl?: string },
+): Promise<void> {
   if (!existsSync(join(dir, 'engine', 'index.ts'))) return;
-  await extensionPackCommand({ dir });
+  await extensionPackCommand({ dir, ...tierOpts });
 }
 
 async function uploadToRegistry(opts: {
@@ -198,7 +203,16 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   if (runValidate) {
     console.log(`\n${c.bold('Step 1/5: validate')}`);
     try {
-      await extensionValidateCommand({ dir, silentExit: true });
+      // Pass tier-resolution inputs so validate's §2 isolation gate uses
+      // the same publisher tier publish will. With a token, a verified
+      // partner's inline extension passes; without, community is assumed.
+      await extensionValidateCommand({
+        dir,
+        silentExit: true,
+        firstParty: opts.firstParty,
+        token,
+        registryUrl,
+      });
     } catch (e) {
       console.error(c.red(`Validate failed: ${(e as Error).message}`));
       process.exit(1);
@@ -213,7 +227,11 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   if (runPackStep) {
     console.log(`\n${c.bold('Step 2/6: pack engine')}`);
     try {
-      await runEnginePack(dir);
+      await runEnginePack(dir, {
+        firstParty: opts.firstParty,
+        token,
+        registryUrl,
+      });
       // Re-read manifest — pack patched engine + integrity blocks.
       manifest = readManifest(dir);
     } catch (e) {
@@ -345,6 +363,30 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
         ),
       );
       process.exit(2);
+    } else if (result.status === 422) {
+      // Most likely the §2 isolation gate. Surface the structured fields
+      // instead of a raw body dump.
+      let parsed: { error?: string; code?: string; docs?: string } = {};
+      try {
+        parsed = JSON.parse(result.body);
+      } catch {
+        /* fall back to raw */
+      }
+      if (parsed.code === 'ISOLATION_POLICY_VIOLATION') {
+        console.error(c.red(`  HTTP 422 — isolation policy violation.`));
+        console.error(c.dim(`  ${parsed.error ?? result.body.slice(0, 300)}`));
+        console.error(
+          c.dim(
+            '  Re-pack with engine.isolation: "worker" (community publishers), ' +
+              'or enroll as a verified publisher to ship inline.',
+          ),
+        );
+        if (parsed.docs) console.error(c.dim(`  ${parsed.docs}`));
+      } else {
+        console.error(c.red(`  HTTP 422 — ${parsed.error ?? 'submission rejected'}.`));
+        console.error(c.dim(`  Body: ${result.body.slice(0, 400)}`));
+      }
+      process.exit(1);
     } else {
       console.error(c.red(`  HTTP ${result.status} — upload failed.`));
       console.error(c.dim(`  Body: ${result.body.slice(0, 400)}`));

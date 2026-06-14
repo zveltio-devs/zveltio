@@ -13,6 +13,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { validateExtension, type ValidationError } from '@zveltio/sdk/validate';
 import { parseSchema } from '@zveltio/sdk/codegen';
+import { resolvePublisherTier, tierAllowsInline } from '../lib/publisher-tier.js';
 
 // ANSI helpers
 const c = {
@@ -46,9 +47,15 @@ export interface ExtensionValidateOptions {
   dir?: string;
   /** Suppress process.exit on validation failure (useful for embedding). */
   silentExit?: boolean;
-  /** Silence the community-isolation warning (vendor builds where
-   *  the publisher already has first-party signing). */
+  /** Treat the publisher as first-party (vendor builds, monorepo) —
+   *  allows inline isolation offline without a registry lookup. */
   firstParty?: boolean;
+  /** Registry token for the publisher-tier lookup. Defaults to
+   *  ZVELTIO_REGISTRY_TOKEN. When present and the publisher is
+   *  verified/first-party, inline isolation passes. */
+  token?: string;
+  /** Registry base URL for the tier lookup. */
+  registryUrl?: string;
 }
 
 function recursiveSize(dir: string): number {
@@ -200,28 +207,60 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
               : c.dim('unknown');
   console.log(`  Manifest v2:   ${v2Label}`);
 
-  // MARKETPLACE-POLICY §2 reminder: community / third-party submissions
-  // MUST declare engine.isolation: 'worker'. The engine enforces this
-  // at enable time (alpha.124) but authors find out late. Flag at
-  // validate time so the publisher sees it before pushing to registry.
-  // First-party publishers (Zveltio team, registered with --first-party)
-  // are exempt — they can ship inline.
+  // MARKETPLACE-POLICY §2 enforcement: community submissions MUST declare
+  // engine.isolation: 'worker'. The engine refuses inline community
+  // extensions at enable, so we hard-fail here (beta.2) instead of just
+  // warning — authors should never get to the review queue with an
+  // extension nobody can enable.
+  //
+  // Tier resolution: --first-party (offline) → first-party; else a
+  // registry lookup when a token is present (verified partners pass);
+  // else community (strictest). resolvePublisherTier never throws.
   const isolation = m?.engine?.isolation ?? 'inline';
-  if (opts.firstParty) {
-    console.log(`  Isolation:     ${c.dim(`${isolation} (first-party — inline allowed)`)}`);
-  } else if (isolation === 'worker') {
-    console.log(`  Isolation:     ${c.green('worker (community-ready)')}`);
+  const resolved = await resolvePublisherTier({
+    firstParty: opts.firstParty,
+    token: opts.token,
+    registryUrl: opts.registryUrl,
+  });
+  const inlineOk = tierAllowsInline(resolved.tier);
+  const tierSrc =
+    resolved.source === 'flag'
+      ? '--first-party'
+      : resolved.source === 'registry'
+        ? 'registry'
+        : 'default';
+
+  if (isolation === 'worker') {
+    console.log(`  Isolation:     ${c.green('worker (runs in any tier)')}`);
+  } else if (inlineOk) {
+    console.log(
+      `  Isolation:     ${c.dim(`inline (${resolved.tier} — allowed, via ${tierSrc})`)}`,
+    );
   } else {
     console.log(
-      `  Isolation:     ${c.yellow(`${isolation} — community submissions MUST use 'worker'`)}`,
-    );
-    console.log(
-      c.dim(
-        '  See docs/MARKETPLACE-POLICY.md §2. Pass --first-party to silence this for vendor builds.',
-      ),
+      `  Isolation:     ${c.red(`inline — ${resolved.tier} publishers MUST use 'worker'`)}`,
     );
   }
   console.log('');
+
+  if (isolation !== 'worker' && !inlineOk) {
+    console.error(
+      c.red(
+        `Validation failed: ${resolved.tier} publishers must declare ` +
+          `engine.isolation: "worker" (MARKETPLACE-POLICY §2).`,
+      ),
+    );
+    console.error(
+      c.dim(
+        '  Add `"isolation": "worker"` to the engine block in manifest.json, ' +
+          'then re-pack. If you are a verified/first-party publisher, pass ' +
+          '--first-party or set ZVELTIO_REGISTRY_TOKEN so the tier can be confirmed. ' +
+          'See docs/MARKETPLACE-POLICY.md §2.',
+      ),
+    );
+    if (opts.silentExit) throw new Error('Validation failed: community inline isolation');
+    process.exit(1);
+  }
 
   // beta.1: hard-fail v1 manifests AND partial v2. All 54 first-party
   // extensions are v2; any v1 today is either dev-time work-in-progress

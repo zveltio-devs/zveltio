@@ -273,10 +273,15 @@ Next steps:
   3. Run \`bunx @zveltio/cli extension pack\` to build the bundle
   4. Enable the extension: ZVELTIO_EXTENSIONS=${category}/${safeName}
 
-For third-party / untrusted code, add to manifest.json:
-  "engine": { ..., "isolation": "worker" }
-This runs the extension in a Bun.Worker with crash isolation and no DB
-credentials. See https://github.com/zveltio-devs/zveltio/blob/master/docs/EXTENSION-DEVELOPER-GUIDE.md#135-isolation-tiers-be-honest-about-what-you-ship
+Isolation (MARKETPLACE-POLICY §2):
+  Community publishers MUST run in worker isolation. \`extension pack\`
+  auto-sets "engine": { ..., "isolation": "worker" } for you unless it can
+  confirm you're a verified/first-party publisher (via --first-party or a
+  registry token). Worker mode = Bun.Worker with crash isolation and no
+  direct DB credentials.
+
+  First-party / vendor builds that want inline isolation: pack with
+  --first-party. See https://github.com/zveltio-devs/zveltio/blob/master/docs/EXTENSION-DEVELOPER-GUIDE.md#135-isolation-tiers-be-honest-about-what-you-ship
 `);
 }
 

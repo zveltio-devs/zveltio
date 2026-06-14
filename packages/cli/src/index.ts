@@ -209,6 +209,9 @@ ext
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
   .option('--sourcemap', 'Emit engine/index.js.map alongside the bundle')
   .option('--no-manifest-update', 'Build the bundle but do not patch manifest.json')
+  .option('--first-party', 'Vendor / monorepo build — keep inline isolation, skip worker auto-inject')
+  .option('--token <token>', 'Registry token for the publisher-tier lookup (env: ZVELTIO_REGISTRY_TOKEN)')
+  .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
   .action(async (opts) => {
     const { extensionPackCommand } = await import('./commands/extension-pack.js');
     return extensionPackCommand(opts);
@@ -226,6 +229,7 @@ ext
   .option('--no-pack', 'Skip engine pack (use existing engine/index.js if present)')
   .option('--no-validate', 'Skip the validate step (NOT recommended)')
   .option('--dry-run', 'Run validate + pack + build, skip archive/sign/upload')
+  .option('--first-party', 'Vendor / monorepo build — allow inline isolation (skip §2 worker requirement)')
   .action((opts) => extensionPublishCommand(opts));
 
 ext
@@ -252,7 +256,9 @@ ext
     'Pre-publish checks: manifest schema, peerDeps allow-list, migrations parse, destructive DDL has DOWN, bundle quota (S4-04)',
   )
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
-  .option('--first-party', 'Vendor build (silence MARKETPLACE-POLICY §2 worker-isolation warning)')
+  .option('--first-party', 'Vendor / monorepo build — allow inline isolation (skip §2 worker requirement)')
+  .option('--token <token>', 'Registry token for the publisher-tier lookup (env: ZVELTIO_REGISTRY_TOKEN)')
+  .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
   .action((opts) => extensionValidateCommand(opts));
 
 // ── zveltio keys <subcommand> ────────────────────────────────────────────────
