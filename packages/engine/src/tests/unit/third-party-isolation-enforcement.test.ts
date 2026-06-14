@@ -29,6 +29,14 @@ interface ManifestEngineBlock {
 }
 
 interface PolicyDecisionInput {
+  /**
+   * The matched catalog entry, or null. Two distinct null meanings,
+   * disambiguated by `catalogFetchFailed`:
+   *   - catalog loaded but this extension is ABSENT → unknown/unaudited
+   *     → treated as community (refuse inline)
+   *   - catalog couldn't be fetched at all          → fall back per
+   *     `envRequireCatalog`
+   */
   catalog: CatalogEntry | null;
   engine: ManifestEngineBlock | undefined;
   envAllowInlineThirdParty: boolean;
@@ -57,14 +65,15 @@ function decide(input: PolicyDecisionInput): Decision {
     return { allow: false, reason: 'catalog-required-but-missing' };
   }
 
-  // Tier-driven: first-party / verified may run inline; community (or
-  // unknown, which resolves to community) must declare worker.
-  if (catalog) {
-    const tier = resolvePublisherTier(catalog);
-    if (tierAllowsInline(tier)) return { allow: true };
-  }
+  // Registry unreachable + fail-closed OFF (default): the gate can't be
+  // applied, so the engine continues on local-only assumptions rather
+  // than blocking every inline extension during a registry outage.
+  if (catalogFetchFailed) return { allow: true };
 
-  // Unknown extension OR explicitly community → refuse without worker.
+  // Catalog loaded. A matched entry uses its declared tier; an ABSENT
+  // entry is unknown/unaudited and resolves to community (refuse inline).
+  const tier = catalog ? resolvePublisherTier(catalog) : 'community';
+  if (tierAllowsInline(tier)) return { allow: true };
   return { allow: false, reason: 'community-no-worker' };
 }
 
@@ -160,13 +169,19 @@ describe('third-party isolation enforcement (alpha.124)', () => {
     ).toEqual({ allow: true });
   });
 
-  it('extension not in catalog (unknown) is treated as community', () => {
+  it('extension absent from a LOADED catalog (unknown) is refused inline', () => {
+    // catalog loaded successfully (catalogFetchFailed falsy) but the
+    // extension isn't in it → unknown/unaudited → community → refuse.
+    // This is the beta.2 tightening: previously the gate was skipped
+    // when the entry wasn't found, letting a sideloaded inline extension
+    // slip past.
     const decision = decide({
       catalog: null,
       engine: { isolation: 'inline' },
       envAllowInlineThirdParty: false,
     });
     expect(decision.allow).toBe(false);
+    expect((decision as { reason: string }).reason).toBe('community-no-worker');
   });
 
   it('worker isolation ALWAYS passes regardless of catalog status', () => {
@@ -225,5 +240,20 @@ describe('fail-closed mode (ZVELTIO_REQUIRE_CATALOG=1)', () => {
         catalogFetchFailed: true,
       }).allow,
     ).toBe(true);
+  });
+
+  it('inline is ALLOWED when fetch fails and require-catalog is OFF (outage fallback)', () => {
+    // Distinct from "absent from a loaded catalog": here the registry is
+    // unreachable entirely. Blocking every inline extension during an
+    // outage would be worse than the risk, so the gate yields. The
+    // operator opts into fail-closed with ZVELTIO_REQUIRE_CATALOG=1.
+    const decision = decide({
+      catalog: null,
+      engine: { isolation: 'inline' },
+      envAllowInlineThirdParty: false,
+      envRequireCatalog: false,
+      catalogFetchFailed: true,
+    });
+    expect(decision.allow).toBe(true);
   });
 });

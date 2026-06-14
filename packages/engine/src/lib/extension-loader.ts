@@ -1409,21 +1409,32 @@ class ExtensionLoader {
             return;
           }
           if (catalog) {
+            // An extension present in a successfully-loaded catalog uses
+            // its declared tier; one that's ABSENT is unknown/unaudited
+            // and must be treated as community (the strictest tier) —
+            // otherwise a sideloaded inline extension that nobody
+            // published would slip past the gate. The local hardcoded
+            // catalog (the 54 first-party + smoke fixtures) is merged in
+            // by fetchRegistryCatalog(), so genuine first-party
+            // extensions are always found. Trusted self-hosted installs
+            // that deliberately sideload inline code use
+            // ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.
             const catEntry = catalog.find((e) => e.name === extName);
-            if (catEntry) {
-              const tier = resolvePublisherTier(catEntry);
-              if (!tierAllowsInline(tier)) {
-                const msg =
-                  `Extension "${extName}" is a ${tier} submission but does ` +
-                  `not declare engine.isolation: "worker". Per ` +
-                  `MARKETPLACE-POLICY §2, ${tier} extensions must run in ` +
-                  `worker isolation. Republish with isolation: "worker" ` +
-                  `or, for trusted self-hosted installs, set ` +
-                  `ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
-                this.lastLoadError.set(extName, msg);
-                console.error(`❌ ${msg}`);
-                return;
-              }
+            const tier = catEntry ? resolvePublisherTier(catEntry) : 'community';
+            if (!tierAllowsInline(tier)) {
+              const what = catEntry
+                ? `is a ${tier} submission`
+                : `is not in the marketplace catalog (treated as ${tier})`;
+              const msg =
+                `Extension "${extName}" ${what} but does ` +
+                `not declare engine.isolation: "worker". Per ` +
+                `MARKETPLACE-POLICY §2, ${tier} extensions must run in ` +
+                `worker isolation. Republish with isolation: "worker" ` +
+                `or, for trusted self-hosted installs, set ` +
+                `ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
+              this.lastLoadError.set(extName, msg);
+              console.error(`❌ ${msg}`);
+              return;
             }
           }
         }
