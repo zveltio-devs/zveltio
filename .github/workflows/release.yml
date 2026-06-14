@@ -24,7 +24,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: cd packages/sdk && bun run build
       - run: cd packages/studio && bun run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: studio-dist
           path: packages/studio/dist/
@@ -71,13 +71,13 @@ jobs:
           rm -f "$STAGE/studio/bun.lock" "$STAGE/studio/bun.lockb" "$STAGE/studio/package-lock.json"
 
           tar -czf /tmp/studio-source.tar.gz -C "$STAGE" studio sdk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: studio-source
           path: /tmp/studio-source.tar.gz
           retention-days: 1
       - run: cd packages/client && bun run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: client-dist
           path: packages/client/dist/
@@ -342,7 +342,7 @@ jobs:
             --compile \
             --outfile ${{ matrix.binary }} \
             --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.binary }}
           path: ${{ matrix.binary }}
@@ -512,7 +512,7 @@ jobs:
           cp release-assets/* flat-assets/
 
       - name: Upload release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets
           path: flat-assets/
