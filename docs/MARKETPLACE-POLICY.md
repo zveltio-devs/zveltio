@@ -7,7 +7,7 @@
 > Until the team is staffed, community submissions land in `pending`
 > and stay there; nothing auto-publishes.
 
-## 0. Mechanics — what runs in code (alpha.129)
+## 0. Mechanics — what runs in code (alpha.129 → beta.2)
 
 | Mechanic | Where |
 | --- | --- |
@@ -18,7 +18,14 @@
 | Admin endpoints (approve / reject / takedown / pending / publishers) | `zveltio-registry/src/routes/admin.ts` |
 | CLI admin commands: `zveltio admin marketplace ...` | `zveltio/packages/cli/src/commands/admin-marketplace.ts` |
 | Publisher status command: `zveltio extension status <name>` | `zveltio/packages/cli/src/commands/extension-status.ts` |
-| Engine refuses `inline` for non-official extensions at enable | `extension-loader.ts` (alpha.124) |
+| **Publisher tier stored per extension** (`publisher_tier`, captured from the signing key at publish) | migration `010_publisher_tier_on_extensions.sql` |
+| **Single isolation-policy module** (tier → allowed isolation) shared by submit / approve / catalog | `zveltio-registry/src/lib/policy.ts` |
+| **Submit refuses community `inline` with 422** before it enters the queue | `publish.ts` (beta.2) |
+| **Approve re-checks the archive** as a safety net (422 if violated) | `admin.ts` (beta.2) |
+| **Catalog exposes `publisher_tier` + `allows_inline`** | `store.ts` (beta.2) |
+| **`GET /api/dev/publisher/self`** returns the caller's tier (CLI uses it pre-pack) | `dev.ts` (beta.2) |
+| **CLI pack auto-injects `worker`** for community; `validate` hard-fails community `inline` | `extension-pack.ts` / `extension-validate.ts` (beta.2) |
+| Engine reads `publisher_tier` (fallback `is_official`); refuses `inline` for community/unknown at enable | `extension-loader.ts` (alpha.124 → beta.2) |
 | Trust chain: archive SHA-256 verified end-to-end (publisher → R2 → engine) | alpha.123 / .124 |
 | Audit trail (`reviewed_by` / `reviewed_at` / `reviewed_note` / `taken_down_*`) | migration `008_review_queue.sql` |
 
@@ -56,6 +63,15 @@ Every submitted extension MUST:
 | First-party (Zveltio team) | `inline` (default) — full functionality, max speed |
 | Verified partner (vendor-vetted) | `inline` allowed, `worker` recommended |
 | **Community / third-party** | **`worker` REQUIRED** |
+
+The tier lives on `allowed_publishers.tier` and is copied onto each
+extension at publish (`extensions.publisher_tier`). As of beta.2 it is
+**enforced at four points**, not just at enable — see §0. A community
+publisher cannot get an `inline` extension into the queue (submit 422),
+past review (approve 422), or onto an engine (enable refuse); the CLI
+pre-empts all three by auto-injecting `worker` at pack time. Verified
+status is the only route to `inline` for non-first-party code, and it is
+granted manually by an admin via `enroll-publisher --tier verified`.
 
 Worker isolation (`isolation: 'worker'`) gives:
 

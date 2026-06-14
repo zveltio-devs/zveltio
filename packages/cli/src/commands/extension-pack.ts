@@ -33,6 +33,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
+import { resolvePublisherTier } from '../lib/publisher-tier.js';
 
 // Historically this was a list of peer deps allowed to stay external —
 // the engine would install them at enable time into a shared
@@ -57,6 +58,12 @@ export interface ExtensionPackOptions {
   sourcemap?: boolean;
   /** Don't write the manifest with engine + integrity blocks. */
   noManifestUpdate?: boolean;
+  /** First-party (vendor / monorepo) — keep inline, skip the auto-inject. */
+  firstParty?: boolean;
+  /** Registry token for the publisher-tier lookup. */
+  token?: string;
+  /** Registry base URL for the tier lookup. */
+  registryUrl?: string;
 }
 
 interface Manifest {
@@ -197,6 +204,38 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     `  ${c.green('✓')} ${c.bold(`engine/index.js`)} ${c.dim(`(${sizeKb} KB, sha256=${engineSha256.slice(0, 12)}…)`)}`,
   );
 
+  // Resolve the publisher tier so community extensions get worker
+  // isolation auto-injected (MARKETPLACE-POLICY §2). The engine refuses
+  // inline community extensions at enable, so packing one without worker
+  // produces an artifact nobody can turn on. We fix it here rather than
+  // letting the author discover it after a rejected review.
+  //   - explicit isolation in the manifest is always preserved
+  //   - first-party / verified keep the inline default
+  //   - community (or unresolvable tier) → inject worker, loudly
+  let resolvedIsolation = manifest.engine?.isolation;
+  if (!resolvedIsolation) {
+    const resolved = await resolvePublisherTier({
+      firstParty: opts.firstParty,
+      token: opts.token,
+      registryUrl: opts.registryUrl,
+    });
+    if (!resolved.allowsInline) {
+      resolvedIsolation = 'worker';
+      console.log(
+        `  ${c.yellow('⚠')} ${resolved.tier} publisher — auto-set ${c.bold('engine.isolation: "worker"')} ` +
+          `(community extensions can't run inline).`,
+      );
+      if (resolved.source === 'default') {
+        console.log(
+          c.dim(
+            '    Tier defaulted to community (no --first-party flag, no registry token). ' +
+              'If you are verified/first-party, pass --first-party or set ZVELTIO_REGISTRY_TOKEN.',
+          ),
+        );
+      }
+    }
+  }
+
   // Patch manifest with engine + integrity blocks. archive-hash is
   // computed and written by `extension publish` later.
   if (!opts.noManifestUpdate) {
@@ -206,10 +245,9 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
       target: 'bun',
       bundled: true,
       bundlePeers: manifest.engine?.bundlePeers ?? false,
-      // Preserve isolation if the author set it. Default omitted so the
-      // engine schema picks its default ('inline'). Worker mode is
-      // explicitly opt-in for third-party / untrusted extensions.
-      ...(manifest.engine?.isolation ? { isolation: manifest.engine.isolation } : {}),
+      // Preserve author-set or auto-injected isolation. Omitting it lets
+      // the engine schema default to 'inline' (first-party / verified).
+      ...(resolvedIsolation ? { isolation: resolvedIsolation } : {}),
     };
     manifest.integrity = {
       engineSha256,
