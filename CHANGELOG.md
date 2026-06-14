@@ -2,6 +2,45 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [1.0.0-beta.3] - 2026-06-14
+
+### Three-tier marketplace publisher policy (first-party / verified / community)
+
+Extensions now carry a **publisher tier** that governs which isolation
+they may run, enforced end-to-end instead of a binary official/community
+split. Verified partners may ship `inline`; community publishers must use
+`worker`.
+
+- **Registry**: `publisher_tier` column (migration 010), single
+  `policy.ts` module, submit + approve gates returning
+  `422 ISOLATION_POLICY_VIOLATION`, catalog exposes
+  `publisher_tier` + `allows_inline`, new `GET /api/dev/publisher/self`.
+- **Engine**: enable reads `publisher_tier` (falls back to `is_official`
+  for older registries); an extension absent from a loaded catalog is
+  treated as community (refused inline) rather than skipping the gate.
+- **CLI**: `extension pack` auto-injects `isolation: "worker"` for
+  community publishers; `extension validate` hard-fails community
+  `inline`; `extension publish` threads tier resolution and pretty-prints
+  the registry 422. New `--first-party` / `--token` / `--registry-url`
+  flags + `GET /api/dev/publisher/self` lookup.
+- **Review UI** (apps): §2 policy banner (green OK / amber will-fail),
+  Approve disabled on violation, publisher-tier badge in the queue.
+
+### Fixes
+
+- D1 returns booleans as integers; `is_official` is coerced so the engine
+  no longer mis-classifies all 54 first-party extensions as community
+  (the bug that blocked every marketplace enable).
+- DR-smoke weekly workflow: set `PGDATABASE` + install the pg18 client so
+  the dump/restore round-trip runs against the migrated DB.
+
+### Docs
+
+- Alpha track EOL policy + migration callouts; site refresh for beta
+  (extensions / installation / intro); EXTENSION-DEVELOPER-GUIDE §13.5
+  "how the tier is decided" + MARKETPLACE-POLICY §0/§2 four-point
+  enforcement.
+
 ## [1.0.0-beta.2] - 2026-05-31
 
 ### Marketplace admin team (owner-managed review roster)
