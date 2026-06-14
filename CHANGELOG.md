@@ -2,6 +2,20 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.2] - 2026-06-14
+
+### Fixes
+
+- `zveltio --version` read a hardcoded `2.0.0`; now derives from
+  package.json (inlined at build) so it always matches the release.
+- biome format on the tier-policy CLI/engine edits.
+
+### CI
+
+- npm publishing moved to **OIDC Trusted Publishing** — no npm token,
+  nothing to expire. First release published via the GitHub Actions
+  OIDC identity. (Per-package trusted-publisher config on npmjs.com.)
+
 ## [3.0.0-beta.1] - 2026-06-14
 
 ### Version line realigned to 3.x
