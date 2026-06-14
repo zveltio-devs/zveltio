@@ -63,12 +63,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted Publishing (OIDC) requires npm >= 11.5.1. Node 22 ships
+      # npm 10.x, so upgrade explicitly. With a trusted publisher
+      # configured on npmjs.com for each package (org/repo + this workflow)
+      # and `id-token: write` above, `npm publish` authenticates via the
+      # GitHub OIDC token — NO npm token needed, nothing to expire.
+      # Provenance is attached automatically under trusted publishing.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish to npm (OIDC trusted publishing)
         run: |
           for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli; do
             cd $pkg
@@ -80,6 +87,6 @@ jobs:
               continue
             fi
             echo "Publishing ${PKG_NAME}@${PKG_VER} → ${{ inputs.tag }}"
-            npm publish --access public --tag ${{ inputs.tag }} --provenance
+            npm publish --access public --tag ${{ inputs.tag }}
             cd -
           done
