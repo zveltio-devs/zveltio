@@ -19,10 +19,13 @@ import { rollbackCommand } from './commands/rollback.js';
 import { versionCommand } from './commands/version-cmd.js';
 import { updateCommand } from './commands/update.js';
 import { statusCommand } from './commands/status.js';
+// Inlined by `bun build` at publish time — always matches package.json,
+// so `zveltio --version` never drifts (was hardcoded to a stale '2.0.0').
+import pkg from '../package.json' with { type: 'json' };
 
 const program = new Command();
 
-program.name('zveltio').description('The official Zveltio CLI').version('2.0.0');
+program.name('zveltio').description('The official Zveltio CLI').version(pkg.version);
 
 // ── zveltio init [dir] ────────────────────────────────────────────────────────
 program
@@ -209,8 +212,14 @@ ext
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
   .option('--sourcemap', 'Emit engine/index.js.map alongside the bundle')
   .option('--no-manifest-update', 'Build the bundle but do not patch manifest.json')
-  .option('--first-party', 'Vendor / monorepo build — keep inline isolation, skip worker auto-inject')
-  .option('--token <token>', 'Registry token for the publisher-tier lookup (env: ZVELTIO_REGISTRY_TOKEN)')
+  .option(
+    '--first-party',
+    'Vendor / monorepo build — keep inline isolation, skip worker auto-inject',
+  )
+  .option(
+    '--token <token>',
+    'Registry token for the publisher-tier lookup (env: ZVELTIO_REGISTRY_TOKEN)',
+  )
   .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
   .action(async (opts) => {
     const { extensionPackCommand } = await import('./commands/extension-pack.js');
@@ -229,7 +238,10 @@ ext
   .option('--no-pack', 'Skip engine pack (use existing engine/index.js if present)')
   .option('--no-validate', 'Skip the validate step (NOT recommended)')
   .option('--dry-run', 'Run validate + pack + build, skip archive/sign/upload')
-  .option('--first-party', 'Vendor / monorepo build — allow inline isolation (skip §2 worker requirement)')
+  .option(
+    '--first-party',
+    'Vendor / monorepo build — allow inline isolation (skip §2 worker requirement)',
+  )
   .action((opts) => extensionPublishCommand(opts));
 
 ext
@@ -256,8 +268,14 @@ ext
     'Pre-publish checks: manifest schema, peerDeps allow-list, migrations parse, destructive DDL has DOWN, bundle quota (S4-04)',
   )
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
-  .option('--first-party', 'Vendor / monorepo build — allow inline isolation (skip §2 worker requirement)')
-  .option('--token <token>', 'Registry token for the publisher-tier lookup (env: ZVELTIO_REGISTRY_TOKEN)')
+  .option(
+    '--first-party',
+    'Vendor / monorepo build — allow inline isolation (skip §2 worker requirement)',
+  )
+  .option(
+    '--token <token>',
+    'Registry token for the publisher-tier lookup (env: ZVELTIO_REGISTRY_TOKEN)',
+  )
   .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
   .action((opts) => extensionValidateCommand(opts));
 

@@ -46,18 +46,14 @@ export interface ResolvedTier {
  * Resolve the publisher tier. Never throws — a failed registry lookup
  * degrades to `{ tier: 'community', source: 'default' }`.
  */
-export async function resolvePublisherTier(
-  opts: ResolveTierOptions = {},
-): Promise<ResolvedTier> {
+export async function resolvePublisherTier(opts: ResolveTierOptions = {}): Promise<ResolvedTier> {
   if (opts.firstParty) {
     return { tier: 'first-party', allowsInline: true, source: 'flag' };
   }
 
   const token = opts.token ?? process.env.ZVELTIO_REGISTRY_TOKEN;
   const registryUrl =
-    opts.registryUrl ??
-    process.env.ZVELTIO_REGISTRY_URL ??
-    'https://registry.zveltio.com';
+    opts.registryUrl ?? process.env.ZVELTIO_REGISTRY_URL ?? 'https://registry.zveltio.com';
 
   if (token) {
     try {
