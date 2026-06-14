@@ -61,30 +61,28 @@ jobs:
           cd packages/sdk-vue && bun run build && cd -
           cd packages/cli && bun run build && cd -
 
-      # Trusted publishing needs the registry CONFIGURED (so npm knows where
-      # to run the OIDC exchange) but WITHOUT a token. setup-node's
-      # registry-url gives us the registry + the NPM_CONFIG_USERCONFIG path,
-      # but it also writes a placeholder `_authToken` that makes npm attempt
-      # (failing) token auth instead of OIDC — we strip that below.
-      # Node must be >= 22.14.0 for OIDC trusted publishing (npm docs).
+      # Node >= 22.14.0 + npm >= 11.5.1 are required for OIDC trusted
+      # publishing. registry-url configures the registry (needed for the
+      # OIDC exchange) and a placeholder token .npmrc.
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      # Trusted Publishing (OIDC) requires npm >= 11.5.1. Upgrade explicitly,
-      # then replace the user .npmrc with a registry-only config (no token).
-      # With `id-token: write` above and a trusted publisher configured on
-      # npmjs.com for each package (org/repo + this workflow), `npm publish`
-      # authenticates via the GitHub OIDC token — NO npm token, nothing to
-      # expire. Provenance is attached automatically.
-      - name: Upgrade npm + clear token placeholder for OIDC
+      - name: Upgrade npm
         run: |
           npm install -g npm@latest
           echo "npm version: $(npm --version)"
-          printf 'registry=https://registry.npmjs.org/\n' > "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
 
-      - name: Publish to npm (OIDC trusted publishing)
+      # Hybrid auth: npm 11.5.1+ tries OIDC FIRST when `id-token: write`
+      # (above) + a trusted publisher is configured on npmjs.com for the
+      # package, and falls back to NODE_AUTH_TOKEN otherwise. So this ships
+      # today via the token and auto-switches to tokenless OIDC the moment
+      # the per-package trusted-publisher config is verified — no further
+      # workflow change. Once OIDC is confirmed, delete NPM_TOKEN + this env.
+      - name: Publish to npm (OIDC first, token fallback)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli; do
             cd $pkg
@@ -96,6 +94,6 @@ jobs:
               continue
             fi
             echo "Publishing ${PKG_NAME}@${PKG_VER} → ${{ inputs.tag }}"
-            npm publish --access public --tag ${{ inputs.tag }}
+            npm publish --access public --tag ${{ inputs.tag }} --provenance
             cd -
           done
