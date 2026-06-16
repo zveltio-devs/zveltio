@@ -2,7 +2,7 @@
 
 **Effective:** `1.0.0-beta.1` (2026-05-31)  
 **Last alpha release:** [`v1.0.0-alpha.129`](https://github.com/zveltio-devs/zveltio/releases/tag/v1.0.0-alpha.129)  
-**Current supported line:** **`1.0.0-beta.x`** — install or upgrade to the [latest beta release](https://github.com/zveltio-devs/zveltio/releases/latest).
+**Current supported line:** **`3.0.0-beta.x`** — install or upgrade to the [latest beta release](https://github.com/zveltio-devs/zveltio/releases/latest).
 
 ---
 
@@ -18,14 +18,14 @@ Alpha releases **remain on GitHub** (tags + release assets) for reproducibility,
 
 | If you are on… | Action |
 |----------------|--------|
-| **Nothing installed yet** | Install beta only: `curl -fsSL https://get.zveltio.com/install.sh \| bash` or `zveltio update --version 1.0.0-beta.2` |
+| **Nothing installed yet** | Install beta only: `curl -fsSL https://get.zveltio.com/install.sh \| bash` or `zveltio update --version 3.0.0-beta.3` |
 | **`1.0.0-alpha.111` or newer** | Upgrade to latest beta; DB migrates on startup. See [MIGRATION-ALPHA-TO-BETA.md](./MIGRATION-ALPHA-TO-BETA.md) |
 | **`1.0.0-alpha.110` or older** | Plan a maintenance window — extension manifests and bundled layout differ; migration is **one-way** to beta |
-| **Pinned to a specific alpha in CI** | Unpin; move CI to `1.0.0-beta.2` (or `@latest` beta from [get.zveltio.com/latest.json](https://get.zveltio.com/latest.json)) |
+| **Pinned to a specific alpha in CI** | Unpin; move CI to `3.0.0-beta.3` (or `@latest` beta from [get.zveltio.com/latest.json](https://get.zveltio.com/latest.json)) |
 
 ```bash
 # Recommended upgrade path
-zveltio update --version 1.0.0-beta.2
+zveltio update --version 3.0.0-beta.3
 # or, if you use the installer channel:
 curl -fsSL https://get.zveltio.com/install.sh | bash
 ```
@@ -39,7 +39,7 @@ After upgrade, re-pack or re-install official extensions if `zveltio extension v
 | Line | Status |
 |------|--------|
 | **`1.0.0-alpha.*`** | **EOL** — no new features; no guarantee of fixes except critical security issues discovered in shared code still present in beta |
-| **`1.0.0-beta.x`** | **Active** — supported pre-1.0 line; extension manifest v2 + marketplace API stable per [README Beta caveats](../README.md#beta-caveats) |
+| **`3.0.0-beta.x`** | **Active** — supported pre-1.0 line; extension manifest v2 + marketplace API stable per [README Beta caveats](../README.md#beta-caveats) |
 | **`1.0.0` (stable)** | Target GA — not shipped yet |
 
 Report issues on [GitHub Issues](https://github.com/zveltio-devs/zveltio/issues). When reporting from an alpha install, include the exact tag (e.g. `alpha.129`) and upgrade to beta first if possible.
@@ -65,7 +65,7 @@ Use this block at the top of the beta.1 release notes (edit version if needed):
 [`v1.0.0-alpha.129`](https://github.com/zveltio-devs/zveltio/releases/tag/v1.0.0-alpha.129).
 Alpha releases stay on GitHub for history; we will not ship new alpha versions.
 
-**Upgrade:** `zveltio update --version 1.0.0-beta.2` (or latest beta from
+**Upgrade:** `zveltio update --version 3.0.0-beta.3` (or latest beta from
 https://get.zveltio.com/latest.json).
 
 **Docs:** [Alpha track EOL](https://github.com/zveltio-devs/zveltio/blob/master/docs/ALPHA-TRACK-EOL.md) ·
