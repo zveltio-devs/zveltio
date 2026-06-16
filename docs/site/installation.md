@@ -167,7 +167,7 @@ zveltio update --check
 zveltio update
 
 # Update to specific version
-zveltio update --version 1.0.0-beta.2
+zveltio update --version 3.0.0-beta.3
 ```
 
 The `update` command backs up your `.env`, pulls the new image/binary, runs migrations, and restarts the engine.
