@@ -28,6 +28,13 @@ jobs:
         run: cd packages/sdk && bun run build
       - name: Type check engine
         run: cd packages/engine && bun run typecheck
+      - name: Type check CLI
+        # The CLI ships the publish/pack/validate tooling. A TS error here
+        # (e.g. a bad cast in a test) previously slipped through because CI
+        # only typechecked the engine. Keep it gated.
+        run: cd packages/cli && bun run typecheck
+      - name: Type check SDK
+        run: cd packages/sdk && bun run typecheck
       - name: Audit regression check
         # Fail the build if any privileged route has lost its auditLog() call.
         # See scripts/audit-regression-check.ts for the maintained list.
