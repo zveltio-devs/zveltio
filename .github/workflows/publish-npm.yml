@@ -86,6 +86,10 @@ jobs:
       # attached automatically. Nothing to expire, nothing to rotate.
       - name: Publish to npm (OIDC trusted publishing)
         run: |
+          # Don't let one package's failure (e.g. a not-yet-configured
+          # trusted publisher) halt the others — attempt all four, collect
+          # failures, and fail the job at the end if any didn't publish.
+          failed=""
           for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli; do
             cd $pkg
             PKG_NAME=$(node -e "console.log(require('./package.json').name)")
@@ -96,6 +100,15 @@ jobs:
               continue
             fi
             echo "Publishing ${PKG_NAME}@${PKG_VER} → ${{ inputs.tag }}"
-            npm publish --access public --tag ${{ inputs.tag }}
+            if npm publish --access public --tag ${{ inputs.tag }}; then
+              echo "✓ ${PKG_NAME}@${PKG_VER} published"
+            else
+              echo "✗ ${PKG_NAME}@${PKG_VER} FAILED"
+              failed="${failed} ${PKG_NAME}"
+            fi
             cd -
           done
+          if [ -n "$failed" ]; then
+            echo "::error::Failed to publish:${failed}"
+            exit 1
+          fi
