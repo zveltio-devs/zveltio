@@ -25,10 +25,10 @@ const c = {
 };
 
 // Same allow-list as the engine's installer. Kept inline so the CLI doesn't
-// reach across into engine internals. If the engine list grows, this list
-// must grow too (test in `packages/engine/src/tests/unit/peer-deps-allowlist.test.ts`
-// catches drift).
-const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
+// reach across into engine internals at runtime. Exported so a test can
+// assert it stays in sync with the engine's canonical list — see
+// `publisher-tier`-adjacent `peer-deps-allowlist.drift.test.ts`.
+export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
   'node-saml',
   'ldapts',
   'imapflow',
