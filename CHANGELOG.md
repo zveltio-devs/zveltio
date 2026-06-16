@@ -2,6 +2,18 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.3] - 2026-06-16
+
+### CI
+
+- npm publishing is now **pure OIDC Trusted Publishing** — no token.
+  The per-package trusted-publisher config on npmjs.com had the wrong
+  workflow filename (`publish.yml` vs the actual `publish-npm.yml`);
+  corrected on all four packages. `NODE_AUTH_TOKEN` removed from the
+  workflow. Nothing to expire, nothing to rotate.
+
+(No engine/runtime changes from beta.2.)
+
 ## [3.0.0-beta.2] - 2026-06-14
 
 ### Fixes
