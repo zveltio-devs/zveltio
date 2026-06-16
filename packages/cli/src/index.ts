@@ -192,8 +192,9 @@ ext
 
 ext
   .command('build')
-  .description('Build the current extension (.zvext bundle)')
-  .action(() => extensionCommand('build', '', {}));
+  .description('[deprecated] Alias for `extension pack` — produces the v2 engine bundle')
+  .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .action((opts) => extensionCommand('build', '', opts));
 
 ext
   .command('dev')

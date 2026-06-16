@@ -67,7 +67,7 @@ describe('resolvePublisherTier', () => {
   });
 
   it('degrades to community on a network error (never throws)', async () => {
-    globalThis.fetch = (() => Promise.reject(new Error('ECONNREFUSED'))) as typeof fetch;
+    globalThis.fetch = (() => Promise.reject(new Error('ECONNREFUSED'))) as unknown as typeof fetch;
     const r = await resolvePublisherTier({ token: 'zvt_x' });
     expect(r).toEqual({ tier: 'community', allowsInline: false, source: 'default' });
   });

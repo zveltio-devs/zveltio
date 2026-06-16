@@ -1,9 +1,9 @@
 import { existsSync } from 'fs';
-import { mkdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 
 export async function extensionCommand(
-  action: 'create' | 'build' | 'dev' | 'publish',
+  action: 'create' | 'build' | 'dev',
   name: string,
   opts: Record<string, any>,
 ) {
@@ -12,13 +12,10 @@ export async function extensionCommand(
       await createExtension(name, opts.category || 'custom');
       break;
     case 'build':
-      await buildExtension();
+      await buildExtension(opts);
       break;
     case 'dev':
       await devExtension();
-      break;
-    case 'publish':
-      await publishExtension(opts.token);
       break;
   }
 }
@@ -288,38 +285,22 @@ Isolation (MARKETPLACE-POLICY §2):
 `);
 }
 
-async function buildExtension() {
-  console.log('\nBuilding extension...\n');
-
-  if (!existsSync('manifest.json')) {
-    console.error('No manifest.json found. Run this command from an extension directory.');
-    process.exit(1);
-  }
-
-  const manifest = JSON.parse(await readFile('manifest.json', 'utf-8'));
-
-  // Build Studio bundle
-  if (existsSync('studio')) {
-    const studioProc = Bun.spawn(['bun', 'run', 'build'], {
-      cwd: 'studio',
-      stdout: 'inherit',
-      stderr: 'inherit',
-    });
-    const code = await studioProc.exited;
-    if (code !== 0) throw new Error(`Studio build failed with exit code ${code}`);
-    console.log('  Studio bundle built');
-  }
-
-  // Bundle engine TypeScript
-  const engineProc = Bun.spawn(
-    ['bun', 'build', 'engine/index.ts', '--outdir', 'engine/dist', '--target', 'bun'],
-    { stdout: 'inherit', stderr: 'inherit' },
+/**
+ * `extension build` is a deprecated alias. The old pipeline produced a v1
+ * artifact (`engine/dist/` via a bare `bun build`) that the beta+ engine
+ * binary cannot load — it needs the v2 bundle (`engine/index.js` +
+ * manifest integrity) from `extension pack`. Delegate to pack so anyone
+ * still typing `build` gets a loadable artifact, and point them at pack.
+ */
+async function buildExtension(opts: Record<string, any>) {
+  console.warn(
+    '\x1b[33m`zveltio extension build` is deprecated — use `zveltio extension pack`.\x1b[0m',
   );
-  const engineCode = await engineProc.exited;
-  if (engineCode !== 0) throw new Error(`Engine build failed with exit code ${engineCode}`);
-  console.log('  Engine built');
-
-  console.log(`\nExtension built: ${manifest.name} v${manifest.version}`);
+  console.warn(
+    '\x1b[2m  Running pack for you (produces the v2 engine/index.js + integrity).\x1b[0m',
+  );
+  const { extensionPackCommand } = await import('./extension-pack.js');
+  await extensionPackCommand({ dir: opts.dir });
 }
 
 async function devExtension() {
@@ -339,13 +320,4 @@ async function devExtension() {
   });
 
   await studioProc.exited;
-}
-
-async function publishExtension(token?: string) {
-  if (!token) {
-    console.error('Marketplace token required. Use --token <token>');
-    process.exit(1);
-  }
-  console.log('\nPublishing to Zveltio marketplace...');
-  console.log('  (Marketplace coming soon!)');
 }

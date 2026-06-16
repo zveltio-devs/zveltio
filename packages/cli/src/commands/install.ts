@@ -79,7 +79,7 @@ async function installFromPath(
   const enginePkgPath = join(process.cwd(), 'packages/engine/package.json');
   if (existsSync(enginePkgPath)) {
     const enginePkg = JSON.parse(await readFile(enginePkgPath, 'utf-8'));
-    const engineVersion = enginePkg.version || '2.0.0';
+    const engineVersion = enginePkg.version || 'unknown';
     if (manifest.zveltioMinVersion) {
       console.log(
         `  Engine required: >= ${manifest.zveltioMinVersion} (current: ${engineVersion})`,
