@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g. 2.0.0). Must match an existing git tag v<version>.'
+        description: 'Version to publish (e.g. 3.0.0-beta.3). Must match an existing git tag v<version>.'
         required: true
         type: string
       tag:
