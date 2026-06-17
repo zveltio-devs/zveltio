@@ -25,7 +25,10 @@ const PRECACHE = [...build, ...files.filter((f) => !f.endsWith('.map'))];
 
 sw.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)).then(() => sw.skipWaiting()),
+    caches
+      .open(CACHE)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => sw.skipWaiting()),
   );
 });
 
@@ -49,9 +52,7 @@ sw.addEventListener('fetch', (event) => {
 
   // Precached immutable assets → cache-first.
   if (PRECACHE.includes(url.pathname)) {
-    event.respondWith(
-      caches.match(request).then((hit) => hit ?? fetch(request)),
-    );
+    event.respondWith(caches.match(request).then((hit) => hit ?? fetch(request)));
     return;
   }
 
