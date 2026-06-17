@@ -110,6 +110,10 @@ jobs:
         run: cd packages/sdk && bun run build
       - name: Run unit tests
         run: cd packages/engine && bun run test:unit
+      - name: Run CLI tests
+        # Tier-policy resolution + peer-deps allowlist drift guard live in
+        # the CLI; run them in CI (typecheck alone doesn't exercise them).
+        run: cd packages/cli && bun test
 
   integration-tests:
     name: Integration Tests
