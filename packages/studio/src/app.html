@@ -7,6 +7,14 @@
     <meta name="theme-color" content="#4F46E5" />
     <meta name="description" content="Zveltio Admin Studio" />
     <link rel="manifest" href="%sveltekit.assets%/manifest.json" />
+    <!-- PWA install (iOS home screen + standalone display). apple-touch-icon
+         is ideally a PNG; the SVG works on iOS 16+ and can be swapped for a
+         rasterized 180×180 later. -->
+    <link rel="apple-touch-icon" href="%sveltekit.assets%/icon.svg" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Zveltio" />
     <script>
       (function () {
         try {
