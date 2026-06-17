@@ -2,6 +2,7 @@ import type { Database } from '../index.js';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { EMBEDDED_MIGRATIONS } from './embedded.js';
+import { ENGINE_VERSION } from '../../version.js';
 
 // Small Bun-native helpers used in place of node:fs — matches the
 // project rule "Bun.file, Bun.spawn — NOT fs/child_process".
@@ -278,7 +279,7 @@ async function applyMigration(
       name,
       filename,
       checksum,
-      engine_version: process.env.ZVELTIO_VERSION ?? '2.0.0',
+      engine_version: process.env.ZVELTIO_VERSION ?? ENGINE_VERSION,
       execution_ms: executionMs,
     })
     .execute()
