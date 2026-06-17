@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Zveltio">
+  <defs>
+    <linearGradient id="zv-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed background: safe for maskable icons (cropped to any shape). -->
+  <rect width="512" height="512" fill="url(#zv-bg)"/>
+  <!-- Bold Z, centered in the maskable safe zone (~80% of the canvas). -->
+  <path
+    d="M150 168 H362 V214 L236 344 H362 V392 H150 V346 L276 216 H150 Z"
+    fill="#ffffff"
+  />
+</svg>

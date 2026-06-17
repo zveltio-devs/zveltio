@@ -1,20 +1,35 @@
 {
+  "id": "/admin/",
   "name": "Zveltio Studio",
   "short_name": "Zveltio",
   "description": "Zveltio Admin Studio — manage your data, users, and extensions",
   "start_url": "/admin/",
+  "scope": "/admin/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#0b0b12",
   "theme_color": "#4F46E5",
   "orientation": "any",
   "icons": [
     {
+      "src": "/admin/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/admin/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
       "src": "/admin/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
-  "categories": ["productivity", "utilities"],
+  "categories": ["productivity", "business", "utilities"],
   "lang": "en"
 }
