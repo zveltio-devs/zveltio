@@ -2,6 +2,29 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.4] - 2026-06-17
+
+### Studio is now an installable PWA
+
+The admin Studio ships a web app manifest + service worker, so it
+installs to the home screen with an offline app shell. For a
+self-hosted Business OS this is the low-friction mobile path: each
+customer installs their own instance's `/admin` — no app store, instant
+updates. (Capacitor remains the planned "enterprise shell" for
+MDM / iOS push / store presence, on the same Studio.)
+
+- Service worker precaches the hashed app shell; never caches `/api/*`
+  (dynamic + auth-sensitive), non-GET, or cross-origin requests.
+- Manifest: `id` + `scope` `/admin/`, standalone display, dedicated
+  maskable icon. New square brand icon + iOS apple-touch / standalone
+  meta.
+
+### Removed
+
+- `@zveltio/react-native` — redundant with `@zveltio/react` (same hooks,
+  only an AsyncStorage adapter differed) and never published. Mobile
+  goes to PWA + Capacitor, both reusing the SvelteKit Studio.
+
 ## [3.0.0-beta.3] - 2026-06-16
 
 ### CI
