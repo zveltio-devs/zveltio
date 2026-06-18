@@ -105,4 +105,24 @@ for (const extRoot of EXT_ROOTS) {
   }
 }
 
+// Format the freshly-copied files. Extension sources in zveltio-extensions
+// aren't necessarily biome-formatted, so a raw copy leaves the tracked
+// route/lib snapshot dirty after every build (and drifting from what CI's
+// format:check expects). Formatting here makes `sync-ext` idempotent: the
+// committed snapshot == what a re-sync produces == biome-clean. Skipped when
+// nothing synced (e.g. release runner with no extensions sibling — it serves
+// the committed snapshot untouched).
+if (synced > 0) {
+  try {
+    const proc = Bun.spawn(
+      ['bunx', 'biome', 'format', '--write', 'src/routes/(admin)', 'src/lib/ext'],
+      { cwd: STUDIO_ROOT, stdout: 'inherit', stderr: 'inherit' },
+    );
+    const code = await proc.exited;
+    if (code !== 0) console.warn(`[sync-ext] biome format exited ${code}`);
+  } catch (e) {
+    console.warn('[sync-ext] biome format skipped:', (e as Error).message);
+  }
+}
+
 console.log(`[sync-ext] Done — ${synced} extension page(s) synced.`);
