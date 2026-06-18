@@ -2,6 +2,28 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.5] - 2026-06-18
+
+### Studio/client-only extensions are first-class
+
+Extensions that declare `contributes.engine: false` (pure UI — Studio
+components and/or client components) no longer need a no-op engine stub
+to satisfy the pipeline:
+- Engine loader skips the engine-load path for them and registers them
+  active (Studio components are wired by the Studio rebuild). Narrow
+  guard — the 53 engine extensions are unaffected.
+- `extension validate` reports them as `studio-only` (passes); engine
+  files aren't required and the §2 isolation gate is skipped.
+- `content/pdf-viewer` adopted the clean shape — dropped its engine stub
+  + engine/integrity manifest blocks.
+
+### Audit follow-ups
+
+- docs current-version refs → 3.0.0-beta.4 (now .5); CI typechecks +
+  runs CLI tests (not just engine); schema-version tracking falls back to
+  ENGINE_VERSION instead of a hardcoded "2.0.0"; `ai` extension gained the
+  standard `zveltioMaxVersion: 4.0.0`.
+
 ## [3.0.0-beta.4] - 2026-06-17
 
 ### Studio is now an installable PWA
