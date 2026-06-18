@@ -108,6 +108,16 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     }
   }
 
+  // Studio/client-only extensions (`contributes.engine: false`) ship no
+  // engine — so engine/index.* is NOT a required file, and the §2 isolation
+  // gate + v2-bundle checks don't apply. Computed early so file-presence
+  // doesn't flag a missing engine.
+  const isStudioOnly =
+    manifest != null &&
+    typeof manifest === 'object' &&
+    (manifest as any)?.contributes?.engine === false &&
+    !(manifest as any)?.engine;
+
   // Read migrations (if folder exists)
   const migrationsDir = join(dir, 'engine', 'migrations');
   let sqlFiles: Array<{ filename: string; sql: string }> = [];
@@ -132,9 +142,10 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   for (const rel of ['manifest.json', 'engine/index.ts', 'engine/index.js']) {
     paths[rel] = existsSync(join(dir, rel));
   }
-  // engine/index.* — accept either .ts or .js
+  // engine/index.* — accept either .ts or .js. Studio/client-only
+  // extensions have no engine, so don't require it.
   const required: string[] = ['manifest.json'];
-  if (!(paths['engine/index.ts'] || paths['engine/index.js'])) {
+  if (!isStudioOnly && !(paths['engine/index.ts'] || paths['engine/index.js'])) {
     required.push('engine/index.ts'); // surface as missing
   }
 
@@ -174,11 +185,17 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     | {
         engine?: { bundled?: boolean; entry?: string; isolation?: 'inline' | 'worker' };
         integrity?: { engineSha256?: string };
+        contributes?: { engine?: boolean };
       }
     | null
     | undefined;
+  // Studio/client-only (computed early as `isStudioOnly`): declares
+  // `contributes.engine: false` and ships no engine block — valid, not a
+  // legacy v1 manifest. The engine skips the engine load for these at enable.
+  const studioOnly = isStudioOnly;
   const v2Status = (() => {
     if (!m) return 'unknown' as const;
+    if (studioOnly) return 'studio-only' as const;
     if (!m.engine) return 'v1-legacy' as const;
     if (m.engine.bundled !== true) return 'engine-not-bundled' as const;
     if (!m.engine.entry) return 'missing-engine-entry' as const;
@@ -196,15 +213,17 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   const v2Label =
     v2Status === 'v2-ok'
       ? c.green('v2 (bundled)')
-      : v2Status === 'v1-legacy'
-        ? c.yellow('v1 (no engine block — run `zveltio extension pack`)')
-        : v2Status === 'engine-not-bundled'
-          ? c.red('engine.bundled !== true — re-pack required')
-          : v2Status === 'missing-engine-entry'
-            ? c.red('engine.entry missing')
-            : v2Status === 'missing-engine-sha'
-              ? c.red('integrity.engineSha256 missing — re-pack required')
-              : c.dim('unknown');
+      : v2Status === 'studio-only'
+        ? c.green('studio/client-only (no engine)')
+        : v2Status === 'v1-legacy'
+          ? c.yellow('v1 (no engine block — run `zveltio extension pack`)')
+          : v2Status === 'engine-not-bundled'
+            ? c.red('engine.bundled !== true — re-pack required')
+            : v2Status === 'missing-engine-entry'
+              ? c.red('engine.entry missing')
+              : v2Status === 'missing-engine-sha'
+                ? c.red('integrity.engineSha256 missing — re-pack required')
+                : c.dim('unknown');
   console.log(`  Manifest v2:   ${v2Label}`);
 
   // MARKETPLACE-POLICY §2 enforcement: community submissions MUST declare
@@ -216,48 +235,57 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   // Tier resolution: --first-party (offline) → first-party; else a
   // registry lookup when a token is present (verified partners pass);
   // else community (strictest). resolvePublisherTier never throws.
-  const isolation = m?.engine?.isolation ?? 'inline';
-  const resolved = await resolvePublisherTier({
-    firstParty: opts.firstParty,
-    token: opts.token,
-    registryUrl: opts.registryUrl,
-  });
-  const inlineOk = tierAllowsInline(resolved.tier);
-  const tierSrc =
-    resolved.source === 'flag'
-      ? '--first-party'
-      : resolved.source === 'registry'
-        ? 'registry'
-        : 'default';
-
-  if (isolation === 'worker') {
-    console.log(`  Isolation:     ${c.green('worker (runs in any tier)')}`);
-  } else if (inlineOk) {
-    console.log(`  Isolation:     ${c.dim(`inline (${resolved.tier} — allowed, via ${tierSrc})`)}`);
+  // Studio/client-only extensions have no engine, so §2 isolation doesn't
+  // apply — there's nothing to run in a worker.
+  if (studioOnly) {
+    console.log(`  Isolation:     ${c.dim('n/a (no engine)')}`);
+    console.log('');
   } else {
-    console.log(
-      `  Isolation:     ${c.red(`inline — ${resolved.tier} publishers MUST use 'worker'`)}`,
-    );
-  }
-  console.log('');
+    const isolation = m?.engine?.isolation ?? 'inline';
+    const resolved = await resolvePublisherTier({
+      firstParty: opts.firstParty,
+      token: opts.token,
+      registryUrl: opts.registryUrl,
+    });
+    const inlineOk = tierAllowsInline(resolved.tier);
+    const tierSrc =
+      resolved.source === 'flag'
+        ? '--first-party'
+        : resolved.source === 'registry'
+          ? 'registry'
+          : 'default';
 
-  if (isolation !== 'worker' && !inlineOk) {
-    console.error(
-      c.red(
-        `Validation failed: ${resolved.tier} publishers must declare ` +
-          `engine.isolation: "worker" (MARKETPLACE-POLICY §2).`,
-      ),
-    );
-    console.error(
-      c.dim(
-        '  Add `"isolation": "worker"` to the engine block in manifest.json, ' +
-          'then re-pack. If you are a verified/first-party publisher, pass ' +
-          '--first-party or set ZVELTIO_REGISTRY_TOKEN so the tier can be confirmed. ' +
-          'See docs/MARKETPLACE-POLICY.md §2.',
-      ),
-    );
-    if (opts.silentExit) throw new Error('Validation failed: community inline isolation');
-    process.exit(1);
+    if (isolation === 'worker') {
+      console.log(`  Isolation:     ${c.green('worker (runs in any tier)')}`);
+    } else if (inlineOk) {
+      console.log(
+        `  Isolation:     ${c.dim(`inline (${resolved.tier} — allowed, via ${tierSrc})`)}`,
+      );
+    } else {
+      console.log(
+        `  Isolation:     ${c.red(`inline — ${resolved.tier} publishers MUST use 'worker'`)}`,
+      );
+    }
+    console.log('');
+
+    if (isolation !== 'worker' && !inlineOk) {
+      console.error(
+        c.red(
+          `Validation failed: ${resolved.tier} publishers must declare ` +
+            `engine.isolation: "worker" (MARKETPLACE-POLICY §2).`,
+        ),
+      );
+      console.error(
+        c.dim(
+          '  Add `"isolation": "worker"` to the engine block in manifest.json, ' +
+            'then re-pack. If you are a verified/first-party publisher, pass ' +
+            '--first-party or set ZVELTIO_REGISTRY_TOKEN so the tier can be confirmed. ' +
+            'See docs/MARKETPLACE-POLICY.md §2.',
+        ),
+      );
+      if (opts.silentExit) throw new Error('Validation failed: community inline isolation');
+      process.exit(1);
+    }
   }
 
   // beta.1: hard-fail v1 manifests AND partial v2. All 54 first-party

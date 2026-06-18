@@ -1157,6 +1157,37 @@ class ExtensionLoader {
 
       const enginePath = join(extDir, 'engine/index.js');
 
+      // Studio/client-only extensions (`contributes.engine: false`) ship no
+      // engine routes — there's nothing to load into the engine. Register
+      // them as active (their Studio components are wired by the Studio
+      // rebuild, separately) and skip the whole engine-load path below,
+      // which would otherwise hard-fail on the missing engine bundle.
+      const earlyManifestPath = join(extDir, 'manifest.json');
+      if (existsSync(earlyManifestPath)) {
+        try {
+          const early = JSON.parse(await Bun.file(earlyManifestPath).text());
+          if (early?.contributes?.engine === false) {
+            this.loaded.set(extName, {
+              name: extName,
+              registeredRoutes: false,
+              allowedTables: new Set<string>(),
+            });
+            this.manifestMeta.set(extName, {
+              displayName: early.displayName,
+              description: early.description,
+              category: early.category,
+              contributes: early.contributes,
+              studio: early.studio,
+            });
+            console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);
+            return;
+          }
+        } catch {
+          // Malformed manifest — fall through; the engine path re-reads it
+          // and surfaces the parse error properly.
+        }
+      }
+
       if (!existsSync(enginePath)) {
         // Try TypeScript source (dev mode)
         const engineTsPath = join(extDir, 'engine/index.ts');
