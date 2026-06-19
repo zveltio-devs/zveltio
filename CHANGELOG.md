@@ -2,6 +2,31 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.6] - 2026-06-19
+
+### Fix: extension Studio pages crashed after enable (i18n bundle corruption)
+
+Enabling an extension on a production install ran `studio-builder` →
+`bun run build` → `prebuild` → `merge-extension-messages` **on the server**,
+where the `zveltio-extensions` dev sibling does not exist. The merge then
+rewrote `messages/{locale}.json` from `messages/core/` only — silently
+dropping every extension's i18n keys (`compliance.ro.*`, `ai.*`, `crm.*`, …).
+Paraglide recompiled without those message functions, so every Studio page
+that called one crashed with `… is not a function` (e.g.
+`z.compliance.ro.etransport.subtitle is not a function`). The same corruption
+also happened in the release CI build (no sibling there either), shipping a
+broken Studio in the engine bundle.
+
+`merge-extension-messages` now has three explicit modes:
+- **dev** (sibling present): authoritative full regen, unchanged;
+- **install-time** (no sibling, `EXTENSIONS_DIR` set): overlays the installed
+  extensions' messages on top of the already-complete committed bundle —
+  never shrinks below what shipped;
+- **no source** (release runner): leaves the committed merged bundle untouched.
+
+This is one pipeline fix that restores every Studio extension page at once,
+not a per-extension patch.
+
 ## [3.0.0-beta.5] - 2026-06-18
 
 ### Studio/client-only extensions are first-class
