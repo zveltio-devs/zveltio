@@ -2,6 +2,32 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.7] - 2026-06-21
+
+### Fix: enabling an extension no longer shows a false "Studio build failed" error
+
+Enabling an extension on a self-hosted install triggers an in-process Studio
+rebuild (`studio-builder`). On many hosts that rebuild fails for environment
+reasons — missing `node_modules` (a swallowed `bun install` error at install
+time), or a platform-specific bundler quirk — and the marketplace surfaced a
+red **"engine-loaded but Studio rebuild failed"** toast, making a working
+enable look broken.
+
+It isn't broken: **every bundled extension page already ships in the pre-built
+Studio dist**, so the page is reachable after a refresh whether or not the
+rebuild runs. The rebuild only matters for genuinely custom pages that aren't
+in the shipped bundle.
+
+- `studio-builder` now self-heals a missing `node_modules` by running
+  `bun install` before the build, instead of dying with "cannot find vite".
+- A failed rebuild is now reported as **non-fatal**: the enable response keeps
+  `success: true`, adds `studio_pages_prebuilt: true`, and the marketplace UI
+  shows a neutral info notice ("served from the pre-built Studio — refresh to
+  view") instead of an error toast.
+- Install hardening carried over: ship a pinned `bun.lock` in
+  `studio-source.tar.gz`, `bun install --frozen-lockfile` at install, and pass
+  `EXTENSIONS_DIR` / `SKIP_SYNC_EXT` / `PATH` into the rebuild.
+
 ## [3.0.0-beta.6] - 2026-06-19
 
 ### Fix: extension Studio pages crashed after enable (i18n bundle corruption)

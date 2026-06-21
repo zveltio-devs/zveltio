@@ -718,7 +718,10 @@ UNIT
     # Install Studio dependencies so `bun run build` works on first
     # extension activation. The SDK is sibling-resolved via file:../sdk.
     if [ -d "${ZVELTIO_DIR}/studio-bundle/studio" ]; then
-      (cd "${ZVELTIO_DIR}/studio-bundle/studio" && /usr/local/bin/bun install 2>/dev/null || bun install)
+      (cd "${ZVELTIO_DIR}/studio-bundle/studio" && \
+        (/usr/local/bin/bun install --frozen-lockfile 2>/dev/null || \
+         bun install --frozen-lockfile 2>/dev/null || \
+         /usr/local/bin/bun install 2>/dev/null || bun install))
       success "Studio source ready at ${ZVELTIO_DIR}/studio-bundle/studio"
     else
       warn "Studio source tarball had unexpected layout — extension rebuild may fail."

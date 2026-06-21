@@ -51,10 +51,11 @@ jobs:
                 packages/sdk/ "$STAGE/sdk/"
 
           # Rewrite the workspace dep so bun install can resolve it on a
-          # host that has no monorepo context. `file:../sdk` works
-          # regardless of whether the user is running bun install with
-          # frozen-lockfile or not. The original bun.lock would still
-          # reference workspace:* — remove it so bun re-resolves cleanly.
+          # host that has no monorepo context. `file:../sdk` works with
+          # frozen-lockfile. Generate a portable bun.lock here (after the
+          # monorepo build above) so install hosts don't re-resolve caret
+          # ranges to newer SvelteKit/Vite stacks that break install-time
+          # rebuilds.
           if [ -f "$STAGE/studio/package.json" ]; then
             node -e "
               const fs = require('fs');
@@ -68,7 +69,21 @@ jobs:
               fs.writeFileSync('$STAGE/studio/package.json', JSON.stringify(p, null, 2) + '\n');
             "
           fi
-          rm -f "$STAGE/studio/bun.lock" "$STAGE/studio/bun.lockb" "$STAGE/studio/package-lock.json"
+          rm -f "$STAGE/studio/bun.lockb" "$STAGE/studio/package-lock.json"
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('$STAGE/studio/package.json'));
+            p.dependencies['@sveltejs/kit'] = '2.61.1';
+            p.dependencies['@sveltejs/adapter-static'] = '3.0.10';
+            p.devDependencies['vite'] = '8.0.14';
+            p.overrides = {
+              '@sveltejs/vite-plugin-svelte': '5.1.1',
+              rolldown: '1.0.2',
+              vite: '8.0.14',
+            };
+            fs.writeFileSync('$STAGE/studio/package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+          (cd "$STAGE/studio" && bun install)
 
           tar -czf /tmp/studio-source.tar.gz -C "$STAGE" studio sdk
       - uses: actions/upload-artifact@v4
