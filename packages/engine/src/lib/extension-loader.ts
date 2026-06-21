@@ -2441,7 +2441,20 @@ class ExtensionLoader {
         // source, run `bun run build`, atomically swap the live dist.
         // Wait for it inline so the marketplace UI can show real
         // success/failure + a refresh prompt to the user.
-        const studioCanRebuild = !!(process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR);
+        // Studio rebuild paths, in order of safety:
+        //   - STUDIO_BUILDER_URL: dedicated builder container (isolated, cheap) —
+        //     always allowed, it's the intended production rebuild path.
+        //   - STUDIO_SRC_DIR: in-process `bun run build` on the host. This needs a
+        //     full Vite/Bun toolchain on every install and is the source of the
+        //     "Studio build exited with code 1" fragility. Every bundled extension
+        //     page already ships in the pre-built dist, so this is OFF by default;
+        //     operators who ship genuinely custom (non-bundled) pages opt in with
+        //     STUDIO_REBUILD_ON_ENABLE=true.
+        const inProcessRebuildOptIn = process.env.STUDIO_REBUILD_ON_ENABLE === 'true';
+        const studioCanRebuild = !!(
+          process.env.STUDIO_BUILDER_URL ||
+          (process.env.STUDIO_SRC_DIR && inProcessRebuildOptIn)
+        );
         let studioRebuild: 'success' | 'failed' | 'skipped' = 'skipped';
         let studioRebuildError = '';
         let studioRebuildMs = 0;
@@ -2541,7 +2554,20 @@ class ExtensionLoader {
         // the disabled extension's pages remain reachable in the dist
         // until the NEXT enable triggers a rebuild, which is confusing
         // ("I just disabled it, why is it still there?").
-        const studioCanRebuild = !!(process.env.STUDIO_BUILDER_URL || process.env.STUDIO_SRC_DIR);
+        // Studio rebuild paths, in order of safety:
+        //   - STUDIO_BUILDER_URL: dedicated builder container (isolated, cheap) —
+        //     always allowed, it's the intended production rebuild path.
+        //   - STUDIO_SRC_DIR: in-process `bun run build` on the host. This needs a
+        //     full Vite/Bun toolchain on every install and is the source of the
+        //     "Studio build exited with code 1" fragility. Every bundled extension
+        //     page already ships in the pre-built dist, so this is OFF by default;
+        //     operators who ship genuinely custom (non-bundled) pages opt in with
+        //     STUDIO_REBUILD_ON_ENABLE=true.
+        const inProcessRebuildOptIn = process.env.STUDIO_REBUILD_ON_ENABLE === 'true';
+        const studioCanRebuild = !!(
+          process.env.STUDIO_BUILDER_URL ||
+          (process.env.STUDIO_SRC_DIR && inProcessRebuildOptIn)
+        );
         let studioRebuild: 'success' | 'failed' | 'skipped' = 'skipped';
         let studioRebuildError = '';
         let studioRebuildMs = 0;

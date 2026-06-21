@@ -271,12 +271,10 @@ async function enable(ext: Extension) {
         `${ext.displayName} is active. Pages are served from the pre-built Studio — refresh to view. (Custom-page rebuild didn't complete; see server logs.)`,
       );
     } else {
-      // skipped → engine isn't configured for hot-rebuild (no
-      // STUDIO_SRC_DIR / STUDIO_BUILDER_URL). Old binary install or
-      // dev mode without source dir.
-      toast.success(
-        `${ext.displayName} active. Studio rebuild skipped — restart engine to pick up Studio pages.`,
-      );
+      // skipped → in-process rebuild is off (the default). Bundled extension
+      // pages already ship in the pre-built Studio dist, so the page is live
+      // after a refresh — no rebuild or restart needed.
+      toast.success(`${ext.displayName} active. Refresh to view its pages.`);
     }
   } catch (e: any) {
     toast.error(`Enable failed: ${e.message}`);
@@ -314,9 +312,9 @@ async function disable(ext: Extension) {
             `${ext.displayName} disabled. (Studio recompile didn't complete; the page is removed on next successful rebuild.)`,
           );
         } else {
-          toast.success(
-            `${ext.displayName} disabled. Studio rebuild skipped — restart engine to drop its pages.`,
-          );
+          // skipped → default path. The extension is gone from the engine and
+          // its nav entry; the (still-compiled) page just won't be linked.
+          toast.success(`${ext.displayName} disabled.`);
         }
       } catch (e: any) {
         toast.error(`Disable failed: ${e.message}`);
