@@ -215,11 +215,41 @@ async function rebuildStudioImpl(
     }
   }
 
-  // Run bun run build inside Studio source dir
+  // Ensure build dependencies exist. A fresh install may have skipped or
+  // failed `bun install` (network blip, swallowed error) — without it the
+  // build dies immediately ("cannot find vite"). Install on demand so the
+  // first rebuild self-heals instead of leaving the operator stuck.
+  if (!existsSync(join(srcDir, 'node_modules'))) {
+    console.log('[studio-builder] node_modules missing — running bun install first…');
+    const install = Bun.spawn(['bun', 'install'], {
+      cwd: srcDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin' },
+    });
+    const installCode = await install.exited;
+    if (installCode !== 0) {
+      const stderr = await new Response(install.stderr).text();
+      console.error('[studio-builder] bun install failed:\n', stderr);
+      return {
+        rebuilt: false,
+        error: `Studio dependency install failed (code ${installCode}): ${stderr.slice(0, 300)}`,
+      };
+    }
+  }
+
+  // Run bun run build inside Studio source dir. Pages are already copied
+  // above — skip prebuild sync to avoid double-copy and permission races.
   const build = Bun.spawn(['bun', 'run', 'build'], {
     cwd: srcDir,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: {
+      ...process.env,
+      EXTENSIONS_DIR: extensionsBase,
+      SKIP_SYNC_EXT: '1',
+      PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+    },
   });
 
   const exitCode = await build.exited;

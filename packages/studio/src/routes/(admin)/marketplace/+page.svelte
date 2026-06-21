@@ -264,8 +264,11 @@ async function enable(ext: Extension) {
       // confirm the action here.
       toast.success(`${ext.displayName} active. Studio rebuilt in ${sec}.`);
     } else if (rebuild === 'failed') {
-      toast.error(
-        `${ext.displayName} engine-loaded but Studio rebuild failed: ${res.studio_rebuild_error ?? 'unknown'}`,
+      // Non-fatal: every bundled extension page ships in the pre-built
+      // Studio dist, so the UI is reachable after a refresh regardless.
+      // Only genuinely custom pages need a successful rebuild.
+      toast.info(
+        `${ext.displayName} is active. Pages are served from the pre-built Studio — refresh to view. (Custom-page rebuild didn't complete; see server logs.)`,
       );
     } else {
       // skipped → engine isn't configured for hot-rebuild (no
@@ -305,8 +308,10 @@ async function disable(ext: Extension) {
         if (rebuild === 'success') {
           toast.success(`${ext.displayName} disabled. Studio rebuilt in ${sec}.`);
         } else if (rebuild === 'failed') {
-          toast.error(
-            `${ext.displayName} disabled but Studio rebuild failed: ${res?.studio_rebuild_error ?? 'unknown'}`,
+          // Non-fatal — disable already took effect in the engine; the
+          // Studio dist just wasn't recompiled. Refresh still reflects it.
+          toast.info(
+            `${ext.displayName} disabled. (Studio recompile didn't complete; the page is removed on next successful rebuild.)`,
           );
         } else {
           toast.success(
