@@ -2,6 +2,31 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.8] - 2026-06-21
+
+### In-process Studio rebuild is now opt-in (server toolchain off the critical path)
+
+beta.7 made a failed Studio rebuild non-fatal. beta.8 goes further: the
+in-process `bun run build` on the install host (the source of the whole "Studio
+build exited with code 1" cascade — toolchain, `node_modules`, PATH, rolldown)
+is now **off by default**. Every bundled extension page already ships in the
+pre-built `studio-dist`, so enabling an extension works with **zero build
+toolchain** on the host.
+
+- `STUDIO_REBUILD_ON_ENABLE` (default `false`) gates the `STUDIO_SRC_DIR`
+  in-process rebuild in `extension-loader.ts`. The dedicated builder container
+  (`STUDIO_BUILDER_URL`) stays always-on — it's isolated. Operators who ship
+  genuinely custom (non-bundled) Studio pages opt in explicitly.
+- `install.sh` no longer runs the heavy Studio `bun install` unless rebuild is
+  opted in, and never lets studio-source block a working install. The new
+  `.env` documents `STUDIO_REBUILD_ON_ENABLE=false`.
+- Marketplace `skipped` toasts no longer tell users to "restart engine to pick
+  up pages" — the pages are already live after a refresh.
+
+This is Phase A of the extensions-UI-delivery plan: de-risk the current model
+now. A spike on prebuilt/import-map delivery (Phase B) will decide whether to
+pivot further.
+
 ## [3.0.0-beta.7] - 2026-06-21
 
 ### Fix: enabling an extension no longer shows a false "Studio build failed" error

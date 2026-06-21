@@ -715,19 +715,28 @@ UNIT
     # ${ZVELTIO_DIR}/studio-src as the studio root.
     ln -snf "${ZVELTIO_DIR}/studio-bundle/studio" "${ZVELTIO_DIR}/studio-src"
 
-    # Install Studio dependencies so `bun run build` works on first
-    # extension activation. The SDK is sibling-resolved via file:../sdk.
+    # Studio dependencies (Vite/Bun toolchain) are ONLY needed for in-process
+    # extension rebuild, which is opt-in (STUDIO_REBUILD_ON_ENABLE=true). Every
+    # bundled extension page already ships in the pre-built studio-dist, so a
+    # default install serves all extension UIs with zero build toolchain. We
+    # therefore skip the heavy `bun install` unless rebuild is opted in — and
+    # even then studio-builder self-heals a missing node_modules on first build.
+    # This keeps studio-source strictly off the critical install path.
     if [ -d "${ZVELTIO_DIR}/studio-bundle/studio" ]; then
-      (cd "${ZVELTIO_DIR}/studio-bundle/studio" && \
-        (/usr/local/bin/bun install --frozen-lockfile 2>/dev/null || \
-         bun install --frozen-lockfile 2>/dev/null || \
-         /usr/local/bin/bun install 2>/dev/null || bun install))
-      success "Studio source ready at ${ZVELTIO_DIR}/studio-bundle/studio"
+      if [ "${STUDIO_REBUILD_ON_ENABLE:-false}" = "true" ]; then
+        info "STUDIO_REBUILD_ON_ENABLE=true — installing Studio build deps..."
+        (cd "${ZVELTIO_DIR}/studio-bundle/studio" && \
+          (/usr/local/bin/bun install --frozen-lockfile 2>/dev/null || \
+           bun install --frozen-lockfile 2>/dev/null || \
+           /usr/local/bin/bun install 2>/dev/null || bun install)) || \
+          warn "Studio dep install failed — first opt-in rebuild will retry via self-heal."
+      fi
+      success "Studio source staged at ${ZVELTIO_DIR}/studio-bundle/studio (rebuild is opt-in)."
     else
-      warn "Studio source tarball had unexpected layout — extension rebuild may fail."
+      warn "Studio source tarball had unexpected layout — opt-in extension rebuild unavailable."
     fi
   else
-    info "Studio source not in this release — extension Studio pages will use generic fallback."
+    info "Studio source not in this release — extension UIs served from the pre-built dist."
   fi
 
   # ── .env ─────────────────────────────────────────────────────────────────────
@@ -761,9 +770,15 @@ AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
 EXTENSIONS_DIR=${ZVELTIO_DIR}/extensions
 ZVELTIO_EXTENSIONS=
 
-# Studio source dir — enables rebuild-at-install for extension Studio pages
-STUDIO_SRC_DIR=${ZVELTIO_DIR}/studio-src
+# Studio dist — the pre-built UI served at /admin (contains all bundled
+# extension pages). This is the source of truth for first-party extension UIs.
 STUDIO_DIST_PATH=${ZVELTIO_DIR}/studio-dist
+# Studio source dir — only used for OPT-IN in-process extension rebuild.
+STUDIO_SRC_DIR=${ZVELTIO_DIR}/studio-src
+# In-process Studio rebuild on enable/disable. OFF by default: bundled extension
+# pages already ship in studio-dist, so enabling works with zero build toolchain.
+# Set to true only if you ship genuinely custom (non-bundled) Studio pages.
+STUDIO_REBUILD_ON_ENABLE=false
 EOF
 
   chmod 600 "${ZVELTIO_DIR}/.env"
