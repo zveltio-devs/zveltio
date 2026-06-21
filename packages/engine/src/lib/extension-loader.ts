@@ -2489,8 +2489,17 @@ class ExtensionLoader {
             studio_rebuild: studioRebuild,
             studio_rebuild_ms: studioRebuildMs,
             ...(studioRebuildError ? { studio_rebuild_error: studioRebuildError } : {}),
+            // A failed Studio rebuild is NOT fatal: every bundled extension
+            // page already ships in the pre-built Studio dist, so the UI is
+            // reachable after a refresh regardless. Only genuinely custom
+            // pages (not in the shipped bundle) need a successful rebuild.
+            // The UI should treat 'failed' as a non-blocking notice, not an
+            // error toast.
+            studio_pages_prebuilt: true,
             message: nowActive
-              ? `Extension ${name} is now active.${studioRebuild === 'success' ? ' Refresh to see new pages.' : ''}`
+              ? studioRebuild === 'failed'
+                ? `Extension ${name} is now active. Its pages are served from the pre-built Studio — refresh to view. (A Studio rebuild for custom pages did not complete; see server logs.)`
+                : `Extension ${name} is now active.${studioRebuild === 'success' ? ' Refresh to see new pages.' : ''}`
               : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
             ...(loadError ? { error_detail: loadError } : {}),
           },
