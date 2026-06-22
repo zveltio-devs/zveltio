@@ -1,6 +1,6 @@
 {
   "name": "zveltio",
-  "version": "3.0.0-beta.9",
+  "version": "3.0.0-beta.10",
   "private": true,
   "packageManager": "bun@1.3.13",
   "description": "Self-hosted Business OS — own your hardware, own your data.",
