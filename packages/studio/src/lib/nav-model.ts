@@ -73,7 +73,15 @@ export type ExtensionMeta = {
   contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
   studio?: {
     navGroup?: string;
-    pages?: Array<{ path: string; label: string; icon?: string }>;
+    pages?: Array<{
+      path: string;
+      label: string;
+      icon?: string;
+      /** Declarative page: inlined SDUI schema object + render marker (set by
+       * the engine at load from the manifest's schema file reference). */
+      schema?: unknown;
+      render?: 'schema';
+    }>;
   };
 };
 

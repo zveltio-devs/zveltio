@@ -1026,8 +1026,43 @@ interface ManifestMeta {
   contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
   studio?: {
     navGroup?: string;
-    pages?: Array<{ path: string; label: string; icon?: string }>;
+    pages?: Array<{
+      path: string;
+      label: string;
+      icon?: string;
+      /** Declarative page: a relative path under studio/ to a JSON schema
+       * (in the manifest), replaced at load time by the parsed schema object
+       * + `render: 'schema'` so the Studio renders it without per-host build. */
+      schema?: unknown;
+      render?: 'schema';
+    }>;
   };
+}
+
+/**
+ * For each manifest studio page that names a JSON schema file, read + parse it
+ * and inline the parsed object (so /api/extensions delivers it with no extra
+ * round-trip and no per-host build). Read once at load; failures degrade
+ * gracefully (the page is left as-is).
+ */
+async function embedPageSchemas(
+  extDir: string,
+  studio: ManifestMeta['studio'],
+): Promise<ManifestMeta['studio']> {
+  if (!studio?.pages?.length) return studio;
+  const pages = await Promise.all(
+    studio.pages.map(async (p) => {
+      if (typeof p.schema !== 'string') return p;
+      try {
+        const raw = await Bun.file(join(extDir, 'studio', p.schema)).text();
+        return { ...p, schema: JSON.parse(raw) as unknown, render: 'schema' as const };
+      } catch (e) {
+        console.warn(`⚠️  Extension schema "${p.schema}" failed to load: ${(e as Error).message}`);
+        return p;
+      }
+    }),
+  );
+  return { ...studio, pages };
 }
 
 class ExtensionLoader {
@@ -1177,7 +1212,7 @@ class ExtensionLoader {
               description: early.description,
               category: early.category,
               contributes: early.contributes,
-              studio: early.studio,
+              studio: await embedPageSchemas(extDir, early.studio),
             });
             console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);
             return;
@@ -1328,7 +1363,7 @@ class ExtensionLoader {
           description: (manifest as any).description,
           category: (manifest as any).category,
           contributes: manifest.contributes as ManifestMeta['contributes'],
-          studio: (manifest as any).studio,
+          studio: await embedPageSchemas(extDir, (manifest as any).studio),
         });
       }
 
