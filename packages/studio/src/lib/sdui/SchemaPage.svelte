@@ -33,6 +33,11 @@
     if (!path) return obj;
     return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
   }
+  // Relation option/cell label: a single key, or several keys joined (e.g. first+last name).
+  function relLabel(it: any, labelKey: string | string[]): string {
+    if (Array.isArray(labelKey)) return labelKey.map((k) => it[k]).filter(Boolean).join(' ');
+    return String(it[labelKey] ?? '');
+  }
 
   let activeId = $state(schema.resources[0]!.id);
   const active = $derived<ResourceView>(schema.resources.find((r) => r.id === activeId) ?? schema.resources[0]!);
@@ -68,7 +73,7 @@
         const list = (getPath(res, f.relation.dataPath) ?? []) as any[];
         relationOpts[f.name] = list.map((it) => ({
           value: String(it[f.relation!.valueKey ?? 'id']),
-          label: String(it[f.relation!.labelKey]),
+          label: relLabel(it, f.relation!.labelKey),
         }));
       } catch {
         relationOpts[f.name] = [];
@@ -187,7 +192,7 @@
         const res = await api.get<any>(col.relation.dataSource);
         const list = (getPath(res, col.relation.dataPath) ?? []) as any[];
         relColMaps[col.key] = Object.fromEntries(
-          list.map((it) => [String(it[col.relation!.valueKey ?? 'id']), String(it[col.relation!.labelKey])]),
+          list.map((it) => [String(it[col.relation!.valueKey ?? 'id']), relLabel(it, col.relation!.labelKey)]),
         );
       } catch {
         relColMaps[col.key] = {};

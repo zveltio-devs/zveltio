@@ -87,7 +87,7 @@ export interface ColumnDef {
   /** join two row keys with an arrow, e.g. route "from → to". */
   join?: { keys: Dotted[]; sep?: string };
   /** type:'relation' — resolve this id column to a label from another endpoint. */
-  relation?: { dataSource: string; dataPath?: Dotted; valueKey?: Dotted; labelKey: Dotted };
+  relation?: { dataSource: string; dataPath?: Dotted; valueKey?: Dotted; labelKey: Dotted | Dotted[] };
   /** Conditional cell CSS class (e.g. overdue date → text-error). First match wins. */
   classWhen?: { field?: Dotted; equals?: string; in?: string[]; class: string }[];
 }
@@ -181,7 +181,7 @@ export interface FieldDef {
   rows?: number;
   options?: { value: string; label: string }[];
   /** type: 'relation' — load options from another endpoint (foreign key). */
-  relation?: { dataSource: string; dataPath?: Dotted; valueKey?: Dotted; labelKey: Dotted };
+  relation?: { dataSource: string; dataPath?: Dotted; valueKey?: Dotted; labelKey: Dotted | Dotted[] };
   required?: boolean;
   colSpan?: 1 | 2;
   default?: unknown;
