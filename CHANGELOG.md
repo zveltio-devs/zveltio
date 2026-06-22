@@ -2,6 +2,37 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.9] - 2026-06-22
+
+### Declarative extension UI (SDUI) — extension pages with zero host build
+
+Extension Studio pages can now be shipped as a **declarative schema** instead of
+hand-written Svelte that must be compiled on every install host. A page is
+`studio/schemas/<slug>.json` referenced from the manifest
+(`studio.pages[].schema`); the engine inlines it into `/api/extensions` at load;
+a generic host renderer draws it with the same components, theme, and i18n as a
+hand-written page. **No per-host Vite/Bun toolchain, no rebuild on enable**, and
+the marketplace ships data, not third-party JS in the admin.
+
+This is the production of a 4-round spike that found the 54-extension ecosystem
+reduces to two declarative archetypes — **list+form** and **settings** — plus a
+bespoke Tier-3 minority (email client, canvas builders, etc.) that keep code.
+
+- New `$lib/sdui/` primitives: `SchemaPage` (list+form), `SettingsPage`
+  (config + actions), a ~190-line schema vocabulary, and a validator that shows
+  a friendly panel for malformed/future-version schemas (`sduiSchema` version).
+- New catch-all route `(admin)/[...extPath]` renders a declarative page for any
+  slug not matched by a baked route; real routes still win.
+- Engine `embedPageSchemas()` reads each manifest schema file once at load and
+  inlines it into the extension meta.
+- **First migration:** `compliance/ro/etransport` now ships as a schema (list +
+  status filter + conditional row actions + sectioned form with repeatable goods
+  + computed weight) — its baked Svelte page is gone.
+
+The in-process Studio rebuild (opt-in since beta.8) remains only for bespoke
+Tier-3 pages; it will be retired for the declarative majority as migration
+proceeds.
+
 ## [3.0.0-beta.8] - 2026-06-21
 
 ### In-process Studio rebuild is now opt-in (server toolchain off the critical path)
