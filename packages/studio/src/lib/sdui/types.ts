@@ -175,7 +175,10 @@ export interface FieldDef {
     | 'select'
     | 'relation'
     | 'boolean'
-    | 'password';
+    | 'password'
+    | 'textarea';
+  /** textarea: number of rows (default 4). */
+  rows?: number;
   options?: { value: string; label: string }[];
   /** type: 'relation' — load options from another endpoint (foreign key). */
   relation?: { dataSource: string; dataPath?: Dotted; valueKey?: Dotted; labelKey: Dotted };
