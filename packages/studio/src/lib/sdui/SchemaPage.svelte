@@ -406,6 +406,13 @@
                 <option value={o.value}>{t(o.label)}</option>
               {/each}
             </select>
+          {:else if f.type === 'textarea'}
+            <textarea
+              class="textarea textarea-sm {f.mono ? 'font-mono text-xs' : ''}"
+              rows={f.rows ?? 4}
+              bind:value={formData[f.name]}
+              placeholder={t(f.placeholder)}
+            ></textarea>
           {:else}
             <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={formData[f.name]} placeholder={t(f.placeholder)} />
           {/if}
