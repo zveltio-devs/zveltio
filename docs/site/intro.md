@@ -1,6 +1,6 @@
 # Zveltio Documentation
 
-> **Status: 3.0.0-beta.9** — extensions platform + marketplace are
+> **Status: 3.0.0-beta.10** — extensions platform + marketplace are
 > API-stable. Engine internals + Studio still iterating toward v1.0.
 > See [Beta caveats](https://github.com/zveltio-devs/zveltio#beta-caveats) for what's locked vs. still moving.
 >

@@ -367,6 +367,11 @@ jobs:
   build-docker:
     needs: build-studio
     runs-on: ubuntu-latest
+    # The Docker image is an independent artifact (pushed to its own registry).
+    # A QEMU/buildx infra flake must NOT block the binary + Studio release or the
+    # downstream publish + extension-registry sync. beta.9 was lost exactly this
+    # way. Keep it non-blocking; generate-assets no longer depends on it.
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
@@ -415,7 +420,7 @@ jobs:
 
   # ── Job 4: Generate Release Assets ──────────────────────────
   generate-assets:
-    needs: [build-binaries, build-docker]
+    needs: [build-binaries]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

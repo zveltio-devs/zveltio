@@ -2,6 +2,21 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.10] - 2026-06-22
+
+First **published** SDUI release (beta.9 built but never published — a
+`docker/setup-qemu` infra flake skipped `publish-release`).
+
+- **Release pipeline hardened:** the Docker image build is now `continue-on-error`
+  and `generate-assets` no longer depends on it. A QEMU/buildx flake can no longer
+  block the binary + Studio release, the GitHub Release, or the downstream
+  extension-registry sync.
+- **Second SDUI migration:** `compliance/ro/documents` ships as a declarative
+  schema (type filter + table + sign/delete actions + form with repeatable
+  parties); baked Svelte page removed. Two extensions now declarative
+  (etransport + documents), verified live with zero host build.
+- Everything from the unpublished beta.9 (the SDUI architecture) is included.
+
 ## [3.0.0-beta.9] - 2026-06-22
 
 ### Declarative extension UI (SDUI) — extension pages with zero host build
