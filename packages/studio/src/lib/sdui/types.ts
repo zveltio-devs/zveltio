@@ -77,7 +77,7 @@ export interface FilterDef {
 export interface ColumnDef {
   key: Dotted;
   label: string;
-  type?: 'text' | 'mono' | 'date' | 'currency' | 'badge' | 'relation';
+  type?: 'text' | 'mono' | 'date' | 'currency' | 'badge' | 'relation' | 'boolean';
   /** Two-line cell: render this row key as muted sub-text (e.g. client email). */
   secondary?: Dotted;
   /** badge: map an enum value → DaisyUI badge class, and optional label map. */
