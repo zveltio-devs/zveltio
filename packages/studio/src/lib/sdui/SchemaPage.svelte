@@ -14,13 +14,13 @@
   import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
   import {
     Plus, Trash2, Send, CheckCircle, XCircle, LoaderCircle,
-    Users, Building2, TrendingUp, FolderOpen, Clock,
+    Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes,
   } from '@lucide/svelte';
   import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 
   let { schema }: { schema: PageSchema } = $props();
 
-  const ICONS: Record<string, any> = { Plus, Trash2, Send, CheckCircle, XCircle, Users, Building2, TrendingUp, FolderOpen, Clock };
+  const ICONS: Record<string, any> = { Plus, Trash2, Send, CheckCircle, XCircle, Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes };
   const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   // i18n: try the host bundle, fall back to literal — schemas are i18n-ready.
@@ -84,6 +84,7 @@
   function defaultFor(f: FieldDef): any {
     if (f.default === 'today') return new Date().toISOString().split('T')[0];
     if (f.default !== undefined) return f.default;
+    if (f.type === 'boolean') return false;
     return f.type === 'number' ? 0 : '';
   }
   function allFields(r: ResourceView): FieldDef[] {
@@ -155,6 +156,7 @@
       return `${Number(v).toLocaleString()} ${code ?? ''}`.trim();
     }
     if (col.type === 'relation') return relColMaps[col.key]?.[String(v)] ?? String(v);
+    if (col.type === 'boolean') return v ? '✓' : '—';
     return String(v);
   }
   function badgeClass(row: any, col: ColumnDef): string {
@@ -418,6 +420,8 @@
               bind:value={formData[f.name]}
               placeholder={t(f.placeholder)}
             ></textarea>
+          {:else if f.type === 'boolean'}
+            <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={formData[f.name]} />
           {:else}
             <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={formData[f.name]} placeholder={t(f.placeholder)} />
           {/if}
