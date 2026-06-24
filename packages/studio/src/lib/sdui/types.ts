@@ -98,10 +98,12 @@ export interface ActionDef {
   icon?: string;
   /** DaisyUI text/btn modifier, e.g. "text-error". */
   variant?: string;
-  /** "edit" opens the form pre-filled; otherwise call the endpoint. */
-  kind?: 'edit' | 'call';
+  /** "edit" opens the form pre-filled; "download" opens the (cookie-authed)
+   * endpoint in a new tab so the browser saves it via Content-Disposition (e.g.
+   * SAF-T XML); otherwise call the endpoint. */
+  kind?: 'edit' | 'call' | 'download';
   method?: 'POST' | 'PATCH' | 'DELETE';
-  /** Endpoint template; "{id}" is substituted from the row. */
+  /** Endpoint template; "{id}" (and any other "{field}") is substituted from the row. */
   endpoint?: string;
   /** Show the action only when this row condition holds. */
   visibleWhen?: { field: Dotted; equals?: string; in?: string[] };
