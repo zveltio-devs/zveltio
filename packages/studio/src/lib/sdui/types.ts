@@ -116,8 +116,15 @@ export interface ActionDef {
 }
 
 export interface FormDef {
-  /** POST endpoint for create; PATCH "{id}" used for edit. */
+  /** POST endpoint for create; PATCH "{id}" used for edit. For a non-default
+   * `submit`, this is a template that may carry "{field}" path tokens (e.g.
+   * "/ext/data/export/{collection}"); the named fields fill the path, the rest
+   * become the querystring (download) or multipart body (upload). */
   endpoint: string;
+  /** Non-default submit. "download": open the GET endpoint in a new tab (fields
+   * → querystring) so the browser saves the file; "upload": POST multipart (the
+   * file field + the other fields). Omit for the default create/edit JSON call. */
+  submit?: { kind: 'download' | 'upload' };
   /** Visual groupings; fields not in a section render first, ungrouped. */
   sections?: { title: string; fields: FieldDef[] }[];
   fields?: FieldDef[];
@@ -178,7 +185,10 @@ export interface FieldDef {
     | 'relation'
     | 'boolean'
     | 'password'
-    | 'textarea';
+    | 'textarea'
+    | 'file';
+  /** type:'file' — accept attribute, e.g. ".csv,.json". */
+  accept?: string;
   /** textarea: number of rows (default 4). */
   rows?: number;
   options?: { value: string; label: string }[];

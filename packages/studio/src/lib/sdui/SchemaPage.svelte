@@ -286,12 +286,51 @@
     formData[rep.name] = (formData[rep.name] as any[]).filter((_, idx) => idx !== i);
   }
 
+  // path tokens in a form endpoint template, e.g. "/x/{collection}" → ["collection"]
+  function endpointTokens(tmpl: string): string[] {
+    return [...tmpl.matchAll(/\{([^}]+)\}/g)].map((mt) => mt[1].trim());
+  }
+
   async function submitForm() {
-    const r = active;
+    const F = active.form!;
+    const sub = F.submit?.kind;
+
+    // download: open the GET endpoint (path tokens filled, rest → querystring) in a new tab.
+    if (sub === 'download') {
+      const tokens = endpointTokens(F.endpoint);
+      const url = `${ENGINE_URL}${fillEndpoint(F.endpoint, formData)}`;
+      const qs = new URLSearchParams();
+      for (const f of allFields(active)) {
+        if (tokens.includes(f.name)) continue;
+        const v = formData[f.name];
+        if (v !== '' && v != null && !(f.type === 'number' && Number(v) === 0)) qs.set(f.name, String(v));
+      }
+      window.open(qs.toString() ? `${url}?${qs}` : url, '_blank');
+      showForm = false;
+      setTimeout(load, 800);
+      return;
+    }
+
     saving = true;
     try {
-      if (editingId) await api.patch(`${r.form!.endpoint}/${editingId}`, formData);
-      else await api.post(r.form!.endpoint, formData);
+      if (sub === 'upload') {
+        // multipart POST: the file field + the other (non-path) fields.
+        const tokens = endpointTokens(F.endpoint);
+        const fd = new FormData();
+        for (const f of allFields(active)) {
+          if (tokens.includes(f.name)) continue;
+          const v = formData[f.name];
+          if (f.type === 'file') { if (v) fd.append(f.name, v as File); }
+          else if (v !== '' && v != null) fd.append(f.name, String(v));
+        }
+        const res = await api.fetch(fillEndpoint(F.endpoint, formData), { method: 'POST', body: fd });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      } else if (editingId) {
+        await api.patch(`${F.endpoint}/${editingId}`, formData);
+      } else {
+        await api.post(F.endpoint, formData);
+      }
       showForm = false;
       await load();
       toast.success(t('ext.saved'));
@@ -431,6 +470,9 @@
             ></textarea>
           {:else if f.type === 'boolean'}
             <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={formData[f.name]} />
+          {:else if f.type === 'file'}
+            <input type="file" class="file-input file-input-sm file-input-bordered" accept={f.accept}
+              onchange={(e) => (formData[f.name] = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
           {:else}
             <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={formData[f.name]} placeholder={t(f.placeholder)} />
           {/if}
@@ -480,7 +522,10 @@
       <div class="modal-action">
         <button class="btn btn-ghost" onclick={() => (showForm = false)}>{t('common.cancel')}</button>
         <button class="btn btn-primary" onclick={submitForm} disabled={saving || !formValid}>
-          {#if saving}<LoaderCircle size={14} class="animate-spin" />{/if} {editingId ? t('common.save') : t('common.create')}
+          {#if saving}<LoaderCircle size={14} class="animate-spin" />{/if}
+          {#if F.submit?.kind === 'download'}{t('common.download')}
+          {:else if F.submit?.kind === 'upload'}{t('common.upload')}
+          {:else}{editingId ? t('common.save') : t('common.create')}{/if}
         </button>
       </div>
     </div>
