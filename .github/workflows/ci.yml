@@ -320,7 +320,7 @@ jobs:
           tail -80 /tmp/engine.log || true
       - name: Upload bench result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-result
           path: bench/results/ci.json
