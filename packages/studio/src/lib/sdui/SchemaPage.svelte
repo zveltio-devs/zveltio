@@ -6,6 +6,7 @@
    */
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
+  import { ENGINE_URL } from '$lib/config.js';
   import { m } from '$lib/i18n.svelte.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
@@ -13,14 +14,14 @@
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
   import {
-    Plus, Trash2, Send, CheckCircle, XCircle, LoaderCircle,
+    Plus, Trash2, Send, CheckCircle, XCircle, LoaderCircle, Download,
     Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes,
   } from '@lucide/svelte';
   import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 
   let { schema }: { schema: PageSchema } = $props();
 
-  const ICONS: Record<string, any> = { Plus, Trash2, Send, CheckCircle, XCircle, Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes };
+  const ICONS: Record<string, any> = { Plus, Trash2, Send, CheckCircle, XCircle, Download, Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes };
   const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   // i18n: try the host bundle, fall back to literal — schemas are i18n-ready.
@@ -240,8 +241,16 @@
     loadRelations(active);
     showForm = true;
   }
+  // Substitute "{id}" and any other "{field}" token in an endpoint from the row.
+  function fillEndpoint(tmpl: string, row: any): string {
+    return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(getPath(row, k.trim()) ?? ''));
+  }
   function runAction(row: any, a: ActionDef) {
     if (a.kind === 'edit') return openEdit(row);
+    if (a.kind === 'download') {
+      window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
+      return;
+    }
     const fire = async () => {
       try {
         const url = (a.endpoint ?? '').replace('{id}', row.id);
