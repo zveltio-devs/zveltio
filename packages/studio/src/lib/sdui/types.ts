@@ -47,6 +47,12 @@ export interface ResourceView {
   filters?: FilterDef[];
   /** KPI tiles above the table (e.g. invoicing invoiced/collected/overdue). */
   stats?: StatsBlock;
+  /** "table" (default) or "cards" (a responsive card grid, e.g. api-connector
+   * connections). Card content is driven by `card`. */
+  layout?: 'table' | 'cards';
+  /** Card-grid mapping (used when layout:'cards'): which row keys are the
+   * title / badge / sub-text. rowActions still render in the card footer. */
+  card?: { title: Dotted; badge?: Dotted; subtitle?: Dotted };
   columns: ColumnDef[];
   rowActions?: ActionDef[];
   form?: FormDef;
@@ -86,6 +92,9 @@ export interface ColumnDef {
   currency?: { codeKey?: Dotted; code?: string };
   /** join two row keys with an arrow, e.g. route "from → to". */
   join?: { keys: Dotted[]; sep?: string };
+  /** Computed cell text from a template with "{ENGINE_URL}" + "{field}" tokens
+   * (e.g. a webhook URL "{ENGINE_URL}/api/webhook/{slug}"). */
+  template?: string;
   /** type:'relation' — resolve this id column to a label from another endpoint. */
   relation?: { dataSource: string; dataPath?: Dotted; valueKey?: Dotted; labelKey: Dotted | Dotted[] };
   /** Conditional cell CSS class (e.g. overdue date → text-error). First match wins. */
@@ -189,9 +198,13 @@ export interface FieldDef {
     | 'boolean'
     | 'password'
     | 'textarea'
-    | 'file';
+    | 'file'
+    | 'json';
   /** type:'file' — accept attribute, e.g. ".csv,.json". */
   accept?: string;
+  /** Show this field only when another form field matches (e.g. auth_token when
+   * auth_type === 'bearer'). */
+  visibleWhen?: { field: string; equals?: string; in?: string[] };
   /** textarea: number of rows (default 4). */
   rows?: number;
   options?: { value: string; label: string }[];
