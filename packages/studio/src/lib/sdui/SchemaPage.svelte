@@ -86,7 +86,16 @@
     if (f.default === 'today') return new Date().toISOString().split('T')[0];
     if (f.default !== undefined) return f.default;
     if (f.type === 'boolean') return false;
+    if (f.type === 'json') return '{}';
     return f.type === 'number' ? 0 : '';
+  }
+  // Conditional form field (e.g. auth_token only when auth_type === 'bearer').
+  function fieldVisible(f: FieldDef): boolean {
+    if (!f.visibleWhen) return true;
+    const v = formData[f.visibleWhen.field];
+    if (f.visibleWhen.equals !== undefined) return v === f.visibleWhen.equals;
+    if (f.visibleWhen.in) return f.visibleWhen.in.includes(v);
+    return true;
   }
   function allFields(r: ResourceView): FieldDef[] {
     const fs = [...(r.form?.fields ?? [])];
@@ -148,6 +157,8 @@
   });
 
   function cellText(row: any, col: ColumnDef): string {
+    if (col.template) return col.template.replace(/\{([^}]+)\}/g, (_, k) =>
+      k.trim() === 'ENGINE_URL' ? ENGINE_URL : String(getPath(row, k.trim()) ?? ''));
     if (col.join) return col.join.keys.map((k) => row[k]).filter(Boolean).join(col.join.sep ?? ' ');
     const v = getPath(row, col.key);
     if (v == null || v === '') return '—';
@@ -225,12 +236,27 @@
   // required-field gating for the create/edit form submit
   const formValid = $derived.by(() =>
     allFields(active)
-      .filter((f) => f.required)
+      .filter((f) => f.required && fieldVisible(f))
       .every((f) => {
         const v = formData[f.name];
         return v !== '' && v != null;
       }),
   );
+
+  // Build the JSON create/edit payload: parse type:'json' fields string→object,
+  // drop fields hidden by visibleWhen.
+  function jsonPayload(): Record<string, any> {
+    const out: Record<string, any> = {};
+    for (const f of allFields(active)) {
+      if (!fieldVisible(f)) continue;
+      let v = formData[f.name];
+      if (f.type === 'json') { try { v = JSON.parse(v || '{}'); } catch { throw new Error(`Invalid JSON in ${f.name}`); } }
+      out[f.name] = v;
+    }
+    // repeatable groups pass through untouched
+    for (const rep of active.form?.repeatable ? [active.form.repeatable] : []) out[rep.name] = formData[rep.name];
+    return out;
+  }
 
   function openCreate() { editingId = null; formData = blankForm(active); loadRelations(active); showForm = true; }
   function openEdit(row: any) {
@@ -327,9 +353,9 @@
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       } else if (editingId) {
-        await api.patch(`${F.endpoint}/${editingId}`, formData);
+        await api.patch(`${F.endpoint}/${editingId}`, jsonPayload());
       } else {
-        await api.post(F.endpoint, formData);
+        await api.post(F.endpoint, jsonPayload());
       }
       showForm = false;
       await load();
@@ -388,6 +414,38 @@
     </div>
   {/if}
 
+  {#if active.layout === 'cards'}
+    {#if loading}
+      <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
+    {:else if clientFiltered.length === 0}
+      <div class="card bg-base-200"><div class="card-body items-center py-12 text-base-content/50 text-sm">{t('common.noResults')}</div></div>
+    {:else}
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {#each clientFiltered as row (row.id)}
+          <div class="card bg-base-200 border border-base-300">
+            <div class="card-body p-4 gap-2">
+              <div class="flex items-start justify-between">
+                <div class="font-medium text-sm">{getPath(row, active.card?.title)}</div>
+                {#if active.card?.badge}<span class="badge badge-ghost badge-sm">{getPath(row, active.card.badge)}</span>{/if}
+              </div>
+              {#if active.card?.subtitle}<div class="text-xs text-base-content/60 font-mono break-all">{getPath(row, active.card.subtitle)}</div>{/if}
+              {#if active.rowActions}
+                <div class="flex justify-end gap-1">
+                  {#each active.rowActions as a}
+                    {#if actionVisible(row, a)}
+                      <button class="btn btn-ghost btn-xs {a.variant ?? ''}" title={t(a.label)} onclick={() => runAction(row, a)}>
+                        {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={12} />{:else}{t(a.label)}{/if}
+                      </button>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {:else}
   <ExtensionDataPanel {loading} empty={!loading && clientFiltered.length === 0} emptyTitle={t('common.noResults')}>
     {#snippet table()}
       <table class="table table-sm">
@@ -431,6 +489,7 @@
       </table>
     {/snippet}
   </ExtensionDataPanel>
+  {/if}
 
   {#if active.pagination && total > active.pagination.limit}
     <div class="flex justify-center gap-2 mt-4">
@@ -452,6 +511,7 @@
       <h3 class="font-bold text-lg mb-4">{editingId ? t('common.edit') : t(schema.newLabel)}</h3>
 
       {#snippet fieldInput(f: FieldDef)}
+        {#if fieldVisible(f)}
         <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
           <label class="label py-0"><span class="label-text text-xs">{t(f.label)}{f.required ? ' *' : ''}</span></label>
           {#if f.type === 'select' || f.type === 'relation'}
@@ -461,9 +521,9 @@
                 <option value={o.value}>{t(o.label)}</option>
               {/each}
             </select>
-          {:else if f.type === 'textarea'}
+          {:else if f.type === 'textarea' || f.type === 'json'}
             <textarea
-              class="textarea textarea-sm {f.mono ? 'font-mono text-xs' : ''}"
+              class="textarea textarea-sm {f.mono || f.type === 'json' ? 'font-mono text-xs' : ''}"
               rows={f.rows ?? 4}
               bind:value={formData[f.name]}
               placeholder={t(f.placeholder)}
@@ -477,6 +537,7 @@
             <input class="input input-sm {f.mono ? 'font-mono' : ''}" type={f.type ?? 'text'} bind:value={formData[f.name]} placeholder={t(f.placeholder)} />
           {/if}
         </div>
+        {/if}
       {/snippet}
 
       {#if F.fields}
