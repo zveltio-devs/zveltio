@@ -14,14 +14,14 @@
   import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
   import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
   import {
-    Plus, Trash2, Send, CheckCircle, XCircle, LoaderCircle, Download,
+    Plus, Trash2, Send, CheckCircle, XCircle, LoaderCircle, Download, DollarSign,
     Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes,
   } from '@lucide/svelte';
   import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 
   let { schema }: { schema: PageSchema } = $props();
 
-  const ICONS: Record<string, any> = { Plus, Trash2, Send, CheckCircle, XCircle, Download, Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes };
+  const ICONS: Record<string, any> = { Plus, Trash2, Send, CheckCircle, XCircle, Download, DollarSign, Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes };
   const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
   // i18n: try the host bundle, fall back to literal — schemas are i18n-ready.
@@ -176,7 +176,8 @@
   }
   function badgeLabel(row: any, col: ColumnDef): string {
     const v = getPath(row, col.key);
-    return col.badge?.labels?.[v] ?? String(v).replace(/_/g, ' ');
+    const mapped = col.badge?.labels?.[v];
+    return mapped ? t(mapped) : String(v).replace(/_/g, ' ');
   }
   function actionVisible(row: any, a: ActionDef): boolean {
     if (!a.visibleWhen) return true;
