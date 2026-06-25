@@ -7,15 +7,23 @@
    */
   import { onMount } from 'svelte';
   import { api } from '$lib/api.js';
+  import { ENGINE_URL } from '$lib/config.js';
   import { m } from '$lib/i18n.svelte.js';
   import { toast } from '$lib/stores/toast.svelte.js';
   import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { Save, Play, LoaderCircle } from '@lucide/svelte';
+  import { Save, Play, Copy, LoaderCircle } from '@lucide/svelte';
   import type { SettingsSchema, FieldDef } from './types.js';
 
   let { schema }: { schema: SettingsSchema } = $props();
 
   const ICONS: Record<string, any> = { Play, Save };
+  function infoValue(v: string): string {
+    return v.replace(/\{ENGINE_URL\}/g, ENGINE_URL);
+  }
+  function copy(v: string) {
+    navigator.clipboard?.writeText(v);
+    toast.success(t('ext.copied'));
+  }
   function t(s?: string): string {
     if (!s) return '';
     const fn = (m as Record<string, (() => string) | undefined>)[s];
@@ -88,6 +96,18 @@
                 <input type="checkbox" class="toggle toggle-sm toggle-primary" bind:checked={config[f.name]} />
                 <span class="text-sm">{t(f.label)}</span>
               </div>
+            {:else if f.type === 'select'}
+              <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
+                <label class="label py-0"><span class="label-text text-xs">{t(f.label)}</span></label>
+                <select class="select select-sm" bind:value={config[f.name]}>
+                  {#each f.options ?? [] as o}<option value={o.value}>{t(o.label)}</option>{/each}
+                </select>
+              </div>
+            {:else if f.type === 'textarea'}
+              <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
+                <label class="label py-0"><span class="label-text text-xs">{t(f.label)}</span></label>
+                <textarea class="textarea textarea-sm {f.mono ? 'font-mono text-xs' : ''}" rows={f.rows ?? 4} bind:value={config[f.name]} placeholder={t(f.placeholder)}></textarea>
+              </div>
             {:else}
               <div class="form-control {f.colSpan === 2 ? 'col-span-2' : ''}">
                 <label class="label py-0"><span class="label-text text-xs">{t(f.label)}</span></label>
@@ -95,6 +115,22 @@
               </div>
             {/if}
           {/snippet}
+
+          {#if schema.info}
+            <div class="space-y-2">
+              {#each schema.info as inf}
+                <div class="form-control">
+                  <label class="label py-0"><span class="label-text text-xs">{t(inf.label)}</span></label>
+                  <div class="flex gap-2">
+                    <input class="input input-sm flex-1 font-mono text-xs" readonly value={infoValue(inf.value)} />
+                    <button class="btn btn-ghost btn-sm" onclick={() => copy(infoValue(inf.value))}><Copy size={13} /></button>
+                  </div>
+                  {#if inf.hint}<span class="text-xs text-base-content/50">{t(inf.hint)}</span>{/if}
+                </div>
+              {/each}
+              <div class="divider my-0"></div>
+            </div>
+          {/if}
 
           {#each schema.fields ?? [] as f}{@render field(f)}{/each}
 

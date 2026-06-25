@@ -159,6 +159,9 @@ export interface SettingsSchema {
   dataPath?: Dotted;
   /** POST endpoint to persist the config. */
   saveEndpoint: string;
+  /** Read-only info rows shown above the form, each with a copy button (e.g. SP
+   * metadata / ACS callback URLs). `value` may contain the "{ENGINE_URL}" token. */
+  info?: { label: string; value: string; hint?: string }[];
   sections?: { title: string; fields: FieldDef[] }[];
   fields?: FieldDef[];
   /** Extra page-level actions, e.g. Test connection (posts the current config). */
