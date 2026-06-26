@@ -104,6 +104,15 @@ export interface ColumnDef {
   };
   /** Conditional cell CSS class (e.g. overdue date → text-error). First match wins. */
   classWhen?: { field?: Dotted; equals?: string; in?: string[]; class: string }[];
+  /** Inline-editable cell: renders a control that PATCHes the row on change (e.g.
+   * an order status dropdown). With `options` it's a <select>, else a text input.
+   * `endpoint` "{id}" is substituted; the body is `{ [field ?? key]: newValue }`. */
+  editable?: {
+    endpoint: string;
+    field?: Dotted;
+    method?: 'PATCH' | 'POST';
+    options?: { value: string; label: string }[];
+  };
 }
 
 export interface ActionDef {
