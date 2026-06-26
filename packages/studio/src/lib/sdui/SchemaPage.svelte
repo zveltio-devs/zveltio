@@ -1,376 +1,458 @@
 <script lang="ts">
-  /**
-   * SDUI SPIKE renderer. Interprets a PageSchema with trusted generic host
-   * components — no per-extension code. Reuses ExtensionPageShell + ConfirmModal
-   * + the shared `api`, exactly like a hand-written extension page would.
-   */
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { ENGINE_URL } from '$lib/config.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-  import {
-    Plus, Trash2, Send, CheckCircle, XCircle, LoaderCircle, Download, DollarSign,
-    Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes,
-  } from '@lucide/svelte';
-  import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
+/**
+ * SDUI SPIKE renderer. Interprets a PageSchema with trusted generic host
+ * components — no per-extension code. Reuses ExtensionPageShell + ConfirmModal
+ * + the shared `api`, exactly like a hand-written extension page would.
+ */
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { ENGINE_URL } from '$lib/config.js';
+import { m } from '$lib/i18n.svelte.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import {
+  Plus,
+  Trash2,
+  Send,
+  CheckCircle,
+  XCircle,
+  LoaderCircle,
+  Download,
+  DollarSign,
+  Users,
+  Building2,
+  TrendingUp,
+  FolderOpen,
+  Clock,
+  Package,
+  Warehouse,
+  Boxes,
+} from '@lucide/svelte';
+import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 
-  let { schema }: { schema: PageSchema } = $props();
+let { schema }: { schema: PageSchema } = $props();
 
-  const ICONS: Record<string, any> = { Plus, Trash2, Send, CheckCircle, XCircle, Download, DollarSign, Users, Building2, TrendingUp, FolderOpen, Clock, Package, Warehouse, Boxes };
-  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+const ICONS: Record<string, any> = {
+  Plus,
+  Trash2,
+  Send,
+  CheckCircle,
+  XCircle,
+  Download,
+  DollarSign,
+  Users,
+  Building2,
+  TrendingUp,
+  FolderOpen,
+  Clock,
+  Package,
+  Warehouse,
+  Boxes,
+};
+const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-  // i18n: try the host bundle, fall back to literal — schemas are i18n-ready.
-  function t(s?: string): string {
-    if (!s) return '';
-    const fn = (m as Record<string, (() => string) | undefined>)[s];
-    return typeof fn === 'function' ? fn() : s;
-  }
-  function getPath(obj: any, path?: string): any {
-    if (!path) return obj;
-    return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
-  }
-  // Relation option/cell label: a single key, or several keys joined (e.g. first+last name).
-  function relLabel(it: any, labelKey: string | string[]): string {
-    if (Array.isArray(labelKey)) return labelKey.map((k) => it[k]).filter(Boolean).join(' ');
-    return String(it[labelKey] ?? '');
-  }
+// i18n: try the host bundle, fall back to literal — schemas are i18n-ready.
+function t(s?: string): string {
+  if (!s) return '';
+  const fn = (m as Record<string, (() => string) | undefined>)[s];
+  return typeof fn === 'function' ? fn() : s;
+}
+function getPath(obj: any, path?: string): any {
+  if (!path) return obj;
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+}
+// Relation option/cell label: a single key, or several keys joined (e.g. first+last name).
+function relLabel(it: any, labelKey: string | string[]): string {
+  if (Array.isArray(labelKey))
+    return labelKey
+      .map((k) => it[k])
+      .filter(Boolean)
+      .join(' ');
+  return String(it[labelKey] ?? '');
+}
 
-  let activeId = $state(schema.resources[0]!.id);
-  const active = $derived<ResourceView>(schema.resources.find((r) => r.id === activeId) ?? schema.resources[0]!);
-  const isTabbed = $derived(schema.resources.length > 1);
+let activeId = $state(schema.resources[0]!.id);
+const active = $derived<ResourceView>(
+  schema.resources.find((r) => r.id === activeId) ?? schema.resources[0]!,
+);
+const isTabbed = $derived(schema.resources.length > 1);
 
-  let rows = $state<any[]>([]);
-  let total = $state(0);
-  let statData = $state<Record<string, any> | null>(null);
-  let loading = $state(false);
+let rows = $state<any[]>([]);
+let total = $state(0);
+let statData = $state<Record<string, any> | null>(null);
+let loading = $state(false);
 
-  function formatStat(v: any, fmt?: string): string {
-    if (v == null) return '—';
-    if (fmt === 'currency' || fmt === 'number') return Number(v).toLocaleString();
-    return String(v);
-  }
-  let page = $state(1);
-  let search = $state('');
-  let filterValues = $state<Record<string, string>>({});
+function formatStat(v: any, fmt?: string): string {
+  if (v == null) return '—';
+  if (fmt === 'currency' || fmt === 'number') return Number(v).toLocaleString();
+  return String(v);
+}
+let page = $state(1);
+let search = $state('');
+let filterValues = $state<Record<string, string>>({});
 
-  // form state
-  let showForm = $state(false);
-  let saving = $state(false);
-  let editingId = $state<string | null>(null);
-  let formData = $state<Record<string, any>>({});
-  // foreign-key / relation select options, loaded lazily per field
-  let relationOpts = $state<Record<string, { value: string; label: string }[]>>({});
+// form state
+let showForm = $state(false);
+let saving = $state(false);
+let editingId = $state<string | null>(null);
+let formData = $state<Record<string, any>>({});
+// foreign-key / relation select options, loaded lazily per field
+let relationOpts = $state<Record<string, { value: string; label: string }[]>>({});
 
-  async function loadRelations(r: ResourceView) {
-    for (const f of allFields(r)) {
-      if (f.type !== 'relation' || !f.relation || relationOpts[f.name]) continue;
-      try {
-        const res = await api.get<any>(f.relation.dataSource);
-        const list = (getPath(res, f.relation.dataPath) ?? []) as any[];
-        relationOpts[f.name] = list.map((it) => ({
-          value: String(it[f.relation!.valueKey ?? 'id']),
-          label: relLabel(it, f.relation!.labelKey),
-        }));
-      } catch {
-        relationOpts[f.name] = [];
-      }
-    }
-  }
-
-  function defaultFor(f: FieldDef): any {
-    if (f.default === 'today') return new Date().toISOString().split('T')[0];
-    if (f.default !== undefined) return f.default;
-    if (f.type === 'boolean') return false;
-    if (f.type === 'json') return '{}';
-    return f.type === 'number' ? 0 : '';
-  }
-  // Conditional form field (e.g. auth_token only when auth_type === 'bearer').
-  function fieldVisible(f: FieldDef): boolean {
-    if (!f.visibleWhen) return true;
-    const v = formData[f.visibleWhen.field];
-    if (f.visibleWhen.equals !== undefined) return v === f.visibleWhen.equals;
-    if (f.visibleWhen.in) return f.visibleWhen.in.includes(v);
-    return true;
-  }
-  function allFields(r: ResourceView): FieldDef[] {
-    const fs = [...(r.form?.fields ?? [])];
-    for (const sec of r.form?.sections ?? []) fs.push(...sec.fields);
-    return fs;
-  }
-  function blankForm(r: ResourceView): Record<string, any> {
-    const d: Record<string, any> = {};
-    for (const f of allFields(r)) d[f.name] = defaultFor(f);
-    if (r.form?.repeatable) {
-      const rep = r.form.repeatable;
-      d[rep.name] = [Object.fromEntries(rep.columns.map((c) => [c.name, defaultFor(c)]))];
-    }
-    return d;
-  }
-
-  async function load() {
-    const r = active;
-    loading = true;
+async function loadRelations(r: ResourceView) {
+  for (const f of allFields(r)) {
+    if (f.type !== 'relation' || !f.relation || relationOpts[f.name]) continue;
     try {
-      const qs = new URLSearchParams();
-      if (r.search?.param && search) qs.set(r.search.param, search);
-      for (const fl of r.filters ?? []) {
-        const v = filterValues[fl.param];
-        if (v && v !== 'all') qs.set(fl.param, v);
-      }
-      if (r.pagination) { qs.set('page', String(page)); qs.set('limit', String(r.pagination.limit)); }
-      const url = qs.toString() ? `${r.dataSource}?${qs}` : r.dataSource;
-      const res = await api.get<any>(url);
-      rows = getPath(res, r.dataPath) ?? [];
-      total = r.totalPath ? (getPath(res, r.totalPath) ?? 0) : rows.length;
-      loadRelationColumns(r);
-      if (r.stats) {
-        try {
-          const sres = await api.get<any>(r.stats.dataSource);
-          statData = getPath(sres, r.stats.dataPath) ?? null;
-        } catch {
-          statData = null;
-        }
-      } else {
+      const res = await api.get<any>(f.relation.dataSource);
+      const list = (getPath(res, f.relation.dataPath) ?? []) as any[];
+      relationOpts[f.name] = list.map((it) => ({
+        value: String(it[f.relation!.valueKey ?? 'id']),
+        label: relLabel(it, f.relation!.labelKey),
+      }));
+    } catch {
+      relationOpts[f.name] = [];
+    }
+  }
+}
+
+function defaultFor(f: FieldDef): any {
+  if (f.default === 'today') return new Date().toISOString().split('T')[0];
+  if (f.default !== undefined) return f.default;
+  if (f.type === 'boolean') return false;
+  if (f.type === 'json') return '{}';
+  return f.type === 'number' ? 0 : '';
+}
+// Conditional form field (e.g. auth_token only when auth_type === 'bearer').
+function fieldVisible(f: FieldDef): boolean {
+  if (!f.visibleWhen) return true;
+  const v = formData[f.visibleWhen.field];
+  if (f.visibleWhen.equals !== undefined) return v === f.visibleWhen.equals;
+  if (f.visibleWhen.in) return f.visibleWhen.in.includes(v);
+  return true;
+}
+function allFields(r: ResourceView): FieldDef[] {
+  const fs = [...(r.form?.fields ?? [])];
+  for (const sec of r.form?.sections ?? []) fs.push(...sec.fields);
+  return fs;
+}
+function blankForm(r: ResourceView): Record<string, any> {
+  const d: Record<string, any> = {};
+  for (const f of allFields(r)) d[f.name] = defaultFor(f);
+  if (r.form?.repeatable) {
+    const rep = r.form.repeatable;
+    d[rep.name] = [Object.fromEntries(rep.columns.map((c) => [c.name, defaultFor(c)]))];
+  }
+  return d;
+}
+
+async function load() {
+  const r = active;
+  loading = true;
+  try {
+    const qs = new URLSearchParams();
+    if (r.search?.param && search) qs.set(r.search.param, search);
+    for (const fl of r.filters ?? []) {
+      const v = filterValues[fl.param];
+      if (v && v !== 'all') qs.set(fl.param, v);
+    }
+    if (r.pagination) {
+      qs.set('page', String(page));
+      qs.set('limit', String(r.pagination.limit));
+    }
+    const url = qs.toString() ? `${r.dataSource}?${qs}` : r.dataSource;
+    const res = await api.get<any>(url);
+    rows = getPath(res, r.dataPath) ?? [];
+    total = r.totalPath ? (getPath(res, r.totalPath) ?? 0) : rows.length;
+    loadRelationColumns(r);
+    if (r.stats) {
+      try {
+        const sres = await api.get<any>(r.stats.dataSource);
+        statData = getPath(sres, r.stats.dataPath) ?? null;
+      } catch {
         statData = null;
       }
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
-    } finally {
-      loading = false;
+    } else {
+      statData = null;
     }
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
+  } finally {
+    loading = false;
   }
+}
 
-  onMount(load);
-  // reload when the active resource, page, or any filter changes
-  $effect(() => { activeId; page; JSON.stringify(filterValues); load(); });
+onMount(load);
+// reload when the active resource, page, or any filter changes
+$effect(() => {
+  activeId;
+  page;
+  JSON.stringify(filterValues);
+  load();
+});
 
-  const clientFiltered = $derived.by(() => {
-    const r = active;
-    if (r.search?.param || !r.search?.fields || !search) return rows;
-    const q = search.toLowerCase();
-    return rows.filter((row) => r.search!.fields!.some((f) => String(row[f] ?? '').toLowerCase().includes(q)));
-  });
-
-  function cellText(row: any, col: ColumnDef): string {
-    if (col.template) return col.template.replace(/\{([^}]+)\}/g, (_, k) =>
-      k.trim() === 'ENGINE_URL' ? ENGINE_URL : String(getPath(row, k.trim()) ?? ''));
-    if (col.join) return col.join.keys.map((k) => row[k]).filter(Boolean).join(col.join.sep ?? ' ');
-    const v = getPath(row, col.key);
-    if (v == null || v === '') return '—';
-    if (col.type === 'date') return new Date(v).toLocaleDateString();
-    if (col.type === 'currency') {
-      const code = col.currency?.code ?? (col.currency?.codeKey ? row[col.currency.codeKey] : '');
-      return `${Number(v).toLocaleString()} ${code ?? ''}`.trim();
-    }
-    if (col.type === 'relation') return relColMaps[col.key]?.[String(v)] ?? String(v);
-    if (col.type === 'boolean') return v ? '✓' : '—';
-    return String(v);
-  }
-  function badgeClass(row: any, col: ColumnDef): string {
-    return col.badge?.colors[getPath(row, col.key)] ?? 'badge-ghost';
-  }
-  function badgeLabel(row: any, col: ColumnDef): string {
-    const v = getPath(row, col.key);
-    const mapped = col.badge?.labels?.[v];
-    return mapped ? t(mapped) : String(v).replace(/_/g, ' ');
-  }
-  function actionVisible(row: any, a: ActionDef): boolean {
-    if (!a.visibleWhen) return true;
-    const v = getPath(row, a.visibleWhen.field);
-    if (a.visibleWhen.equals !== undefined) return v === a.visibleWhen.equals;
-    if (a.visibleWhen.in) return a.visibleWhen.in.includes(v);
-    return true;
-  }
-  function cellClass(row: any, col: ColumnDef): string {
-    let cls = col.type === 'mono' ? 'font-mono text-xs' : '';
-    for (const c of col.classWhen ?? []) {
-      const v = c.field ? getPath(row, c.field) : getPath(row, col.key);
-      if ((c.equals !== undefined && v === c.equals) || (c.in && c.in.includes(v))) {
-        cls += ` ${c.class}`;
-        break;
-      }
-    }
-    return cls.trim();
-  }
-
-  // id → label maps for relation COLUMNS (lazy, one fetch per relation column)
-  let relColMaps = $state<Record<string, Record<string, string>>>({});
-  async function loadRelationColumns(r: ResourceView) {
-    for (const col of r.columns) {
-      if (col.type !== 'relation' || !col.relation || relColMaps[col.key]) continue;
-      try {
-        const res = await api.get<any>(col.relation.dataSource);
-        const list = (getPath(res, col.relation.dataPath) ?? []) as any[];
-        relColMaps[col.key] = Object.fromEntries(
-          list.map((it) => [String(it[col.relation!.valueKey ?? 'id']), relLabel(it, col.relation!.labelKey)]),
-        );
-      } catch {
-        relColMaps[col.key] = {};
-      }
-    }
-  }
-
-  // Action request body: "{field}" tokens from the row; "{a-b}" subtracts.
-  function buildBody(a: ActionDef, row: any): Record<string, any> {
-    if (!a.body) return {};
-    const out: Record<string, any> = {};
-    for (const [k, tmpl] of Object.entries(a.body)) {
-      const mt = /^\{(.+)\}$/.exec(tmpl);
-      if (mt) {
-        const parts = mt[1].split('-');
-        out[k] =
-          parts.length === 2
-            ? Number(getPath(row, parts[0].trim()) || 0) - Number(getPath(row, parts[1].trim()) || 0)
-            : getPath(row, mt[1].trim());
-      } else {
-        out[k] = tmpl;
-      }
-    }
-    return out;
-  }
-
-  // required-field gating for the create/edit form submit
-  const formValid = $derived.by(() =>
-    allFields(active)
-      .filter((f) => f.required && fieldVisible(f))
-      .every((f) => {
-        const v = formData[f.name];
-        return v !== '' && v != null;
-      }),
+const clientFiltered = $derived.by(() => {
+  const r = active;
+  if (r.search?.param || !r.search?.fields || !search) return rows;
+  const q = search.toLowerCase();
+  return rows.filter((row) =>
+    r.search!.fields!.some((f) =>
+      String(row[f] ?? '')
+        .toLowerCase()
+        .includes(q),
+    ),
   );
+});
 
-  // Build the JSON create/edit payload: parse type:'json' fields string→object,
-  // drop fields hidden by visibleWhen.
-  function jsonPayload(): Record<string, any> {
-    const out: Record<string, any> = {};
-    for (const f of allFields(active)) {
-      if (!fieldVisible(f)) continue;
-      let v = formData[f.name];
-      if (f.type === 'json') { try { v = JSON.parse(v || '{}'); } catch { throw new Error(`Invalid JSON in ${f.name}`); } }
-      out[f.name] = v;
+function cellText(row: any, col: ColumnDef): string {
+  if (col.template)
+    return col.template.replace(/\{([^}]+)\}/g, (_, k) =>
+      k.trim() === 'ENGINE_URL' ? ENGINE_URL : String(getPath(row, k.trim()) ?? ''),
+    );
+  if (col.join)
+    return col.join.keys
+      .map((k) => row[k])
+      .filter(Boolean)
+      .join(col.join.sep ?? ' ');
+  const v = getPath(row, col.key);
+  if (v == null || v === '') return '—';
+  if (col.type === 'date') return new Date(v).toLocaleDateString();
+  if (col.type === 'currency') {
+    const code = col.currency?.code ?? (col.currency?.codeKey ? row[col.currency.codeKey] : '');
+    return `${Number(v).toLocaleString()} ${code ?? ''}`.trim();
+  }
+  if (col.type === 'relation') return relColMaps[col.key]?.[String(v)] ?? String(v);
+  if (col.type === 'boolean') return v ? '✓' : '—';
+  return String(v);
+}
+function badgeClass(row: any, col: ColumnDef): string {
+  return col.badge?.colors[getPath(row, col.key)] ?? 'badge-ghost';
+}
+function badgeLabel(row: any, col: ColumnDef): string {
+  const v = getPath(row, col.key);
+  const mapped = col.badge?.labels?.[v];
+  return mapped ? t(mapped) : String(v).replace(/_/g, ' ');
+}
+function actionVisible(row: any, a: ActionDef): boolean {
+  if (!a.visibleWhen) return true;
+  const v = getPath(row, a.visibleWhen.field);
+  if (a.visibleWhen.equals !== undefined) return v === a.visibleWhen.equals;
+  if (a.visibleWhen.in) return a.visibleWhen.in.includes(v);
+  return true;
+}
+function cellClass(row: any, col: ColumnDef): string {
+  let cls = col.type === 'mono' ? 'font-mono text-xs' : '';
+  for (const c of col.classWhen ?? []) {
+    const v = c.field ? getPath(row, c.field) : getPath(row, col.key);
+    if ((c.equals !== undefined && v === c.equals) || (c.in && c.in.includes(v))) {
+      cls += ` ${c.class}`;
+      break;
     }
-    // repeatable groups pass through untouched
-    for (const rep of active.form?.repeatable ? [active.form.repeatable] : []) out[rep.name] = formData[rep.name];
-    return out;
   }
+  return cls.trim();
+}
 
-  function openCreate() { editingId = null; formData = blankForm(active); loadRelations(active); showForm = true; }
-  function openEdit(row: any) {
-    editingId = row.id;
-    const d = blankForm(active);
-    for (const k of Object.keys(d)) if (row[k] !== undefined) d[k] = row[k];
-    formData = d;
-    loadRelations(active);
-    showForm = true;
-  }
-  // Substitute "{id}" and any other "{field}" token in an endpoint from the row.
-  function fillEndpoint(tmpl: string, row: any): string {
-    return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(getPath(row, k.trim()) ?? ''));
-  }
-  function runAction(row: any, a: ActionDef) {
-    if (a.kind === 'edit') return openEdit(row);
-    if (a.kind === 'download') {
-      window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
-      return;
-    }
-    const fire = async () => {
-      try {
-        const url = (a.endpoint ?? '').replace('{id}', row.id);
-        const body = buildBody(a, row);
-        if (a.method === 'DELETE') await api.delete(url);
-        else if (a.method === 'PATCH') await api.patch(url, body);
-        else await api.post(url, body);
-        await load();
-        toast.success(t('ext.saved'));
-      } catch (e: any) {
-        toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
-      }
-    };
-    if (a.confirm) askConfirm(t(a.confirm), fire);
-    else fire();
-  }
-
-  // computed fields (e.g. total weight = sum of goods.weight_kg)
-  $effect(() => {
-    for (const c of active.form?.computed ?? []) {
-      if (c.sumOf) {
-        const list = (formData[c.sumOf.group] as any[]) ?? [];
-        formData[c.name] = list.reduce((s, it) => s + Number(it[c.sumOf!.field] || 0), 0);
-      }
-    }
-  });
-  function addRepeatRow() {
-    const rep = active.form!.repeatable!;
-    formData[rep.name] = [...(formData[rep.name] ?? []), Object.fromEntries(rep.columns.map((c) => [c.name, defaultFor(c)]))];
-  }
-  function removeRepeatRow(i: number) {
-    const rep = active.form!.repeatable!;
-    formData[rep.name] = (formData[rep.name] as any[]).filter((_, idx) => idx !== i);
-  }
-
-  // path tokens in a form endpoint template, e.g. "/x/{collection}" → ["collection"]
-  function endpointTokens(tmpl: string): string[] {
-    return [...tmpl.matchAll(/\{([^}]+)\}/g)].map((mt) => mt[1].trim());
-  }
-
-  async function submitForm() {
-    const F = active.form!;
-    const sub = F.submit?.kind;
-
-    // download: open the GET endpoint (path tokens filled, rest → querystring) in a new tab.
-    if (sub === 'download') {
-      const tokens = endpointTokens(F.endpoint);
-      const url = `${ENGINE_URL}${fillEndpoint(F.endpoint, formData)}`;
-      const qs = new URLSearchParams();
-      for (const f of allFields(active)) {
-        if (tokens.includes(f.name)) continue;
-        const v = formData[f.name];
-        if (v !== '' && v != null && !(f.type === 'number' && Number(v) === 0)) qs.set(f.name, String(v));
-      }
-      window.open(qs.toString() ? `${url}?${qs}` : url, '_blank');
-      showForm = false;
-      setTimeout(load, 800);
-      return;
-    }
-
-    saving = true;
+// id → label maps for relation COLUMNS (lazy, one fetch per relation column)
+let relColMaps = $state<Record<string, Record<string, string>>>({});
+async function loadRelationColumns(r: ResourceView) {
+  for (const col of r.columns) {
+    if (col.type !== 'relation' || !col.relation || relColMaps[col.key]) continue;
     try {
-      if (sub === 'upload') {
-        // multipart POST: the file field + the other (non-path) fields.
-        const tokens = endpointTokens(F.endpoint);
-        const fd = new FormData();
-        for (const f of allFields(active)) {
-          if (tokens.includes(f.name)) continue;
-          const v = formData[f.name];
-          if (f.type === 'file') { if (v) fd.append(f.name, v as File); }
-          else if (v !== '' && v != null) fd.append(f.name, String(v));
-        }
-        const res = await api.fetch(fillEndpoint(F.endpoint, formData), { method: 'POST', body: fd });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      } else if (editingId) {
-        await api.patch(`${F.endpoint}/${editingId}`, jsonPayload());
-      } else {
-        await api.post(F.endpoint, jsonPayload());
+      const res = await api.get<any>(col.relation.dataSource);
+      const list = (getPath(res, col.relation.dataPath) ?? []) as any[];
+      relColMaps[col.key] = Object.fromEntries(
+        list.map((it) => [
+          String(it[col.relation!.valueKey ?? 'id']),
+          relLabel(it, col.relation!.labelKey),
+        ]),
+      );
+    } catch {
+      relColMaps[col.key] = {};
+    }
+  }
+}
+
+// Action request body: "{field}" tokens from the row; "{a-b}" subtracts.
+function buildBody(a: ActionDef, row: any): Record<string, any> {
+  if (!a.body) return {};
+  const out: Record<string, any> = {};
+  for (const [k, tmpl] of Object.entries(a.body)) {
+    const mt = /^\{(.+)\}$/.exec(tmpl);
+    if (mt) {
+      const parts = mt[1].split('-');
+      out[k] =
+        parts.length === 2
+          ? Number(getPath(row, parts[0].trim()) || 0) - Number(getPath(row, parts[1].trim()) || 0)
+          : getPath(row, mt[1].trim());
+    } else {
+      out[k] = tmpl;
+    }
+  }
+  return out;
+}
+
+// required-field gating for the create/edit form submit
+const formValid = $derived.by(() =>
+  allFields(active)
+    .filter((f) => f.required && fieldVisible(f))
+    .every((f) => {
+      const v = formData[f.name];
+      return v !== '' && v != null;
+    }),
+);
+
+// Build the JSON create/edit payload: parse type:'json' fields string→object,
+// drop fields hidden by visibleWhen.
+function jsonPayload(): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const f of allFields(active)) {
+    if (!fieldVisible(f)) continue;
+    let v = formData[f.name];
+    if (f.type === 'json') {
+      try {
+        v = JSON.parse(v || '{}');
+      } catch {
+        throw new Error(`Invalid JSON in ${f.name}`);
       }
-      showForm = false;
+    }
+    out[f.name] = v;
+  }
+  // repeatable groups pass through untouched
+  for (const rep of active.form?.repeatable ? [active.form.repeatable] : [])
+    out[rep.name] = formData[rep.name];
+  return out;
+}
+
+function openCreate() {
+  editingId = null;
+  formData = blankForm(active);
+  loadRelations(active);
+  showForm = true;
+}
+function openEdit(row: any) {
+  editingId = row.id;
+  const d = blankForm(active);
+  for (const k of Object.keys(d)) if (row[k] !== undefined) d[k] = row[k];
+  formData = d;
+  loadRelations(active);
+  showForm = true;
+}
+// Substitute "{id}" and any other "{field}" token in an endpoint from the row.
+function fillEndpoint(tmpl: string, row: any): string {
+  return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(getPath(row, k.trim()) ?? ''));
+}
+function runAction(row: any, a: ActionDef) {
+  if (a.kind === 'edit') return openEdit(row);
+  if (a.kind === 'download') {
+    window.open(`${ENGINE_URL}${fillEndpoint(a.endpoint ?? '', row)}`, '_blank');
+    return;
+  }
+  const fire = async () => {
+    try {
+      const url = (a.endpoint ?? '').replace('{id}', row.id);
+      const body = buildBody(a, row);
+      if (a.method === 'DELETE') await api.delete(url);
+      else if (a.method === 'PATCH') await api.patch(url, body);
+      else await api.post(url, body);
       await load();
       toast.success(t('ext.saved'));
     } catch (e: any) {
       toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
-    } finally {
-      saving = false;
+    }
+  };
+  if (a.confirm) askConfirm(t(a.confirm), fire);
+  else fire();
+}
+
+// computed fields (e.g. total weight = sum of goods.weight_kg)
+$effect(() => {
+  for (const c of active.form?.computed ?? []) {
+    if (c.sumOf) {
+      const list = (formData[c.sumOf.group] as any[]) ?? [];
+      formData[c.name] = list.reduce((s, it) => s + Number(it[c.sumOf!.field] || 0), 0);
     }
   }
+});
+function addRepeatRow() {
+  const rep = active.form!.repeatable!;
+  formData[rep.name] = [
+    ...(formData[rep.name] ?? []),
+    Object.fromEntries(rep.columns.map((c) => [c.name, defaultFor(c)])),
+  ];
+}
+function removeRepeatRow(i: number) {
+  const rep = active.form!.repeatable!;
+  formData[rep.name] = (formData[rep.name] as any[]).filter((_, idx) => idx !== i);
+}
 
-  const shellTabs = $derived(
-    isTabbed ? schema.resources.map((r) => ({ id: r.id, label: t(r.label), icon: r.icon ? ICONS[r.icon] : undefined })) : undefined,
-  );
+// path tokens in a form endpoint template, e.g. "/x/{collection}" → ["collection"]
+function endpointTokens(tmpl: string): string[] {
+  return [...tmpl.matchAll(/\{([^}]+)\}/g)].map((mt) => mt[1].trim());
+}
+
+async function submitForm() {
+  const F = active.form!;
+  const sub = F.submit?.kind;
+
+  // download: open the GET endpoint (path tokens filled, rest → querystring) in a new tab.
+  if (sub === 'download') {
+    const tokens = endpointTokens(F.endpoint);
+    const url = `${ENGINE_URL}${fillEndpoint(F.endpoint, formData)}`;
+    const qs = new URLSearchParams();
+    for (const f of allFields(active)) {
+      if (tokens.includes(f.name)) continue;
+      const v = formData[f.name];
+      if (v !== '' && v != null && !(f.type === 'number' && Number(v) === 0))
+        qs.set(f.name, String(v));
+    }
+    window.open(qs.toString() ? `${url}?${qs}` : url, '_blank');
+    showForm = false;
+    setTimeout(load, 800);
+    return;
+  }
+
+  saving = true;
+  try {
+    if (sub === 'upload') {
+      // multipart POST: the file field + the other (non-path) fields.
+      const tokens = endpointTokens(F.endpoint);
+      const fd = new FormData();
+      for (const f of allFields(active)) {
+        if (tokens.includes(f.name)) continue;
+        const v = formData[f.name];
+        if (f.type === 'file') {
+          if (v) fd.append(f.name, v as File);
+        } else if (v !== '' && v != null) fd.append(f.name, String(v));
+      }
+      const res = await api.fetch(fillEndpoint(F.endpoint, formData), { method: 'POST', body: fd });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    } else if (editingId) {
+      await api.patch(`${F.endpoint}/${editingId}`, jsonPayload());
+    } else {
+      await api.post(F.endpoint, jsonPayload());
+    }
+    showForm = false;
+    await load();
+    toast.success(t('ext.saved'));
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+  } finally {
+    saving = false;
+  }
+}
+
+const shellTabs = $derived(
+  isTabbed
+    ? schema.resources.map((r) => ({
+        id: r.id,
+        label: t(r.label),
+        icon: r.icon ? ICONS[r.icon] : undefined,
+      }))
+    : undefined,
+);
 </script>
 
 <ExtensionPageShell
