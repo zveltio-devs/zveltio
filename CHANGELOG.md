@@ -2,6 +2,33 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.11] - 2026-06-26
+
+SDUI migration wave — **22/54 extensions now render from declarative schemas**
+(up from 2), with a substantially expanded renderer vocabulary. No engine source
+changes; all-package typecheck clean; CI green.
+
+- **Newly declarative (this release):** content/document-templates, content/drafts,
+  finance/expenses, finance/quotes, finance/invoicing, finance/subscriptions,
+  hr/employees, hr/leave, hr/payroll, operations/assets, operations/inventory,
+  auth/ldap, auth/saml, compliance/gdpr, compliance/ro/saft, data/export,
+  data/import, integrations/api-connector, ecommerce/store, **crm** (+ the
+  earlier etransport, documents). Baked Svelte pages removed for each.
+- **New renderer primitives** (all in the shared `SchemaPage`/`SettingsPage`):
+  download action, download-form + upload-form submit modes, file field,
+  settings textarea/select + read-only info/copy block, cards layout, conditional
+  form fields (`visibleWhen`), json field, url-template column, inline-edit cell
+  (select/text PATCH), and **master-detail** (left selector → templated detail
+  table + detail actions). Badge labels are now i18n-resolved.
+- **The remaining 32 extensions keep code `+page.svelte`** (bespoke editors,
+  canvases, maps, kanban, AI chat, file browsers, live timers, composers) — baked
+  at release, fully functional. This is the intended Tier-3 split.
+- **Docs:** EXTENSION-DEVELOPER-GUIDE §10 rewritten to document the declarative
+  model (both archetypes + full vocabulary), manifest `studio.pages[].schema`
+  field documented, TECHNICAL-GAPS §8.3 marked partially shipped.
+- **CI fix:** the `biome format` lint gate (red since beta.10 on pre-existing
+  files) is green; run `bun run format` before pushing Studio changes.
+
 ## [3.0.0-beta.10] - 2026-06-22
 
 First **published** SDUI release (beta.9 built but never published — a
