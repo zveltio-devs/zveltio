@@ -53,6 +53,20 @@ export interface ResourceView {
   /** Card-grid mapping (used when layout:'cards'): which row keys are the
    * title / badge / sub-text. rowActions still render in the card footer. */
   card?: { title: Dotted; badge?: Dotted; subtitle?: Dotted };
+  /** Master-detail: render a left selector list; this resource's `dataSource`
+   * becomes the DETAIL table (templated with the selected id via "{masterId}",
+   * e.g. "/ext/hr/payroll/periods/{masterId}/entries"). `form` (if present)
+   * creates MASTER items. */
+  master?: {
+    dataSource: string;
+    dataPath?: Dotted;
+    idKey?: Dotted;
+    titleKey: Dotted;
+    subtitle?: { keys: Dotted[]; sep?: string };
+    badgeKey?: Dotted;
+  };
+  /** Master-detail toolbar actions on the selected master id (endpoint "{id}"). */
+  detailActions?: ActionDef[];
   columns: ColumnDef[];
   rowActions?: ActionDef[];
   form?: FormDef;

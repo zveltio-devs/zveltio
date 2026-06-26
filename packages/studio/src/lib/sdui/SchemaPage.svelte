@@ -148,8 +148,55 @@ function blankForm(r: ResourceView): Record<string, any> {
   return d;
 }
 
+// master-detail state
+let masterRows = $state<any[]>([]);
+let selectedMasterId = $state<string | null>(null);
+const selectedMaster = $derived(
+  active.master
+    ? (masterRows.find(
+        (mr) => String(mr[active.master!.idKey ?? 'id']) === String(selectedMasterId),
+      ) ?? null)
+    : null,
+);
+
+async function loadMasterDetail(r: ResourceView) {
+  loading = true;
+  try {
+    const mres = await api.get<any>(r.master!.dataSource);
+    masterRows = getPath(mres, r.master!.dataPath) ?? [];
+    const idKey = r.master!.idKey ?? 'id';
+    if (
+      selectedMasterId == null ||
+      !masterRows.some((mr) => String(mr[idKey]) === String(selectedMasterId))
+    )
+      selectedMasterId = masterRows[0]?.[idKey] ?? null;
+    if (selectedMasterId != null) {
+      const durl = r.dataSource.replace('{masterId}', String(selectedMasterId));
+      const dres = await api.get<any>(durl);
+      rows = getPath(dres, r.dataPath) ?? [];
+    } else {
+      rows = [];
+    }
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
+  } finally {
+    loading = false;
+  }
+}
+async function selectMaster(id: string) {
+  selectedMasterId = id;
+  const r = active;
+  try {
+    const dres = await api.get<any>(r.dataSource.replace('{masterId}', String(id)));
+    rows = getPath(dres, r.dataPath) ?? [];
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
+  }
+}
+
 async function load() {
   const r = active;
+  if (r.master) return loadMasterDetail(r);
   loading = true;
   try {
     const qs = new URLSearchParams();
@@ -515,7 +562,74 @@ const shellTabs = $derived(
     </div>
   {/if}
 
-  {#if active.layout === 'cards'}
+  {#if active.master}
+    {@const mkey = active.master.idKey ?? 'id'}
+    <div class="grid grid-cols-12 gap-4">
+      <aside class="col-span-3">
+        <div class="card bg-base-200 border border-base-300">
+          <div class="card-body p-2 gap-1">
+            {#if masterRows.length === 0}
+              <p class="p-3 text-xs text-base-content/50">{t('common.noResults')}</p>
+            {:else}
+              {#each masterRows as mrow (mrow[mkey])}
+                <button
+                  class="btn btn-ghost btn-sm h-auto py-2 justify-start {String(mrow[mkey]) === String(selectedMasterId) ? 'btn-active' : ''}"
+                  onclick={() => selectMaster(mrow[mkey])}
+                >
+                  <div class="text-left w-full">
+                    <div class="font-medium text-xs">{getPath(mrow, active.master.titleKey)}</div>
+                    {#if active.master.subtitle}
+                      <div class="text-xs opacity-60">
+                        {active.master.subtitle.keys
+                          .map((k) => getPath(mrow, k))
+                          .filter(Boolean)
+                          .join(active.master.subtitle.sep ?? ' ')}
+                      </div>
+                    {/if}
+                    {#if active.master.badgeKey}<span class="badge badge-xs mt-0.5">{getPath(mrow, active.master.badgeKey)}</span>{/if}
+                  </div>
+                </button>
+              {/each}
+            {/if}
+          </div>
+        </div>
+      </aside>
+      <main class="col-span-9">
+        {#if active.detailActions && selectedMaster}
+          <div class="flex gap-2 mb-3 justify-end">
+            {#each active.detailActions as a}
+              {#if actionVisible(selectedMaster, a)}
+                <button class="btn btn-outline btn-sm gap-1 {a.variant ?? ''}" onclick={() => runAction(selectedMaster, a)}>
+                  {#if a.icon && ICONS[a.icon]}{@const Icon = ICONS[a.icon]}<Icon size={13} />{/if}
+                  {t(a.label)}
+                </button>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+        <ExtensionDataPanel {loading} empty={!loading && rows.length === 0} emptyTitle={t('common.noResults')}>
+          {#snippet table()}
+            <table class="table table-sm">
+              <thead><tr>{#each active.columns as col}<th>{t(col.label)}</th>{/each}</tr></thead>
+              <tbody>
+                {#each rows as row (row.id ?? JSON.stringify(row))}
+                  <tr class="hover">
+                    {#each active.columns as col}
+                      <td class={cellClass(row, col)}>
+                        {#if col.type === 'badge'}
+                          <span class="badge badge-sm {badgeClass(row, col)}">{badgeLabel(row, col)}</span>
+                        {:else}{cellText(row, col)}{/if}
+                      </td>
+                    {/each}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/snippet}
+        </ExtensionDataPanel>
+      </main>
+    </div>
+  {:else if active.layout === 'cards'}
     {#if loading}
       <div class="flex justify-center py-16"><LoaderCircle size={28} class="animate-spin text-primary" /></div>
     {:else if clientFiltered.length === 0}
