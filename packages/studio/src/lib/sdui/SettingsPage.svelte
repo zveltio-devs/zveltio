@@ -1,86 +1,88 @@
 <script lang="ts">
-  /**
-   * SDUI SPIKE — second archetype renderer: a singleton settings/config page
-   * (auth/ldap, saml, integrations, mail setup). Loads one config object,
-   * renders a sectioned form (incl boolean toggle + password), saves it, and
-   * runs page-level actions like "Test connection".
-   */
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { ENGINE_URL } from '$lib/config.js';
-  import { m } from '$lib/i18n.svelte.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { Save, Play, Copy, LoaderCircle } from '@lucide/svelte';
-  import type { SettingsSchema, FieldDef } from './types.js';
+/**
+ * SDUI SPIKE — second archetype renderer: a singleton settings/config page
+ * (auth/ldap, saml, integrations, mail setup). Loads one config object,
+ * renders a sectioned form (incl boolean toggle + password), saves it, and
+ * runs page-level actions like "Test connection".
+ */
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { ENGINE_URL } from '$lib/config.js';
+import { m } from '$lib/i18n.svelte.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { Save, Play, Copy, LoaderCircle } from '@lucide/svelte';
+import type { SettingsSchema, FieldDef } from './types.js';
 
-  let { schema }: { schema: SettingsSchema } = $props();
+let { schema }: { schema: SettingsSchema } = $props();
 
-  const ICONS: Record<string, any> = { Play, Save };
-  function infoValue(v: string): string {
-    return v.replace(/\{ENGINE_URL\}/g, ENGINE_URL);
-  }
-  function copy(v: string) {
-    navigator.clipboard?.writeText(v);
-    toast.success(t('ext.copied'));
-  }
-  function t(s?: string): string {
-    if (!s) return '';
-    const fn = (m as Record<string, (() => string) | undefined>)[s];
-    return typeof fn === 'function' ? fn() : s;
-  }
-  function getPath(obj: any, path?: string): any {
-    if (!path) return obj;
-    return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
-  }
+const ICONS: Record<string, any> = { Play, Save };
+function infoValue(v: string): string {
+  return v.replace(/\{ENGINE_URL\}/g, ENGINE_URL);
+}
+function copy(v: string) {
+  navigator.clipboard?.writeText(v);
+  toast.success(t('ext.copied'));
+}
+function t(s?: string): string {
+  if (!s) return '';
+  const fn = (m as Record<string, (() => string) | undefined>)[s];
+  return typeof fn === 'function' ? fn() : s;
+}
+function getPath(obj: any, path?: string): any {
+  if (!path) return obj;
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+}
 
-  let config = $state<Record<string, any>>({});
-  let loading = $state(true);
-  let saving = $state(false);
-  let busyAction = $state<string | null>(null);
+let config = $state<Record<string, any>>({});
+let loading = $state(true);
+let saving = $state(false);
+let busyAction = $state<string | null>(null);
 
-  function allFields(): FieldDef[] {
-    const fs = [...(schema.fields ?? [])];
-    for (const s of schema.sections ?? []) fs.push(...s.fields);
-    return fs;
+function allFields(): FieldDef[] {
+  const fs = [...(schema.fields ?? [])];
+  for (const s of schema.sections ?? []) fs.push(...s.fields);
+  return fs;
+}
+
+onMount(async () => {
+  try {
+    const res = await api.get<any>(schema.dataSource);
+    const cfg = getPath(res, schema.dataPath);
+    if (cfg) config = cfg;
+    else
+      for (const f of allFields())
+        config[f.name] = f.default ?? (f.type === 'boolean' ? false : '');
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
+  } finally {
+    loading = false;
   }
+});
 
-  onMount(async () => {
-    try {
-      const res = await api.get<any>(schema.dataSource);
-      const cfg = getPath(res, schema.dataPath);
-      if (cfg) config = cfg;
-      else for (const f of allFields()) config[f.name] = f.default ?? (f.type === 'boolean' ? false : '');
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
-    } finally {
-      loading = false;
-    }
-  });
-
-  async function save() {
-    saving = true;
-    try {
-      await api.post(schema.saveEndpoint, config);
-      toast.success(t('common.saved'));
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
-    } finally {
-      saving = false;
-    }
+async function save() {
+  saving = true;
+  try {
+    await api.post(schema.saveEndpoint, config);
+    toast.success(t('common.saved'));
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+  } finally {
+    saving = false;
   }
+}
 
-  async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
-    busyAction = a.id;
-    try {
-      await api.post(a.endpoint, config);
-      toast.success(t(`${a.label} ✓`));
-    } catch (e: any) {
-      toast.error(e instanceof Error ? e.message : `${t(a.label)} failed`);
-    } finally {
-      busyAction = null;
-    }
+async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
+  busyAction = a.id;
+  try {
+    await api.post(a.endpoint, config);
+    toast.success(t(`${a.label} ✓`));
+  } catch (e: any) {
+    toast.error(e instanceof Error ? e.message : `${t(a.label)} failed`);
+  } finally {
+    busyAction = null;
   }
+}
 </script>
 
 <ExtensionPageShell title={t(schema.title)} subtitle={t(schema.subtitle)}>
