@@ -241,6 +241,9 @@ computes the SHA-256, and patches these blocks in place.
 | `contributes.fieldTypes` | string[] | no | List of field type IDs registered. |
 | `contributes.stepTypes` | string[] | no | For workflow steps. |
 | `contributes.schedules` | string[] | no | Names of cron schedules declared. |
+| `studio.navGroup` | string | no | Sidebar group: `business`, `finance`, `hr`, `compliance`, … |
+| `studio.pages` | object[] | no | `[{ path, label, icon, schema? }]`. One entry per Studio page. |
+| `studio.pages[].schema` | string | no | Path to a declarative page schema (e.g. `schemas/crm.json`), relative to the extension root. Present → the page renders from JSON (no `+page.svelte`, no per-host build). Absent → the page is a code `+page.svelte`. See §10. |
 | `quotas.bundleSizeKbMax` | number | no | Default 50000. |
 | `quotas.nodeModulesSizeMbMax` | number | no | Default 200. |
 | `quotas.migrationsMax` | number | no | Default 100. |
@@ -807,10 +810,121 @@ Hot-reload:
 
 ## 10. Studio: pages, field types, form alters, slots
 
-### Synced extension pages (v2) + i18n
+There are **two ways** to ship an extension's Studio UI. Pick by the shape of
+the page:
 
-Many extensions ship `studio/pages/+page.svelte` under the extension repo.
-At install/sync time these are copied into Studio's route tree
+| | Declarative (SDUI schema) — **preferred** | Code page (bespoke) |
+|---|---|---|
+| You ship | `studio/schemas/<slug>.json` | `studio/pages/**/+page.svelte` |
+| Rendered by | trusted generic host components | your compiled Svelte |
+| Install cost | **zero build toolchain** (data, not code) | Studio rebuild / release-time bake |
+| Use for | list+form, multi-tab, settings, cards, master-detail | editors, canvases, maps, kanban, chat, file browsers, live timers, composers |
+
+Most CRUD/settings pages are declarative. Reach for a code page only when the UI
+needs a genuinely bespoke widget the schema vocabulary can't express.
+
+### Declarative pages (SDUI schema) — preferred
+
+An extension page is a JSON file referenced from the manifest. The engine inlines
+it into `/api/extensions` at load (`embedPageSchemas`), and the Studio catch-all
+route renders it with `SchemaPage`/`SettingsPage` — **no per-host build, no
+third-party JS in the admin**.
+
+**1. Author** `studio/schemas/<slug>.json`. Two archetypes:
+
+```jsonc
+// list + form (PageSchema). One resource → a single table; many → tabs.
+{
+  "sduiSchema": 1,
+  "title": "crm.title",                 // i18n key (resolved via m[key]()) or literal
+  "subtitle": "crm.subtitle",
+  "newLabel": "common.new",             // header "+ New" button → opens active resource's form
+  "resources": [
+    {
+      "id": "contacts",
+      "label": "crm.tab.contacts",
+      "icon": "Users",
+      "dataSource": "/ext/crm/contacts",  // GET; array read from dataPath
+      "dataPath": "data",
+      "search": { "fields": ["first_name", "email"] },   // client-side; or { "param": "q" } server-side
+      "columns": [
+        { "key": "first_name", "label": "crm.col.name", "join": { "keys": ["first_name", "last_name"], "sep": " " } },
+        { "key": "email", "label": "crm.col.email" },
+        { "key": "status", "label": "common.col.status", "type": "badge",
+          "badge": { "colors": { "active": "badge-success" }, "labels": { "active": "crm.status.active" } } },
+        { "key": "value", "label": "crm.col.value", "type": "currency", "currency": { "codeKey": "currency" } }
+      ],
+      "rowActions": [
+        { "id": "delete", "icon": "Trash2", "variant": "text-error", "label": "common.delete",
+          "method": "DELETE", "endpoint": "/ext/crm/contacts/{id}", "confirm": "ext.confirmDelete" }
+      ],
+      "form": {
+        "endpoint": "/ext/crm/contacts",
+        "fields": [
+          { "name": "first_name", "label": "crm.form.firstName", "required": true, "colSpan": 1 },
+          { "name": "email", "label": "crm.col.email", "type": "email", "colSpan": 1 }
+        ]
+      }
+    }
+  ]
+}
+```
+
+```jsonc
+// settings (SettingsSchema) — a singleton config page, not a list.
+{
+  "kind": "settings",
+  "sduiSchema": 1,
+  "title": "auth.saml.title",
+  "dataSource": "/ext/auth/saml/config",   // GET the config object
+  "dataPath": "config",
+  "saveEndpoint": "/ext/auth/saml/config",  // POST to save
+  "info": [                                  // read-only rows w/ copy button; {ENGINE_URL} token
+    { "label": "auth.saml.ui.sp_metadata_url", "value": "{ENGINE_URL}/ext/auth/saml/metadata" }
+  ],
+  "sections": [
+    { "title": "auth.saml.section.idp", "fields": [
+      { "name": "enabled", "label": "auth.saml.enable", "type": "boolean", "colSpan": 2 },
+      { "name": "cert", "label": "auth.saml.ui.cert", "type": "textarea", "rows": 5, "mono": true, "colSpan": 2 }
+    ] }
+  ],
+  "actions": [ { "id": "test", "label": "auth.ldap.testConnection", "endpoint": "/ext/auth/ldap/test" } ]
+}
+```
+
+**2. Reference it** from `manifest.json`:
+
+```jsonc
+"studio": {
+  "navGroup": "business",
+  "pages": [
+    { "path": "/admin/crm", "label": "CRM", "icon": "Users", "schema": "schemas/crm.json" }
+  ]
+}
+```
+
+**3. Don't ship a `+page.svelte`** for that slug — the catch-all route owns it.
+Schemas live in `studio/schemas/` (not `studio/pages/`), so the sync step ignores
+them automatically.
+
+**Vocabulary** (full source of truth: [`packages/studio/src/lib/sdui/types.ts`](../packages/studio/src/lib/sdui/types.ts)):
+- **Resources**: single or multi-tab; per-resource `dataSource`/`dataPath`/`search`/`filters`/`pagination`/`stats`.
+- **Columns** `type`: `text` · `mono` · `date` · `currency` (`code` or `codeKey`) · `badge` (`colors`+`labels`) · `relation` (id→label from another endpoint) · `boolean` (✓/—). Plus `secondary` (two-line cell), `join`, `template` (`{ENGINE_URL}`/`{field}` tokens), `classWhen` (conditional CSS), `editable` (inline select/text PATCH on change).
+- **Row/detail actions**: `kind` `call`|`edit`|`download` (opens cookie-authed endpoint in a new tab), `method`, `endpoint` (`{id}`/`{field}` tokens), `visibleWhen`, `confirm`, `body` (`{field}` tokens, `{a-b}` subtraction).
+- **Form fields** `type`: text/email/tel/number/date/select/relation/boolean/password/textarea/json/file. Plus `required`, `colSpan` (1|2), `default` (incl. `"today"`), `placeholder`, `options`, `relation`, `visibleWhen` (conditional fields), `accept` (file).
+- **Form `submit`**: default = JSON POST/PATCH; `{ "kind": "download" }` = GET endpoint → querystring → new tab; `{ "kind": "upload" }` = multipart POST. Escape hatches: `repeatable` (line items) + `computed` (sums).
+- **Layouts**: `layout: "cards"` (+`card:{title,badge,subtitle}`); `master` (+`detailActions`) = left selector list → detail table templated `{masterId}`.
+- **Stats**: KPI tiles above the table.
+
+i18n: every string is an `m[key]()` lookup with literal fallback — same Paraglide
+keys as code pages (see i18n note below). A malformed/future-version schema renders
+a friendly error panel (see `validateSchema`), never a white screen.
+
+### Code pages (bespoke / Tier-3) + i18n
+
+For UIs the schema can't express (editors, canvases, maps, kanban, AI chat, file
+browsers, live timers, message composers), ship `studio/pages/+page.svelte` under
+the extension repo. At install/sync time these are copied into Studio's route tree
 (`packages/studio/src/routes/(admin)/…`). In page code, import Studio libs
 via `$lib/…` (same as core pages).
 
