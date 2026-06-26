@@ -274,6 +274,24 @@ async function loadRelationColumns(r: ResourceView) {
   }
 }
 
+// Inline-edit: PATCH/POST a single field when an editable cell changes.
+async function inlineEdit(row: any, col: ColumnDef, value: string) {
+  const e = col.editable!;
+  const url = (e.endpoint ?? '').replace(/\{([^}]+)\}/g, (_, k) =>
+    String(getPath(row, k.trim()) ?? ''),
+  );
+  const body = { [e.field ?? col.key]: value };
+  try {
+    if (e.method === 'POST') await api.post(url, body);
+    else await api.patch(url, body);
+    row[col.key] = value;
+    toast.success(t('ext.saved'));
+  } catch (err: any) {
+    toast.error(err instanceof Error ? err.message : t('ext.saveFailed'));
+    await load();
+  }
+}
+
 // Action request body: "{field}" tokens from the row; "{a-b}" subtracts.
 function buildBody(a: ActionDef, row: any): Record<string, any> {
   if (!a.body) return {};
@@ -543,7 +561,17 @@ const shellTabs = $derived(
             <tr class="hover">
               {#each active.columns as col}
                 <td class={cellClass(row, col)}>
-                  {#if col.type === 'badge'}
+                  {#if col.editable}
+                    {#if col.editable.options}
+                      <select class="select select-xs" value={getPath(row, col.key)}
+                        onchange={(e) => inlineEdit(row, col, (e.currentTarget as HTMLSelectElement).value)}>
+                        {#each col.editable.options as o}<option value={o.value}>{t(o.label)}</option>{/each}
+                      </select>
+                    {:else}
+                      <input class="input input-xs w-full" value={getPath(row, col.key) ?? ''}
+                        onblur={(e) => inlineEdit(row, col, (e.currentTarget as HTMLInputElement).value)} />
+                    {/if}
+                  {:else if col.type === 'badge'}
                     <span class="badge badge-sm {badgeClass(row, col)}">{badgeLabel(row, col)}</span>
                   {:else if col.secondary}
                     <div class="font-medium">{cellText(row, col)}</div>
