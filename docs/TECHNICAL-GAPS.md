@@ -672,8 +672,23 @@
 
 ---
 
-### 8.3 Extension architecture v2 — install in <1s 🟢 P3
-**Gap.** Current Studio extension model: source ships in tarball, Studio rebuilds with copy-in (10-30s per enable). Could be sub-second.
+### 8.3 Extension architecture v2 — install in <1s 🟢 P3 — **partially shipped (SDUI)**
+
+> **Update (2026-06):** "Option A — lazy-load extension UI routes" below is now
+> **implemented for declarative pages** (SDUI). An extension page can ship as
+> `studio/schemas/<slug>.json` instead of a `+page.svelte`; the engine inlines it
+> into `/api/extensions` and the Studio catch-all route (`[...extPath]`) renders it
+> with trusted generic host components (`SchemaPage`/`SettingsPage`) — **zero build
+> toolchain, sub-second enable, no third-party JS in the admin**. 22/54 first-party
+> extensions are migrated (the CRUD/multi-tab/settings/cards/master-detail shapes).
+> The remaining ~32 keep code `+page.svelte` (bespoke editors/canvases/maps/kanban/
+> chat/file-browsers) and still use the release-time bake. See the EXTENSION-DEVELOPER-GUIDE §10
+> and `packages/studio/src/lib/sdui/`. What's left of this item: a dynamic-columns
+> primitive (would unlock the DB browser) and retiring the `STUDIO_SRC_DIR` rebuild
+> path once the bespoke set is also handled (iframe escape or release-bake only).
+
+**Gap (original).** Current Studio extension model for **code pages**: source ships
+in tarball, Studio rebuilds with copy-in (10-30s per enable). Could be sub-second.
 
 **Why later (not now).**
 - Current model has been hardened through 14 alpha iterations (alpha.60 dropped Bun.plugin shims because they don't work in compiled binaries; alpha.71-74 dropped dynamic Svelte runtime sharing because it caused freeze).
