@@ -430,6 +430,16 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     process.exit(1);
   }
 
+  const warnings = result.errors.filter((e) => e.severity === 'warning');
+  const hardErrors = result.errors.filter((e) => e.severity !== 'warning');
+
+  // Warnings never block — print them but they don't affect the verdict.
+  if (warnings.length > 0) {
+    console.log(c.yellow(`${warnings.length} warning(s):`));
+    for (const e of warnings) printError(e, 'warning');
+    console.log('');
+  }
+
   if (result.ok) {
     console.log(c.green('Validation passed.'));
     console.log(
@@ -441,19 +451,20 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     return;
   }
 
-  // Print errors grouped by code
-  console.log(c.red(`Validation failed with ${result.errors.length} error(s):`));
+  // Print hard errors grouped by code
+  console.log(c.red(`Validation failed with ${hardErrors.length} error(s):`));
   console.log('');
-  for (const e of result.errors) {
-    printError(e);
+  for (const e of hardErrors) {
+    printError(e, 'error');
   }
   console.log('');
   if (!opts.silentExit) process.exit(1);
 }
 
-function printError(e: ValidationError): void {
+function printError(e: ValidationError, severity: 'error' | 'warning' = 'error'): void {
   const loc = e.file ? c.dim(` (${e.file})`) : '';
-  console.log(`  ${c.red(e.code)}  ${e.message}${loc}`);
+  const code = severity === 'warning' ? c.yellow(e.code) : c.red(e.code);
+  console.log(`  ${code}  ${e.message}${loc}`);
 }
 
 export const _internalForTests = { inferExpectedName, recursiveSize };

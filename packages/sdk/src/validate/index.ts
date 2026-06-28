@@ -33,6 +33,8 @@ export interface ValidationError {
   message: string;
   /** Optional file path the error applies to, relative to the extension root. */
   file?: string;
+  /** `warning` items are surfaced but do NOT fail validation (`result.ok`). */
+  severity?: 'error' | 'warning';
 }
 
 export interface ValidationResult {
@@ -87,6 +89,10 @@ const SAFE_VERSION_RANGE = /^[\d.*^~>=<| -]+$/;
 
 function err(code: string, message: string, file?: string): ValidationError {
   return file ? { code, message, file } : { code, message };
+}
+
+function warn(code: string, message: string, file?: string): ValidationError {
+  return { ...err(code, message, file), severity: 'warning' };
 }
 
 // ─── manifest.json ─────────────────────────────────────────────────────────
@@ -146,10 +152,11 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
   }
 
   if (typeof obj.category === 'string' && !KNOWN_CATEGORIES.has(obj.category)) {
-    // Warning rather than error — categories are open-ended in practice.
-    // Surface so authors notice typos like "finanace".
+    // A true warning — categories are open-ended in practice (e.g. the RO
+    // compliance set uses "compliance/ro"). Surfaced so authors notice typos
+    // like "finanace", but it must NOT fail validation.
     out.push(
-      err(
+      warn(
         'MANIFEST_UNKNOWN_CATEGORY',
         `category "${obj.category}" isn't in the known set — typo? Known: ${[...KNOWN_CATEGORIES].sort().join(', ')}`,
       ),
@@ -228,11 +235,14 @@ export interface MigrationsValidationInput {
  */
 function hasDestructiveDdl(upSql: string): boolean {
   // Strip strings and comments-light: this is a heuristic; full SQL parsing
-  // is overkill for a pre-publish lint.
+  // is overkill for a pre-publish lint. Only DATA-destructive ops count —
+  // DROP TABLE / DROP COLUMN lose rows. `ALTER COLUMN ... DROP NOT NULL` and
+  // `DROP DEFAULT` only relax a constraint / remove a default and lose no data,
+  // so they do NOT require a -- DOWN (they were false positives on legit
+  // forward migrations that make a column nullable).
   const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   if (/\bDROP\s+TABLE\b/i.test(s)) return true;
   if (/\bDROP\s+COLUMN\b/i.test(s)) return true;
-  if (/\bALTER\s+COLUMN\b[\s\S]*?\bDROP\s+(NOT\s+NULL|DEFAULT)\b/i.test(s)) return true;
   return false;
 }
 
@@ -477,7 +487,8 @@ export function validateExtension(input: ValidateExtensionInput): ValidationResu
     ...(input.bundleSize ? validateBundleSize(input.bundleSize) : []),
   ];
   return {
-    ok: errors.length === 0,
+    // Warnings are surfaced in `errors` but do not fail validation.
+    ok: errors.every((e) => e.severity === 'warning'),
     errors,
     stats: {
       tables: input.stats.tables,
