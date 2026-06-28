@@ -472,6 +472,24 @@ jobs:
           cp studio-source-download/studio-source.tar.gz dist/studio-source.tar.gz
           tar -czf dist/client.tar.gz -C client-dist-download .
 
+      - name: Package first-party extensions
+        # Ship ALL first-party extensions on disk so a self-hosted install has
+        # them WITHOUT a reachable registry (registry.zveltio.com is only needed
+        # for third-party marketplace extensions). install.sh extracts this into
+        # EXTENSIONS_DIR; the engine's baked catalog + on-disk files are then
+        # enough to install/enable every extension offline.
+        env:
+          EXT_TOKEN: ${{ secrets.EXTENSIONS_REPO_TOKEN != '' && secrets.EXTENSIONS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --depth=1 "https://x-access-token:${EXT_TOKEN}@github.com/zveltio-devs/zveltio-extensions.git" ext-src
+          # Preserve the <category>/<name>/ layout the engine expects. Drop repo
+          # infra + node_modules; keep manifest + engine/index.js + studio/.
+          tar -czf dist/extensions.tar.gz -C ext-src \
+            --exclude='node_modules' --exclude='.git' --exclude='.github' \
+            --exclude='scripts' --exclude='package.json' --exclude='tsconfig.json' \
+            --exclude='bun.lock' --exclude='bun.lockb' --exclude='README.md' .
+          echo "extensions.tar.gz: $(du -h dist/extensions.tar.gz | cut -f1), $(tar tzf dist/extensions.tar.gz | grep -c '/manifest.json$') extensions"
+
       - name: Generate compose files
         run: |
           chmod +x scripts/generate-compose.sh
@@ -518,6 +536,7 @@ jobs:
             },
             "checksums": "${BASE}/checksums.sha256",
             "installer": "${BASE}/install.sh",
+            "extensions": "${BASE}/extensions.tar.gz",
             "release_notes": "https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
           }
           EOF
@@ -529,6 +548,7 @@ jobs:
           cp dist/studio.tar.gz flat-assets/
           cp dist/studio-source.tar.gz flat-assets/
           cp dist/client.tar.gz flat-assets/
+          cp dist/extensions.tar.gz flat-assets/
           cp release-assets/* flat-assets/
 
       - name: Upload release assets
@@ -578,6 +598,7 @@ jobs:
             all-assets/studio.tar.gz
             all-assets/studio-source.tar.gz
             all-assets/client.tar.gz
+            all-assets/extensions.tar.gz
             all-assets/docker-compose.yml
             all-assets/docker-compose.infra.yml
             all-assets/docker-compose.engine.yml
