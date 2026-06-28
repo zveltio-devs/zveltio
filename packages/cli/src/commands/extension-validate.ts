@@ -236,7 +236,14 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
       (p: any) => typeof p?.schema === 'string',
     );
     if (schemaPages.length > 0) {
-      const extName = inferExpectedName(dir);
+      // The manifest's own `name` is authoritative (handles nested names like
+      // `hr/payroll` regardless of how `--dir` was passed); fall back to the
+      // path only if absent.
+      const extName = (
+        manifest && typeof manifest === 'object' && typeof (manifest as any).name === 'string'
+          ? (manifest as any).name
+          : inferExpectedName(dir)
+      ) as string;
       const provided = extractEngineRoutes(readEngineSources(dir));
       const dependencies: string[] = Array.isArray((manifest as any)?.dependencies)
         ? (manifest as any).dependencies
