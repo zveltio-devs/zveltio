@@ -11,7 +11,12 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { validateExtension, type ValidationError } from '@zveltio/sdk/validate';
+import {
+  validateExtension,
+  validateSduiSchema,
+  extractEngineRoutes,
+  type ValidationError,
+} from '@zveltio/sdk/validate';
 import { parseSchema } from '@zveltio/sdk/codegen';
 import { resolvePublisherTier, tierAllowsInline } from '../lib/publisher-tier.js';
 
@@ -75,6 +80,46 @@ function recursiveSize(dir: string): number {
     else if (st.isFile()) total += st.size;
   }
   return total;
+}
+
+/**
+ * Collect the text of an extension's engine route source so route paths can be
+ * extracted. Prefers the bundled `engine/index.js` (every route inlined); falls
+ * back to the `.ts` sources under `engine/` (excluding migrations).
+ */
+function readEngineSources(dir: string): string[] {
+  const bundled = join(dir, 'engine', 'index.js');
+  if (existsSync(bundled)) {
+    try {
+      return [readFileSync(bundled, 'utf8')];
+    } catch {
+      /* fall through */
+    }
+  }
+  const out: string[] = [];
+  const walk = (d: string) => {
+    if (!existsSync(d)) return;
+    for (const name of readdirSync(d)) {
+      if (name === 'migrations' || name === 'node_modules') continue;
+      const full = join(d, name);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) walk(full);
+      else if (/\.(ts|js)$/.test(name)) {
+        try {
+          out.push(readFileSync(full, 'utf8'));
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  };
+  walk(join(dir, 'engine'));
+  return out;
 }
 
 /**
@@ -177,6 +222,68 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     },
     stats: { tables: parsedTableCount, migrations: sqlFiles.length },
   });
+
+  // ── SDUI declarative-page contract ────────────────────────────────────────
+  // For every manifest page that ships a `schema`, check its endpoints resolve
+  // to routes this extension actually serves (catches the beta.11 class where a
+  // wrong dataSource/endpoint rendered an empty table) and stay inside the
+  // extension's own /ext/<name>/ namespace.
+  const sduiErrors: ValidationError[] = [];
+  {
+    const pages =
+      manifest && typeof manifest === 'object' ? ((manifest as any)?.studio?.pages ?? []) : [];
+    const schemaPages = (Array.isArray(pages) ? pages : []).filter(
+      (p: any) => typeof p?.schema === 'string',
+    );
+    if (schemaPages.length > 0) {
+      const extName = inferExpectedName(dir);
+      const provided = extractEngineRoutes(readEngineSources(dir));
+      const dependencies: string[] = Array.isArray((manifest as any)?.dependencies)
+        ? (manifest as any).dependencies
+            .map((d: any) => (typeof d === 'string' ? d : d?.name))
+            .filter((x: any): x is string => typeof x === 'string')
+        : [];
+      for (const p of schemaPages) {
+        // manifest `schema` is relative to the extension's `studio/` dir, the
+        // same base the engine uses (embedPageSchemas: join(extDir,'studio',schema)).
+        const rel = join('studio', p.schema as string).replace(/\\/g, '/');
+        const abs = join(dir, 'studio', p.schema as string);
+        let parsed: unknown = null;
+        if (!existsSync(abs)) {
+          sduiErrors.push({
+            code: 'SDUI_SCHEMA_MISSING',
+            message: 'schema file not found',
+            file: rel,
+          });
+          continue;
+        }
+        try {
+          parsed = JSON.parse(readFileSync(abs, 'utf8'));
+        } catch (e) {
+          sduiErrors.push({
+            code: 'SDUI_SCHEMA_BAD_JSON',
+            message: `not valid JSON: ${(e as Error).message}`,
+            file: rel,
+          });
+          continue;
+        }
+        sduiErrors.push(
+          ...validateSduiSchema({
+            schema: parsed,
+            extName,
+            providedRoutes: provided,
+            dependencies,
+            file: rel,
+          }),
+        );
+      }
+      result.errors.push(...sduiErrors);
+      if (sduiErrors.length > 0) result.ok = false;
+      console.log(
+        `  SDUI schemas:  ${sduiErrors.length === 0 ? c.green(`${schemaPages.length} OK`) : c.red(`${sduiErrors.length} error(s)`)}`,
+      );
+    }
+  }
 
   // v2 enforcement: warn if manifest is v1 (no engine.bundled block).
   // Hard error if v2 metadata is partial (engine block present but
