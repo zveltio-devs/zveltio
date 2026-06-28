@@ -926,6 +926,8 @@ export interface ZvExtensionRegistryTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
+  last_load_error: string | null;
+  last_load_at: Date | null;
 }
 
 export interface ZvExtensionScheduleRunsTable {
