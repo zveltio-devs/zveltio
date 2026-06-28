@@ -14,7 +14,15 @@ import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.sve
 import { Save, Play, Copy, LoaderCircle } from '@lucide/svelte';
 import type { SettingsSchema, FieldDef } from './types.js';
 
-let { schema }: { schema: SettingsSchema } = $props();
+let { schema, extName = '' }: { schema: SettingsSchema; extName?: string } = $props();
+
+// See SchemaPage: a settings page may only write its own /ext/<name>/ routes.
+function guardMutation(url: string): boolean {
+  if (!extName || url.startsWith(`/ext/${extName}/`) || url === `/ext/${extName}`) return true;
+  toast.error(t('ext.saveFailed'));
+  console.warn(`[sdui] blocked mutation to "${url}" — outside extension "/ext/${extName}/"`);
+  return false;
+}
 
 const ICONS: Record<string, any> = { Play, Save };
 function infoValue(v: string): string {
@@ -61,6 +69,7 @@ onMount(async () => {
 });
 
 async function save() {
+  if (!guardMutation(schema.saveEndpoint)) return;
   saving = true;
   try {
     await api.post(schema.saveEndpoint, config);
@@ -73,6 +82,7 @@ async function save() {
 }
 
 async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
+  if (!guardMutation(a.endpoint)) return;
   busyAction = a.id;
   try {
     await api.post(a.endpoint, config);
