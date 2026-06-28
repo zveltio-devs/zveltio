@@ -586,6 +586,10 @@ export interface ZvExtensionRegistryTable {
   updated_at: Generated<Date>;
   /** null = global (all tenants); set = enabled only for this tenant */
   tenant_id: string | null;
+  /** Last load/hot-load failure, persisted so it survives restart + shows in
+   * /api/extensions. null = loaded clean. */
+  last_load_error: string | null;
+  last_load_at: Date | null;
 }
 
 export interface ZvEdgeFunctionsTable {

@@ -2044,6 +2044,17 @@ class ExtensionLoader {
       const sorted = await this.topoSortExtensions(pending, extBase);
       for (const name of sorted) {
         await this.loadExtension(name, app, this.ctx);
+        // Persist the per-extension outcome so a boot-time failure is visible in
+        // /api/extensions (red badge + reason) instead of a silent skip, and a
+        // recovered one loses its badge. is_enabled is left untouched — a
+        // failing extension stays enabled and retries on the next boot.
+        const err = this.isActive(name) ? null : (this.lastLoadError.get(name) ?? 'load failed');
+        await db
+          .updateTable('zv_extension_registry')
+          .set({ last_load_error: err, last_load_at: new Date() })
+          .where('name' as any, '=', name)
+          .execute()
+          .catch(() => {});
       }
     } catch {
       // Table may not exist on first run — silently skip
@@ -2275,6 +2286,10 @@ class ExtensionLoader {
           config: dbEntry?.config ?? {},
           installed_at: dbEntry?.installed_at ?? null,
           enabled_at: dbEntry?.enabled_at ?? null,
+          // Persisted load failure (null = clean). Lets the marketplace show a
+          // red badge + reason for an enabled-but-not-running extension.
+          last_load_error: dbEntry?.last_load_error ?? self.lastLoadError.get(entry.name) ?? null,
+          last_load_at: dbEntry?.last_load_at ?? null,
         };
       });
 
@@ -2297,11 +2312,33 @@ class ExtensionLoader {
         const engineTs = join(extDir, 'engine/index.ts');
         const engineJs = join(extDir, 'engine/index.js');
 
-        // Download extension package if not already on disk
+        // engine/routes.ts is also a valid entry point (manifest.engine.routes).
+        const resolveAltEntry = (): string | undefined => {
+          const manifestPathCheck = join(extDir, 'manifest.json');
+          if (!existsSync(manifestPathCheck)) return undefined;
+          try {
+            const m = JSON.parse(readFileSync(manifestPathCheck, 'utf8'));
+            if (m.engine?.routes)
+              return join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
+          } catch {
+            /* ignore */
+          }
+          return undefined;
+        };
+        const onDisk = (): boolean => {
+          if (existsSync(engineTs) || existsSync(engineJs)) return true;
+          const alt = resolveAltEntry();
+          return !!alt && existsSync(alt);
+        };
+
+        // Local files win: when the extension is already deployed under
+        // EXTENSIONS_DIR (self-contained / air-gapped installs), use it and
+        // never touch the registry. Only reach out to download when nothing is
+        // on disk yet.
         const authToken = await getLicenseKey(db, name);
         let downloaded = false;
         let downloadError = '';
-        if (!existsSync(engineTs) && !existsSync(engineJs)) {
+        if (!onDisk()) {
           try {
             await downloadExtension(entry, extBase, authToken);
             downloaded = true;
@@ -2311,29 +2348,16 @@ class ExtensionLoader {
           }
         }
 
-        // Also accept engine/routes.ts as a valid entry point (manifest.engine.routes)
-        let altEntry: string | undefined;
-        const manifestPathCheck = join(extDir, 'manifest.json');
-        if (existsSync(manifestPathCheck)) {
-          try {
-            const m = JSON.parse(await Bun.file(manifestPathCheck).text());
-            if (m.engine?.routes) {
-              altEntry = join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-        const filesOnDisk =
-          existsSync(engineTs) || existsSync(engineJs) || (!!altEntry && existsSync(altEntry));
+        const altEntry = resolveAltEntry();
+        const filesOnDisk = onDisk();
 
-        // If files are still not on disk after the download attempt, fail loudly so the
-        // Studio shows a real error instead of "installed but won't enable".
+        // Still nothing on disk and the registry couldn't supply it — fail loudly.
         if (!filesOnDisk) {
+          const hint = process.env.EXTENSIONS_DIR
+            ? `No files found under EXTENSIONS_DIR (${extBase}/${name}) and the registry was unreachable.`
+            : `Registry unreachable and EXTENSIONS_DIR is not set. Set EXTENSIONS_DIR to a directory containing the extension, or restore registry access.`;
           const msg =
-            `Extension "${name}" could not be installed: ` +
-            (downloadError || 'Registry unavailable.') +
-            ` Set EXTENSIONS_DIR to the extensions directory and retry.`;
+            `Extension "${name}" could not be installed: ` + (downloadError || '') + ` ${hint}`;
           return c.json(
             { success: false, downloaded: false, files_on_disk: false, error: msg, message: msg },
             422,
@@ -2442,22 +2466,30 @@ class ExtensionLoader {
           } catch (e) {
             loadError = (e as Error).message;
             console.warn(`Hot-load failed for ${name}:`, loadError);
-            // Revert: roll back is_enabled so the DB stays consistent with reality.
-            // Without this, every server restart tries to load a broken extension.
+            // Do NOT flip is_enabled=false. A transient failure (npm-install
+            // timing, dependency load order, a missing PG extension the operator
+            // then installs) self-heals on the next boot/retry — boot-load
+            // (loadFromDB) tolerates per-extension failures by skipping while
+            // keeping is_enabled=true. Persist the error so the operator sees
+            // WHY in the marketplace instead of the extension silently vanishing.
             await db
               .updateTable('zv_extension_registry')
-              .set({ is_enabled: false })
+              .set({ last_load_error: loadError, last_load_at: new Date() })
               .where('name' as any, '=', name)
               .execute()
-              .catch((err: Error) => {
-                console.error(
-                  '[extension-loader] rollback is_enabled failed — DB and runtime now inconsistent:',
-                  err.message,
-                );
-              });
+              .catch(() => {});
           }
         } else {
           hotLoaded = true;
+        }
+        // Cleared on success so a previously-failing extension loses its badge.
+        if (hotLoaded) {
+          await db
+            .updateTable('zv_extension_registry')
+            .set({ last_load_error: null, last_load_at: new Date() })
+            .where('name' as any, '=', name)
+            .execute()
+            .catch(() => {});
         }
 
         // Rebuild and swap the Hono app so the new extension's engine routes
@@ -2553,6 +2585,71 @@ class ExtensionLoader {
           },
           nowActive ? 200 : 422,
         );
+      });
+    });
+
+    // POST /api/marketplace/enable-all
+    // Single-pass "enable everything installed" in dependency order, with one
+    // retry per transient failure. This is what a clean "install all" needs so
+    // it doesn't leave dependency-ordered extensions disabled. A failure keeps
+    // the extension is_enabled=true (it self-heals on the next boot) and records
+    // last_load_error — never flips it off.
+    app.post('/api/marketplace/enable-all', async (c) => {
+      if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+      const installed = await db
+        .selectFrom('zv_extension_registry')
+        .select(['name'])
+        .where('is_installed' as any, '=', true)
+        .execute()
+        .catch(() => [] as { name: string }[]);
+
+      const extBase = resolveExtensionsBase();
+      const names = installed.map((r: any) => r.name as string);
+      const ordered = await self.topoSortExtensions(names, extBase).catch(() => names);
+
+      const results: { name: string; ok: boolean; error?: string }[] = [];
+      for (const name of ordered) {
+        // Mark enabled regardless of load outcome (self-heal model).
+        await db
+          .insertInto('zv_extension_registry')
+          .values({ name, display_name: name, is_installed: true, is_enabled: true } as any)
+          .onConflict((oc: any) =>
+            oc.column('name').doUpdateSet({ is_enabled: true, enabled_at: new Date() }),
+          )
+          .execute()
+          .catch(() => {});
+
+        if (self.isActive(name)) {
+          results.push({ name, ok: true });
+          continue;
+        }
+        let ok = false;
+        let err = '';
+        for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+          try {
+            await self.loadDynamic(name, app);
+            ok = true;
+          } catch (e) {
+            err = (e as Error).message;
+          }
+        }
+        await db
+          .updateTable('zv_extension_registry')
+          .set({ last_load_error: ok ? null : err, last_load_at: new Date() })
+          .where('name' as any, '=', name)
+          .execute()
+          .catch(() => {});
+        results.push(ok ? { name, ok } : { name, ok, error: err });
+      }
+
+      await triggerReload('enable-all');
+      const failed = results.filter((r) => !r.ok);
+      return c.json({
+        success: failed.length === 0,
+        enabled: results.filter((r) => r.ok).length,
+        failed: failed.length,
+        results,
       });
     });
 
