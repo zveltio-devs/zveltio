@@ -27,7 +27,10 @@ const resolved = $derived.by(() => {
         .replace(/^\//, '')
         .replace(/\/$/, '');
       if (pgSlug === slug && pg.render === 'schema' && pg.schema) {
-        return validateSchema(pg.schema);
+        // Carry the owning extension name so the renderer can refuse mutations
+        // outside the extension's own /ext/<name>/ namespace (defense-in-depth;
+        // the publish validator is the primary control).
+        return { ...validateSchema(pg.schema), extName: meta.name as string };
       }
     }
   }
@@ -54,12 +57,12 @@ const resolved = $derived.by(() => {
   </div>
 {:else if resolved.kind === 'settings'}
   <div class="p-6">
-    <SettingsPage schema={resolved.schema as any} />
+    <SettingsPage schema={resolved.schema as any} extName={resolved.extName} />
   </div>
 {:else}
   <div class="p-6">
     {#key slug}
-      <SchemaPage schema={resolved.schema as any} />
+      <SchemaPage schema={resolved.schema as any} extName={resolved.extName} />
     {/key}
   </div>
 {/if}
