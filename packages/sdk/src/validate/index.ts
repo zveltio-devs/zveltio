@@ -319,6 +319,143 @@ export function validateBundleSize(input: BundleSizeInput): ValidationError[] {
   return [];
 }
 
+// ─── SDUI declarative pages: endpoint contract ─────────────────────────────
+//
+// Catches the class of bug that shipped silently in beta.11: a declarative
+// schema whose `dataSource`/`endpoint` points at a route the extension does NOT
+// serve (wrong path → empty table / 404), or at a foreign endpoint outside the
+// extension's own `/ext/<name>/` namespace (security). The response-key check
+// (`dataPath`) needs the live response, so it lives in the runtime
+// `zveltio extension test`, not here.
+
+/** Read-only core endpoints a schema is legitimately allowed to call (relation
+ * pickers etc.). Keep this list tiny and read-only. */
+export const SDUI_SHARED_READ_ALLOWLIST: ReadonlySet<string> = new Set([
+  '/api/collections',
+  '/api/views',
+]);
+
+/** Collapse `{token}` and `:param` path segments so a schema endpoint
+ * (`/periods/{id}/generate`) matches an engine route (`/periods/:id/generate`). */
+function normalizeRoute(p: string): string {
+  return (
+    p
+      .split('?')[0]
+      .replace(/\{[^}]+\}/g, '*')
+      .replace(/:[^/]+/g, '*')
+      .replace(/\/+$/, '') || '/'
+  );
+}
+
+/** Recursively collect every `dataSource` / `endpoint` / `saveEndpoint` string. */
+function collectEndpoints(node: unknown, acc: string[]): void {
+  if (Array.isArray(node)) {
+    for (const x of node) collectEndpoints(x, acc);
+    return;
+  }
+  if (node && typeof node === 'object') {
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if ((k === 'dataSource' || k === 'endpoint' || k === 'saveEndpoint') && typeof v === 'string')
+        acc.push(v);
+      else collectEndpoints(v, acc);
+    }
+  }
+}
+
+export interface SduiValidationInput {
+  /** Parsed schema JSON (a PageSchema or SettingsSchema). */
+  schema: unknown;
+  /** Owning extension name, e.g. `finance/invoicing`. */
+  extName: string;
+  /** Route paths the extension's engine actually serves, relative to its mount
+   * (e.g. `['/invoices', '/invoices/:id/pay']`). The CLI extracts these from
+   * `engine/**` source; pass `undefined` to skip the path-existence check
+   * (foreign-namespace check still runs). */
+  providedRoutes?: string[];
+  /** Extension names this one declares as dependencies (manifest.dependencies).
+   * A schema may read a dependency's `/ext/<dep>/` routes (relation pickers),
+   * which is otherwise treated as foreign. */
+  dependencies?: string[];
+  /** For diagnostics. */
+  file?: string;
+}
+
+export function validateSduiSchema(input: SduiValidationInput): ValidationError[] {
+  const out: ValidationError[] = [];
+  const { schema, extName, file } = input;
+  if (schema === null || typeof schema !== 'object' || Array.isArray(schema)) {
+    out.push(err('SDUI_NOT_OBJECT', 'schema must be a JSON object', file));
+    return out;
+  }
+  const s = schema as Record<string, unknown>;
+
+  // Light structural guard (the host's validateSchema is the full one).
+  if (typeof s.title !== 'string' || !s.title)
+    out.push(err('SDUI_NO_TITLE', 'schema missing "title"', file));
+  if (s.kind === 'settings') {
+    if (typeof s.dataSource !== 'string' || typeof s.saveEndpoint !== 'string')
+      out.push(err('SDUI_SETTINGS_SHAPE', 'settings schema needs dataSource + saveEndpoint', file));
+  } else if (!Array.isArray(s.resources) || s.resources.length === 0) {
+    out.push(err('SDUI_NO_RESOURCES', 'page schema needs a non-empty "resources" array', file));
+  }
+
+  const mount = `/ext/${extName}`;
+  const depMounts = (input.dependencies ?? []).map((d) => `/ext/${d}`);
+  const provided = input.providedRoutes
+    ? new Set(input.providedRoutes.map(normalizeRoute))
+    : undefined;
+  const inMount = (bare: string, m: string) => bare === m || bare.startsWith(`${m}/`);
+
+  const endpoints: string[] = [];
+  collectEndpoints(schema, endpoints);
+  for (const raw of endpoints) {
+    const bare = raw.split('?')[0];
+    if (SDUI_SHARED_READ_ALLOWLIST.has(bare)) continue;
+    // A dependency's namespace is allowed (relation pickers etc.).
+    if (depMounts.some((m) => inMount(bare, m))) continue;
+    if (!inMount(bare, mount)) {
+      out.push(
+        err(
+          'SDUI_ENDPOINT_FOREIGN',
+          `endpoint "${raw}" is outside this extension's namespace "${mount}/" (or a declared dependency, or the shared-read allowlist). Schemas may only call their own routes.`,
+          file,
+        ),
+      );
+      continue;
+    }
+    if (provided) {
+      const rel = normalizeRoute(bare.slice(mount.length) || '/');
+      if (!provided.has(rel)) {
+        out.push(
+          err(
+            'SDUI_ENDPOINT_UNKNOWN',
+            `endpoint "${raw}" resolves to "${rel}", which the engine does not serve. Provided routes: ${[...provided].sort().join(', ') || '(none found)'}.`,
+            file,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+/** Extract route paths an extension serves from its engine source text.
+ * Heuristic regex over `app.get('/…')` / `.post(` / `.put(` / `.patch(` /
+ * `.delete(`. Good enough to catch typo'd / nonexistent endpoints. */
+export function extractEngineRoutes(engineSourceTexts: string[]): string[] {
+  const routes = new Set<string>();
+  const re = /\.(?:get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g;
+  for (const text of engineSourceTexts) {
+    let m: RegExpExecArray | null;
+    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex loop
+    while ((m = re.exec(text)) !== null) {
+      const p = m[1];
+      if (p.startsWith('/')) routes.add(p);
+    }
+  }
+  return [...routes];
+}
+
 // ─── Composite ─────────────────────────────────────────────────────────────
 
 export interface ValidateExtensionInput {
