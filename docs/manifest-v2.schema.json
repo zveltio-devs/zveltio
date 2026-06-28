@@ -95,6 +95,10 @@
                 "type": "string",
                 "description": "Lucide icon name (e.g. Users, Mail)."
               },
+              "schema": {
+                "type": "string",
+                "description": "Path (relative to studio/) to a declarative SDUI page schema, e.g. `schemas/crm.json`. When present the page renders from JSON via the generic host (no +page.svelte, no per-host build); when absent the page is a hand-written studio/pages/<slug>/+page.svelte. See EXTENSION-DEVELOPER-GUIDE §10."
+              },
               "navGroup": {
                 "type": "string",
                 "description": "Optional per-page nav group. Falls back to the top-level `studio.navGroup`."
