@@ -2,6 +2,38 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.12] - 2026-06-28
+
+Hardening the extension **contract + lifecycle + install** layers — the ones
+that actually broke during the beta.11 live install test (not the SDUI delivery
+model, which is sound). Implemented from the approved "complete correct
+architecture" plan; all-package typecheck clean, CI green.
+
+- **Lifecycle / install robustness** (engine): enabling an extension no longer
+  flips `is_enabled=false` on a *transient* hot-load failure (npm-install
+  timing, dependency order, a missing PG extension the operator then installs) —
+  it persists the error and keeps the extension enabled so boot-load self-heals.
+  This was the root cause of "install all" leaving extensions installed-but-
+  disabled. New `last_load_error`/`last_load_at` columns surface the reason in
+  `/api/extensions` (red badge instead of a silent skip). `/install` now prefers
+  on-disk files under `EXTENSIONS_DIR` over the registry. New
+  `POST /api/marketplace/enable-all` enables everything installed in dependency
+  order with one retry.
+- **Publish-time contract validation** (`@zveltio/sdk/validate` + CLI): a
+  declarative page schema is now rejected at `zveltio extension validate` if any
+  `dataSource`/`endpoint` doesn't resolve to a route the extension's engine
+  actually serves, or escapes the extension's own (or a declared dependency's)
+  `/ext/<name>/` namespace. A CI gate runs it on every schema. This catches the
+  beta.11 class where a wrong endpoint shipped and rendered an empty table — it
+  immediately found 4 more such bugs (gdpr, expenses, payroll), now fixed.
+- **Renderer security** (studio): the SDUI host refuses any mutation
+  (POST/PATCH/DELETE) outside the owning extension's namespace — defense-in-depth
+  against a tampered on-disk schema using the admin's cookie on core endpoints.
+- **Fix:** page-less studio contributors (e.g. content/pdf-viewer, a field-type
+  preview) no longer get a phantom nav entry that 404s.
+- Deferred (documented): a runtime `extension test` (dataPath response-key
+  check) and dead-code retirement (rebuild-on-enable / bundle-loader).
+
 ## [3.0.0-beta.11] - 2026-06-26
 
 SDUI migration wave — **22/54 extensions now render from declarative schemas**

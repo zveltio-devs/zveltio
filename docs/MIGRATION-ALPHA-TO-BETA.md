@@ -1,7 +1,7 @@
 # Migrating from Zveltio Alpha to Beta (1.0.0-beta.1)
 
 > **Alpha track is EOL** — no new `1.0.0-alpha.*` releases after `alpha.129`.
-> Use the latest beta (currently **3.0.0-beta.11**). See [ALPHA-TRACK-EOL.md](./ALPHA-TRACK-EOL.md).
+> Use the latest beta (currently **3.0.0-beta.12**). See [ALPHA-TRACK-EOL.md](./ALPHA-TRACK-EOL.md).
 
 ## Overview
 
@@ -174,9 +174,9 @@ PATCH /api/admin/rate-limits/api
 
 6. **Update SDK dependencies**
    ```bash
-   bun add @zveltio/sdk@3.0.0-beta.11
-   bun add @zveltio/react@3.0.0-beta.11   # if using React SDK
-   bun add @zveltio/vue@3.0.0-beta.11     # if using Vue SDK
+   bun add @zveltio/sdk@3.0.0-beta.12
+   bun add @zveltio/react@3.0.0-beta.12   # if using React SDK
+   bun add @zveltio/vue@3.0.0-beta.12     # if using Vue SDK
    ```
 
 ---
