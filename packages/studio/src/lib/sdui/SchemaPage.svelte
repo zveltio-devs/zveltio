@@ -33,7 +33,21 @@ import {
 } from '@lucide/svelte';
 import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from './types.js';
 
-let { schema }: { schema: PageSchema } = $props();
+let { schema, extName = '' }: { schema: PageSchema; extName?: string } = $props();
+
+// Defense-in-depth: a declarative page may only MUTATE its own extension's
+// /ext/<name>/ routes. The publish validator is the primary gate; this stops a
+// hand-edited / tampered on-disk schema from POSTing to core endpoints with the
+// admin's cookie. Reads (GET) are not gated here (lower risk + the validator
+// already covers them).
+function guardMutation(url: string): boolean {
+  if (!extName || url.startsWith(`/ext/${extName}/`) || url === `/ext/${extName}`) return true;
+  toast.error(t('ext.saveFailed'));
+  console.warn(
+    `[sdui] blocked mutation to "${url}" — outside extension namespace "/ext/${extName}/"`,
+  );
+  return false;
+}
 
 const ICONS: Record<string, any> = {
   Plus,
@@ -328,6 +342,7 @@ async function inlineEdit(row: any, col: ColumnDef, value: string) {
     String(getPath(row, k.trim()) ?? ''),
   );
   const body = { [e.field ?? col.key]: value };
+  if (!guardMutation(url)) return;
   try {
     if (e.method === 'POST') await api.post(url, body);
     else await api.patch(url, body);
@@ -417,6 +432,7 @@ function runAction(row: any, a: ActionDef) {
   const fire = async () => {
     try {
       const url = (a.endpoint ?? '').replace('{id}', row.id);
+      if (!guardMutation(url)) return;
       const body = buildBody(a, row);
       if (a.method === 'DELETE') await api.delete(url);
       else if (a.method === 'PATCH') await api.patch(url, body);
@@ -460,6 +476,7 @@ function endpointTokens(tmpl: string): string[] {
 async function submitForm() {
   const F = active.form!;
   const sub = F.submit?.kind;
+  if (!guardMutation(F.endpoint)) return;
 
   // download: open the GET endpoint (path tokens filled, rest → querystring) in a new tab.
   if (sub === 'download') {
