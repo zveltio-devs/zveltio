@@ -244,7 +244,10 @@ export function buildExtensionNavGroups(extensions: ExtensionState): ExtensionNa
   for (const m of extensions.meta) {
     if (!extensions.isActive(m.name)) continue;
     if (RAW_NAV_EXT_NAMES.has(m.name)) continue;
-    if (!((m.studio?.pages && m.studio.pages.length > 0) || m.contributes?.studio)) continue;
+    // Only extensions that declare actual pages get a nav entry. A studio
+    // contributor with no pages (e.g. content/pdf-viewer = a field-type/asset
+    // preview) must NOT produce a phantom nav item that 404s.
+    if (!(m.studio?.pages && m.studio.pages.length > 0)) continue;
     const groupId = resolveExtensionNavGroup(m);
     buckets.get(groupId)!.push(metaToNavItem(m));
   }
