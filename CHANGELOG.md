@@ -2,6 +2,22 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.13] - 2026-06-28
+
+First-party extensions now ship **on disk** with the platform — closing the last
+registry dependency for self-hosted installs.
+
+- **Registry-independent install** (release + installer): the release now packs
+  every first-party extension into `extensions.tar.gz`, and `install.sh` deploys
+  it into `EXTENSIONS_DIR` during setup. Previously the installer created an
+  *empty* extensions directory and the engine downloaded each extension from
+  `registry.zveltio.com` at runtime, so an install with no route to the registry
+  failed with "No files found under EXTENSIONS_DIR … registry was unreachable".
+  With the files on disk, the baked `EXTENSION_CATALOG` + the on-disk-first
+  install handler (beta.12) install/enable all first-party extensions with zero
+  registry dependency. The registry is now only needed for **third-party**
+  extensions.
+
 ## [3.0.0-beta.12] - 2026-06-28
 
 Hardening the extension **contract + lifecycle + install** layers — the ones
