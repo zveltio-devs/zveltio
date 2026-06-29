@@ -95,22 +95,35 @@ describe.skipIf(skipAll)('Per-tenant RBAC (Casbin domains)', () => {
     expect(inB).not.toContain('admin');
   });
 
-  it('migration 008 reshapes legacy 2/3-token rows into domain *', async () => {
-    // Seed legacy-form rows directly (pre-domain layout).
-    await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES ('p', 'legacy_role', 'widgets', 'read')`.execute(
+  it('migration 008 reshapes legacy rows + survives the (sub,obj) act-collision', async () => {
+    // Reproduce production: the OLD 4-col unique index + legacy rows that share
+    // (sub, obj) and differ only in act — these collided on (sub, '*', obj)
+    // until migration 008 widened the index to include v3.
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_zvd_permissions_policy_unique
+      ON zvd_permissions (ptype, COALESCE(v0,''), COALESCE(v1,''), COALESCE(v2,''))`.execute(db);
+    await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES
+      ('p', 'legacy_role', 'widgets', 'read'), ('p', 'legacy_role', 'widgets', 'write')`.execute(
       db,
     );
     await sql`INSERT INTO zvd_permissions (ptype, v0, v1) VALUES ('g', 'legacy_user', 'legacy_role')`.execute(
       db,
     );
-    // Apply the exact migration 008 SQL.
+    // Apply the EXACT migration 008 SQL (drop index → reshape → recreate w/ v3).
+    await sql`DROP INDEX IF EXISTS idx_zvd_permissions_policy_unique`.execute(db);
     await sql`UPDATE zvd_permissions SET v3 = v2, v2 = v1, v1 = '*' WHERE ptype = 'p' AND v3 IS NULL`.execute(
       db,
     );
     await sql`UPDATE zvd_permissions SET v2 = '*' WHERE ptype = 'g' AND v2 IS NULL`.execute(db);
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_zvd_permissions_policy_unique
+      ON zvd_permissions (ptype, COALESCE(v0,''), COALESCE(v1,''), COALESCE(v2,''), COALESCE(v3,''))`.execute(
+      db,
+    );
 
     const p = await sql<{ v1: string; v2: string; v3: string }>`
-      SELECT v1, v2, v3 FROM zvd_permissions WHERE ptype='p' AND v0='legacy_role'`.execute(db);
+      SELECT v1, v2, v3 FROM zvd_permissions WHERE ptype='p' AND v0='legacy_role' ORDER BY v3`.execute(
+      db,
+    );
+    expect(p.rows.length).toBe(2); // both survived (no collision)
     expect(p.rows[0]).toMatchObject({ v1: '*', v2: 'widgets', v3: 'read' });
     const g = await sql<{ v2: string }>`
       SELECT v2 FROM zvd_permissions WHERE ptype='g' AND v0='legacy_user'`.execute(db);

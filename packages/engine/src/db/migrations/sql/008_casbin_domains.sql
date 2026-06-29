@@ -14,6 +14,12 @@
 -- shift below is correct. The `v3 IS NULL` / `v2 IS NULL` guards make it
 -- idempotent (a row already in 4-token form is skipped).
 
+-- The policy-uniqueness index covered (ptype, v0, v1, v2) — but `act` moves to
+-- v3 in the 4-token layout, so two policies sharing (sub, obj) and differing
+-- only in `act` would collide on (sub, '*', obj) after the reshape. Drop it
+-- first, reshape, then recreate it INCLUDING v3 (full 4-token uniqueness).
+DROP INDEX IF EXISTS idx_zvd_permissions_policy_unique;
+
 UPDATE zvd_permissions
    SET v3 = v2, v2 = v1, v1 = '*'
  WHERE ptype = 'p' AND v3 IS NULL;
@@ -21,3 +27,6 @@ UPDATE zvd_permissions
 UPDATE zvd_permissions
    SET v2 = '*'
  WHERE ptype = 'g' AND v2 IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_zvd_permissions_policy_unique
+  ON zvd_permissions (ptype, COALESCE(v0, ''), COALESCE(v1, ''), COALESCE(v2, ''), COALESCE(v3, ''));
