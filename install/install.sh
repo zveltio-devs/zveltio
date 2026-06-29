@@ -872,27 +872,14 @@ EOF
   success "Migrations complete"
 
   # ── Extensions directory ──────────────────────────────────────────────────────
-  # Deploy ALL first-party extensions to disk and create a package.json so their
-  # shared npm deps resolve. Shipping the files on disk means the marketplace can
-  # install/enable every first-party extension WITHOUT a reachable registry —
-  # registry.zveltio.com is only needed for third-party extensions.
+  # Create an empty extensions directory with a package.json so that when
+  # extensions are installed from the marketplace their npm deps resolve correctly.
+  # The engine stays slim: official + third-party extensions are delivered from the
+  # registry on demand — only what the user installs lands on disk. (Air-gapped
+  # installs can drop extension folders here manually; the engine prefers local
+  # files when present.)
   header "Setting up extensions directory"
   mkdir -p "${ZVELTIO_DIR}/extensions"
-
-  # ── First-party extensions bundle (release asset) ────────────────────────────
-  local EXT_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/extensions.tar.gz"
-  if curl -fsSL --head "$EXT_URL" &>/dev/null; then
-    info "Downloading first-party extensions..."
-    wget -q "$EXT_URL" -O /tmp/zveltio-extensions.tar.gz
-    tar -xzf /tmp/zveltio-extensions.tar.gz -C "${ZVELTIO_DIR}/extensions"
-    rm /tmp/zveltio-extensions.tar.gz
-    local _ext_count
-    _ext_count=$(find "${ZVELTIO_DIR}/extensions" -name manifest.json 2>/dev/null | wc -l | tr -d ' ')
-    success "Deployed ${_ext_count} first-party extensions to ${ZVELTIO_DIR}/extensions"
-  else
-    info "Extensions bundle not in this release — first-party extensions will install from the registry on demand."
-  fi
-
   if [[ ! -f "${ZVELTIO_DIR}/extensions/package.json" ]]; then
     cat > "${ZVELTIO_DIR}/extensions/package.json" << 'EOF'
 {
