@@ -514,6 +514,19 @@ function getDb(c: any, fallback: Database): Database {
   return (c.get('tenantTrx') as Database | null) ?? fallback;
 }
 
+/**
+ * Run `fn` atomically. When `executor` is already a transaction (the per-request
+ * tenant transaction, always present on /api/data routes), reuse it — Bun SQL
+ * has no nested transactions, so calling `.transaction()` on it would error.
+ * Otherwise open a fresh transaction on the pool.
+ */
+function runAtomic<T>(executor: Database, fn: (trx: Database) => Promise<T>): Promise<T> {
+  if ((executor as unknown as { isTransaction?: boolean }).isTransaction) {
+    return fn(executor);
+  }
+  return executor.transaction().execute(fn);
+}
+
 // RFC 4122 UUID (any version). Short-circuiting here turns an otherwise
 // user-visible Postgres "invalid input syntax for uuid" 500 into a clean 404.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1023,7 +1036,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Per-row pre-insert hook. A hook abort becomes a per-row error so the
     // rest of the batch still proceeds. Non-abort exceptions roll back the
     // entire transaction (something is genuinely wrong).
-    await effectiveDb.transaction().execute(async (trx: Database) => {
+    await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { errors: valErrors, processed } = await processInput(body.records[i], collectionDef);
         if (valErrors.length > 0) {
@@ -1103,7 +1116,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Per-row pre-update hook. Before-row fetched inside the transaction so
     // a concurrent write between read and update is at least visible in the
     // same tx snapshot. Hook abort becomes a per-row error.
-    await effectiveDb.transaction().execute(async (trx: Database) => {
+    await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { id, ...fields } = body.records[i];
         const { errors: valErrors, processed } = await processInput(fields, collectionDef, true);
