@@ -299,6 +299,10 @@ export class DDLManager {
       "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
       'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
       'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
+      // Multi-tenant: every row belongs to a tenant, defaulted from the request
+      // GUC (or the default tenant). The boot/RLS-on-create reconciler then
+      // FORCE-RLS's this table on tenant_id. See tenant-manager.applyTenantRLS.
+      "tenant_id UUID NOT NULL DEFAULT COALESCE(current_setting('zveltio.current_tenant', true)::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
     ];
 
     const indexes: string[] = [
