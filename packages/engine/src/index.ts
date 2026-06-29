@@ -37,6 +37,7 @@ import { DDLManager } from './lib/ddl-manager.js';
 import { flowScheduler } from './lib/flow-scheduler.js';
 import { initTenantManager } from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
+import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initTelemetry, getZoneMetricsLines } from './lib/telemetry.js';
 import { engineEvents } from './lib/event-bus.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
@@ -421,6 +422,13 @@ async function buildHonoApp(): Promise<Hono> {
   // extension subapps are mounted below so it wraps their routes. No-op for
   // single-tenant installs (no tenant resolved → no transaction opened).
   app.use('/ext/*', tenantMiddleware);
+  // Membership enforcement: an authenticated user may only act within a tenant
+  // they belong to (zv_tenant_users). Runs after tenantMiddleware so the tenant
+  // is resolved. No-op when no tenant is resolved (single-tenant / public) and
+  // for god/super-admin; only blocks a logged-in non-member from pivoting via
+  // X-Tenant-Slug. See docs/MULTI-TENANT-ENABLEMENT.md §3.
+  app.use('/api/*', tenantMembershipMiddleware(auth, db));
+  app.use('/ext/*', tenantMembershipMiddleware(auth, db));
 
   // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db, auth });

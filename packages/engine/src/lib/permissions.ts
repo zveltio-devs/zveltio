@@ -210,7 +210,7 @@ function _decodeGodCache(userId: string, raw: string): boolean | null {
  * Cached for performance. Fail-closed: returns false if DB is unavailable.
  * Cache values are HMAC-signed to prevent Valkey-injection privilege escalation.
  */
-async function isGodUser(userId: string): Promise<boolean> {
+export async function isGodUser(userId: string): Promise<boolean> {
   const cache = getCache();
   const cacheKey = `god:${userId}`;
 
