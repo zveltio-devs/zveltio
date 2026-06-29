@@ -63,6 +63,112 @@ export async function getDefaultTenant(): Promise<Tenant> {
   return (await getTenantBySlug(DEFAULT_TENANT_SLUG)) ?? DEFAULT_TENANT;
 }
 
+const SAFE_COLLECTION_TABLE = /^zvd_[a-z0-9_]+$/i;
+
+/**
+ * Apply tenant row isolation to a single collection data table. Idempotent.
+ * Ensures the tenant_id column (+ GUC default + NOT NULL, backfilling existing
+ * rows to the default tenant) then ENABLE + FORCE RLS with the tenant_isolation
+ * policy. Validated against Postgres 18: a non-superuser owner only sees rows of
+ * the GUC tenant, cannot forge another tenant's tenant_id (WITH CHECK), and sees
+ * zero rows when no GUC is set.
+ *
+ * IMPORTANT: FORCE RLS is bypassed by SUPERUSER / BYPASSRLS roles. The engine's
+ * DB role MUST be a plain non-superuser or isolation is silently ineffective —
+ * `warnIfDbRoleBypassesRls` checks this at boot.
+ */
+export async function applyTenantRLS(db: Database, table: string): Promise<void> {
+  if (!SAFE_COLLECTION_TABLE.test(table)) {
+    throw new Error(`refusing to apply RLS to unsafe table name: ${table}`);
+  }
+  const t = `"${table}"`;
+  const def = `'${DEFAULT_TENANT_ID}'::uuid`;
+  await sql
+    .raw(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS tenant_id UUID DEFAULT ${def}`)
+    .execute(db);
+  await sql.raw(`UPDATE ${t} SET tenant_id = ${def} WHERE tenant_id IS NULL`).execute(db);
+  await sql
+    .raw(
+      `ALTER TABLE ${t} ALTER COLUMN tenant_id SET DEFAULT COALESCE(current_setting('zveltio.current_tenant', true)::uuid, ${def})`,
+    )
+    .execute(db);
+  await sql.raw(`ALTER TABLE ${t} ALTER COLUMN tenant_id SET NOT NULL`).execute(db);
+  await sql
+    .raw(`CREATE INDEX IF NOT EXISTS "idx_${table}_tenant_id" ON ${t}(tenant_id)`)
+    .execute(db);
+  await sql.raw(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`).execute(db);
+  await sql.raw(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`).execute(db);
+  await sql.raw(`DROP POLICY IF EXISTS tenant_isolation ON ${t}`).execute(db);
+  await sql
+    .raw(
+      `CREATE POLICY tenant_isolation ON ${t} ` +
+        `USING (tenant_id::text = current_setting('zveltio.current_tenant', true)) ` +
+        `WITH CHECK (tenant_id::text = current_setting('zveltio.current_tenant', true))`,
+    )
+    .execute(db);
+}
+
+/**
+ * Boot reconciler: apply tenant isolation to every COLLECTION DATA table.
+ * Targets `zvd_<name>` for each row in `zvd_collections` plus the built-in
+ * content tables. The `zvd_collections`/`zvd_relations`/`zvd_permissions`
+ * metadata tables are global and intentionally excluded (they are not rows in
+ * zvd_collections). Best-effort per table — one failure doesn't abort the rest.
+ */
+export async function reconcileTenantRLS(db: Database): Promise<number> {
+  let names: string[];
+  try {
+    const rows = await sql<{ name: string }>`SELECT name FROM zvd_collections`.execute(db);
+    names = rows.rows.map((r) => r.name);
+  } catch {
+    return 0; // zvd_collections not present yet — nothing to reconcile
+  }
+  for (const builtin of ['pages', 'views', 'zones']) {
+    if (!names.includes(builtin)) names.push(builtin);
+  }
+
+  let applied = 0;
+  for (const name of names) {
+    const table = `zvd_${name}`;
+    if (!SAFE_COLLECTION_TABLE.test(table)) continue;
+    try {
+      const reg = await sql<{ exists: boolean }>`
+        SELECT to_regclass(${`public.${table}`}) IS NOT NULL AS exists
+      `.execute(db);
+      if (!reg.rows[0]?.exists) continue; // collection row without a table yet
+      await applyTenantRLS(db, table);
+      applied++;
+    } catch (err) {
+      console.warn(`[tenant-rls] reconcile failed for ${table}:`, (err as Error).message);
+    }
+  }
+  return applied;
+}
+
+/**
+ * Warn loudly if the engine's DB role can bypass RLS (SUPERUSER or BYPASSRLS).
+ * FORCE RLS does NOT bind such roles, so tenant isolation would be silently
+ * ineffective. Called once at boot.
+ */
+export async function warnIfDbRoleBypassesRls(db: Database): Promise<void> {
+  try {
+    const r = await sql<{ rolname: string; rolsuper: boolean; rolbypassrls: boolean }>`
+      SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
+    `.execute(db);
+    const row = r.rows[0];
+    if (row?.rolsuper || row?.rolbypassrls) {
+      console.warn(
+        `⚠️  [tenant-rls] The engine DB role "${row.rolname}" is ${
+          row.rolsuper ? 'a SUPERUSER' : 'BYPASSRLS'
+        } — Postgres row-level security is BYPASSED, so tenant isolation is NOT enforced. ` +
+          `Run the engine as a plain (NOSUPERUSER, no BYPASSRLS) role for multi-tenant deployments.`,
+      );
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
 // ── Tenant cache HMAC signing ────────────────────────────────────────────────
 // Protects cached tenant data against tampering by an attacker with Valkey
 // write access (e.g. raising max_records, changing plan, activating a banned
@@ -349,12 +455,10 @@ export async function resolveTenantFromRequest(
     };
   }
 
-  // NOTE (beta.18 foundation): the "always-one-tenant" flip (return
-  // getDefaultTenant() here) lands together with the RLS reconciler + tenant
-  // transaction scoping + cross-tenant CI gate as one atomic enforcement change
-  // — flipping it alone would open a per-request transaction with no RLS to
-  // justify it. Until then single-tenant keeps the fast no-transaction path.
-  return null;
+  // Always-one-tenant: no explicit tenant → the implicit default tenant, so the
+  // `zveltio.current_tenant` GUC is always set on data routes and RLS is uniform.
+  // Single-tenant installs run entirely as the default tenant.
+  return getDefaultTenant();
 }
 
 export async function invalidateTenantCache(
@@ -391,7 +495,10 @@ export async function withTenantIsolation<T>(
   fn: (trx: Database) => Promise<T>,
 ): Promise<T> {
   return (_db as any).transaction().execute(async (trx: Database) => {
-    await sql`SET LOCAL "zveltio.current_tenant" = ${tenantId}`.execute(trx);
+    // set_config(..., is_local=true) is the transaction-local equivalent of
+    // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
+    // syntax error.
+    await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
     return fn(trx);
   });
 }

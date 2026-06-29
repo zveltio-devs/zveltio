@@ -35,7 +35,11 @@ import { webhookWorker } from './lib/webhook-worker.js';
 import { cancelPendingCleanups } from './lib/ghost-ddl.js';
 import { DDLManager } from './lib/ddl-manager.js';
 import { flowScheduler } from './lib/flow-scheduler.js';
-import { initTenantManager } from './lib/tenant-manager.js';
+import {
+  initTenantManager,
+  reconcileTenantRLS,
+  warnIfDbRoleBypassesRls,
+} from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initTelemetry, getZoneMetricsLines } from './lib/telemetry.js';
@@ -733,6 +737,19 @@ async function bootstrap() {
     }),
   ]);
   console.log(`✅ Parallel services started in ${Date.now() - parallelStart}ms`);
+
+  // ═══ Tenant row-level security ═══
+  // Apply FORCE RLS + the tenant_isolation policy to every collection data table
+  // so reads/writes are isolated by the `zveltio.current_tenant` GUC. Runs after
+  // collections + extension tables exist. Single-tenant installs run as the
+  // default tenant (GUC always set), so this is transparent there.
+  await warnIfDbRoleBypassesRls(db);
+  try {
+    const n = await reconcileTenantRLS(db);
+    console.log(`🔒 Tenant RLS reconciled on ${n} collection table(s)`);
+  } catch (err) {
+    console.warn('⚠️ Tenant RLS reconcile failed (non-fatal):', (err as Error).message);
+  }
 
   // ═══ Background workers (fire-and-forget) ═══
   webhookWorker.start(1000);

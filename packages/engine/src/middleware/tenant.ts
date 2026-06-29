@@ -23,6 +23,13 @@ declare module 'hono' {
   }
 }
 
+// Paths that never read tenant-scoped collection data — skip the per-request
+// tenant transaction for them so we don't hold a pooled connection on trivial
+// endpoints. Everything else under /api/* and /ext/* gets the transaction
+// (covers /api/data, content routes, and all extension routes), so no RLS'd
+// table is ever read without the GUC set.
+const TXN_SKIP_PREFIXES = ['/api/health', '/api/metrics', '/api/auth', '/api/openapi'];
+
 export const tenantMiddleware = createMiddleware(async (c, next) => {
   const hostname = c.req.header('host')?.split(':')[0];
 
@@ -40,15 +47,18 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
       c.set('environment', env);
       c.set('tenantSchema', env ? env.schema_name : getTenantSchemaName(tenant.slug));
 
-      // Security: wrap the entire request in a PostgreSQL transaction so that
-      // SET LOCAL "zveltio.current_tenant" persists for ALL queries made via
-      // the `tenantTrx` connection. Routes must use c.get('tenantTrx') || db.
-      // Without this transaction, SET LOCAL is silently ignored (connection pool
-      // routes queries to arbitrary connections) and RLS policies are inactive.
-      await withTenantIsolation(tenant.id, async (trx) => {
-        c.set('tenantTrx', trx);
+      // Transaction scoping: only open the isolation transaction for routes that
+      // may touch tenant data. SET LOCAL is transaction-scoped, so any query
+      // that must see tenant data has to run on this `tenantTrx` connection.
+      const path = c.req.path;
+      if (TXN_SKIP_PREFIXES.some((p) => path.startsWith(p))) {
         await next();
-      });
+      } else {
+        await withTenantIsolation(tenant.id, async (trx) => {
+          c.set('tenantTrx', trx);
+          await next();
+        });
+      }
     } else {
       c.set('environment', null);
       c.set('tenantSchema', 'public');
