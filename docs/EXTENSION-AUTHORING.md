@@ -127,7 +127,8 @@ Every `register()` call receives a populated `ExtensionContext`:
 ### Stable public API
 
 ```ts
-ctx.db                                      // Kysely Database (restricted: cannot read zv_* system tables)
+ctx.db                                      // GLOBAL Kysely Database (restricted; NOT tenant-scoped)
+ctx.reqDb(c)                                // Per-request, TENANT-scoped DB — use this in data handlers
 ctx.auth                                    // Better-Auth instance — auth.api.getSession({ headers })
 ctx.fieldTypeRegistry                       // Register custom field types
 ctx.events                                  // Typed event bus — subscribe to record lifecycle events
@@ -136,6 +137,27 @@ ctx.getUserRoles(userId)                    // → Promise<string[]>
 ctx.DDLManager                              // DDL helpers (Ghost Tables, zero-downtime DDL)
 ctx.services                                // Inter-extension service registry (see below)
 ```
+
+### `ctx.db` vs `ctx.reqDb(c)` — tenant isolation
+
+`ctx.db` is the **global** pool: it is table-restricted but **not** tenant-scoped.
+In a multi-tenant deployment, querying tenant data through `ctx.db` either returns
+zero rows (Postgres FORCE row-level security with no tenant context) or, on tables
+without RLS, leaks across tenants.
+
+In any route handler that reads/writes tenant data, use **`ctx.reqDb(c)`** — it
+returns the request's tenant transaction (the `zveltio.current_tenant` GUC is set,
+so RLS isolates correctly) wrapped in the same table guard:
+
+```ts
+app.get('/contacts', async (c) => {
+  const db = ctx.reqDb(c); // tenant-scoped
+  return c.json(await db.selectFrom('zvd_contacts').selectAll().execute());
+});
+```
+
+Reserve `ctx.db` for setup/migrations (no request context). See
+`docs/MULTI-TENANT-ENABLEMENT.md` §5.
 
 ### Inter-extension services — `ctx.services.*`
 
