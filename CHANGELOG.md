@@ -2,6 +2,20 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.16] - 2026-06-29
+
+- **Tenant isolation now covers `/ext/*`** (extension + SDUI traffic). Previously
+  `tenantMiddleware` was mounted only on `/api/*`, so extension routes never had
+  the `zveltio.current_tenant` GUC set — `reqDb(c)` fell back to the global pool,
+  a cross-tenant leak in multi-tenant (fail-closed on FORCE-RLS tables). No-op
+  for single-tenant installs (no tenant resolved → no transaction).
+  - **Necessary but not sufficient for shared multi-tenant hosting.** Two gaps
+    still must land first (tracked for beta.17+): (1) **membership enforcement** —
+    `tenantMiddleware` resolves the tenant by header/subdomain but doesn't verify
+    the caller belongs to it (`zv_tenant_users`); (2) **Casbin RBAC is global** —
+    role grants apply across all tenants (no per-tenant domain). The default
+    self-hosted single-tenant deployment is unaffected by all of this.
+
 ## [3.0.0-beta.15] - 2026-06-29
 
 Engine slim-down + hot-path optimisations (from the engine review).
