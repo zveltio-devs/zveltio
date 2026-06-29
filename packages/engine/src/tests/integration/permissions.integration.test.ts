@@ -128,14 +128,14 @@ describe.skipIf(skipAll)('Permissions — Integration', () => {
 
   it('admin user can access collections with Casbin policy', async () => {
     const enforcer = await getEnforcer();
-    await enforcer.addPolicy(adminUserId, COLLECTION, 'read');
+    await enforcer.addPolicy(adminUserId, '*', COLLECTION, 'read');
     await invalidateUserPermCache(adminUserId);
 
     const result = await checkPermission(adminUserId, COLLECTION, 'read');
     expect(result).toBe(true);
 
     // Cleanup
-    await enforcer.removePolicy(adminUserId, COLLECTION, 'read');
+    await enforcer.removePolicy(adminUserId, '*', COLLECTION, 'read');
   });
 
   it('employee cannot access collection without policy', async () => {
@@ -146,7 +146,7 @@ describe.skipIf(skipAll)('Permissions — Integration', () => {
 
   it('employee can read after adding Casbin policy', async () => {
     const enforcer = await getEnforcer();
-    await enforcer.addPolicy(employeeUserId, COLLECTION, 'read');
+    await enforcer.addPolicy(employeeUserId, '*', COLLECTION, 'read');
     await invalidateUserPermCache(employeeUserId);
 
     const result = await checkPermission(employeeUserId, COLLECTION, 'read');
@@ -161,7 +161,7 @@ describe.skipIf(skipAll)('Permissions — Integration', () => {
 
   it('employee loses read access after policy removal', async () => {
     const enforcer = await getEnforcer();
-    await enforcer.removePolicy(employeeUserId, COLLECTION, 'read');
+    await enforcer.removePolicy(employeeUserId, '*', COLLECTION, 'read');
     await invalidateUserPermCache(employeeUserId);
 
     const result = await checkPermission(employeeUserId, COLLECTION, 'read');
@@ -172,13 +172,13 @@ describe.skipIf(skipAll)('Permissions — Integration', () => {
     const enforcer = await getEnforcer();
 
     // Add policy — must be visible after invalidation
-    await enforcer.addPolicy(employeeUserId, COLLECTION, 'delete');
+    await enforcer.addPolicy(employeeUserId, '*', COLLECTION, 'delete');
     await invalidateUserPermCache(employeeUserId);
     const after = await checkPermission(employeeUserId, COLLECTION, 'delete');
     expect(after).toBe(true);
 
     // Remove policy — must be invisible after invalidation
-    await enforcer.removePolicy(employeeUserId, COLLECTION, 'delete');
+    await enforcer.removePolicy(employeeUserId, '*', COLLECTION, 'delete');
     await invalidateUserPermCache(employeeUserId);
     const afterRemove = await checkPermission(employeeUserId, COLLECTION, 'delete');
     expect(afterRemove).toBe(false);

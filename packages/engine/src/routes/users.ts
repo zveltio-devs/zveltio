@@ -126,7 +126,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
       if (role) {
         const e = await getEnforcer();
         await e.deleteRolesForUser(userId);
-        await e.addRoleForUser(userId, role);
+        await e.addRoleForUser(userId, role, '*');
         await invalidateUserPermCache(userId);
         const admin = c.get('user') as any;
         await auditLog(db, {
