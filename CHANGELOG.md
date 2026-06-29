@@ -2,6 +2,28 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.19] - 2026-06-29
+
+**Per-tenant RBAC** (Phase C / part 2). Authorization is now tenant-scoped via
+Casbin RBAC-with-domains — a user can hold different roles in different tenants.
+Validated 6/6 against Postgres 18. **Behavior-preserving**: existing single-tenant
+authorization is byte-for-byte unchanged.
+
+- Casbin model gains a `dom` (tenant) dimension; a `*`-wildcard domain-matching
+  function makes a policy/grant at `*` apply in every tenant.
+- **Behavior-preserving migration**: migration 008 reshapes all pre-existing
+  policies/grants into domain `*` (and widens the policy-uniqueness index to the
+  full 4 tokens); every policy-write site defaults new policies to `*`. Per-tenant
+  policies (a concrete tenant id) are purely additive.
+- **Zero churn across ~250 `checkPermission` call sites** (engine + 54 extensions):
+  the request's tenant domain is carried via `AsyncLocalStorage` (set in
+  `tenantMiddleware`), so `checkPermission` / `getUserRoles` resolve the domain
+  without a signature change. Outside a request → the default tenant.
+- Permission caches keyed by domain.
+
+> Operational reminder (from beta.18): run the engine as a **non-superuser** DB
+> role, or Postgres RLS is bypassed. Next: extension `ctx.reqDb(c)` (beta.20).
+
 ## [3.0.0-beta.18] - 2026-06-29
 
 **Multi-tenant data isolation** (Phase C / part 1). Collection data is now
