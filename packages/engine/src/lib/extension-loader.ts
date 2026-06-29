@@ -1017,6 +1017,9 @@ export function buildExtensionInternals(): ExtensionInternals {
  */
 export interface ExtensionContext {
   db: Database;
+  /** Per-request tenant-scoped DB (request's tenant transaction + table guard).
+   * Data handlers should use `ctx.reqDb(c)`; `ctx.db` is the global pool. */
+  reqDb?: (c: any) => Database;
   auth: any;
   fieldTypeRegistry: FieldTypeRegistry;
   events: EventBus;
@@ -1723,6 +1726,16 @@ class ExtensionLoader {
       const restrictedCtx: ExtensionContext = {
         ...ctx,
         db: createRestrictedDb(ctx.db, extName, allowedTables),
+        // Per-request tenant-scoped DB: the request's tenant transaction (so
+        // FORCE-RLS'd rows are visible + isolated), wrapped in the same table
+        // guard. Data-touching extension handlers MUST use ctx.reqDb(c); ctx.db
+        // (global pool) bypasses tenant isolation. See MULTI-TENANT-ENABLEMENT §5.
+        reqDb: (c: any) =>
+          createRestrictedDb(
+            (c?.get?.('tenantTrx') as Database | null) ?? ctx.db,
+            extName,
+            allowedTables,
+          ),
         checkPermission: ctx.checkPermission ?? checkPermission,
         getUserRoles: ctx.getUserRoles ?? getUserRoles,
         DDLManager: ctx.DDLManager ?? DDLManager,
@@ -2861,6 +2874,12 @@ class ExtensionLoader {
     const restrictedCtx: ExtensionContext = {
       ...this.ctx,
       db: createRestrictedDb(this.ctx.db, name, allowedTables),
+      reqDb: (c: any) =>
+        createRestrictedDb(
+          (c?.get?.('tenantTrx') as Database | null) ?? this.ctx!.db,
+          name,
+          allowedTables,
+        ),
       checkPermission: this.ctx.checkPermission ?? checkPermission,
       getUserRoles: this.ctx.getUserRoles ?? getUserRoles,
       DDLManager: this.ctx.DDLManager ?? DDLManager,

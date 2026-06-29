@@ -49,8 +49,24 @@ export interface ExtensionContext<DB = any> {
   /**
    * Kysely database instance (restricted — cannot query zv_* system tables).
    * Typed via the `DB` generic; use `ZveltioExtension<MySchema>` to opt in.
+   *
+   * NOTE: `ctx.db` is the GLOBAL pool — it is NOT tenant-scoped. In a route
+   * handler that reads/writes tenant data, use `ctx.reqDb(c)` instead, or
+   * Postgres row-level security will hide rows (or, on un-RLS'd tables, leak
+   * across tenants). Reserve `ctx.db` for setup/migrations (no request context).
    */
   db: Kysely<DB>;
+  /**
+   * Per-request, tenant-scoped database. Returns the request's tenant
+   * transaction (so the `zveltio.current_tenant` GUC is set and FORCE-RLS rows
+   * are visible + isolated), wrapped in the same table-restriction guard as
+   * `ctx.db`. Pass the route's Hono context: `const db = ctx.reqDb(c)`.
+   *
+   * Always present on the context the engine hands to a loaded extension; typed
+   * optional only so partial/bootstrap contexts type-check. In a data handler
+   * use it directly — `ctx.reqDb(c)`.
+   */
+  reqDb?: (c: any) => Kysely<DB>;
   /** Better-Auth instance — use `ctx.auth.api.getSession({ headers })` in route handlers. */
   auth: any;
   /** Field type registry — register custom field types here. */
