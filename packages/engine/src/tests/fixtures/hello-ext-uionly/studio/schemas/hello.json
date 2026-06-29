@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "title": "Hello UI-Only",
+  "type": "page",
+  "blocks": [
+    {
+      "type": "markdown",
+      "content": "UI-only smoke fixture — rendered from a declarative schema, no engine."
+    }
+  ]
+}

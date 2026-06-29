@@ -146,6 +146,7 @@ jobs:
           cp -r packages/engine/src/tests/fixtures/hello-ext ./extensions/hello-ext
           cp -r packages/engine/src/tests/fixtures/hello-ext-worker ./extensions/hello-ext-worker
           cp -r packages/engine/src/tests/fixtures/hello-ext-global ./extensions/hello-ext-global
+          cp -r packages/engine/src/tests/fixtures/hello-ext-uionly ./extensions/hello-ext-uionly
 
       - name: Boot binary + smoke marketplace enable
         env:
@@ -290,8 +291,32 @@ jobs:
           fi
           echo "✅ hello-ext-global mount strategy OK on the compiled binary."
 
+          # Repeat for hello-ext-uionly — a UI-only extension
+          # (contributes.engine=false, no engine entry). Regression guard for
+          # the beta.14 fix: install/enable must SUCCEED for engine-less
+          # extensions instead of 422'ing with "no files found / registry
+          # unreachable". There is no /ext route to hit — succeeding install +
+          # enable IS the assertion.
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-uionly/install \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/install-uionly.json
+          if ! grep -q '"success":true' /tmp/install-uionly.json; then
+            echo "::error::hello-ext-uionly install failed — UI-only (engine:false) install regression."
+            echo "::error::Body: $(cat /tmp/install-uionly.json)"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-uionly/enable \
+            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
+            -o /tmp/enable-uionly.json
+          if ! grep -q '"success":true' /tmp/enable-uionly.json; then
+            echo "::error::hello-ext-uionly enable failed — UI-only (engine:false) enable regression."
+            echo "::error::Body: $(cat /tmp/enable-uionly.json)"
+            kill $ENGINE_PID 2>/dev/null || true; exit 1
+          fi
+          echo "✅ hello-ext-uionly (engine:false) install + enable OK on the compiled binary."
+
           # Hit the new admin health endpoint to confirm it serves all
-          # three extensions with sensible per-extension records.
+          # extensions with sensible per-extension records.
           HEALTH_BODY=$(curl -fsS http://localhost:3000/api/admin/extensions/health \
             -b cookies.txt || true)
           for ext in hello-ext hello-ext-worker hello-ext-global; do
