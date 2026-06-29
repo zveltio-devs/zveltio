@@ -2913,7 +2913,6 @@ class ExtensionLoader {
           );
         }
       }
-
     } catch (err) {
       console.error(`❌ Hot-reload: failed to re-register extension "${name}":`, err);
     }
