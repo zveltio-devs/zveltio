@@ -18,11 +18,16 @@
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
 import { isGodUser } from '../lib/permissions.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenant-manager.js';
 
 export function tenantMembershipMiddleware(auth: any, db: Database) {
   return createMiddleware(async (c, next) => {
     const tenant = c.get('tenant') as { id: string } | null;
-    if (!tenant) return next(); // no tenant context → nothing to enforce
+    // No tenant, or the implicit default tenant (single-tenant space) → no
+    // membership requirement. Membership is enforced only for explicitly
+    // resolved NON-default tenants (real multi-tenant via header/subdomain),
+    // so single-tenant installs keep working for every authenticated user.
+    if (!tenant || tenant.id === DEFAULT_TENANT_ID) return next();
 
     let userId: string | null = null;
     try {
