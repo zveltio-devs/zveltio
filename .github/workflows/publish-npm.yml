@@ -64,7 +64,7 @@ jobs:
       # Node >= 22.14.0 + npm >= 11.5.1 are required for OIDC trusted
       # publishing. registry-url configures the registry (needed for the
       # OIDC exchange) and a placeholder token .npmrc.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
