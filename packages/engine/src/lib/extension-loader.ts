@@ -101,6 +101,38 @@ function resolveExtensionsBase(): string {
   return cwdPath; // default target for first download
 }
 
+/**
+ * Are an extension's files present on disk (i.e. nothing left to download)?
+ *
+ * An extension is "present" when it has an engine entry point
+ * (`engine/index.{ts,js}` or the manifest's `engine.routes`) OR when it is a
+ * UI-only extension (`contributes.engine === false`) whose `manifest.json` is on
+ * disk. UI-only extensions (e.g. `developer/views`, `content/pdf-viewer`) ship no
+ * engine by design — the load path registers them from manifest + Studio assets
+ * alone (see loadExtension, the `contributes.engine === false` early-return).
+ * Without the UI-only branch the install/enable handlers wrongly treat them as
+ * "no files found / registry unreachable" even after a successful download.
+ */
+function extensionFilesPresent(extDir: string): boolean {
+  if (existsSync(join(extDir, 'engine/index.ts')) || existsSync(join(extDir, 'engine/index.js')))
+    return true;
+  const manifestPath = join(extDir, 'manifest.json');
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    // Alternate engine entry declared in the manifest (manifest.engine.routes).
+    if (m?.engine?.routes) {
+      const alt = join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
+      if (existsSync(alt)) return true;
+    }
+    // UI-only: manifest present + no engine contributed → nothing to download.
+    if (m?.contributes?.engine === false) return true;
+  } catch {
+    /* malformed manifest — treat as not present so the caller surfaces it */
+  }
+  return false;
+}
+
 // ── Registry catalog cache ────────────────────────────────────────────────────
 // Default points at the Cloudflare Worker registry (registry.zveltio.com).
 // `apps.zveltio.com` is the marketplace UI (SvelteKit) — it does NOT expose /api/*.
@@ -2267,9 +2299,7 @@ class ExtensionLoader {
         const dbEntry = dbMap.get(entry.name) as any;
         const runtimeActive = self.isActive(entry.name);
         const extDir = join(extBase, entry.name);
-        const filesOnDisk =
-          existsSync(join(extDir, 'engine/index.ts')) ||
-          existsSync(join(extDir, 'engine/index.js'));
+        const filesOnDisk = extensionFilesPresent(extDir);
 
         return {
           ...entry,
@@ -2309,36 +2339,16 @@ class ExtensionLoader {
         // Determine where extension files should live
         const extBase = resolveExtensionsBase();
         const extDir = join(extBase, name);
-        const engineTs = join(extDir, 'engine/index.ts');
-        const engineJs = join(extDir, 'engine/index.js');
-
-        // engine/routes.ts is also a valid entry point (manifest.engine.routes).
-        const resolveAltEntry = (): string | undefined => {
-          const manifestPathCheck = join(extDir, 'manifest.json');
-          if (!existsSync(manifestPathCheck)) return undefined;
-          try {
-            const m = JSON.parse(readFileSync(manifestPathCheck, 'utf8'));
-            if (m.engine?.routes)
-              return join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
-          } catch {
-            /* ignore */
-          }
-          return undefined;
-        };
-        const onDisk = (): boolean => {
-          if (existsSync(engineTs) || existsSync(engineJs)) return true;
-          const alt = resolveAltEntry();
-          return !!alt && existsSync(alt);
-        };
 
         // Local files win: when the extension is already deployed under
         // EXTENSIONS_DIR (self-contained / air-gapped installs), use it and
         // never touch the registry. Only reach out to download when nothing is
-        // on disk yet.
+        // on disk yet. `extensionFilesPresent` also recognises UI-only
+        // (`contributes.engine: false`) extensions, which ship no engine entry.
         const authToken = await getLicenseKey(db, name);
         let downloaded = false;
         let downloadError = '';
-        if (!onDisk()) {
+        if (!extensionFilesPresent(extDir)) {
           try {
             await downloadExtension(entry, extBase, authToken);
             downloaded = true;
@@ -2348,8 +2358,7 @@ class ExtensionLoader {
           }
         }
 
-        const altEntry = resolveAltEntry();
-        const filesOnDisk = onDisk();
+        const filesOnDisk = extensionFilesPresent(extDir);
 
         // Still nothing on disk and the registry couldn't supply it — fail loudly.
         if (!filesOnDisk) {
@@ -2412,10 +2421,7 @@ class ExtensionLoader {
         // via registry but files were not present, or the user clicked Enable directly.
         const extBase = resolveExtensionsBase();
         const extDir = join(extBase, name);
-        if (
-          !existsSync(join(extDir, 'engine/index.ts')) &&
-          !existsSync(join(extDir, 'engine/index.js'))
-        ) {
+        if (!extensionFilesPresent(extDir)) {
           try {
             const authToken = await getLicenseKey(db, name);
             await downloadExtension(entry, extBase, authToken);
