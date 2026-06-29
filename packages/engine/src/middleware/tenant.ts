@@ -11,6 +11,7 @@ import {
   type Tenant,
   type Environment,
 } from '../lib/tenant-manager.js';
+import { runWithDomain } from '../lib/tenant-context.js';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -62,18 +63,23 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
       c.set('environment', env);
       c.set('tenantSchema', env ? env.schema_name : getTenantSchemaName(tenant.slug));
 
-      // Transaction scoping: only open the isolation transaction for routes that
-      // may touch tenant data. SET LOCAL is transaction-scoped, so any query
-      // that must see tenant data has to run on this `tenantTrx` connection.
-      const path = c.req.path;
-      if (TXN_SKIP_PREFIXES.some((p) => path.startsWith(p))) {
-        await next();
-      } else {
-        await withTenantIsolation(tenant.id, async (trx) => {
-          c.set('tenantTrx', trx);
+      // Carry the tenant as the authorization DOMAIN for the whole request so
+      // checkPermission()/getUserRoles() resolve per-tenant Casbin policies
+      // without threading an argument through every call site.
+      await runWithDomain(tenant.id, async () => {
+        // Transaction scoping: only open the isolation transaction for routes
+        // that may touch tenant data. SET LOCAL is transaction-scoped, so any
+        // query that must see tenant data has to run on this `tenantTrx`.
+        const path = c.req.path;
+        if (TXN_SKIP_PREFIXES.some((p) => path.startsWith(p))) {
           await next();
-        });
-      }
+        } else {
+          await withTenantIsolation(tenant.id, async (trx) => {
+            c.set('tenantTrx', trx);
+            await next();
+          });
+        }
+      });
     } else {
       c.set('environment', null);
       c.set('tenantSchema', 'public');

@@ -3,27 +3,32 @@ import { newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from './cache.js';
+import { getCurrentDomain } from './tenant-context.js';
 
 // Cache TTLs
 const PERMISSION_CACHE_TTL = 60; // seconds
 const ROLE_CACHE_TTL = 300; // seconds
 const GOD_CACHE_TTL = 300; // seconds
 
+// RBAC with domains (tenants). `dom` is the tenant id, or '*' for a policy/grant
+// that applies in EVERY tenant (how all pre-existing global policies are migrated
+// — see migration 008 — so authorization is unchanged until per-tenant policies
+// are added). A `g` domain-matching function (initPermissions) makes '*' wildcard.
 const CASBIN_MODEL = `
 [request_definition]
-r = sub, obj, act
+r = sub, dom, obj, act
 
 [policy_definition]
-p = sub, obj, act
+p = sub, dom, obj, act
 
 [role_definition]
-g = _, _
+g = _, _, _
 
 [policy_effect]
 e = some(where (p.eft == allow))
 
 [matchers]
-m = g(r.sub, p.sub) && (r.obj == p.obj || p.obj == '*') && (r.act == p.act || p.act == '*')
+m = g(r.sub, p.sub, r.dom) && (p.dom == '*' || r.dom == p.dom) && (r.obj == p.obj || p.obj == '*') && (r.act == p.act || p.act == '*')
 `;
 
 let _db: Database;
@@ -81,9 +86,11 @@ class KyselyCasbinAdapter {
   }
 
   async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+    // 4-token policies (p: sub,dom,obj,act) — match all provided columns.
     await sql`
       DELETE FROM zvd_permissions
-      WHERE ptype = ${ptype} AND v0 = ${rule[0] ?? null} AND v1 = ${rule[1] ?? null} AND v2 = ${rule[2] ?? null}
+      WHERE ptype = ${ptype} AND v0 = ${rule[0] ?? null} AND v1 = ${rule[1] ?? null}
+        AND v2 = ${rule[2] ?? null} AND v3 = ${rule[3] ?? null}
     `.execute(_db);
   }
 
@@ -97,6 +104,7 @@ class KyselyCasbinAdapter {
     if (fieldValues[0] !== undefined) conditions.push(sql`v0 = ${fieldValues[0]}`);
     if (fieldValues[1] !== undefined) conditions.push(sql`v1 = ${fieldValues[1]}`);
     if (fieldValues[2] !== undefined) conditions.push(sql`v2 = ${fieldValues[2]}`);
+    if (fieldValues[3] !== undefined) conditions.push(sql`v3 = ${fieldValues[3]}`);
 
     await sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db);
   }
@@ -106,6 +114,9 @@ export async function initPermissions(db: Database): Promise<void> {
   _db = db;
   const model = newModelFromString(CASBIN_MODEL);
   _enforcer = await newEnforcer(model, new KyselyCasbinAdapter());
+  // Make '*' a wildcard domain in role grants (g): a grant `(user, role, '*')`
+  // then applies in every tenant. Validated against casbin 5.x.
+  _enforcer.addNamedDomainMatchingFunc('g', (r: string, p: string) => p === '*' || r === p);
 
   // HMAC signing for the permission & god-role caches is keyed on BETTER_AUTH_SECRET.
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
@@ -281,8 +292,9 @@ export async function checkPermission(
   const isGod = await isGodUser(userId);
   if (isGod) return true;
 
+  const domain = getCurrentDomain();
   const cache = getCache();
-  const cacheKey = `perm:${userId}:${resource}:${action}`;
+  const cacheKey = `perm:${domain}:${userId}:${resource}:${action}`;
 
   if (cache) {
     try {
@@ -298,7 +310,7 @@ export async function checkPermission(
   }
 
   const e = await getEnforcer();
-  const result = await e.enforce(userId, resource, action);
+  const result = await e.enforce(userId, domain, resource, action);
 
   if (cache) {
     try {
@@ -375,8 +387,9 @@ export async function listAllRoles(): Promise<string[]> {
 }
 
 export async function getUserRoles(userId: string): Promise<string[]> {
+  const domain = getCurrentDomain();
   const cache = getCache();
-  const cacheKey = `roles:${userId}`;
+  const cacheKey = `roles:${domain}:${userId}`;
 
   if (cache) {
     try {
@@ -393,7 +406,9 @@ export async function getUserRoles(userId: string): Promise<string[]> {
   }
 
   const e = await getEnforcer();
-  const roles = await e.getRolesForUser(userId);
+  // Roles the user holds in this domain. Casbin's getRolesForUser(user, domain)
+  // honours the '*' domain-matching func, so global grants are included.
+  const roles = await e.getRolesForUser(userId, domain);
 
   if (cache) {
     try {

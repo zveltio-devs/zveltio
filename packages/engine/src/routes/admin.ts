@@ -724,7 +724,9 @@ export function adminRoutes(db: Database, auth: any): Hono {
       for (const perm of permissions) {
         const roleName = roleIdToName.get(perm.role_id);
         if (!roleName) continue;
-        await e.addPolicy(roleName, perm.resource, perm.action);
+        // Domain '*' = global (applies in every tenant), matching the pre-domain
+        // behaviour. Per-tenant policies use a concrete tenant id instead.
+        await e.addPolicy(roleName, '*', perm.resource, perm.action);
       }
 
       await invalidatePermissionCache();
@@ -789,7 +791,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
           409,
         );
       }
-      await e.addRoleForUser(child, parent);
+      await e.addRoleForUser(child, parent, '*');
       await invalidatePermissionCache();
       const user = c.get('user' as never) as any;
       await auditLog(db, {
@@ -815,7 +817,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const { child, parent } = c.req.valid('json');
       const e = await getEnforcer();
-      await e.deleteRoleForUser(child, parent);
+      await e.deleteRoleForUser(child, parent, '*');
       await invalidatePermissionCache();
       const user = c.get('user' as never) as any;
       await auditLog(db, {

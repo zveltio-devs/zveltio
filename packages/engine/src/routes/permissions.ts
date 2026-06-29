@@ -111,7 +111,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const { userId, role } = c.req.valid('json');
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
-      await e.addRoleForUser(userId, role);
+      await e.addRoleForUser(userId, role, '*');
       await invalidateUserPermCache(userId);
       // F2 FIX: Audit trail for role assignment.
       auditLog(db, {
@@ -143,7 +143,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const { userId, role } = c.req.valid('json');
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
-      await e.deleteRoleForUser(userId, role);
+      await e.deleteRoleForUser(userId, role, '*');
       await invalidateUserPermCache(userId);
       // F2 FIX: Audit trail for role removal.
       auditLog(db, {
@@ -176,7 +176,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const { subject, resource, action } = c.req.valid('json');
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
-      await e.addPolicy(subject, resource, action);
+      await e.addPolicy(subject, '*', resource, action);
       await invalidateAllPermissionCache();
       // F2 FIX: Audit trail for policy creation.
       auditLog(db, {
@@ -208,7 +208,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const { subject, resource, action } = c.req.valid('json');
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
-      await e.removePolicy(subject, resource, action);
+      await e.removePolicy(subject, '*', resource, action);
       await invalidateAllPermissionCache();
       // F2 FIX: Audit trail for policy removal.
       auditLog(db, {

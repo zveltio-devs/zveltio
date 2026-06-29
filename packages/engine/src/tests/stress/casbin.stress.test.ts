@@ -134,7 +134,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
     try {
       // Add a single policy
       const enforcer = await getEnforcer();
-      await enforcer.addPolicy(userId, 'perf_resource', 'read');
+      await enforcer.addPolicy(userId, '*', 'perf_resource', 'read');
       await invalidateUserPermCache(userId);
 
       const start = Date.now();
@@ -150,7 +150,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       expect(duration).toBeLessThan(10_000);
 
       // Cleanup
-      await enforcer.removePolicy(userId, 'perf_resource', 'read');
+      await enforcer.removePolicy(userId, '*', 'perf_resource', 'read');
     } finally {
       await deleteTestUser(userId);
     }
@@ -165,7 +165,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
         checkPermission(userId, 'concurrent_res', 'write').catch(() => false),
       );
       const updates = Array.from({ length: 10 }, async (_, i) => {
-        await enforcer.addPolicy(userId, `res_${i}`, 'read').catch(() => {});
+        await enforcer.addPolicy(userId, '*', `res_${i}`, 'read').catch(() => {});
         await invalidateUserPermCache(userId);
       });
 
@@ -189,7 +189,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       expect(before).toBe(false);
 
       // Add policy
-      await enforcer.addPolicy(userId, 'cache_res', 'read');
+      await enforcer.addPolicy(userId, '*', 'cache_res', 'read');
 
       // Invalidate cache to pick up new policy
       await invalidateUserPermCache(userId);
@@ -198,7 +198,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       expect(after).toBe(true);
 
       // Cleanup
-      await enforcer.removePolicy(userId, 'cache_res', 'read');
+      await enforcer.removePolicy(userId, '*', 'cache_res', 'read');
     } finally {
       await deleteTestUser(userId);
     }
@@ -209,7 +209,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
     const enforcer = await getEnforcer();
 
     try {
-      await enforcer.addPolicy(userId, 'fallback_res', 'read');
+      await enforcer.addPolicy(userId, '*', 'fallback_res', 'read');
 
       // Mock cache to throw on all operations
       const { getCache } = await import('../../lib/cache.js');
@@ -231,7 +231,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
         expect(result).toBe(true);
       }
 
-      await enforcer.removePolicy(userId, 'fallback_res', 'read');
+      await enforcer.removePolicy(userId, '*', 'fallback_res', 'read');
     } finally {
       await deleteTestUser(userId);
     }
