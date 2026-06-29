@@ -531,7 +531,6 @@ rm studio.tar.gz</pre>
     ];
     return c.json({
       extensions: allActive,
-      bundles: extensionLoader.getBundles(),
       meta: extensionLoader.getExtensionMeta(),
     });
   });

@@ -194,30 +194,6 @@ services:
     networks:
       - zveltio_internal
 
-  # ── Studio Builder (rebuild-at-install sidecar) ────────────────────────────────
-  # Receives POST /rebuild from the engine when an extension is enabled/disabled.
-  # Copies extension pages into the SvelteKit route tree and runs `bun run build`.
-  # The compiled dist is written to the `studio_dist` shared volume.
-  studio-builder:
-    build:
-      context: .
-      dockerfile: docker/studio-builder/Dockerfile
-    container_name: zveltio-studio-builder
-    restart: unless-stopped
-    environment:
-      EXTENSIONS_DIR: /extensions
-      BUILDER_PORT: '3001'
-    volumes:
-      - ./extensions:/extensions:ro        # read extension source
-      - studio_dist:/app/dist              # write compiled Studio dist
-    healthcheck:
-      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3001/health']
-      interval: 15s
-      timeout: 5s
-      retries: 3
-    networks:
-      - zveltio_internal
-
   # ── Zveltio Engine ──────────────────────────────────────────────────────────────
   engine:
     build:
@@ -231,8 +207,6 @@ services:
       pooler:
         condition: service_started
       cache:
-        condition: service_healthy
-      studio-builder:
         condition: service_healthy
     ports:
       - '${PORT:-3000}:3000'
@@ -264,13 +238,12 @@ services:
       # Extensions (comma-separated)
       ZVELTIO_EXTENSIONS: '${ZVELTIO_EXTENSIONS:-}'
 
-      # Studio rebuild-at-install (Docker mode — delegates to studio-builder sidecar)
-      STUDIO_BUILDER_URL: 'http://studio-builder:3001'
+      # Studio dist is baked into the engine image at release (Tier-3 pages
+      # baked, SDUI pages are data) — served directly, no rebuild sidecar.
       STUDIO_DIST_PATH: '/app/studio-dist'
 
     volumes:
       - ./extensions:/app/extensions:ro
-      - studio_dist:/app/studio-dist:ro    # serve pre-built Studio dist from shared volume
     networks:
       - zveltio_internal
 
@@ -288,4 +261,3 @@ volumes:
   prometheus_data:
   grafana_data:
   pgdog_config:
-  studio_dist:      # shared between studio-builder (write) and engine (read)
