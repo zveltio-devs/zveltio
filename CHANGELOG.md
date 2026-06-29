@@ -2,6 +2,24 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.17] - 2026-06-29
+
+Platform cleanup + a new regression guard (no runtime behavior change).
+
+- **UI-only extension smoke guard**: the release smoke job now installs + enables
+  a `hello-ext-uionly` fixture (`contributes.engine=false`, no engine entry) on
+  the compiled binary — a permanent regression guard for the beta.14 fix (the
+  "no files found / registry unreachable" failure on engine-less extensions).
+- **Docs drift fixed**: `EXTENSION-AUTHORING` now describes the real model
+  (declarative SDUI + Tier-3 baked at release; no runtime Studio rebuild — that
+  was removed in beta.15); `site/installation` clarifies the engine serves
+  studio-dist (not "embedded in the binary"); `TECHNICAL-GAPS` 1.1/3.1 downgraded
+  from P0 (the `bench/` suite, `BENCHMARKS.md`, and the `perf-smoke` CI job exist).
+- Verified non-issues from external review (no change needed): the two install
+  scripts are **complementary by design** (smart entry `scripts/install.sh` →
+  native `install/install.sh`), and there is **no SDUI route shadowing** (no
+  baked `+page.svelte` at any of the 22 declarative paths).
+
 ## [3.0.0-beta.16] - 2026-06-29
 
 - **Tenant isolation now covers `/ext/*`** (extension + SDUI traffic). Previously
