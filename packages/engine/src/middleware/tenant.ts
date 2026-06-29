@@ -28,7 +28,22 @@ declare module 'hono' {
 // endpoints. Everything else under /api/* and /ext/* gets the transaction
 // (covers /api/data, content routes, and all extension routes), so no RLS'd
 // table is ever read without the GUC set.
-const TXN_SKIP_PREFIXES = ['/api/health', '/api/metrics', '/api/auth', '/api/openapi'];
+//
+// Schema-management routes (collections/relations/schema/templates) operate on
+// GLOBAL metadata, not tenant rows, AND they enqueue DDL that runs `CREATE INDEX
+// CONCURRENTLY` — which blocks until all concurrent transactions finish. Holding
+// a tenant transaction across such a request deadlocks it against its own index
+// build, so they MUST NOT open one.
+const TXN_SKIP_PREFIXES = [
+  '/api/health',
+  '/api/metrics',
+  '/api/auth',
+  '/api/openapi',
+  '/api/collections',
+  '/api/relations',
+  '/api/schema',
+  '/api/templates',
+];
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {
   const hostname = c.req.header('host')?.split(':')[0];
