@@ -414,6 +414,13 @@ async function buildHonoApp(): Promise<Hono> {
     }),
   );
   app.use('/api/*', tenantMiddleware);
+  // Extension + SDUI traffic flows through /ext/* — it MUST get the same tenant
+  // isolation as /api/*, or extension handlers using reqDb(c) fall back to the
+  // global pool with no `zveltio.current_tenant` GUC (cross-tenant leak in
+  // multi-tenant; fail-closed on FORCE-RLS tables). Registered BEFORE the
+  // extension subapps are mounted below so it wraps their routes. No-op for
+  // single-tenant installs (no tenant resolved → no transaction opened).
+  app.use('/ext/*', tenantMiddleware);
 
   // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db, auth });
