@@ -2,6 +2,34 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.18] - 2026-06-29
+
+**Multi-tenant data isolation** (Phase C / part 1). Collection data is now
+row-isolated per tenant via Postgres RLS, validated end-to-end against Postgres 18
+(cross-tenant isolation test, 5/5). No behaviour change for single-tenant installs
+— they run as an implicit default tenant.
+
+- **`tenant_id` on every collection table** (the missing foundation): a system
+  column defaulted from the tenant GUC (`set_config('zveltio.current_tenant', …)`),
+  falling back to the default tenant. Migration 007 seeds the default tenant.
+- **Always-one-tenant**: requests always resolve a tenant (default when none is
+  explicit), so the GUC is always set and RLS is uniform.
+- **FORCE RLS enforcement**: boot reconciler + RLS-on-create apply
+  `FORCE ROW LEVEL SECURITY` + a `tenant_isolation` policy to collection tables
+  (global metadata tables excluded). `WITH CHECK` prevents forging another
+  tenant's `tenant_id`.
+- **Transaction scoping**: the tenant transaction wraps `/api` + `/ext` data
+  routes; health/metrics/auth/openapi and schema-management routes are excluded.
+- **Membership enforcement**: an authenticated user can't pivot to a tenant they
+  don't belong to (`zv_tenant_users`); default tenant + god are exempt.
+- **Background readers** (flows `query_db`/export, data-quality scans) now run
+  with the tenant GUC, or FORCE RLS would hide their rows.
+- **Operational requirement**: the engine DB role must be **non-superuser**
+  (superuser/BYPASSRLS skips RLS) — `warnIfDbRoleBypassesRls` warns at boot.
+
+> Per-tenant **RBAC** (Casbin domains) and extension `ctx.reqDb(c)` land next
+> (beta.19/20). See `docs/MULTI-TENANT-ENABLEMENT.md`.
+
 ## [3.0.0-beta.17] - 2026-06-29
 
 Platform cleanup + a new regression guard (no runtime behavior change).
