@@ -2,6 +2,23 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.20] - 2026-06-29
+
+**Tenant-safe extension data access** (Phase C / part 3 — completes multi-tenant
+enablement).
+
+- **`ctx.reqDb(c)`**: extensions get a per-request, tenant-scoped database — the
+  request's tenant transaction (so the `zveltio.current_tenant` GUC is set and
+  RLS isolates) wrapped in the same table-restriction guard as `ctx.db`. Data
+  handlers should use `ctx.reqDb(c)`; `ctx.db` is the global pool (setup/migrations
+  only). Typed on `ExtensionContext` (SDK + engine); documented in
+  `EXTENSION-AUTHORING`. First-party extensions migrate incrementally.
+
+With beta.18 (data isolation) + beta.19 (per-tenant RBAC), this completes the
+multi-tenant stack: per-tenant data (RLS), per-tenant authorization (Casbin
+domains), and tenant-safe extension access — all behavior-preserving for the
+single-tenant default and validated end-to-end against Postgres 18.
+
 ## [3.0.0-beta.19] - 2026-06-29
 
 **Per-tenant RBAC** (Phase C / part 2). Authorization is now tenant-scoped via
