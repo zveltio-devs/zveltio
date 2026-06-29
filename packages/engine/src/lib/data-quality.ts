@@ -9,6 +9,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { DEFAULT_TENANT_ID, withTenantIsolation } from './tenant-manager.js';
 
 export type IssueType =
   | 'duplicate'
@@ -318,6 +319,7 @@ export async function runQualityScan(
   scanType: 'duplicates' | 'anomalies' | 'missing_data' | 'normalization' | 'full',
   userId: string,
   tenantSchema?: string,
+  tenantId: string = DEFAULT_TENANT_ID,
 ): Promise<string> {
   const scan = await db
     .insertInto('zv_quality_scans')
@@ -329,7 +331,12 @@ export async function runQualityScan(
   const scanId: string = scan.id;
   const tableName = tenantSchema ? `${tenantSchema}.zvd_${collection}` : `zvd_${collection}`;
 
-  runScanAsync(db, scanId, collection, tableName, scanType).catch((err) => {
+  // The scan reads FORCE-RLS'd collection rows, so it must run inside a tenant
+  // transaction (the GUC), or it sees zero rows. Holds one connection for the
+  // scan duration — acceptable for an infrequent admin-triggered background op.
+  withTenantIsolation(tenantId, (trx) =>
+    runScanAsync(trx, scanId, collection, tableName, scanType),
+  ).catch((err) => {
     console.error(`Quality scan ${scanId} failed:`, err);
     db.updateTable('zv_quality_scans')
       .set({ status: 'failed', completed_at: new Date() })
