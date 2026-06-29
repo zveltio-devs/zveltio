@@ -29,18 +29,17 @@
 
 ## 1. Reliability & Operations
 
-### 1.1 Performance benchmarks — measured, not claimed 🔴 P0
-**Gap.** README claims "~10x faster than Node" without numbers. We don't know our own p50/p95/p99 latency, throughput ceiling, or cold-start time.
+### 1.1 Performance benchmarks — measured, not claimed 🟠 P1 (mostly shipped)
+**Done.** Benchmark suite at `bench/benchmarks/` (rest-crud, list-pagination,
+realtime, cold-start) + `docs/BENCHMARKS.md` with measured p50/p95/p99 numbers,
+run in CI via the `perf-smoke` job (see 3.1).
 
-**Why it matters.** Trust signal for technical evaluators. Marketing claims without numbers backfire on Hacker News.
+**Remaining (downgraded from P0).**
+- Comparison runs vs Pocketbase / Supabase / PostgREST on identical hardware.
+- Public per-release dashboard (`bench.zveltio.com`) beyond the in-repo doc.
+- Query-builder vs raw-SQL + memory-baseline coverage.
 
-**Acceptance criteria.**
-- Benchmark suite at `bench/` covering: REST CRUD (single record, batch insert/update), real-time subscription latency, query-builder vs raw SQL, cold-start, memory baseline.
-- Comparison runs: Zveltio vs Pocketbase vs Supabase Studio vs PostgREST on identical hardware (AWS t3.medium or DigitalOcean equivalent).
-- Public dashboard: `bench.zveltio.com` or `docs/BENCHMARKS.md` with results updated per release.
-- Reproducibility: docker-compose to run benchmark locally.
-
-**Effort.** 1 week (one engineer focused).
+**Effort.** 3-4 days.
 **Dependencies.** None.
 
 ---
@@ -242,16 +241,20 @@
 
 ## 3. Performance & Scale
 
-### 3.1 Performance regression testing in CI 🔴 P0
-**Gap.** Functional tests in CI (377 unit + 142 integration). No performance regression tests. A 10x latency degradation could ship undetected.
+### 3.1 Performance regression testing in CI 🟡 P2 (partially shipped)
+**Done.** CI has a `perf-smoke` job (`.github/workflows/ci.yml`) that boots the
+compiled binary against Postgres and runs `bench/ci-check.ts` — CRUD + list p95
+budgets that fail the build on catastrophic regression. Benchmark suite lives in
+`bench/benchmarks/` (cold-start, list-pagination, realtime, rest-crud).
 
-**Acceptance criteria.**
-- CI job: run benchmark suite (1.1) on PR, compare to main, fail if p95 regresses >20%.
-- Public history of benchmark numbers per commit (graph in repo).
-- Memory regression: detect leaks in long-running tests.
+**Remaining (downgraded from P0).**
+- Compare p95 to `main` and fail on >20% regression (today: absolute budgets only,
+  "catastrophic regressions only").
+- Public per-commit benchmark history / graph.
+- Memory-leak regression in long-running tests.
 
-**Effort.** 3-5 days (assuming 1.1 exists).
-**Dependencies.** 1.1 benchmarks.
+**Effort.** 2-3 days.
+**Dependencies.** None — extends the existing `perf-smoke` job.
 
 ---
 
