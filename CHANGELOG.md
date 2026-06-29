@@ -2,6 +2,29 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.14] - 2026-06-29
+
+The real fix for the "broken" extensions — and a course-correction on beta.13.
+
+- **Install/enable UI-only extensions** (engine): `developer/views` and
+  `content/pdf-viewer` are UI-only (`contributes.engine: false`) — no engine by
+  design. The registry serves them correctly (list + download both 200); the bug
+  was in the marketplace handlers, which counted an extension as "present on
+  disk" ONLY if it had an engine entry point. So after a *successful* download
+  they still 422'd with the misleading "No files found … registry was
+  unreachable." New shared `extensionFilesPresent()` (engine entry OR manifest
+  with `contributes.engine: false`), applied to the install handler, the enable
+  handler (which otherwise re-downloaded every time + 422'd on any registry
+  hiccup), and the catalog listing (`files_on_disk` / `needs_restart`).
+- **Reverted beta.13's on-disk extension bundle.** The engine stays slim:
+  official + third-party extensions are delivered from the registry **on
+  demand** — only what the user installs lands on disk. beta.13 bundled all
+  extensions into the install, which contradicts that model. The "registry
+  unreachable" message that motivated it was a symptom of the UI-only handler
+  bug above, not a real outage. (Air-gapped installs can still drop extension
+  folders into `EXTENSIONS_DIR` manually; the engine prefers local files when
+  present.)
+
 ## [3.0.0-beta.13] - 2026-06-28
 
 First-party extensions now ship **on disk** with the platform — closing the last
