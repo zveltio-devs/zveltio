@@ -37,6 +37,7 @@ const SYSTEM_FIELDS = new Set([
   'status',
   'created_by',
   'updated_by',
+  'tenant_id',
   'search_vector',
 ]);
 
