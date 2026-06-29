@@ -94,6 +94,17 @@ export const EXTENSION_CATALOG: ExtensionCatalogEntry[] = [
     tags: ['internal', 'smoke', 'mount-strategy'],
     permissions: [],
   },
+  {
+    name: 'hello-ext-uionly',
+    displayName: 'Hello UI-Only Fixture',
+    description:
+      'UI-only fixture (contributes.engine=false, no engine entry). Guards the beta.14 fix: install/enable must succeed for engine-less extensions instead of failing with "no files found". Used by release.yml.',
+    category: 'fixture',
+    version: '1.0.0',
+    author: 'Zveltio',
+    tags: ['internal', 'smoke', 'ui-only'],
+    permissions: [],
+  },
 
   // ── AI ────────────────────────────────────────────────────────
   {

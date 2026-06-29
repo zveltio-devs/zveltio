@@ -1,0 +1,22 @@
+{
+  "name": "hello-ext-uionly",
+  "displayName": "Hello UI-Only Fixture",
+  "category": "fixture",
+  "description": "UI-only smoke fixture: contributes.engine=false, no engine entry point. Proves the marketplace install/enable path accepts engine-less extensions (regression guard for the beta.14 fix). Used by release.yml.",
+  "version": "1.0.0",
+  "zveltioMinVersion": "1.0.0",
+  "permissions": [],
+  "contributes": {
+    "engine": false,
+    "studio": true
+  },
+  "studio": {
+    "pages": [
+      {
+        "path": "/admin/hello-uionly",
+        "label": "Hello UI-Only",
+        "schema": "studio/schemas/hello.json"
+      }
+    ]
+  }
+}
