@@ -570,14 +570,6 @@ async function downloadExtension(
     /* ignore */
   }
 
-  // Warn if no pre-built Studio bundle — extension will show generic page until a bundle is present.
-  const bundlePath = path.join(destDir, 'studio/dist/bundle.js');
-  if (fs.existsSync(path.join(destDir, 'studio/vite.config.ts')) && !fs.existsSync(bundlePath)) {
-    console.warn(
-      `⚠️  Extension "${entry.name}" has a Studio UI but the package does not include a pre-built bundle (studio/dist/bundle.js). The extension will show a generic page in the Studio. Re-upload the package with the bundle included.`,
-    );
-  }
-
   console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
 }
 
@@ -1042,7 +1034,6 @@ export interface ExtensionInternals {
 
 interface LoadedExtension {
   name: string;
-  bundleUrl?: string;
   /** Cleanup callback captured from the extension module, if exported. */
   cleanup?: () => Promise<void>;
   /** True if the extension registered HTTP routes — unload requires restart. */
@@ -1753,32 +1744,6 @@ class ExtensionLoader {
         }
       }
 
-      // Register Studio bundle if it exists. Wrapped in the same
-      // matcher-built defer as extension.register() above: extensions
-      // that contribute ONLY a Studio bundle (no engine routes) would
-      // otherwise throw here on hot-load with the same error, even
-      // though the previous catch passed cleanly.
-      const studioBundlePath = join(extDir, 'studio/dist/bundle.js');
-      const bundleKey = extName.replace(/\//g, '_');
-      const bundleUrl = existsSync(studioBundlePath) ? `/ext/${bundleKey}/bundle.js` : undefined;
-
-      if (bundleUrl && !routeRegistrationDeferred) {
-        try {
-          app.get(bundleUrl, async (c) => {
-            const content = await Bun.file(studioBundlePath).text();
-            c.header('Content-Type', 'application/javascript');
-            c.header('Cache-Control', 'public, max-age=3600');
-            return c.body(content);
-          });
-        } catch (regErr: any) {
-          if ((regErr as Error)?.message?.includes('matcher is already built')) {
-            routeRegistrationDeferred = true;
-          } else {
-            throw regErr;
-          }
-        }
-      }
-
       // Register native schedules. Failure here is non-fatal — log and
       // continue so the extension is otherwise functional.
       if (typeof extension.schedules === 'function') {
@@ -1800,13 +1765,12 @@ class ExtensionLoader {
 
       this.loaded.set(extName, {
         name: extName,
-        bundleUrl,
         cleanup:
           typeof extension.cleanup === 'function' ? extension.cleanup.bind(extension) : undefined,
         registeredRoutes: true,
         allowedTables,
       });
-      console.log(`🔌 Extension loaded: ${extName}${bundleUrl ? ' (with Studio UI)' : ''}`);
+      console.log(`🔌 Extension loaded: ${extName}`);
 
       // Audit trail — record successful load. No userId: system events
       // are tracked by event type, and 'system' is not a real user id —
@@ -2504,88 +2468,23 @@ class ExtensionLoader {
           await triggerReload(`enable:${name}`);
         }
 
-        // ── v2: Studio rebuild is the PRIMARY install path, not a
-        // fire-and-forget afterthought. The old model loaded extension
-        // Studio bundles via blob URLs at runtime, which failed for
-        // anything that imported svelte/internal/* (the whole module
-        // graph hit unresolved bare specifiers in the browser).
-        //
-        // Now: copy the ext's studio/ tree into the Studio SvelteKit
-        // source, run `bun run build`, atomically swap the live dist.
-        // Wait for it inline so the marketplace UI can show real
-        // success/failure + a refresh prompt to the user.
-        // Studio rebuild paths, in order of safety:
-        //   - STUDIO_BUILDER_URL: dedicated builder container (isolated, cheap) —
-        //     always allowed, it's the intended production rebuild path.
-        //   - STUDIO_SRC_DIR: in-process `bun run build` on the host. This needs a
-        //     full Vite/Bun toolchain on every install and is the source of the
-        //     "Studio build exited with code 1" fragility. Every bundled extension
-        //     page already ships in the pre-built dist, so this is OFF by default;
-        //     operators who ship genuinely custom (non-bundled) pages opt in with
-        //     STUDIO_REBUILD_ON_ENABLE=true.
-        const inProcessRebuildOptIn = process.env.STUDIO_REBUILD_ON_ENABLE === 'true';
-        const studioCanRebuild = !!(
-          process.env.STUDIO_BUILDER_URL ||
-          (process.env.STUDIO_SRC_DIR && inProcessRebuildOptIn)
-        );
-        let studioRebuild: 'success' | 'failed' | 'skipped' = 'skipped';
-        let studioRebuildError = '';
-        let studioRebuildMs = 0;
-
-        if (hotLoaded && studioCanRebuild) {
-          const { rebuildStudio } = await import('./studio-builder.js');
-          const t0 = Date.now();
-          const r = await rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) => ({
-            rebuilt: false,
-            error: (err as Error).message,
-          }));
-          studioRebuildMs = Date.now() - t0;
-          if (r.rebuilt) {
-            studioRebuild = 'success';
-            // Broadcast to every connected client so they can show a
-            // "Studio updated — refresh to load new pages" toast.
-            // broadcastToAll bypasses the subscribe filter — this is a
-            // system event, not a collection event, so no subscription
-            // exists for it on the client side.
-            try {
-              const { broadcastToAll } = await import('../routes/ws.js');
-              broadcastToAll({
-                type: 'studio:reloaded',
-                changed: [name],
-                ms: studioRebuildMs,
-              });
-            } catch {
-              /* WS module may not be initialised yet during boot */
-            }
-          } else {
-            studioRebuild = 'failed';
-            studioRebuildError = r.error ?? 'unknown';
-            console.warn(`[studio-builder] Rebuild failed for ${name}:`, studioRebuildError);
-          }
-        }
-
+        // Studio pages are always served from the pre-built dist: declarative
+        // SDUI pages render via the generic host (data, not code), and Tier-3
+        // code pages are baked into the Studio at release. There is no runtime
+        // Studio rebuild — a refresh picks up newly-enabled pages.
         const nowActive = self.isActive(name);
         return c.json(
           {
             success: nowActive,
             hot_loaded: hotLoaded,
             needs_restart: false,
-            // `studio_rebuild` is now a real outcome, not a "triggered" hint.
-            // Studio UI uses this to decide whether to prompt for refresh.
-            studio_rebuild: studioRebuild,
-            studio_rebuild_ms: studioRebuildMs,
-            ...(studioRebuildError ? { studio_rebuild_error: studioRebuildError } : {}),
-            // A failed Studio rebuild is NOT fatal: every bundled extension
-            // page already ships in the pre-built Studio dist, so the UI is
-            // reachable after a refresh regardless. Only genuinely custom
-            // pages (not in the shipped bundle) need a successful rebuild.
-            // The UI should treat 'failed' as a non-blocking notice, not an
-            // error toast.
+            // Kept for API compatibility with the marketplace UI: pages are
+            // always prebuilt, so there is never a runtime rebuild to report.
+            studio_rebuild: 'skipped',
+            studio_rebuild_ms: 0,
             studio_pages_prebuilt: true,
             message: nowActive
-              ? studioRebuild === 'failed'
-                ? `Extension ${name} is now active. Its pages are served from the pre-built Studio — refresh to view. (A Studio rebuild for custom pages did not complete; see server logs.)`
-                : `Extension ${name} is now active.${studioRebuild === 'success' ? ' Refresh to see new pages.' : ''}`
+              ? `Extension ${name} is now active. Refresh to see its pages.`
               : `Extension ${name} could not be loaded: ${loadError || 'check server logs'}.`,
             ...(loadError ? { error_detail: loadError } : {}),
           },
@@ -2688,69 +2587,15 @@ class ExtensionLoader {
         // Rebuild Hono app without this extension's routes (zero-downtime)
         await triggerReload(`disable:${name}`);
 
-        // Rebuild Studio SPA inline — parity with enable. Without this
-        // the disabled extension's pages remain reachable in the dist
-        // until the NEXT enable triggers a rebuild, which is confusing
-        // ("I just disabled it, why is it still there?").
-        // Studio rebuild paths, in order of safety:
-        //   - STUDIO_BUILDER_URL: dedicated builder container (isolated, cheap) —
-        //     always allowed, it's the intended production rebuild path.
-        //   - STUDIO_SRC_DIR: in-process `bun run build` on the host. This needs a
-        //     full Vite/Bun toolchain on every install and is the source of the
-        //     "Studio build exited with code 1" fragility. Every bundled extension
-        //     page already ships in the pre-built dist, so this is OFF by default;
-        //     operators who ship genuinely custom (non-bundled) pages opt in with
-        //     STUDIO_REBUILD_ON_ENABLE=true.
-        const inProcessRebuildOptIn = process.env.STUDIO_REBUILD_ON_ENABLE === 'true';
-        const studioCanRebuild = !!(
-          process.env.STUDIO_BUILDER_URL ||
-          (process.env.STUDIO_SRC_DIR && inProcessRebuildOptIn)
-        );
-        let studioRebuild: 'success' | 'failed' | 'skipped' = 'skipped';
-        let studioRebuildError = '';
-        let studioRebuildMs = 0;
-
-        if (studioCanRebuild) {
-          const { rebuildStudio } = await import('./studio-builder.js');
-          const t0 = Date.now();
-          const r = await rebuildStudio(self.getActive(), resolveExtensionsBase()).catch((err) => ({
-            rebuilt: false,
-            error: (err as Error).message,
-          }));
-          studioRebuildMs = Date.now() - t0;
-          if (r.rebuilt) {
-            studioRebuild = 'success';
-            try {
-              const { broadcastToAll } = await import('../routes/ws.js');
-              broadcastToAll({
-                type: 'studio:reloaded',
-                changed: [name],
-                ms: studioRebuildMs,
-                reason: 'disable',
-              });
-            } catch {
-              /* WS module may not be initialised yet */
-            }
-          } else {
-            studioRebuild = 'failed';
-            studioRebuildError = r.error ?? 'unknown';
-            console.warn(
-              `[studio-builder] Rebuild on disable failed for ${name}:`,
-              studioRebuildError,
-            );
-          }
-        }
-
+        // Studio pages are served from the pre-built dist; there is no runtime
+        // rebuild. A disabled extension's pages stop resolving once its routes
+        // are gone from the engine — a refresh clears them from the UI.
         return c.json({
           success: true,
           needs_restart: false,
-          studio_rebuild: studioRebuild,
-          studio_rebuild_ms: studioRebuildMs,
-          ...(studioRebuildError ? { studio_rebuild_error: studioRebuildError } : {}),
-          message:
-            studioRebuild === 'success'
-              ? `Extension ${name} disabled. Refresh to remove its pages.`
-              : `Extension ${name} disabled.`,
+          studio_rebuild: 'skipped',
+          studio_rebuild_ms: 0,
+          message: `Extension ${name} disabled. Refresh to remove its pages.`,
         });
       });
     });
@@ -3012,22 +2857,6 @@ class ExtensionLoader {
         }
       }
 
-      // Re-register Studio bundle route and update cached bundleUrl
-      const extBase = resolveExtensionsBase();
-      const studioBundlePath = join(extBase, name, 'studio/dist/bundle.js');
-      const bundleKey = name.replace(/\//g, '_');
-      const bundleUrl = existsSync(studioBundlePath) ? `/ext/${bundleKey}/bundle.js` : undefined;
-      if (bundleUrl) {
-        app.get(bundleUrl, async (c) => {
-          const content = await Bun.file(studioBundlePath).text();
-          c.header('Content-Type', 'application/javascript');
-          c.header('Cache-Control', 'public, max-age=3600');
-          return c.body(content);
-        });
-      }
-      // Keep bundleUrl in sync so getBundles() reflects current state
-      const entry = this.loaded.get(name);
-      if (entry) this.loaded.set(name, { ...entry, bundleUrl });
     } catch (err) {
       console.error(`❌ Hot-reload: failed to re-register extension "${name}":`, err);
     }
@@ -3105,12 +2934,6 @@ class ExtensionLoader {
 
   getActive(): string[] {
     return [...this.loaded.keys()];
-  }
-
-  getBundles(): Array<{ name: string; url: string }> {
-    return [...this.loaded.values()]
-      .filter((e) => e.bundleUrl)
-      .map((e) => ({ name: e.name, url: e.bundleUrl! }));
   }
 
   getExtensionMeta(): Array<{ name: string } & ManifestMeta> {

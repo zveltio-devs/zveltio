@@ -13,9 +13,8 @@
  *     before render. Extensions add fields, hide fields, attach
  *     validators.
  *
- * Bundle authors interact via the global `window.__zveltio` (see
- * `bundle-loader.ts` for the load-and-execute path). Core Studio code
- * imports the typed registries directly from this module.
+ * Extensions interact via the global `window.__zveltio` contribution API.
+ * Core Studio code imports the typed registries directly from this module.
  *
  * Why one file: keeping the registries co-located avoids accidental
  * fan-out — every new extension-facing surface goes through this same

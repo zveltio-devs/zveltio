@@ -26,13 +26,11 @@ import { auth } from '$lib/auth.svelte.js';
 import { realtime } from '$lib/stores/realtime.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { initExtensions, extensions } from '$lib/extensions.svelte.js';
-// v2 extension model: extension Studio pages are now compiled INTO this
-// Studio's SvelteKit route tree at install time (see
-// packages/engine/src/lib/studio-builder.ts). The old runtime bundle
-// loader is no longer wired — pages just exist as regular routes after
-// a rebuild + swap. `extension-api.svelte.ts` still provides the
-// window.__zveltio contribution API for any extension that wants to
-// contribute slot items or topbar widgets at runtime.
+// Extension Studio pages: declarative SDUI pages render via the generic
+// host (data, not code) and Tier-3 code pages are baked into this Studio's
+// route tree at release. There is no runtime bundle loader or rebuild.
+// `extension-api.svelte.ts` still provides the window.__zveltio contribution
+// API for extensions that contribute slot items or topbar widgets at runtime.
 import { installGlobalApi as installExtensionApi } from '$lib/extension-api.svelte.js';
 import {
   buildNavModel,
