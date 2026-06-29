@@ -133,6 +133,29 @@ function extensionFilesPresent(extDir: string): boolean {
   return false;
 }
 
+// Short-TTL cache for the marketplace LISTING only. GET /api/marketplace calls
+// extensionFilesPresent once per catalog entry (54+ sync existsSync/readFileSync)
+// on every admin poll. Disk state only changes on install/uninstall, so a few
+// seconds of staleness is fine — and those handlers call invalidateFilesPresent
+// for immediate accuracy. Install/enable themselves use the UNCACHED function so
+// a just-finished download is seen right away.
+const FILES_PRESENT_TTL_MS = 5000;
+const filesPresentCache = new Map<string, { present: boolean; exp: number }>();
+
+function extensionFilesPresentCached(extDir: string): boolean {
+  const hit = filesPresentCache.get(extDir);
+  const now = Date.now();
+  if (hit && hit.exp > now) return hit.present;
+  const present = extensionFilesPresent(extDir);
+  filesPresentCache.set(extDir, { present, exp: now + FILES_PRESENT_TTL_MS });
+  return present;
+}
+
+function invalidateFilesPresent(extDir?: string): void {
+  if (extDir) filesPresentCache.delete(extDir);
+  else filesPresentCache.clear();
+}
+
 // ── Registry catalog cache ────────────────────────────────────────────────────
 // Default points at the Cloudflare Worker registry (registry.zveltio.com).
 // `apps.zveltio.com` is the marketplace UI (SvelteKit) — it does NOT expose /api/*.
@@ -583,15 +606,46 @@ export function setReloadCallback(fn: ReloadCallback): void {
   _reloadCallback = fn;
 }
 
-async function triggerReload(reason: string): Promise<void> {
-  if (!_reloadCallback) return;
+async function doReload(reason: string): Promise<void> {
   try {
     console.log(`🔄 Hot-reloading server routes (${reason}) …`);
-    await _reloadCallback();
+    await _reloadCallback!();
     console.log('✅ Server routes reloaded (zero downtime)');
   } catch (err) {
     console.error('❌ Hot-reload failed:', (err as Error).message);
   }
+}
+
+// Coalesce overlapping reloads. buildHonoApp() is expensive (re-registers every
+// active extension + the full middleware stack); a UI that enables/disables
+// several extensions back-to-back would otherwise fire N concurrent rebuilds
+// that also race each other. A caller is correctly served by ANY rebuild that
+// STARTS after its change landed in this.loaded (callers mutate state, THEN
+// await triggerReload). So: if none is running, start one; if one is running,
+// all arrivals share a single trailing rebuild that begins once it finishes —
+// collapsing a burst of N into ≤2 rebuilds, and never returning before the
+// caller's change is live.
+let _reloadInFlight: Promise<void> | null = null;
+let _reloadQueued: Promise<void> | null = null;
+
+async function triggerReload(reason: string): Promise<void> {
+  if (!_reloadCallback) return;
+  if (!_reloadInFlight) {
+    _reloadInFlight = doReload(reason).finally(() => {
+      _reloadInFlight = null;
+    });
+    return _reloadInFlight;
+  }
+  if (!_reloadQueued) {
+    _reloadQueued = _reloadInFlight.then(() => {
+      _reloadQueued = null;
+      _reloadInFlight = doReload(reason).finally(() => {
+        _reloadInFlight = null;
+      });
+      return _reloadInFlight;
+    });
+  }
+  return _reloadQueued;
 }
 
 // ── Engine-internal access for extensions ────────────────────────────────────
@@ -2263,7 +2317,7 @@ class ExtensionLoader {
         const dbEntry = dbMap.get(entry.name) as any;
         const runtimeActive = self.isActive(entry.name);
         const extDir = join(extBase, entry.name);
-        const filesOnDisk = extensionFilesPresent(extDir);
+        const filesOnDisk = extensionFilesPresentCached(extDir);
 
         return {
           ...entry,
@@ -2316,6 +2370,7 @@ class ExtensionLoader {
           try {
             await downloadExtension(entry, extBase, authToken);
             downloaded = true;
+            invalidateFilesPresent(extDir); // disk changed — refresh listing cache
           } catch (err) {
             downloadError = (err as Error).message;
             console.warn(`[marketplace] Could not download "${name}":`, downloadError);
@@ -2389,6 +2444,7 @@ class ExtensionLoader {
           try {
             const authToken = await getLicenseKey(db, name);
             await downloadExtension(entry, extBase, authToken);
+            invalidateFilesPresent(extDir); // disk changed — refresh listing cache
           } catch (downloadErr) {
             const msg =
               `Extension "${name}" files not found and download failed: ${(downloadErr as Error).message}. ` +
@@ -2695,6 +2751,7 @@ class ExtensionLoader {
           const fs = await import('fs');
           try {
             fs.rmSync(extDir, { recursive: true, force: true });
+            invalidateFilesPresent(extDir); // files gone — refresh listing cache
           } catch (err) {
             console.warn(`[marketplace] could not remove ${extDir}:`, err);
           }

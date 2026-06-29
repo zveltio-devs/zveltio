@@ -1,9 +1,19 @@
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
 
-// Log every /api/* request to zv_request_logs (fire-and-forget, non-fatal).
+// Log /api/* requests to zv_request_logs (fire-and-forget, non-fatal).
 // Skips health, metrics, and auth endpoints to reduce noise.
 const SKIP_PREFIXES = ['/api/health', '/api/metrics', '/api/auth'];
+
+// Sampling bounds write amplification on high-traffic installs. Default 1.0
+// (log everything) preserves prior behaviour; REQUEST_LOG_SAMPLE_RATE=0.1 keeps
+// ~10%, 0 disables success logging entirely. Non-2xx responses are ALWAYS
+// logged regardless of the rate, so errors are never sampled away.
+const SAMPLE_RATE = (() => {
+  const raw = Number(process.env.REQUEST_LOG_SAMPLE_RATE ?? '1');
+  if (!Number.isFinite(raw)) return 1;
+  return Math.min(1, Math.max(0, raw));
+})();
 
 export function requestLogMiddleware(db: Database): MiddlewareHandler {
   return async (c, next) => {
@@ -14,6 +24,12 @@ export function requestLogMiddleware(db: Database): MiddlewareHandler {
     await next();
 
     if (skip) return;
+
+    // Always record failures; sample successes to bound table growth.
+    const isError = c.res.status >= 400;
+    if (!isError && SAMPLE_RATE < 1 && (SAMPLE_RATE === 0 || Math.random() >= SAMPLE_RATE)) {
+      return;
+    }
 
     const duration = Math.round(performance.now() - start);
     const user = c.get('user') as any;
