@@ -134,6 +134,21 @@ the resolved tenant.
 
 Make tenant isolation a property of the schema, not an admin afterthought.
 
+> **Two hard requirements proven during implementation (validated on Postgres 18):**
+> 1. **The engine DB role MUST be non-superuser** (no `SUPERUSER`, no `BYPASSRLS`).
+>    Postgres bypasses RLS entirely for such roles even with FORCE RLS — isolation
+>    is then silently ineffective. `warnIfDbRoleBypassesRls` logs a loud warning at
+>    boot. Installers should provision a plain app role for `DATABASE_URL`.
+> 2. **Set the GUC with `set_config('zveltio.current_tenant', $1, true)`, never
+>    `SET LOCAL "zveltio.current_tenant" = $1`** — the latter is a Postgres syntax
+>    error (`SET` doesn't take bind parameters). This was a latent bug in
+>    `withTenantIsolation`, dormant only because a tenant was never resolved before
+>    always-resolve.
+>
+> Enforcement landed in beta.18: `applyTenantRLS` + boot `reconcileTenantRLS` +
+> RLS-on-create + transaction scoping + tenant GUC for flow-executor / data-quality.
+> Cross-tenant isolation test: `tenant-rls.integration.test.ts` (5/5 on PG 18).
+
 - A **boot reconciler** ensures `ENABLE + FORCE ROW LEVEL SECURITY` + the `tenant_isolation`
   policy on **every table that has a `tenant_id` column** (core `zvd_*` data tables +
   extension tables that declare `tenant_id`).
