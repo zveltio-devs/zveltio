@@ -103,7 +103,9 @@ chmod +x zveltio
 ./zveltio start
 ```
 
-> The binary embeds the Studio UI — no separate process needed.
+> The engine serves the Studio UI itself — no separate process needed. (The
+> installer fetches the pre-built Studio into `studio-dist/` alongside the
+> binary; in Docker it's baked into the image.)
 
 ---
 
