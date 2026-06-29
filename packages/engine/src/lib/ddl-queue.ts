@@ -246,6 +246,20 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   // owns its own DDL sequencing.
   await boss.work(QUEUE_NAMES.create_collection, async ([job]: any[]) => {
     await DDLManager.createCollection(db, job.data as any);
+    // Apply tenant RLS to the new collection table immediately so it's isolated
+    // without waiting for the next boot reconcile. Best-effort, non-fatal.
+    try {
+      const name = (job.data as any)?.name;
+      if (name) {
+        const { applyTenantRLS } = await import('./tenant-manager.js');
+        await applyTenantRLS(db, `zvd_${name}`);
+      }
+    } catch (err) {
+      console.warn(
+        '[ddl-queue] applyTenantRLS on create_collection failed:',
+        (err as Error).message,
+      );
+    }
   });
 
   // The rest run inside a tx for atomicity (errors roll back partial DDL).

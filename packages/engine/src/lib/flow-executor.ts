@@ -16,6 +16,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 import { runScript } from './script-runner.js';
 import { sendNotification } from '../routes/notifications.js';
 import { serviceRegistry } from './service-registry.js';
@@ -70,6 +71,11 @@ async function executeStep(
   flowContext: Record<string, any> = {},
 ): Promise<{ output: any; logs?: string[] }> {
   const cfg = step.config ?? {};
+  // Tenant for any collection-data access in this step. Collection tables are
+  // FORCE-RLS'd, so reads/writes outside a tenant transaction see zero rows.
+  // Data-triggered flows carry the originating tenant via trigger.tenantId;
+  // others (cron) default to the default tenant.
+  const flowTenantId: string = (flowContext?.trigger?.tenantId as string) || DEFAULT_TENANT_ID;
 
   switch (step.type) {
     // ── query_db ──
@@ -108,6 +114,7 @@ async function executeStep(
       // MUST live in the same transaction as the user query, otherwise a
       // cartesian join can monopolise a pool connection indefinitely.
       const result = await db.transaction().execute(async (trx: Database) => {
+        await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(trx);
         await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
         return sql.raw(cfg.query as string).execute(trx);
       });
@@ -244,10 +251,17 @@ async function executeStep(
 
         // sql.id() quotes the identifier — safe against injection even if validation
         // were somehow bypassed; sql.raw() was previously used here (vulnerability).
-        const rows = await sql<any>`
-          SELECT * FROM ${sql.id(tableName)}
-          LIMIT ${cfg.limit ?? 1000}
-        `.execute(db);
+        // Run inside a tenant transaction so FORCE-RLS'd collection rows are
+        // visible (and scoped to this flow's tenant).
+        const rows = await db.transaction().execute(async (trx: Database) => {
+          await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(
+            trx,
+          );
+          return sql<any>`
+            SELECT * FROM ${sql.id(tableName)}
+            LIMIT ${cfg.limit ?? 1000}
+          `.execute(trx);
+        });
 
         const exportResult = await ExportManager.export(rows.rows, {
           format: cfg.format ?? 'csv',
