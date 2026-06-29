@@ -2,6 +2,27 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.15] - 2026-06-29
+
+Engine slim-down + hot-path optimisations (from the engine review).
+
+- **Deleted the dead Studio-rebuild / IIFE-bundle path** (−717 lines): the
+  declarative-SDUI model superseded "rebuild Studio on enable" and the runtime
+  IIFE bundle loader. Removed `studio-builder.ts`, the rebuild-on-enable/disable
+  branches (`STUDIO_REBUILD_ON_ENABLE` / `STUDIO_BUILDER_URL` / `STUDIO_SRC_DIR`),
+  per-extension `bundle.js` serving + `getBundles()` + the `bundles` field in
+  `GET /api/extensions`, Studio `bundle-loader.ts` + `builder-server.ts`, and the
+  `studio-builder` Docker sidecar (engine serves its baked studio-dist directly).
+  Side benefit: enable/disable no longer run a Studio build inside the extension
+  advisory-lock transaction.
+- **`REQUEST_LOG_SAMPLE_RATE`** (default `1.0` = unchanged): bounds write
+  amplification on `zv_request_logs`. Errors (non-2xx) are always logged.
+- **Cached marketplace `files_on_disk` check** (5s TTL, invalidated on
+  install/enable/uninstall): removes per-entry sync filesystem I/O on every
+  admin marketplace poll.
+- **Coalesced hot-reload**: a burst of individual enable/disable calls now
+  collapses to ≤2 `buildHonoApp()` rebuilds instead of N concurrent racing ones.
+
 ## [3.0.0-beta.14] - 2026-06-29
 
 The real fix for the "broken" extensions — and a course-correction on beta.13.
