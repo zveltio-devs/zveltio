@@ -32,6 +32,37 @@ export interface Environment {
 
 const TENANT_CACHE_TTL = 300; // 5 min
 
+// The implicit default tenant every install has. Single-tenant deployments
+// resolve to it on every request, so the `zveltio.current_tenant` GUC is always
+// set and RLS is uniform (single-tenant = "all data belongs to the default
+// tenant"). Created by migration 007. Fixed sentinel UUID so it's referenced
+// identically by the migration, the collection-table column default, and the
+// always-resolve fallback below.
+export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+export const DEFAULT_TENANT_SLUG = 'default';
+
+const DEFAULT_TENANT: Tenant = {
+  id: DEFAULT_TENANT_ID,
+  slug: DEFAULT_TENANT_SLUG,
+  name: 'Default',
+  plan: 'enterprise',
+  status: 'active',
+  max_records: 2147483647,
+  max_storage_gb: 999999,
+  max_api_calls_day: 2147483647,
+  max_users: 2147483647,
+  settings: {},
+};
+
+/**
+ * The default tenant row (cached). Falls back to the in-memory sentinel if the
+ * row isn't present yet (e.g. during the very first boot before migrations) so
+ * resolution never returns null.
+ */
+export async function getDefaultTenant(): Promise<Tenant> {
+  return (await getTenantBySlug(DEFAULT_TENANT_SLUG)) ?? DEFAULT_TENANT;
+}
+
 // ── Tenant cache HMAC signing ────────────────────────────────────────────────
 // Protects cached tenant data against tampering by an attacker with Valkey
 // write access (e.g. raising max_records, changing plan, activating a banned
@@ -318,6 +349,11 @@ export async function resolveTenantFromRequest(
     };
   }
 
+  // NOTE (beta.18 foundation): the "always-one-tenant" flip (return
+  // getDefaultTenant() here) lands together with the RLS reconciler + tenant
+  // transaction scoping + cross-tenant CI gate as one atomic enforcement change
+  // — flipping it alone would open a per-request transaction with no RLS to
+  // justify it. Until then single-tenant keeps the fast no-transaction path.
   return null;
 }
 

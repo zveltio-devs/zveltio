@@ -112,6 +112,26 @@ the resolved tenant.
 
 ## 4. RLS default-on
 
+> **Prerequisite discovered during implementation (beta.18).** Dynamic collection
+> tables (`zvd_<collection>`) are created by `DDLManager` with system columns
+> `id, created_at, updated_at, status, created_by, updated_by` — **no `tenant_id`**.
+> RLS keys on `tenant_id`, so it cannot isolate user collections until the column
+> exists. The real foundation is therefore: **add `tenant_id` as a system column**
+> on every collection table, defaulted from the tenant GUC, then FORCE RLS.
+>
+> Design:
+> - Fixed `DEFAULT_TENANT_ID` (sentinel UUID); single-tenant always resolves to it.
+> - System column: `tenant_id UUID NOT NULL DEFAULT
+>   COALESCE(current_setting('zveltio.current_tenant', true)::uuid, '<default>')`
+>   — inserts auto-tag the active tenant; no `dynamicInsert` change, no GUC-unset
+>   NOT-NULL violation (falls back to the default tenant).
+> - `DDLManager.createTable` adds it to `systemCols` for NEW collections; a boot
+>   reconciler `ALTER`s EXISTING `zvd_*` tables (add column + backfill NULL →
+>   default tenant) then FORCE RLS + the `tenant_isolation` policy.
+> - **Exclude** the tenant-management tables (`zv_tenants`, `zv_tenant_users`,
+>   `zv_tenant_usage`, `zv_environments`) — RLS on `zv_tenant_users` would break
+>   the membership lookup. Scope the reconciler to the `zvd_*` namespace.
+
 Make tenant isolation a property of the schema, not an admin afterthought.
 
 - A **boot reconciler** ensures `ENABLE + FORCE ROW LEVEL SECURITY` + the `tenant_isolation`

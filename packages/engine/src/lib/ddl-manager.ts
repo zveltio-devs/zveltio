@@ -754,6 +754,11 @@ export class DDLManager {
       "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
       'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
       'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
+      // Multi-tenant: every collection row belongs to a tenant. Defaulted from
+      // the request's tenant GUC (set by withTenantIsolation), falling back to
+      // the default tenant so inserts outside a tenant transaction (CLI, jobs)
+      // still succeed. RLS (applied by the boot reconciler) isolates by this.
+      "tenant_id UUID NOT NULL DEFAULT COALESCE(current_setting('zveltio.current_tenant', true)::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
     ];
 
     const userCols = schema.fields
@@ -782,6 +787,9 @@ export class DDLManager {
 
     statements.push(
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_created_at ON ${tableName}(created_at DESC);`,
+    );
+    statements.push(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_tenant_id ON ${tableName}(tenant_id);`,
     );
     statements.push(
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status);`,
@@ -866,6 +874,7 @@ export class DDLManager {
       'status',
       'created_by',
       'updated_by',
+      'tenant_id',
       'search_vector',
       'search_text',
     ]);
