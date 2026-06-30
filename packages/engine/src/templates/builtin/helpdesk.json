@@ -9,22 +9,45 @@
       "name": "hd_categories",
       "display_name": "Categories",
       "fields": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "description", "type": "text" },
-        { "name": "color", "type": "text" }
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "color",
+          "type": "text"
+        }
       ]
     },
     {
       "name": "hd_customers",
       "display_name": "Customers",
       "fields": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "email", "type": "email", "required": true },
-        { "name": "phone", "type": "text" },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "email",
+          "type": "email",
+          "required": true
+        },
+        {
+          "name": "phone",
+          "type": "text"
+        },
         {
           "name": "tier",
           "type": "enum",
-          "options": { "values": ["free", "indie", "business", "enterprise"] }
+          "options": {
+            "values": ["free", "indie", "business", "enterprise"]
+          }
         }
       ]
     },
@@ -32,28 +55,57 @@
       "name": "hd_tickets",
       "display_name": "Tickets",
       "fields": [
-        { "name": "subject", "type": "text", "required": true },
+        {
+          "name": "subject",
+          "type": "text",
+          "required": true
+        },
         {
           "name": "customer",
           "type": "m2o",
-          "options": { "related_collection": "hd_customers" },
+          "options": {
+            "related_collection": "hd_customers"
+          },
           "required": true
         },
-        { "name": "category", "type": "m2o", "options": { "related_collection": "hd_categories" } },
+        {
+          "name": "category",
+          "type": "m2o",
+          "options": {
+            "related_collection": "hd_categories"
+          }
+        },
         {
           "name": "ticket_status",
           "type": "enum",
-          "options": { "values": ["new", "open", "pending", "resolved", "closed"] }
+          "options": {
+            "values": ["new", "open", "pending", "resolved", "closed"]
+          }
         },
         {
           "name": "priority",
           "type": "enum",
-          "options": { "values": ["low", "normal", "high", "urgent"] }
+          "options": {
+            "values": ["low", "normal", "high", "urgent"]
+          }
         },
-        { "name": "assignee", "type": "text" },
-        { "name": "body", "type": "richtext", "required": true },
-        { "name": "first_response_at", "type": "datetime" },
-        { "name": "resolved_at", "type": "datetime" }
+        {
+          "name": "assignee",
+          "type": "text"
+        },
+        {
+          "name": "body",
+          "type": "richtext",
+          "required": true
+        },
+        {
+          "name": "first_response_at",
+          "type": "datetime"
+        },
+        {
+          "name": "resolved_at",
+          "type": "datetime"
+        }
       ]
     },
     {
@@ -63,13 +115,85 @@
         {
           "name": "ticket",
           "type": "m2o",
-          "options": { "related_collection": "hd_tickets" },
+          "options": {
+            "related_collection": "hd_tickets"
+          },
           "required": true
         },
-        { "name": "author", "type": "text", "required": true },
-        { "name": "body", "type": "richtext", "required": true },
-        { "name": "is_internal", "type": "boolean" }
+        {
+          "name": "author",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "body",
+          "type": "richtext",
+          "required": true
+        },
+        {
+          "name": "is_internal",
+          "type": "boolean"
+        }
       ]
     }
-  ]
+  ],
+  "sampleData": {
+    "hd_categories": [
+      {
+        "_key": "billing",
+        "name": "Billing",
+        "description": "Invoices, payments, refunds",
+        "color": "#e11d48"
+      },
+      {
+        "_key": "tech",
+        "name": "Technical",
+        "description": "Product bugs and how-tos",
+        "color": "#0066ff"
+      }
+    ],
+    "hd_customers": [
+      {
+        "_key": "cust1",
+        "name": "Jane Doe",
+        "email": "jane@acme.example",
+        "phone": "+40 721 000 111",
+        "tier": "business"
+      },
+      {
+        "_key": "cust2",
+        "name": "Globex Corp",
+        "email": "support@globex.example",
+        "tier": "enterprise"
+      }
+    ],
+    "hd_tickets": [
+      {
+        "_key": "tk1",
+        "subject": "Cannot log in after password reset",
+        "customer": "@cust1",
+        "category": "@tech",
+        "ticket_status": "open",
+        "priority": "high",
+        "assignee": "Support",
+        "body": "Reset the password but still getting invalid credentials."
+      },
+      {
+        "subject": "Question about June invoice",
+        "customer": "@cust2",
+        "category": "@billing",
+        "ticket_status": "new",
+        "priority": "normal",
+        "body": "The VAT rate looks off on INV-2026-002."
+      }
+    ],
+    "hd_replies": [
+      {
+        "ticket": "@tk1",
+        "author": "Support",
+        "body": "Please clear your browser cookies and try again - we just deployed a session fix.",
+        "is_internal": false
+      }
+    ]
+  }
 }

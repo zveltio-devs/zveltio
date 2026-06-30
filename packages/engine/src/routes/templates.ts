@@ -18,11 +18,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { enqueueDDLJob } from '../lib/ddl-queue.js';
+import { dynamicInsert } from '../db/dynamic.js';
 import { auditLog } from '../lib/audit.js';
 
 // Static imports so Bun.build bundles the JSON into the binary.
@@ -51,6 +53,13 @@ interface TemplateManifest {
   icon?: string;
   tags?: string[];
   collections: TemplateCollection[];
+  /**
+   * Optional starter rows, keyed by (unprefixed) collection name. A row may set
+   * `_key` (an in-template id) and reference another row's `_key` in an m2o field
+   * as `"@<key>"` — the seeder resolves it to the created row's real id. Seeded
+   * by POST /:id/seed AFTER install's DDL jobs complete (creation is async).
+   */
+  sampleData?: Record<string, Array<Record<string, unknown>>>;
 }
 
 const BUILTIN: readonly TemplateManifest[] = [
@@ -267,6 +276,98 @@ export function templatesRoutes(db: Database, auth: any): Hono {
           installed: created,
         },
         202,
+      );
+    },
+  );
+
+  // POST /:id/seed — insert the template's starter rows so a fresh install is an
+  // instant working app, not empty tables. Separate from /install because
+  // collection creation is async (DDL queue): when /install returns 202 the
+  // tables don't exist yet. The caller (Studio install flow) polls the collection
+  // jobs to completion, then calls this. Idempotent: a collection that already
+  // has rows — or whose table isn't ready yet — is skipped, never duplicated.
+  app.post(
+    '/:id/seed',
+    zValidator(
+      'json',
+      z
+        .object({
+          prefix: z
+            .string()
+            .regex(/^[a-z][a-z0-9_]*$/)
+            .optional(),
+        })
+        .optional(),
+    ),
+    async (c) => {
+      const t = BUILTIN.find((x) => x.id === c.req.param('id'));
+      if (!t) return c.json({ error: 'Template not found' }, 404);
+      if (!t.sampleData) return c.json({ success: true, seeded: 0, message: 'No sample data' });
+
+      const body = (await c.req.json().catch(() => ({}))) as { prefix?: string };
+      const prefix = body.prefix?.replace(/_$/, '') ?? '';
+      const pfx = (name: string) => (prefix ? `${prefix}_${name}` : name);
+
+      // Seed parents before children so "@key" m2o references resolve.
+      const ordered = sortByDependencies(t.collections);
+      // unprefixed collection name → row _key → created id
+      const keyToId: Record<string, Record<string, string>> = {};
+      let seeded = 0;
+      let pending = 0;
+
+      for (const coll of ordered) {
+        const rows = t.sampleData[coll.name];
+        if (!Array.isArray(rows) || rows.length === 0) continue;
+        keyToId[coll.name] = {};
+        const tableName = pfx(coll.name);
+
+        // Table ready + empty? (DDL may still be in flight, or a prior seed ran.)
+        let ready = true;
+        const count = await sql<{ n: number }>`
+          SELECT count(*)::int AS n FROM ${sql.id(tableName)}
+        `
+          .execute(db)
+          .catch(() => {
+            ready = false;
+            return { rows: [{ n: 0 }] };
+          });
+        if (!ready) {
+          pending++;
+          continue; // table not created yet — caller should retry after install completes
+        }
+        if ((count.rows[0]?.n ?? 0) > 0) continue; // already seeded — idempotent
+
+        for (const row of rows) {
+          const { _key, ...fields } = row;
+          const resolved: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(fields)) {
+            if (typeof v === 'string' && v.startsWith('@')) {
+              const fieldDef = coll.fields.find((f) => f.name === k);
+              const relColl = fieldDef?.options?.related_collection as string | undefined;
+              resolved[k] = relColl ? (keyToId[relColl]?.[v.slice(1)] ?? null) : v;
+            } else {
+              resolved[k] = v;
+            }
+          }
+          const inserted = await dynamicInsert(db, tableName, resolved);
+          if (typeof _key === 'string') keyToId[coll.name][_key] = inserted.id as string;
+          seeded++;
+        }
+      }
+
+      await auditLog(db, {
+        type: 'collection.created',
+        userId: (c.get('user' as never) as any)?.id,
+        resourceId: t.id,
+        resourceType: 'template_seed',
+        metadata: { template: t.id, prefix, seeded, pending },
+      });
+
+      // 425 Too Early if some tables weren't ready — caller retries after the
+      // DDL jobs finish; the idempotent guard makes the retry safe.
+      return c.json(
+        { success: pending === 0, template: t.id, seeded, pending },
+        pending > 0 ? 425 : 200,
       );
     },
   );
