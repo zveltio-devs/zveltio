@@ -2,6 +2,26 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.21] - 2026-06-30
+
+Multi-tenant hardening + coverage (paired with a 54-extension `ctx.reqDb` codemod
+in the extensions repo).
+
+- **HTTP membership-pivot test**: an integration test proves a user who is a
+  member of tenant A, sending `X-Tenant-Slug: <tenant B>`, gets **403** — closing
+  the CI gap (we previously had only DB-level RLS/RBAC tests). Member tenant +
+  default tenant are allowed.
+- **Stale-comment cleanup**: the `/ext` + membership mounts in `index.ts` no
+  longer say "no tenant → no transaction" (contradicted by always-one-tenant).
+- **Operational guidance**: documented the **two-role** Postgres deployment for
+  shared multi-tenant hosting (superuser for setup/`CREATE EXTENSION`, separate
+  non-superuser for runtime so FORCE RLS binds) — a blanket non-superuser would
+  break `CREATE EXTENSION`. Native installs already use a non-superuser app role.
+
+> Companion change (zveltio-extensions): the per-extension `reqDb(c)` helper now
+> routes through `ctx.reqDb(c)`, restoring the RestrictedDb table guard that the
+> always-resolve change had bypassed. 52 bundles re-packed.
+
 ## [3.0.0-beta.20] - 2026-06-29
 
 **Tenant-safe extension data access** (Phase C / part 3 — completes multi-tenant
