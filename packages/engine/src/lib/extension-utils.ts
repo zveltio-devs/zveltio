@@ -68,9 +68,20 @@ export async function inMemoryMutex<T>(key: string, fn: () => Promise<T>): Promi
  * Serialise lifecycle operations for an extension across both the
  * current process AND other engine replicas. Wraps `inMemoryMutex`
  * (which handles intra-process re-entry) around a Postgres
- * `pg_advisory_xact_lock` (which fences other replicas).
+ * **session-level** `pg_advisory_lock` (which fences other replicas).
  *
- * `hashtext` returns int4; `pg_advisory_xact_lock` accepts int8 — Postgres
+ * Why a session lock on a reserved connection rather than
+ * `pg_advisory_xact_lock` inside a transaction: an extension lifecycle op
+ * (download → npm install → reload) can run for many seconds, and
+ * `fn` is opaque (it opens its own transactions for DDL/migrations). The
+ * old form held an open transaction for the whole duration, which pins an
+ * MVCC snapshot and blocks `VACUUM` cluster-wide. A session-level lock gives
+ * the SAME cross-replica mutual exclusion (one reserved connection holds the
+ * lock) without an open transaction — `fn` runs its own statements on the
+ * pool, and the lock is released in `finally`. If the connection dies first,
+ * Postgres drops the lock on session end, so it can never leak.
+ *
+ * `hashtext` returns int4; `pg_advisory_lock` accepts int8 — Postgres
  * implicitly widens. Different extension names hash to different keys
  * (collisions are theoretically possible but harmless — at worst two
  * unrelated extensions would serialize each other).
@@ -82,9 +93,13 @@ export async function withExtensionLock<T>(
 ): Promise<T> {
   const key = `ext:${name}`;
   return inMemoryMutex(key, async () =>
-    db.transaction().execute(async (trx) => {
-      await _sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`.execute(trx);
-      return fn();
+    db.connection().execute(async (conn) => {
+      await _sql`SELECT pg_advisory_lock(hashtext(${key}))`.execute(conn);
+      try {
+        return await fn();
+      } finally {
+        await _sql`SELECT pg_advisory_unlock(hashtext(${key}))`.execute(conn);
+      }
     }),
   );
 }
