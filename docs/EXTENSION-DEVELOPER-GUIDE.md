@@ -9,8 +9,12 @@
 >   features described here land in v1.0).
 >
 > Sections marked **(v1.0)** describe APIs landing in the v1.0 sprint. Sections
-> marked **(today)** describe what works in alpha.80. If you are starting an
-> extension now, you can mix both — APIs are additive.
+> marked **(today)** describe what works in the current 3.0 beta line. If you are
+> starting an extension now, you can mix both — APIs are additive.
+>
+> **Recent (3.0 betas):** extensions are delivered **from the registry on demand**
+> (not bundled on disk); studio pages are **declarative SDUI** schemas (no per-host
+> rebuild); data handlers should use **`ctx.reqDb(c)`** for tenant-safe access.
 
 ---
 
@@ -311,7 +315,13 @@ Key facts:
   handler twice.
 - `app` is a Hono router. (v1.0) it is a sub-app mounted under
   `/ext/<your-name>`. Today it is the main app — use unique paths.
-- `ctx.db` is a `Kysely<DB>` (v1.0) or `any` (today).
+- `ctx.db` is a `Kysely<DB>` (v1.0) or `any` (today). **It is the GLOBAL pool —
+  not tenant-scoped.** In a route handler that reads/writes tenant data, use
+  **`ctx.reqDb(c)`** instead (the request's tenant transaction + the same table
+  guard), or Postgres row-level security will hide rows / leak across tenants in
+  multi-tenant deployments. Reserve `ctx.db` for setup and migrations. See
+  `EXTENSION-AUTHORING.md` → "`ctx.db` vs `ctx.reqDb(c)`" and
+  `MULTI-TENANT-ENABLEMENT.md` §5.
 - `cleanup()` is optional but recommended for any extension that holds
   resources (timers, sockets, file handles).
 
