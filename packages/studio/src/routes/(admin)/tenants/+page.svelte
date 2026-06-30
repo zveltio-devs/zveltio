@@ -156,6 +156,55 @@ async function toggleEnvironments(tenant: any) {
       loadingEnvs = null;
     }
   }
+  if (!membersByTenant[tenant.id]) await loadMembers(tenant.id);
+}
+
+// ── Members + per-tenant roles ──────────────────────────────────────────────
+let membersByTenant = $state<Record<string, any[]>>({});
+let loadingMembers = $state<string | null>(null);
+let memberForm = $state<Record<string, { email: string; role: string }>>({});
+let addingMember = $state<string | null>(null);
+const TENANT_ROLES = ['owner', 'admin', 'member', 'viewer'];
+
+async function loadMembers(tenantId: string) {
+  loadingMembers = tenantId;
+  try {
+    const data = await api.get<{ members: any[] }>(`/api/tenants/${tenantId}/members`);
+    membersByTenant[tenantId] = data.members;
+  } catch {
+    membersByTenant[tenantId] = [];
+  } finally {
+    loadingMembers = null;
+  }
+}
+
+async function addMember(tenantId: string) {
+  const form = memberForm[tenantId] ?? { email: '', role: 'member' };
+  if (!form.email) return;
+  addingMember = tenantId;
+  try {
+    await api.post(`/api/tenants/${tenantId}/members`, {
+      user_email: form.email,
+      role: form.role || 'member',
+    });
+    memberForm[tenantId] = { email: '', role: 'member' };
+    await loadMembers(tenantId);
+    toast.success('Member added');
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Failed to add member');
+  } finally {
+    addingMember = null;
+  }
+}
+
+async function removeMember(tenantId: string, userId: string) {
+  try {
+    await api.delete(`/api/tenants/${tenantId}/members/${userId}`);
+    await loadMembers(tenantId);
+    toast.success('Member removed');
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Failed to remove member');
+  }
 }
 
 function openCreateEnv(tenant: any) {
@@ -333,6 +382,70 @@ const PLAN_BADGES: Record<string, string> = {
  {#if (envsByTenant[tenant.id] ?? []).length === 0}
  <span class="text-xs opacity-50">No environments yet</span>
  {/if}
+ </div>
+ {/if}
+
+ <!-- Members + per-tenant roles -->
+ <div class="divider my-3"></div>
+ <span class="text-sm font-semibold opacity-70">Members &amp; roles</span>
+ {#if loadingMembers === tenant.id}
+ <span class="loading loading-dots loading-sm"></span>
+ {:else}
+ <div class="overflow-x-auto mt-2">
+ <table class="table table-xs">
+ <tbody>
+ {#each membersByTenant[tenant.id] ?? [] as m}
+ <tr>
+ <td class="font-mono">{m.email}</td>
+ <td><span class="badge badge-sm badge-outline">{m.role}</span></td>
+ <td class="text-right">
+ <button
+ class="btn btn-ghost btn-xs text-error"
+ title="Remove member"
+ onclick={() => removeMember(tenant.id, m.user_id)}
+ >Remove</button>
+ </td>
+ </tr>
+ {/each}
+ {#if (membersByTenant[tenant.id] ?? []).length === 0}
+ <tr><td class="text-xs opacity-50">No members yet</td></tr>
+ {/if}
+ </tbody>
+ </table>
+ </div>
+ <div class="flex flex-wrap items-center gap-2 mt-2">
+ <input
+ type="email"
+ placeholder="user@email"
+ class="input input-bordered input-xs w-56"
+ value={memberForm[tenant.id]?.email ?? ''}
+ oninput={(e) =>
+ (memberForm[tenant.id] = {
+ email: e.currentTarget.value,
+ role: memberForm[tenant.id]?.role ?? 'member',
+ })}
+ />
+ <select
+ class="select select-bordered select-xs"
+ value={memberForm[tenant.id]?.role ?? 'member'}
+ onchange={(e) =>
+ (memberForm[tenant.id] = {
+ email: memberForm[tenant.id]?.email ?? '',
+ role: e.currentTarget.value,
+ })}
+ >
+ {#each TENANT_ROLES as r}
+ <option value={r}>{r}</option>
+ {/each}
+ </select>
+ <button
+ class="btn btn-primary btn-xs gap-1"
+ disabled={addingMember === tenant.id || !(memberForm[tenant.id]?.email)}
+ onclick={() => addMember(tenant.id)}
+ >
+ <Plus size={12} />
+ Add member
+ </button>
  </div>
  {/if}
  </td>
