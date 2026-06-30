@@ -2,6 +2,25 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.22] - 2026-06-30
+
+**Per-tenant RBAC control plane** — makes the per-tenant authorization capability
+(beta.19) operable, so the same user can be admin in one tenant and viewer in
+another.
+
+- **Membership API**: `GET/POST/DELETE /api/tenants/:id/members`. Adding/removing
+  a member also grants/revokes the per-tenant Casbin role
+  (`addRoleForUser(user, tenant_<role>, tenantId)`); `createTenant` grants the
+  owner. So `zv_tenant_users.role` is no longer metadata — it drives authorization.
+- **Namespaced roles**: the granted Casbin roles are `tenant_owner/admin/member/
+  viewer` — distinct from the global `admin`/`member` roles (seed 001), so this
+  can't escalate or collide with them. Migration 009 seeds their policies at
+  domain `*` (owner/admin → full, member → read/create/update, viewer → read).
+- **Studio UI**: a "Members & roles" section on each tenant's detail — list /
+  add (email + role) / remove members.
+
+Validated 7/7 on Postgres 18 (a user admin in A can delete; only viewer in B).
+
 ## [3.0.0-beta.21] - 2026-06-30
 
 Multi-tenant hardening + coverage (paired with a 54-extension `ctx.reqDb` codemod
