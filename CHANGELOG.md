@@ -2,6 +2,24 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.25] - 2026-06-30
+
+**Maintainability: extension-loader split + lock narrowing** (the review's P2 items).
+Internal refactors — no behavior change for single- or multi-tenant operation.
+
+- **refactor**: `extension-loader.ts` 3041 → 1799 lines (−41%). Extracted six
+  cohesive modules — `extension-{license,paths,deps,download,errors}.ts` and
+  `extension-marketplace-routes.ts` (the ~650-line `/api/marketplace` + license
+  HTTP handlers, now a free function the loader delegates to). Pure moves; the
+  loader re-exports the lifted symbols for compat.
+- **refactor**: `withExtensionLock` now takes a **session-level** `pg_advisory_lock`
+  on a reserved connection instead of `pg_advisory_xact_lock` inside a transaction.
+  A multi-second install no longer holds an open transaction (which pinned an MVCC
+  snapshot and blocked VACUUM); cross-replica mutual exclusion is unchanged.
+  Validated on Postgres 18 (serialized, 0 advisory locks left, released on throw).
+
+Verified: typecheck + 404 unit + integration (real Postgres) + lint + perf-smoke green.
+
 ## [3.0.0-beta.24] - 2026-06-30
 
 **Closes the last query-cache staleness window (per the beta.23 review).**
