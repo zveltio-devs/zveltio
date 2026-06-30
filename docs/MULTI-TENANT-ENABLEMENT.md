@@ -1,6 +1,23 @@
 # Multi-Tenant Enablement — Design
 
-Status: **DECIDED** (Phase B complete). Target: beta.17–19. Author: design pass after beta.16.
+Status: **COMPLETE (shipped beta.18 → beta.23).** All four gaps below are closed and
+validated on Postgres 18. This document is kept as the design record; the "target"
+sections describe what was built, not pending work. Summary of what shipped:
+
+| Gap | Closed in | Mechanism |
+| --- | --- | --- |
+| Casbin global | beta.19 | RBAC-with-domains (`r = sub, dom, obj, act`) + `AsyncLocalStorage` domain, zero churn on ~250 call sites |
+| Membership unenforced | beta.18 / beta.21 | `tenant-membership` middleware on `/api/*` + `/ext/*`; HTTP pivot test (`tenant-b → 403`) |
+| RLS opt-in | beta.18 | always-resolve default tenant + boot `reconcileTenantRLS` (FORCE RLS on data tables) |
+| Extensions on global pool | beta.20 / beta.21 | `ctx.reqDb(c)` (tenant trx + table guard); codemod across 54 extensions |
+
+Operability + correctness follow-ups: per-tenant RBAC **control plane** (membership
+API + Studio "Members & roles", beta.22); **query-cache invalidation** on RLS /
+column-permission / role change (beta.23 + beta.24) so an authorization change is
+never served stale past the TTL.
+
+The original design status (kept for history): **DECIDED** (Phase B complete). Author:
+design pass after beta.16.
 
 ## 0. Context & decisions already taken
 
