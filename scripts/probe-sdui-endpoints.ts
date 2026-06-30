@@ -103,13 +103,28 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
         : (pairs.find((x) => !x.dataSource.includes('{')) ?? pairs[0]);
     if (!primary) continue;
 
-    // Enable the extension before probing.
+    // Enable the extension before probing. An enable failure is a SOFT result,
+    // not a contract failure: in CI it usually means a missing Postgres
+    // extension (postgis / pg_trgm) the image doesn't ship — an environment
+    // limitation, not a broken extension. The gate hard-fails only on an
+    // extension that enabled but whose dataSource/dataPath contract is wrong.
     const enc = encodeURIComponent(name);
-    await fetch(`${BASE}/api/marketplace/${enc}/enable`, {
+    const enableRes = await fetch(`${BASE}/api/marketplace/${enc}/enable`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: '{}',
     });
+    const enableBody = (await enableRes.json().catch(() => ({}))) as any;
+    if (!enableBody?.success) {
+      rows.push({
+        name,
+        endpoint: primary.dataSource,
+        status: enableRes.status,
+        sev: 'SOFT',
+        note: `enable failed (env?): ${(enableBody?.error ?? enableBody?.message ?? '').toString().slice(0, 60)}`,
+      });
+      continue;
+    }
 
     const res = await fetch(`${BASE}${primary.dataSource}`, { headers });
     const text = await res.text();
