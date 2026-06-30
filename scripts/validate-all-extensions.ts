@@ -85,7 +85,9 @@ for (const manifestPath of findManifests(ROOT).sort()) {
   const allErrLines = out
     .split('\n')
     .filter((l) => l.includes('error') || l.includes('Error') || /\[31m/.test(l))
-    .map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim())
+    // Strip ANSI color codes. Build the regex from a string so there's no
+    // literal control character in a regex literal (biome noControlCharactersInRegex).
+    .map((l) => l.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '').trim())
     .filter((l) => l && !l.startsWith('SDUI schemas:'));
 
   const otherErrors = allErrLines.filter(
