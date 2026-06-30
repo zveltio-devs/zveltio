@@ -1000,7 +1000,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // failure is recoverable — the next request just goes back to the DB
     // — but a chronic failure indicates Valkey trouble worth surfacing.
     if (!query.as_of && !query.cursor) {
-      setQueryCache(qcKey, listResponse).catch((err) => {
+      setQueryCache(qcKey, listResponse, user.id).catch((err) => {
         console.warn(`[data] setQueryCache failed for ${collection}:`, (err as Error).message);
       });
     }

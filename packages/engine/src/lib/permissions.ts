@@ -469,4 +469,9 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   } catch {
     /* cache unavailable */
   }
+  // The query cache holds rows already RLS-filtered + column-masked for this
+  // user's role — a role grant/revoke must drop them too, or the change is
+  // served stale for up to the TTL.
+  const { invalidateUserQueryCache } = await import('./query-cache.js');
+  await invalidateUserQueryCache(userId);
 }

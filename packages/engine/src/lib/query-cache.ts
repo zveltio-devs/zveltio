@@ -53,7 +53,11 @@ export async function getQueryCache(key: string): Promise<any | null> {
   }
 }
 
-export async function setQueryCache(key: string, value: any): Promise<void> {
+export async function setQueryCache(
+  key: string,
+  value: any,
+  userId?: string | null,
+): Promise<void> {
   const cache = getCache();
   if (!cache || CACHE_TTL <= 0) return;
   try {
@@ -70,8 +74,35 @@ export async function setQueryCache(key: string, value: any): Promise<void> {
     const indexKey = `qc_keys:${tenant}:${collection}`;
     await cache.sadd(indexKey, key);
     await cache.expire(indexKey, CACHE_TTL + 5);
+    // Also index by user (the cached rows are RLS-filtered + column-masked for
+    // THIS user's role) so a role grant/revoke can drop just their entries —
+    // the key hashes userId, so it can't be pattern-matched otherwise.
+    if (userId) {
+      const userIndex = `user:qc-keys:${userId}`;
+      await cache.sadd(userIndex, key);
+      await cache.expire(userIndex, CACHE_TTL + 5);
+    }
   } catch {
     // Non-critical — just skip caching
+  }
+}
+
+/**
+ * Invalidate every cached query response computed for a user. Called when the
+ * user's authorization changes (Casbin role grant/revoke, membership change) —
+ * the cache holds rows already shaped by their old role, so without this a
+ * viewer→admin promotion (or the reverse) is served stale for up to the TTL.
+ */
+export async function invalidateUserQueryCache(userId: string): Promise<void> {
+  const cache = getCache();
+  if (!cache) return;
+  try {
+    const userIndex = `user:qc-keys:${userId}`;
+    const keys = await cache.smembers(userIndex);
+    if (keys.length > 0) await cache.del(...keys, userIndex);
+    else await cache.del(userIndex);
+  } catch {
+    // Non-critical
   }
 }
 
