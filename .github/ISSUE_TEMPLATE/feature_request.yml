@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a capability or improvement for Zveltio
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape Zveltio. For a new **extension** idea (not core),
+        see the Extension Developer Guide — you can build and publish it yourself.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: The user need or workflow, not a proposed solution.
+      placeholder: "As an operator I need … so that …"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you imagine it working. UI sketches / API shapes welcome.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Engine / API
+        - Studio (admin UI)
+        - Extensions / Marketplace
+        - Multi-tenant / RBAC
+        - CLI / DX
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
