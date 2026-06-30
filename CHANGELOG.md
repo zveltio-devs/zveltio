@@ -2,6 +2,22 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.24] - 2026-06-30
+
+**Closes the last query-cache staleness window (per the beta.23 review).**
+
+- **fix(cache)**: a Casbin role change (membership API, `/api/permissions`
+  grant/revoke) left the user's cached query responses — rows already RLS-filtered +
+  column-masked for their *old* role — live for up to the TTL. `setQueryCache` now
+  indexes each key under `user:qc-keys:<userId>`, and `invalidateUserPermCache`
+  (which every grant/revoke path already calls) drops them via
+  `invalidateUserQueryCache`. With beta.23 (RLS + column-perms), no authorization
+  change is now served stale past the request that triggers it.
+- **fix(graphql)** *(extensions repo)*: resolvers used the raw tenant trx, bypassing
+  the `RestrictedDb` table guard; they now go through `ctx.reqDb(c)`.
+- **docs**: `MULTI-TENANT-ENABLEMENT.md` marked COMPLETE (gap→release table) — it
+  was still "Phase B / target beta.17–19".
+
 ## [3.0.0-beta.23] - 2026-06-30
 
 **Cache correctness + extension docs.**
