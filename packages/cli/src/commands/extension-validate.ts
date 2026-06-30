@@ -129,9 +129,14 @@ function readEngineSources(dir: string): string[] {
  */
 function inferExpectedName(dir: string): string {
   const norm = dir.replace(/\\/g, '/');
-  const idx = norm.indexOf('zveltio-extensions/');
+  // lastIndexOf, not indexOf: GitHub Actions checks the repo out at
+  // `…/work/zveltio-extensions/zveltio-extensions/<ext>` — the segment appears
+  // twice. The real extensions root is the LAST occurrence; using the first
+  // infers "zveltio-extensions/<ext>" and spuriously fails MANIFEST_NAME_MISMATCH.
+  const marker = 'zveltio-extensions/';
+  const idx = norm.lastIndexOf(marker);
   if (idx >= 0) {
-    return norm.slice(idx + 'zveltio-extensions/'.length).replace(/\/$/, '');
+    return norm.slice(idx + marker.length).replace(/\/$/, '');
   }
   return norm.split('/').filter(Boolean).pop() ?? '';
 }
