@@ -165,8 +165,23 @@ async function install() {
     invalidateCollectionsCache();
 
     if (pending.size === 0) {
+      // Collections are applied — seed starter rows so the install is an instant
+      // working app, not empty tables. Best-effort: the schema install already
+      // succeeded, so a seeding hiccup must not surface as a failure.
+      let seeded = 0;
+      try {
+        const seedRes = await api.post<{ seeded: number }>(
+          `/api/templates/${preview.id}/seed`,
+          prefix ? { prefix } : {},
+        );
+        seeded = seedRes.seeded ?? 0;
+      } catch {
+        /* sample data is optional — keep the success path */
+      }
       toast.success(
-        `Installed '${preview.name}' template (${installedCollections.length} collections).`,
+        `Installed '${preview.name}' template (${installedCollections.length} collections` +
+          (seeded ? `, ${seeded} sample rows` : '') +
+          `).`,
       );
       setTimeout(() => goto(`${base}/collections/erd`), 800);
     } else {

@@ -9,22 +9,44 @@
       "name": "inv_suppliers",
       "display_name": "Suppliers",
       "fields": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "contact_email", "type": "email" },
-        { "name": "phone", "type": "text" },
-        { "name": "country", "type": "text" }
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "contact_email",
+          "type": "email"
+        },
+        {
+          "name": "phone",
+          "type": "text"
+        },
+        {
+          "name": "country",
+          "type": "text"
+        }
       ]
     },
     {
       "name": "inv_locations",
       "display_name": "Locations",
       "fields": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "address", "type": "text" },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "address",
+          "type": "text"
+        },
         {
           "name": "kind",
           "type": "enum",
-          "options": { "values": ["warehouse", "shop", "office", "transit"] }
+          "options": {
+            "values": ["warehouse", "shop", "office", "transit"]
+          }
         }
       ]
     },
@@ -32,13 +54,39 @@
       "name": "inv_products",
       "display_name": "Products",
       "fields": [
-        { "name": "sku", "type": "text", "required": true },
-        { "name": "name", "type": "text", "required": true },
-        { "name": "description", "type": "text" },
-        { "name": "supplier", "type": "m2o", "options": { "related_collection": "inv_suppliers" } },
-        { "name": "unit_cost", "type": "number" },
-        { "name": "unit_price", "type": "number" },
-        { "name": "reorder_level", "type": "integer" }
+        {
+          "name": "sku",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "supplier",
+          "type": "m2o",
+          "options": {
+            "related_collection": "inv_suppliers"
+          }
+        },
+        {
+          "name": "unit_cost",
+          "type": "number"
+        },
+        {
+          "name": "unit_price",
+          "type": "number"
+        },
+        {
+          "name": "reorder_level",
+          "type": "integer"
+        }
       ]
     },
     {
@@ -48,26 +96,124 @@
         {
           "name": "product",
           "type": "m2o",
-          "options": { "related_collection": "inv_products" },
+          "options": {
+            "related_collection": "inv_products"
+          },
           "required": true
         },
         {
           "name": "location",
           "type": "m2o",
-          "options": { "related_collection": "inv_locations" },
+          "options": {
+            "related_collection": "inv_locations"
+          },
           "required": true
         },
         {
           "name": "kind",
           "type": "enum",
-          "options": { "values": ["receipt", "issue", "adjustment", "transfer"] },
+          "options": {
+            "values": ["receipt", "issue", "adjustment", "transfer"]
+          },
           "required": true
         },
-        { "name": "quantity", "type": "number", "required": true },
-        { "name": "moved_at", "type": "datetime", "required": true },
-        { "name": "reference", "type": "text" },
-        { "name": "note", "type": "text" }
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "moved_at",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "reference",
+          "type": "text"
+        },
+        {
+          "name": "note",
+          "type": "text"
+        }
       ]
     }
-  ]
+  ],
+  "sampleData": {
+    "inv_suppliers": [
+      {
+        "_key": "s1",
+        "name": "Baltic Supplies OU",
+        "contact_email": "sales@baltic.example",
+        "phone": "+372 600 100",
+        "country": "Estonia"
+      },
+      {
+        "_key": "s2",
+        "name": "Carpathian Goods SRL",
+        "contact_email": "office@carpathian.example",
+        "country": "Romania"
+      }
+    ],
+    "inv_locations": [
+      {
+        "_key": "wh",
+        "name": "Main Warehouse",
+        "address": "DN1 km 14, Otopeni",
+        "kind": "warehouse"
+      },
+      {
+        "_key": "shop",
+        "name": "Downtown Shop",
+        "address": "Calea Victoriei 20",
+        "kind": "shop"
+      }
+    ],
+    "inv_products": [
+      {
+        "_key": "prodA",
+        "sku": "SKU-001",
+        "name": "Widget A",
+        "description": "Standard widget",
+        "supplier": "@s1",
+        "unit_cost": 5,
+        "unit_price": 12,
+        "reorder_level": 50
+      },
+      {
+        "_key": "prodB",
+        "sku": "SKU-002",
+        "name": "Gadget B",
+        "description": "Premium gadget",
+        "supplier": "@s2",
+        "unit_cost": 8,
+        "unit_price": 20,
+        "reorder_level": 30
+      }
+    ],
+    "inv_movements": [
+      {
+        "product": "@prodA",
+        "location": "@wh",
+        "kind": "receipt",
+        "quantity": 200,
+        "moved_at": "2026-06-02T08:00:00Z",
+        "reference": "PO-1001"
+      },
+      {
+        "product": "@prodA",
+        "location": "@shop",
+        "kind": "transfer",
+        "quantity": 40,
+        "moved_at": "2026-06-12T09:30:00Z"
+      },
+      {
+        "product": "@prodB",
+        "location": "@wh",
+        "kind": "receipt",
+        "quantity": 120,
+        "moved_at": "2026-06-15T08:00:00Z",
+        "reference": "PO-1002"
+      }
+    ]
+  }
 }

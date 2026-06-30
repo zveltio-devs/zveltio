@@ -9,14 +9,29 @@
       "name": "inv_customers",
       "display_name": "Customers",
       "fields": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "email", "type": "email" },
-        { "name": "tax_id", "type": "text" },
-        { "name": "billing_address", "type": "text" },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "email",
+          "type": "email"
+        },
+        {
+          "name": "tax_id",
+          "type": "text"
+        },
+        {
+          "name": "billing_address",
+          "type": "text"
+        },
         {
           "name": "currency",
           "type": "enum",
-          "options": { "values": ["EUR", "USD", "GBP", "RON"] }
+          "options": {
+            "values": ["EUR", "USD", "GBP", "RON"]
+          }
         }
       ]
     },
@@ -24,24 +39,51 @@
       "name": "inv_invoices",
       "display_name": "Invoices",
       "fields": [
-        { "name": "number", "type": "text", "required": true },
+        {
+          "name": "number",
+          "type": "text",
+          "required": true
+        },
         {
           "name": "customer",
           "type": "m2o",
-          "options": { "related_collection": "inv_customers" },
+          "options": {
+            "related_collection": "inv_customers"
+          },
           "required": true
         },
-        { "name": "issue_date", "type": "date", "required": true },
-        { "name": "due_date", "type": "date" },
+        {
+          "name": "issue_date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "due_date",
+          "type": "date"
+        },
         {
           "name": "invoice_status",
           "type": "enum",
-          "options": { "values": ["draft", "sent", "paid", "overdue", "void"] }
+          "options": {
+            "values": ["draft", "sent", "paid", "overdue", "void"]
+          }
         },
-        { "name": "subtotal", "type": "number" },
-        { "name": "tax", "type": "number" },
-        { "name": "total", "type": "number" },
-        { "name": "notes", "type": "richtext" }
+        {
+          "name": "subtotal",
+          "type": "number"
+        },
+        {
+          "name": "tax",
+          "type": "number"
+        },
+        {
+          "name": "total",
+          "type": "number"
+        },
+        {
+          "name": "notes",
+          "type": "richtext"
+        }
       ]
     },
     {
@@ -51,13 +93,30 @@
         {
           "name": "invoice",
           "type": "m2o",
-          "options": { "related_collection": "inv_invoices" },
+          "options": {
+            "related_collection": "inv_invoices"
+          },
           "required": true
         },
-        { "name": "description", "type": "text", "required": true },
-        { "name": "quantity", "type": "number", "required": true },
-        { "name": "unit_price", "type": "number", "required": true },
-        { "name": "amount", "type": "number" }
+        {
+          "name": "description",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "unit_price",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "type": "number"
+        }
       ]
     },
     {
@@ -67,18 +126,102 @@
         {
           "name": "invoice",
           "type": "m2o",
-          "options": { "related_collection": "inv_invoices" },
+          "options": {
+            "related_collection": "inv_invoices"
+          },
           "required": true
         },
-        { "name": "received_at", "type": "datetime", "required": true },
-        { "name": "amount", "type": "number", "required": true },
+        {
+          "name": "received_at",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "type": "number",
+          "required": true
+        },
         {
           "name": "method",
           "type": "enum",
-          "options": { "values": ["bank", "card", "cash", "other"] }
+          "options": {
+            "values": ["bank", "card", "cash", "other"]
+          }
         },
-        { "name": "reference", "type": "text" }
+        {
+          "name": "reference",
+          "type": "text"
+        }
       ]
     }
-  ]
+  ],
+  "sampleData": {
+    "inv_customers": [
+      {
+        "_key": "c1",
+        "name": "Nordica SRL",
+        "email": "office@nordica.example",
+        "tax_id": "RO12345678",
+        "billing_address": "Str. Mare 1, Bucuresti",
+        "currency": "RON"
+      },
+      {
+        "_key": "c2",
+        "name": "Helvetia GmbH",
+        "email": "accounts@helvetia.example",
+        "tax_id": "CHE-123.456.789",
+        "billing_address": "Bahnhofstrasse 5, Zurich",
+        "currency": "EUR"
+      }
+    ],
+    "inv_invoices": [
+      {
+        "_key": "i1",
+        "number": "INV-2026-001",
+        "customer": "@c1",
+        "issue_date": "2026-06-01",
+        "due_date": "2026-06-15",
+        "invoice_status": "sent",
+        "subtotal": 1000,
+        "tax": 190,
+        "total": 1190
+      },
+      {
+        "_key": "i2",
+        "number": "INV-2026-002",
+        "customer": "@c2",
+        "issue_date": "2026-06-10",
+        "due_date": "2026-06-24",
+        "invoice_status": "paid",
+        "subtotal": 2500,
+        "tax": 475,
+        "total": 2975
+      }
+    ],
+    "inv_line_items": [
+      {
+        "invoice": "@i1",
+        "description": "Consulting services (June)",
+        "quantity": 10,
+        "unit_price": 100,
+        "amount": 1000
+      },
+      {
+        "invoice": "@i2",
+        "description": "Platform license - 5 seats",
+        "quantity": 5,
+        "unit_price": 500,
+        "amount": 2500
+      }
+    ],
+    "inv_payments": [
+      {
+        "invoice": "@i2",
+        "received_at": "2026-06-20T10:00:00Z",
+        "amount": 2975,
+        "method": "bank",
+        "reference": "TRX-9981"
+      }
+    ]
+  }
 }

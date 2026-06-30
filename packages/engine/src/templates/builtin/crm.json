@@ -61,5 +61,118 @@
         { "name": "summary", "type": "richtext" }
       ]
     }
-  ]
+  ],
+  "sampleData": {
+    "crm_companies": [
+      {
+        "_key": "acme",
+        "name": "Acme Manufacturing",
+        "website": "https://acme.example",
+        "industry": "Manufacturing",
+        "employees": 420
+      },
+      {
+        "_key": "globex",
+        "name": "Globex Logistics",
+        "website": "https://globex.example",
+        "industry": "Transport & Logistics",
+        "employees": 180
+      },
+      {
+        "_key": "initech",
+        "name": "Initech Software",
+        "website": "https://initech.example",
+        "industry": "Software",
+        "employees": 75
+      }
+    ],
+    "crm_contacts": [
+      {
+        "_key": "jane",
+        "first_name": "Jane",
+        "last_name": "Doe",
+        "email": "jane.doe@acme.example",
+        "phone": "+40 721 000 111",
+        "title": "Head of Procurement",
+        "company": "@acme"
+      },
+      {
+        "_key": "mihai",
+        "first_name": "Mihai",
+        "last_name": "Ionescu",
+        "email": "mihai@globex.example",
+        "phone": "+40 722 333 444",
+        "title": "Operations Director",
+        "company": "@globex"
+      },
+      {
+        "_key": "sara",
+        "first_name": "Sara",
+        "last_name": "Pop",
+        "email": "sara.pop@initech.example",
+        "phone": "+40 733 555 666",
+        "title": "CTO",
+        "company": "@initech"
+      }
+    ],
+    "crm_deals": [
+      {
+        "_key": "acme_line",
+        "name": "Acme — new production line",
+        "stage": "proposal",
+        "value": 145000,
+        "expected_close": "2026-08-15",
+        "company": "@acme",
+        "owner": "Andrei"
+      },
+      {
+        "_key": "globex_fleet",
+        "name": "Globex — fleet tracking rollout",
+        "stage": "qualified",
+        "value": 62000,
+        "expected_close": "2026-09-01",
+        "company": "@globex",
+        "owner": "Elena"
+      },
+      {
+        "_key": "initech_seats",
+        "name": "Initech — 50 seat upgrade",
+        "stage": "won",
+        "value": 18000,
+        "expected_close": "2026-07-10",
+        "company": "@initech",
+        "owner": "Andrei"
+      }
+    ],
+    "crm_activities": [
+      {
+        "type": "call",
+        "subject": "Discovery call",
+        "deal": "@acme_line",
+        "contact": "@jane",
+        "happened_at": "2026-06-20T09:30:00Z"
+      },
+      {
+        "type": "meeting",
+        "subject": "On-site requirements workshop",
+        "deal": "@acme_line",
+        "contact": "@jane",
+        "happened_at": "2026-06-24T13:00:00Z"
+      },
+      {
+        "type": "email",
+        "subject": "Sent proposal v2",
+        "deal": "@globex_fleet",
+        "contact": "@mihai",
+        "happened_at": "2026-06-26T16:45:00Z"
+      },
+      {
+        "type": "note",
+        "subject": "Contract signed — kickoff scheduled",
+        "deal": "@initech_seats",
+        "contact": "@sara",
+        "happened_at": "2026-06-28T11:00:00Z"
+      }
+    ]
+  }
 }
