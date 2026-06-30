@@ -420,17 +420,18 @@ async function buildHonoApp(): Promise<Hono> {
   );
   app.use('/api/*', tenantMiddleware);
   // Extension + SDUI traffic flows through /ext/* — it MUST get the same tenant
-  // isolation as /api/*, or extension handlers using reqDb(c) fall back to the
-  // global pool with no `zveltio.current_tenant` GUC (cross-tenant leak in
+  // isolation as /api/*, or extension handlers using ctx.reqDb(c) fall back to
+  // the global pool with no `zveltio.current_tenant` GUC (cross-tenant leak in
   // multi-tenant; fail-closed on FORCE-RLS tables). Registered BEFORE the
-  // extension subapps are mounted below so it wraps their routes. No-op for
-  // single-tenant installs (no tenant resolved → no transaction opened).
+  // extension subapps are mounted below so it wraps their routes. Single-tenant
+  // installs run as the default tenant (always-one-tenant), so the transaction
+  // opens on data routes there too — see TXN_SKIP_PREFIXES for the exceptions.
   app.use('/ext/*', tenantMiddleware);
   // Membership enforcement: an authenticated user may only act within a tenant
   // they belong to (zv_tenant_users). Runs after tenantMiddleware so the tenant
-  // is resolved. No-op when no tenant is resolved (single-tenant / public) and
-  // for god/super-admin; only blocks a logged-in non-member from pivoting via
-  // X-Tenant-Slug. See docs/MULTI-TENANT-ENABLEMENT.md §3.
+  // is resolved. No-op for the default tenant (single-tenant space) + public
+  // requests + god/super-admin; only blocks a logged-in non-member from pivoting
+  // to another tenant via X-Tenant-Slug. See docs/MULTI-TENANT-ENABLEMENT.md §3.
   app.use('/api/*', tenantMembershipMiddleware(auth, db));
   app.use('/ext/*', tenantMembershipMiddleware(auth, db));
 

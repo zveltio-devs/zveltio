@@ -139,6 +139,13 @@ Make tenant isolation a property of the schema, not an admin afterthought.
 >    Postgres bypasses RLS entirely for such roles even with FORCE RLS — isolation
 >    is then silently ineffective. `warnIfDbRoleBypassesRls` logs a loud warning at
 >    boot. Installers should provision a plain app role for `DATABASE_URL`.
+>    - The native installer already creates a non-superuser app role (`CREATE USER`).
+>    - **Docker** (`POSTGRES_USER`) is a superuser by the postgres image's design,
+>      and migrations need superuser for `CREATE EXTENSION` (pgvector/pg_trgm). For
+>      shared multi-tenant hosting, use a **two-role deployment**: a superuser for
+>      setup/migrations + extension install, and a **separate non-superuser role**
+>      for `DATABASE_URL` at runtime (owns the tables, so FORCE RLS binds it). A
+>      blanket `ALTER ROLE … NOSUPERUSER` would break `CREATE EXTENSION` — don't.
 > 2. **Set the GUC with `set_config('zveltio.current_tenant', $1, true)`, never
 >    `SET LOCAL "zveltio.current_tenant" = $1`** — the latter is a Postgres syntax
 >    error (`SET` doesn't take bind parameters). This was a latent bug in
