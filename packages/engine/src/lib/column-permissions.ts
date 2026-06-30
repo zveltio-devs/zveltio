@@ -72,13 +72,29 @@ export async function getColumnAccess(
   return { hidden, readOnly };
 }
 
-export function invalidateColumnPermCache(collection?: string) {
+export async function invalidateColumnPermCache(collection?: string): Promise<void> {
   const cache = getCache();
   if (!cache) return;
+  // Column access is cached as `colperms:<collection>:<role>`. SCAN + delete the
+  // matching keys (scoped to the collection when given, else all), then drop the
+  // query cache for the collection — it stores already-column-masked rows, so a
+  // column-permission change must invalidate both or it's served stale.
+  try {
+    const pattern = collection ? `colperms:${collection}:*` : 'colperms:*';
+    let cursor = '0';
+    const keys: string[] = [];
+    do {
+      const [next, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+      cursor = next;
+      keys.push(...batch);
+    } while (cursor !== '0');
+    if (keys.length > 0) await cache.del(...keys);
+  } catch {
+    /* cache unavailable */
+  }
   if (collection) {
-    // Can't delete by pattern without SCAN — just let TTL expire
-  } else {
-    // On full invalidation, callers should pass collection to be precise
+    const { invalidateQueryCacheForCollection } = await import('./query-cache.js');
+    await invalidateQueryCacheForCollection(collection);
   }
 }
 

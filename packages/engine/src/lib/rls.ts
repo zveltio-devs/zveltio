@@ -92,6 +92,10 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
   } catch {
     /* cache unavailable */
   }
+  // The query cache stores already-RLS-filtered rows — drop it for this
+  // collection so a policy change takes effect immediately, not after the TTL.
+  const { invalidateQueryCacheForCollection } = await import('./query-cache.js');
+  await invalidateQueryCacheForCollection(collection);
 }
 
 /**

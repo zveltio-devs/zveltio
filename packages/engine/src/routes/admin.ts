@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, getEnforcer } from '../lib/permissions.js';
+import { invalidateColumnPermCache } from '../lib/column-permissions.js';
 import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { getCache } from '../lib/cache.js';
@@ -951,6 +952,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       )
       .returningAll()
       .executeTakeFirst();
+    await invalidateColumnPermCache(data.collection_name);
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
@@ -972,6 +974,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       .returningAll()
       .executeTakeFirst();
     if (!row) return c.json({ error: 'Not found' }, 404);
+    await invalidateColumnPermCache((row as any).collection_name);
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
@@ -985,7 +988,12 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // DELETE /column-permissions/:id
   app.delete('/column-permissions/:id', async (c) => {
-    await db.deleteFrom('zvd_column_permissions').where('id', '=', c.req.param('id')).execute();
+    const deleted = await db
+      .deleteFrom('zvd_column_permissions')
+      .where('id', '=', c.req.param('id'))
+      .returning('collection_name')
+      .executeTakeFirst();
+    if (deleted?.collection_name) await invalidateColumnPermCache(deleted.collection_name);
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',
