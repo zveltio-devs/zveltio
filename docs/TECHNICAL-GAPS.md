@@ -11,6 +11,27 @@
 > - 🟡 **P2** — meaningful improvement; nice-to-have for v1.0
 > - 🟢 **P3** — long-term differentiation; post-v1.0 strategic
 
+## P0 status — verified against the repo 2026-06-30 (3.0.0-beta.25)
+
+Most P0s are **already implemented** — the items below were written earlier and not
+kept current. Verified state of every P0:
+
+| P0 | Status | Evidence |
+| --- | --- | --- |
+| 1.2 Disaster recovery | ✅ **DONE** | `docs/DISASTER-RECOVERY.md` + `scripts/dr-drill.sh` (dump/restore/PITR, prod-guard) + `.github/workflows/dr-smoke.yml` (weekly, Mon 04:00, row-count verify) |
+| 2.1 Audit completeness | ✅ **DONE** | `docs/AUDIT-COVERAGE.md` (inventory) + `third-party-isolation-enforcement.test.ts` |
+| 5.1 Live public demo | 🟡 **CODE DONE** | `middleware/demo-mode.ts` (demo-safe action gating) + seedable templates make an instance a working demo. Remaining = **hosting/deploy** (ops, not code). |
+| 5.2 Business templates | ✅ **DONE** | 5 builtin templates (`templates/builtin/*.json`) with collections **+ starter sample data**; `POST /api/templates/:id/{install,seed}`; Studio one-click install + seed. |
+| 5.3 Visual schema designer | ✅ **DONE** | `studio/.../collections/erd/+page.svelte` — SvelteFlow ERD, drag, relations, export. |
+| 7.1 3rd-party contributions | ✅ **DONE** | `CONTRIBUTING.md` + Extension Developer Guide + registry publish flow (`zveltio extension publish`). |
+| 7.2 Community presence | ⬜ **NON-CODE** | Discord/GitHub/social — a go-to-market action, not an engineering task. |
+| 7.3 Reference case studies | ⬜ **NON-CODE** | Requires real reference customers. |
+| 7.4 Paid support tiers | ⬜ **NON-CODE** | Website + business-ops decision (pricing, SLAs). |
+
+**Net:** the *engineering* P0 surface is closed. What remains is **go-to-market**
+(deploy the demo, community, case studies, support tiers) — not core platform code.
+Section bodies below are kept for history; trust this table where they disagree.
+
 ---
 
 ## Table of contents
