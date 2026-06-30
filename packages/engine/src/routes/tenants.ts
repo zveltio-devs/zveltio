@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission, getEnforcer, invalidateUserPermCache } from '../lib/permissions.js';
 import {
   provisionTenantSchema,
   provisionEnvironment,
@@ -11,6 +12,18 @@ import {
   getTenantEnvironments,
   enableRLS,
 } from '../lib/tenant-manager.js';
+
+/** Roles a user can hold within a tenant. The Casbin role granted is
+ * `tenant_<role>` (NAMESPACED so it never collides with the global `admin`/
+ * `member` roles), granted in the tenant's domain. The role's PERMISSIONS are
+ * global policies (migration 009); membership = "this user is <role> IN this
+ * tenant", and per-tenant isolation comes from the grant's domain. */
+const TENANT_ROLES = ['owner', 'admin', 'member', 'viewer'] as const;
+const casbinRole = (r: string) => `tenant_${r}`;
+const MemberSchema = z.object({
+  user_email: z.string().email(),
+  role: z.enum(TENANT_ROLES).default('member'),
+});
 
 const CreateTenantSchema = z.object({
   slug: z
@@ -105,6 +118,13 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
         .insertInto('zv_tenant_users')
         .values({ tenant_id: tenant.id, user_id: adminUser.id, role: 'owner' })
         .execute();
+      // Bridge to authorization: grant the Casbin `owner` role IN this tenant's
+      // domain so the owner actually has per-tenant permissions (not just a
+      // membership row). The owner role's permissions are global policies.
+      const e = await getEnforcer();
+      await e.addRoleForUser(adminUser.id, casbinRole('owner'), tenant.id);
+      await invalidateUserPermCache(adminUser.id);
+      await invalidateTenantCache(data.slug, tenant.id, adminUser.id);
     }
 
     return c.json({ tenant, default_schema: defaultSchema, environments: ['prod', 'dev'] }, 201);
@@ -227,6 +247,97 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     const schemaName = `tenant_${tenant.slug.replace(/[^a-z0-9_]/g, '_').toLowerCase()}_${slug}`;
     return c.json({ success: true, schema: schemaName }, 201);
+  });
+
+  // ── Membership + per-tenant roles ──────────────────────────────────────────
+  // The control plane for per-tenant RBAC: a member's `role` is also granted as
+  // a Casbin role IN the tenant's domain, so the same user can be e.g. admin in
+  // tenant A and viewer in tenant B. Role PERMISSIONS are global policies
+  // (managed via /api/permissions); membership scopes WHICH tenant they apply in.
+
+  // GET /api/tenants/:id/members — list members (user + per-tenant role)
+  router.get('/:id/members', async (c) => {
+    const user = (c as any).get('user');
+    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    const members = await db
+      .selectFrom('zv_tenant_users as tu')
+      .innerJoin('user as u', 'u.id', 'tu.user_id')
+      .select(['tu.user_id', 'u.email', 'u.name', 'tu.role', 'tu.joined_at'])
+      .where('tu.tenant_id', '=', c.req.param('id'))
+      .orderBy('tu.joined_at', 'asc')
+      .execute();
+    return c.json({ members });
+  });
+
+  // POST /api/tenants/:id/members — add a user to a tenant with a role
+  router.post('/:id/members', zValidator('json', MemberSchema), async (c) => {
+    const user = (c as any).get('user');
+    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    const tenantId = c.req.param('id');
+    const { user_email, role } = c.req.valid('json');
+
+    const tenant = await db
+      .selectFrom('zv_tenants')
+      .select(['id', 'slug'])
+      .where('id', '=', tenantId)
+      .executeTakeFirst();
+    if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
+
+    const target = await db
+      .selectFrom('user')
+      .select('id')
+      .where('email', '=', user_email)
+      .executeTakeFirst();
+    if (!target) return c.json({ error: `No user with email ${user_email}` }, 404);
+
+    // Upsert membership.
+    await sql`
+      INSERT INTO zv_tenant_users (tenant_id, user_id, role, invited_by)
+      VALUES (${tenantId}, ${target.id}, ${role}, ${user.id})
+      ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role
+    `.execute(db);
+
+    // Bridge to Casbin: replace any prior per-tenant grant with the new role.
+    const e = await getEnforcer();
+    for (const r of TENANT_ROLES) await e.deleteRoleForUser(target.id, casbinRole(r), tenantId);
+    await e.addRoleForUser(target.id, casbinRole(role), tenantId);
+    await invalidateUserPermCache(target.id);
+    await invalidateTenantCache(tenant.slug, tenantId, target.id);
+
+    return c.json({ success: true, user_id: target.id, role }, 201);
+  });
+
+  // DELETE /api/tenants/:id/members/:userId — remove a member + their per-tenant roles
+  router.delete('/:id/members/:userId', async (c) => {
+    const user = (c as any).get('user');
+    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    const tenantId = c.req.param('id');
+    const targetId = c.req.param('userId');
+
+    await db
+      .deleteFrom('zv_tenant_users')
+      .where('tenant_id', '=', tenantId)
+      .where('user_id', '=', targetId)
+      .execute();
+
+    const e = await getEnforcer();
+    for (const r of TENANT_ROLES) await e.deleteRoleForUser(targetId, casbinRole(r), tenantId);
+    await invalidateUserPermCache(targetId);
+
+    const tenant = await db
+      .selectFrom('zv_tenants')
+      .select('slug')
+      .where('id', '=', tenantId)
+      .executeTakeFirst();
+    if (tenant) await invalidateTenantCache(tenant.slug, tenantId, targetId);
+
+    return c.json({ success: true });
   });
 
   return router;
