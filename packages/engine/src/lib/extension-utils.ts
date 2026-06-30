@@ -33,9 +33,10 @@ import { join } from 'path';
 // (see `inMemoryMutex` finally block).
 //
 // Trade-off: when a wrapped operation runs an external long task (download,
-// npm install) the advisory-lock transaction stays open for that duration,
-// holding one DB connection. Lifecycle ops are infrequent admin actions so
-// this is acceptable. The pool default of 10 connections has plenty of headroom.
+// npm install) it holds one reserved DB connection for that duration (the
+// cross-replica session advisory lock lives on it — see withExtensionLock).
+// No transaction is held open, so VACUUM/MVCC are unaffected. Lifecycle ops are
+// infrequent admin actions, and the pool default of 10 connections has headroom.
 const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
 
 /**
