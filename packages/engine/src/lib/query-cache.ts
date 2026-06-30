@@ -92,3 +92,31 @@ export async function invalidateQueryCache(
     // Non-critical
   }
 }
+
+/**
+ * Invalidate a collection's query cache across ALL tenants. Used when the
+ * authorization that shaped the cached payload changes (RLS policy, column
+ * permissions) — the cache stores already-filtered/masked rows, so without this
+ * a revoke would be served stale for up to the TTL. SCAN (not KEYS) over the
+ * per-tenant index sets; runs only on infrequent admin auth changes.
+ */
+export async function invalidateQueryCacheForCollection(collection: string): Promise<void> {
+  const cache = getCache();
+  if (!cache) return;
+  try {
+    const pattern = `qc_keys:*:${collection}`;
+    let cursor = '0';
+    const setKeys: string[] = [];
+    do {
+      const [next, batch] = await cache.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+      cursor = next;
+      setKeys.push(...batch);
+    } while (cursor !== '0');
+    for (const setKey of setKeys) {
+      const members = await cache.smembers(setKey);
+      await cache.del(...members, setKey).catch(() => {});
+    }
+  } catch {
+    // Non-critical
+  }
+}
