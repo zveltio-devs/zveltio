@@ -2,6 +2,20 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.23] - 2026-06-30
+
+**Cache correctness + extension docs.**
+
+- **fix(cache)**: the query cache stores already-RLS-filtered + column-masked rows,
+  so a permission change was served stale for up to the TTL. RLS policy changes and
+  column-permission changes now invalidate the affected collection's query cache
+  across all tenants (`invalidateQueryCacheForCollection`, SCAN-based). And
+  `invalidateColumnPermCache` — previously a no-op stub that nothing called — is now
+  implemented and wired into the column-permission POST/PUT/DELETE endpoints.
+- **docs**: extension developer guide gains a `ctx.db` vs `ctx.reqDb(c)` tenant-safety
+  callout (use `ctx.reqDb(c)` in data handlers, `ctx.db` for setup/migrations) and a
+  de-staled intro (registry-on-demand delivery, declarative SDUI).
+
 ## [3.0.0-beta.22] - 2026-06-30
 
 **Per-tenant RBAC control plane** — makes the per-tenant authorization capability
