@@ -9,43 +9,83 @@
       "name": "pm_projects",
       "display_name": "Projects",
       "fields": [
-        { "name": "name", "type": "text", "required": true },
-        { "name": "description", "type": "richtext" },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "richtext"
+        },
         {
           "name": "project_status",
           "type": "enum",
-          "options": { "values": ["planning", "active", "on_hold", "completed", "archived"] }
+          "options": {
+            "values": ["planning", "active", "on_hold", "completed", "archived"]
+          }
         },
-        { "name": "owner", "type": "text" },
-        { "name": "start_date", "type": "date" },
-        { "name": "end_date", "type": "date" }
+        {
+          "name": "owner",
+          "type": "text"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date"
+        }
       ]
     },
     {
       "name": "pm_tasks",
       "display_name": "Tasks",
       "fields": [
-        { "name": "title", "type": "text", "required": true },
-        { "name": "description", "type": "richtext" },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "richtext"
+        },
         {
           "name": "project",
           "type": "m2o",
-          "options": { "related_collection": "pm_projects" },
+          "options": {
+            "related_collection": "pm_projects"
+          },
           "required": true
         },
         {
           "name": "task_status",
           "type": "enum",
-          "options": { "values": ["todo", "in_progress", "blocked", "review", "done"] }
+          "options": {
+            "values": ["todo", "in_progress", "blocked", "review", "done"]
+          }
         },
         {
           "name": "priority",
           "type": "enum",
-          "options": { "values": ["low", "medium", "high", "urgent"] }
+          "options": {
+            "values": ["low", "medium", "high", "urgent"]
+          }
         },
-        { "name": "assignee", "type": "text" },
-        { "name": "due_date", "type": "date" },
-        { "name": "estimate_hours", "type": "number" }
+        {
+          "name": "assignee",
+          "type": "text"
+        },
+        {
+          "name": "due_date",
+          "type": "date"
+        },
+        {
+          "name": "estimate_hours",
+          "type": "number"
+        }
       ]
     },
     {
@@ -55,11 +95,20 @@
         {
           "name": "task",
           "type": "m2o",
-          "options": { "related_collection": "pm_tasks" },
+          "options": {
+            "related_collection": "pm_tasks"
+          },
           "required": true
         },
-        { "name": "author", "type": "text" },
-        { "name": "body", "type": "richtext", "required": true }
+        {
+          "name": "author",
+          "type": "text"
+        },
+        {
+          "name": "body",
+          "type": "richtext",
+          "required": true
+        }
       ]
     },
     {
@@ -69,14 +118,93 @@
         {
           "name": "task",
           "type": "m2o",
-          "options": { "related_collection": "pm_tasks" },
+          "options": {
+            "related_collection": "pm_tasks"
+          },
           "required": true
         },
-        { "name": "user", "type": "text" },
-        { "name": "logged_at", "type": "datetime", "required": true },
-        { "name": "hours", "type": "number", "required": true },
-        { "name": "note", "type": "text" }
+        {
+          "name": "user",
+          "type": "text"
+        },
+        {
+          "name": "logged_at",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "hours",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "note",
+          "type": "text"
+        }
       ]
     }
-  ]
+  ],
+  "sampleData": {
+    "pm_projects": [
+      {
+        "_key": "p1",
+        "name": "Website relaunch",
+        "project_status": "active",
+        "owner": "Andrei",
+        "start_date": "2026-05-01",
+        "end_date": "2026-08-31"
+      },
+      {
+        "_key": "p2",
+        "name": "Mobile app v1",
+        "project_status": "planning",
+        "owner": "Elena",
+        "start_date": "2026-07-01"
+      }
+    ],
+    "pm_tasks": [
+      {
+        "_key": "t1",
+        "title": "Design system",
+        "project": "@p1",
+        "task_status": "in_progress",
+        "priority": "high",
+        "assignee": "Sara",
+        "due_date": "2026-07-05",
+        "estimate_hours": 20
+      },
+      {
+        "_key": "t2",
+        "title": "API integration",
+        "project": "@p1",
+        "task_status": "todo",
+        "priority": "medium",
+        "assignee": "Mihai",
+        "estimate_hours": 16
+      },
+      {
+        "title": "Wireframes",
+        "project": "@p2",
+        "task_status": "todo",
+        "priority": "low",
+        "assignee": "Sara"
+      }
+    ],
+    "pm_comments": [
+      {
+        "task": "@t1",
+        "author": "Andrei",
+        "body": "Looks good - let's finalize the color tokens."
+      }
+    ],
+    "pm_time_logs": [
+      {
+        "task": "@t1",
+        "user": "Sara",
+        "logged_at": "2026-06-25T14:00:00Z",
+        "hours": 4,
+        "note": "Initial component drafts"
+      }
+    ]
+  }
 }
