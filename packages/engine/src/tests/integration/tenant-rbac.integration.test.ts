@@ -67,6 +67,13 @@ beforeAll(async () => {
   await e.addRoleForUser('rbactest_bob', 'rbactest_editor', '*');
   await e.addPolicy('rbactest_admin', A, '*', '*');
   await e.addRoleForUser('rbactest_alice', 'rbactest_admin', A);
+
+  // Control-plane model (what /api/tenants/:id/members produces): GLOBAL role
+  // policies + PER-TENANT grants. dora is admin in A, viewer in B.
+  await e.addPolicy('rbactest_tadmin', '*', '*', '*');
+  await e.addPolicy('rbactest_tviewer', '*', '*', 'read');
+  await e.addRoleForUser('rbactest_dora', 'rbactest_tadmin', A);
+  await e.addRoleForUser('rbactest_dora', 'rbactest_tviewer', B);
 });
 
 afterAll(async () => {
@@ -112,6 +119,20 @@ describe.skipIf(skipAll)('Per-tenant RBAC (Casbin domains)', () => {
     expect(inA).toContain('rbactest_admin');
     const inB = await runWithDomain(B, () => getUserRoles('rbactest_alice'));
     expect(inB).not.toContain('rbactest_admin');
+  });
+
+  it('control plane: admin in A can delete; only viewer in B (read yes, delete no)', async () => {
+    // dora is admin in tenant A → full access there.
+    expect(
+      await runWithDomain(A, () => checkPermission('rbactest_dora', 'anything', 'delete')),
+    ).toBe(true);
+    // dora is only viewer in tenant B → can read, cannot delete.
+    expect(await runWithDomain(B, () => checkPermission('rbactest_dora', 'anything', 'read'))).toBe(
+      true,
+    );
+    expect(
+      await runWithDomain(B, () => checkPermission('rbactest_dora', 'anything', 'delete')),
+    ).toBe(false);
   });
 
   it('migration 008 reshapes legacy rows + survives the (sub,obj) act-collision', async () => {
