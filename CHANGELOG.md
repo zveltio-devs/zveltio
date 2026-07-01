@@ -2,6 +2,26 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.26] - 2026-07-01
+
+**Business templates are now instant working apps (P0 5.2).** Installing a template
+created collections but seeded no rows — empty tables, not the "manager sees it
+working in 30s" the criteria require. Fixed:
+
+- **feat(templates)**: `POST /api/templates/:id/seed` inserts a template's starter
+  rows parent-first, resolving `"@key"` m2o references to created ids. Idempotent;
+  returns 425 until the (async) collections exist. All 5 builtin templates ship
+  realistic relational sample data (43 rows total; validated on Postgres 18 with 0
+  unresolved references). Studio one-click install now seeds automatically.
+- **feat(demo)**: `scripts/seed-demo.ts` — one command turns a fresh engine into a
+  populated demo (installs + seeds every template). Pairs with `DEMO_MODE`.
+- **fix(graphql)** *(extensions)*: DataLoader uses `ctx.reqDb` (RestrictedDb),
+  matching the resolvers.
+- **docs**: `TECHNICAL-GAPS.md` P0 status corrected against the repo (most were
+  already implemented; the doc was stale). `withExtensionLock` comment de-staled.
+- **ci**: live runtime SDUI contract probe (boots a real engine, asserts each
+  extension's `dataPath` resolves); `.github` feature-request + PR templates.
+
 ## [3.0.0-beta.25] - 2026-06-30
 
 **Maintainability: extension-loader split + lock narrowing** (the review's P2 items).
