@@ -2,6 +2,24 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.27] - 2026-07-02
+
+**fix(templates): seeding actually inserts rows now.** Template seed (beta.26)
+silently inserted **0 rows** on any real install with RLS + ≥1 tenant. Two bugs +
+one uncovered:
+
+- Seed targeted the bare collection name, but tables are `zvd_<name>`
+  (`DDLManager.getTableName`) — every collection was mis-flagged "pending".
+- Inserts ran with no tenant GUC → FORCE RLS rejected them (`42501`). Seeding now
+  runs in one transaction with `set_config('zveltio.current_tenant', …, true)`,
+  the tenant resolved from the request context (`DEFAULT_TENANT_ID` fallback).
+- The in-transaction readiness check is now `to_regclass` (non-throwing) so a
+  missing table can't abort the whole seed transaction.
+
+Verified end-to-end on the real engine with a non-superuser DB role (so RLS binds):
+ansvsa 64 tables → 113 rows, FK chains resolve, re-seed idempotent, crm regression
+13 rows. Also registers the **ANSVSA** vertical template (64 collections).
+
 ## [3.0.0-beta.26] - 2026-07-01
 
 **Business templates are now instant working apps (P0 5.2).** Installing a template
