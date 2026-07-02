@@ -1,0 +1,2181 @@
+{
+  "id": "ansvsa",
+  "name": "Autoritatea Națională Sanitară Veterinară și pentru Siguranța Alimentelor (ANSVSA)",
+  "description": "Platformă completă de control oficial pentru autoritatea sanitar-veterinară și pentru siguranța alimentelor: registru operatori & unități, planificare inspecții pe risc, cereri de autorizare/înregistrare cu formulare pe tip și flux de aprobare, rapoarte de constatare (PV), checklist HACCP, prelevare probe oficiale & rezultate de laborator, aplicarea sancțiunilor și contestații, certificate, notificări boli la animale, alerte rapide (SRAAF) și rechemări/retrageri, sesizări consumatori. Model de digitalizare a ANSVSA (România).",
+  "icon": "ShieldCheck",
+  "tags": [
+    "conformitate",
+    "administrație",
+    "siguranța-alimentelor",
+    "sanitar-veterinar",
+    "control-oficial"
+  ],
+  "collections": [
+    {
+      "name": "ansvsa_counties",
+      "display_name": "Județe",
+      "fields": [{ "name": "name", "type": "text", "required": true }]
+    },
+    {
+      "name": "ansvsa_locality_types",
+      "display_name": "Tipuri de localitate",
+      "fields": [{ "name": "name", "type": "text", "required": true }]
+    },
+    {
+      "name": "ansvsa_localities",
+      "display_name": "Localități",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "county", "type": "m2o", "options": { "related_collection": "ansvsa_counties" } },
+        {
+          "name": "locality_type",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_locality_types" }
+        },
+        {
+          "name": "parent_locality",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_localities" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_streets",
+      "display_name": "Străzi",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        {
+          "name": "locality",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_localities" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_legal_act_types",
+      "display_name": "Tipuri act normativ",
+      "fields": [{ "name": "type_name", "type": "text", "required": true }]
+    },
+    {
+      "name": "ansvsa_legal_acts",
+      "display_name": "Acte normative",
+      "fields": [
+        {
+          "name": "act_type",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_legal_act_types" }
+        },
+        { "name": "act_number", "type": "text", "required": true },
+        { "name": "act_date", "type": "date", "required": true },
+        { "name": "act_name", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_legal_entity_types",
+      "display_name": "Forme juridice",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "abbreviation", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_registered_unit_statuses",
+      "display_name": "Statusuri unitate înregistrată",
+      "fields": [
+        { "name": "status_code", "type": "text", "required": true },
+        { "name": "status_description", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_risk_classes",
+      "display_name": "Clase de risc",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "code", "type": "text" },
+        { "name": "inspection_frequency_months", "type": "integer" },
+        { "name": "description", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_scoring_configs",
+      "display_name": "Configurații scor conformitate",
+      "fields": [
+        { "name": "version_name", "type": "text", "required": true },
+        { "name": "valid_from", "type": "date", "required": true },
+        { "name": "valid_until", "type": "date" },
+        { "name": "points_a", "type": "integer" },
+        { "name": "points_ar", "type": "integer" },
+        { "name": "points_nc_m", "type": "integer" },
+        { "name": "points_nc_s", "type": "integer" },
+        { "name": "points_nc_mj", "type": "integer" },
+        { "name": "threshold_conform", "type": "number" },
+        { "name": "threshold_conform_obs", "type": "number" },
+        { "name": "threshold_neconform", "type": "number" },
+        { "name": "is_current", "type": "boolean" },
+        { "name": "description", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_unit_types",
+      "display_name": "Tipuri de unități (Anexa 9)",
+      "fields": [
+        { "name": "code", "type": "text", "required": true },
+        { "name": "name", "type": "text", "required": true },
+        { "name": "subtitle", "type": "text" },
+        { "name": "annex9_ref", "type": "text" },
+        { "name": "is_active", "type": "boolean" }
+      ]
+    },
+    {
+      "name": "ansvsa_checklist_sections",
+      "display_name": "Secțiuni checklist",
+      "fields": [
+        {
+          "name": "unit_type",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_unit_types" }
+        },
+        { "name": "title", "type": "text", "required": true },
+        { "name": "order_index", "type": "integer", "required": true }
+      ]
+    },
+    {
+      "name": "ansvsa_checklist_items",
+      "display_name": "Cerințe checklist (cu gravitate pre-clasificată)",
+      "fields": [
+        { "name": "code", "type": "text", "required": true },
+        {
+          "name": "unit_type",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_unit_types" }
+        },
+        {
+          "name": "section",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_checklist_sections" }
+        },
+        { "name": "requirement", "type": "text", "required": true },
+        { "name": "guide_note", "type": "textarea" },
+        { "name": "nc_severity", "type": "enum", "options": { "values": ["Mj", "S", "M"] } },
+        { "name": "order_index", "type": "integer" },
+        { "name": "is_active", "type": "boolean" },
+        { "name": "valid_from", "type": "date" },
+        {
+          "name": "superseded_by",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_checklist_items" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_checklist_item_changes",
+      "display_name": "Jurnal modificări cerințe checklist",
+      "fields": [
+        {
+          "name": "item",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_checklist_items" }
+        },
+        { "name": "item_code", "type": "text", "required": true },
+        { "name": "changed_by", "type": "text", "required": true },
+        { "name": "changed_at", "type": "datetime", "required": true },
+        { "name": "field_changed", "type": "text" },
+        { "name": "old_value", "type": "text" },
+        { "name": "new_value", "type": "text" },
+        { "name": "reason", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_inspection_checklists",
+      "display_name": "Checklisturi de control (instanțe)",
+      "fields": [
+        {
+          "name": "inspection",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_inspections" }
+        },
+        {
+          "name": "report",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_finding_reports" }
+        },
+        {
+          "name": "unit_type",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_unit_types" }
+        },
+        {
+          "name": "scoring_config",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_scoring_configs" }
+        },
+        { "name": "started_at", "type": "datetime" },
+        { "name": "completed_at", "type": "datetime" },
+        { "name": "conformity_score", "type": "number" },
+        { "name": "total_items", "type": "integer" },
+        { "name": "count_a", "type": "integer" },
+        { "name": "count_ar", "type": "integer" },
+        { "name": "count_nc_m", "type": "integer" },
+        { "name": "count_nc_s", "type": "integer" },
+        { "name": "count_nc_mj", "type": "integer" },
+        { "name": "count_na", "type": "integer" },
+        { "name": "has_nc_major", "type": "boolean" },
+        { "name": "activity_suspended", "type": "boolean" },
+        { "name": "recontrol_date", "type": "date" },
+        {
+          "name": "checklist_status",
+          "type": "enum",
+          "options": { "values": ["IN_COMPLETARE", "FINALIZAT"] }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_checklist_responses",
+      "display_name": "Răspunsuri checklist (cu snapshot)",
+      "fields": [
+        {
+          "name": "checklist",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_inspection_checklists" }
+        },
+        {
+          "name": "item",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_checklist_items" }
+        },
+        { "name": "item_code", "type": "text", "required": true },
+        { "name": "requirement_snapshot", "type": "text" },
+        {
+          "name": "nc_severity_snapshot",
+          "type": "enum",
+          "options": { "values": ["Mj", "S", "M"] }
+        },
+        { "name": "score_max_snapshot", "type": "integer" },
+        { "name": "response", "type": "enum", "options": { "values": ["A", "AR", "NC", "NA"] } },
+        { "name": "score_obtained", "type": "integer" },
+        { "name": "observations", "type": "textarea" },
+        { "name": "responded_at", "type": "datetime" }
+      ]
+    },
+    {
+      "name": "ansvsa_control_topics",
+      "display_name": "Teme de control",
+      "fields": [
+        { "name": "topic_name", "type": "text", "required": true },
+        { "name": "description", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_approval_activities",
+      "display_name": "Activități de aprobare",
+      "fields": [
+        { "name": "activity_name", "type": "text", "required": true },
+        { "name": "description", "type": "textarea" },
+        {
+          "name": "legal_act",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_legal_acts" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_fee_schedule",
+      "display_name": "Nomenclator tarife",
+      "fields": [
+        { "name": "fee_name", "type": "text", "required": true },
+        {
+          "name": "activity",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_approval_activities" }
+        },
+        { "name": "amount", "type": "money" },
+        { "name": "currency", "type": "text" },
+        { "name": "legal_basis", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_entities",
+      "display_name": "Operatori economici",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "entity_type", "type": "enum", "options": { "values": ["PJ", "PF"] } },
+        {
+          "name": "legal_entity_type",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_legal_entity_types" }
+        },
+        { "name": "trade_registry_number", "type": "text" },
+        { "name": "tax_identification_number", "type": "text" },
+        { "name": "county", "type": "m2o", "options": { "related_collection": "ansvsa_counties" } },
+        {
+          "name": "locality",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_localities" }
+        },
+        { "name": "street", "type": "m2o", "options": { "related_collection": "ansvsa_streets" } },
+        { "name": "building_number", "type": "text" },
+        { "name": "extra_address_info", "type": "text" },
+        { "name": "phone", "type": "phone" },
+        { "name": "email", "type": "email" }
+      ]
+    },
+    {
+      "name": "ansvsa_establishment_units",
+      "display_name": "Unități / puncte de lucru",
+      "fields": [
+        {
+          "name": "entity",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_entities" }
+        },
+        { "name": "establishment_type", "type": "text" },
+        {
+          "name": "county",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_counties" }
+        },
+        {
+          "name": "locality",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_localities" }
+        },
+        { "name": "street", "type": "m2o", "options": { "related_collection": "ansvsa_streets" } },
+        { "name": "address_number", "type": "text" },
+        { "name": "extra_address_info", "type": "text" },
+        { "name": "phone", "type": "phone" },
+        { "name": "email", "type": "email" },
+        { "name": "latitude", "type": "number" },
+        { "name": "longitude", "type": "number" },
+        {
+          "name": "risk_class",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_risk_classes" }
+        },
+        { "name": "approval_number", "type": "text" },
+        {
+          "name": "unit_type",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_unit_types" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_authorized_activities",
+      "display_name": "Activități autorizate",
+      "fields": [
+        {
+          "name": "establishment_unit",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_establishment_units" }
+        },
+        {
+          "name": "activity",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_approval_activities" }
+        },
+        { "name": "approval_number", "type": "text", "required": true },
+        { "name": "approval_date", "type": "date", "required": true },
+        {
+          "name": "unit_status",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_registered_unit_statuses" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_user_entity_roles",
+      "display_name": "Roluri utilizator ↔ operator",
+      "fields": [
+        { "name": "user", "type": "text", "required": true },
+        {
+          "name": "entity",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_entities" }
+        },
+        { "name": "role_in_entity", "type": "text" },
+        { "name": "is_active", "type": "boolean" }
+      ]
+    },
+    {
+      "name": "ansvsa_institutions",
+      "display_name": "Instituții (autoritate)",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "county", "type": "m2o", "options": { "related_collection": "ansvsa_counties" } },
+        {
+          "name": "locality",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_localities" }
+        },
+        { "name": "street", "type": "m2o", "options": { "related_collection": "ansvsa_streets" } },
+        { "name": "building_number", "type": "text" },
+        { "name": "extra_address_info", "type": "text" },
+        { "name": "phone", "type": "phone" },
+        { "name": "email", "type": "email" },
+        {
+          "name": "parent_institution",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_institutions" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_institutions_departments",
+      "display_name": "Departamente instituție",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        {
+          "name": "institution",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_institutions" }
+        },
+        {
+          "name": "parent_department",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_institutions_departments" }
+        },
+        { "name": "chief_user", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_departments_positions",
+      "display_name": "Funcții în departament",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        {
+          "name": "department",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_institutions_departments" }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_request_templates",
+      "display_name": "Șabloane de cerere",
+      "fields": [
+        { "name": "template_name", "type": "text", "required": true },
+        { "name": "full_name_ro", "type": "text", "required": true },
+        { "name": "ordin_group", "type": "text", "required": true },
+        {
+          "name": "legal_act",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_legal_acts" }
+        },
+        { "name": "form_schema", "type": "json" },
+        { "name": "detail_table_name", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_external_requests",
+      "display_name": "Cereri depuse",
+      "fields": [
+        { "name": "external_user", "type": "text" },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        {
+          "name": "template",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_request_templates" }
+        },
+        {
+          "name": "request_status",
+          "type": "enum",
+          "options": { "values": ["DRAFT", "DEPUS", "IN_EVALUARE", "APROBAT", "RESPINS"] }
+        },
+        { "name": "submitted_at", "type": "datetime" },
+        { "name": "approval_date", "type": "datetime" },
+        { "name": "reviewer", "type": "text" },
+        { "name": "decision_notes", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_authorization_details",
+      "display_name": "Detalii cerere: autorizare",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "entity_name", "type": "text" },
+        { "name": "trade_reg_number", "type": "text" },
+        { "name": "cui", "type": "text" },
+        { "name": "address_county", "type": "text" },
+        { "name": "address_locality", "type": "text" },
+        { "name": "address_street", "type": "text" },
+        { "name": "activity_description", "type": "textarea", "required": true }
+      ]
+    },
+    {
+      "name": "ansvsa_req_commerce_details",
+      "display_name": "Detalii cerere: comerț",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "commerce_type", "type": "text", "required": true },
+        { "name": "is_year_round_operation", "type": "boolean" },
+        { "name": "is_seasonal_operation", "type": "boolean" },
+        { "name": "storage_ambient_capacity", "type": "number" },
+        { "name": "storage_refrigerated_capacity", "type": "number" },
+        { "name": "storage_frozen_capacity", "type": "number" },
+        { "name": "total_staff", "type": "number" },
+        { "name": "haccp_team_responsible", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_direct_sale_details",
+      "display_name": "Detalii cerere: vânzare directă",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "selling_activity_description", "type": "textarea", "required": true },
+        { "name": "product_type_and_quantity", "type": "text" },
+        { "name": "selling_location", "type": "text" },
+        { "name": "milk_vending_machine_location", "type": "text" },
+        { "name": "annexed_documents_status", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_mobile_units_details",
+      "display_name": "Detalii cerere: unități mobile",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "unit_type", "type": "text" },
+        { "name": "projected_production_capacity", "type": "number" },
+        { "name": "storage_raw_capacity", "type": "number" },
+        { "name": "storage_finished_capacity", "type": "number" },
+        { "name": "is_temporary_location", "type": "boolean" },
+        { "name": "operating_area_description", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_primary_production_details",
+      "display_name": "Detalii cerere: producție primară",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "activity_type", "type": "text", "required": true },
+        { "name": "area_0_3_1_ha", "type": "boolean" },
+        { "name": "area_over_1_ha", "type": "boolean" },
+        { "name": "cultivation_outdoor", "type": "boolean" },
+        { "name": "cultivation_protected", "type": "boolean" },
+        { "name": "product_type_json", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_processing_details",
+      "display_name": "Detalii cerere: procesare",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "activity_production", "type": "boolean" },
+        { "name": "activity_packaging", "type": "boolean" },
+        { "name": "is_year_round_operation", "type": "boolean" },
+        { "name": "is_seasonal_production", "type": "boolean" },
+        { "name": "projected_production_capacity", "type": "number" },
+        { "name": "storage_raw_ambient_capacity", "type": "number" },
+        { "name": "storage_raw_refrigerated_capacity", "type": "number" },
+        { "name": "storage_raw_frozen_capacity", "type": "number" },
+        { "name": "storage_finished_product_capacity", "type": "number" },
+        { "name": "haccp_team_responsible", "type": "text" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_suspension_details",
+      "display_name": "Detalii cerere: suspendare",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        {
+          "name": "entity",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_entities" }
+        },
+        { "name": "reason_for_suspension", "type": "textarea", "required": true },
+        { "name": "cessation_date", "type": "date" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_transport_details",
+      "display_name": "Detalii cerere: transport",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "vehicle_plate_number", "type": "text", "required": true },
+        { "name": "vehicle_vin_number", "type": "text" },
+        { "name": "vehicle_type", "type": "text" },
+        { "name": "transport_commodity_type", "type": "text" },
+        { "name": "transport_capacity_value", "type": "number" },
+        { "name": "transport_capacity_unit", "type": "text" },
+        { "name": "is_clean_and_good_condition", "type": "boolean" },
+        { "name": "can_maintain_temp", "type": "boolean" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_transport_live_animals_details",
+      "display_name": "Detalii cerere: transport animale vii",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "transport_type_description", "type": "textarea", "required": true },
+        { "name": "vehicle_brand_model", "type": "text", "required": true },
+        { "name": "vehicle_plate_number", "type": "text", "required": true },
+        { "name": "transport_capacity_value", "type": "number" },
+        { "name": "transport_capacity_unit", "type": "text" },
+        { "name": "annexed_documents_status", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_update_details",
+      "display_name": "Detalii cerere: actualizare date",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        {
+          "name": "entity",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_entities" }
+        },
+        { "name": "update_type", "type": "text", "required": true },
+        { "name": "old_data_json", "type": "json" },
+        { "name": "new_data_json", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_napb_details",
+      "display_name": "Detalii cerere: produse primare la comerț",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "activity_description", "type": "textarea", "required": true },
+        { "name": "details", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_veterinary_pharmacy_details",
+      "display_name": "Detalii cerere: farmacie veterinară",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "activity_description", "type": "textarea", "required": true },
+        { "name": "details", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_veterinary_wholesale_details",
+      "display_name": "Detalii cerere: distribuție angro veterinară",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "activity_description", "type": "textarea", "required": true },
+        { "name": "details", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_veterinary_manufacture_details",
+      "display_name": "Detalii cerere: fabricație produse veterinare",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "activity_description", "type": "textarea", "required": true },
+        { "name": "details", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_req_substance_importers_details",
+      "display_name": "Detalii cerere: importatori substanțe",
+      "fields": [
+        {
+          "name": "request",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_external_requests" }
+        },
+        { "name": "activity_description", "type": "textarea", "required": true },
+        { "name": "details", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_inspection_plans",
+      "display_name": "Planuri de control",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "year", "type": "integer" },
+        {
+          "name": "institution",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_institutions" }
+        },
+        {
+          "name": "plan_type",
+          "type": "enum",
+          "options": { "values": ["RUTINA", "PE_RISC", "CAMPANIE", "SESIZARE", "REVERIFICARE"] }
+        },
+        { "name": "description", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_inspections",
+      "display_name": "Inspecții",
+      "fields": [
+        {
+          "name": "plan",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_inspection_plans" }
+        },
+        {
+          "name": "unit",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_establishment_units" }
+        },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        {
+          "name": "inspection_type",
+          "type": "enum",
+          "options": { "values": ["RUTINA", "PE_RISC", "SESIZARE", "REVERIFICARE", "AUTORIZARE"] }
+        },
+        { "name": "planned_date", "type": "date" },
+        { "name": "performed_date", "type": "date" },
+        { "name": "inspector", "type": "text" },
+        {
+          "name": "inspection_status",
+          "type": "enum",
+          "options": { "values": ["PLANIFICATA", "IN_DESFASURARE", "FINALIZATA", "ANULATA"] }
+        },
+        {
+          "name": "result",
+          "type": "enum",
+          "options": {
+            "values": [
+              "CONFORM",
+              "NECONFORMITATE_MINORA",
+              "NECONFORMITATE_MAJORA",
+              "NECONFORMITATE_CRITICA"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_finding_reports",
+      "display_name": "Rapoarte de constatare (PV)",
+      "fields": [
+        {
+          "name": "inspection",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_inspections" }
+        },
+        { "name": "report_number", "type": "text", "required": true },
+        { "name": "report_date", "type": "date", "required": true },
+        {
+          "name": "unit",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_establishment_units" }
+        },
+        {
+          "name": "entity",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_entities" }
+        },
+        { "name": "inspector", "type": "text" },
+        { "name": "primary_findings", "type": "textarea" },
+        { "name": "measures", "type": "textarea" },
+        { "name": "final_sanctions", "type": "json" },
+        { "name": "observations", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_report_topics",
+      "display_name": "Teme raportate",
+      "fields": [
+        {
+          "name": "report",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_finding_reports" }
+        },
+        {
+          "name": "topic",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_control_topics" }
+        },
+        { "name": "data", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_checklist_haccp",
+      "display_name": "Checklist HACCP",
+      "fields": [
+        {
+          "name": "report",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_finding_reports" }
+        },
+        { "name": "haccp_data", "type": "json", "required": true }
+      ]
+    },
+    {
+      "name": "ansvsa_registration_evaluation_reports",
+      "display_name": "Rapoarte de evaluare la înregistrare",
+      "fields": [
+        {
+          "name": "report",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_finding_reports" }
+        },
+        { "name": "report_type", "type": "text", "required": true },
+        { "name": "operator_is_compliant", "type": "boolean" },
+        { "name": "deficiencies", "type": "textarea" },
+        { "name": "evaluation_date", "type": "date" }
+      ]
+    },
+    {
+      "name": "ansvsa_risk_assessment_sheets",
+      "display_name": "Fișe de evaluare a riscului",
+      "fields": [
+        {
+          "name": "report",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_finding_reports" }
+        },
+        {
+          "name": "risk_class",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_risk_classes" }
+        },
+        { "name": "risk_class_established", "type": "text", "required": true },
+        { "name": "deficiencies_notes", "type": "textarea" },
+        { "name": "evaluation_result_json", "type": "json" }
+      ]
+    },
+    {
+      "name": "ansvsa_laboratories",
+      "display_name": "Laboratoare",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "accreditation_number", "type": "text" },
+        { "name": "address", "type": "text" },
+        { "name": "phone", "type": "phone" },
+        { "name": "email", "type": "email" }
+      ]
+    },
+    {
+      "name": "ansvsa_samples",
+      "display_name": "Probe oficiale",
+      "fields": [
+        { "name": "sample_code", "type": "text", "required": true },
+        {
+          "name": "inspection",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_inspections" }
+        },
+        {
+          "name": "unit",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_establishment_units" }
+        },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        { "name": "product_name", "type": "text" },
+        {
+          "name": "sample_type",
+          "type": "enum",
+          "options": { "values": ["MICROBIOLOGIC", "CHIMIC", "REZIDUURI", "OMG", "ALTELE"] }
+        },
+        { "name": "sampled_at", "type": "date" },
+        { "name": "sampled_by", "type": "text" },
+        {
+          "name": "laboratory",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_laboratories" }
+        },
+        {
+          "name": "sample_status",
+          "type": "enum",
+          "options": { "values": ["PRELEVATA", "TRIMISA", "IN_ANALIZA", "REZULTAT", "INCHISA"] }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_sample_results",
+      "display_name": "Rezultate probe",
+      "fields": [
+        {
+          "name": "sample",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_samples" }
+        },
+        { "name": "parameter", "type": "text", "required": true },
+        { "name": "value", "type": "text" },
+        { "name": "unit_of_measure", "type": "text" },
+        { "name": "limit_value", "type": "text" },
+        { "name": "is_compliant", "type": "boolean" },
+        { "name": "method", "type": "text" },
+        { "name": "result_date", "type": "date" },
+        { "name": "notes", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_sanctions",
+      "display_name": "Sancțiuni",
+      "fields": [
+        {
+          "name": "report",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_finding_reports" }
+        },
+        {
+          "name": "sanction_type",
+          "type": "enum",
+          "options": { "values": ["AVERTISMENT", "AMENDA", "SUSPENDARE", "RETRAGERE_AUTORIZATIE"] }
+        },
+        { "name": "legal_basis", "type": "text" },
+        { "name": "amount", "type": "money" },
+        { "name": "currency", "type": "text" },
+        { "name": "issued_date", "type": "date" },
+        {
+          "name": "sanction_status",
+          "type": "enum",
+          "options": { "values": ["EMISA", "ACHITATA", "CONTESTATA", "ANULATA", "EXECUTATA"] }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_sanctions_complementary",
+      "display_name": "Sancțiuni complementare",
+      "fields": [
+        {
+          "name": "report",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_finding_reports" }
+        },
+        {
+          "name": "sanction",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_sanctions" }
+        },
+        { "name": "measure", "type": "text", "required": true },
+        { "name": "details", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_sanctions_confiscated_items",
+      "display_name": "Bunuri confiscate",
+      "fields": [
+        {
+          "name": "complementary_measure",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_sanctions_complementary" }
+        },
+        { "name": "product_name", "type": "text", "required": true },
+        { "name": "quantity", "type": "number", "required": true },
+        { "name": "unit_of_measure", "type": "text", "required": true }
+      ]
+    },
+    {
+      "name": "ansvsa_appeals",
+      "display_name": "Contestații",
+      "fields": [
+        {
+          "name": "sanction",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_sanctions" }
+        },
+        { "name": "submitted_date", "type": "date" },
+        { "name": "grounds", "type": "textarea" },
+        {
+          "name": "appeal_status",
+          "type": "enum",
+          "options": { "values": ["DEPUSA", "IN_ANALIZA", "ADMISA", "ADMISA_PARTIAL", "RESPINSA"] }
+        },
+        { "name": "resolution_date", "type": "date" },
+        { "name": "resolution", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_certificates",
+      "display_name": "Certificate",
+      "fields": [
+        { "name": "certificate_number", "type": "text", "required": true },
+        {
+          "name": "certificate_type",
+          "type": "enum",
+          "options": { "values": ["AUTORIZARE", "INREGISTRARE", "SANATATE_EXPORT", "ALTELE"] }
+        },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        {
+          "name": "unit",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_establishment_units" }
+        },
+        { "name": "issued_date", "type": "date" },
+        { "name": "valid_until", "type": "date" },
+        { "name": "issued_by", "type": "text" },
+        {
+          "name": "certificate_status",
+          "type": "enum",
+          "options": { "values": ["VALID", "EXPIRAT", "SUSPENDAT", "REVOCAT"] }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_holdings",
+      "display_name": "Exploatații animale",
+      "fields": [
+        { "name": "holding_code", "type": "text", "required": true },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        { "name": "county", "type": "m2o", "options": { "related_collection": "ansvsa_counties" } },
+        {
+          "name": "locality",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_localities" }
+        },
+        { "name": "species", "type": "text" },
+        { "name": "animal_count", "type": "integer" },
+        { "name": "latitude", "type": "number" },
+        { "name": "longitude", "type": "number" }
+      ]
+    },
+    {
+      "name": "ansvsa_notifiable_diseases",
+      "display_name": "Boli notificabile",
+      "fields": [
+        { "name": "name", "type": "text", "required": true },
+        { "name": "code", "type": "text" },
+        { "name": "category", "type": "enum", "options": { "values": ["A", "B", "C", "D", "E"] } },
+        { "name": "species_affected", "type": "text" },
+        { "name": "description", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_disease_notifications",
+      "display_name": "Notificări boli",
+      "fields": [
+        { "name": "notification_number", "type": "text", "required": true },
+        {
+          "name": "disease",
+          "type": "m2o",
+          "required": true,
+          "options": { "related_collection": "ansvsa_notifiable_diseases" }
+        },
+        {
+          "name": "holding",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_holdings" }
+        },
+        { "name": "county", "type": "m2o", "options": { "related_collection": "ansvsa_counties" } },
+        { "name": "notified_date", "type": "date" },
+        { "name": "confirmed_date", "type": "date" },
+        { "name": "affected_count", "type": "integer" },
+        {
+          "name": "notification_status",
+          "type": "enum",
+          "options": { "values": ["SUSPECTAT", "CONFIRMAT", "SUB_CONTROL", "STINS"] }
+        },
+        { "name": "measures", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_rapid_alerts",
+      "display_name": "Alerte rapide (SRAAF)",
+      "fields": [
+        { "name": "alert_number", "type": "text", "required": true },
+        {
+          "name": "alert_type",
+          "type": "enum",
+          "options": { "values": ["ALERTA", "INFORMARE", "RESPINGERE_FRONTIERA", "STIRE"] }
+        },
+        { "name": "product_name", "type": "text" },
+        { "name": "hazard", "type": "text" },
+        {
+          "name": "risk_level",
+          "type": "enum",
+          "options": { "values": ["GRAV", "POTENTIAL", "NEDECIS"] }
+        },
+        { "name": "origin_country", "type": "text" },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        { "name": "reported_date", "type": "date" },
+        {
+          "name": "alert_status",
+          "type": "enum",
+          "options": { "values": ["DESCHISA", "IN_INVESTIGARE", "INCHISA"] }
+        },
+        { "name": "action_taken", "type": "textarea" }
+      ]
+    },
+    {
+      "name": "ansvsa_product_recalls",
+      "display_name": "Rechemări / retrageri produse",
+      "fields": [
+        {
+          "name": "alert",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_rapid_alerts" }
+        },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        { "name": "product_name", "type": "text", "required": true },
+        { "name": "batch_number", "type": "text" },
+        {
+          "name": "recall_type",
+          "type": "enum",
+          "options": { "values": ["RECHEMARE", "RETRAGERE"] }
+        },
+        { "name": "quantity", "type": "number" },
+        { "name": "unit_of_measure", "type": "text" },
+        { "name": "recall_date", "type": "date" },
+        {
+          "name": "recall_status",
+          "type": "enum",
+          "options": { "values": ["INITIATA", "IN_DESFASURARE", "FINALIZATA"] }
+        }
+      ]
+    },
+    {
+      "name": "ansvsa_complaints",
+      "display_name": "Sesizări consumatori",
+      "fields": [
+        { "name": "complaint_number", "type": "text", "required": true },
+        { "name": "complainant_name", "type": "text" },
+        { "name": "complainant_contact", "type": "text" },
+        { "name": "subject", "type": "text" },
+        { "name": "description", "type": "textarea" },
+        { "name": "entity", "type": "m2o", "options": { "related_collection": "ansvsa_entities" } },
+        {
+          "name": "unit",
+          "type": "m2o",
+          "options": { "related_collection": "ansvsa_establishment_units" }
+        },
+        { "name": "received_date", "type": "date" },
+        {
+          "name": "complaint_status",
+          "type": "enum",
+          "options": {
+            "values": ["INREGISTRATA", "ALOCATA", "IN_INVESTIGARE", "SOLUTIONATA", "INCHISA"]
+          }
+        },
+        { "name": "resolution", "type": "textarea" }
+      ]
+    }
+  ],
+  "sampleData": {
+    "ansvsa_counties": [{ "_key": "cluj", "name": "Cluj" }, { "_key": "timis", "name": "Timiș" }],
+    "ansvsa_locality_types": [
+      { "_key": "municipiu", "name": "Municipiu" },
+      { "_key": "oras", "name": "Oraș" },
+      { "_key": "comuna", "name": "Comună" }
+    ],
+    "ansvsa_localities": [
+      {
+        "_key": "cluj_napoca",
+        "name": "Cluj-Napoca",
+        "county": "@cluj",
+        "locality_type": "@municipiu"
+      },
+      { "_key": "floresti", "name": "Florești", "county": "@cluj", "locality_type": "@comuna" }
+    ],
+    "ansvsa_streets": [
+      { "_key": "str_memo", "name": "Str. Memorandumului", "locality": "@cluj_napoca" }
+    ],
+    "ansvsa_legal_act_types": [
+      { "_key": "ordin", "type_name": "Ordin" },
+      { "_key": "hg", "type_name": "Hotărâre de Guvern" }
+    ],
+    "ansvsa_legal_acts": [
+      {
+        "_key": "ord_111",
+        "act_type": "@ordin",
+        "act_number": "111",
+        "act_date": "2008-12-16",
+        "act_name": "Ordin ANSVSA privind aprobarea Normei sanitare veterinare și pentru siguranța alimentelor"
+      }
+    ],
+    "ansvsa_legal_entity_types": [
+      { "_key": "srl", "name": "Societate cu răspundere limitată", "abbreviation": "SRL" },
+      { "_key": "pfa", "name": "Persoană fizică autorizată", "abbreviation": "PFA" }
+    ],
+    "ansvsa_registered_unit_statuses": [
+      {
+        "_key": "activ",
+        "status_code": "ACTIV",
+        "status_description": "Unitate activă / autorizată"
+      },
+      {
+        "_key": "suspendat",
+        "status_code": "SUSPENDAT",
+        "status_description": "Activitate suspendată"
+      },
+      { "_key": "radiat", "status_code": "RADIAT", "status_description": "Radiat din registru" }
+    ],
+    "ansvsa_risk_classes": [
+      {
+        "_key": "risc_mic",
+        "name": "Risc mic",
+        "code": "III",
+        "inspection_frequency_months": 24,
+        "description": "Unitate cu risc mic"
+      },
+      {
+        "_key": "risc_mediu",
+        "name": "Risc mediu",
+        "code": "II",
+        "inspection_frequency_months": 12,
+        "description": "Unitate cu risc mediu"
+      },
+      {
+        "_key": "risc_mare",
+        "name": "Risc mare",
+        "code": "I",
+        "inspection_frequency_months": 6,
+        "description": "Unitate cu risc mare"
+      }
+    ],
+    "ansvsa_control_topics": [
+      {
+        "_key": "igiena",
+        "topic_name": "Igienă generală",
+        "description": "Condiții de igienă a spațiilor și personalului"
+      },
+      {
+        "_key": "haccp",
+        "topic_name": "Plan HACCP",
+        "description": "Existența și aplicarea planului HACCP"
+      },
+      {
+        "_key": "trasabilitate",
+        "topic_name": "Trasabilitate",
+        "description": "Trasabilitatea produselor și materiilor prime"
+      }
+    ],
+    "ansvsa_approval_activities": [
+      {
+        "_key": "act_carne",
+        "activity_name": "Procesare carne",
+        "description": "Procesare și ambalare produse din carne",
+        "legal_act": "@ord_111"
+      },
+      {
+        "_key": "act_vanzare_directa",
+        "activity_name": "Vânzare directă produse primare",
+        "description": "Vânzare directă de la producător",
+        "legal_act": "@ord_111"
+      }
+    ],
+    "ansvsa_fee_schedule": [
+      {
+        "fee_name": "Tarif autorizare — procesare carne",
+        "activity": "@act_carne",
+        "amount": 500,
+        "currency": "RON",
+        "legal_basis": "Ordin 111/2008"
+      }
+    ],
+    "ansvsa_entities": [
+      {
+        "_key": "ent_carne",
+        "name": "Carmangeria Transilvania SRL",
+        "entity_type": "PJ",
+        "legal_entity_type": "@srl",
+        "trade_registry_number": "J12/1234/2015",
+        "tax_identification_number": "RO34567890",
+        "county": "@cluj",
+        "locality": "@cluj_napoca",
+        "street": "@str_memo",
+        "building_number": "28",
+        "phone": "+40 264 100 200",
+        "email": "contact@carmangeria.example"
+      },
+      {
+        "_key": "ent_ferma",
+        "name": "Ferma Florești PFA",
+        "entity_type": "PF",
+        "legal_entity_type": "@pfa",
+        "trade_registry_number": "F12/45/2019",
+        "tax_identification_number": "41234567",
+        "county": "@cluj",
+        "locality": "@floresti",
+        "building_number": "5",
+        "phone": "+40 745 111 222",
+        "email": "ferma.floresti@example.com"
+      }
+    ],
+    "ansvsa_establishment_units": [
+      {
+        "_key": "unit_carne",
+        "entity": "@ent_carne",
+        "establishment_type": "Unitate procesare carne",
+        "county": "@cluj",
+        "locality": "@cluj_napoca",
+        "street": "@str_memo",
+        "address_number": "28",
+        "latitude": 46.7712,
+        "longitude": 23.6236,
+        "risk_class": "@risc_mare",
+        "approval_number": "CJ-PROC-000123"
+      },
+      {
+        "_key": "unit_ferma",
+        "entity": "@ent_ferma",
+        "establishment_type": "Fermă producție primară",
+        "county": "@cluj",
+        "locality": "@floresti",
+        "address_number": "5",
+        "latitude": 46.7443,
+        "longitude": 23.4899,
+        "risk_class": "@risc_mediu"
+      }
+    ],
+    "ansvsa_authorized_activities": [
+      {
+        "establishment_unit": "@unit_carne",
+        "activity": "@act_carne",
+        "approval_number": "CJ-PROC-000123",
+        "approval_date": "2021-03-15",
+        "unit_status": "@activ"
+      },
+      {
+        "establishment_unit": "@unit_ferma",
+        "activity": "@act_vanzare_directa",
+        "approval_number": "CJ-VD-000045",
+        "approval_date": "2022-07-01",
+        "unit_status": "@activ"
+      }
+    ],
+    "ansvsa_institutions": [
+      {
+        "_key": "dsvsa_cluj",
+        "name": "DSVSA Cluj",
+        "county": "@cluj",
+        "locality": "@cluj_napoca",
+        "phone": "+40 264 430 980",
+        "email": "office-cluj@ansvsa.ro"
+      }
+    ],
+    "ansvsa_institutions_departments": [
+      { "_key": "dep_control", "name": "Serviciul Control Oficial", "institution": "@dsvsa_cluj" }
+    ],
+    "ansvsa_departments_positions": [
+      { "name": "Inspector de specialitate", "department": "@dep_control" },
+      { "name": "Șef serviciu", "department": "@dep_control" }
+    ],
+    "ansvsa_request_templates": [
+      {
+        "_key": "tpl_autorizare",
+        "template_name": "autorizare",
+        "full_name_ro": "Cerere de autorizare sanitar-veterinară",
+        "ordin_group": "Ordin 111/2008",
+        "legal_act": "@ord_111",
+        "detail_table_name": "ansvsa_req_authorization_details"
+      },
+      {
+        "_key": "tpl_comert",
+        "template_name": "comert",
+        "full_name_ro": "Cerere de înregistrare activitate de comerț",
+        "ordin_group": "Ordin 111/2008",
+        "legal_act": "@ord_111",
+        "detail_table_name": "ansvsa_req_commerce_details"
+      },
+      {
+        "_key": "tpl_transport",
+        "template_name": "transport",
+        "full_name_ro": "Cerere de autorizare mijloc de transport",
+        "ordin_group": "Ordin 111/2008",
+        "legal_act": "@ord_111",
+        "detail_table_name": "ansvsa_req_transport_details"
+      }
+    ],
+    "ansvsa_external_requests": [
+      {
+        "_key": "req_1",
+        "external_user": "operator@carmangeria.example",
+        "entity": "@ent_carne",
+        "template": "@tpl_autorizare",
+        "request_status": "IN_EVALUARE",
+        "submitted_at": "2024-04-10T09:00:00Z",
+        "reviewer": "inspector.cluj@ansvsa.ro"
+      }
+    ],
+    "ansvsa_req_authorization_details": [
+      {
+        "request": "@req_1",
+        "entity_name": "Carmangeria Transilvania SRL",
+        "trade_reg_number": "J12/1234/2015",
+        "cui": "RO34567890",
+        "address_county": "Cluj",
+        "address_locality": "Cluj-Napoca",
+        "address_street": "Str. Memorandumului 28",
+        "activity_description": "Autorizare unitate de procesare carne și produse din carne."
+      }
+    ],
+    "ansvsa_inspection_plans": [
+      {
+        "_key": "plan_2024",
+        "name": "Plan anual de control 2024 — Cluj",
+        "year": 2024,
+        "institution": "@dsvsa_cluj",
+        "plan_type": "PE_RISC",
+        "description": "Plan de control oficial pe bază de risc pentru județ."
+      }
+    ],
+    "ansvsa_inspections": [
+      {
+        "_key": "insp_1",
+        "plan": "@plan_2024",
+        "unit": "@unit_carne",
+        "entity": "@ent_carne",
+        "inspection_type": "PE_RISC",
+        "planned_date": "2024-05-15",
+        "performed_date": "2024-05-20",
+        "inspector": "inspector.cluj@ansvsa.ro",
+        "inspection_status": "FINALIZATA",
+        "result": "NECONFORMITATE_MINORA"
+      }
+    ],
+    "ansvsa_finding_reports": [
+      {
+        "_key": "rep_1",
+        "inspection": "@insp_1",
+        "report_number": "PV-CJ-2024-000789",
+        "report_date": "2024-05-20",
+        "unit": "@unit_carne",
+        "entity": "@ent_carne",
+        "inspector": "inspector.cluj@ansvsa.ro",
+        "primary_findings": "Condiții de igienă corespunzătoare. Plan HACCP prezent și aplicat.",
+        "measures": "Fără măsuri. Se recomandă actualizarea evidențelor de temperatură.",
+        "observations": "Control de rutină."
+      }
+    ],
+    "ansvsa_report_topics": [
+      { "report": "@rep_1", "topic": "@igiena", "data": { "conform": true, "nota": "OK" } },
+      { "report": "@rep_1", "topic": "@haccp", "data": { "conform": true, "plan_prezent": true } }
+    ],
+    "ansvsa_risk_assessment_sheets": [
+      {
+        "report": "@rep_1",
+        "risk_class": "@risc_mare",
+        "risk_class_established": "Risc mare",
+        "deficiencies_notes": "Fără deficiențe majore."
+      }
+    ],
+    "ansvsa_laboratories": [
+      {
+        "_key": "lab_cluj",
+        "name": "Laboratorul Sanitar Veterinar Județean Cluj",
+        "accreditation_number": "RENAR LI-123",
+        "address": "Cluj-Napoca",
+        "phone": "+40 264 000 000",
+        "email": "lsvsa.cluj@ansvsa.ro"
+      }
+    ],
+    "ansvsa_samples": [
+      {
+        "_key": "proba_1",
+        "sample_code": "PROBA-CJ-2024-0456",
+        "inspection": "@insp_1",
+        "unit": "@unit_carne",
+        "entity": "@ent_carne",
+        "product_name": "Carne tocată refrigerată",
+        "sample_type": "MICROBIOLOGIC",
+        "sampled_at": "2024-05-20",
+        "sampled_by": "inspector.cluj@ansvsa.ro",
+        "laboratory": "@lab_cluj",
+        "sample_status": "REZULTAT"
+      }
+    ],
+    "ansvsa_sample_results": [
+      {
+        "sample": "@proba_1",
+        "parameter": "Salmonella spp.",
+        "value": "Absent/25g",
+        "unit_of_measure": "per 25g",
+        "limit_value": "Absent/25g",
+        "is_compliant": true,
+        "method": "SR EN ISO 6579-1",
+        "result_date": "2024-05-27"
+      }
+    ],
+    "ansvsa_notifiable_diseases": [
+      {
+        "_key": "psa",
+        "name": "Pesta porcină africană",
+        "code": "PPA",
+        "category": "A",
+        "species_affected": "Suine",
+        "description": "Boală notificabilă cu restricții de mișcare."
+      }
+    ],
+    "ansvsa_rapid_alerts": [
+      {
+        "alert_number": "SRAAF-2024-0012",
+        "alert_type": "ALERTA",
+        "product_name": "Brânză din import",
+        "hazard": "Listeria monocytogenes",
+        "risk_level": "GRAV",
+        "origin_country": "Polonia",
+        "entity": "@ent_carne",
+        "reported_date": "2024-06-01",
+        "alert_status": "IN_INVESTIGARE",
+        "action_taken": "Inițiată retragerea produsului de pe piață."
+      }
+    ],
+    "ansvsa_complaints": [
+      {
+        "complaint_number": "SES-2024-0033",
+        "complainant_name": "Consumator",
+        "complainant_contact": "consumator@example.com",
+        "subject": "Produs expirat la raft",
+        "description": "Produs cu termen de valabilitate depășit oferit la vânzare.",
+        "entity": "@ent_carne",
+        "unit": "@unit_carne",
+        "received_date": "2024-06-05",
+        "complaint_status": "IN_INVESTIGARE"
+      }
+    ],
+    "ansvsa_scoring_configs": [
+      {
+        "_key": "cfg_v1",
+        "version_name": "Versiunea 1.0 — Inițial",
+        "valid_from": "2025-01-01",
+        "points_a": 4,
+        "points_ar": 3,
+        "points_nc_m": 2,
+        "points_nc_s": 1,
+        "points_nc_mj": 0,
+        "threshold_conform": 90.0,
+        "threshold_conform_obs": 75.0,
+        "threshold_neconform": 50.0,
+        "is_current": true,
+        "description": "Configurația inițială a scorului de conformitate ANSVSA."
+      }
+    ],
+    "ansvsa_unit_types": [
+      {
+        "_key": "ut_brut",
+        "code": "BRUT",
+        "name": "Brutărie",
+        "subtitle": "Fabricare pâine, produse de panificație proaspete și specialități",
+        "annex9_ref": "IV.1",
+        "is_active": true
+      },
+      {
+        "_key": "ut_mora",
+        "code": "MORA",
+        "name": "Morărit",
+        "subtitle": "Unitate specializată de măcinare a cerealelor",
+        "annex9_ref": "III.1",
+        "is_active": true
+      },
+      {
+        "_key": "ut_malt",
+        "code": "MALT",
+        "name": "Fabricare malț",
+        "subtitle": "Germinare orz și cereale pentru obținerea malțului",
+        "annex9_ref": "V.7",
+        "is_active": true
+      },
+      {
+        "_key": "ut_bere",
+        "code": "BERE",
+        "name": "Fabricare bere",
+        "subtitle": "Unitate de brasaj, fermentare și îmbuteliere bere",
+        "annex9_ref": "V.6",
+        "is_active": true
+      },
+      {
+        "_key": "ut_vin",
+        "code": "VIN",
+        "name": "Fabricare vin",
+        "subtitle": "Unitate de vinificație — vinuri liniștite, spumante, licoroase",
+        "annex9_ref": "V.3",
+        "is_active": true
+      },
+      {
+        "_key": "ut_dist",
+        "code": "DIST",
+        "name": "Băuturi alcoolice distilate",
+        "subtitle": "Distilate din fructe, vin, cereale — țuică, palincă, whisky, gin, vodcă",
+        "annex9_ref": "V.1",
+        "is_active": true
+      },
+      {
+        "_key": "ut_past",
+        "code": "PAST",
+        "name": "Paste făinoase",
+        "subtitle": "Fabricare macaroane, tăiței, cuscus și produse similare",
+        "annex9_ref": "IV.5",
+        "is_active": true
+      },
+      {
+        "_key": "ut_frle",
+        "code": "FRLE",
+        "name": "Prelucrare/conservare fructe-legume",
+        "subtitle": "Conserve, congelare, uscare, sucuri, gemuri, murături",
+        "annex9_ref": "I.8-I.10",
+        "is_active": true
+      },
+      {
+        "_key": "ut_ulei",
+        "code": "ULEI",
+        "name": "Fabricare uleiuri vegetale",
+        "subtitle": "Uleiuri brute (presare mecanică) și uleiuri rafinate",
+        "annex9_ref": "II.1, II.3",
+        "is_active": true
+      },
+      {
+        "_key": "ut_amba",
+        "code": "AMBA",
+        "name": "Ambalare produse alimentare",
+        "subtitle": "Preambalare, re-ambalare și etichetare produse alimentare",
+        "annex9_ref": "VI.1",
+        "is_active": true
+      },
+      {
+        "_key": "ut_depa",
+        "code": "DEPA",
+        "name": "Depozit alimentar",
+        "subtitle": "Depozit produse alimentare de origine non-animală",
+        "annex9_ref": "VI.3",
+        "is_active": true
+      },
+      {
+        "_key": "ut_deps",
+        "code": "DEPS",
+        "name": "Depozit semințe de consum",
+        "subtitle": "Depozitare cereale, semințe oleaginoase și semințe pentru consum",
+        "annex9_ref": "VI.2",
+        "is_active": true
+      },
+      {
+        "_key": "ut_depf",
+        "code": "DEPF",
+        "name": "Depozit fructe-legume",
+        "subtitle": "Depozit ambiant, refrigerat și frigorific CA pentru fructe și legume",
+        "annex9_ref": "VI.4",
+        "is_active": true
+      },
+      {
+        "_key": "ut_rest",
+        "code": "REST",
+        "name": "Restaurant/bistro/pensiune",
+        "subtitle": "Unitate de alimentație publică cu meniu complet",
+        "annex9_ref": "Alimentație publică",
+        "is_active": true
+      },
+      {
+        "_key": "ut_fast",
+        "code": "FAST",
+        "name": "Fast-food/pizzerie/kebab",
+        "subtitle": "Unitate de alimentație publică cu produse prăjite și grill",
+        "annex9_ref": "Alimentație publică",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cate",
+        "code": "CATE",
+        "name": "Catering/cantină",
+        "subtitle": "Alimentație colectivă, cantina școlară/spitalicească/corporativă",
+        "annex9_ref": "Alimentație publică",
+        "is_active": true
+      },
+      {
+        "_key": "ut_ambu",
+        "code": "AMBU",
+        "name": "Alimentație ambulantă",
+        "subtitle": "Food truck, stand temporar, chioșc alimentar",
+        "annex9_ref": "VI.12",
+        "is_active": true
+      },
+      {
+        "_key": "ut_supe",
+        "code": "SUPE",
+        "name": "Supermarket/magazin alimentar",
+        "subtitle": "Comercializare cu amănuntul produse alimentare",
+        "annex9_ref": "VI.10, VI.5",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cofe",
+        "code": "COFE",
+        "name": "Cofetărie și patiserie",
+        "subtitle": "Produse cu creme, frișcă și produse de patiserie perisabile",
+        "annex9_ref": "IV.1",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cart",
+        "code": "CART",
+        "name": "Cartofi/chips/snacks",
+        "subtitle": "Chips, cartofi prăjiți, piure deshidratat, făină de cartofi",
+        "annex9_ref": "I.1-I.5",
+        "is_active": true
+      },
+      {
+        "_key": "ut_baur",
+        "code": "BAUR",
+        "name": "Băuturi răcoritoare și ape",
+        "subtitle": "Ape minerale, ape de izvor, băuturi răcoritoare nealcoolice",
+        "annex9_ref": "V.8",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cioc",
+        "code": "CIOC",
+        "name": "Ciocolată și produse zaharoase",
+        "subtitle": "Ciocolată, praline, bomboane, gumă de mestecat",
+        "annex9_ref": "IV.4",
+        "is_active": true
+      },
+      {
+        "_key": "ut_bisc",
+        "code": "BISC",
+        "name": "Biscuiți/wafers/crackers",
+        "subtitle": "Produse de panificație uscate, snacks dulci și sărate",
+        "annex9_ref": "IV.2",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cond",
+        "code": "COND",
+        "name": "Condimente/sosuri/maioneză",
+        "subtitle": "Condimente, sosuri, ketchup, maioneză, muștar, oțet",
+        "annex9_ref": "IV.8",
+        "is_active": true
+      },
+      {
+        "_key": "ut_ingh",
+        "code": "INGH",
+        "name": "Înghețată",
+        "subtitle": "Fabricare înghețată pe bază de lapte și non-lactată",
+        "annex9_ref": "VI.8",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cafe",
+        "code": "CAFE",
+        "name": "Cafea și ceai",
+        "subtitle": "Prăjire cafea, măcinare, cafea solubilă, ambalare ceai și plante",
+        "annex9_ref": "IV.6-IV.7",
+        "is_active": true
+      },
+      {
+        "_key": "ut_suga",
+        "code": "SUGA",
+        "name": "Alimente sugari și suplimente",
+        "subtitle": "Formule sugari, alimente dietetice, FSMP, suplimente alimentare",
+        "annex9_ref": "IV.9-IV.10",
+        "is_active": true
+      },
+      {
+        "_key": "ut_bar",
+        "code": "BAR",
+        "name": "Bar/cafenea/ceainărie",
+        "subtitle": "Bar, cafenea, ceainărie, stand gogoși, floricele, sucuri",
+        "annex9_ref": "VI.12",
+        "is_active": true
+      },
+      {
+        "_key": "ut_piat",
+        "code": "PIAT",
+        "name": "Piața agroalimentară",
+        "subtitle": "Piața agroalimentară și piața angro de legume-fructe",
+        "annex9_ref": "VI.9",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cidru",
+        "code": "CIDRU",
+        "name": "Cidru/mied/băuturi fermentate",
+        "subtitle": "Cidru, mied, vermut și alte băuturi fermentate nondistilate",
+        "annex9_ref": "V.4-V.5",
+        "is_active": true
+      },
+      {
+        "_key": "ut_cemd",
+        "code": "CEMD",
+        "name": "Cereale mic dejun",
+        "subtitle": "Corn flakes, granola, muesli, extrudate, premixuri panificație",
+        "annex9_ref": "III.4-III.5",
+        "is_active": true
+      },
+      {
+        "_key": "ut_tran",
+        "code": "TRAN",
+        "name": "Transport alimente",
+        "subtitle": "Mijloace de transport produse alimentare de origine non-animală",
+        "annex9_ref": "VI.7",
+        "is_active": true
+      },
+      {
+        "_key": "ut_marg",
+        "code": "MARG",
+        "name": "Margarină și grăsimi",
+        "subtitle": "Margarină, grăsimi tartinabile, grăsimi de gătit combinate",
+        "annex9_ref": "II.5-II.7",
+        "is_active": true
+      },
+      {
+        "_key": "ut_amid",
+        "code": "AMID",
+        "name": "Amidon/glucoză/gluten",
+        "subtitle": "Amidon alimentar, glucoză, maltoză, sirop glucoză, gluten vital",
+        "annex9_ref": "III.6-III.8",
+        "is_active": true
+      },
+      {
+        "_key": "ut_ciup",
+        "code": "CIUP",
+        "name": "Ciuperci",
+        "subtitle": "Producție, procesare și comercializare ciuperci cultivate și sălbatice",
+        "annex9_ref": "IV.13",
+        "is_active": true
+      }
+    ],
+    "ansvsa_checklist_sections": [
+      {
+        "_key": "BRUT_S1",
+        "unit_type": "@ut_brut",
+        "title": "1. DOCUMENTAȚIE ȘI AUTORIZARE",
+        "order_index": 1
+      },
+      {
+        "_key": "BRUT_S2",
+        "unit_type": "@ut_brut",
+        "title": "2. SPAȚII, FLUXURI ȘI DOTĂRI",
+        "order_index": 2
+      },
+      {
+        "_key": "BRUT_S3",
+        "unit_type": "@ut_brut",
+        "title": "3. ECHIPAMENTE ȘI DOTĂRI TEHNICE",
+        "order_index": 3
+      },
+      {
+        "_key": "BRUT_S4",
+        "unit_type": "@ut_brut",
+        "title": "4. MATERII PRIME ȘI RECEPȚIE",
+        "order_index": 4
+      },
+      {
+        "_key": "BRUT_S5",
+        "unit_type": "@ut_brut",
+        "title": "5. PROCESUL DE PRODUCȚIE",
+        "order_index": 5
+      },
+      {
+        "_key": "BRUT_S6",
+        "unit_type": "@ut_brut",
+        "title": "6. IGIENA PERSONALULUI",
+        "order_index": 6
+      },
+      {
+        "_key": "BRUT_S7",
+        "unit_type": "@ut_brut",
+        "title": "7. PRODUSE FINITE, ETICHETARE ȘI DEPOZITARE",
+        "order_index": 7
+      },
+      {
+        "_key": "BRUT_S8",
+        "unit_type": "@ut_brut",
+        "title": "8. CURĂȚENIE, DDD ȘI AUTOCONTROL",
+        "order_index": 8
+      }
+    ],
+    "ansvsa_checklist_items": [
+      {
+        "_key": "item_brut_01_01",
+        "code": "BRUT-01-01",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S1",
+        "requirement": "Autorizație sanitară-veterinară în vigoare, afișată vizibil, concordantă cu activitățile desfășurate",
+        "guide_note": "Nr., data, activitățile autorizate vs. activitățile găsite în teren. Sortimentele fabricate trebuie să fie acoperite de autorizație.",
+        "nc_severity": "Mj",
+        "order_index": 1,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_01_02",
+        "code": "BRUT-01-02",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S1",
+        "requirement": "Plan HACCP elaborat, actualizat și implementat efectiv; CCP-urile specifice brutăriei identificate",
+        "guide_note": "CCP-uri obligatorii: temperatura de coacere (min. 90°C centru produs), recepția făinii, igienizare. Verifică înregistrările de monitorizare — completate, semnate, fără lacune sistematice.",
+        "nc_severity": "S",
+        "order_index": 2,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_01_05",
+        "code": "BRUT-01-05",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S1",
+        "requirement": "Contract DDD valid cu firmă autorizată ANSVSA; buletine de tratament recente; harta capcanelor",
+        "guide_note": "Firma autorizată ANSVSA, valabilitatea contractului, tipurile de tratamente, ultimele buletine și harta fizică a capcanelor.",
+        "nc_severity": "S",
+        "order_index": 5,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_02_01",
+        "code": "BRUT-02-01",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S2",
+        "requirement": "Starea clădirii: pereți, tavane, podele impermeabile, fără fisuri, igrasie sau mucegai vizibil",
+        "guide_note": "Inspecție pe zone: recepție MP, sală producție, sală coacere, depozit PF. Consemnează deficiențele concrete pe zone.",
+        "nc_severity": "M",
+        "order_index": 1,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_02_02",
+        "code": "BRUT-02-02",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S2",
+        "requirement": "Flux tehnologic: principiul marșului înainte respectat — fără încrucișări fluxuri murdare/curate",
+        "guide_note": "MP brută → preparare → coacere → răcire → expediere. Încrucișările de fluxuri = risc contaminare încrucișată.",
+        "nc_severity": "S",
+        "order_index": 2,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_03_02",
+        "code": "BRUT-03-02",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S3",
+        "requirement": "Termometru de sondă calibrat (buletin de calibrare valabil) disponibil în producție — esențial pentru monitorizarea CCP",
+        "guide_note": "Fără termometru calibrat = imposibil de monitorizat CCP temperatura de coacere.",
+        "nc_severity": "Mj",
+        "order_index": 2,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_04_03",
+        "code": "BRUT-04-03",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S4",
+        "requirement": "Depozitare făină: uscată (<65% HR), pe rafturi/paleți, FIFO respectat, separată STRICT de substanțele de curățenie",
+        "guide_note": "Substanțe de curățenie depozitate cu alimentele = NECONFORMITATE MAJORĂ.",
+        "nc_severity": "Mj",
+        "order_index": 3,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_05_01",
+        "code": "BRUT-05-01",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S5",
+        "requirement": "Temperatura de coacere — CCP: min. 90°C în centrul produsului; verificată cu termometrul de sondă; înregistrată per lot",
+        "guide_note": "Temperatura în CENTRUL produsului, nu la suprafață. Înregistrările disponibile și semnate pentru ultimele loturi.",
+        "nc_severity": "Mj",
+        "order_index": 1,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_05_05",
+        "code": "BRUT-05-05",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S5",
+        "requirement": "Management alergeni: separare strictă linie cu gluten față de linia fără gluten (dacă se fabrică ambele categorii)",
+        "guide_note": "Produse fără gluten: analize de verificare (< 20 mg/kg — Reg. CE 41/2009). Linie separată sau curățare validată cu analize.",
+        "nc_severity": "Mj",
+        "order_index": 5,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_06_01",
+        "code": "BRUT-06-01",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S6",
+        "requirement": "Fișe de aptitudine medicală valabile pentru tot personalul din producție și depozitare",
+        "guide_note": "Data ultimului examen medical per angajat. Fără personal fără aviz medical în producție = NECONFORMITATE MAJORĂ.",
+        "nc_severity": "Mj",
+        "order_index": 1,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_07_02",
+        "code": "BRUT-07-02",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S7",
+        "requirement": "Etichetare conformă Reg. 1169/2011: GLUTEN evidențiat tipografic (alergen major); toate informațiile obligatorii prezente",
+        "guide_note": "Gluten = alergen major obligatoriu declarat și evidențiat. Verifică: denumire, ingrediente, gramaj, termen, producător, lot.",
+        "nc_severity": "Mj",
+        "order_index": 2,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      },
+      {
+        "_key": "item_brut_08_03",
+        "code": "BRUT-08-03",
+        "unit_type": "@ut_brut",
+        "section": "@BRUT_S8",
+        "requirement": "Harta capcanelor DDD corelată cu capcanele fizice; fără semne de infestare activă în producție sau depozite",
+        "guide_note": "Excremente de rozătoare, insecte vii în zone de producție sau produse finite = NECONFORMITATE MAJORĂ.",
+        "nc_severity": "Mj",
+        "order_index": 3,
+        "is_active": true,
+        "valid_from": "2025-01-01"
+      }
+    ],
+    "ansvsa_inspection_checklists": [
+      {
+        "_key": "cl_1",
+        "inspection": "@insp_1",
+        "report": "@rep_1",
+        "unit_type": "@ut_brut",
+        "scoring_config": "@cfg_v1",
+        "started_at": "2024-05-20T09:00:00Z",
+        "completed_at": "2024-05-20T11:30:00Z",
+        "conformity_score": 81.25,
+        "total_items": 32,
+        "count_a": 22,
+        "count_ar": 5,
+        "count_nc_m": 2,
+        "count_nc_s": 2,
+        "count_nc_mj": 0,
+        "count_na": 1,
+        "has_nc_major": false,
+        "activity_suspended": false,
+        "recontrol_date": "2024-08-20",
+        "checklist_status": "FINALIZAT"
+      }
+    ],
+    "ansvsa_checklist_responses": [
+      {
+        "checklist": "@cl_1",
+        "item": "@item_brut_01_01",
+        "item_code": "BRUT-01-01",
+        "requirement_snapshot": "Autorizație sanitară-veterinară în vigoare, afișată vizibil, concordantă cu activitățile desfășurate",
+        "nc_severity_snapshot": "Mj",
+        "score_max_snapshot": 4,
+        "response": "A",
+        "score_obtained": 4,
+        "observations": "",
+        "responded_at": "2024-05-20T09:15:00Z"
+      },
+      {
+        "checklist": "@cl_1",
+        "item": "@item_brut_01_02",
+        "item_code": "BRUT-01-02",
+        "requirement_snapshot": "Plan HACCP elaborat, actualizat și implementat efectiv; CCP-urile specifice brutăriei identificate",
+        "nc_severity_snapshot": "S",
+        "score_max_snapshot": 4,
+        "response": "AR",
+        "score_obtained": 3,
+        "observations": "Plan HACCP prezent dar înregistrările de monitorizare CCP coacere incomplete pe ultimele 2 săptămâni.",
+        "responded_at": "2024-05-20T09:20:00Z"
+      },
+      {
+        "checklist": "@cl_1",
+        "item": "@item_brut_05_01",
+        "item_code": "BRUT-05-01",
+        "requirement_snapshot": "Temperatura de coacere — CCP: min. 90°C în centrul produsului; verificată cu termometrul de sondă; înregistrată per lot",
+        "nc_severity_snapshot": "Mj",
+        "score_max_snapshot": 4,
+        "response": "A",
+        "score_obtained": 4,
+        "observations": "Temperatura verificată: 94°C în centrul produsului la cuptorul nr. 2.",
+        "responded_at": "2024-05-20T10:05:00Z"
+      },
+      {
+        "checklist": "@cl_1",
+        "item": "@item_brut_06_01",
+        "item_code": "BRUT-06-01",
+        "requirement_snapshot": "Fișe de aptitudine medicală valabile pentru tot personalul din producție și depozitare",
+        "nc_severity_snapshot": "Mj",
+        "score_max_snapshot": 4,
+        "response": "NC",
+        "score_obtained": 0,
+        "observations": "Angajatul Ionescu V. (malaxor) fără fișă medicală valabilă — expirat la 01.03.2024. Măsură: excludere temporară din producție până la obținerea avizului.",
+        "responded_at": "2024-05-20T10:45:00Z"
+      }
+    ]
+  }
+}

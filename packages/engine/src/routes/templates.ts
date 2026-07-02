@@ -26,6 +26,7 @@ import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { enqueueDDLJob } from '../lib/ddl-queue.js';
 import { dynamicInsert } from '../db/dynamic.js';
 import { auditLog } from '../lib/audit.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenant-manager.js';
 
 // Static imports so Bun.build bundles the JSON into the binary.
 // Adding a new builtin template = drop a JSON file + add the import here.
@@ -34,6 +35,7 @@ import invoicing from '../templates/builtin/invoicing.json' with { type: 'json' 
 import project from '../templates/builtin/project.json' with { type: 'json' };
 import helpdesk from '../templates/builtin/helpdesk.json' with { type: 'json' };
 import inventory from '../templates/builtin/inventory.json' with { type: 'json' };
+import ansvsa from '../templates/builtin/ansvsa.json' with { type: 'json' };
 
 interface TemplateField {
   name: string;
@@ -68,6 +70,7 @@ const BUILTIN: readonly TemplateManifest[] = [
   project as TemplateManifest,
   helpdesk as TemplateManifest,
   inventory as TemplateManifest,
+  ansvsa as TemplateManifest,
 ];
 
 function summary(t: TemplateManifest): Omit<TemplateManifest, 'collections'> & {
@@ -308,6 +311,12 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       const prefix = body.prefix?.replace(/_$/, '') ?? '';
       const pfx = (name: string) => (prefix ? `${prefix}_${name}` : name);
 
+      // The acting tenant. /api/templates is in TXN_SKIP_PREFIXES (no tenantTrx —
+      // install's CREATE INDEX CONCURRENTLY can't run inside a txn), but
+      // tenantMiddleware still resolves the request tenant onto the context.
+      // Single-tenant installs resolve to the default tenant.
+      const tenantId = (c.get('tenant' as never) as any)?.id ?? DEFAULT_TENANT_ID;
+
       // Seed parents before children so "@key" m2o references resolve.
       const ordered = sortByDependencies(t.collections);
       // unprefixed collection name → row _key → created id
@@ -315,45 +324,57 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       let seeded = 0;
       let pending = 0;
 
-      for (const coll of ordered) {
-        const rows = t.sampleData[coll.name];
-        if (!Array.isArray(rows) || rows.length === 0) continue;
-        keyToId[coll.name] = {};
-        const tableName = pfx(coll.name);
+      // One transaction with the tenant GUC set: collection tables have FORCE ROW
+      // LEVEL SECURITY keyed on `zveltio.current_tenant`, so inserts on the bare
+      // pool are rejected (42501) as soon as a tenant exists. set_config(..., true)
+      // is transaction-scoped — same pattern as withTenantIsolation.
+      await db.transaction().execute(async (trx) => {
+        await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
 
-        // Table ready + empty? (DDL may still be in flight, or a prior seed ran.)
-        let ready = true;
-        const count = await sql<{ n: number }>`
-          SELECT count(*)::int AS n FROM ${sql.id(tableName)}
-        `
-          .execute(db)
-          .catch(() => {
-            ready = false;
-            return { rows: [{ n: 0 }] };
-          });
-        if (!ready) {
-          pending++;
-          continue; // table not created yet — caller should retry after install completes
-        }
-        if ((count.rows[0]?.n ?? 0) > 0) continue; // already seeded — idempotent
+        for (const coll of ordered) {
+          const rows = t.sampleData?.[coll.name];
+          if (!Array.isArray(rows) || rows.length === 0) continue;
+          keyToId[coll.name] = {};
+          // Physical table is zvd_-prefixed (DDLManager.getTableName), NOT the
+          // bare collection name — seeding the bare name silently seeded nothing.
+          const tableName = DDLManager.getTableName(pfx(coll.name));
 
-        for (const row of rows) {
-          const { _key, ...fields } = row;
-          const resolved: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(fields)) {
-            if (typeof v === 'string' && v.startsWith('@')) {
-              const fieldDef = coll.fields.find((f) => f.name === k);
-              const relColl = fieldDef?.options?.related_collection as string | undefined;
-              resolved[k] = relColl ? (keyToId[relColl]?.[v.slice(1)] ?? null) : v;
-            } else {
-              resolved[k] = v;
-            }
+          // Existence check must be non-throwing: any error inside a transaction
+          // aborts it, so a try/catch around `SELECT count(*)` would poison the
+          // txn for every later collection. to_regclass returns NULL instead.
+          const reg = await sql<{ ok: boolean }>`
+            SELECT to_regclass(${tableName}) IS NOT NULL AS ok
+          `.execute(trx);
+          if (!reg.rows[0]?.ok) {
+            pending++;
+            continue; // table not created yet — caller retries after install completes
           }
-          const inserted = await dynamicInsert(db, tableName, resolved);
-          if (typeof _key === 'string') keyToId[coll.name][_key] = inserted.id as string;
-          seeded++;
+
+          // Already seeded (for THIS tenant — the count runs under the GUC, so
+          // RLS scopes it)? Skip: idempotent.
+          const count = await sql<{ n: number }>`
+            SELECT count(*)::int AS n FROM ${sql.id(tableName)}
+          `.execute(trx);
+          if ((count.rows[0]?.n ?? 0) > 0) continue;
+
+          for (const row of rows) {
+            const { _key, ...fields } = row;
+            const resolved: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(fields)) {
+              if (typeof v === 'string' && v.startsWith('@')) {
+                const fieldDef = coll.fields.find((f) => f.name === k);
+                const relColl = fieldDef?.options?.related_collection as string | undefined;
+                resolved[k] = relColl ? (keyToId[relColl]?.[v.slice(1)] ?? null) : v;
+              } else {
+                resolved[k] = v;
+              }
+            }
+            const inserted = await dynamicInsert(trx as unknown as Database, tableName, resolved);
+            if (typeof _key === 'string') keyToId[coll.name][_key] = inserted.id as string;
+            seeded++;
+          }
         }
-      }
+      });
 
       await auditLog(db, {
         type: 'collection.created',
