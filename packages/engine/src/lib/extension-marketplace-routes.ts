@@ -8,6 +8,7 @@
 // (passed in rather than imported, to avoid an import cycle with the loader).
 
 import { Hono } from 'hono';
+import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import type { Database } from '../db/index.js';
 import { auth } from './auth.js';
@@ -213,14 +214,40 @@ export function registerMarketplaceRoutes(
       (licenseRows as any[]).map((r: any) => r.key.replace('ext_license:', '')),
     );
 
+    // An extension is a satisfied dependency once it is enabled (or already
+    // running). Computed once so each extension can report which of its declared
+    // dependencies are still unmet — the marketplace shows "Depends on …" and
+    // blocks Enable until they are.
+    const enabledNames = new Set(
+      catalog
+        .map((e) => e.name)
+        .filter((n) => (dbMap.get(n) as any)?.is_enabled === true || self.isActive(n)),
+    );
+    const readDeps = (name: string): string[] => {
+      try {
+        const m = JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8'));
+        return (m.dependencies ?? [])
+          .map((d: any) => (typeof d === 'string' ? d : d?.name))
+          .filter((x: unknown): x is string => typeof x === 'string' && x.length > 0);
+      } catch {
+        return [];
+      }
+    };
+
     const extensions = catalog.map((entry) => {
       const dbEntry = dbMap.get(entry.name) as any;
       const runtimeActive = self.isActive(entry.name);
       const extDir = join(extBase, entry.name);
       const filesOnDisk = extensionFilesPresentCached(extDir);
+      const dependencies = readDeps(entry.name);
+      const missing_dependencies = dependencies.filter((d) => !enabledNames.has(d));
 
       return {
         ...entry,
+        dependencies,
+        // Declared dependencies that are not yet enabled — the UI disables Enable
+        // and shows "enable these first" when this is non-empty.
+        missing_dependencies,
         is_installed: dbEntry?.is_installed ?? runtimeActive,
         is_enabled: dbEntry?.is_enabled ?? runtimeActive,
         is_running: runtimeActive,

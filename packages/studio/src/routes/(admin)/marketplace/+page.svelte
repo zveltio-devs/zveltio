@@ -67,6 +67,10 @@ interface Extension {
   needs_restart: boolean;
   files_on_disk: boolean;
   config: Record<string, any>;
+  /** Other extensions this one requires (by name). */
+  dependencies?: string[];
+  /** Subset of `dependencies` that are not yet enabled — blocks Install/Enable. */
+  missing_dependencies?: string[];
 }
 
 // ── License key modal state ────────────────────────────────────────────────
@@ -450,6 +454,8 @@ onMount(loadCatalog);
               {@const iconColor = CATEGORY_COLORS[ext.category] ?? 'text-gray-400'}
               {@const isProcessing = processingId === ext.name}
               {@const isRebuilding = rebuildingExt === ext.displayName}
+              {@const missingDeps = ext.missing_dependencies ?? []}
+              {@const depsBlocked = missingDeps.length > 0}
 
               <div class="card bg-base-100 shadow-sm border transition-all
                 {ext.is_running
@@ -503,7 +509,7 @@ onMount(loadCatalog);
                   <p class="text-sm opacity-60 line-clamp-2 mb-3">{ext.description}</p>
 
                   <!-- Tags -->
-                  <div class="flex flex-wrap gap-1 mb-4">
+                  <div class="flex flex-wrap gap-1 mb-2">
                     {#each ext.tags.slice(0, 3) as tag}
                       <span class="badge badge-xs badge-ghost">{tag}</span>
                     {/each}
@@ -513,6 +519,22 @@ onMount(loadCatalog);
                       </span>
                     {/if}
                   </div>
+
+                  <!-- Dependencies -->
+                  {#if ext.dependencies && ext.dependencies.length > 0}
+                    <div class="flex flex-wrap items-center gap-1 mb-4 text-xs">
+                      <span class="opacity-50">Depends on:</span>
+                      {#each ext.dependencies as dep}
+                        {@const unmet = missingDeps.includes(dep)}
+                        <span
+                          class="badge badge-xs {unmet ? 'badge-warning' : 'badge-success badge-outline'}"
+                          title={unmet ? 'Not enabled yet — enable this first' : 'Enabled'}
+                        >{dep}</span>
+                      {/each}
+                    </div>
+                  {:else}
+                    <div class="mb-4"></div>
+                  {/if}
 
                   <!-- Actions -->
                   <div class="flex items-center gap-2 mt-auto">
@@ -525,14 +547,34 @@ onMount(loadCatalog);
                       </button>
 
                     {:else if !ext.is_installed}
-                      <button class="btn btn-primary btn-sm flex-1 gap-1" onclick={() => install(ext)}>
-                        <Download size={14} /> Install
-                      </button>
+                      {#if depsBlocked}
+                        <button
+                          class="btn btn-sm flex-1 gap-1"
+                          disabled
+                          title={`Enable ${missingDeps.join(', ')} first`}
+                        >
+                          <Download size={14} /> Install
+                        </button>
+                      {:else}
+                        <button class="btn btn-primary btn-sm flex-1 gap-1" onclick={() => install(ext)}>
+                          <Download size={14} /> Install
+                        </button>
+                      {/if}
 
                     {:else if !ext.is_enabled && !ext.is_running}
-                      <button class="btn btn-success btn-sm flex-1 gap-1" onclick={() => enable(ext)}>
-                        <Power size={14} /> Enable
-                      </button>
+                      {#if depsBlocked}
+                        <button
+                          class="btn btn-sm flex-1 gap-1"
+                          disabled
+                          title={`Enable ${missingDeps.join(', ')} first`}
+                        >
+                          <Power size={14} /> Enable
+                        </button>
+                      {:else}
+                        <button class="btn btn-success btn-sm flex-1 gap-1" onclick={() => enable(ext)}>
+                          <Power size={14} /> Enable
+                        </button>
+                      {/if}
                       <button class="btn btn-ghost btn-sm" onclick={() => openConfig(ext)} title="Configure">
                         <Settings size={14} />
                       </button>
