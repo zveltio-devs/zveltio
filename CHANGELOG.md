@@ -2,6 +2,25 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.28] - 2026-07-03
+
+**Fixes the marketplace enable deadlock** (diagnosed on a live instance: 29
+advisory locks stranded on idle pool connections, enables blocked 15+ minutes →
+"HTTP 422 / Failed to fetch" cascades).
+
+- **fix(extensions)**: `withExtensionLock` reverted from the beta.25 session-level
+  `pg_advisory_lock` (leaked under interruption — the pooled connection returned
+  to the pool still holding the lock) to `pg_advisory_xact_lock` in a transaction,
+  which Postgres always releases. Same footgun fixed in auto-migrate (lock/unlock
+  could land on different pool connections; now pinned to one). Verified: 5
+  interrupted enables + 1 normal enable leave 0 locks held.
+  **Operators: restart the engine once to clear any locks stranded by ≤beta.27.**
+- **feat(marketplace)**: extension dependencies are now explicit — cards show
+  "Depends on: <ext>" (amber = not enabled yet, green = satisfied) and the
+  Install/Enable buttons are disabled with an "Enable <deps> first" tooltip until
+  every dependency is enabled. `GET /api/marketplace` exposes `dependencies` +
+  `missing_dependencies`. No silent auto-enable — the operator stays in control.
+
 ## [3.0.0-beta.27] - 2026-07-02
 
 **fix(templates): seeding actually inserts rows now.** Template seed (beta.26)
