@@ -74,38 +74,40 @@ export async function autoMigrate(db: Database): Promise<AutoMigrateResult> {
 
   console.log(`⚙️  Pending migrations: ${MAX_SCHEMA_VERSION - before}. Acquiring advisory lock…`);
 
-  // Acquire — blocks until released by other replicas. pg_advisory_lock
-  // is session-scoped: we MUST release in the same connection. We use
-  // the wider db's first available connection (Kysely's pool may hand
-  // us a different connection per query, but the lock is on the
-  // *session*; we use the simpler advisory_lock + matched
-  // advisory_unlock pattern, both as `sql\`...\`.execute(db)` calls.
-  //
-  // For correctness across pool boundaries, we'd need a dedicated
-  // connection — Bun.SQL pool is small enough that this is acceptable
-  // at startup, but we wrap unlock in a try/finally to avoid leaks.
-  await sql<unknown>`SELECT pg_advisory_lock(${MIGRATIONS_LOCK_KEY})`.execute(db);
-  try {
-    // Re-check after acquiring the lock — another replica may have
-    // already applied everything while we waited.
-    const recheck = await getLastAppliedMigration(db);
-    if (recheck >= MAX_SCHEMA_VERSION) {
-      console.log(`✅ Migrations applied by another replica while we waited (now at v${recheck})`);
-      return { ran: false, before, after: recheck, durationMs: Date.now() - t0 };
-    }
+  // pg_advisory_lock is SESSION-scoped, so lock + unlock MUST run on the same
+  // physical connection. `sql\`…\`.execute(db)` grabs an arbitrary pool
+  // connection each call, so a lock on one connection and an unlock on another
+  // leaves the lock held on the first connection when it returns to the pool —
+  // a permanent leak (this exact footgun stranded 29 extension-lifecycle locks
+  // in production; see withExtensionLock). Pin ONE connection for the whole
+  // lock lifetime. The migration reads/writes below use the pool (`db`) — they
+  // don't need the lock connection, only the mutual exclusion it provides.
+  return db.connection().execute(async (conn) => {
+    await sql<unknown>`SELECT pg_advisory_lock(${MIGRATIONS_LOCK_KEY})`.execute(conn);
+    try {
+      // Re-check after acquiring the lock — another replica may have
+      // already applied everything while we waited.
+      const recheck = await getLastAppliedMigration(db);
+      if (recheck >= MAX_SCHEMA_VERSION) {
+        console.log(
+          `✅ Migrations applied by another replica while we waited (now at v${recheck})`,
+        );
+        return { ran: false, before, after: recheck, durationMs: Date.now() - t0 };
+      }
 
-    await runPending(db);
-    const after = await getLastAppliedMigration(db);
-    const durationMs = Date.now() - t0;
-    console.log(`✅ Auto-migrate complete: v${before} → v${after} (${durationMs}ms)`);
-    return { ran: true, before, after, durationMs };
-  } finally {
-    // Always release. If the runner threw, we still want the lock free
-    // so the operator can retry on the next start.
-    await sql<unknown>`SELECT pg_advisory_unlock(${MIGRATIONS_LOCK_KEY})`
-      .execute(db)
-      .catch((err) => {
-        console.warn('[auto-migrate] failed to release advisory lock:', (err as Error).message);
-      });
-  }
+      await runPending(db);
+      const after = await getLastAppliedMigration(db);
+      const durationMs = Date.now() - t0;
+      console.log(`✅ Auto-migrate complete: v${before} → v${after} (${durationMs}ms)`);
+      return { ran: true, before, after, durationMs };
+    } finally {
+      // Always release, on the SAME connection. If the runner threw, we still
+      // want the lock free so the operator can retry on the next start.
+      await sql<unknown>`SELECT pg_advisory_unlock(${MIGRATIONS_LOCK_KEY})`
+        .execute(conn)
+        .catch((err) => {
+          console.warn('[auto-migrate] failed to release advisory lock:', (err as Error).message);
+        });
+    }
+  });
 }

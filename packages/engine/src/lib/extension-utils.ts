@@ -33,10 +33,11 @@ import { join } from 'path';
 // (see `inMemoryMutex` finally block).
 //
 // Trade-off: when a wrapped operation runs an external long task (download,
-// npm install) it holds one reserved DB connection for that duration (the
-// cross-replica session advisory lock lives on it — see withExtensionLock).
-// No transaction is held open, so VACUUM/MVCC are unaffected. Lifecycle ops are
-// infrequent admin actions, and the pool default of 10 connections has headroom.
+// npm install) it holds one transaction open for that duration (the cross-replica
+// pg_advisory_xact_lock lives in it — see withExtensionLock). That pins one
+// connection + an MVCC snapshot, but only for an infrequent admin action, and it
+// is the price of a lock that CANNOT leak — see the incident note on
+// withExtensionLock. The pool default of 10 connections has headroom.
 const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
 
 /**
@@ -69,20 +70,28 @@ export async function inMemoryMutex<T>(key: string, fn: () => Promise<T>): Promi
  * Serialise lifecycle operations for an extension across both the
  * current process AND other engine replicas. Wraps `inMemoryMutex`
  * (which handles intra-process re-entry) around a Postgres
- * **session-level** `pg_advisory_lock` (which fences other replicas).
+ * **transaction-scoped** `pg_advisory_xact_lock` (which fences other replicas).
  *
- * Why a session lock on a reserved connection rather than
- * `pg_advisory_xact_lock` inside a transaction: an extension lifecycle op
- * (download → npm install → reload) can run for many seconds, and
- * `fn` is opaque (it opens its own transactions for DDL/migrations). The
- * old form held an open transaction for the whole duration, which pins an
- * MVCC snapshot and blocks `VACUUM` cluster-wide. A session-level lock gives
- * the SAME cross-replica mutual exclusion (one reserved connection holds the
- * lock) without an open transaction — `fn` runs its own statements on the
- * pool, and the lock is released in `finally`. If the connection dies first,
- * Postgres drops the lock on session end, so it can never leak.
+ * Why xact-scoped and NOT a session-level `pg_advisory_lock` on a reserved
+ * connection: beta.25 tried the session-level form to avoid holding an open
+ * transaction during the (multi-second) download/npm-install. It LEAKED in
+ * production — under any interruption (e.g. two enables in a dependency chain
+ * each holding their own lock, so neither `finally` ran, or a client that
+ * disconnected mid-op) the pooled connection returned to the pool still holding
+ * the session lock, and every later enable deadlocked. A real incident: 29
+ * granted advisory locks stranded on idle pool connections, enables blocked 15+
+ * minutes. `pg_advisory_xact_lock` cannot leak: Postgres releases it when the
+ * transaction ends — commit OR rollback OR connection reset — which always
+ * happens before the connection can be reused. `fn` opens its own transactions
+ * on the pool; the only cost of the outer txn is pinning one connection + an
+ * MVCC snapshot for the op's duration, which is negligible for an infrequent
+ * admin action and vastly preferable to a cross-replica deadlock.
  *
- * `hashtext` returns int4; `pg_advisory_lock` accepts int8 — Postgres
+ * DO NOT switch this back to a session-level lock without a mechanism that
+ * DESTROYS the connection on release (so a leaked lock dies with it) — the
+ * pooled session lock is a footgun.
+ *
+ * `hashtext` returns int4; `pg_advisory_xact_lock` accepts int8 — Postgres
  * implicitly widens. Different extension names hash to different keys
  * (collisions are theoretically possible but harmless — at worst two
  * unrelated extensions would serialize each other).
@@ -94,13 +103,9 @@ export async function withExtensionLock<T>(
 ): Promise<T> {
   const key = `ext:${name}`;
   return inMemoryMutex(key, async () =>
-    db.connection().execute(async (conn) => {
-      await _sql`SELECT pg_advisory_lock(hashtext(${key}))`.execute(conn);
-      try {
-        return await fn();
-      } finally {
-        await _sql`SELECT pg_advisory_unlock(hashtext(${key}))`.execute(conn);
-      }
+    db.transaction().execute(async (trx) => {
+      await _sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`.execute(trx);
+      return fn();
     }),
   );
 }
