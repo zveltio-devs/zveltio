@@ -2,6 +2,28 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [3.0.0-beta.29] - 2026-07-04
+
+**Access-by-IP broke the whole data plane** — found in a full functional sweep of a
+live non-superuser instance (the fire test's biggest catch):
+
+- **fix(tenant) CRITICAL**: `127.0.0.1` (any IP) was parsed as a subdomain
+  ("127"), the tenant lookup missed, and the request proceeded WITHOUT the tenant
+  GUC — every data write failed RLS (42501 → raw 500) and every read returned
+  empty. Invisible in CI (superuser bypasses RLS). IPs now skip subdomain parsing
+  and resolve to the default tenant, like `localhost`; unknown subdomain slugs
+  also fall through to the default tenant instead of silently disabling RLS.
+- **fix(data)**: 42501/row-level-security maps to a clean 403 JSON
+  (`row_level_security_violation`) instead of a raw 500.
+- **fix(storage)**: non-uuid `:id` params (e.g. `/api/storage/files`) 404 cleanly
+  instead of bubbling a Postgres cast error as a 500.
+- **fix(ux)**: `GET /` redirects to `/admin/` when no client app is deployed.
+- **feat(install)**: native installer pinned to the release tag (reproducible
+  installs; was fetched from live master) + provisions PostGIS best-effort.
+
+Verified on a source-run engine with a non-superuser role via 127.0.0.1: seed
+13/13, insert 201, reads return rows, storage 404, `/` → 302.
+
 ## [3.0.0-beta.28] - 2026-07-03
 
 **Fixes the marketplace enable deadlock** (diagnosed on a live instance: 29
