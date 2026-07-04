@@ -1433,11 +1433,9 @@ export class ExtensionLoader {
     for (const migrationPath of migrations) {
       const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
       const existing = await db
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .selectFrom('zv_migrations' as any)
+        .selectFrom('zv_migrations')
         .select('id')
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .where('name' as any, '=', name)
+        .where('name', '=', name)
         .executeTakeFirst()
         .catch(() => null);
       if (existing) continue;
@@ -1457,16 +1455,10 @@ export class ExtensionLoader {
     // non-extension migration applied by an admin).
     await db.transaction().execute(async (trx) => {
       for (const m of pending) {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        await (trx as any).executeQuery({ sql: m.up, parameters: [] });
+        await _sql.raw(m.up).execute(trx);
         // Persist DOWN alongside the migration row so a future uninstall with
         // purgeData=true can replay rollbacks without the original files.
-        await trx
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .insertInto('zv_migrations' as any)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .values({ name: m.name, down_sql: m.down } as any)
-          .execute();
+        await trx.insertInto('zv_migrations').values({ name: m.name, down_sql: m.down }).execute();
         console.log(`  ✓ Extension migration: ${m.name}`);
       }
     });
@@ -1485,42 +1477,28 @@ export class ExtensionLoader {
   async purgeExtensionData(extensionName: string, db: Database): Promise<void> {
     const prefix = `ext:${extensionName}:`;
     const rows = await db
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .selectFrom('zv_migrations' as any)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .select(['id' as any, 'name' as any, 'down_sql' as any])
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .where('name' as any, 'like', `${prefix}%`)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .orderBy('id' as any, 'desc')
+      .selectFrom('zv_migrations')
+      .select(['id', 'name', 'down_sql'])
+      .where('name', 'like', `${prefix}%`)
+      .orderBy('id', 'desc')
       .execute()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .catch(() => [] as any[]);
+      .catch(() => []);
 
     if (rows.length === 0) return;
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const missing = rows.filter((r: any) => !r.down_sql || (r.down_sql as string).trim() === '');
+    const missing = rows.filter((r) => !r.down_sql || r.down_sql.trim() === '');
     if (missing.length > 0) {
       throw new DownMissingError(
         extensionName,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        missing.map((r: any) => r.name as string),
+        missing.map((r) => r.name),
       );
     }
 
     await db.transaction().execute(async (trx) => {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      for (const r of rows as any[]) {
+      for (const r of rows) {
         const downSql = r.down_sql as string;
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        await (trx as any).executeQuery({ sql: downSql, parameters: [] });
-        await trx
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .deleteFrom('zv_migrations' as any)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .where('id' as any, '=', r.id)
-          .execute();
+        await _sql.raw(downSql).execute(trx);
+        await trx.deleteFrom('zv_migrations').where('id', '=', r.id).execute();
         console.log(`  ✓ Extension purge: rolled back ${r.name}`);
       }
     });
