@@ -613,6 +613,9 @@ rm studio.tar.gz</pre>
   app.use('/*', async (c) => {
     const res = await serveStaticFile(CLIENT_DIST, c.req.path);
     if (res) return res;
+    // No client app deployed at the root → send visitors to the Studio instead
+    // of a bare 404 (an evaluator's first request on a fresh install is `/`).
+    if (c.req.path === '/' || c.req.path === '') return c.redirect('/admin/');
     return c.notFound();
   });
 

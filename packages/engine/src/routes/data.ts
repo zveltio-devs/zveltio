@@ -284,6 +284,21 @@ function mapPgError(err: unknown): { status: number; body: Record<string, unknow
     detail || message,
   );
 
+  // 42501 — insufficient_privilege: in practice, row-level security rejected
+  // the statement (e.g. a write whose tenant context doesn't match the row's
+  // tenant). Surfacing the raw 500 hid the real cause of the "insert fails on
+  // an RLS-enabled instance" class; a clean 403 names it.
+  if (code === '42501' || /row-level security/i.test(message)) {
+    return {
+      status: 403,
+      body: {
+        error: 'row_level_security_violation',
+        message:
+          "The operation violates the collection's row-level security policy for the current tenant context.",
+        code: code || '42501',
+      },
+    };
+  }
   // 23503 — foreign_key_violation
   if (code === '23503' || /foreign key constraint/i.test(message)) {
     return {
