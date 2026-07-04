@@ -16,6 +16,7 @@ export interface Tenant {
   max_storage_gb: number;
   max_api_calls_day: number;
   max_users: number;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   settings: Record<string, any>;
 }
 
@@ -27,6 +28,7 @@ export interface Environment {
   schema_name: string;
   is_production: boolean;
   color: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   settings: Record<string, any>;
 }
 
@@ -219,10 +221,12 @@ export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
     const raw = await cache.get(cacheKey).catch(() => null);
     if (raw) {
       const decoded = _decodeTenantCache(cacheKey, raw);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       if (decoded) return decoded as any;
     }
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const tenant = await (_db as any)
     .selectFrom('zv_tenants')
     .selectAll()
@@ -247,10 +251,12 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
     const raw = await cache.get(cacheKey).catch(() => null);
     if (raw) {
       const decoded = _decodeTenantCache(cacheKey, raw);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       if (decoded) return decoded as any;
     }
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const tenant = await (_db as any)
     .selectFrom('zv_tenants')
     .selectAll()
@@ -274,10 +280,12 @@ export async function getUserTenants(userId: string): Promise<(Tenant & { role: 
     const raw = await cache.get(cacheKey).catch(() => null);
     if (raw) {
       const decoded = _decodeTenantCache(cacheKey, raw);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       if (decoded) return decoded as any;
     }
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const tenants = await (_db as any)
     .selectFrom('zv_tenant_users as tu')
     .innerJoin('zv_tenants as t', 't.id', 'tu.tenant_id')
@@ -371,6 +379,7 @@ export async function provisionEnvironment(
     development: '#2563eb',
   };
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   await (_db as any)
     .insertInto('zv_environments')
     .values({
@@ -381,6 +390,7 @@ export async function provisionEnvironment(
       is_production: isProduction,
       color: colorMap[envSlug] || '#6b7280',
     })
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     .onConflict((oc: any) => oc.columns(['tenant_id', 'slug']).doNothing())
     .execute();
 
@@ -388,6 +398,7 @@ export async function provisionEnvironment(
 }
 
 export async function getTenantEnvironments(tenantId: string): Promise<Environment[]> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (_db as any)
     .selectFrom('zv_environments')
     .selectAll()
@@ -402,6 +413,7 @@ export async function resolveEnvironment(
 ): Promise<Environment | null> {
   const envSlug = headers.get('x-environment') || 'prod';
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const env = await (_db as any)
     .selectFrom('zv_environments')
     .selectAll()
@@ -508,6 +520,7 @@ export async function withTenantIsolation<T>(
   tenantId: string,
   fn: (trx: Database) => Promise<T>,
 ): Promise<T> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (_db as any).transaction().execute(async (trx: Database) => {
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres

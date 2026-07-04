@@ -85,8 +85,10 @@ export const studioApi = {
  */
 export function installGlobalApi(engineUrl: string): void {
   if (typeof window === 'undefined') return;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const existing = (window as any).__zveltio;
   if (existing && existing.__zveltioInstalled) return;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   (window as any).__zveltio = {
     __zveltioInstalled: true,
     engineUrl,
@@ -123,9 +125,11 @@ export function installGlobalApi(engineUrl: string): void {
       _formAlters[formId].push(hook);
     },
     // Existing surfaces — keep stable for already-published bundles.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     registerFieldType(_ft: any) {
       /* wired by FieldRegistry; left as-is */
     },
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     registerAssetPreview(_h: any) {
       /* wired by AssetPreview; left as-is */
     },
@@ -137,6 +141,7 @@ export function _resetForTests(): void {
   _routes.length = 0;
   for (const k of Object.keys(_slots)) delete _slots[k];
   for (const k of Object.keys(_formAlters)) delete _formAlters[k];
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   if (typeof window !== 'undefined') delete (window as any).__zveltio;
 }
 

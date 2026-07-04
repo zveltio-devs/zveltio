@@ -6,6 +6,7 @@ import { FileX, ShieldCheck, ArrowLeft } from '@lucide/svelte';
 
 const ZONE_SLUG = 'intranet';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let pageData = $state<{ page: any; zone: any; views: any[] } | null>(null);
 let loading = $state(true);
 let error = $state<{ status: number; message: string } | null>(null);

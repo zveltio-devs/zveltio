@@ -24,7 +24,9 @@ import {
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
 let path = $state('/');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let entries = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selected = $state<any | null>(null);
 let dragOver = $state(false);
 let uploading = $state(false);
@@ -35,10 +37,12 @@ let shareForm = $state({ expires_in_hours: 24, password: '' });
 
 async function load() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data?: any[]; entries?: any[] }>(
       `/ext/storage/cloud/files?path=${encodeURIComponent(path)}`,
     );
     entries = r.data ?? r.entries ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   }
@@ -67,6 +71,7 @@ async function uploadFiles(files: FileList | null) {
     }
     await load();
     toast.success(m['storage.cloud.toast.uploaded']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Upload failed');
   } finally {
@@ -74,18 +79,22 @@ async function uploadFiles(files: FileList | null) {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function deleteEntry(e: any) {
   askConfirm(m['ext.confirm.deleteNamed']({ name: e.name }), () => deleteEntryConfirmed(e));
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function deleteEntryConfirmed(e: any) {
   try {
     await api.delete(`/ext/storage/cloud/files/${encodeURIComponent(e.id ?? e.path)}`);
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err?.message ?? 'Error');
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function makeShare(e: any) {
   selected = e;
   shareForm = { expires_in_hours: 24, password: '' };
@@ -101,6 +110,7 @@ async function createShare() {
       ...shareForm,
     });
     shareUrl = r.share_url ?? `${ENGINE_URL}/share/${r.token}`;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -125,6 +135,7 @@ function fmtBytes(n: number) {
 function pathParts(p: string) {
   return p.split('/').filter(Boolean);
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function isFolder(e: any) {
   return e.is_folder ?? e.type === 'folder';
 }

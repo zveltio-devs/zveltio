@@ -48,6 +48,7 @@ export interface WithTestDbOptions {
 
 export interface TestDb {
   /** Kysely instance — same shape as `ctx.db` in production. */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   db: Kysely<any>;
   /** Connection string the container exposed. */
   connectionString: string;
@@ -62,7 +63,9 @@ export interface TestDb {
 // fresh DBs *inside* the same container (CREATE DATABASE per-call), so
 // tests stay isolated without paying the container-start cost again.
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let _sharedContainer: any | null = null;
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let _sharedClient: any | null = null;
 let _sharedDbCounter = 0;
 
@@ -103,6 +106,7 @@ export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb>
   let port: number;
   let username: string;
   let password: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let createdContainer: any = null;
 
   if (opts.reuse && _sharedContainer) {
@@ -135,7 +139,9 @@ export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb>
   const connectionString = `postgres://${username}:${password}@${host}:${port}/${database}`;
   const pool = await openPgPool(connectionString);
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const db = new Kysely<any>({
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     dialect: new PostgresDialect({ pool: pool as any }),
   });
 
@@ -189,7 +195,9 @@ export async function startTestDb(opts: WithTestDbOptions = {}): Promise<TestDb>
  *   });
  */
 export async function withTestDb<T>(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   fnOrOpts: ((db: Kysely<any>) => Promise<T>) | WithTestDbOptions,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   maybeFn?: (db: Kysely<any>) => Promise<T>,
 ): Promise<T> {
   const opts: WithTestDbOptions = typeof fnOrOpts === 'function' ? {} : fnOrOpts;
@@ -217,6 +225,8 @@ export async function withTestDb<T>(
  *   const files = glob('engine/migrations/*.sql').map((p) => readFileSync(p, 'utf8'));
  *   await applyMigrationStrings(db, files);
  */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function applyMigrationStrings(db: Kysely<any>, sqlStrings: string[]): Promise<void> {
   const { sql } = await loadKysely();
   for (const raw of sqlStrings) {
@@ -233,6 +243,8 @@ export async function applyMigrationStrings(db: Kysely<any>, sqlStrings: string[
  * Same as `applyMigrationStrings` but takes file paths. Reads each file
  * synchronously, applies in order. Bun-native — uses `Bun.file()`.
  */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function applyMigrationFiles(db: Kysely<any>, paths: string[]): Promise<void> {
   // Bun.file().text() returns a Promise<string>.
   const contents = await Promise.all(paths.map((p) => Bun.file(p).text()));
@@ -266,6 +278,7 @@ export async function stopReusedTestDb(): Promise<void> {
 // ── Internals ───────────────────────────────────────────────────────────────
 
 /** Open a pg connection pool. Uses `pg` (peer dep with testcontainers). */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function openPgPool(connectionString: string): Promise<any> {
   const pg = await import('pg').catch(() => {
     throw new Error(
@@ -274,6 +287,7 @@ async function openPgPool(connectionString: string): Promise<any> {
     );
   });
   // pg's Pool — the Kysely PostgresDialect accepts this directly.
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return new (pg as any).Pool({ connectionString });
 }
 

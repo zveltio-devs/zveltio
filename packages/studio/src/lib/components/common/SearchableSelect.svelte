@@ -12,8 +12,11 @@ let {
   disabled = false,
   label = '',
 }: {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   value?: any;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   options?: Array<{ value: any; label: string }>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   onSearch?: ((term: string) => Promise<Array<{ value: any; label: string }>>) | null;
   placeholder?: string;
   disabled?: boolean;
@@ -22,6 +25,7 @@ let {
 
 let searchTerm = $state('');
 let isOpen = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let filteredOptions = $state<Array<{ value: any; label: string }>>([]);
 let loading = $state(false);
 
@@ -49,6 +53,7 @@ async function handleSearch(term: string) {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function selectOption(opt: { value: any; label: string }) {
   value = opt.value;
   isOpen = false;

@@ -12,6 +12,7 @@ import { Plus, Download, Send, Trash2, FileText, LoaderCircle } from '@lucide/sv
 
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let invoices = $state<any[]>([]);
 let loading = $state(true);
 let showCreateModal = $state(false);
@@ -53,8 +54,10 @@ async function loadInvoices() {
   loading = true;
   try {
     const qs = filter !== 'all' ? `?status=${filter}` : '';
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ invoices: any[] }>(`/ext/compliance/ro/efactura${qs}`);
     invoices = r.invoices ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -62,6 +65,7 @@ async function loadInvoices() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function recalcLine(line: any) {
   const base = line.quantity * line.unit_price;
   line.vat_amount = Math.round(base * (line.vat_rate / 100) * 100) / 100;
@@ -101,6 +105,7 @@ async function createInvoice() {
     showCreateModal = false;
     await loadInvoices();
     toast.success(m['compliance.ro.efactura.toast.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -113,6 +118,7 @@ async function generateXML(id: string) {
     await api.post(`/ext/compliance/ro/efactura/${id}/generate-xml`, {});
     toast.success(m['compliance.ro.efactura.toast.xmlGenerated']());
     await loadInvoices();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -138,9 +144,11 @@ async function submitToANAF(id: string) {
 }
 async function submitToANAFConfirmed(id: string) {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.post<any>(`/ext/compliance/ro/efactura/${id}/submit`, {});
     toast.success(m['ext.saved']());
     await loadInvoices();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['compliance.ro.efactura.toast.submissionFailed']());
   }
@@ -153,6 +161,7 @@ async function deleteInvoiceConfirmed(id: string) {
   try {
     await api.delete(`/ext/compliance/ro/efactura/${id}`);
     await loadInvoices();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }

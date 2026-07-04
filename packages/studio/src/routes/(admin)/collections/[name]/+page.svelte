@@ -35,8 +35,11 @@ import { onDestroy } from 'svelte';
 const collectionName = $derived(page.params.name ?? '');
 
 // ── Core data ──────────────────────────────────────────────────────────────
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collection = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let records = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let relations = $state<any[]>([]);
 let pagination = $state<{ total: number; page: number; limit: number; pages?: number }>({
   total: 0,
@@ -44,7 +47,9 @@ let pagination = $state<{ total: number; page: number; limit: number; pages?: nu
   limit: 25,
 });
 let loading = $state(true);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let fieldTypes = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let allCollections = $state<any[]>([]);
 
 // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -66,16 +71,22 @@ function setTab(t: Tab) {
 
 // ── Derived fields ────────────────────────────────────────────────────────
 const customFields = $derived.by(() => {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   if (!collection) return [] as any[];
   const f = collection.fields;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (typeof f === 'string' ? JSON.parse(f) : (f ?? [])) as any[];
 });
 
 // Fields usable in the insert form: customFields + m2o relation FK fields merged
 const insertableFields = $derived.by(() => {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const fields: any[] = customFields
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     .filter((f: any) => !f.is_system && f.type !== 'computed')
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     .map((f: any) => ({ ...f }));
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const seen = new Set(fields.map((f: any) => f.name as string));
   for (const rel of relations) {
     if ((rel.type === 'm2o' || rel.type === 'reference') && rel.source_field) {
@@ -89,6 +100,7 @@ const insertableFields = $derived.by(() => {
         seen.add(rel.source_field);
       } else {
         // Enhance existing field with relation dropdown capability
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const idx = fields.findIndex((f: any) => f.name === rel.source_field);
         if (idx >= 0 && !fields[idx].options?.related_collection) {
           fields[idx] = {
@@ -105,6 +117,7 @@ const insertableFields = $derived.by(() => {
 
 // Table columns capped at 8 to avoid horizontal overflow
 const tableColumns = $derived(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   customFields.filter((f: any) => f.type !== 'computed' && !f.is_system).slice(0, 8),
 );
 
@@ -156,6 +169,7 @@ async function loadAll(name: string) {
     const [colRes, dataRes, relsRes, typesRes, colsRes] = await Promise.all([
       collectionsApi.get(name),
       dataApi.list(name, { limit: '25' }),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ relations: any[] }>(`/api/relations?collection=${name}`),
       collectionsApi.fieldTypes(),
       collectionsApi.list(),
@@ -165,9 +179,11 @@ async function loadAll(name: string) {
     pagination = dataRes.pagination;
     relations = relsRes.relations ?? [];
     fieldTypes = typesRes.field_types ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     allCollections = (colsRes.collections ?? []).filter((c: any) => c.name !== name);
     aiSearchEnabled = collection?.ai_search_enabled ?? false;
     aiSearchField = collection?.ai_search_field ?? '';
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message || 'Failed to load collection');
   } finally {
@@ -190,8 +206,10 @@ function buildDataParams(p: { page?: number; limit?: number } = {}) {
   // Auto-expand every m2o relation field so cells can show readable labels.
   const m2oFields = customFields
     .filter(
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
     )
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     .map((f: any) => f.name);
   if (m2oFields.length > 0) params.expand = m2oFields.join(',');
   return params;
@@ -205,6 +223,7 @@ async function reloadData(p: { page?: number; limit?: number } = {}) {
     // Drop selection on data refresh — surviving ids may have been deleted
     selectedIds.clear();
     selectedIds = new Set(selectedIds);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message || 'Failed to reload');
   }
@@ -226,6 +245,7 @@ function toggleSort(name: string) {
   reloadData({ page: 1 });
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let searchTimer: any;
 function onSearchInput() {
   clearTimeout(searchTimer);
@@ -260,6 +280,7 @@ async function bulkDeleteSelected() {
         selectedIds = new Set();
         await reloadData();
         toast.success('Records deleted');
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message || 'Bulk delete failed');
       }
@@ -280,6 +301,7 @@ function humanize(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function fieldLabel(f: any): string {
   if (f.label) return f.label;
   return humanize(f.name);
@@ -289,10 +311,12 @@ async function reloadSchema() {
   try {
     const [colRes, relsRes] = await Promise.all([
       collectionsApi.get(collectionName),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ relations: any[] }>(`/api/relations?collection=${collectionName}`),
     ]);
     collection = colRes.collection;
     relations = relsRes.relations ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message || 'Failed to reload schema');
   }
@@ -302,12 +326,14 @@ async function reloadSchema() {
 let drawerOpen = $state(false);
 let drawerMode = $state<'create' | 'edit'>('create');
 let drawerRecordId = $state<string | null>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let insertForm = $state<Record<string, any>>({});
 let inserting = $state(false);
 let relOptions = $state<Record<string, { id: string; label: string }[]>>({});
 let loadingRelOpts = $state(false);
 let formErrors = $state<Record<string, string>>({});
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function labelFromRecord(record: any): string {
   for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
     if (record[k]) return String(record[k]);
@@ -321,14 +347,17 @@ function labelFromRecord(record: any): string {
 async function loadRelOptions() {
   loadingRelOpts = true;
   const relFields = insertableFields.filter(
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
   );
   const entries = await Promise.all(
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     relFields.map(async (f: any) => {
       try {
         const res = await dataApi.list(f.options.related_collection, { limit: '200' });
         return [
           f.name,
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           (res.records ?? []).map((r: any) => ({ id: r.id, label: labelFromRecord(r) })),
         ] as const;
       } catch {
@@ -349,6 +378,7 @@ async function openCreateDrawer() {
   loadRelOptions();
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function openEditDrawer(record: any) {
   drawerMode = 'edit';
   drawerRecordId = record.id;
@@ -406,6 +436,7 @@ async function saveRecord() {
   inserting = true;
   try {
     // Strip empty strings so server uses defaults / NULL where applicable
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const payload: Record<string, any> = {};
     for (const [k, v] of Object.entries(insertForm)) {
       if (v === '' || v === undefined) continue;
@@ -422,6 +453,7 @@ async function saveRecord() {
     insertForm = {};
     drawerRecordId = null;
     await reloadData();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message || 'Failed to save record');
   } finally {
@@ -436,7 +468,9 @@ const insertRecord = saveRecord;
 // ── Schema: fields ────────────────────────────────────────────────────────
 let addFieldOpen = $state(false);
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function handleAddField(body: Record<string, any>) {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const exists = customFields.find((f: any) => f.name === body.name);
   if (exists) throw new Error(`Field '${body.name}' already exists`);
   await api.post(`/api/collections/${collectionName}/fields`, body);
@@ -455,6 +489,7 @@ async function deleteField(fieldName: string) {
         await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
         await reloadSchema();
         toast.success(`Field '${fieldName}' deleted`);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
         toast.error(err.message);
       }
@@ -474,6 +509,7 @@ let relForm = $state({
   target_field: '', // o2m only: FK col in target table
   on_delete: 'SET NULL',
 });
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let targetFields = $state<any[]>([]);
 
 const relTypesMeta = [
@@ -533,6 +569,7 @@ function suggestRelDefaults() {
 async function onRelTargetChange() {
   targetFields = [];
   if (!relForm.target_collection) return;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const tgt = allCollections.find((c: any) => c.name === relForm.target_collection);
   if (tgt) {
     const f = typeof tgt.fields === 'string' ? JSON.parse(tgt.fields) : tgt.fields;
@@ -603,6 +640,7 @@ async function addRelation() {
     await reloadSchema();
     showRelForm = false;
     toast.success('Relation created');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     relFormError = err.message || 'Failed to create relation';
   } finally {
@@ -622,6 +660,7 @@ async function deleteRelation(id: string, relName: string) {
         await api.delete(`/api/relations/${id}`);
         await reloadSchema();
         toast.success(`Relation deleted`);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
         toast.error(err.message);
       }
@@ -670,6 +709,7 @@ async function saveAISettings() {
       aiSearchField: aiSearchField || null,
     });
     toast.success('Settings saved');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message);
   } finally {
@@ -687,6 +727,7 @@ let confirmState = $state<{
 }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
 // ── Formatting helpers ────────────────────────────────────────────────────
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function fmtCell(value: any, type?: string): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
@@ -697,6 +738,7 @@ function fmtCell(value: any, type?: string): string {
 
 // M2O fields already live in customFields (FK column in this table).
 // O2M / M2M / M2A are virtual — no FK column in this table → shown only in Relations section.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const virtualRelations = $derived(relations.filter((r: any) => r.type !== 'm2o'));
 
 // Lookup: field name → target collection name for M2O FK fields

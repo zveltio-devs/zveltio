@@ -20,6 +20,7 @@
  * to chain `.where()` from) and need a dedicated wrapper.
  */
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export type QueryAlterFn<QB = any, U = any> = (qb: QB, user: U) => QB;
 
 interface AlterEntry {
@@ -55,6 +56,8 @@ export class QueryAlterRegistryImpl {
    * Returns the chained builder. If no alters are registered, returns `qb`
    * unchanged.
    */
+
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   applyAll<QB = any, U = any>(qb: QB, table: string, user: U): QB {
     let result = qb;
     for (const e of this.entries) {

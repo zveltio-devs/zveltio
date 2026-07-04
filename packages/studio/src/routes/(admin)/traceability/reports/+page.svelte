@@ -10,8 +10,10 @@ let reportType = $state<ReportType>('ansvsa');
 let dateFrom = $state(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
 let dateTo = $state(new Date().toISOString().slice(0, 10));
 let loading = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let data = $state<any[]>([]);
 let error = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let meta = $state<any>(null);
 
 const ENDPOINT: Record<ReportType, string> = {
@@ -38,6 +40,7 @@ async function load() {
     const json = await res.json();
     data = json.data ?? [];
     meta = json.meta ?? null;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {

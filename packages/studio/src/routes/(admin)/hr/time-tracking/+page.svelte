@@ -104,6 +104,7 @@ async function createProject() {
     };
     showModal = false;
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -120,6 +121,7 @@ async function startTimer() {
     timerForm = { project_id: '', description: '' };
     showModal = false;
     toast.success(m['hr.timeTracking.toast.started']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -134,6 +136,7 @@ async function stopTimer() {
     timer = null;
     await loadEntries();
     toast.success(m['hr.timeTracking.toast.stopped']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -150,6 +153,7 @@ async function deleteEntryConfirmed(id: string) {
     await api.delete(`/ext/hr/time-tracking/entries/${id}`);
     entries = entries.filter((e) => e.id !== id);
     toast.success(m['ext.deleted']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {

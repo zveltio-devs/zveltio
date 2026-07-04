@@ -7,7 +7,9 @@ import PageHeader from '$lib/components/common/PageHeader.svelte';
 import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let locales = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let keys = $state<any[]>([]);
 let pagination = $state({ total: 0, page: 1, limit: 50 });
 let loading = $state(true);
@@ -36,6 +38,7 @@ onMount(async () => {
 async function loadAll() {
   loading = true;
   const [locRes, keysRes] = await Promise.all([
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ locales: any[] }>('/ext/i18n/translations/locales'),
     loadKeys(),
   ]);
@@ -50,6 +53,7 @@ async function loadKeys() {
     page: String(pagination.page),
   });
   if (search.trim()) qs.set('search', search.trim());
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const res = await api.get<{ keys: any[]; pagination: any }>(`/ext/i18n/translations?${qs}`);
   keys = res.keys || [];
   pagination = { ...pagination, ...res.pagination };
@@ -64,6 +68,7 @@ async function addKey() {
     await loadKeys();
     showAddKey = false;
     newKey = { key: '', context: '', default_value: '', description: '' };
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err.message);
   } finally {
@@ -76,10 +81,12 @@ async function addLocale() {
   saving = true;
   try {
     await api.post('/ext/i18n/translations/locales', newLocale);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ locales: any[] }>('/ext/i18n/translations/locales');
     locales = res.locales;
     showAddLocale = false;
     newLocale = { code: '', name: '', is_default: false };
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err.message);
   } finally {
@@ -120,6 +127,7 @@ async function saveEdit() {
     const keyIdx = keys.findIndex((k) => k.id === keyId);
     if (keyIdx >= 0) {
       const translations = [...(keys[keyIdx].translations || [])];
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const tIdx = translations.findIndex((t: any) => t.locale === locale);
       if (tIdx >= 0) {
         translations[tIdx] = { ...translations[tIdx], value: editValue };
@@ -128,6 +136,7 @@ async function saveEdit() {
       }
       keys[keyIdx] = { ...keys[keyIdx], translations };
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err.message);
   } finally {
@@ -141,12 +150,16 @@ function cancelEdit() {
   editValue = '';
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function getTranslation(key: any, locale: string): string {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const t = (key.translations || []).find((tr: any) => tr.locale === locale);
   return t?.value || '';
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function isReviewed(key: any, locale: string): boolean {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const t = (key.translations || []).find((tr: any) => tr.locale === locale);
   return t?.reviewed || false;
 }

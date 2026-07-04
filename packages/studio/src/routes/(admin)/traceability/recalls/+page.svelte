@@ -11,16 +11,19 @@ const API = '/ext/operations/traceability';
 type Tab = 'simulate' | 'active';
 
 let activeTab = $state<Tab>('simulate');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let recalls = $state<any[]>([]);
 let loadingRecalls = $state(false);
 
 let lotId = $state('');
 let simulating = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let simulation = $state<any>(null);
 let simError = $state('');
 
 let initiateForm = $state({ reason: '', scope: 'internal' as string });
 let initiating = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let initiated = $state<any>(null);
 
 let resolveForm = $state({ recallId: '', resolution_notes: '' });
@@ -47,6 +50,7 @@ async function simulate() {
     const res = await api.fetch(`${API}/recalls/simulate/${lotId.trim()}`, { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
     simulation = (await res.json()).data;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     simError = e.message;
   } finally {
@@ -77,6 +81,7 @@ async function initiateRecallConfirmed(e: Event) {
     initiated = (await res.json()).data;
     simulation = null;
     await loadRecalls();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     simError = e.message;
   } finally {

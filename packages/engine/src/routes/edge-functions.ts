@@ -7,6 +7,7 @@ import { checkPermission } from '../lib/permissions.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
 import { reqDb } from '../lib/route-db.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -14,6 +15,7 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return session.user;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -26,6 +28,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // GET / — list functions
   app.get('/', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const fns = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions')
       .select([
@@ -75,6 +78,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const body = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const existing = await (reqDb(c, db) as any)
         .selectFrom('zv_edge_functions')
         .select('id')
@@ -82,7 +86,9 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
         .executeTakeFirst();
       if (existing) return c.json({ error: 'Function name already exists' }, 409);
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = (c as any).get('user');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const fn = await (reqDb(c, db) as any)
         .insertInto('zv_edge_functions')
         .values({
@@ -117,6 +123,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — get by ID
   app.get('/:id', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const fn = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions')
       .selectAll()
@@ -147,6 +154,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const body = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const updates: any = { updated_at: new Date() };
       if (body.display_name !== undefined) updates.display_name = body.display_name;
       if (body.description !== undefined) updates.description = body.description;
@@ -156,6 +164,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       if (body.env_vars !== undefined) updates.env_vars = JSON.stringify(body.env_vars);
       if (body.is_active !== undefined) updates.is_active = body.is_active;
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const fn = await (reqDb(c, db) as any)
         .updateTable('zv_edge_functions')
         .set(updates)
@@ -163,6 +172,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
         .returningAll()
         .executeTakeFirst();
       if (!fn) return c.json({ error: 'Not found' }, 404);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = (c as any).get('user');
       await auditLog(db, {
         type: 'settings.changed',
@@ -182,7 +192,9 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   // DELETE /:id
   app.delete('/:id', async (c) => {
     const id = c.req.param('id');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     await (reqDb(c, db) as any).deleteFrom('zv_edge_functions').where('id', '=', id).execute();
     await auditLog(db, {
       type: 'settings.changed',
@@ -197,6 +209,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
   // GET /:id/logs
   app.get('/:id/logs', async (c) => {
     const { limit = '50' } = c.req.query();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const logs = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_function_logs')
       .selectAll()
@@ -209,6 +222,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
   // POST /:id/invoke — test invocation from Studio (admin session)
   app.post('/:id/invoke', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const fn = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions')
       .selectAll()
@@ -229,6 +243,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     const runResult = await runEdgeFunction(fn.code, request, envVars, fn.timeout_ms);
 
     // Persist log (fire-and-forget)
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     void (reqDb(c, db) as any)
       .insertInto('zv_edge_function_logs')
       .values({
@@ -261,6 +276,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
 
 // Public invocation endpoint — mounted at /api/fn
 // Supports session auth OR X-API-Key header
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -275,6 +291,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       if (rawKey) {
         const { hashApiKey } = await import('../lib/api-key-hash.js');
         const keyHash = await hashApiKey(rawKey);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const apiKey = await (reqDb(c, db) as any)
           .selectFrom('zv_api_keys')
           .select(['id', 'is_active', 'expires_at'])
@@ -287,6 +304,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     }
     if (!authed) return c.json({ error: 'Unauthorized' }, 401);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const fn = await (reqDb(c, db) as any)
       .selectFrom('zv_edge_functions')
       .selectAll()
@@ -329,6 +347,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     const envVars = typeof fn.env_vars === 'string' ? JSON.parse(fn.env_vars) : (fn.env_vars ?? {});
     const runResult = await runEdgeFunction(fn.code, request, envVars, fn.timeout_ms);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     void (reqDb(c, db) as any)
       .insertInto('zv_edge_function_logs')
       .values({
@@ -347,6 +366,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     if (!runResult.ok) return c.json({ error: runResult.error, logs: runResult.logs }, 500);
 
     const resp = runResult.response!;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const honoRes = c.json(resp.body, resp.status as any);
     for (const [k, v] of Object.entries(resp.headers ?? {})) {
       honoRes.headers.set(k, v);

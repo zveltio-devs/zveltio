@@ -44,6 +44,7 @@ function slugify(s: string) {
 
 function extractError(e: unknown): string {
   if (e instanceof Error) return e.message;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   if (e && typeof e === 'object') return (e as any).message ?? (e as any).error ?? 'Unknown error';
   return String(e);
 }

@@ -141,6 +141,7 @@ const PageViewAddSchema = z.object({
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any): Promise<Response | null> {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -151,6 +152,7 @@ async function requireAdmin(c: any): Promise<Response | null> {
 
 // ── Route factory ─────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function zonesRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -165,6 +167,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
           .select(['role'])
           .where('id', '=', session.user.id)
           .executeTakeFirst();
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
       }
     } catch {
@@ -633,15 +636,19 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     // Resolve view definitions + fetch data for each view from its collection
     const views = await Promise.all(
       viewRows.map(async (vr) => {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const parsedFields: any[] =
           typeof vr.fields === 'string' ? JSON.parse(vr.fields) : (vr.fields ?? []);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const parsedFilters: any[] =
           typeof vr.filters === 'string' ? JSON.parse(vr.filters) : (vr.filters ?? []);
         const pageSize = vr.page_size ?? 20;
         const tableName = `zvd_${vr.collection}`;
 
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         let records: any[] = [];
         try {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           let q = (db as any).selectFrom(tableName).selectAll().limit(pageSize);
 
           if (vr.sort_field) q = q.orderBy(vr.sort_field, vr.sort_dir ?? 'desc');
@@ -701,6 +708,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
 // ── Views routes (standalone /api/views) ─────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function viewsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -714,6 +722,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
           .select(['role'])
           .where('id', '=', session.user.id)
           .executeTakeFirst();
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
       }
     } catch {

@@ -14,6 +14,7 @@ export interface SyncManagerConfig {
   /** Exponential backoff base in ms (default: 1000) */
   backoffBase?: number;
   /** Callback for conflicts (default: server-wins) */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   onConflict?: (local: any, server: any) => any;
   /** CRDT conflict resolution strategy: 'lww' (field-level LWW merge) or 'custom' (onConflict cb). Default: 'lww' */
   conflictResolution?: CRDTConflictResolution;
@@ -27,6 +28,7 @@ export class SyncManager {
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private isOnline: boolean = true;
   private isSyncing: boolean = false;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   private listeners: Map<string, Set<(records: any[]) => void>> = new Map();
 
   constructor(client: ZveltioClient, config: SyncManagerConfig = {}) {
@@ -101,6 +103,7 @@ export class SyncManager {
       },
 
       /** Create — writes LOCAL + queues sync */
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       create: async (data: Record<string, any>) => {
         const id = data.id || generateUUID();
         const record = await this.store.put(name, id, data);
@@ -114,6 +117,7 @@ export class SyncManager {
       },
 
       /** Update — writes LOCAL + queues sync */
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       update: async (id: string, data: Record<string, any>) => {
         const existing = await this.store.get(name, id);
         const merged = { ...(existing?.data || {}), ...data };
@@ -135,6 +139,7 @@ export class SyncManager {
       },
 
       /** Subscribe la changes (realtime + local writes) */
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       subscribe: (callback: (records: any[]) => void) => {
         if (!this.listeners.has(name)) this.listeners.set(name, new Set());
         this.listeners.get(name)!.add(callback);
@@ -183,6 +188,7 @@ export class SyncManager {
       },
 
       /** Resolve a conflict manually */
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       resolveConflict: async (id: string, resolvedData: Record<string, any>) => {
         await this.store.resolveConflict(name, id, resolvedData);
         this.notifyListeners(name);
@@ -204,6 +210,7 @@ export class SyncManager {
           const file = new File([blobItem.blob], `offline_${blobItem.id}`, {
             type: blobItem.blob.type,
           });
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           const result = (await this.client.storage.upload(file)) as any;
           const url: string = result?.url || result?.publicUrl || result?.path || '';
           if (!url) continue; // Upload returned without URL — skip
@@ -253,6 +260,7 @@ export class SyncManager {
 
           await this.store.markSynced(op.id, op.collection, op.recordId, serverVersion);
           this.notifyListeners(op.collection);
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         } catch (err: any) {
           // Conflict from server (409) — apply conflict resolution
           if (err.message?.includes('409')) {
@@ -263,8 +271,10 @@ export class SyncManager {
               if (
                 this.config.conflictResolution === 'lww' &&
                 localRecord?._crdtDoc &&
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
                 (serverRecord as any).__crdt
               ) {
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
                 const merged = mergeLWW(localRecord._crdtDoc, (serverRecord as any).__crdt);
                 const resolvedData = fromDocument(merged);
                 await this.store.resolveConflict(op.collection, op.recordId, resolvedData);

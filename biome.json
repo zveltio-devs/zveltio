@@ -67,7 +67,7 @@
         "useLiteralEnumMembers": "off"
       },
       "suspicious": {
-        "noExplicitAny": "off",
+        "noExplicitAny": "error",
         "noConsole": "off",
         "noExportsInTest": "off",
         "noImplicitAnyLet": "off",

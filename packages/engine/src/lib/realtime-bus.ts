@@ -179,6 +179,7 @@ class ValkeyRealtimeBus implements RealtimeBus {
 class PgNotifyRealtimeBus implements RealtimeBus {
   readonly backend = 'pg-notify' as const;
   // @ts-ignore — BunSubscription typed by bun-types
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   private subscription: any | null = null;
   private _running = false;
   private retryAttempt = 0;
@@ -214,6 +215,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       this._running = true;
       this.retryAttempt = 0;
       console.log(`✅ Realtime bus: pg_notify LISTEN on zveltio_changes (origin=${ORIGIN_ID})`);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       if (err.message?.includes('is not a function')) {
         console.warn('[realtime-bus] LISTEN/NOTIFY not available — single-instance only.');

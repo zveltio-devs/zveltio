@@ -1,6 +1,7 @@
 <script lang="ts">
 import { LIBRARY, type LibraryBlock } from '../../lib/builder-types.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let { onAdd }: { onAdd: (b: any) => void } = $props();
 
 const cats = [

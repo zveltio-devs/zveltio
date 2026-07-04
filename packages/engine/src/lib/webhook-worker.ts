@@ -31,6 +31,7 @@ export const webhookWorker = {
     // Fallback to LPOP in loop if server doesn't support LMPOP (Redis < 7.0)
     let items: string[] = [];
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const result = await (cache as any).lmpop(1, 'webhook:queue', 'LEFT', 'COUNT', 10);
       // LMPOP returns [key, [item1, item2, ...]] or null
       if (result && Array.isArray(result[1])) {
@@ -56,6 +57,7 @@ export const webhookWorker = {
           timeout?: number;
           event: string;
           collection: string;
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           data: any;
           timestamp: string;
           attempt: number;

@@ -267,6 +267,7 @@ export class CronRunnerImpl {
   ): Promise<void> {
     if (!this.db) return;
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await (this.db as any)
         .insertInto('zv_extension_schedule_runs')
         .values({
@@ -291,6 +292,7 @@ export class CronRunnerImpl {
   ): Promise<void> {
     if (!this.db) return;
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await (this.db as any)
         .updateTable('zv_extension_schedule_runs')
         .set({
@@ -298,6 +300,7 @@ export class CronRunnerImpl {
           status,
           error_message: errorMessage ?? null,
         })
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .where('id' as any, '=', id)
         .execute();
     } catch (err) {

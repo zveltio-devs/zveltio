@@ -250,6 +250,14 @@ cd packages/studio && bun run dev                   # admin UI on :5173
 
 Building extensions: [docs/EXTENSION-DEVELOPER-GUIDE.md](docs/EXTENSION-DEVELOPER-GUIDE.md).
 
+### Supported platforms
+
+| Purpose | Supported |
+|---|---|
+| **Deploy / run** | Linux (x64, x64-baseline, arm64), macOS (x64, arm64). No Windows binary is shipped. |
+| **Develop & test** | Linux, macOS, WSL2. |
+| **Native Windows** | Editing and most tooling work. Run the test suite under **WSL2**, not native Windows — Bun's package store uses symlinks that `bun test` cannot read natively (`EACCES`), so the suite reports spurious failures there. This is a Bun/Windows toolchain limitation, not a Zveltio bug. |
+
 ---
 
 ## Architecture

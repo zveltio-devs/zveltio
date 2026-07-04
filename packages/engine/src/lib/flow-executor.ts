@@ -26,6 +26,7 @@ import { safeFetch, validatePublicUrl } from './edge-functions/safe-fetch.js';
 export interface FlowRunResult {
   runId: string;
   status: 'success' | 'failed';
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   output: any;
   error?: string;
 }
@@ -45,6 +46,7 @@ async function getUsersForRole(db: Database, role: string): Promise<string[]> {
 }
 
 /** Replaces {{key.nested}} placeholders from a context object. */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function interpolateTemplate(template: string, context: Record<string, any>): string {
   return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
     const keys = path.split('.');
@@ -52,6 +54,7 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
     if (keys.some((k: string) => k === '__proto__' || k === 'constructor' || k === 'prototype')) {
       return match;
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let value: any = context;
     for (const key of keys) {
       if (!Object.prototype.hasOwnProperty.call(value, key)) return match;
@@ -66,9 +69,13 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
 
 async function executeStep(
   db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   step: any,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   prevOutput: any,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   flowContext: Record<string, any> = {},
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<{ output: any; logs?: string[] }> {
   const cfg = step.config ?? {};
   // Tenant for any collection-data access in this step. Collection tables are
@@ -118,6 +125,7 @@ async function executeStep(
         await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
         return sql.raw(cfg.query as string).execute(trx);
       });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       return { output: (result as any).rows };
     }
 
@@ -257,6 +265,7 @@ async function executeStep(
           await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(
             trx,
           );
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           return sql<any>`
             SELECT * FROM ${sql.id(tableName)}
             LIMIT ${cfg.limit ?? 1000}
@@ -360,6 +369,7 @@ async function executeStep(
             usedFallback: !matchedOption,
           },
         };
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
         console.error(`🤖 AI Decision failed [${step.id ?? step.name}]:`, err);
         return {
@@ -387,6 +397,7 @@ async function executeStep(
 export async function executeFlow(
   db: Database,
   flowId: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   triggerData: any = {},
 ): Promise<FlowRunResult> {
   // Create run record
@@ -404,8 +415,10 @@ export async function executeFlow(
   }
 
   // Load steps
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let steps: any[] = [];
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const stepsResult = await sql<any>`
       SELECT * FROM zv_flow_steps
       WHERE flow_id = ${flowId}
@@ -429,8 +442,10 @@ export async function executeFlow(
   }
 
   // Execute steps
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let output: any = {};
   const stepLogs: Record<string, string[]> = {};
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const stepResults: Record<string, any> = {};
   const flowContext = { trigger: triggerData, stepResults };
 

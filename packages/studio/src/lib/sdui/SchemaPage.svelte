@@ -49,6 +49,7 @@ function guardMutation(url: string): boolean {
   return false;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const ICONS: Record<string, any> = {
   Plus,
   Trash2,
@@ -74,11 +75,13 @@ function t(s?: string): string {
   const fn = (m as Record<string, (() => string) | undefined>)[s];
   return typeof fn === 'function' ? fn() : s;
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function getPath(obj: any, path?: string): any {
   if (!path) return obj;
   return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
 }
 // Relation option/cell label: a single key, or several keys joined (e.g. first+last name).
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function relLabel(it: any, labelKey: string | string[]): string {
   if (Array.isArray(labelKey))
     return labelKey
@@ -94,11 +97,14 @@ const active = $derived<ResourceView>(
 );
 const isTabbed = $derived(schema.resources.length > 1);
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let rows = $state<any[]>([]);
 let total = $state(0);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let statData = $state<Record<string, any> | null>(null);
 let loading = $state(false);
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function formatStat(v: any, fmt?: string): string {
   if (v == null) return '—';
   if (fmt === 'currency' || fmt === 'number') return Number(v).toLocaleString();
@@ -112,6 +118,7 @@ let filterValues = $state<Record<string, string>>({});
 let showForm = $state(false);
 let saving = $state(false);
 let editingId = $state<string | null>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let formData = $state<Record<string, any>>({});
 // foreign-key / relation select options, loaded lazily per field
 let relationOpts = $state<Record<string, { value: string; label: string }[]>>({});
@@ -120,7 +127,9 @@ async function loadRelations(r: ResourceView) {
   for (const f of allFields(r)) {
     if (f.type !== 'relation' || !f.relation || relationOpts[f.name]) continue;
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const res = await api.get<any>(f.relation.dataSource);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const list = (getPath(res, f.relation.dataPath) ?? []) as any[];
       relationOpts[f.name] = list.map((it) => ({
         value: String(it[f.relation!.valueKey ?? 'id']),
@@ -132,6 +141,7 @@ async function loadRelations(r: ResourceView) {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function defaultFor(f: FieldDef): any {
   if (f.default === 'today') return new Date().toISOString().split('T')[0];
   if (f.default !== undefined) return f.default;
@@ -152,7 +162,9 @@ function allFields(r: ResourceView): FieldDef[] {
   for (const sec of r.form?.sections ?? []) fs.push(...sec.fields);
   return fs;
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function blankForm(r: ResourceView): Record<string, any> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const d: Record<string, any> = {};
   for (const f of allFields(r)) d[f.name] = defaultFor(f);
   if (r.form?.repeatable) {
@@ -163,6 +175,7 @@ function blankForm(r: ResourceView): Record<string, any> {
 }
 
 // master-detail state
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let masterRows = $state<any[]>([]);
 let selectedMasterId = $state<string | null>(null);
 const selectedMaster = $derived(
@@ -176,6 +189,7 @@ const selectedMaster = $derived(
 async function loadMasterDetail(r: ResourceView) {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const mres = await api.get<any>(r.master!.dataSource);
     masterRows = getPath(mres, r.master!.dataPath) ?? [];
     const idKey = r.master!.idKey ?? 'id';
@@ -186,11 +200,13 @@ async function loadMasterDetail(r: ResourceView) {
       selectedMasterId = masterRows[0]?.[idKey] ?? null;
     if (selectedMasterId != null) {
       const durl = r.dataSource.replace('{masterId}', String(selectedMasterId));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const dres = await api.get<any>(durl);
       rows = getPath(dres, r.dataPath) ?? [];
     } else {
       rows = [];
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
   } finally {
@@ -201,8 +217,10 @@ async function selectMaster(id: string) {
   selectedMasterId = id;
   const r = active;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const dres = await api.get<any>(r.dataSource.replace('{masterId}', String(id)));
     rows = getPath(dres, r.dataPath) ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
   }
@@ -224,12 +242,14 @@ async function load() {
       qs.set('limit', String(r.pagination.limit));
     }
     const url = qs.toString() ? `${r.dataSource}?${qs}` : r.dataSource;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<any>(url);
     rows = getPath(res, r.dataPath) ?? [];
     total = r.totalPath ? (getPath(res, r.totalPath) ?? 0) : rows.length;
     loadRelationColumns(r);
     if (r.stats) {
       try {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const sres = await api.get<any>(r.stats.dataSource);
         statData = getPath(sres, r.stats.dataPath) ?? null;
       } catch {
@@ -238,6 +258,7 @@ async function load() {
     } else {
       statData = null;
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
   } finally {
@@ -267,6 +288,7 @@ const clientFiltered = $derived.by(() => {
   );
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function cellText(row: any, col: ColumnDef): string {
   if (col.template)
     return col.template.replace(/\{([^}]+)\}/g, (_, k) =>
@@ -288,14 +310,17 @@ function cellText(row: any, col: ColumnDef): string {
   if (col.type === 'boolean') return v ? '✓' : '—';
   return String(v);
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function badgeClass(row: any, col: ColumnDef): string {
   return col.badge?.colors[getPath(row, col.key)] ?? 'badge-ghost';
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function badgeLabel(row: any, col: ColumnDef): string {
   const v = getPath(row, col.key);
   const mapped = col.badge?.labels?.[v];
   return mapped ? t(mapped) : String(v).replace(/_/g, ' ');
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function actionVisible(row: any, a: ActionDef): boolean {
   if (!a.visibleWhen) return true;
   const v = getPath(row, a.visibleWhen.field);
@@ -303,6 +328,7 @@ function actionVisible(row: any, a: ActionDef): boolean {
   if (a.visibleWhen.in) return a.visibleWhen.in.includes(v);
   return true;
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function cellClass(row: any, col: ColumnDef): string {
   let cls = col.type === 'mono' ? 'font-mono text-xs' : '';
   for (const c of col.classWhen ?? []) {
@@ -321,7 +347,9 @@ async function loadRelationColumns(r: ResourceView) {
   for (const col of r.columns) {
     if (col.type !== 'relation' || !col.relation || relColMaps[col.key]) continue;
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const res = await api.get<any>(col.relation.dataSource);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const list = (getPath(res, col.relation.dataPath) ?? []) as any[];
       relColMaps[col.key] = Object.fromEntries(
         list.map((it) => [
@@ -336,6 +364,7 @@ async function loadRelationColumns(r: ResourceView) {
 }
 
 // Inline-edit: PATCH/POST a single field when an editable cell changes.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function inlineEdit(row: any, col: ColumnDef, value: string) {
   const e = col.editable!;
   const url = (e.endpoint ?? '').replace(/\{([^}]+)\}/g, (_, k) =>
@@ -348,6 +377,7 @@ async function inlineEdit(row: any, col: ColumnDef, value: string) {
     else await api.patch(url, body);
     row[col.key] = value;
     toast.success(t('ext.saved'));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err instanceof Error ? err.message : t('ext.saveFailed'));
     await load();
@@ -355,8 +385,10 @@ async function inlineEdit(row: any, col: ColumnDef, value: string) {
 }
 
 // Action request body: "{field}" tokens from the row; "{a-b}" subtracts.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function buildBody(a: ActionDef, row: any): Record<string, any> {
   if (!a.body) return {};
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const out: Record<string, any> = {};
   for (const [k, tmpl] of Object.entries(a.body)) {
     const mt = /^\{(.+)\}$/.exec(tmpl);
@@ -385,7 +417,9 @@ const formValid = $derived.by(() =>
 
 // Build the JSON create/edit payload: parse type:'json' fields string→object,
 // drop fields hidden by visibleWhen.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function jsonPayload(): Record<string, any> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const out: Record<string, any> = {};
   for (const f of allFields(active)) {
     if (!fieldVisible(f)) continue;
@@ -411,6 +445,7 @@ function openCreate() {
   loadRelations(active);
   showForm = true;
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function openEdit(row: any) {
   editingId = row.id;
   const d = blankForm(active);
@@ -420,9 +455,11 @@ function openEdit(row: any) {
   showForm = true;
 }
 // Substitute "{id}" and any other "{field}" token in an endpoint from the row.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function fillEndpoint(tmpl: string, row: any): string {
   return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(getPath(row, k.trim()) ?? ''));
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function runAction(row: any, a: ActionDef) {
   if (a.kind === 'edit') return openEdit(row);
   if (a.kind === 'download') {
@@ -439,6 +476,7 @@ function runAction(row: any, a: ActionDef) {
       else await api.post(url, body);
       await load();
       toast.success(t('ext.saved'));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (e: any) {
       toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
     }
@@ -451,6 +489,7 @@ function runAction(row: any, a: ActionDef) {
 $effect(() => {
   for (const c of active.form?.computed ?? []) {
     if (c.sumOf) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const list = (formData[c.sumOf.group] as any[]) ?? [];
       formData[c.name] = list.reduce((s, it) => s + Number(it[c.sumOf!.field] || 0), 0);
     }
@@ -465,6 +504,7 @@ function addRepeatRow() {
 }
 function removeRepeatRow(i: number) {
   const rep = active.form!.repeatable!;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   formData[rep.name] = (formData[rep.name] as any[]).filter((_, idx) => idx !== i);
 }
 
@@ -519,6 +559,7 @@ async function submitForm() {
     showForm = false;
     await load();
     toast.success(t('ext.saved'));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
   } finally {

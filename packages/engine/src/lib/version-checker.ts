@@ -59,11 +59,15 @@ export async function checkExtensionDependencies(
     }
 
     if (dep.minVersion) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const current = parseSemver((installed as any).version || '0.0.0');
       const required = parseSemver(dep.minVersion);
       if (compareSemver(current, required) < 0) {
         missing.push(
-          `${dep.name} >= ${dep.minVersion} (installed: ${(installed as any).installed_version})`,
+          `${dep.name} >= ${dep.minVersion} (installed: ${
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+            (installed as any).installed_version
+          })`,
         );
       }
     }

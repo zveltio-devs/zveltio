@@ -69,6 +69,7 @@ export async function generateTypesCommand(
       }
     }
     console.log('');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     console.error(c.red(`Failed to generate types: ${err.message}`));
     process.exit(1);

@@ -66,6 +66,7 @@ function methodToAction(method: string): string {
  * Strict (default) is the secure posture and what the SDK ships with.
  */
 function rbacMode(): 'strict' | 'permissive' {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const v = (globalThis as any).process?.env?.EXTENSION_RBAC;
   return v === 'permissive' ? 'permissive' : 'strict';
 }
@@ -75,6 +76,7 @@ export function permissionGate(
   resource: string,
   opts: { actionOverrides?: Record<string, string> } = {},
 ) {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return async (c: any, next: () => MaybePromise<unknown>) => {
     // CORS preflight (OPTIONS) must never be authorization-gated —
     // browsers send it without credentials and a 401/403 here breaks

@@ -67,6 +67,7 @@ function readManifestName(dir: string, override?: string): string {
       `No manifest.json at ${manifestPath}. Pass --name or run from the extension's root.`,
     );
   }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const Bun_ = (globalThis as any).Bun;
   // Synchronous read for startup simplicity.
   const raw = require('fs').readFileSync(manifestPath, 'utf8') as string;
@@ -118,6 +119,7 @@ function collectEngineFiles(engineDir: string): string[] {
 async function postReload(
   url: string,
   name: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<{ ok: boolean; status: number; body: any }> {
   const endpoint = `${url.replace(/\/$/, '')}/__zveltio_dev_reload`;
   let res: Response;

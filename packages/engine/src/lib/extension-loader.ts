@@ -390,7 +390,10 @@ export interface ExtensionContext {
   db: Database;
   /** Per-request tenant-scoped DB (request's tenant transaction + table guard).
    * Data handlers should use `ctx.reqDb(c)`; `ctx.db` is the global pool. */
+
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   reqDb?: (c: any) => Database;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   auth: any;
   fieldTypeRegistry: FieldTypeRegistry;
   events: EventBus;
@@ -410,6 +413,7 @@ export interface ExtensionContext {
   registerPublicRoute: (spec: {
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD' | 'ALL';
     path: string;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     handler: (c: any) => any;
   }) => void;
   internals: ExtensionInternals;
@@ -421,32 +425,45 @@ export interface ExtensionContext {
  * heavy modules (PDF rendering, edge sandbox, etc.) when they don't need them.
  */
 export interface ExtensionInternals {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
   introspectSchema: (
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     db: any,
     schemaName?: string,
     excludePatterns?: string[],
     dryRun?: boolean,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   ) => Promise<any[]>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   runQualityScan: (...args: any[]) => Promise<unknown>;
   invalidateRulesCache: (collection: string) => void;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   runEdgeFunction: (...args: any[]) => Promise<unknown>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   extensionRegistry: any;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
   renderTemplate: (template: string, variables: Record<string, unknown>) => string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   generatePDF: (...args: any[]) => Promise<unknown>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   moveToTrash: (...args: any[]) => Promise<unknown>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   scheduleFileIndexing: (...args: any[]) => Promise<unknown>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   DataLoaderRegistry: any;
   checkQueryDepth: (query: string, maxDepth?: number) => string | null;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   enqueueDDLJob: (...args: any[]) => Promise<unknown>;
   validatePublicUrl: (url: string) => Promise<URL>;
   extractTextFromFile: (
     buffer: ArrayBuffer | Buffer | Uint8Array,
     mimeType: string,
   ) => Promise<string>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   sendNotification: (db: any, input: any) => Promise<void>;
   createBetterAuthSession: (
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     db: any,
     userId: string,
     opts?: {
@@ -698,6 +715,7 @@ export class ExtensionLoader {
 
       // Hoisted out of the if-block so the v2 `engine.bundled` check
       // below (in the JS-runtime path) can see it.
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let manifest: any = null;
 
       // Validate manifest.json if present, then check compatibility + dependencies
@@ -757,11 +775,15 @@ export class ExtensionLoader {
         }
 
         // PostgreSQL extension requirements (e.g. postgis)
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const requiredPgExts: string[] = (manifest as any).requires?.postgres_extensions ?? [];
         if (requiredPgExts.length > 0) {
           try {
             const result = await _sql<{ extname: string }>`
-              SELECT extname FROM pg_extension WHERE extname = ANY(${requiredPgExts as any})
+              SELECT extname FROM pg_extension WHERE extname = ANY(${
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                requiredPgExts as any
+              })
             `.execute(ctx.db);
             const installed = new Set(result.rows.map((r) => r.extname));
             const missing = requiredPgExts.filter((e) => !installed.has(e));
@@ -813,10 +835,14 @@ export class ExtensionLoader {
 
         // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint
         this.manifestMeta.set(extName, {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           displayName: (manifest as any).displayName,
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           description: (manifest as any).description,
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           category: (manifest as any).category,
           contributes: manifest.contributes as ManifestMeta['contributes'],
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           studio: await embedPageSchemas(extDir, (manifest as any).studio),
         });
       }
@@ -858,6 +884,7 @@ export class ExtensionLoader {
           },
         };
         // Keep a reference so reloads + unloads can call shutdown().
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         (extension as any).__wasmHandle = wasm;
       } else {
         // Import and register extension.
@@ -1104,6 +1131,7 @@ export class ExtensionLoader {
         // FORCE-RLS'd rows are visible + isolated), wrapped in the same table
         // guard. Data-touching extension handlers MUST use ctx.reqDb(c); ctx.db
         // (global pool) bypasses tenant isolation. See MULTI-TENANT-ENABLEMENT §5.
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         reqDb: (c: any) =>
           createRestrictedDb(
             (c?.get?.('tenantTrx') as Database | null) ?? ctx.db,
@@ -1125,6 +1153,7 @@ export class ExtensionLoader {
         // other extension route, so disable still works correctly.
         registerPublicRoute: (spec) => {
           const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           const fn = (app as any)[m];
           if (typeof fn !== 'function') {
             console.warn(
@@ -1177,6 +1206,7 @@ export class ExtensionLoader {
         } else {
           await extension.register(app, restrictedCtx);
         }
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (regErr: any) {
         if ((regErr as Error)?.message?.includes('matcher is already built')) {
           routeRegistrationDeferred = true;
@@ -1191,6 +1221,7 @@ export class ExtensionLoader {
         try {
           const schedules = extension.schedules() ?? [];
           for (const s of schedules) {
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             cronRunner.register(extName, s as any);
           }
           if (schedules.length > 0) {
@@ -1388,8 +1419,10 @@ export class ExtensionLoader {
     for (const migrationPath of migrations) {
       const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
       const existing = await db
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .selectFrom('zv_migrations' as any)
         .select('id')
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .where('name' as any, '=', name)
         .executeTakeFirst()
         .catch(() => null);
@@ -1410,11 +1443,14 @@ export class ExtensionLoader {
     // non-extension migration applied by an admin).
     await db.transaction().execute(async (trx) => {
       for (const m of pending) {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         await (trx as any).executeQuery({ sql: m.up, parameters: [] });
         // Persist DOWN alongside the migration row so a future uninstall with
         // purgeData=true can replay rollbacks without the original files.
         await trx
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .insertInto('zv_migrations' as any)
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .values({ name: m.name, down_sql: m.down } as any)
           .execute();
         console.log(`  ✓ Extension migration: ${m.name}`);
@@ -1435,29 +1471,40 @@ export class ExtensionLoader {
   async purgeExtensionData(extensionName: string, db: Database): Promise<void> {
     const prefix = `ext:${extensionName}:`;
     const rows = await db
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .selectFrom('zv_migrations' as any)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .select(['id' as any, 'name' as any, 'down_sql' as any])
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .where('name' as any, 'like', `${prefix}%`)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .orderBy('id' as any, 'desc')
       .execute()
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .catch(() => [] as any[]);
 
     if (rows.length === 0) return;
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const missing = rows.filter((r: any) => !r.down_sql || (r.down_sql as string).trim() === '');
     if (missing.length > 0) {
       throw new DownMissingError(
         extensionName,
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         missing.map((r: any) => r.name as string),
       );
     }
 
     await db.transaction().execute(async (trx) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       for (const r of rows as any[]) {
         const downSql = r.down_sql as string;
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         await (trx as any).executeQuery({ sql: downSql, parameters: [] });
         await trx
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .deleteFrom('zv_migrations' as any)
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .where('id' as any, '=', r.id)
           .execute();
         console.log(`  ✓ Extension purge: rolled back ${r.name}`);
@@ -1470,10 +1517,12 @@ export class ExtensionLoader {
       const rows = await db
         .selectFrom('zv_extension_registry')
         .select(['name'])
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .where('is_enabled' as any, '=', true)
         .execute();
 
       const pending = rows
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .map((r: any) => r.name as string)
         .filter((name: string) => !this.loaded.has(name));
       if (pending.length === 0 || !this.ctx) return;
@@ -1490,6 +1539,7 @@ export class ExtensionLoader {
         await db
           .updateTable('zv_extension_registry')
           .set({ last_load_error: err, last_load_at: new Date() })
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .where('name' as any, '=', name)
           .execute()
           .catch(() => {});
@@ -1606,6 +1656,7 @@ export class ExtensionLoader {
     const restrictedCtx: ExtensionContext = {
       ...this.ctx,
       db: createRestrictedDb(this.ctx.db, name, allowedTables),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       reqDb: (c: any) =>
         createRestrictedDb(
           (c?.get?.('tenantTrx') as Database | null) ?? this.ctx!.db,
@@ -1620,6 +1671,7 @@ export class ExtensionLoader {
       entityAccess: entityAccessRegistry.scope(name),
       registerPublicRoute: (spec) => {
         const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const fn = (app as any)[m];
         if (typeof fn !== 'function') {
           console.warn(
@@ -1655,6 +1707,7 @@ export class ExtensionLoader {
       if (typeof extension.schedules === 'function') {
         try {
           for (const s of extension.schedules() ?? []) {
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             cronRunner.register(name, s as any);
           }
         } catch (err) {
@@ -1723,6 +1776,7 @@ export class ExtensionLoader {
   registerDevEndpoints(app: Hono): void {
     if (process.env.NODE_ENV === 'production') return;
     app.post('/__zveltio_dev_reload', async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let body: any;
       try {
         body = await c.req.json();

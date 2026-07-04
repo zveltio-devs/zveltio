@@ -7,8 +7,11 @@ import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { ScanSearch, Play, AlertTriangle, LoaderCircle } from '@lucide/svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let scans = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let issues = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let selectedCollection = $state('');
 let scanning = $state(false);
@@ -18,11 +21,14 @@ async function loadAll() {
   loading = true;
   try {
     const [s, c] = await Promise.all([
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ data: any[] }>('/ext/analytics/quality/scans'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ collections: any[] }>('/api/collections').catch(() => ({ collections: [] })),
     ]);
     scans = s.data ?? [];
     collections = c.collections ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -34,11 +40,13 @@ async function runScan() {
   if (!selectedCollection) return;
   scanning = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.post<{ issues: any[] }>('/ext/analytics/quality/scans', {
       collection: selectedCollection,
     });
     issues = r.issues ?? [];
     await loadAll();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Scan failed');
   } finally {
@@ -48,8 +56,10 @@ async function runScan() {
 
 async function viewIssues(scanId: string) {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>(`/ext/analytics/quality/scans/${scanId}/issues`);
     issues = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -59,6 +69,7 @@ onMount(loadAll);
 
 function severityBadge(s: string) {
   return (
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     ({ critical: 'badge-error', high: 'badge-warning', info: 'badge-info' } as any)[s] ??
     'badge-ghost'
   );

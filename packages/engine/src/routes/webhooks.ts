@@ -6,6 +6,7 @@ import { checkPermission } from '../lib/permissions.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -49,6 +50,7 @@ async function signBody(body: string, secret: string): Promise<string> {
     .join('')}`;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function webhooksRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -60,6 +62,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   });
 
   /** Replace secret with a masked indicator — never expose plaintext secrets via API. */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   function maskSecret(webhook: any): any {
     if (!webhook) return webhook;
     return { ...webhook, secret: webhook.secret ? '••••••••' : null };
@@ -88,6 +91,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // POST / — Create webhook
   app.post('/', zValidator('json', WebhookSchema), async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const data = c.req.valid('json');
 
@@ -135,6 +139,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // Encrypt the secret if the caller is rotating it through PATCH —
     // same pattern as POST /. Without this branch a PATCH would write
     // plaintext over the encrypted column and leak the signing key.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const toSet: Record<string, any> = { ...data, updated_at: new Date() };
     if (typeof data.secret === 'string' && data.secret.length > 0) {
       toSet.secret = (await maybeEncrypt(data.secret, true)) as string;

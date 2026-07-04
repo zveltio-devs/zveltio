@@ -7,8 +7,11 @@ import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { ScanLine, Play, Square, Receipt, LoaderCircle } from '@lucide/svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let activeSession = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let recentOrders = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let zReports = $state<any[]>([]);
 let loading = $state(true);
 let openingFloat = $state(0);
@@ -18,15 +21,19 @@ async function loadAll() {
   loading = true;
   try {
     const [active, orders, reports] = await Promise.all([
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ data: any }>('/ext/operations/pos/sessions/active').catch(() => ({ data: null })),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ data: any[] }>('/ext/operations/pos/orders?limit=20'),
       api
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .get<{ data: any[] }>('/ext/operations/pos/z-reports?limit=10')
         .catch(() => ({ data: [] })),
     ]);
     activeSession = active.data;
     recentOrders = orders.data ?? [];
     zReports = reports.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -39,6 +46,7 @@ async function openSession() {
     await api.post('/ext/operations/pos/sessions/open', { opening_float: openingFloat });
     await loadAll();
     toast.success(m['operations.pos.toast.sessionOpened']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -52,6 +60,7 @@ async function closeSession() {
     });
     await loadAll();
     toast.success(m['operations.pos.toast.sessionClosed']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }

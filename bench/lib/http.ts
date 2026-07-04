@@ -155,6 +155,7 @@ export async function signInForToken(
   // Better-auth uses Set-Cookie. fetch in Bun/Node 18+ supports getSetCookie()
   // which preserves multi-cookie semantics; fall back to raw header parsing.
   const setCookies =
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     (res.headers as any).getSetCookie?.() ??
     res.headers.get('set-cookie')?.split(/,(?=[^;]+=)/g) ??
     [];
