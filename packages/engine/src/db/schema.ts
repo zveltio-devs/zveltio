@@ -79,6 +79,10 @@ export interface ZvMigrationsTable {
   id: Generated<number>;
   name: string;
   applied_at: Generated<Date>;
+  /** DOWN SQL persisted alongside each extension migration so uninstall with
+   * purgeData=true can replay rollbacks without the original files. Added by
+   * migration 071_zv_migrations_down_sql (folded into 001_initial). */
+  down_sql: string | null;
 }
 
 export interface ZvSchemaVersionsTable {
