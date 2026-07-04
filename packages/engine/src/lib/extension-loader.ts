@@ -351,25 +351,24 @@ export type { ZveltioExtension };
  */
 export function buildExtensionInternals(): ExtensionInternals {
   return {
-    dynamicInsert: dynamicInsert as ExtensionInternals['dynamicInsert'],
-    introspectSchema: introspectSchema as ExtensionInternals['introspectSchema'],
-    runQualityScan: runQualityScan as ExtensionInternals['runQualityScan'],
+    dynamicInsert,
+    introspectSchema,
+    runQualityScan,
     invalidateRulesCache,
-    runEdgeFunction: runEdgeFunction as ExtensionInternals['runEdgeFunction'],
+    runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
     renderTemplate,
-    generatePDF: generatePDF as ExtensionInternals['generatePDF'],
-    moveToTrash: moveToTrash as ExtensionInternals['moveToTrash'],
-    scheduleFileIndexing: scheduleFileIndexing as ExtensionInternals['scheduleFileIndexing'],
+    generatePDF,
+    moveToTrash,
+    scheduleFileIndexing,
     DataLoaderRegistry,
     checkQueryDepth,
-    enqueueDDLJob: enqueueDDLJob as ExtensionInternals['enqueueDDLJob'],
+    enqueueDDLJob,
     validatePublicUrl: validatePublicUrl as ExtensionInternals['validatePublicUrl'],
     extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],
-    createBetterAuthSession:
-      createBetterAuthSession as ExtensionInternals['createBetterAuthSession'],
+    createBetterAuthSession,
     encryptSecret: async (plaintext: string) => {
       if (isEncryptedValue(plaintext)) return plaintext;
       return encryptField(plaintext);
@@ -425,54 +424,33 @@ export interface ExtensionContext {
  * heavy modules (PDF rendering, edge sandbox, etc.) when they don't need them.
  */
 export interface ExtensionInternals {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
-  introspectSchema: (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    db: any,
-    schemaName?: string,
-    excludePatterns?: string[],
-    dryRun?: boolean,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  ) => Promise<any[]>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  runQualityScan: (...args: any[]) => Promise<unknown>;
+  // Fields typed as `typeof <helper>` mirror the engine helper's real signature
+  // (single source of truth) — no `any`, no cast in buildExtensionInternals().
+  dynamicInsert: typeof dynamicInsert;
+  introspectSchema: typeof introspectSchema;
+  runQualityScan: typeof runQualityScan;
   invalidateRulesCache: (collection: string) => void;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  runEdgeFunction: (...args: any[]) => Promise<unknown>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  extensionRegistry: any;
+  runEdgeFunction: typeof runEdgeFunction;
+  extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
   renderTemplate: (template: string, variables: Record<string, unknown>) => string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  generatePDF: (...args: any[]) => Promise<unknown>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  moveToTrash: (...args: any[]) => Promise<unknown>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  scheduleFileIndexing: (...args: any[]) => Promise<unknown>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  DataLoaderRegistry: any;
+  generatePDF: typeof generatePDF;
+  moveToTrash: typeof moveToTrash;
+  scheduleFileIndexing: typeof scheduleFileIndexing;
+  DataLoaderRegistry: typeof DataLoaderRegistry;
   checkQueryDepth: (query: string, maxDepth?: number) => string | null;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  enqueueDDLJob: (...args: any[]) => Promise<unknown>;
+  enqueueDDLJob: typeof enqueueDDLJob;
   validatePublicUrl: (url: string) => Promise<URL>;
   extractTextFromFile: (
     buffer: ArrayBuffer | Buffer | Uint8Array,
     mimeType: string,
   ) => Promise<string>;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  sendNotification: (db: any, input: any) => Promise<void>;
-  createBetterAuthSession: (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    db: any,
-    userId: string,
-    opts?: {
-      ipAddress?: string;
-      userAgent?: string;
-      ttlSeconds?: number;
-      crossDomain?: boolean;
-    },
-  ) => Promise<{ token: string; setCookie: string }>;
+  // NOT `typeof sendNotification`: the SDK's public ExtensionContext declares a
+  // looser `input` (message optional) than the engine helper (message required),
+  // so this slot must stay at least as loose as the SDK's. `unknown` params keep
+  // it loose without `any`; the real (stricter) fn is cast in buildExtensionInternals.
+  sendNotification: (db: unknown, input: unknown) => Promise<void>;
+  createBetterAuthSession: typeof createBetterAuthSession;
   encryptSecret: (plaintext: string) => Promise<string>;
   decryptSecret: (value: string) => Promise<string>;
 }
