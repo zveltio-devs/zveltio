@@ -2,6 +2,13 @@ name: zveltio
 
 services:
   # ── PostgreSQL (PGVector) ───────────────────────────────────────────────────────
+  # NOTE: this image ships pgvector but NOT PostGIS, so the geospatial/postgis
+  # extension cannot enable on it (there is no official image with both). To use
+  # geospatial features under Docker, build a derived image:
+  #   FROM pgvector/pgvector:pg18
+  #   RUN apt-get update && apt-get install -y postgresql-18-postgis-3
+  # and run `CREATE EXTENSION postgis;` in the zveltio DB as a superuser.
+  # The native installer (get.zveltio.com) installs PostGIS automatically.
   db:
     image: pgvector/pgvector:pg18
     container_name: zveltio-db

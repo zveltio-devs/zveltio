@@ -352,6 +352,20 @@ install_native_mode() {
     info "PostgreSQL already installed: $(psql --version)"
   fi
 
+  # PostGIS — required by the geospatial/postgis extension. Installed here
+  # because this is the ONLY moment we have the rights to do it: postgis is not
+  # a "trusted" PG extension, so CREATE EXTENSION needs superuser, and the
+  # engine's runtime role is deliberately non-superuser (it cannot self-heal at
+  # enable time). Best-effort: a missing package (exotic distro / older repo)
+  # must not brick the whole install — geospatial is optional; every other
+  # feature works without it. Docker installs use the pgvector image (no postgis
+  # binaries); managed Postgres exposes postgis via the provider console.
+  if apt-get install -y -qq postgresql-18-postgis-3 2>/dev/null; then
+    success "PostGIS installed"
+  else
+    warn "PostGIS package unavailable — the geospatial/postgis extension will need it installed manually"
+  fi
+
   # Validate credentials contain only safe characters (hex from gen_secret, or
   # alphanumeric if user-supplied) to prevent SQL injection via env overrides.
   if [[ ! "$POSTGRES_PASSWORD" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
@@ -368,6 +382,10 @@ install_native_mode() {
   su -c "psql -c \"CREATE DATABASE ${ZVELTIO_USER} OWNER ${ZVELTIO_USER};\"" postgres 2>/dev/null || true
   su -c "psql -d ${ZVELTIO_USER} -c 'CREATE EXTENSION IF NOT EXISTS vector;'" postgres
   su -c "psql -d ${ZVELTIO_USER} -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" postgres
+  # Best-effort (see PostGIS install above) — skipped silently if the package
+  # didn't install; the geospatial/postgis extension reports it clearly at enable.
+  su -c "psql -d ${ZVELTIO_USER} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'" postgres 2>/dev/null || \
+    warn "CREATE EXTENSION postgis skipped (package not installed)"
 
   cat > /etc/postgresql/18/main/conf.d/zveltio.conf << EOF
 shared_buffers = ${PG_SHARED_BUFFERS}MB
