@@ -28,7 +28,6 @@ error()   { echo -e "${RED}✗${NC}  $*" >&2; exit 1; }
 info()    { echo -e "${DIM}  $*${NC}"; }
 section() { echo -e "\n${BOLD}${BLUE}── $* ──${NC}\n"; }
 ok()      { echo -e "  ${GREEN}✓${NC} $*"; }
-warn()    { echo -e "  ${YELLOW}!${NC} $*"; }
 
 # ── Parse argumente ───────────────────────────────────────────
 MODE="auto"
