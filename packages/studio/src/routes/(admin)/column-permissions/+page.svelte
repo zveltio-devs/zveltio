@@ -57,11 +57,15 @@ async function loadAll() {
   try {
     const [permRes, colRes, roleRes] = await Promise.all([
       api.get<{ column_permissions: ColumnPermission[] }>('/api/admin/column-permissions'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ collections: any[] }>('/api/collections'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ roles: any[] }>('/api/admin/roles'),
     ]);
     permissions = permRes.column_permissions ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     collections = (colRes.collections ?? []).map((c: any) => c.slug ?? c.name);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
     roles = ['*', 'god', 'admin', 'member', ...customRoles];
   } catch {
@@ -74,9 +78,11 @@ async function loadAll() {
 async function loadFields(collectionName: string) {
   if (!collectionName || collectionFields[collectionName]) return;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ collection: any }>(`/api/collections/${collectionName}`);
     const fields = res.collection?.fields ?? [];
     const names: string[] = (typeof fields === 'string' ? JSON.parse(fields) : fields).map(
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       (f: any) => f.name,
     );
     collectionFields = { ...collectionFields, [collectionName]: names };

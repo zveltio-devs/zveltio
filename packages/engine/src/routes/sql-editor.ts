@@ -28,6 +28,7 @@ const SqlSchema = z.object({
   timeout_ms: z.number().int().min(100).max(300_000).optional(),
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function sqlEditorRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
@@ -53,10 +54,12 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
       // We intentionally do NOT set TRANSACTION READ ONLY here — this
       // route is the admin power tool for DDL/DML.
       const seconds = Math.max(1, Math.ceil(timeout_ms / 1000));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const result = await (db as any).transaction().execute(async (trx: any) => {
         await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
         return sql.raw(query).execute(trx);
       });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const rows = ((result as any).rows ?? []) as Record<string, unknown>[];
 
       // Audit every successful execution — content stored, but truncated.

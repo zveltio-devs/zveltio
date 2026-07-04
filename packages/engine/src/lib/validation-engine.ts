@@ -21,6 +21,7 @@ const parser = new Parser({
 export interface ValidationRule {
   field_name: string;
   rule_type: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   rule_config: Record<string, any>;
   error_message: string | null;
 }
@@ -49,6 +50,7 @@ export async function getValidationRules(
   const rules: ValidationRule[] = (await query.execute()).map((row) => ({
     field_name: row.field_name,
     rule_type: row.rule_type,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     rule_config: (row.rule_config ?? {}) as Record<string, any>,
     error_message: row.error_message,
   }));
@@ -130,6 +132,7 @@ async function safeRegexTest(pattern: string, value: string, timeoutMs = 200): P
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function validateFieldValue(value: any, rules: ValidationRule[]): Promise<string[]> {
   const errors: string[] = [];
 
@@ -198,6 +201,7 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
 export async function validateRecord(
   db: Database,
   collection: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
 ): Promise<{ valid: boolean; errors: Record<string, string[]> }> {
   const errors: Record<string, string[]> = {};

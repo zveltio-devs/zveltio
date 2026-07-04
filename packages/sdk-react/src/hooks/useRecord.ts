@@ -3,6 +3,7 @@ import { fetchRecord } from '@zveltio/sdk';
 import { useZveltioClient } from '../context.js';
 import type { HookResult } from '../types.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function useRecord<T = any>(
   collectionName: string,
   id: string | null | undefined,

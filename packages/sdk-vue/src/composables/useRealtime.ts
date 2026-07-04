@@ -5,6 +5,7 @@ export function useRealtime(
   baseUrl: string,
   collection: string,
   event: string | null,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   callback: (data: any) => void,
 ): void {
   let realtime: ZveltioRealtime | null = null;
@@ -14,6 +15,7 @@ export function useRealtime(
     if (!baseUrl || !collection) return;
     realtime = new ZveltioRealtime(baseUrl);
     realtime.connect();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     unsub = realtime.subscribe(collection, (data: any) => {
       if (!event || data.event === event) {
         callback(data);

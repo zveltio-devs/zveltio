@@ -11,13 +11,16 @@ const API = '/ext/operations/traceability';
 type Tab = 'pending' | 'confirmed' | 'direct';
 
 let activeTab = $state<Tab>('pending');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let dispatches = $state<any[]>([]);
 let loading = $state(false);
 let error = $state('');
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selected = $state<any>(null);
 let confirmForm = $state({ quantity_dispatched: '', notes: '' });
 let assignLotId = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let lots = $state<any[]>([]);
 let confirming = $state(false);
 
@@ -31,6 +34,7 @@ let directForm = $state({
   notes: '',
 });
 let directSaving = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let directDone = $state<any>(null);
 
 $effect(() => {
@@ -58,6 +62,7 @@ async function loadDispatches() {
     const params = status ? `?status=${status}` : '';
     const res = await api.fetch(`${API}/dispatches${params}`);
     dispatches = res.ok ? (await res.json()).data : [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -65,6 +70,7 @@ async function loadDispatches() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function selectDispatch(d: any) {
   const res = await api.fetch(`${API}/dispatches/${d.id}`);
   selected = res.ok ? (await res.json()).data : d;
@@ -102,6 +108,7 @@ async function confirm(e: Event) {
     if (!res.ok) throw new Error((await res.json()).error);
     selected = null;
     await loadDispatches();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -152,6 +159,7 @@ async function submitDirect(e: Event) {
       invoice_number: '',
       notes: '',
     };
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {

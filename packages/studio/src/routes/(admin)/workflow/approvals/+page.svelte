@@ -12,7 +12,9 @@ import { CheckSquare, Workflow, LoaderCircle } from '@lucide/svelte';
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
 let tab = $state<'approvals' | 'workflows'>('approvals');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let requests = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let workflows = $state<any[]>([]);
 let loading = $state(true);
 let filter = $state<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -21,8 +23,10 @@ async function loadRequests() {
   loading = true;
   try {
     const qs = filter !== 'all' ? `?status=${filter}` : '';
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ requests: any[] }>(`/api/approvals${qs}`);
     requests = data.requests ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -33,8 +37,10 @@ async function loadRequests() {
 async function loadWorkflows() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ workflows: any[] }>('/ext/workflow/approvals/workflows');
     workflows = data.workflows ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -49,6 +55,7 @@ async function decide(requestId: string, decision: 'approved' | 'rejected') {
     await api.post(`/ext/workflow/approvals/${requestId}/decide`, { decision, comment });
     await loadRequests();
     toast.success(decision === 'approved' ? 'Approved.' : 'Rejected.');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -62,6 +69,7 @@ async function cancelConfirmed(requestId: string) {
     await api.post(`/ext/workflow/approvals/${requestId}/cancel`, {});
     await loadRequests();
     toast.success(m['workflow.approvals.toast.cancelled']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -84,6 +92,7 @@ function statusBadge(s: string) {
         approved: 'badge-success',
         rejected: 'badge-error',
         cancelled: 'badge-ghost',
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } as any
     )[s] ?? 'badge-ghost'
   );

@@ -5,6 +5,7 @@ import { join } from 'path';
 export async function extensionCommand(
   action: 'create' | 'build' | 'dev',
   name: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   opts: Record<string, any>,
 ) {
   switch (action) {
@@ -292,6 +293,8 @@ Isolation (MARKETPLACE-POLICY §2):
  * manifest integrity) from `extension pack`. Delegate to pack so anyone
  * still typing `build` gets a loadable artifact, and point them at pack.
  */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function buildExtension(opts: Record<string, any>) {
   console.warn(
     '\x1b[33m`zveltio extension build` is deprecated — use `zveltio extension pack`.\x1b[0m',

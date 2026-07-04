@@ -82,11 +82,13 @@ async function runReadOnlySql(
   db: Database,
   query: string,
   timeoutSec = 10,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<{ rows: any[] }> {
   return db.transaction().execute(async (trx: Database) => {
     await sql.raw(`SET TRANSACTION READ ONLY`).execute(trx);
     await sql.raw(`SET LOCAL statement_timeout = '${timeoutSec}s'`).execute(trx);
     const result = await sql.raw(query).execute(trx);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     return { rows: (result as any).rows ?? [] };
   });
 }
@@ -98,6 +100,7 @@ function rejectIfDangerous(query: string): string | null {
   return null;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function insightsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -111,6 +114,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── GET /stats ───────────────────────────────────────────────────────────────
   app.get('/stats', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
@@ -140,9 +144,11 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── GET /dashboards ──────────────────────────────────────────────────────────
   app.get('/dashboards', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
     // Show public dashboards + own dashboards + dashboards shared with the user
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const result = await sql<any>`
       SELECT DISTINCT d.*, COUNT(p.id) AS panel_count
       FROM zv_dashboards d
@@ -172,6 +178,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const body = c.req.valid('json');
 
@@ -194,6 +201,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── GET /dashboards/:id ──────────────────────────────────────────────────────
   app.get('/dashboards/:id', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
@@ -237,6 +245,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── DELETE /dashboards/:id ───────────────────────────────────────────────────
   app.delete('/dashboards/:id', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
@@ -259,6 +268,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── GET /dashboards/:id/shares ───────────────────────────────────────────────
   app.get('/dashboards/:id/shares', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
@@ -300,6 +310,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const id = c.req.param('id');
       const body = c.req.valid('json');
@@ -343,6 +354,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
           permission: body.permission,
           created_by: user.id,
         })
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .onConflict((oc: any) => oc.doUpdateSet({ permission: body.permission }))
         .returningAll()
         .executeTakeFirst();
@@ -353,6 +365,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── DELETE /dashboards/:id/shares/:shareId ───────────────────────────────────
   app.delete('/dashboards/:id/shares/:shareId', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const { id, shareId } = c.req.param();
 
@@ -399,6 +412,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const isAdmin = await checkPermission(user.id, 'admin', '*');
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
@@ -447,6 +461,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const isAdmin = await checkPermission(user.id, 'admin', '*');
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
@@ -454,6 +469,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const updates: Record<string, any> = { updated_at: new Date() };
       if (body.title !== undefined) updates.title = body.title;
       if (body.type !== undefined) updates.type = body.type;
@@ -476,6 +492,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── DELETE /panels/:id ───────────────────────────────────────────────────────
   app.delete('/panels/:id', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
@@ -492,6 +509,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── POST /panels/:id/execute ─────────────────────────────────────────────────
   app.post('/panels/:id/execute', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
@@ -564,6 +582,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
           expires_at: new Date(Date.now() + 5 * 60 * 1000),
           execution_ms: executionMs,
         })
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .onConflict((oc: any) =>
           oc.column('panel_id').doUpdateSet({
             result: JSON.stringify(rows),
@@ -608,6 +627,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         cached: false,
         execution_ms: executionMs,
       });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       // Increment error count
       await db
@@ -633,6 +653,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const isAdmin = await checkPermission(user.id, 'admin', '*');
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
@@ -659,11 +680,13 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── GET /saved-queries ───────────────────────────────────────────────────────
   app.get('/saved-queries', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
     const queries = await db
       .selectFrom('zvd_insight_saved_queries')
       .selectAll()
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .where((eb: any) => eb.or([eb('is_public', '=', true), eb('created_by', '=', user.id)]))
       .orderBy('use_count', 'desc')
       .orderBy('created_at', 'desc')
@@ -686,6 +709,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       // Stored SQL is read back on /execute; require admin so a low-priv
       // user can't park a `SELECT * FROM account` query and call it back.
@@ -725,6 +749,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const id = c.req.param('id');
       const body = c.req.valid('json');
@@ -742,6 +767,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
         if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
       }
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const updates: Record<string, any> = { updated_at: new Date() };
       if (body.name !== undefined) updates.name = body.name;
       if (body.description !== undefined) updates.description = body.description;
@@ -762,6 +788,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── DELETE /saved-queries/:id ────────────────────────────────────────────────
   app.delete('/saved-queries/:id', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
@@ -784,6 +811,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── POST /saved-queries/:id/execute ─────────────────────────────────────────
   app.post('/saved-queries/:id/execute', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const id = c.req.param('id');
 
@@ -832,6 +860,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── GET /subscriptions ───────────────────────────────────────────────────────
   app.get('/subscriptions', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
     const subscriptions = await db
@@ -858,6 +887,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const body = c.req.valid('json');
 
@@ -880,6 +910,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
           hour_of_day: body.hour_of_day,
           is_active: true,
         })
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .onConflict((oc: any) =>
           oc.columns(['dashboard_id', 'user_id']).doUpdateSet({
             email: body.email,
@@ -898,6 +929,7 @@ export function insightsRoutes(db: Database, auth: any): Hono {
 
   // ── DELETE /subscriptions/:id ────────────────────────────────────────────────
   app.delete('/subscriptions/:id', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const id = c.req.param('id');
 

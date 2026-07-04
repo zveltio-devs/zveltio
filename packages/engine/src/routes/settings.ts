@@ -72,6 +72,7 @@ const READONLY_SETTINGS_KEYS = new Set([
   'marketplace_auth_token',
 ]);
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function settingsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -105,10 +106,13 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       .where('is_public', '=', true)
       .execute();
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const result: Record<string, any> = {};
     for (const s of settings) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const key = (s as any).key as string;
       if (!PUBLIC_SETTINGS_WHITELIST.has(key)) continue; // extra guard
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const raw = (s as any).value;
       if (typeof raw === 'string') {
         try {
@@ -137,16 +141,21 @@ export function settingsRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     const settings = await db.selectFrom('zv_settings').selectAll().orderBy('key').execute();
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const result: Record<string, any> = {};
     for (const s of settings) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const raw = (s as any).value;
       if (typeof raw === 'string') {
         try {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           result[(s as any).key] = JSON.parse(raw);
         } catch {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           result[(s as any).key] = raw;
         }
       } else {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         result[(s as any).key] = raw;
       }
     }
@@ -163,7 +172,9 @@ export function settingsRoutes(db: Database, auth: any): Hono {
 
     if (!setting) return c.json({ error: 'Setting not found' }, 404);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const raw = (setting as any).value;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let parsed: any;
     if (typeof raw === 'string') {
       try {
@@ -174,6 +185,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     } else {
       parsed = raw;
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     return c.json({ key: (setting as any).key, value: parsed });
   });
 
@@ -210,6 +222,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
           is_public: is_public ?? false,
           updated_at: new Date(),
         })
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .onConflict((oc: any) =>
           oc.column('key').doUpdateSet({
             value: serialized,
@@ -248,6 +261,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       await db
         .insertInto('zv_settings')
         .values({ key, value: serialized, updated_at: new Date() })
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .onConflict((oc: any) =>
           oc.column('key').doUpdateSet({ value: serialized, updated_at: new Date() }),
         )

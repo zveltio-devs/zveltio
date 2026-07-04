@@ -146,6 +146,7 @@ export async function verifySignature(
   try {
     cryptoKey = await crypto.subtle.importKey(
       'raw',
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       key.publicKey as any,
       { name: 'Ed25519' },
       false,
@@ -162,7 +163,9 @@ export async function verifySignature(
   const ok = await crypto.subtle.verify(
     { name: 'Ed25519' },
     cryptoKey,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     sigBytes as any,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     dataBytes as any,
   );
   if (!ok) {

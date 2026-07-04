@@ -33,6 +33,7 @@ interface QualityIssue {
 async function detectDuplicates(
   db: Database,
   tableName: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   fields: any[],
 ): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
@@ -80,6 +81,7 @@ async function detectDuplicates(
 async function detectMissingData(
   db: Database,
   tableName: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   fields: any[],
 ): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
@@ -138,6 +140,7 @@ async function detectMissingData(
 async function detectOutliers(
   db: Database,
   tableName: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   fields: any[],
 ): Promise<QualityIssue[]> {
   const issues: QualityIssue[] = [];
@@ -189,7 +192,9 @@ async function detectOutliers(
 
 async function aiAnalyzeQuality(
   collection: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   sampleRecords: any[],
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   fields: any[],
 ): Promise<QualityIssue[]> {
   if (sampleRecords.length === 0) return [];
@@ -210,6 +215,7 @@ Maximum 5 issues. Return [] if data looks clean.`;
 
   try {
     const { serviceRegistry } = await import('./service-registry.js');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const aiProviders = serviceRegistry.get<{ getDefault(): any }>('ai.providers');
     const provider = aiProviders?.getDefault?.();
     if (!provider) return [];
@@ -224,6 +230,7 @@ Maximum 5 issues. Return [] if data looks clean.`;
     if (!jsonMatch) return [];
     const aiIssues = JSON.parse(jsonMatch[0]);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     return aiIssues.map((i: any) => ({
       issue_type: (i.issue_type as IssueType) || 'anomaly',
       severity: 'info' as const,
@@ -247,6 +254,7 @@ async function runScanAsync(
 ): Promise<void> {
   const { DDLManager } = await import('./ddl-manager.js');
   const colDef = await DDLManager.getCollection(db, collection).catch(() => null);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const fields: any[] = (colDef as any)?.fields || [];
 
   const allIssues: QualityIssue[] = [];
@@ -269,6 +277,7 @@ async function runScanAsync(
   }
   if (scanType === 'normalization' || scanType === 'full') {
     // tableName is dynamic (zvd_<collection>), not in DbSchema.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const sample = await (db as any)
       .selectFrom(tableName)
       .selectAll()

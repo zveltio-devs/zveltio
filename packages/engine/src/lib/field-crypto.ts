@@ -51,7 +51,9 @@ export async function checkFieldEncryptionAtBoot(
                 return [];
               }
             })()
-          : (row.fields as any);
+          : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+            (row.fields as any);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       if (Array.isArray(fields) && fields.some((f: any) => f?.encrypted === true)) {
         collectionsWithEncrypted.push(row.name);
       }

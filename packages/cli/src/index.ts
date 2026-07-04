@@ -148,6 +148,7 @@ extensions
   .command('enable <name>')
   .description('Enable an installed extension')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   .action(async (name: string, opts: any) => {
     const url = opts.url || 'http://localhost:3000';
     const res = await fetch(`${url}/api/marketplace/${name}/enable`, { method: 'POST' }).catch(
@@ -157,6 +158,7 @@ extensions
       console.error(`Failed to enable ${name}`);
       process.exit(1);
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const body = (await res.json()) as any;
     console.log(
       body.hot_loaded ? `${name} is now active.` : `${name} will be active after restart.`,
@@ -167,6 +169,7 @@ extensions
   .command('disable <name>')
   .description('Disable an active extension')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   .action(async (name: string, opts: any) => {
     const url = opts.url || 'http://localhost:3000';
     const res = await fetch(`${url}/api/marketplace/${name}/disable`, { method: 'POST' }).catch(

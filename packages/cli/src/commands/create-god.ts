@@ -165,6 +165,7 @@ export async function createGodCommand(opts: { url?: string; email?: string; nam
       console.warn('⚠️  Could not auto-assign god role.');
       console.warn('   Use the Permissions page in Studio to assign the admin role manually.\n');
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     rl.close();
     console.error(`\n❌ Failed to create god user: ${err.message}\n`);

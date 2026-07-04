@@ -24,6 +24,7 @@ let collections = $state<VirtualCollection[]>([]);
 let loading = $state(true);
 let error = $state('');
 let showCreate = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let testResult = $state<{ ok: boolean; message: string; sample?: any } | null>(null);
 let testing = $state(false);
 
@@ -43,8 +44,11 @@ async function load() {
   loading = true;
   error = '';
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ collections: any[] }>('/api/collections');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     collections = (res.collections || []).filter((c: any) => c.source_type === 'virtual');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -73,6 +77,7 @@ async function testConnection() {
       } else {
         testResult = { ok: false, message: `Source returned ${resp.status}` };
       }
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (e2: any) {
       testResult = { ok: false, message: e2.message };
     }
@@ -122,6 +127,7 @@ async function create() {
       field_mapping_raw: '',
     };
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to create virtual collection');
   }

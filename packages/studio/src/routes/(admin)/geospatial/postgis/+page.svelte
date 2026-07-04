@@ -11,6 +11,7 @@ import { MapPin, Search, LoaderCircle } from '@lucide/svelte';
 
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let geofences = $state<any[]>([]);
 let loading = $state(true);
 let activeTab = $state<'proximity' | 'geofences' | 'cluster'>('proximity');
@@ -22,6 +23,7 @@ let nearForm = $state({
   lng: 0,
   radius_meters: 1000,
 });
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let nearResults = $state<any[]>([]);
 let searching = $state(false);
 
@@ -34,8 +36,10 @@ onMount(loadGeofences);
 async function loadGeofences() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ geofences: any[] }>('/ext/geospatial/postgis/geofences');
     geofences = data.geofences ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -47,8 +51,10 @@ async function searchNear() {
   if (!nearForm.collection) return;
   searching = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.post<{ records: any[] }>('/ext/geospatial/postgis/near', nearForm);
     nearResults = data.records ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['ai.error.searchFailed']());
   } finally {
@@ -66,6 +72,7 @@ async function createGeofence() {
     coordinatesJson = '';
     await loadGeofences();
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Invalid coordinates JSON');
   } finally {
@@ -80,6 +87,7 @@ async function deleteGeofenceConfirmed(id: string) {
   try {
     await api.delete(`/ext/geospatial/postgis/geofences/${id}`);
     await loadGeofences();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }

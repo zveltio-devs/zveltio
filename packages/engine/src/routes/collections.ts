@@ -42,6 +42,7 @@ const SYSTEM_FIELDS = new Set([
 ]);
 
 // Auth helper — checks session from request headers
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -50,6 +51,7 @@ async function requireAdmin(c: any, auth: any): Promise<any> {
   return session.user;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function collectionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -155,6 +157,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       await DDLManager.registerMetadata(db, data);
       metadataRegistered = true;
       const jobId = await enqueueDDLJob(db, 'create_collection', data);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       await auditLog(db, {
         type: 'collection.created',
@@ -181,6 +184,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           .deleteFrom('zvd_collections')
           .where('name', '=', data.name)
           .execute()
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .catch((err: any) =>
             console.warn(`[collections] rollback failed for '${data.name}':`, err?.message ?? err),
           );
@@ -195,6 +199,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // which leaves fields=[] and breaks the Studio schema view.
   app.post('/:name/sync-schema', async (c) => {
     const name = c.req.param('name');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const exists = await DDLManager.tableExists(db, name);
     if (!exists) return c.json({ error: 'Table does not exist' }, 404);
@@ -266,6 +271,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const name = c.req.param('name');
       const updates = c.req.valid('json');
       await DDLManager.updateCollectionMetadata(db, name, updates);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'settings.changed',
@@ -289,6 +295,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const force = c.req.query('force') === 'true';
     try {
       await DDLManager.dropCollection(effectiveDb, name, { force });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       await auditLog(db, {
         type: 'collection.deleted',
@@ -345,6 +352,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const guardError = await assertMutable(name, 'add');
     if (guardError) return c.json({ error: guardError }, 403);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let existingFields: any[];
     try {
       existingFields =
@@ -355,6 +363,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       existingFields = [];
     }
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if (existingFields.some((f: any) => f.name === field.name)) {
       return c.json({ error: `Field "${field.name}" already exists in collection "${name}"` }, 409);
     }
@@ -362,6 +371,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     // Every relation type needs a target — if the caller omits it we
     // get a confusing "column X cannot reference NULL" later, so reject
     // here with a clear message instead.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const opts = (field as any).options ?? {};
     const relatedCollection = opts.related_collection ? String(opts.related_collection) : null;
     if (ALL_RELATION_TYPES.has(field.type) && !relatedCollection) {
@@ -452,6 +462,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           junction_table: junctionTable,
         });
       } else {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const colDDL = fieldTypeRegistry.getColumnDDL(field as any);
         if (colDDL) {
           // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
@@ -462,7 +473,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       // Row-lock the collection (FOR UPDATE) inside a transaction so
       // two concurrent add-field calls can't both observe the same
       // pre-mutation fields[] and overwrite each other's writes.
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await db.transaction().execute(async (trx: any) => {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const locked = await (trx as any)
           .selectFrom('zvd_collections')
           .select(['fields'])
@@ -470,6 +483,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           .forUpdate()
           .executeTakeFirst();
         if (!locked) throw new Error('Collection not found');
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         let currentFields: any[];
         try {
           currentFields =
@@ -477,14 +491,17 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         } catch {
           currentFields = [];
         }
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         if (currentFields.some((f: any) => f.name === field.name)) {
           const err = new Error(
             `Field "${field.name}" already exists in collection "${name}"`,
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           ) as any;
           err.code = 'DUPLICATE';
           throw err;
         }
         const updatedFields = [...currentFields, field];
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         await (trx as any)
           .updateTable('zvd_collections')
           .set({ fields: JSON.stringify(updatedFields), updated_at: new Date() })
@@ -493,6 +510,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       });
       DDLManager.invalidateCache(name);
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'settings.changed',
@@ -502,6 +520,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         metadata: { action: 'added', field: { name: field.name, type: field.type } },
       });
       return c.json({ success: true, field });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (error: any) {
       if (error?.code === 'DUPLICATE') return c.json({ error: error.message }, 409);
       return c.json({ error: error instanceof Error ? error.message : 'Failed to add field' }, 400);
@@ -567,6 +586,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const guardError = await assertMutable(name, 'add'); // rename/type/required keep the column → "add" semantics
       if (guardError) return c.json({ error: guardError }, 403);
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let existingFields: any[];
       try {
         existingFields =
@@ -577,6 +597,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         existingFields = [];
       }
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const fieldDef = existingFields.find((f: any) => f.name === fieldName);
       if (!fieldDef) {
         return c.json({ error: `Field "${fieldName}" not found in collection "${name}"` }, 404);
@@ -588,6 +609,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         if (newName === fieldName) {
           return c.json({ error: 'New name is identical to the current name' }, 400);
         }
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         if (existingFields.some((f: any) => f.name === newName)) {
           return c.json(
             { error: `Field "${newName}" already exists in collection "${name}"` },
@@ -624,6 +646,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
       const tableName = DDLManager.getTableName(name);
       const actions: string[] = [];
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let updatedFieldShape: any = { ...fieldDef };
 
       try {
@@ -682,11 +705,13 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
         // ── Persist metadata ──────────────────────────────────────────
         const finalName = updatedFieldShape.name;
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const updatedFields = existingFields.map((f: any) =>
           f.name === fieldName ? updatedFieldShape : f,
         );
         await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
 
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const user = c.get('user' as never) as any;
         await auditLog(db, {
           type: 'settings.changed',
@@ -720,6 +745,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const guardError = await assertMutable(name, 'remove');
     if (guardError) return c.json({ error: guardError }, 403);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let existingFields: any[];
     try {
       existingFields =
@@ -730,12 +756,14 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       existingFields = [];
     }
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if (!existingFields.some((f: any) => f.name === fieldName)) {
       return c.json({ error: `Field "${fieldName}" not found in collection "${name}"` }, 404);
     }
 
     try {
       const tableName = DDLManager.getTableName(name);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const fieldDef = existingFields.find((f: any) => f.name === fieldName);
 
       if (fieldDef?.type === 'o2m') {
@@ -771,13 +799,16 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         .where('source_collection', '=', name)
         .where('source_field', '=', fieldName)
         .execute()
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .catch((err: any) =>
           console.warn(`[remove-field] zvd_relations cleanup:`, err?.message ?? err),
         );
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
       await DDLManager.updateCollectionMetadata(db, name, { fields: updatedFields });
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'settings.changed',

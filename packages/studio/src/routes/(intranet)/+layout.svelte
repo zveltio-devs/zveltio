@@ -67,6 +67,7 @@ onMount(async () => {
   }
 
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ zone: any; nav: NavPage[] }>(`/api/zones/${ZONE_SLUG}/render`);
     zone = res.zone;
     // Filter out the homepage entry — the user clicks the title/logo to get

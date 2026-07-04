@@ -89,6 +89,10 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Lint
         run: bun run lint
+      - name: noExplicitAny ratchet
+        # Fails if any package introduced a NEW `any` suppression above its
+        # baseline (docs/HARDENING-9-PLAN.md H-01). Type the value instead.
+        run: bun run any:ratchet
       - name: Format check
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.
@@ -108,8 +112,21 @@ jobs:
       # `@zveltio/sdk/testing` (exports map points at dist/testing/index.js).
       - name: Build SDK
         run: cd packages/sdk && bun run build
-      - name: Run unit tests
-        run: cd packages/engine && bun run test:unit
+      - name: Run unit tests (with coverage)
+        run: cd packages/engine && bun run test:unit:coverage
+      - name: Coverage ratchet
+        # Fails if engine lib/ line coverage drops below baseline
+        # (docs/HARDENING-9-PLAN.md H-02). Add tests for changed code.
+        run: bun run coverage:gate
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo '### Engine coverage (unit suite)'
+            echo '```'
+            bun run coverage:gate || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Run CLI tests
         # Tier-policy resolution + peer-deps allowlist drift guard live in
         # the CLI; run them in CI (typecheck alone doesn't exercise them).

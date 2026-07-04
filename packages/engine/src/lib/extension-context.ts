@@ -77,6 +77,7 @@ export function createRestrictedDb(
 
   return new Proxy(db, {
     get(target, prop: string | symbol) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const value = (target as any)[prop];
 
       if (typeof prop === 'string' && (QUERY_METHODS as readonly string[]).includes(prop)) {
@@ -140,9 +141,11 @@ interface ChainCall {
 
 const TERMINAL_METHODS = new Set(['execute', 'executeTakeFirst', 'executeTakeFirstOrThrow']);
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function wrapInsertForHooks(db: any, table: string, extName: string): any {
   const chainCalls: ChainCall[] = [];
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   function makeStage(realBuilder: any): any {
     return new Proxy(realBuilder, {
       get(t, prop: string | symbol) {
@@ -171,8 +174,10 @@ function wrapInsertForHooks(db: any, table: string, extName: string): any {
               for (let i = 0; i < chainCalls.length; i++) {
                 const call = chainCalls[i];
                 if (i === valuesIdx) q = q.values(payload.data);
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
                 else q = (q as any)[call.method](...call.args);
               }
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
               return await (q as any)[prop](...termArgs);
             } catch (err) {
               if (err instanceof AbortHookError) throw err;
@@ -181,6 +186,7 @@ function wrapInsertForHooks(db: any, table: string, extName: string): any {
           };
         }
 
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const val = (t as any)[prop];
         if (typeof val === 'function') {
           return (...args: unknown[]) => {
@@ -230,9 +236,11 @@ function extractSingleId(chainCalls: ChainCall[]): string | null {
   return String(v);
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function wrapUpdateForHooks(db: any, table: string, extName: string): any {
   const chainCalls: ChainCall[] = [];
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   function makeStage(realBuilder: any): any {
     return new Proxy(realBuilder, {
       get(t, prop: string | symbol) {
@@ -243,6 +251,7 @@ function wrapUpdateForHooks(db: any, table: string, extName: string): any {
             const id = extractSingleId(chainCalls);
             if (!id) {
               warnBulkSkip('update', table, extName);
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
               return await (t as any)[prop](...termArgs);
             }
             // Single-row update: fire hook with `before` snapshot.
@@ -267,12 +276,15 @@ function wrapUpdateForHooks(db: any, table: string, extName: string): any {
             for (let i = 0; i < chainCalls.length; i++) {
               const call = chainCalls[i];
               if (i === setIdx) q = q.set(payload.patch);
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
               else q = (q as any)[call.method](...call.args);
             }
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             return await (q as any)[prop](...termArgs);
           };
         }
 
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const val = (t as any)[prop];
         if (typeof val === 'function') {
           return (...args: unknown[]) => {
@@ -288,9 +300,11 @@ function wrapUpdateForHooks(db: any, table: string, extName: string): any {
   return makeStage(db.updateTable(table));
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function wrapDeleteForHooks(db: any, table: string, extName: string): any {
   const chainCalls: ChainCall[] = [];
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   function makeStage(realBuilder: any): any {
     return new Proxy(realBuilder, {
       get(t, prop: string | symbol) {
@@ -301,6 +315,7 @@ function wrapDeleteForHooks(db: any, table: string, extName: string): any {
             const id = extractSingleId(chainCalls);
             if (!id) {
               warnBulkSkip('delete', table, extName);
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
               return await (t as any)[prop](...termArgs);
             }
             const record = (await db
@@ -315,10 +330,12 @@ function wrapDeleteForHooks(db: any, table: string, extName: string): any {
               record: record ?? {},
               userId: `system:${extName}`,
             });
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             return await (t as any)[prop](...termArgs);
           };
         }
 
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const val = (t as any)[prop];
         if (typeof val === 'function') {
           return (...args: unknown[]) => {

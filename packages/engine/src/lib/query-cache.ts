@@ -41,6 +41,7 @@ export function buildQueryCacheKey(
   return `qc:${t}:${collection}:${hashKey([userId, queryString])}`;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function getQueryCache(key: string): Promise<any | null> {
   const cache = getCache();
   if (!cache || CACHE_TTL <= 0) return null;
@@ -55,6 +56,7 @@ export async function getQueryCache(key: string): Promise<any | null> {
 
 export async function setQueryCache(
   key: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   value: any,
   userId?: string | null,
 ): Promise<void> {

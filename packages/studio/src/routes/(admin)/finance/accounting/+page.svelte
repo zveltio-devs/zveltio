@@ -8,8 +8,11 @@ import { toast } from '$lib/stores/toast.svelte.js';
 import { Calculator, Plus, X, BookOpen, Coins, TrendingUp, LoaderCircle } from '@lucide/svelte';
 
 let tab = $state<'entries' | 'accounts' | 'fiscal'>('entries');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let entries = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let accounts = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let fiscalYears = $state<any[]>([]);
 let loading = $state(true);
 let showEntryForm = $state(false);
@@ -23,12 +26,15 @@ let entryForm = $state({
   lines: [
     { account_code: '', description: '', debit: 0, credit: 0 },
     { account_code: '', description: '', debit: 0, credit: 0 },
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   ] as any[],
 });
 let accountForm = $state({ code: '', name: '', account_type: 'asset', parent_code: '' });
 
 const sums = $derived({
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   debit: entryForm.lines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0),
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   credit: entryForm.lines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0),
   get balanced() {
     return Math.abs(this.debit - this.credit) < 0.005;
@@ -37,24 +43,30 @@ const sums = $derived({
 
 async function loadEntries() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/finance/accounting/journal-entries?limit=100');
     entries = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
 }
 async function loadAccounts() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/finance/accounting/accounts');
     accounts = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
 }
 async function loadFiscal() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/finance/accounting/fiscal-years');
     fiscalYears = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -75,6 +87,7 @@ function addLine() {
   ];
 }
 function removeLine(idx: number) {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   entryForm.lines = entryForm.lines.filter((_: any, i: number) => i !== idx);
 }
 
@@ -94,6 +107,7 @@ async function createEntry() {
     };
     await loadEntries();
     toast.success(m['finance.accounting.toast.posted']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -109,6 +123,7 @@ async function createAccount() {
     accountForm = { code: '', name: '', account_type: 'asset', parent_code: '' };
     await loadAccounts();
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {

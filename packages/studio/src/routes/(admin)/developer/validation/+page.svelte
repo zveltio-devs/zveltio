@@ -8,9 +8,11 @@ import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { ShieldCheck, Plus, X, Sparkles, LoaderCircle } from '@lucide/svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let rules = $state<any[]>([]);
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let selectedCollection = $state('');
 let loading = $state(false);
@@ -34,8 +36,10 @@ async function loadRules() {
   try {
     const params = new URLSearchParams();
     if (selectedCollection) params.set('collection', selectedCollection);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>(`/ext/developer/validation/rules?${params}`);
     rules = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['ext.loadFailed']());
   } finally {
@@ -44,6 +48,7 @@ async function loadRules() {
 }
 async function loadCollections() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ collections?: any[]; data?: any[] }>('/api/collections');
     collections = r.collections ?? r.data ?? [];
   } catch {
@@ -54,6 +59,7 @@ async function loadCollections() {
 async function createRule() {
   saving = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let cfg: any = {};
     try {
       cfg = JSON.parse(form.config);
@@ -74,6 +80,7 @@ async function createRule() {
     aiPrompt = '';
     await loadRules();
     toast.success(m['developer.validation.toast.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['ext.saveFailed']());
   } finally {
@@ -85,6 +92,7 @@ async function aiGenerate() {
   if (!aiPrompt.trim() || !form.field_name) return;
   aiGenerating = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.post<any>('/ext/developer/validation/ai-generate', {
       field_name: form.field_name,
       field_type: form.field_type,
@@ -94,6 +102,7 @@ async function aiGenerate() {
     form.rule_type = ai.rule_type ?? form.rule_type;
     form.description = ai.description ?? aiPrompt;
     form.config = JSON.stringify(ai.config ?? {}, null, 2);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['developer.validation.error.aiFailed']());
   } finally {
@@ -108,6 +117,7 @@ async function deleteRuleConfirmed(id: string) {
   try {
     await api.delete(`/ext/developer/validation/rules/${id}`);
     await loadRules();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['ext.saveFailed']());
   }

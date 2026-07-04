@@ -21,6 +21,7 @@
 
 export type EntityOp = 'view' | 'update' | 'delete';
 export type AccessDecision = 'allow' | 'deny';
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export type EntityAccessCheck<R = any, U = any> = (
   record: R,
   user: U,
@@ -51,6 +52,8 @@ export class EntityAccessRegistryImpl {
    * for the table in registration order; the first `deny` short-circuits.
    * Returns `allow` if no checks are registered or all return `allow`.
    */
+
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async checkAccess<R = any, U = any>(
     table: string,
     record: R,
@@ -67,6 +70,7 @@ export class EntityAccessRegistryImpl {
   }
 
   /** Convenience for callers that only care about the boolean. */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async isAllowed<R = any, U = any>(
     table: string,
     record: R,

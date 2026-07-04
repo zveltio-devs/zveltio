@@ -87,6 +87,7 @@ async function registerNew(): Promise<void> {
       }),
     });
     if (!verifyRes.ok) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const body = (await verifyRes.json().catch(() => null)) as any;
       throw new Error(body?.message ?? `Verification failed: HTTP ${verifyRes.status}`);
     }

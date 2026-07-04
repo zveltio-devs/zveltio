@@ -126,6 +126,7 @@ export async function deployCommand(opts: DeployOptions) {
     try {
       await runCommand(buildArgs);
       console.log(c.green(`\nImage built: ${imageName}\n`));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       console.error(c.red(`\nBuild failed: ${err.message}`));
       process.exit(1);
@@ -147,6 +148,7 @@ export async function deployCommand(opts: DeployOptions) {
     try {
       await runCommand(['docker', 'push', imageName]);
       console.log(c.green(`\nImage pushed: ${imageName}\n`));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       console.error(c.red(`\nPush failed: ${err.message}`));
       console.error(c.dim('  Ensure you are logged in: docker login'));

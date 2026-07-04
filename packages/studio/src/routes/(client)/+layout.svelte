@@ -41,8 +41,10 @@ onMount(async () => {
   }
 
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ zone: any; pages: any[] }>(`/api/zones/${ZONE_SLUG}/render`);
     zone = res.zone;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     navPages = (res.pages ?? []).filter((p: any) => p.is_active);
   } catch {
     // Zone not configured yet — show empty nav

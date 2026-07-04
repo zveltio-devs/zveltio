@@ -47,6 +47,7 @@ interface FieldDef {
   name: string;
   type: string;
   required?: boolean;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   options?: any;
 }
 interface Collection {
@@ -169,6 +170,7 @@ function cardHeight(c: { fields?: FieldDef[] }): number {
   return n * NODE_ROW_H + NODE_PAD * 2;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function parseFields(f: any): FieldDef[] {
   if (!f) return [];
   try {
@@ -601,6 +603,7 @@ async function createCollection() {
     newCollectionName = '';
     // Poll briefly so the new collection shows up without a manual reload.
     setTimeout(load, 800);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     newCollectionError = err?.message ?? 'Failed to create';
   } finally {
@@ -617,6 +620,7 @@ async function deleteCollection(name: string) {
     userPositions = { ...userPositions };
     persistPositions();
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err?.message ?? 'Failed to delete collection');
   }
@@ -674,6 +678,7 @@ async function submitAddField(collectionName: string) {
     toast.success(`Added '${newFieldName}' to ${collectionName}.`);
     closeAddField();
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     newFieldError = err?.message ?? 'Failed to add field';
   }
@@ -690,6 +695,7 @@ async function deleteField(collectionName: string, fieldName: string) {
     await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
     toast.success(`Removed '${fieldName}'.`);
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err?.message ?? 'Failed to remove field');
   }
@@ -727,6 +733,7 @@ async function commitRename(collectionName: string, oldName: string) {
     toast.success(`Renamed '${oldName}' → '${next}'.`);
     cancelRename();
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     renameError = err?.message ?? 'Rename failed';
   }
@@ -761,6 +768,7 @@ async function commitFieldEdit(collectionName: string, originalName: string) {
     editError = 'Lowercase letters, digits, underscore; must start with a letter';
     return;
   }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const body: Record<string, any> = {};
   if (editFieldName !== originalName) body.new_name = editFieldName;
   if (editFieldType !== editOriginalType) body.new_type = editFieldType;
@@ -781,6 +789,7 @@ async function commitFieldEdit(collectionName: string, originalName: string) {
     toast.success(`Updated: ${res.actions?.join(', ') ?? 'field updated'}`);
     closeFieldEdit();
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     editError = err?.message ?? 'Update failed';
   } finally {

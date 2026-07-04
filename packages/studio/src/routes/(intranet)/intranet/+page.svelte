@@ -5,6 +5,7 @@ import { auth } from '$lib/auth.svelte.js';
 import { api } from '$lib/api.js';
 import { SquareCheck, Bell, Clock, ArrowRight, User as UserIcon, FileText } from '@lucide/svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let notifications = $state<any[]>([]);
 let pendingTasks = $state<number>(0);
 let unreadCount = $state<number>(0);
@@ -13,8 +14,11 @@ let loading = $state(true);
 
 onMount(async () => {
   const [notifRes, tasksRes, zoneRes] = await Promise.allSettled([
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ tasks: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me'),
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ nav: any[] }>('/api/zones/intranet/render'),
   ]);
   if (notifRes.status === 'fulfilled') {
@@ -24,7 +28,9 @@ onMount(async () => {
   if (tasksRes.status === 'fulfilled') pendingTasks = tasksRes.value.tasks?.length ?? 0;
   if (zoneRes.status === 'fulfilled') {
     zonePages = (zoneRes.value.nav ?? [])
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .filter((p: any) => !p.is_homepage)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .map((p: any) => ({ slug: p.slug, title: p.title, icon: p.icon }));
   }
   loading = false;

@@ -9,6 +9,7 @@ interface Props {
 let { lat = 44.4268, lng = 26.1025, zoom = 13, onSelect }: Props = $props();
 
 let mapEl: HTMLDivElement;
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let mapInstance: any = null;
 
 $effect(() => {
@@ -34,6 +35,7 @@ $effect(() => {
         onSelect(pos.lat, pos.lng);
       });
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       mapInstance.on('click', (e: any) => {
         marker.setLatLng(e.latlng);
         onSelect(e.latlng.lat, e.latlng.lng);

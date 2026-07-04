@@ -7,6 +7,7 @@ let {
   loading = false,
   onclick = null,
 }: {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   children: any;
   variant?: 'primary' | 'secondary' | 'ghost' | 'error';
   size?: 'xs' | 'sm' | 'md' | 'lg';

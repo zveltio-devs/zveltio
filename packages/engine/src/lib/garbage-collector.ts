@@ -40,6 +40,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
           WHERE "_deletedAt" < NOW() - INTERVAL '30 days'
         `.execute(db);
 
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const deleted = Number((result as any).numAffectedRows ?? 0);
         if (deleted > 0) {
           console.log(`[GC] ${schema}.${table_name}: ${deleted} rows deleted`);

@@ -247,6 +247,7 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
     const FunctionCtor = Function;
     lockdownGlobals();
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const safeGlobals: Record<string, any> = {
       // ═══ Allowed globals ═══
       fetch: safeFetch, // SSRF-protected proxy, NOT raw fetch
@@ -266,8 +267,11 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
       Boolean,
       _logs: logs,
       console: {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         log: (...args: any[]) => logs.push(`[log] ${args.join(' ')}`),
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         error: (...args: any[]) => logs.push(`[err] ${args.join(' ')}`),
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         warn: (...args: any[]) => logs.push(`[warn] ${args.join(' ')}`),
       },
 
@@ -329,6 +333,7 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
       logs,
       duration_ms: Date.now() - start,
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     self.postMessage({
       success: false,

@@ -10,9 +10,11 @@ export interface NotificationInput {
   type?: 'info' | 'success' | 'warning' | 'error';
   action_url?: string;
   source?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   metadata?: Record<string, any>;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function sendNotification(db: any, input: NotificationInput): Promise<void> {
   await db
     .insertInto('zv_notifications')

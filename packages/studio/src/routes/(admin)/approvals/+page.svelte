@@ -28,6 +28,7 @@ interface ApprovalRequest {
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   requester_name: string | null;
   requested_at: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   metadata: Record<string, any>;
 }
 

@@ -8,6 +8,7 @@ if (untrack(() => data.status === 404 || !data.portalPage)) {
   error(404, 'Page not found');
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const visibleSections = $derived((data.sections ?? []).filter((s: any) => s.is_visible !== false));
 </script>
 

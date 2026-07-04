@@ -29,7 +29,9 @@ export async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) throw new Error(`Registry returned ${res.status}`);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = (await res.json()) as { extensions: any[] };
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     remoteEntries = (data.extensions ?? []).map((e: any) => ({
       name: e.name,
       displayName: e.display_name ?? e.displayName ?? e.name,

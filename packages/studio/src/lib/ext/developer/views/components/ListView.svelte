@@ -3,7 +3,9 @@ let {
   items = [],
   onRowClick = null,
 }: {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   items: any[];
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   onRowClick?: ((item: any) => void) | null;
 } = $props();
 </script>
