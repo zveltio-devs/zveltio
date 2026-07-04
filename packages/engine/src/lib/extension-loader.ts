@@ -9,14 +9,7 @@ import type { FieldTypeRegistry } from './field-type-registry.js';
 // Bun deliberately exposes node:fs as the native install-time API — there
 // is no synchronous Bun.file equivalent for mkdir/symlink/writeFile. The
 // explicit `node:` prefix makes that intent visible.
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  symlinkSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'path';
 import { pathToFileURL } from 'node:url';
@@ -54,7 +47,6 @@ import { queryAlterRegistry, type QueryAlterScope } from './query-alter.js';
 import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js';
 import { cronRunner } from './cron-runner.js';
 import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
-import { isPackageAllowed } from './peer-deps-allowlist.js';
 // Static-import so Bun's compile-time bundler walks into the worker
 // host and sees the `new Worker(new URL('./worker-extension-runtime.ts',
 // import.meta.url))` call site. Dynamic-import hid the worker entry
@@ -92,6 +84,8 @@ import {
 import { REGISTRY_URL, fetchRegistryCatalog, downloadExtension } from './extension-download.js';
 import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
+import { purgeExtensionData, runExtensionMigrations } from './extensions/migration-runner.js';
+import { installExtensionNpmDependencies } from './extensions/npm-install.js';
 
 export { serviceRegistry } from './service-registry.js';
 
@@ -798,7 +792,7 @@ export class ExtensionLoader {
         // when imported). Cache the error for the marketplace HTTP response.
         if (manifest.peerDependencies && Object.keys(manifest.peerDependencies).length > 0) {
           try {
-            await this.installNpmDependencies(extName, manifest.peerDependencies);
+            await installExtensionNpmDependencies(extName, manifest.peerDependencies);
           } catch (err) {
             const msg = (err as Error).message;
             console.warn(`⚠️  ${msg}`);
@@ -1270,216 +1264,20 @@ export class ExtensionLoader {
    * Skips packages that are already resolvable (already installed in the workspace).
    * Uses `bun add` in the workspace root so packages are available to the engine process.
    */
-  private async installNpmDependencies(
-    extName: string,
-    peerDeps: Record<string, string>,
-  ): Promise<void> {
-    // Install into the extensions base directory — the same place ensureExtensionCoreDeps
-    // puts hono/zod/kysely so that dynamically-imported extension modules can resolve all
-    // packages via the standard Node.js filesystem walk from their location.
-    // Using resolveExtensionsBase() keeps peerDeps co-located with core deps and works
-    // correctly whether running as a compiled binary, in dev, or inside Docker.
-    const workspaceRoot = resolveExtensionsBase();
-
-    const extNodeModules = join(workspaceRoot, 'node_modules');
-    const toInstall: string[] = [];
-    for (const [pkg, versionRange] of Object.entries(peerDeps)) {
-      // Check via Bun's module resolution first, then fall back to a direct filesystem check
-      // against the extensions node_modules (import.meta.resolve runs in engine binary context
-      // and cannot see packages installed in the extensions directory).
-      // Only check the extensions node_modules — import.meta.resolve runs in
-      // the engine's bundle context and would find engine-bundled packages
-      // (hono, zod, etc.) even though they're not available to dynamically
-      // imported extension files that look up from their own directory.
-      const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
-      const alreadyInstalled = existsSync(join(extNodeModules, pkgFolder));
-      if (!alreadyInstalled) {
-        const spec =
-          versionRange && versionRange !== '*'
-            ? `${pkg}@${versionRange.replace(/^\^|^~/, '')}`
-            : pkg;
-        toInstall.push(spec);
-      }
-    }
-
-    if (toInstall.length === 0) return;
-
-    // Ensure a package.json exists in the install dir so `bun add` works.
-    const pkgJsonPath = join(workspaceRoot, 'package.json');
-    if (!existsSync(pkgJsonPath)) {
-      writeFileSync(
-        pkgJsonPath,
-        JSON.stringify(
-          {
-            name: 'zveltio-extensions',
-            private: true,
-            type: 'module',
-          },
-          null,
-          2,
-        ),
-      );
-    }
-
-    // SECURITY: validate package names and version ranges before spawning bun add.
-    // A malicious manifest.json could inject shell metacharacters or use non-registry
-    // protocols (file:, git:, link:) to run arbitrary code or access the filesystem.
-    const SAFE_PACKAGE_NAME = /^(@[a-z0-9-_]+\/)?[a-z0-9-_.]+$/;
-    const SAFE_VERSION = /^[\d.*^~>=<| -]+$/;
-    for (const [pkg, ver] of Object.entries(peerDeps)) {
-      if (!SAFE_PACKAGE_NAME.test(pkg) || !SAFE_VERSION.test(ver)) {
-        throw new Error(
-          `Extension "${extName}" declared unsafe peerDependency: "${pkg}@${ver}". ` +
-            `Only scoped/unscoped npm package names with semver ranges are allowed.`,
-        );
-      }
-      // SECURITY: enforce platform allow-list. Unknown packages cannot be auto-installed
-      // — a publisher must request inclusion in peer-deps-allowlist.ts via PR review.
-      if (!isPackageAllowed(pkg)) {
-        throw new Error(
-          `Extension "${extName}" declared disallowed peerDependency: "${pkg}". ` +
-            `Only packages on the platform allow-list may be auto-installed. ` +
-            `See packages/engine/src/lib/peer-deps-allowlist.ts to request inclusion.`,
-        );
-      }
-    }
-
-    console.log(`📦 Extension "${extName}": installing npm packages: ${toInstall.join(', ')}`);
-
-    // Try bun add first; fall back to npm install if bun is not on PATH
-    let installed = false;
-
-    try {
-      const proc = Bun.spawn(['bun', 'add', ...toInstall], {
-        cwd: workspaceRoot,
-        stdout: 'pipe',
-        stderr: 'pipe',
-      });
-      const exitCode = await proc.exited;
-      if (exitCode === 0) {
-        installed = true;
-      } else {
-        const stderr = await new Response(proc.stderr).text();
-        console.warn(`[extensions] bun add failed for "${extName}": ${stderr.trim()}`);
-      }
-    } catch {
-      // ENOENT — bun not on PATH; try npm
-    }
-
-    if (!installed) {
-      try {
-        const npmProc = Bun.spawn(['npm', 'install', '--save', ...toInstall], {
-          cwd: workspaceRoot,
-          stdout: 'pipe',
-          stderr: 'pipe',
-        });
-        const exitCode = await npmProc.exited;
-        if (exitCode === 0) {
-          installed = true;
-        } else {
-          const stderr = await new Response(npmProc.stderr).text();
-          console.warn(`[extensions] npm install failed for "${extName}": ${stderr.trim()}`);
-        }
-      } catch {
-        // npm not on PATH either
-      }
-    }
-
-    if (!installed) {
-      // S1-02: fail-close. Previously this was a warning + return, but an
-      // extension whose peerDeps fail to install will crash at runtime when it
-      // tries to import the missing module. Surface the failure now so the
-      // install / enable HTTP response carries an actionable error to the user.
-      throw new Error(
-        `Extension "${extName}": could not install peer packages ${toInstall.join(', ')}. ` +
-          `Install them manually in ${workspaceRoot}: bun add ${toInstall.join(' ')}`,
-      );
-    }
-
-    console.log(`✅ Extension "${extName}": packages installed successfully`);
-  }
-
   private async runExtensionMigrations(extension: ZveltioExtension, db: Database): Promise<void> {
-    const migrations = extension.getMigrations?.() || [];
-    if (migrations.length === 0) return;
-
-    // Phase 1 — read all migrations + skip the ones already applied. Done
-    // outside the outer transaction so an early-skipped chain (everything
-    // already applied) doesn't open a useless transaction.
-    type Pending = { name: string; up: string; down: string | null };
-    const pending: Pending[] = [];
-    for (const migrationPath of migrations) {
-      const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
-      const existing = await db
-        .selectFrom('zv_migrations')
-        .select('id')
-        .where('name', '=', name)
-        .executeTakeFirst()
-        .catch(() => null);
-      if (existing) continue;
-
-      const rawSql = await Bun.file(migrationPath).text();
-      const { up, down } = parseMigrationSql(rawSql);
-      pending.push({ name, up, down });
-    }
-
-    if (pending.length === 0) return;
-
-    // Phase 2 — run the entire chain in ONE outer transaction. If any UP
-    // fails, Postgres rolls back the whole chain (DDL is transactional for
-    // CREATE TABLE / ALTER / DROP / most CREATE INDEX variants). Migrations
-    // that need CONCURRENTLY or other non-transactional DDL cannot use this
-    // path — they must be expressed differently (e.g. split into a separate
-    // non-extension migration applied by an admin).
-    await db.transaction().execute(async (trx) => {
-      for (const m of pending) {
-        await _sql.raw(m.up).execute(trx);
-        // Persist DOWN alongside the migration row so a future uninstall with
-        // purgeData=true can replay rollbacks without the original files.
-        await trx.insertInto('zv_migrations').values({ name: m.name, down_sql: m.down }).execute();
-        console.log(`  ✓ Extension migration: ${m.name}`);
-      }
-    });
+    // Body extracted to lib/extensions/migration-runner.ts (H-04 split). Bare
+    // call resolves to the imported function, not this method.
+    return runExtensionMigrations(extension, db);
   }
 
   /**
    * Reverse-apply every migration this extension has on record, in reverse
-   * order, then delete the zv_migrations rows. The whole operation runs in a
-   * single transaction — if any DOWN fails the chain is rolled back.
-   *
-   * Throws DownMissingError listing the migrations that have no DOWN section.
-   * In that case nothing is dropped — the operator can either run those DOWNs
-   * manually or accept that purge cannot proceed.
+   * order, then delete the zv_migrations rows (see migration-runner.ts).
+   * Kept as a public method because registerMarketplaceRoutes calls it via
+   * the loader instance.
    */
-  /** internal — also called by registerMarketplaceRoutes (loader split). */
   async purgeExtensionData(extensionName: string, db: Database): Promise<void> {
-    const prefix = `ext:${extensionName}:`;
-    const rows = await db
-      .selectFrom('zv_migrations')
-      .select(['id', 'name', 'down_sql'])
-      .where('name', 'like', `${prefix}%`)
-      .orderBy('id', 'desc')
-      .execute()
-      .catch(() => []);
-
-    if (rows.length === 0) return;
-
-    const missing = rows.filter((r) => !r.down_sql || r.down_sql.trim() === '');
-    if (missing.length > 0) {
-      throw new DownMissingError(
-        extensionName,
-        missing.map((r) => r.name),
-      );
-    }
-
-    await db.transaction().execute(async (trx) => {
-      for (const r of rows) {
-        const downSql = r.down_sql as string;
-        await _sql.raw(downSql).execute(trx);
-        await trx.deleteFrom('zv_migrations').where('id', '=', r.id).execute();
-        console.log(`  ✓ Extension purge: rolled back ${r.name}`);
-      }
-    });
+    return purgeExtensionData(extensionName, db);
   }
 
   async loadFromDB(db: Database, app: Hono): Promise<void> {
