@@ -427,13 +427,27 @@ export async function resolveTenantFromRequest(
   const headerSlug = headers.get('x-tenant-slug');
   if (headerSlug) return getTenantBySlug(headerSlug);
 
-  // Priority 2: subdomain
+  // Priority 2: subdomain. NEVER for IP hostnames: "127.0.0.1" splits into 4
+  // dot-parts, so it used to be parsed as subdomain "127" → tenant lookup miss →
+  // null → the middleware proceeded WITHOUT the tenant GUC and RLS rejected
+  // every data write (42501 → 500) and hid every row. Any access by IP —
+  // http://127.0.0.1:3000, a LAN address, a fresh demo box — hit this. IPs and
+  // bracketed IPv6 have no subdomain semantics; fall through to the default
+  // tenant (always-one-tenant) like "localhost" does.
   if (hostname) {
-    const parts = hostname.split('.');
-    if (parts.length >= 3) {
-      const subdomain = parts[0];
-      if (subdomain !== 'www' && subdomain !== 'api') {
-        return getTenantBySlug(subdomain);
+    const isIpV4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+    const isIpV6 = hostname.includes(':') || hostname.startsWith('[');
+    if (!isIpV4 && !isIpV6) {
+      const parts = hostname.split('.');
+      if (parts.length >= 3) {
+        const subdomain = parts[0];
+        if (subdomain !== 'www' && subdomain !== 'api') {
+          // Unknown subdomain slug → fall through to the default tenant rather
+          // than returning null: null silently disables the tenant GUC, which
+          // breaks RLS in the worst possible way (empty reads + 500 writes).
+          const bySub = await getTenantBySlug(subdomain);
+          if (bySub) return bySub;
+        }
       }
     }
   }

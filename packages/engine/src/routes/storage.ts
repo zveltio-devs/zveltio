@@ -199,6 +199,13 @@ function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
 export function storageRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
+  // `:id` params feed uuid columns. A non-uuid (e.g. a guessed path like
+  // /api/storage/files) must 404 cleanly, not bubble a Postgres 22P02 cast
+  // error as a 500. Checked per-handler — a `/:id` middleware would also
+  // swallow the real /folders and /upload routes.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
+
   // Auth middleware
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -404,6 +411,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — Get file metadata
   app.get('/:id', async (c) => {
+    if (badId(c)) return c.json({ error: 'File not found' }, 404);
     const metaDb = (c.get('tenantTrx') as Database | null) ?? db;
     const file = await metaDb
       .selectFrom('zv_media_files')
@@ -417,6 +425,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // GET /:id/signed-url — Get a temporary signed URL
   app.get('/:id/signed-url', async (c) => {
+    if (badId(c)) return c.json({ error: 'File not found' }, 404);
     const client = getAws();
     if (!client) return c.json({ error: 'Storage not configured' }, 503);
     const signedDb = (c.get('tenantTrx') as Database | null) ?? db;
@@ -442,6 +451,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // GET /:id/transform — On-the-fly image resize/convert using imagescript (no native deps)
   app.get('/:id/transform', async (c) => {
+    if (badId(c)) return c.json({ error: 'File not found' }, 404);
     const transformDb = (c.get('tenantTrx') as Database | null) ?? db;
     const file = await transformDb
       .selectFrom('zv_media_files')
@@ -518,6 +528,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id — Delete file (owner or admin only)
   app.delete('/:id', async (c) => {
+    if (badId(c)) return c.json({ error: 'File not found' }, 404);
     const user = c.get('user') as any;
     const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const client = getAws();
