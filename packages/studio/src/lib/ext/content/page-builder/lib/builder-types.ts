@@ -16,6 +16,7 @@ export interface BlockStyle {
 export interface Block {
   id: string;
   type: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   props: Record<string, any>;
   style?: BlockStyle;
 }
@@ -26,6 +27,7 @@ export interface LibraryBlock {
   description: string;
   category: 'layout' | 'content' | 'media' | 'zveltio';
   emoji: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   defaultProps: Record<string, any>;
 }
 

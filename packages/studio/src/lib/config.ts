@@ -22,5 +22,6 @@ export const ENGINE_URL: string = resolveEngineUrl();
 
 // Inject engine URL for extensions
 if (typeof window !== 'undefined') {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   (window as any).__ZVELTIO_ENGINE_URL__ = ENGINE_URL;
 }

@@ -1,5 +1,6 @@
 export class ZveltioRealtime {
   private ws: WebSocket | null = null;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   private listeners: Map<string, Set<(data: any) => void>> = new Map();
   private baseUrl: string;
   private reconnectAttempts = 0;
@@ -60,6 +61,7 @@ export class ZveltioRealtime {
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   subscribe(collection: string, callback: (data: any) => void): () => void {
     if (!this.listeners.has(collection)) this.listeners.set(collection, new Set());
     this.listeners.get(collection)!.add(callback);

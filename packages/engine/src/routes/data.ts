@@ -76,6 +76,7 @@ const QuerySchema = z.object({
   cursor: z.string().optional(), // base64url-encoded {id, val}
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function computeEtag(data: any[]): Promise<string> {
   const str = JSON.stringify(data);
   // SHA-256: stronger than SHA-1 and not truncated — avoids collision risk
@@ -88,9 +89,12 @@ async function computeEtag(data: any[]): Promise<string> {
 
 // Authenticate request — session or API key
 async function authenticate(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   c: any,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   auth: any,
   db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<{ user: any; authType: string } | null> {
   // Try session
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -145,6 +149,7 @@ async function validateApiKey(
 
 async function checkAccess(
   db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   user: any,
   collection: string,
   action: string,
@@ -203,6 +208,7 @@ async function broadcastWebhook(
   _db: Database,
   event: string,
   collection: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: { id: string; [key: string]: any },
 ): Promise<void> {
   // WebhookManager.trigger() handles:
@@ -233,6 +239,7 @@ const NUMERIC_FIELD_TYPES = new Set([
 ]);
 
 // Serialize a record's field values using the registry
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function serializeRecord(record: any, collectionDef: any): Promise<any> {
   if (!collectionDef?.fields) {
     const out = { ...record };
@@ -388,11 +395,14 @@ function mapPgError(err: unknown): { status: number; body: Record<string, unknow
 /** Run an async handler and translate known Postgres errors into 4xx responses
  * before they escape as Hono's default 500. Anything we don't recognize is
  * re-thrown so the global error handler can log it. */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function handlePgErrors<T>(c: any, fn: () => Promise<T>): Promise<T | Response> {
   try {
     return await fn();
   } catch (err) {
     const mapped = mapPgError(err);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if (mapped) return c.json(mapped.body, mapped.status as any);
     // Surface the raw error shape so we can extend mapPgError() later.
     const e = err as { name?: string; code?: string; errno?: string; message?: string };
@@ -412,6 +422,7 @@ async function handlePgErrors<T>(c: any, fn: () => Promise<T>): Promise<T | Resp
  * which m2o fields the caller wants hydrated and the target collection for each. */
 async function resolveExpand(
   db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   collectionDef: any,
   expandParam: string | undefined,
 ): Promise<Array<{ field: string; targetTable: string; targetCollection: string }>> {
@@ -441,6 +452,7 @@ async function resolveExpand(
  * query per relation. Adds {field}_expanded: {id, label, ...} on every record. */
 async function applyExpand(
   db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   records: any[],
   expandPlan: Array<{ field: string; targetTable: string; targetCollection: string }>,
 ): Promise<void> {
@@ -450,13 +462,16 @@ async function applyExpand(
     const ids = [...new Set(records.map((r) => r[exp.field]).filter((v) => typeof v === 'string'))];
     if (ids.length === 0) continue;
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const rows = await sql<any>`
       SELECT * FROM ${sql.id(exp.targetTable)}
       WHERE id = ANY(${ids})
     `.execute(db);
 
     const targetDef = await DDLManager.getCollection(db, exp.targetCollection);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const byId = new Map<string, any>();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     for (const r of rows.rows as any[]) {
       const serialized = await serializeRecord(r, targetDef);
       // Add a default `_label` (best-effort: name → title → email → id slice)
@@ -482,11 +497,15 @@ async function applyExpand(
 
 // Validate and deserialize incoming data using the registry
 async function processInput(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   collectionDef: any,
   partial = false,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<{ errors: string[]; processed: Record<string, any> }> {
   const errors: string[] = [];
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const processed: Record<string, any> = {};
 
   if (!collectionDef?.fields) return { errors, processed: data };
@@ -525,6 +544,7 @@ async function getVirtualConfig(db: Database, collection: string): Promise<Virtu
 }
 
 /** Returns the tenant-isolated transaction DB when in multi-tenant mode, else the pool. */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function getDb(c: any, fallback: Database): Database {
   return (c.get('tenantTrx') as Database | null) ?? fallback;
 }
@@ -556,7 +576,9 @@ async function afterWrite(
     collection: string;
     recordId: string;
     action: 'create' | 'update' | 'delete';
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     data: Record<string, any>;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     delta?: Record<string, any>;
     userId: string;
     /**
@@ -589,6 +611,7 @@ async function afterWrite(
 
   const eventName = action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   await broadcastWebhook(db, eventName, collection, data as { id: string; [key: string]: any });
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names
@@ -643,6 +666,7 @@ async function afterWrite(
   });
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function dataRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -674,6 +698,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       collection,
       user.id,
       c.req.url,
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       (c.get('tenant') as any)?.id ?? null,
     );
     if (!query.as_of && !query.cursor) {
@@ -697,6 +722,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       // Get the latest revision per record_id up to as_of
       // P0: use effectiveDb (tenant-isolated transaction) to prevent cross-tenant reads
       const effectiveDbTT = getDb(c, db);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const revs = await sql<{ record_id: string; action: string; data: any }>`
         SELECT DISTINCT ON (record_id)
           record_id, action, data
@@ -732,12 +758,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (virtualConfig) {
       try {
         // Parse query.filter into VirtualQuery.filters — translated to API URL params (no fetch-all)
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const vFilters: Array<{ field: string; op: string; value: any }> = [];
         if (query.filter) {
           try {
             const raw = JSON.parse(query.filter);
             for (const [key, value] of Object.entries(raw)) {
               if (typeof value === 'object' && value !== null) {
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
                 const [op, val] = Object.entries(value)[0] as [string, any];
                 vFilters.push({ field: key, op, value: val });
               } else {
@@ -778,10 +806,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Build the set of columns clients are allowed to sort/filter by. Hitting
     // Postgres with an unknown column surfaces as a 500 ("column X does not
     // exist") — we want a clean 400 at the edge instead.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const rawFields: any[] =
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       typeof (collectionDef as any).fields === 'string'
-        ? JSON.parse((collectionDef as any).fields)
-        : ((collectionDef as any).fields ?? []);
+        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          JSON.parse((collectionDef as any).fields)
+        : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          ((collectionDef as any).fields ?? []);
     const SYSTEM_COLS = new Set([
       'id',
       'created_at',
@@ -792,6 +824,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     ]);
     const allowedCols = new Set<string>([
       ...SYSTEM_COLS,
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       ...rawFields.map((f: any) => f.name).filter(Boolean),
     ]);
 
@@ -841,6 +874,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     // Format 1: JSON (overrides bracket for same field)
     if (query.filter) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let raw: Record<string, any> | null = null;
       try {
         raw = JSON.parse(query.filter);
@@ -853,6 +887,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
             return c.json({ error: `Unknown filter field: '${key}'` }, 400);
           }
           if (typeof value === 'object' && value !== null) {
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             const [op, val] = Object.entries(value)[0] as [string, any];
             const mappedOp = OP_ALIAS[op];
             if (mappedOp) filters[key] = { op: mappedOp, value: val };
@@ -882,9 +917,11 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Used when `cursor` is provided and page is still default (1).
     // Avoids OFFSET cost on large tables.
     const useCursor = !!query.cursor && query.page === 1;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let result: { records: any[]; total: number };
 
     if (useCursor) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let decoded: { id: string; val: any } = { id: '', val: null };
       try {
         decoded = JSON.parse(Buffer.from(query.cursor!, 'base64url').toString());
@@ -895,6 +932,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       if (decoded.id && decoded.val !== undefined) {
         // Build keyset query directly with Kysely for proper compound pagination
         // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         let kQuery = (effectiveDb as any).selectFrom(tableName).selectAll();
 
         // Apply existing filters
@@ -922,6 +960,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
         // Fetch limit+1 to detect whether a next page exists without a count query
         kQuery = kQuery.limit(query.limit + 1);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const rows: any[] = await kQuery.execute();
         const hasMore = rows.length > query.limit;
         result = {
@@ -938,6 +977,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
             limit: query.limit,
             offset,
             fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             hasTrgm: !!(collectionDef as any).has_trgm,
             applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
           }),
@@ -954,6 +994,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         limit: query.limit,
         offset,
         fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         hasTrgm: !!(collectionDef as any).has_trgm,
         applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
       });
@@ -1045,6 +1086,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const created: any[] = [];
     const errors: Array<{ index: number; errors: string[] }> = [];
 
@@ -1080,6 +1122,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     });
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tid = (c.get('tenant') as any)?.id ?? null;
     for (const record of created) {
       afterWrite(effectiveDb, {
@@ -1119,12 +1162,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (body.records.length > 500) {
       return c.json({ error: 'Bulk update limited to 500 records per request' }, 400);
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if (body.records.some((r: any) => !isUuid(r?.id))) {
       return c.json({ error: 'Every record must have a valid UUID id' }, 400);
     }
 
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const updated: any[] = [];
     const errors: Array<{ index: number; id: string; errors: string[] }> = [];
 
@@ -1140,6 +1185,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
           continue;
         }
 
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const beforeRow = await (trx as any)
           .selectFrom(tableName)
           .selectAll()
@@ -1174,6 +1220,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     });
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tid = (c.get('tenant') as any)?.id ?? null;
     for (const record of updated) {
       afterWrite(effectiveDb, {
@@ -1214,6 +1261,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (body.ids.length > 500) {
       return c.json({ error: 'Bulk delete limited to 500 records per request' }, 400);
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if (body.ids.some((id: any) => !isUuid(id))) {
       return c.json({ error: 'All ids must be valid UUIDs' }, 400);
     }
@@ -1221,6 +1269,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const existing = await (effectiveDb as any)
       .selectFrom(tableName)
       .selectAll()
@@ -1231,6 +1280,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // are reported back as per-row errors (so the caller can distinguish
     // them from rows that didn't exist).
     const aborted: Array<{ id: string; reason: string }> = [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const allowed: any[] = [];
     for (const record of existing) {
       try {
@@ -1251,6 +1301,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     if (allowed.length > 0) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await (effectiveDb as any)
         .deleteFrom(tableName)
         .where(
@@ -1260,6 +1311,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         )
         .execute();
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const tid = (c.get('tenant') as any)?.id ?? null;
       for (const record of allowed) {
         afterWrite(effectiveDb, {
@@ -1308,6 +1360,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
       // P0: use effectiveDb for tenant isolation in time-travel queries
       const effectiveDbTTSingle = getDb(c, db);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const rev = await sql<{ action: string; data: any; created_at: string }>`
         SELECT action, data, created_at
         FROM zv_revisions
@@ -1353,6 +1406,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // they're not allowed to see by guessing its ID.
     const rlsSingle = await getRlsFilters(collection, user, c.get('authType'));
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let recordQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
 
     for (const { field, condition } of rlsSingle) {
@@ -1472,6 +1526,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         action: 'create',
         data: record,
         userId: user.id,
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         tenantId: (c.get('tenant') as any)?.id ?? null,
       });
       return c.json(await serializeRecord(record, collectionDef), 201);
@@ -1518,6 +1573,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Pre-update hooks need the current row for the `before` field. Read it
     // once — if the record doesn't exist (or extension query alters hide it)
     // we short-circuit before invoking any hooks.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let beforeQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
     beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
     const beforeRow = await beforeQuery.executeTakeFirst();
@@ -1558,6 +1614,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         action: 'update',
         data: record,
         userId: user.id,
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         tenantId: (c.get('tenant') as any)?.id ?? null,
       });
       return c.json(await serializeRecord(record, collectionDef));
@@ -1613,6 +1670,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const effectiveDb = getDb(c, db);
     const toUpdate = { ...allowedPatch, updated_by: user.id };
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let beforeQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
     beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
     const beforeRow = await beforeQuery.executeTakeFirst();
@@ -1649,6 +1707,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         data: record,
         delta: body,
         userId: user.id,
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         tenantId: (c.get('tenant') as any)?.id ?? null,
       });
       return c.json(await serializeRecord(record, collectionDef));
@@ -1689,6 +1748,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
     // Fetch existing for revision log, then delete atomically. Apply query
     // alters so a row hidden by an extension filter cannot be deleted by ID.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let existingQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
     existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
     const existing = await existingQuery.executeTakeFirst();
@@ -1724,6 +1784,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       action: 'delete',
       data: existing,
       userId: user.id,
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       tenantId: (c.get('tenant') as any)?.id ?? null,
     });
 

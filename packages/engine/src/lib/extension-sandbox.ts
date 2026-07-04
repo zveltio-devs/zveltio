@@ -252,6 +252,7 @@ function observePolicyDecision(
   }
   // Best-effort event emit — never throws.
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     (engineEvents as any).emit?.('extension.policy.decision', { extName, cap, decision });
   } catch {
     /* */

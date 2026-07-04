@@ -44,12 +44,15 @@ export interface FieldTypeDefinition {
   // ── API Layer ─────────────────────────────────────────────
   api: {
     // Serialization: DB value → JSON response
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     serialize?: (value: any) => any;
     // Deserialization: JSON input → SQL value
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     deserialize?: (value: any) => any;
     // Available filter operators
     filterOperators?: FilterOperator[];
     // API-level validation (before write to DB)
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     validate?: (value: any, field: FieldConfig) => string | null;
   };
 
@@ -89,7 +92,9 @@ export interface FieldConfig {
   indexed?: boolean;
   label?: string;
   description?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   defaultValue?: any;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   options?: Record<string, any>;
   encrypted?: boolean;
 }
@@ -165,18 +170,21 @@ export class FieldTypeRegistry {
   }
 
   // Serialize a value for API output
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   serialize(type: string, value: any): any {
     const typeDef = this.get(type);
     return typeDef?.api.serialize ? typeDef.api.serialize(value) : value;
   }
 
   // Deserialize a value for DB write
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   deserialize(type: string, value: any): any {
     const typeDef = this.get(type);
     return typeDef?.api.deserialize ? typeDef.api.deserialize(value) : value;
   }
 
   // Validate a value
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   validate(type: string, value: any, field: FieldConfig): string | null {
     const typeDef = this.get(type);
     return typeDef?.api.validate ? typeDef.api.validate(value, field) : null;

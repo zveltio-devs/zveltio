@@ -90,6 +90,7 @@ import { demoModeMiddleware } from '../middleware/demo-mode.js';
 
 interface RoutesContext {
   db: Database;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   auth: any;
 }
 

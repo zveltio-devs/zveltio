@@ -4,6 +4,7 @@ import { api, collectionsApi } from '$lib/api.js';
 import { Upload, CheckCircle, AlertCircle, RefreshCw, LoaderCircle } from '@lucide/svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let selectedCollection = $state('');
 let file = $state<File | null>(null);
@@ -11,7 +12,9 @@ let format = $state<'csv' | 'xlsx' | 'json'>('csv');
 let delimiter = $state(',');
 let skipHeader = $state(true);
 let importing = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let result = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let jobs = $state<any[]>([]);
 let jobsLoading = $state(true);
 
@@ -25,6 +28,7 @@ async function loadJobs() {
   jobsLoading = true;
   try {
     // NOTE: endpoint is /ext/data/import/jobs (not /logs)
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ jobs: any[] }>('/ext/data/import/jobs');
     jobs = data.jobs || [];
   } catch {

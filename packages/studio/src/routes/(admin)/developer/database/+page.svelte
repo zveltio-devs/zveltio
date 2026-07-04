@@ -7,10 +7,14 @@ import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { Database, Table2, Search, LoaderCircle } from '@lucide/svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let tables = $state<any[]>([]);
 let q = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let activeTable = $state<any | null>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let columns = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let rows = $state<any[]>([]);
 let rowCount = $state(0);
 let loading = $state(true);
@@ -18,8 +22,11 @@ let loading = $state(true);
 async function loadTables() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data?: any[]; tables?: any[] }>('/ext/developer/database/tables');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     tables = (r.data ?? r.tables ?? []).filter((t: any) => !t.name?.startsWith('zv_') || t.is_data);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -27,13 +34,16 @@ async function loadTables() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function openTable(t: any) {
   activeTable = t;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<any>(`/ext/developer/database/tables/${encodeURIComponent(t.name)}`);
     columns = r.columns ?? r.data?.columns ?? [];
     rows = r.rows ?? r.data?.rows ?? [];
     rowCount = r.row_count ?? r.data?.row_count ?? rows.length;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }

@@ -24,6 +24,7 @@ export async function indexFileContent(
 ): Promise<void> {
   if (!content.trim()) return;
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const aiProviders = serviceRegistry.get<{ getDefault(): any }>('ai.providers');
   const provider = aiProviders?.getDefault?.();
   if (!provider?.embed) return;

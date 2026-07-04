@@ -152,6 +152,7 @@ export class GhostDDL {
           LIMIT ${BATCH_SIZE}
           ON CONFLICT (id) DO NOTHING
         `.execute(db);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         batchRows = Number((result as any).numAffectedRows ?? BATCH_SIZE);
       } else {
         // Subsequent iterations — cursor-based
@@ -163,6 +164,7 @@ export class GhostDDL {
           LIMIT ${BATCH_SIZE}
           ON CONFLICT (id) DO NOTHING
         `.execute(db);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         batchRows = Number((result as any).numAffectedRows ?? 0);
       }
 
@@ -196,6 +198,7 @@ export class GhostDDL {
       id: string;
       operation: string;
       row_id: string;
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       row_data: any;
     }>`
       SELECT id, operation, row_id, row_data
@@ -215,6 +218,7 @@ export class GhostDDL {
       } else {
         // INSERT or UPDATE — upsert in ghost
         // row_data is the complete row snapshot (to_jsonb(NEW))
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const data = change.row_data as Record<string, any>;
         if (!data) continue;
 
@@ -275,6 +279,7 @@ export class GhostDDL {
 
       // Apply any writes that arrived in changelog in the window between
       // the last applyChangelog above and the LOCK moment
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await GhostDDL.applyChangelog(trx as any, migration);
 
       // Swap atomic: original → old, ghost → original

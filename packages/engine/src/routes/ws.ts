@@ -16,6 +16,7 @@ interface WSConnection {
    * to the same collection name. `null` for single-tenant deployments.
    */
   tenantId: string | null;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   ws: any;
   subscriptions: Set<string>; // collection names or "collection:event" channels
   connectedAt: number;
@@ -51,12 +52,14 @@ let wsCounter = 0;
 
 // ── Route factory ────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function wsRoutes(_db: Database, _auth: any): Hono {
   const app = new Hono();
 
   // GET /api/ws — Authenticate then hand off to Bun WebSocket upgrade.
   // The Hono server env must have `server` (passed via app.fetch(req, { server })).
   app.get('/api/ws', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const server = (c.env as any)?.server;
     if (!server) return c.text('WebSocket not supported in this environment', 500);
 
@@ -68,6 +71,7 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // for the life of the socket; later writes broadcast against this
     // captured tenantId so cross-tenant subscribers don't receive
     // each other's events.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
     const upgraded = server.upgrade(c.req.raw, {
       data: { id, userId: session.user.id, tenantId },
@@ -104,6 +108,7 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
 // Passed to Bun.serve({ websocket: websocketHandler })
 
 export const websocketHandler = {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   open(ws: any) {
     const { id, userId, tenantId } = ws.data ?? {};
     if (!id || !userId) {
@@ -131,6 +136,7 @@ export const websocketHandler = {
     );
   },
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async message(ws: any, message: string | Buffer) {
     const conn = connections.get(ws.data?.id);
     if (!conn) return;
@@ -241,6 +247,7 @@ export const websocketHandler = {
     }
   },
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   close(ws: any) {
     cleanupSocket(ws);
   },
@@ -251,12 +258,14 @@ export const websocketHandler = {
   // `subscriptionIndex` until the next broadcast tries to send and
   // catches a write error. We treat error as a close so cleanup is
   // symmetric and the indices don't leak entries.
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   error(ws: any, err: unknown) {
     console.warn('[ws] socket error:', err instanceof Error ? err.message : String(err));
     cleanupSocket(ws);
   },
 };
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function cleanupSocket(ws: any): void {
   if (ws.data?.id) {
     const conn = connections.get(ws.data.id);
@@ -276,6 +285,7 @@ function cleanupSocket(ws: any): void {
 export function broadcastEvent(
   collection: string,
   event: 'insert' | 'update' | 'delete',
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: any,
   tenantId: string | null = null,
 ): void {

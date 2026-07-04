@@ -7,11 +7,15 @@ import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { Headphones, Plus, X, LoaderCircle } from '@lucide/svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let tickets = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let categories = $state<any[]>([]);
 let loading = $state(true);
 let statusFilter = $state<'all' | 'open' | 'pending' | 'resolved' | 'closed'>('open');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let activeTicket = $state<any | null>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let messages = $state<any[]>([]);
 let newMessage = $state('');
 
@@ -30,8 +34,10 @@ async function loadTickets() {
   try {
     const params = new URLSearchParams();
     if (statusFilter !== 'all') params.set('status', statusFilter);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets?${params}`);
     tickets = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -40,14 +46,17 @@ async function loadTickets() {
 }
 async function loadCategories() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/projects/helpdesk/categories');
     categories = r.data ?? [];
   } catch {}
 }
 async function loadMessages(id: string) {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets/${id}/messages`);
     messages = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -67,6 +76,7 @@ async function createTicket() {
     };
     await loadTickets();
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -82,6 +92,7 @@ async function reply() {
     });
     newMessage = '';
     await loadMessages(activeTicket.id);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -93,6 +104,7 @@ async function resolve(id: string) {
     await loadTickets();
     if (activeTicket?.id === id) activeTicket = null;
     toast.success(m['projects.helpdesk.toast.resolved']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -118,6 +130,7 @@ function priorityBadge(p: string) {
         medium: 'badge-info',
         high: 'badge-warning',
         urgent: 'badge-error',
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } as any
     )[p] ?? 'badge-ghost'
   );

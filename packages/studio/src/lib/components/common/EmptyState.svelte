@@ -31,6 +31,7 @@ let {
 }: {
   title?: string;
   description?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   icon?: Component<any>;
   /** Abstract SVG variant (mutually exclusive with `icon`). */
   illustration?: IllustrationVariant;

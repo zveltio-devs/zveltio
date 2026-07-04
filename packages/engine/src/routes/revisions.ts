@@ -8,6 +8,7 @@ import { dynamicUpdate } from '../db/dynamic.js';
 import { DDLManager } from '../lib/ddl-manager.js';
 import { reqDb } from '../lib/route-db.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function revisionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -21,6 +22,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
 
   // GET / — List revisions with user join (admin only)
   app.get('/', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     if (!(await checkPermission(user.id, 'admin', '*'))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -58,6 +60,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     return c.json({
       revisions: rows.rows,
       pagination: {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         total: (total.rows[0] as any)?.count ?? 0,
         page: parseInt(page),
         limit: lim,
@@ -67,6 +70,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
 
   // GET /:id — Get single revision
   app.get('/:id', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     if (!(await checkPermission(user.id, 'admin', '*'))) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -87,11 +91,13 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
 
   // POST /:id/revert — Revert record to this revision's state
   app.post('/:id/revert', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     if (!(await checkPermission(user.id, 'admin', '*'))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const revision = await (reqDb(c, db) as any)
       .selectFrom('zv_revisions')
       .selectAll()
@@ -116,6 +122,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       'embedding',
       'created_by',
     ]);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const revertData: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
       if (!REVERT_PROTECTED.has(k)) revertData[k] = v;
@@ -129,6 +136,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     if (!reverted) return c.json({ error: 'Record not found — may have been deleted' }, 404);
 
     // Log the revert as a new revision
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     await (reqDb(c, db) as any)
       .insertInto('zv_revisions')
       .values({
@@ -152,6 +160,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
 
   // GET /record/:collection/:id/comments — Get comments for a record
   app.get('/record/:collection/:recordId/comments', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const { collection, recordId } = c.req.param();
 
@@ -181,6 +190,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     '/record/:collection/:recordId/comments',
     zValidator('json', z.object({ comment: z.string().min(1).max(2000) })),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const { collection, recordId } = c.req.param();
       const { comment } = c.req.valid('json');
@@ -194,6 +204,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
         `.execute(reqDb(c, db));
 
         return c.json({ comment: row.rows[0] }, 201);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
         if (err.message?.includes('does not exist')) {
           return c.json({ error: 'Comments feature not yet migrated. Run migrations.' }, 503);
@@ -205,6 +216,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /record/comments/:commentId — Delete comment
   app.delete('/record/comments/:commentId', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const commentId = c.req.param('commentId');
     const isAdmin = await checkPermission(user.id, 'admin', '*');

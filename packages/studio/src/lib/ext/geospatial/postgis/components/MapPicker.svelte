@@ -24,6 +24,7 @@ const defaultCenter: [number, number] = [44.4268, 26.1025];
 const defaultZoom = 13;
 
 onMount(() => {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   delete (L.Icon.Default.prototype as any)._getIconUrl;
   L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',

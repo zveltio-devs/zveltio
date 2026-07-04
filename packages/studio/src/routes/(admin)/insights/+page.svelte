@@ -21,6 +21,7 @@ interface Panel {
   name: string;
   type: string;
   query: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   config: any;
   position_x: number;
   position_y: number;
@@ -42,6 +43,7 @@ interface Dashboard {
 let dashboards = $state<Dashboard[]>([]);
 let activeDashboard = $state<Dashboard | null>(null);
 let panels = $state<Panel[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let panelResults = $state<Record<string, { data: any[]; error?: string; loading?: boolean }>>({});
 
 let loadingDashboards = $state(true);
@@ -64,6 +66,7 @@ let newPanelHeight = $state(4);
 // Ad-hoc query
 let showAdHoc = $state(false);
 let adHocQuery = $state('SELECT');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let adHocResult = $state<any>(null);
 let adHocError = $state('');
 let adHocRunning = $state(false);

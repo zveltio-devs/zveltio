@@ -5,6 +5,7 @@ import { api } from '$lib/api.js';
 
 const ZONE_SLUG = 'client';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let pageData = $state<{ page: any; zone: any; views: any[] } | null>(null);
 let loading = $state(true);
 let error = $state<string | null>(null);
@@ -13,10 +14,12 @@ const slug = $derived(page.params.slug);
 
 onMount(async () => {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ page: any; zone: any; views: any[] }>(
       `/api/zones/${ZONE_SLUG}/render/${slug}`,
     );
     pageData = res;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e?.message ?? 'Failed to load page';
   } finally {

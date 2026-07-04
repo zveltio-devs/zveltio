@@ -34,12 +34,14 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function healthRoutes(db: Database, auth?: any): Hono {
   const app = new Hono();
 
   // Auth guard for detail endpoints — `/` stays public (minimal response).
   // If `auth` wasn't passed (tests, some older call-sites), fall through so
   // behaviour matches the previous shape instead of 401-ing every request.
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async function requireAuth(c: any): Promise<boolean> {
     if (!auth) return true;
     try {
@@ -207,6 +209,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
 
       if (!res.ok) throw new Error('GitHub API unavailable');
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const releases = (await res.json()) as any[];
       const release = releases[0];
       const latestVersion = release?.tag_name?.replace('v', '') ?? ENGINE_VERSION;

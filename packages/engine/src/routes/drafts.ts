@@ -58,6 +58,7 @@ const DRAFT_PROTECTED_FIELDS = new Set([
 
 // ── Route factory ─────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function draftsRoutes(db: Database, _auth: any): Hono {
   const app = new Hono();
 
@@ -70,6 +71,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
       .select(['role'])
       .where('id', '=', session.user.id)
       .executeTakeFirst();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
     return next();
   });
@@ -229,6 +231,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
     const canUpdate = await checkPermission(user.id, draft.collection, 'update');
     if (!canUpdate) return c.json({ error: 'Forbidden' }, 403);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const updateData: Record<string, any> = { updated_at: new Date() };
     if (data.draft_data) updateData.draft_data = JSON.stringify(data.draft_data);
     if (data.notes !== undefined) updateData.notes = data.notes;
@@ -290,12 +293,14 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
       typeof draft.draft_data === 'string' ? JSON.parse(draft.draft_data) : draft.draft_data;
 
     // N1: strip protected system fields — prevent created_by/tenant_id overwrite via draft data
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const draftData: Record<string, any> = {};
     for (const [k, v] of Object.entries(rawDraftData ?? {})) {
       if (!DRAFT_PROTECTED_FIELDS.has(k)) draftData[k] = v;
     }
 
     // tableName is dynamic (zvd_<collection>), not statically typed.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     await (effectiveDb as any)
       .updateTable(tableName)
       .set({ ...draftData, updated_at: new Date() })

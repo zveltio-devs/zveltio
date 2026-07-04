@@ -19,12 +19,17 @@ import {
 } from '@lucide/svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let providers = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let chats = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let templates = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let activeChat = $state<any>(null);
 let activeTab = $state<'chat' | 'templates' | 'settings' | 'search' | 'query' | 'schema'>('chat');
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const AI_TABS: Array<{ id: typeof activeTab; labelKey: string; icon: any }> = [
   { id: 'chat', labelKey: 'ai.tab.chat', icon: MessageSquare },
   { id: 'search', labelKey: 'ai.tab.search', icon: Search },
@@ -40,15 +45,18 @@ let messages = $state<Array<{ role: string; content: string }>>([]);
 
 let searchCollection = $state('');
 let searchQuery = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let searchResults = $state<any[]>([]);
 let searching = $state(false);
 let searchError = $state('');
 
 let queryPrompt = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let queryResult = $state<{ sql: string; data: any[]; columns: string[] } | null>(null);
 let queryRunning = $state(false);
 
 let schemaDescription = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let schemaResult = $state<any | null>(null);
 let schemaGenerating = $state(false);
 
@@ -67,8 +75,11 @@ onMount(loadAll);
 
 async function loadAll() {
   const [pRes, cRes, tRes] = await Promise.allSettled([
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ providers: any[] }>('/ext/ai/providers'),
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ chats: any[] }>('/ext/ai/chats'),
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     api.get<{ templates: any[] }>('/ext/ai/templates'),
   ]);
   if (pRes.status === 'fulfilled') providers = pRes.value.providers || [];
@@ -77,12 +88,15 @@ async function loadAll() {
 }
 
 async function newChat() {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const res = await api.post<{ chat: any }>('/ext/ai/chats', { title: 'New Chat' });
   chats = [res.chat, ...chats];
   await openChat(res.chat);
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function openChat(chat: any) {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const res = await api.get<{ chat: any }>(`/ext/ai/chats/${chat.id}`);
   activeChat = res.chat;
   messages = res.chat.messages || [];
@@ -95,11 +109,13 @@ async function sendMessage() {
   sending = true;
   messages = [...messages, { role: 'user', content: userMsg }];
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.post<{ message: any }>(`/ext/ai/chats/${activeChat.id}/messages`, {
       content: userMsg,
     });
     messages = [...messages, res.message];
     chats = chats.map((c) => (c.id === activeChat.id ? { ...c, title: userMsg.slice(0, 60) } : c));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     messages = messages.slice(0, -1);
     toast.error(m['ext.errorPrefix']() + err.message);
@@ -131,6 +147,7 @@ async function saveProvider() {
       default_model: '',
       is_default: false,
     };
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err.message);
   } finally {
@@ -144,12 +161,14 @@ async function semanticSearch() {
   searchError = '';
   searchResults = [];
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.post<{ results: any[]; total: number }>('/ext/ai/search', {
       collection: searchCollection.trim(),
       query: searchQuery.trim(),
       limit: 10,
     });
     searchResults = res.results || [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     searchError = err.message || m['ai.error.searchFailed']();
   } finally {
@@ -162,10 +181,12 @@ async function runAiQuery() {
   queryRunning = true;
   queryResult = null;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.post<{ sql: string; data: any[]; columns: string[] }>('/ext/ai/query', {
       prompt: queryPrompt.trim(),
     });
     queryResult = res;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err.message ?? 'Query failed');
   } finally {
@@ -178,10 +199,12 @@ async function generateSchema() {
   schemaGenerating = true;
   schemaResult = null;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.post<{ schema: any }>('/ext/ai/schema-gen', {
       description: schemaDescription.trim(),
     });
     schemaResult = res.schema;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err.message ?? 'Schema generation failed');
   } finally {
@@ -196,13 +219,16 @@ async function applySchema() {
     toast.success(m['ext.saved']());
     schemaResult = null;
     schemaDescription = '';
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     toast.error(err.message ?? 'Failed to create collection');
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function runTemplate(template: any) {
   const vars: Record<string, string> = {};
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const varDefs: any[] =
     typeof template.variables === 'string'
       ? JSON.parse(template.variables)
@@ -211,6 +237,7 @@ async function runTemplate(template: any) {
     const val = prompt(`Enter value for "${v.name}":`);
     if (val !== null) vars[v.name] = val;
   }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const res = await api.post<{ result: any }>(`/ext/ai/templates/${template.id}/run`, {
     variables: vars,
   });

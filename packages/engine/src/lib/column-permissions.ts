@@ -99,10 +99,13 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
 }
 
 export function applyColumnAccess(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   record: Record<string, any>,
   access: ColumnAccess,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Record<string, any> {
   if (access.hidden.size === 0) return record;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const result: Record<string, any> = {};
   for (const [k, v] of Object.entries(record)) {
     if (!access.hidden.has(k) && !access.hidden.has('*')) {
@@ -113,12 +116,15 @@ export function applyColumnAccess(
 }
 
 export function filterWritableFields(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
   access: ColumnAccess,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): { data: Record<string, any>; blocked: string[] } {
   if (access.readOnly.size === 0 && !access.readOnly.has('*')) {
     return { data, blocked: [] };
   }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const result: Record<string, any> = {};
   const blocked: string[] = [];
   for (const [k, v] of Object.entries(data)) {

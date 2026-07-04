@@ -22,8 +22,11 @@ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let folders = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let files = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let tags = $state<any[]>([]);
 let selectedFolder = $state<string | null>(null);
 let selectedFolderName = $state<string>('All Files');
@@ -44,7 +47,9 @@ let showTagModal = $state(false);
 let tagName = $state('');
 let tagColor = $state('#3b82f6');
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let showFileDetails = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let stats = $state<any>(null);
 let confirmState = $state<{
   open: boolean;
@@ -60,8 +65,10 @@ onMount(async () => {
 
 async function loadFolders() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ folders: any[] }>('/ext/content/media/folders');
     folders = data.folders || [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['ext.loadFailed']());
   }
@@ -74,8 +81,10 @@ async function loadFiles() {
     if (searchQuery) params.set('search', searchQuery);
     if (selectedTag) params.set('tag', selectedTag);
     params.set('limit', '100');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ files: any[] }>(`/ext/content/media/files?${params}`);
     files = data.files || [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['ext.loadFailed']());
   }
@@ -83,8 +92,10 @@ async function loadFiles() {
 
 async function loadTags() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ tags: any[] }>('/ext/content/media/tags');
     tags = data.tags || [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['ext.loadFailed']());
   }
@@ -112,6 +123,7 @@ async function createFolder() {
     showFolderModal = false;
     folderName = '';
     await loadFolders();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message);
   }
@@ -129,6 +141,7 @@ async function deleteFolder(id: string) {
         await api.delete(`/ext/content/media/folders/${id}`);
         await loadFolders();
         if (selectedFolder === id) selectFolder(null);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message);
       }
@@ -186,6 +199,7 @@ async function deleteFile(id: string) {
         await loadFiles();
         await loadStats();
         if (showFileDetails?.id === id) showFileDetails = null;
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message);
       }
@@ -207,6 +221,7 @@ async function deleteSelectedFiles() {
         selectedFiles = new Set();
         await loadFiles();
         await loadStats();
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message);
       }
@@ -221,6 +236,7 @@ async function createTag() {
     showTagModal = false;
     tagName = '';
     await loadTags();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message);
   }

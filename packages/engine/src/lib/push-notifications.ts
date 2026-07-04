@@ -48,6 +48,7 @@ async function sendFcm(token: string, payload: PushPayload): Promise<boolean> {
       console.warn(`[push:fcm] HTTP ${res.status}: ${await res.text()}`);
       return false;
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const json = (await res.json()) as any;
     if (json.failure > 0) {
       console.warn('[push:fcm] delivery failure:', json.results?.[0]);
@@ -147,6 +148,7 @@ async function sendApns(token: string, payload: PushPayload): Promise<boolean> {
       signal: AbortSignal.timeout(10_000),
     });
     if (res.status !== 200) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const err = (await res.json().catch(() => ({}))) as any;
       console.warn(`[push:apns] HTTP ${res.status}: ${err.reason ?? 'unknown'}`);
       return false;

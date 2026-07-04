@@ -7,13 +7,16 @@ import { toast } from '$lib/stores/toast.svelte.js';
 import { CreditCard, BarChart2, LoaderCircle } from '@lucide/svelte';
 
 let tab = $state<'billing' | 'usage'>('billing');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let plans = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let subscriptions = $state<any[]>([]);
 let usageSummary = $state<Record<string, number>>({});
 let loading = $state(true);
 
 const currentSub = $derived(subscriptions[0] ?? null);
 const currentPlan = $derived(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   currentSub ? (plans.find((p: any) => p.id === currentSub.plan_id) ?? null) : null,
 );
 
@@ -31,8 +34,11 @@ function usagePct(used: number, limit: number): number {
 onMount(async () => {
   try {
     const [plansRes, subsRes, usageRes] = await Promise.all([
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ plans: any[] }>('/ext/billing/plans'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ subscriptions: any[] }>('/ext/billing/subscriptions'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ usage: any[] }>('/ext/billing/usage'),
     ]);
     plans = plansRes.plans ?? [];

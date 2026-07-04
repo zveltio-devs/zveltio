@@ -98,6 +98,7 @@ export const updateCommand = new Command('update')
       if (!versionsData?.latest) {
         throw new Error('Invalid versions response (missing "latest" field)');
       }
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       // Registry unavailable — this is expected during development / pre-launch
       if (opts.check) {
@@ -217,6 +218,7 @@ async function getCurrentVersionFromAPI(port: number): Promise<string | null> {
     const res = await fetch(`http://localhost:${port}/api/health`, {
       signal: AbortSignal.timeout(3000),
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = (await res.json()) as any;
     // Try various field names the engine may use
     return data.engine ?? data.version ?? data.engine_version ?? null;

@@ -24,6 +24,7 @@ function guardMutation(url: string): boolean {
   return false;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const ICONS: Record<string, any> = { Play, Save };
 function infoValue(v: string): string {
   return v.replace(/\{ENGINE_URL\}/g, ENGINE_URL);
@@ -37,11 +38,13 @@ function t(s?: string): string {
   const fn = (m as Record<string, (() => string) | undefined>)[s];
   return typeof fn === 'function' ? fn() : s;
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function getPath(obj: any, path?: string): any {
   if (!path) return obj;
   return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let config = $state<Record<string, any>>({});
 let loading = $state(true);
 let saving = $state(false);
@@ -55,12 +58,14 @@ function allFields(): FieldDef[] {
 
 onMount(async () => {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<any>(schema.dataSource);
     const cfg = getPath(res, schema.dataPath);
     if (cfg) config = cfg;
     else
       for (const f of allFields())
         config[f.name] = f.default ?? (f.type === 'boolean' ? false : '');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : t('ext.loadFailed'));
   } finally {
@@ -74,6 +79,7 @@ async function save() {
   try {
     await api.post(schema.saveEndpoint, config);
     toast.success(t('common.saved'));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
   } finally {
@@ -87,6 +93,7 @@ async function runAction(a: NonNullable<SettingsSchema['actions']>[number]) {
   try {
     await api.post(a.endpoint, config);
     toast.success(t(`${a.label} ✓`));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : `${t(a.label)} failed`);
   } finally {

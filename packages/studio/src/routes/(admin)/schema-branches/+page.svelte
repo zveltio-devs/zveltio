@@ -27,6 +27,7 @@ interface SchemaBranch {
   base_schema: string;
   branch_schema: string;
   status: 'open' | 'merged' | 'closed';
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   changes: any[];
   requires_approval: boolean;
   review_status: 'approved' | 'rejected' | 'changes_requested' | null;
@@ -78,6 +79,7 @@ let reviewBranch = $state<SchemaBranch | null>(null);
 let reviewStatus = $state<'approved' | 'rejected' | 'changes_requested'>('approved');
 let reviewNote = $state('');
 let submittingReview = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let reviews = $state<any[]>([]);
 let loadingReviews = $state(false);
 
@@ -148,6 +150,7 @@ async function mergeBranch() {
     }>(`/api/schema/branches/${selectedBranch.id}/merge`);
     mergeResult = result;
     if (result.success) await loadBranches();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     // Approval gate returns 403 with structured error
     const body = e?.body ?? e;
@@ -209,6 +212,7 @@ async function openReviewModal(branch: SchemaBranch) {
   showReviewModal = true;
   loadingReviews = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ reviews: any[] }>(`/api/schema/branches/${branch.id}/reviews`);
     reviews = res.reviews ?? [];
   } catch {

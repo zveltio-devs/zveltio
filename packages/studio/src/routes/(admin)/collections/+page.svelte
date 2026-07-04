@@ -8,6 +8,7 @@ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let loading = $state(true);
 let creating = $state(false);
@@ -23,7 +24,9 @@ type NewField = {
   enum_values_raw?: string;
 };
 let newFields = $state<NewField[]>([{ name: '', type: 'text', required: false }]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let fieldTypes = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let allCollections = $state<any[]>([]);
 let search = $state('');
 
@@ -169,6 +172,7 @@ async function createCollection() {
   creating = true;
   try {
     const payloadFields = newFields.map((f) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const options: Record<string, any> = {};
       if (RELATION_NEEDS_TARGET.has(f.type) && f.related_collection) {
         options.related_collection = f.related_collection;
@@ -177,6 +181,7 @@ async function createCollection() {
         const values = parseEnumValues(f.enum_values_raw);
         if (values.length > 0) options.values = values;
       }
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const body: Record<string, any> = { name: f.name.trim(), type: f.type, required: f.required };
       if (Object.keys(options).length > 0) body.options = options;
       return body;
@@ -187,6 +192,7 @@ async function createCollection() {
     newFields = [{ name: '', type: 'text', required: false }];
     nameError = '';
     await loadCollections();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     nameError = err?.message ?? 'Failed to create collection';
   } finally {
@@ -205,6 +211,7 @@ async function deleteCollection(name: string) {
       try {
         await collectionsApi.delete(name);
         await loadCollections();
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
         toast.error(err?.message ?? 'Failed to delete collection');
       }
@@ -235,6 +242,7 @@ async function deleteSelectedCollections() {
   };
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function fieldCount(col: any): number {
   const f = typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields;
   return f?.length ?? 0;

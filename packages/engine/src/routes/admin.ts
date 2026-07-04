@@ -12,6 +12,7 @@ import { auditLog } from '../lib/audit.js';
 import type { RequestUser } from './data.js';
 import { invalidateRateLimitCache } from '../middleware/rate-limit.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -19,6 +20,7 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return session.user;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function adminRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -206,6 +208,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       const id = c.req.param('id');
       const data = c.req.valid('json');
       await db.updateTable('zv_api_keys').set(data).where('id', '=', id).execute();
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'api_key.created',
@@ -323,6 +326,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   app.get('/types', async (c) => {
     const collections = await DDLManager.getCollections(db);
     const types = collections
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .map((col: any) => {
         const fields = typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields;
         return fieldTypeRegistry.generateTypeScript(col.name, fields);
@@ -337,6 +341,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // POST /migrate — run pending migrations (admin only)
   app.post('/migrate', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     try {
       const { runMigrations, getLastAppliedMigration } = await import('../db/migrations/index.js');
@@ -357,6 +362,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
         applied: after - before,
         schema_version: after,
       });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
     }
@@ -444,6 +450,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
     try {
       const { sql: sqlHelper } = await import('kysely');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const result = await sqlHelper<any>`
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
         SELECT * FROM ${sqlHelper.table(tableName)}
@@ -452,6 +459,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       `.execute(db);
 
       return c.json({ plan: result.rows[0] });
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
     }
@@ -632,6 +640,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
         .values({ name, description: description ?? null })
         .returningAll()
         .executeTakeFirst();
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
@@ -661,6 +670,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
     await db.deleteFrom('zv_roles').where('id', '=', id).execute();
     await invalidatePermissionCache();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',
@@ -731,6 +741,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       }
 
       await invalidatePermissionCache();
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
@@ -794,6 +805,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       }
       await e.addRoleForUser(child, parent, '*');
       await invalidatePermissionCache();
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.granted',
@@ -820,6 +832,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       const e = await getEnforcer();
       await e.deleteRoleForUser(child, parent, '*');
       await invalidatePermissionCache();
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
         type: 'permission.revoked',
@@ -860,6 +873,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       const { keyPrefix } = c.req.param() as { keyPrefix: string };
       const body = c.req.valid('json');
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const updates: any = { updated_at: new Date(), updated_by: user.id };
       if (body.window_ms !== undefined) updates.window_ms = body.window_ms;
       if (body.max_requests !== undefined) updates.max_requests = body.max_requests;
@@ -888,6 +902,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
 
   // POST /rate-limits/reset — restore all tiers to compiled defaults
   app.post('/rate-limits/reset', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     const defaults = [
       { key_prefix: 'auth', window_ms: 60000, max_requests: 10 },
@@ -943,6 +958,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     const row = await db
       .insertInto('zvd_column_permissions')
       .values(data)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .onConflict((oc: any) =>
         oc.columns(['collection_name', 'column_name', 'role']).doUpdateSet({
           can_read: data.can_read,
@@ -953,6 +969,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       .returningAll()
       .executeTakeFirst();
     await invalidateColumnPermCache(data.collection_name);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
@@ -974,7 +991,9 @@ export function adminRoutes(db: Database, auth: any): Hono {
       .returningAll()
       .executeTakeFirst();
     if (!row) return c.json({ error: 'Not found' }, 404);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     await invalidateColumnPermCache((row as any).collection_name);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.granted',
@@ -994,6 +1013,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
       .returning('collection_name')
       .executeTakeFirst();
     if (deleted?.collection_name) await invalidateColumnPermCache(deleted.collection_name);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
       type: 'permission.revoked',
@@ -1017,6 +1037,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { query, timeout_ms: _timeout_ms = 10_000 } = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
 
       // Reject obviously dangerous patterns
@@ -1039,10 +1060,12 @@ export function adminRoutes(db: Database, auth: any): Hono {
         // the same connection that runs the user query — without this the
         // pool can route them to different sessions and the timeout is a
         // no-op. Caller-supplied timeout_ms is clamped by the zod schema.
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const result = (await db.transaction().execute(async (trx: any) => {
           const seconds = Math.max(1, Math.ceil(_timeout_ms / 1000));
           await sql.raw(`SET LOCAL statement_timeout = '${seconds}s'`).execute(trx);
           return sql.raw(query).execute(trx);
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         })) as any;
         const rows = result.rows ?? [];
         await auditLog(db, {
@@ -1052,6 +1075,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
           metadata: { query: query.slice(0, 500), rowCount: rows.length },
         });
         return c.json({ rows, rowCount: rows.length });
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (err: any) {
         await auditLog(db, {
           type: 'sql.failed',
@@ -1125,6 +1149,8 @@ async function invalidatePermissionCache() {
  * Mirrors the /api-keys sub-routes inside adminRoutes but at a top-level path
  * so that the SDK and tests can call POST /api/api-keys directly.
  */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function apiKeysRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -1281,6 +1307,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
           max_requests,
           description: `Per-key override for ${id}`,
         })
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .onConflict((oc: any) =>
           oc.column('key_prefix').doUpdateSet({ window_ms, max_requests, updated_at: new Date() }),
         )

@@ -163,6 +163,7 @@ export async function initTelemetry(): Promise<void> {
     // CompositePropagator lives in @opentelemetry/core ≥1.x; fall back to W3C-only if absent.
     const W3CTraceCtx = otelCore.W3CTraceContextPropagator;
     const W3CBaggage = otelCore.W3CBaggagePropagator;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const Composite = (otelCore as any).CompositePropagator;
 
     if (Composite && W3CBaggage) {
@@ -187,6 +188,7 @@ export async function initTelemetry(): Promise<void> {
     const sdk = new NodeSDK({
       traceExporter: new OTLPTraceExporter({
         url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       }) as any,
       serviceName: process.env.OTEL_SERVICE_NAME || 'zveltio-engine',
     });

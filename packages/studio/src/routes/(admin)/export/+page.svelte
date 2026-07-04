@@ -4,6 +4,7 @@ import { api, collectionsApi } from '$lib/api.js';
 import { Download, LoaderCircle, Database } from '@lucide/svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let selectedCollection = $state('');
 let format = $state<'json' | 'csv' | 'ndjson'>('json');

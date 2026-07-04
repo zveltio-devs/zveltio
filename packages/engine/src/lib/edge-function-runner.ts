@@ -143,8 +143,10 @@ export async function runEdgeFunction(
   // Transpile TypeScript → JavaScript before sandboxing
   let jsCode: string;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const transpiler = new (Bun as any).Transpiler({ loader: 'ts' });
     jsCode = transpiler.transformSync(code);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     return {
       ok: false,

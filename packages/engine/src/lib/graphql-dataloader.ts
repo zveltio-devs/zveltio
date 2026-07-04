@@ -9,15 +9,18 @@ export function createCollectionLoader(
   db: Database,
   tableName: string,
   keyField: string = 'id',
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): (keys: readonly string[]) => Promise<Array<Record<string, any> | null>> {
   return async (keys: readonly string[]) => {
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const rows: Record<string, any>[] = await (db as any)
         .selectFrom(tableName)
         .selectAll()
         .where(keyField, 'in', keys as string[])
         .execute();
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const map = new Map<string, Record<string, any>>();
       for (const row of rows) {
         map.set(String(row[keyField]), row);
@@ -36,11 +39,13 @@ export function createCollectionLoader(
 export class DataLoaderRegistry {
   private loaders = new Map<
     string,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     (keys: readonly string[]) => Promise<Array<Record<string, any> | null>>
   >();
 
   constructor(private db: Database) {}
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   get(tableName: string): (keys: readonly string[]) => Promise<Array<Record<string, any> | null>> {
     if (!this.loaders.has(tableName)) {
       this.loaders.set(tableName, createCollectionLoader(this.db, tableName));
