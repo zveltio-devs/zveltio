@@ -508,6 +508,23 @@ interface ManifestMeta {
 }
 
 /**
+ * Full parsed manifest type.
+ *
+ * Derived from the runtime Zod validator (`ManifestSchema`) rather than
+ * `json-schema-to-ts` over `docs/manifest-v2.schema.json` (which H-04 proposed):
+ * `z.infer` guarantees the type is exactly what `ManifestSchema.parse()` accepts
+ * and returns at runtime — a stronger single-source guarantee than a mirror
+ * JSON schema that nothing enforces. The `.passthrough()` fields the loader
+ * reads but the strict object doesn't enumerate (`displayName`, `description`,
+ * `studio`) are added explicitly so callers get real types, not `unknown`.
+ */
+export type ExtensionManifest = z.infer<typeof ManifestSchema> & {
+  displayName?: string;
+  description?: string;
+  studio?: ManifestMeta['studio'];
+};
+
+/**
  * For each manifest studio page that names a JSON schema file, read + parse it
  * and inline the parsed object (so /api/extensions delivers it with no extra
  * round-trip and no per-host build). Read once at load; failures degrade
@@ -705,7 +722,7 @@ export class ExtensionLoader {
 
       // Migrations quota is determined from manifest (or defaults if no manifest).
       // Hoisted out of the if-block so the check after getMigrations() can see it.
-      let migrationsLimit = DEFAULT_QUOTAS.migrationsMax;
+      let migrationsLimit: number = DEFAULT_QUOTAS.migrationsMax;
       // Extension category — hoisted so the WASM branch below can reach it
       // for the synthetic ZveltioExtension. Default matches the manifest schema.
       let extCategory: string = 'custom';
@@ -715,15 +732,14 @@ export class ExtensionLoader {
 
       // Hoisted out of the if-block so the v2 `engine.bundled` check
       // below (in the JS-runtime path) can see it.
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      let manifest: any = null;
+      let manifest: ExtensionManifest | null = null;
 
       // Validate manifest.json if present, then check compatibility + dependencies
       const manifestPath = join(extDir, 'manifest.json');
       if (existsSync(manifestPath)) {
         try {
           const rawManifest = JSON.parse(await Bun.file(manifestPath).text());
-          manifest = ManifestSchema.parse(rawManifest);
+          manifest = ManifestSchema.parse(rawManifest) as ExtensionManifest;
         } catch (err) {
           const msg = `invalid manifest.json — ${(err as Error).message}`;
           this.lastLoadError.set(extName, msg);
@@ -775,8 +791,7 @@ export class ExtensionLoader {
         }
 
         // PostgreSQL extension requirements (e.g. postgis)
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const requiredPgExts: string[] = (manifest as any).requires?.postgres_extensions ?? [];
+        const requiredPgExts: string[] = manifest.requires?.postgres_extensions ?? [];
         if (requiredPgExts.length > 0) {
           try {
             const result = await _sql<{ extname: string }>`
@@ -835,15 +850,11 @@ export class ExtensionLoader {
 
         // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint
         this.manifestMeta.set(extName, {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          displayName: (manifest as any).displayName,
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          description: (manifest as any).description,
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          category: (manifest as any).category,
+          displayName: manifest.displayName,
+          description: manifest.description,
+          category: manifest.category,
           contributes: manifest.contributes as ManifestMeta['contributes'],
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          studio: await embedPageSchemas(extDir, (manifest as any).studio),
+          studio: await embedPageSchemas(extDir, manifest.studio),
         });
       }
 
@@ -914,7 +925,7 @@ export class ExtensionLoader {
         // bundling is the ONLY path that works on production binaries.
         // When bundled, we skip the CORE_NPM_PACKAGES presence check
         // and import the .js artifact directly.
-        const isBundled = manifest.engine?.bundled === true;
+        const isBundled = manifest?.engine?.bundled === true;
         const extBase = resolveExtensionsBase();
 
         // MARKETPLACE-POLICY.md §2 enforcement: publisher tier governs
@@ -936,7 +947,7 @@ export class ExtensionLoader {
         //     fall through to local-only assumptions
         if (
           process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY !== '1' &&
-          manifest.engine?.isolation !== 'worker'
+          manifest?.engine?.isolation !== 'worker'
         ) {
           let catalog: ExtensionCatalogEntry[] | null = null;
           let catalogFetchFailed = false;
@@ -988,24 +999,27 @@ export class ExtensionLoader {
 
         let resolvedPath: string;
         if (isBundled) {
-          const bundledEntry = join(extDir, manifest.engine!.entry);
+          // isBundled === true implies manifest?.engine?.bundled === true, so
+          // manifest (and manifest.engine) are non-null in this branch.
+          const m = manifest!;
+          const bundledEntry = join(extDir, m.engine!.entry);
           if (!existsSync(bundledEntry)) {
             const msg =
               `Extension "${extName}" manifest declares engine.bundled=true ` +
-              `but engine.entry "${manifest.engine!.entry}" is not on disk at ${bundledEntry}. ` +
+              `but engine.entry "${m.engine!.entry}" is not on disk at ${bundledEntry}. ` +
               `Run \`zveltio extension pack\` before publishing.`;
             this.lastLoadError.set(extName, msg);
             console.error(`❌ ${msg}`);
             return;
           }
           // Optional: verify integrity hash if the manifest declares one.
-          if (manifest.integrity?.engineSha256) {
+          if (m.integrity?.engineSha256) {
             const { createHash } = await import('node:crypto');
             const actual = createHash('sha256').update(readFileSync(bundledEntry)).digest('hex');
-            if (actual !== manifest.integrity.engineSha256) {
+            if (actual !== m.integrity.engineSha256) {
               const msg =
                 `Extension "${extName}" integrity check failed: ` +
-                `manifest declares engineSha256=${manifest.integrity.engineSha256} ` +
+                `manifest declares engineSha256=${m.integrity.engineSha256} ` +
                 `but the on-disk bundle hashes to ${actual}. ` +
                 `Re-pack and re-publish, or the bundle was tampered with.`;
               this.lastLoadError.set(extName, msg);
@@ -1024,11 +1038,11 @@ export class ExtensionLoader {
           // bindings that cannot be bundled, the extension author
           // must ship them via a separate engine plugin instead.
           if (
-            manifest.peerDependencies &&
-            Object.keys(manifest.peerDependencies).length > 0 &&
-            manifest.engine?.bundlePeers !== true
+            m.peerDependencies &&
+            Object.keys(m.peerDependencies).length > 0 &&
+            m.engine?.bundlePeers !== true
           ) {
-            const peers = Object.keys(manifest.peerDependencies).join(', ');
+            const peers = Object.keys(m.peerDependencies).join(', ');
             const msg =
               `Extension "${extName}" declares peerDependencies (${peers}) but ` +
               `engine.bundlePeers is not true. Bun's compiled binary cannot ` +
