@@ -28,6 +28,7 @@ error()   { echo -e "${RED}✗${NC}  $*" >&2; exit 1; }
 info()    { echo -e "${DIM}  $*${NC}"; }
 section() { echo -e "\n${BOLD}${BLUE}── $* ──${NC}\n"; }
 ok()      { echo -e "  ${GREEN}✓${NC} $*"; }
+warn()    { echo -e "  ${YELLOW}!${NC} $*"; }
 
 # ── Parse argumente ───────────────────────────────────────────
 MODE="auto"
@@ -220,8 +221,16 @@ RELEASE_URL="${RELEASES_BASE}/v${VERSION}"
 if [[ "$MODE" == "native" && "$HAS_DOCKER_COMPOSE" == "false" ]]; then
   section "🚀 Installing Zveltio (native — no Docker)"
   info "Downloading native installer..."
-  NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/install.sh"
-  curl -fsSL "$NATIVE_INSTALLER_URL" -o /tmp/zveltio-native-install.sh
+  # Pin to the release tag so installing version X is reproducible — the same
+  # bytes today and next month, auditable per version. `master` used to be
+  # fetched here, which meant any commit changed the install experience with no
+  # release gate. Fallback to master only if the tag predates install/install.sh.
+  NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/v${VERSION}/install/install.sh"
+  if ! curl -fsSL "$NATIVE_INSTALLER_URL" -o /tmp/zveltio-native-install.sh 2>/dev/null; then
+    warn "Native installer not found at tag v${VERSION} — falling back to master"
+    NATIVE_INSTALLER_URL="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/install.sh"
+    curl -fsSL "$NATIVE_INSTALLER_URL" -o /tmp/zveltio-native-install.sh
+  fi
   chmod +x /tmp/zveltio-native-install.sh
   INSTALL_MODE=native ZVELTIO_PORT="${DEFAULT_PORT}" ZVELTIO_VERSION="$VERSION" \
     sudo bash /tmp/zveltio-native-install.sh
