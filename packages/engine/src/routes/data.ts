@@ -38,8 +38,15 @@ import {
   setQueryCache,
   invalidateQueryCache,
 } from '../lib/query-cache.js';
-import type { CollectionDef, DynamicRow, RequestUser } from '../lib/data/types.js';
+import type { RequestUser } from '../lib/data/types.js';
+import type { DynamicRecord } from '../db/dynamic-types.js';
 import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../lib/data/shape.js';
+import {
+  QuerySchema,
+  buildAllowedCols,
+  parseFilters,
+  decodeCursor,
+} from '../lib/data/query-parse.js';
 
 export type { RequestUser };
 
@@ -57,17 +64,6 @@ import {
   virtualDelete,
   type VirtualConfig,
 } from '../lib/virtual-collection-adapter.js';
-
-const QuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(500).default(20),
-  sort: z.string().optional(),
-  order: z.enum(['asc', 'desc']).default('desc'),
-  filter: z.string().optional(),
-  search: z.string().optional(),
-  as_of: z.string().optional(),
-  cursor: z.string().optional(), // base64url-encoded {id, val}
-});
 
 // Authenticate request — session or API key
 async function authenticate(
@@ -661,100 +657,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const tableName = DDLManager.getTableName(collection);
 
-    // Build the set of columns clients are allowed to sort/filter by. Hitting
-    // Postgres with an unknown column surfaces as a 500 ("column X does not
-    // exist") — we want a clean 400 at the edge instead.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const rawFields: any[] =
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      typeof (collectionDef as any).fields === 'string'
-        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          JSON.parse((collectionDef as any).fields)
-        : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          ((collectionDef as any).fields ?? []);
-    const SYSTEM_COLS = new Set([
-      'id',
-      'created_at',
-      'updated_at',
-      'status',
-      'created_by',
-      'updated_by',
-    ]);
-    const allowedCols = new Set<string>([
-      ...SYSTEM_COLS,
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      ...rawFields.map((f: any) => f.name).filter(Boolean),
-    ]);
+    // Columns clients may sort/filter by. Unknown columns become a clean 400
+    // at the edge instead of a Postgres 500.
+    const allowedCols = buildAllowedCols(collectionDef);
 
-    // Parse filters — two supported formats (both can be used together):
-    //
-    // 1. JSON:    ?filter={"price":{"gt":50},"title":{"like":"pro"}}
-    // 2. Bracket: ?price[gt]=50&title[like]=pro  (simpler for curl/browser)
-    //
-    // When both are provided for the same field, JSON takes precedence.
-    const OP_ALIAS: Record<string, FilterCondition['op']> = {
-      eq: 'eq',
-      neq: 'neq',
-      lt: 'lt',
-      lte: 'lte',
-      gt: 'gt',
-      gte: 'gte',
-      like: 'ilike',
-      contains: 'ilike',
-      ilike: 'ilike',
-      in: 'in',
-      not_in: 'not_in',
-      null: 'null',
-      is_null: 'null',
-      not_null: 'not_null',
-      is_not_null: 'not_null',
-    };
-
-    const filters: Record<string, FilterCondition> = {};
-
-    // Format 2: bracket syntax — parse before JSON so JSON can override
-    const BRACKET_RE = /^([a-zA-Z_][a-zA-Z0-9_]*)\[([a-zA-Z_]+)\]$/;
-    for (const [paramKey, paramVal] of Object.entries(c.req.query())) {
-      const m = BRACKET_RE.exec(paramKey);
-      if (!m) continue;
-      const [, field, op] = m;
-      if (!allowedCols.has(field)) continue; // silently skip unknown fields
-      const mappedOp = OP_ALIAS[op];
-      if (!mappedOp) continue;
-      // Coerce numeric-looking values to numbers for comparison operators
-      const numericOps = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
-      const value =
-        numericOps.has(mappedOp) && paramVal !== '' && !isNaN(Number(paramVal))
-          ? Number(paramVal)
-          : paramVal;
-      filters[field] = { op: mappedOp, value };
-    }
-
-    // Format 1: JSON (overrides bracket for same field)
-    if (query.filter) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      let raw: Record<string, any> | null = null;
-      try {
-        raw = JSON.parse(query.filter);
-      } catch {
-        /* malformed JSON — ignore */
-      }
-      if (raw && typeof raw === 'object') {
-        for (const [key, value] of Object.entries(raw)) {
-          if (!allowedCols.has(key)) {
-            return c.json({ error: `Unknown filter field: '${key}'` }, 400);
-          }
-          if (typeof value === 'object' && value !== null) {
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            const [op, val] = Object.entries(value)[0] as [string, any];
-            const mappedOp = OP_ALIAS[op];
-            if (mappedOp) filters[key] = { op: mappedOp, value: val };
-          } else {
-            filters[key] = { op: 'eq', value };
-          }
-        }
-      }
-    }
+    // Parse filters — bracket + JSON formats (JSON wins on the same field).
+    const parsed = parseFilters(c.req.query(), query.filter, allowedCols);
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+    const filters = parsed.filters;
 
     if (query.sort && !allowedCols.has(query.sort)) {
       return c.json({ error: `Unknown sort field: '${query.sort}'` }, 400);
@@ -775,19 +685,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Used when `cursor` is provided and page is still default (1).
     // Avoids OFFSET cost on large tables.
     const useCursor = !!query.cursor && query.page === 1;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    let result: { records: any[]; total: number };
+    let result: { records: DynamicRecord[]; total: number };
 
     if (useCursor) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      let decoded: { id: string; val: any } = { id: '', val: null };
-      try {
-        decoded = JSON.parse(Buffer.from(query.cursor!, 'base64url').toString());
-      } catch {
-        /* malformed cursor — fall through to offset path */
-      }
+      const decoded = decodeCursor(query.cursor);
 
-      if (decoded.id && decoded.val !== undefined) {
+      if (decoded) {
         // Build keyset query directly with Kysely for proper compound pagination
         // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -818,8 +721,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
         // Fetch limit+1 to detect whether a next page exists without a count query
         kQuery = kQuery.limit(query.limit + 1);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const rows: any[] = await kQuery.execute();
+        const rows: DynamicRecord[] = await kQuery.execute();
         const hasMore = rows.length > query.limit;
         result = {
           records: hasMore ? rows.slice(0, query.limit) : rows,

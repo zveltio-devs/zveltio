@@ -57,24 +57,28 @@ export function normalizeFields(
   return Array.isArray(raw) ? raw : [];
 }
 
-/** Serialize a record's field values using the field-type registry. */
+/** Serialize a record's field values using the field-type registry.
+ *
+ * Input is a loosely typed DB row (values `unknown` — dynamic tables can't be
+ * statically typed); output is a validated `DynamicRow` (JSON values). */
 export async function serializeRecord(
-  record: DynamicRow,
+  record: Record<string, unknown>,
   collectionDef: CollectionDef | null | undefined,
 ): Promise<DynamicRow> {
   const fields = normalizeFields(collectionDef);
+  // Work on a loosely typed copy (DB rows carry `unknown` values); the returned
+  // shape is the validated `DynamicRow` — the single JSON boundary cast is here.
+  const result: Record<string, unknown> = { ...record };
   if (fields.length === 0) {
-    const out = { ...record };
-    for (const k of INTERNAL_COLUMNS) delete out[k];
-    return out;
+    for (const k of INTERNAL_COLUMNS) delete result[k];
+    return result as DynamicRow;
   }
-  const result: DynamicRow = { ...record };
   for (const field of fields) {
     if (result[field.name] !== undefined && result[field.name] !== null) {
       if (field.encrypted) {
-        result[field.name] = (await maybeDecrypt(result[field.name] as string, true)) as JsonValue;
+        result[field.name] = await maybeDecrypt(result[field.name] as string, true);
       }
-      result[field.name] = fieldTypeRegistry.serialize(field.type, result[field.name]) as JsonValue;
+      result[field.name] = fieldTypeRegistry.serialize(field.type, result[field.name]);
       // Numeric coercion: Postgres returns numeric/decimal as string. Cast back
       // to number so frontends can sort/format without type tricks.
       if (NUMERIC_FIELD_TYPES.has(field.type) && typeof result[field.name] === 'string') {
@@ -85,7 +89,7 @@ export async function serializeRecord(
   }
   // Strip internal/operational columns from public payloads.
   for (const k of INTERNAL_COLUMNS) delete result[k];
-  return result;
+  return result as DynamicRow;
 }
 
 /** Resolve `?expand=field1,field2` for a collection: returns metadata about
