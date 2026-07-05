@@ -24,7 +24,7 @@ import {
   type FilterCondition,
 } from '../db/dynamic.js';
 import { hashApiKey } from '../lib/api-key-hash.js';
-import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
+import { maybeEncrypt } from '../lib/field-crypto.js';
 import { tracedQuery } from '../lib/telemetry.js';
 import { getRlsFilters } from '../lib/rls.js';
 import {
@@ -38,17 +38,10 @@ import {
   setQueryCache,
   invalidateQueryCache,
 } from '../lib/query-cache.js';
+import type { CollectionDef, DynamicRow, RequestUser } from '../lib/data/types.js';
+import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../lib/data/shape.js';
 
-/** Minimal user shape attached to every authenticated request context */
-export interface RequestUser {
-  id: string;
-  name: string;
-  role: string;
-  /** Present only for API-key auth — collection/action scopes */
-  scopes?: unknown;
-  /** Email — present for session auth */
-  email?: string;
-}
+export type { RequestUser };
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -75,17 +68,6 @@ const QuerySchema = z.object({
   as_of: z.string().optional(),
   cursor: z.string().optional(), // base64url-encoded {id, val}
 });
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function computeEtag(data: any[]): Promise<string> {
-  const str = JSON.stringify(data);
-  // SHA-256: stronger than SHA-1 and not truncated — avoids collision risk
-  // (truncated SHA-1 to 64 bits had birthday-attack probability of ~2^-32).
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 // Authenticate request — session or API key
 async function authenticate(
@@ -217,53 +199,6 @@ async function broadcastWebhook(
   // - audit trail in zvd_webhook_deliveries
   // - retry logic via webhook:retry sorted set
   await WebhookManager.trigger(event, collection, data);
-}
-
-/** Internal columns that are operational, not user data. They leak into API
- * responses by default because Kysely returns the full row; strip them unless
- * the caller explicitly opts in with ?include_internal=1. */
-const INTERNAL_COLUMNS = new Set(['search_vector', 'search_text']);
-
-/** Cast database-side numeric strings back to JS numbers when the schema says
- * the field is numeric. Postgres `numeric/decimal` come back as strings via
- * Bun.SQL — clients shouldn't have to remember which fields to coerce. */
-const NUMERIC_FIELD_TYPES = new Set([
-  'number',
-  'integer',
-  'int',
-  'bigint',
-  'smallint',
-  'float',
-  'double',
-  'decimal',
-]);
-
-// Serialize a record's field values using the registry
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function serializeRecord(record: any, collectionDef: any): Promise<any> {
-  if (!collectionDef?.fields) {
-    const out = { ...record };
-    for (const k of INTERNAL_COLUMNS) delete out[k];
-    return out;
-  }
-  const result = { ...record };
-  for (const field of collectionDef.fields) {
-    if (result[field.name] !== undefined && result[field.name] !== null) {
-      if (field.encrypted) {
-        result[field.name] = await maybeDecrypt(result[field.name], true);
-      }
-      result[field.name] = fieldTypeRegistry.serialize(field.type, result[field.name]);
-      // Numeric coercion: Postgres returns numeric/decimal as string. Cast back
-      // to number so frontends can sort/format without type tricks.
-      if (NUMERIC_FIELD_TYPES.has(field.type) && typeof result[field.name] === 'string') {
-        const n = Number(result[field.name]);
-        if (Number.isFinite(n)) result[field.name] = n;
-      }
-    }
-  }
-  // Strip internal/operational columns from public payloads.
-  for (const k of INTERNAL_COLUMNS) delete result[k];
-  return result;
 }
 
 /** Map Postgres SQLSTATE codes to HTTP responses with structured error bodies.
@@ -415,83 +350,6 @@ async function handlePgErrors<T>(c: any, fn: () => Promise<T>): Promise<T | Resp
       e?.message,
     );
     throw err;
-  }
-}
-
-/** Resolve `?expand=field1,field2` for a collection: returns metadata about
- * which m2o fields the caller wants hydrated and the target collection for each. */
-async function resolveExpand(
-  db: Database,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  collectionDef: any,
-  expandParam: string | undefined,
-): Promise<Array<{ field: string; targetTable: string; targetCollection: string }>> {
-  if (!expandParam || !collectionDef?.fields) return [];
-  const want = new Set(
-    expandParam
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
-  if (want.size === 0) return [];
-
-  const out: Array<{ field: string; targetTable: string; targetCollection: string }> = [];
-  for (const f of collectionDef.fields) {
-    if (!want.has(f.name)) continue;
-    if ((f.type !== 'm2o' && f.type !== 'reference') || !f.options?.related_collection) continue;
-    out.push({
-      field: f.name,
-      targetCollection: f.options.related_collection,
-      targetTable: DDLManager.getTableName(f.options.related_collection),
-    });
-  }
-  return out;
-}
-
-/** Fill an `_expanded` map on each record by fetching referenced rows in one
- * query per relation. Adds {field}_expanded: {id, label, ...} on every record. */
-async function applyExpand(
-  db: Database,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  records: any[],
-  expandPlan: Array<{ field: string; targetTable: string; targetCollection: string }>,
-): Promise<void> {
-  if (expandPlan.length === 0 || records.length === 0) return;
-
-  for (const exp of expandPlan) {
-    const ids = [...new Set(records.map((r) => r[exp.field]).filter((v) => typeof v === 'string'))];
-    if (ids.length === 0) continue;
-
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const rows = await sql<any>`
-      SELECT * FROM ${sql.id(exp.targetTable)}
-      WHERE id = ANY(${ids})
-    `.execute(db);
-
-    const targetDef = await DDLManager.getCollection(db, exp.targetCollection);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const byId = new Map<string, any>();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    for (const r of rows.rows as any[]) {
-      const serialized = await serializeRecord(r, targetDef);
-      // Add a default `_label` (best-effort: name → title → email → id slice)
-      const label =
-        serialized.name ??
-        serialized.title ??
-        serialized.label ??
-        serialized.email ??
-        serialized.full_name ??
-        serialized.display_name ??
-        serialized.id?.slice(0, 8) ??
-        '—';
-      byId.set(r.id as string, { ...serialized, _label: label });
-    }
-    for (const rec of records) {
-      const id = rec[exp.field];
-      if (id && byId.has(id)) {
-        rec[`${exp.field}_expanded`] = byId.get(id);
-      }
-    }
   }
 }
 
@@ -1529,7 +1387,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         tenantId: (c.get('tenant') as any)?.id ?? null,
       });
-      return c.json(await serializeRecord(record, collectionDef), 201);
+      const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
+      return c.json(serialized, 201);
     });
     return result as Response;
   });
@@ -1617,7 +1476,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         tenantId: (c.get('tenant') as any)?.id ?? null,
       });
-      return c.json(await serializeRecord(record, collectionDef));
+      const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
+      return c.json(serialized);
     });
     return result as Response;
   });
@@ -1710,7 +1570,8 @@ export function dataRoutes(db: Database, auth: any): Hono {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         tenantId: (c.get('tenant') as any)?.id ?? null,
       });
-      return c.json(await serializeRecord(record, collectionDef));
+      const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
+      return c.json(serialized);
     });
     return result as Response;
   });
