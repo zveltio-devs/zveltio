@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
 // Extension install/load is naturally a synchronous filesystem operation
@@ -14,24 +13,18 @@ import { join } from 'path';
 import { pathToFileURL } from 'node:url';
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
-import { checkPermission, getUserRoles } from './permissions.js';
-import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.js';
-import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
+// checkPermission/getUserRoles/DDLManager/createRestrictedDb/getWorkerHost +
+// ExtensionSchedule now live only inside the extracted register core
+// (lib/extensions/register.ts, H-04 split); dropped from the loader's imports.
 // Note: the ~16 engine-helper imports that only fed buildExtensionInternals
 // moved with it to ./extensions/internals.ts (H-04 split).
 import { serviceRegistry } from './service-registry.js';
 import { queryAlterRegistry, type QueryAlterScope } from './query-alter.js';
 import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js';
 import { cronRunner } from './cron-runner.js';
-import type { ExtensionSchedule, ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
-// Static-import so Bun's compile-time bundler walks into the worker
-// host and sees the `new Worker(new URL('./worker-extension-runtime.ts',
-// import.meta.url))` call site. Dynamic-import hid the worker entry
-// from static analysis and the compiled binary shipped without the
-// worker source embedded (verified alpha.118 + alpha.119 smoke).
-import { getWorkerHost as _getWorkerHost } from './worker-extension-host.js';
+import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
 // Utilities moved to extension-utils.ts (PR #5). Imported here for
 // the loader's own internal use; also re-exported below so external
 // import sites that still reach into extension-loader keep working.
@@ -74,17 +67,18 @@ import {
   type ExtensionContext,
   type ExtensionInternals,
 } from './extensions/internals.js';
+import {
+  buildAllowedTables,
+  EXTENSION_TABLE_GRANTS,
+  finalizeExtensionLoad,
+  reRegisterExtension,
+} from './extensions/register.js';
 
 export { serviceRegistry } from './service-registry.js';
 
-// ── Extension table access helpers ───────────────────────────────────────────
-// Some extensions access specific core engine tables that fall outside their
-// auto-detected `zv_{extname}_*` namespace. Declare those grants here so the
-// RestrictedDb proxy allows them through.
-const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
-  'content/drafts': ['zv_revisions'],
-  'developer/validation': ['zv_validation_rules'],
-};
+// EXTENSION_TABLE_GRANTS + buildAllowedTables + the HonoRouteFn type + the
+// route-register core moved to lib/extensions/register.ts (H-04 split). Imported
+// above for the loader's own use.
 
 // ── Extension lifecycle lock ─────────────────────────────────────────────────
 // Serialize concurrent install/enable/disable/uninstall requests for the same
@@ -102,22 +96,6 @@ const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
 // keep working — touching every call site would have made the split
 // a much bigger PR.
 export { inMemoryMutex, withExtensionLock } from './extension-utils.js';
-
-async function buildAllowedTables(migrationPaths: string[]): Promise<Set<string>> {
-  const tables = new Set<string>();
-  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/gi;
-  for (const p of migrationPaths) {
-    try {
-      const content = await Bun.file(p).text();
-      let m: RegExpExecArray | null;
-      re.lastIndex = 0;
-      while ((m = re.exec(content)) !== null) tables.add(m[1]);
-    } catch {
-      /* skip unreadable files */
-    }
-  }
-  return tables;
-}
 
 /**
  * Fetch with exponential-backoff retry on transient failures.
@@ -241,13 +219,6 @@ export type { ZveltioExtension };
 export { buildExtensionInternals };
 export type { ExtensionContext, ExtensionInternals };
 
-/**
- * A Hono route-registration method (`app.get`/`post`/…). Used for the dynamic
- * `app[method]` dispatch in `registerPublicRoute`, where the method name is only
- * known at runtime from the extension's spec.
- */
-type HonoRouteFn = (path: string, handler: (c: Context) => Response | Promise<Response>) => unknown;
-
 interface LoadedExtension {
   name: string;
   /** Cleanup callback captured from the extension module, if exported. */
@@ -267,9 +238,11 @@ export class ExtensionLoader {
   /** internal — also read by registerMarketplaceRoutes (loader split). */
   loaded: Map<string, LoadedExtension> = new Map();
   private manifestMeta: Map<string, ManifestMeta> = new Map();
-  private ctx?: ExtensionContext;
-  /** Module cache: name → imported ZveltioExtension, kept for re-registration on hot-reload. */
-  private modules: Map<string, ZveltioExtension> = new Map();
+  /** internal — also read by the extracted register/lifecycle helpers (loader split). */
+  ctx?: ExtensionContext;
+  /** Module cache: name → imported ZveltioExtension, kept for re-registration on hot-reload.
+   *  internal — also read by the extracted register/lifecycle helpers (loader split). */
+  modules: Map<string, ZveltioExtension> = new Map();
   /** Last load error per extension name — used by loadDynamic() to surface the real error.
    *  internal — also read by registerMarketplaceRoutes (loader split). */
   lastLoadError: Map<string, string> = new Map();
@@ -595,136 +568,20 @@ export class ExtensionLoader {
       const allowedTables = await buildAllowedTables(migrationPaths);
       for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);
 
-      // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables.
-      // Also inject the full public API (checkPermission, auth, DDLManager…) and
-      // ctx.internals.* so extensions never have to relative-import engine modules.
-      const restrictedCtx: ExtensionContext = {
-        ...ctx,
-        db: createRestrictedDb(ctx.db, extName, allowedTables),
-        // Per-request tenant-scoped DB: the request's tenant transaction (so
-        // FORCE-RLS'd rows are visible + isolated), wrapped in the same table
-        // guard. Data-touching extension handlers MUST use ctx.reqDb(c); ctx.db
-        // (global pool) bypasses tenant isolation. See MULTI-TENANT-ENABLEMENT §5.
-        reqDb: (c: Context) =>
-          createRestrictedDb(
-            (c?.get?.('tenantTrx') as Database | null) ?? ctx.db,
-            extName,
-            allowedTables,
-          ),
-        checkPermission: ctx.checkPermission ?? checkPermission,
-        getUserRoles: ctx.getUserRoles ?? getUserRoles,
-        DDLManager: ctx.DDLManager ?? DDLManager,
-        // Hand each extension a scoped view of the registry so its register()
-        // calls are tagged for cleanup on unload. Idempotent on hot-reload.
-        services: serviceRegistry.scope(extName),
-        queryAlter: queryAlterRegistry.scope(extName),
-        entityAccess: entityAccessRegistry.scope(extName),
-        // Escape hatch: extensions on `mountStrategy: 'subapp'` may need a few
-        // routes outside the `/ext/<name>/` namespace (public CDN links, dynamic
-        // user-deployed endpoints). registerPublicRoute mounts them on the
-        // global `app` directly. They disappear on the next rebuild like every
-        // other extension route, so disable still works correctly.
-        registerPublicRoute: (spec) => {
-          const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
-          const fn = (app as unknown as Record<string, HonoRouteFn | undefined>)[m];
-          if (typeof fn !== 'function') {
-            console.warn(
-              `[extension-loader] ${extName} requested unsupported HTTP method "${spec.method}" — skipped`,
-            );
-            return;
-          }
-          try {
-            fn.call(app, spec.path, spec.handler);
-            console.log(
-              `🛣️  Extension "${extName}" registered public route: ${spec.method} ${spec.path}`,
-            );
-          } catch (err) {
-            console.warn(
-              `[extension-loader] ${extName} public route ${spec.method} ${spec.path} failed:`,
-              (err as Error).message,
-            );
-          }
-        },
-        internals: ctx.internals,
-      };
-
-      // Register routes — if the live app's Hono matcher is already built (happens
-      // after the first request during hot-load), swallow that specific error and
-      // still mark the extension as loaded. triggerReload() will rebuild a fresh
-      // Hono app where routes register correctly.
-      //
-      // S3-01: extensions with `mountStrategy: 'subapp'` get a fresh per-extension
-      // Hono instance; the engine mounts it at `/ext/<name>`. Disable simply
-      // drops the sub-app on the next app rebuild — no orphan routes.
-      // The default 'global' path remains unchanged for backward compatibility.
-      //
-      // C-minimal worker isolation (manifest.engine.isolation === 'worker'):
-      // delegate register() to WorkerExtensionHost. The worker spawns,
-      // re-imports the SAME bundle, and runs register() in its own thread.
-      // Migrations + field types + services etc. already ran in this main
-      // thread above. Worker is responsible only for serving routes.
-      let routeRegistrationDeferred = false;
-      const mountStrategy = extension.mountStrategy ?? 'global';
-      const workerIsolation =
-        manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
-      try {
-        if (workerIsolation) {
-          const host = _getWorkerHost(app);
-          await host.start(extName, extDir, manifest!.engine!.entry);
-        } else if (mountStrategy === 'subapp') {
-          const subApp = new Hono();
-          await extension.register(subApp, restrictedCtx);
-          app.route(`/ext/${extName}`, subApp);
-        } else {
-          await extension.register(app, restrictedCtx);
-        }
-      } catch (regErr: unknown) {
-        if ((regErr as Error)?.message?.includes('matcher is already built')) {
-          routeRegistrationDeferred = true;
-        } else {
-          throw regErr;
-        }
-      }
-
-      // Register native schedules. Failure here is non-fatal — log and
-      // continue so the extension is otherwise functional.
-      if (typeof extension.schedules === 'function') {
-        try {
-          const schedules = extension.schedules() ?? [];
-          for (const s of schedules) {
-            cronRunner.register(extName, s as ExtensionSchedule);
-          }
-          if (schedules.length > 0) {
-            console.log(`⏰ Extension "${extName}" registered ${schedules.length} schedule(s)`);
-          }
-        } catch (err) {
-          console.warn(
-            `[cron-runner] failed to read schedules() for "${extName}":`,
-            (err as Error).message,
-          );
-        }
-      }
-
-      this.loaded.set(extName, {
-        name: extName,
-        cleanup:
-          typeof extension.cleanup === 'function' ? extension.cleanup.bind(extension) : undefined,
-        registeredRoutes: true,
+      // Register-core (build restrictedCtx, mount routes with the
+      // matcher-already-built swallow, register schedules, capture loaded state
+      // + success audit) extracted to lib/extensions/register.ts (H-04 split);
+      // shared with reRegisterExtension. Byte-identical behaviour.
+      await finalizeExtensionLoad(
+        this,
+        extension,
+        extName,
+        extDir,
+        app,
+        ctx,
+        manifest ?? null,
         allowedTables,
-      });
-      console.log(`🔌 Extension loaded: ${extName}`);
-
-      // Audit trail — record successful load. No userId: system events
-      // are tracked by event type, and 'system' is not a real user id —
-      // setting it triggers the zv_audit_log_user_id_fkey FK violation.
-      auditLog(ctx.db, {
-        type: 'extension.loaded',
-        resourceId: extName,
-        resourceType: 'extension',
-        metadata: { version: extension.name, actor: 'system' },
-      }).catch((err: Error) => {
-        console.error('[extension-loader] audit log failed:', err.message);
-      });
+      );
     } catch (err) {
       const errMsg = (err as Error).message ?? String(err);
       console.error(`❌ Failed to load extension "${extName}":`, err);
@@ -896,74 +753,10 @@ export class ExtensionLoader {
    * Safe to call multiple times: only registers routes, no side effects.
    */
   async reRegisterExtension(name: string, app: Hono): Promise<void> {
-    const extension = this.modules.get(name);
-    if (!extension || !this.ctx) return;
-
-    const allowedTables = this.loaded.get(name)?.allowedTables;
-    const restrictedCtx: ExtensionContext = {
-      ...this.ctx,
-      db: createRestrictedDb(this.ctx.db, name, allowedTables),
-      reqDb: (c: Context) =>
-        createRestrictedDb(
-          (c?.get?.('tenantTrx') as Database | null) ?? this.ctx!.db,
-          name,
-          allowedTables,
-        ),
-      checkPermission: this.ctx.checkPermission ?? checkPermission,
-      getUserRoles: this.ctx.getUserRoles ?? getUserRoles,
-      DDLManager: this.ctx.DDLManager ?? DDLManager,
-      services: serviceRegistry.scope(name),
-      queryAlter: queryAlterRegistry.scope(name),
-      entityAccess: entityAccessRegistry.scope(name),
-      registerPublicRoute: (spec) => {
-        const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
-        const fn = (app as unknown as Record<string, HonoRouteFn | undefined>)[m];
-        if (typeof fn !== 'function') {
-          console.warn(
-            `[extension-loader] ${name} requested unsupported HTTP method "${spec.method}" — skipped`,
-          );
-          return;
-        }
-        try {
-          fn.call(app, spec.path, spec.handler);
-        } catch (err) {
-          console.warn(
-            `[extension-loader] ${name} public route ${spec.method} ${spec.path} failed:`,
-            (err as Error).message,
-          );
-        }
-      },
-      internals: this.ctx.internals,
-    };
-
-    try {
-      const mountStrategy = extension.mountStrategy ?? 'global';
-      if (mountStrategy === 'subapp') {
-        const subApp = new Hono();
-        await extension.register(subApp, restrictedCtx);
-        app.route(`/ext/${name}`, subApp);
-      } else {
-        await extension.register(app, restrictedCtx);
-      }
-
-      // Re-register schedules on hot-reload. unregisterAll is idempotent and
-      // we want the new definitions to win.
-      cronRunner.unregisterAll(name);
-      if (typeof extension.schedules === 'function') {
-        try {
-          for (const s of extension.schedules() ?? []) {
-            cronRunner.register(name, s as ExtensionSchedule);
-          }
-        } catch (err) {
-          console.warn(
-            `[cron-runner] schedules() threw on hot-reload of "${name}":`,
-            (err as Error).message,
-          );
-        }
-      }
-    } catch (err) {
-      console.error(`❌ Hot-reload: failed to re-register extension "${name}":`, err);
-    }
+    // Body extracted to lib/extensions/register.ts (H-04 split) — shares
+    // buildRestrictedContext + registerExtensionRoutes with the loadExtension
+    // register-core. Thin delegator so external callers stay unchanged.
+    return reRegisterExtension(this, name, app);
   }
 
   /** Register the hot-reload callback. Called from index.ts after Bun.serve() starts. */
