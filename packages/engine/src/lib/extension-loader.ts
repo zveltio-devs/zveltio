@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
 // Extension install/load is naturally a synchronous filesystem operation
@@ -38,7 +39,7 @@ import { serviceRegistry } from './service-registry.js';
 import { queryAlterRegistry, type QueryAlterScope } from './query-alter.js';
 import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js';
 import { cronRunner } from './cron-runner.js';
-import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
+import type { ExtensionSchedule, ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
 // Static-import so Bun's compile-time bundler walks into the worker
 // host and sees the `new Worker(new URL('./worker-extension-runtime.ts',
 // import.meta.url))` call site. Dynamic-import hid the worker entry
@@ -286,14 +287,23 @@ export function buildExtensionInternals(): ExtensionInternals {
  * with concrete engine types (Database, FieldTypeRegistry, EventBus, DDLManager).
  * Extensions receive this at runtime but only see the public interface.
  */
+/**
+ * A Hono route-registration method (`app.get`/`post`/…). Used for the dynamic
+ * `app[method]` dispatch in `registerPublicRoute`, where the method name is only
+ * known at runtime from the extension's spec.
+ */
+type HonoRouteFn = (path: string, handler: (c: Context) => Response | Promise<Response>) => unknown;
+
 export interface ExtensionContext {
   db: Database;
   /** Per-request tenant-scoped DB (request's tenant transaction + table guard).
    * Data handlers should use `ctx.reqDb(c)`; `ctx.db` is the global pool. */
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  reqDb?: (c: any) => Database;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  reqDb?: (c: Context) => Database;
+  // Better-Auth instance. Its type is a deep generic over the configured
+  // plugins/adapters; naming it here would couple the loader to the exact
+  // better-auth build. Kept `any` as a documented survivor (H-04).
+  // biome-ignore lint/suspicious/noExplicitAny: better-auth instance is a deep generic; documented survivor (H-04)
   auth: any;
   fieldTypeRegistry: FieldTypeRegistry;
   events: EventBus;
@@ -313,8 +323,7 @@ export interface ExtensionContext {
   registerPublicRoute: (spec: {
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD' | 'ALL';
     path: string;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    handler: (c: any) => any;
+    handler: (c: Context) => Response | Promise<Response>;
   }) => void;
   internals: ExtensionInternals;
 }
@@ -601,8 +610,7 @@ export class ExtensionLoader {
           },
         };
         // Keep a reference so reloads + unloads can call shutdown().
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        (extension as any).__wasmHandle = wasm;
+        (extension as ZveltioExtension & { __wasmHandle?: unknown }).__wasmHandle = wasm;
       } else {
         // Import and register extension.
         //
@@ -714,8 +722,7 @@ export class ExtensionLoader {
         // FORCE-RLS'd rows are visible + isolated), wrapped in the same table
         // guard. Data-touching extension handlers MUST use ctx.reqDb(c); ctx.db
         // (global pool) bypasses tenant isolation. See MULTI-TENANT-ENABLEMENT §5.
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        reqDb: (c: any) =>
+        reqDb: (c: Context) =>
           createRestrictedDb(
             (c?.get?.('tenantTrx') as Database | null) ?? ctx.db,
             extName,
@@ -736,8 +743,7 @@ export class ExtensionLoader {
         // other extension route, so disable still works correctly.
         registerPublicRoute: (spec) => {
           const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          const fn = (app as any)[m];
+          const fn = (app as unknown as Record<string, HonoRouteFn | undefined>)[m];
           if (typeof fn !== 'function') {
             console.warn(
               `[extension-loader] ${extName} requested unsupported HTTP method "${spec.method}" — skipped`,
@@ -789,8 +795,7 @@ export class ExtensionLoader {
         } else {
           await extension.register(app, restrictedCtx);
         }
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      } catch (regErr: any) {
+      } catch (regErr: unknown) {
         if ((regErr as Error)?.message?.includes('matcher is already built')) {
           routeRegistrationDeferred = true;
         } else {
@@ -804,8 +809,7 @@ export class ExtensionLoader {
         try {
           const schedules = extension.schedules() ?? [];
           for (const s of schedules) {
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            cronRunner.register(extName, s as any);
+            cronRunner.register(extName, s as ExtensionSchedule);
           }
           if (schedules.length > 0) {
             console.log(`⏰ Extension "${extName}" registered ${schedules.length} schedule(s)`);
@@ -882,14 +886,10 @@ export class ExtensionLoader {
       const rows = await db
         .selectFrom('zv_extension_registry')
         .select(['name'])
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .where('is_enabled' as any, '=', true)
+        .where('is_enabled', '=', true)
         .execute();
 
-      const pending = rows
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .map((r: any) => r.name as string)
-        .filter((name: string) => !this.loaded.has(name));
+      const pending = rows.map((r) => r.name).filter((name) => !this.loaded.has(name));
       if (pending.length === 0 || !this.ctx) return;
 
       const extBase = resolveExtensionsBase();
@@ -904,8 +904,7 @@ export class ExtensionLoader {
         await db
           .updateTable('zv_extension_registry')
           .set({ last_load_error: err, last_load_at: new Date() })
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .where('name' as any, '=', name)
+          .where('name', '=', name)
           .execute()
           .catch(() => {});
       }
@@ -1021,8 +1020,7 @@ export class ExtensionLoader {
     const restrictedCtx: ExtensionContext = {
       ...this.ctx,
       db: createRestrictedDb(this.ctx.db, name, allowedTables),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      reqDb: (c: any) =>
+      reqDb: (c: Context) =>
         createRestrictedDb(
           (c?.get?.('tenantTrx') as Database | null) ?? this.ctx!.db,
           name,
@@ -1036,8 +1034,7 @@ export class ExtensionLoader {
       entityAccess: entityAccessRegistry.scope(name),
       registerPublicRoute: (spec) => {
         const m = (spec.method ?? 'GET').toLowerCase() as Lowercase<typeof spec.method>;
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const fn = (app as any)[m];
+        const fn = (app as unknown as Record<string, HonoRouteFn | undefined>)[m];
         if (typeof fn !== 'function') {
           console.warn(
             `[extension-loader] ${name} requested unsupported HTTP method "${spec.method}" — skipped`,
@@ -1072,8 +1069,7 @@ export class ExtensionLoader {
       if (typeof extension.schedules === 'function') {
         try {
           for (const s of extension.schedules() ?? []) {
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            cronRunner.register(name, s as any);
+            cronRunner.register(name, s as ExtensionSchedule);
           }
         } catch (err) {
           console.warn(
@@ -1141,8 +1137,7 @@ export class ExtensionLoader {
   registerDevEndpoints(app: Hono): void {
     if (process.env.NODE_ENV === 'production') return;
     app.post('/__zveltio_dev_reload', async (c) => {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      let body: any;
+      let body: { name?: unknown };
       try {
         body = await c.req.json();
       } catch {
