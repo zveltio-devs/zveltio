@@ -1,30 +1,16 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { DDLManager } from '../lib/ddl-manager.js';
-import { fieldTypeRegistry } from '../lib/field-type-registry.js';
 import { checkPermission } from '../lib/permissions.js';
-import { WebhookManager } from '../lib/webhooks.js';
-import { broadcastEvent } from './ws.js';
-import { realtimeBus } from '../lib/realtime-bus.js';
-import { broadcastDataEvent } from './realtime.js';
 // AI auto-embedding is now handled by the `ai` extension via record.created /
 // record.updated events emitted by engineEvents below.
 import { engineEvents, AbortHookError } from '../lib/event-bus.js';
 import { queryAlterRegistry } from '../lib/query-alter.js';
 import { entityAccessRegistry } from '../lib/entity-access.js';
-import { triggerDataFlows } from './flows.js';
-import {
-  dynamicSelect,
-  dynamicInsert,
-  dynamicUpdate,
-  dynamicDelete,
-  type FilterCondition,
-} from '../db/dynamic.js';
+import { dynamicSelect, dynamicInsert, dynamicUpdate, dynamicDelete } from '../db/dynamic.js';
 import { hashApiKey } from '../lib/api-key-hash.js';
-import { maybeEncrypt } from '../lib/field-crypto.js';
 import { tracedQuery } from '../lib/telemetry.js';
 import { getRlsFilters } from '../lib/rls.js';
 import {
@@ -32,12 +18,7 @@ import {
   applyColumnAccess,
   filterWritableFields,
 } from '../lib/column-permissions.js';
-import {
-  buildQueryCacheKey,
-  getQueryCache,
-  setQueryCache,
-  invalidateQueryCache,
-} from '../lib/query-cache.js';
+import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../lib/query-cache.js';
 import type { RequestUser } from '../lib/data/types.js';
 import type { DynamicRecord } from '../db/dynamic-types.js';
 import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../lib/data/shape.js';
@@ -47,6 +28,15 @@ import {
   parseFilters,
   decodeCursor,
 } from '../lib/data/query-parse.js';
+import {
+  processInput,
+  afterWrite,
+  handlePgErrors,
+  getVirtualConfig,
+  getDb,
+  runAtomic,
+  isUuid,
+} from '../lib/data/write-pipeline.js';
 
 export type { RequestUser };
 
@@ -62,7 +52,6 @@ import {
   virtualCreate,
   virtualUpdate,
   virtualDelete,
-  type VirtualConfig,
 } from '../lib/virtual-collection-adapter.js';
 
 // Authenticate request — session or API key
@@ -179,345 +168,6 @@ async function checkAccess(
     return true;
   }
   return checkPermission(user.id, collection, action);
-}
-
-// Broadcast webhook event
-async function broadcastWebhook(
-  _db: Database,
-  event: string,
-  collection: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  data: { id: string; [key: string]: any },
-): Promise<void> {
-  // WebhookManager.trigger() handles:
-  // - matching active webhooks by event + collection
-  // - queuing via Redis (webhook:queue)
-  // - audit trail in zvd_webhook_deliveries
-  // - retry logic via webhook:retry sorted set
-  await WebhookManager.trigger(event, collection, data);
-}
-
-/** Map Postgres SQLSTATE codes to HTTP responses with structured error bodies.
- * Without this, every constraint violation hits Hono's default error handler
- * and surfaces as 500 "Internal Server Error" plain text.
- *
- * Bun.SQL PostgresError exposes the Postgres notice fields but the property
- * names vary slightly across versions (`code` / `errno` / `routine`) — we read
- * the standard fields and fall back to message-pattern matching as a safety
- * net for cases where the SQLSTATE is missing. */
-function mapPgError(err: unknown): { status: number; body: Record<string, unknown> } | null {
-  if (!err) return null;
-  const e = err as Record<string, unknown>;
-  const code = String((e.code as string | undefined) ?? (e.errno as string | undefined) ?? '');
-  const message = String((e.message as string | undefined) ?? '');
-  const detail = String((e.detail as string | undefined) ?? '');
-  const constraint = String(
-    (e.constraint_name as string | undefined) ?? (e.constraint as string | undefined) ?? '',
-  );
-  const column = String(
-    (e.column_name as string | undefined) ?? (e.column as string | undefined) ?? '',
-  );
-
-  const matchKey = /Key \(([^)]+)\)=\(([^)]+)\)(?: is not present in table "([^"]+)")?/.exec(
-    detail || message,
-  );
-
-  // 42501 — insufficient_privilege: in practice, row-level security rejected
-  // the statement (e.g. a write whose tenant context doesn't match the row's
-  // tenant). Surfacing the raw 500 hid the real cause of the "insert fails on
-  // an RLS-enabled instance" class; a clean 403 names it.
-  if (code === '42501' || /row-level security/i.test(message)) {
-    return {
-      status: 403,
-      body: {
-        error: 'row_level_security_violation',
-        message:
-          "The operation violates the collection's row-level security policy for the current tenant context.",
-        code: code || '42501',
-      },
-    };
-  }
-  // 23503 — foreign_key_violation
-  if (code === '23503' || /foreign key constraint/i.test(message)) {
-    return {
-      status: 422,
-      body: {
-        error: 'foreign_key_violation',
-        message: matchKey
-          ? `Field "${matchKey[1]}" references "${(matchKey[3] ?? '').replace(/^zvd_/, '') || 'another collection'}" but no record with id "${matchKey[2]}" exists.`
-          : 'Referenced record does not exist.',
-        code: code || '23503',
-        field: matchKey?.[1] ?? column ?? null,
-      },
-    };
-  }
-  // 23505 — unique_violation
-  if (
-    code === '23505' ||
-    /duplicate key value/i.test(message) ||
-    /unique constraint/i.test(message)
-  ) {
-    return {
-      status: 409,
-      body: {
-        error: 'unique_violation',
-        message: matchKey
-          ? `A record with the same ${matchKey[1]} already exists (value: ${matchKey[2]}).`
-          : 'A record with the same unique value already exists.',
-        code: code || '23505',
-        field: matchKey?.[1] ?? null,
-      },
-    };
-  }
-  // 23502 — not_null_violation
-  if (
-    code === '23502' ||
-    /not-null constraint/i.test(message) ||
-    /violates not-null/i.test(message)
-  ) {
-    return {
-      status: 422,
-      body: {
-        error: 'not_null_violation',
-        message: column ? `Field "${column}" is required.` : 'A required field is missing.',
-        code: code || '23502',
-        field: column ?? null,
-      },
-    };
-  }
-  // 23514 — check_violation (status enum, etc.)
-  if (code === '23514' || /check constraint/i.test(message)) {
-    return {
-      status: 422,
-      body: {
-        error: 'check_violation',
-        message: 'One of the values does not satisfy the field constraints.',
-        code: code || '23514',
-        constraint: constraint || null,
-      },
-    };
-  }
-  // 22P02 — invalid_text_representation (e.g. bad UUID)
-  if (code === '22P02' || /invalid input syntax/i.test(message)) {
-    return {
-      status: 422,
-      body: {
-        error: 'invalid_value',
-        message:
-          'One of the values has the wrong format (likely an invalid UUID, number, or date).',
-        code: code || '22P02',
-      },
-    };
-  }
-  // 42703 — undefined_column (schema drift)
-  if (code === '42703' || /column .* does not exist/i.test(message)) {
-    return {
-      status: 422,
-      body: {
-        error: 'unknown_field',
-        message: 'A field in the request does not exist on this collection.',
-        code: code || '42703',
-      },
-    };
-  }
-  return null;
-}
-
-/** Run an async handler and translate known Postgres errors into 4xx responses
- * before they escape as Hono's default 500. Anything we don't recognize is
- * re-thrown so the global error handler can log it. */
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function handlePgErrors<T>(c: any, fn: () => Promise<T>): Promise<T | Response> {
-  try {
-    return await fn();
-  } catch (err) {
-    const mapped = mapPgError(err);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    if (mapped) return c.json(mapped.body, mapped.status as any);
-    // Surface the raw error shape so we can extend mapPgError() later.
-    const e = err as { name?: string; code?: string; errno?: string; message?: string };
-    console.warn(
-      '[handlePgErrors] unmapped error:',
-      e?.name,
-      'code=',
-      e?.code ?? e?.errno,
-      'msg=',
-      e?.message,
-    );
-    throw err;
-  }
-}
-
-// Validate and deserialize incoming data using the registry
-async function processInput(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  data: Record<string, any>,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  collectionDef: any,
-  partial = false,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-): Promise<{ errors: string[]; processed: Record<string, any> }> {
-  const errors: string[] = [];
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  const processed: Record<string, any> = {};
-
-  if (!collectionDef?.fields) return { errors, processed: data };
-
-  for (const field of collectionDef.fields) {
-    const typeDef = fieldTypeRegistry.get(field.type);
-    if (!typeDef || typeDef.db.virtual) continue;
-
-    const value = data[field.name];
-
-    // In partial mode (PATCH), only touch fields the caller actually sent.
-    // Skipping validate here preserves required-field enforcement on create/replace.
-    if (partial && value === undefined) continue;
-
-    const error = fieldTypeRegistry.validate(field.type, value, field);
-    if (error) errors.push(error);
-
-    if (value !== undefined) {
-      const deserialized = fieldTypeRegistry.deserialize(field.type, value);
-      processed[field.name] = field.encrypted
-        ? await maybeEncrypt(deserialized, true)
-        : deserialized;
-    }
-  }
-
-  return { errors, processed };
-}
-
-/** Returns the parsed VirtualConfig if the collection has source_type='virtual', else null. */
-async function getVirtualConfig(db: Database, collection: string): Promise<VirtualConfig | null> {
-  const meta = await DDLManager.getCollection(db, collection);
-  if (meta?.source_type !== 'virtual' || !meta?.virtual_config) return null;
-  return typeof meta.virtual_config === 'string'
-    ? JSON.parse(meta.virtual_config)
-    : meta.virtual_config;
-}
-
-/** Returns the tenant-isolated transaction DB when in multi-tenant mode, else the pool. */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function getDb(c: any, fallback: Database): Database {
-  return (c.get('tenantTrx') as Database | null) ?? fallback;
-}
-
-/**
- * Run `fn` atomically. When `executor` is already a transaction (the per-request
- * tenant transaction, always present on /api/data routes), reuse it — Bun SQL
- * has no nested transactions, so calling `.transaction()` on it would error.
- * Otherwise open a fresh transaction on the pool.
- */
-function runAtomic<T>(executor: Database, fn: (trx: Database) => Promise<T>): Promise<T> {
-  if ((executor as unknown as { isTransaction?: boolean }).isTransaction) {
-    return fn(executor);
-  }
-  return executor.transaction().execute(fn);
-}
-
-// RFC 4122 UUID (any version). Short-circuiting here turns an otherwise
-// user-visible Postgres "invalid input syntax for uuid" 500 into a clean 404.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isUuid(v: string): boolean {
-  return UUID_RE.test(v);
-}
-
-/** Post-write side-effects: revision log, webhook, realtime broadcast, embeddings, events. */
-async function afterWrite(
-  db: Database,
-  opts: {
-    collection: string;
-    recordId: string;
-    action: 'create' | 'update' | 'delete';
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    data: Record<string, any>;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    delta?: Record<string, any>;
-    userId: string;
-    /**
-     * Tenant id from the request's `tenantTrx` context. Forwarded onto
-     * `engineEvents.emit('record.*')` so subscribers (notably the
-     * `ai` extension's auto-embedding hook) can tag their writes with
-     * the right tenant — they run on the GLOBAL pool, NOT inside the
-     * request transaction, so they cannot rely on
-     * `current_setting('zveltio.current_tenant')`.
-     */
-    tenantId?: string | null;
-  },
-): Promise<void> {
-  const { collection, recordId, action, data, delta, userId, tenantId } = opts;
-
-  // Revision log — awaited so callers see a consistent DB state after the write,
-  // but errors are swallowed (non-fatal).
-  await db
-    .insertInto('zv_revisions')
-    .values({
-      collection,
-      record_id: recordId,
-      action,
-      data: JSON.stringify(data),
-      ...(delta ? { delta: JSON.stringify(delta) } : {}),
-      user_id: userId,
-    })
-    .execute()
-    .catch((err) => console.error('[afterWrite] revision log failed:', err));
-
-  const eventName = action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
-
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  await broadcastWebhook(db, eventName, collection, data as { id: string; [key: string]: any });
-  // tenant id flows into WS + SSE broadcasts so a write in tenant A
-  // doesn't fan out to subscribers in tenant B (collection names
-  // collide across tenants on both channel namespaces).
-  broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data, tenantId ?? null);
-  broadcastDataEvent(collection, eventName, data, tenantId ?? null);
-
-  // Publish to the cross-instance realtime bus (Valkey if
-  // configured, else pg_notify). The bus filters its own echo so the
-  // already-fired local `broadcastEvent` above doesn't double-deliver.
-  realtimeBus()
-    .publish({
-      event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
-      collection,
-      record_id: recordId as string,
-      data,
-      timestamp: new Date().toISOString(),
-      tenantId: tenantId ?? null,
-    })
-    .catch((err) => console.error('[afterWrite] realtime publish failed:', err));
-
-  // Embedding triggered via engineEvents.emit('record.created' | 'record.updated')
-  // below — the `ai` extension subscribes to those events. No core call needed.
-
-  // Invalidate query cache for this collection on every write, scoped
-  // to the writing tenant — invalidating across tenants would just
-  // churn other tenants' hot caches with no correctness benefit since
-  // the cache key already includes the tenant id.
-  // If this fails the read path serves stale data until TTL expires —
-  // log so a chronic failure (Valkey down, eviction storm) is visible.
-  invalidateQueryCache(collection, tenantId ?? null).catch((err) => {
-    console.warn(`[data] invalidateQueryCache failed for ${collection}:`, (err as Error).message);
-  });
-
-  // Trigger data_event flows (fire-and-forget — must not block the request)
-  triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch((err) =>
-    console.error('[afterWrite] flow trigger failed:', err),
-  );
-
-  const engineEvent =
-    action === 'create'
-      ? 'record.created'
-      : action === 'update'
-        ? 'record.updated'
-        : 'record.deleted';
-  engineEvents.emit(engineEvent, {
-    collection,
-    record: data,
-    id: recordId,
-    userId,
-    tenantId: tenantId ?? null,
-  });
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
