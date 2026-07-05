@@ -8,23 +8,17 @@ import type { FieldTypeRegistry } from './field-type-registry.js';
 // is no synchronous Bun.file equivalent for mkdir/symlink/writeFile. The
 // explicit `node:` prefix makes that intent visible.
 import { existsSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
-import { join } from 'path';
-import { pathToFileURL } from 'node:url';
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
 import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.js';
-import { auditLog } from './audit.js';
 // checkPermission/getUserRoles/DDLManager/createRestrictedDb/getWorkerHost +
 // ExtensionSchedule now live only inside the extracted register core
 // (lib/extensions/register.ts, H-04 split); dropped from the loader's imports.
 // Note: the ~16 engine-helper imports that only fed buildExtensionInternals
-// moved with it to ./extensions/internals.ts (H-04 split).
-import { serviceRegistry } from './service-registry.js';
-import { queryAlterRegistry, type QueryAlterScope } from './query-alter.js';
-import { entityAccessRegistry, type EntityAccessScope } from './entity-access.js';
-import { cronRunner } from './cron-runner.js';
-import type { ServiceRegistry, ZveltioExtension } from '@zveltio/sdk/extension';
+// moved with it to ./extensions/internals.ts (H-04 split). The registry values
+// (serviceRegistry/queryAlterRegistry/entityAccessRegistry/cronRunner) are now
+// used only inside the extracted register/lifecycle helpers, not here.
+import type { ZveltioExtension } from '@zveltio/sdk/extension';
 // Utilities moved to extension-utils.ts (PR #5). Imported here for
 // the loader's own internal use; also re-exported below so external
 // import sites that still reach into extension-loader keep working.
@@ -51,28 +45,25 @@ import { ensureExtensionCoreDeps } from './extension-deps.js';
 import { REGISTRY_URL, downloadExtension } from './extension-download.js';
 import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
-import { purgeExtensionData, runExtensionMigrations } from './extensions/migration-runner.js';
-import {
-  embedPageSchemas,
-  type ExtensionManifest,
-  type ManifestMeta,
-} from './extensions/manifest-schema.js';
-import {
-  enforcePublisherTier,
-  resolveEntryPath,
-  resolveManifest,
-} from './extensions/load-phases.js';
+import { purgeExtensionData } from './extensions/migration-runner.js';
+import type { ManifestMeta } from './extensions/manifest-schema.js';
+// resolveManifest/enforcePublisherTier/resolveEntryPath + finalizeExtensionLoad
+// + buildAllowedTables/EXTENSION_TABLE_GRANTS + embedPageSchemas (internal use)
+// now live inside the extracted load pipeline (lib/extensions/load.ts, H-04
+// split); dropped from the loader's imports.
 import {
   buildExtensionInternals,
   type ExtensionContext,
   type ExtensionInternals,
 } from './extensions/internals.js';
+import { reRegisterExtension } from './extensions/register.js';
+import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from './extensions/lifecycle.js';
+import { loadExtensionFromDir } from './extensions/load.js';
 import {
-  buildAllowedTables,
-  EXTENSION_TABLE_GRANTS,
-  finalizeExtensionLoad,
-  reRegisterExtension,
-} from './extensions/register.js';
+  discoverExternal,
+  getActiveExtensionNames,
+  topoSortExtensions,
+} from './extensions/discovery.js';
 
 export { serviceRegistry } from './service-registry.js';
 
@@ -237,7 +228,8 @@ interface LoadedExtension {
 export class ExtensionLoader {
   /** internal — also read by registerMarketplaceRoutes (loader split). */
   loaded: Map<string, LoadedExtension> = new Map();
-  private manifestMeta: Map<string, ManifestMeta> = new Map();
+  /** internal — also written by the extracted load pipeline (loader split). */
+  manifestMeta: Map<string, ManifestMeta> = new Map();
   /** internal — also read by the extracted register/lifecycle helpers (loader split). */
   ctx?: ExtensionContext;
   /** Module cache: name → imported ZveltioExtension, kept for re-registration on hot-reload.
@@ -257,8 +249,8 @@ export class ExtensionLoader {
       console.warn('[extensions] Core dep install failed (non-fatal):', err.message);
     });
 
-    const envExtensions = this.getActiveExtensionNames();
-    const sortedEnv = await this.topoSortExtensions(envExtensions, extBase);
+    const envExtensions = getActiveExtensionNames();
+    const sortedEnv = await topoSortExtensions(envExtensions, extBase);
     for (const extName of sortedEnv) {
       await this.loadExtension(extName, app, ctx);
     }
@@ -266,8 +258,8 @@ export class ExtensionLoader {
     // Also load from external path if configured
     const externalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
     if (externalPath && existsSync(externalPath)) {
-      const externalExts = await this.discoverExternal(externalPath);
-      const sortedExt = await this.topoSortExtensions(externalExts, externalPath);
+      const externalExts = await discoverExternal(externalPath);
+      const sortedExt = await topoSortExtensions(externalExts, externalPath);
       for (const extName of sortedExt) {
         await this.loadExtension(extName, app, ctx, externalPath);
       }
@@ -276,339 +268,25 @@ export class ExtensionLoader {
 
   /**
    * Read manifest.dependencies for each extension and topologically sort.
-   *
-   * Behavior:
-   *   - Extensions with no manifest or no dependencies retain their relative order.
-   *   - If a declared dependency is not in the planned-for-load set, the dependent
-   *     extension is skipped with a warning (it can be loaded later via loadFromDB).
-   *   - Cycles throw with a clear path for debugging.
-   *
-   * @param names    Extension names planned for load.
-   * @param baseDir  Base directory where extensions live (manifests are read from here).
+   * Body extracted to lib/extensions/discovery.ts (H-04 split); kept as a thin
+   * delegator because registerMarketplaceRoutes calls it via the loader instance.
    */
-  /** internal — also called by registerMarketplaceRoutes (loader split). */
   async topoSortExtensions(names: string[], baseDir: string): Promise<string[]> {
-    if (names.length <= 1) return names;
-
-    const depsMap = new Map<string, string[]>();
-    for (const name of names) {
-      const manifestPath = join(baseDir, name, 'manifest.json');
-      let deps: string[] = [];
-      if (existsSync(manifestPath)) {
-        try {
-          const m = JSON.parse(await Bun.file(manifestPath).text()) as {
-            dependencies?: Array<{ name: string }>;
-          };
-          deps = (m.dependencies ?? []).map((d) => d.name);
-        } catch {
-          /* ignore — extension will fail later in loadExtension with proper error */
-        }
-      }
-      depsMap.set(name, deps);
-    }
-
-    const sorted: string[] = [];
-    const visited = new Set<string>();
-    const visiting = new Set<string>();
-
-    const visit = (name: string, path: string[]): void => {
-      if (visited.has(name)) return;
-      if (visiting.has(name)) {
-        throw new Error(`Circular extension dependency: ${[...path, name].join(' -> ')}`);
-      }
-      visiting.add(name);
-      for (const dep of depsMap.get(name) ?? []) {
-        if (!depsMap.has(dep)) {
-          console.warn(
-            `[extensions] "${name}" depends on "${dep}" which is not in the load set — "${name}" will load anyway, but ctx.services.get('${dep}.*') may return null until "${dep}" is also activated.`,
-          );
-          continue;
-        }
-        visit(dep, [...path, name]);
-      }
-      visiting.delete(name);
-      visited.add(name);
-      sorted.push(name);
-    };
-
-    for (const name of names) visit(name, []);
-    return sorted;
+    return topoSortExtensions(names, baseDir);
   }
 
-  private getActiveExtensionNames(): string[] {
-    const envExtensions = process.env.ZVELTIO_EXTENSIONS || '';
-    return envExtensions
-      .split(',')
-      .map((e) => e.trim())
-      .filter(Boolean);
-  }
-
-  private async discoverExternal(basePath: string): Promise<string[]> {
-    try {
-      const entries = await readdir(basePath, { withFileTypes: true });
-      return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
-      return [];
-    }
-  }
-
-  private async loadExtension(
+  /** internal — also called by the extracted lifecycle helpers (loader split). */
+  async loadExtension(
     extName: string,
     app: Hono,
     ctx: ExtensionContext,
     basePath?: string,
   ): Promise<void> {
-    try {
-      // Resolve extension directory.
-      // Priority: explicit basePath > resolveExtensionsBase() (EXTENSIONS_DIR, CWD, dev sibling).
-      const defaultBase = resolveExtensionsBase();
-      const extDir = basePath ? join(basePath, extName) : join(defaultBase, extName);
-
-      const enginePath = join(extDir, 'engine/index.js');
-
-      // Studio/client-only extensions (`contributes.engine: false`) ship no
-      // engine routes — there's nothing to load into the engine. Register
-      // them as active (their Studio components are wired by the Studio
-      // rebuild, separately) and skip the whole engine-load path below,
-      // which would otherwise hard-fail on the missing engine bundle.
-      const earlyManifestPath = join(extDir, 'manifest.json');
-      if (existsSync(earlyManifestPath)) {
-        try {
-          const early = JSON.parse(await Bun.file(earlyManifestPath).text());
-          if (early?.contributes?.engine === false) {
-            this.loaded.set(extName, {
-              name: extName,
-              registeredRoutes: false,
-              allowedTables: new Set<string>(),
-            });
-            this.manifestMeta.set(extName, {
-              displayName: early.displayName,
-              description: early.description,
-              category: early.category,
-              contributes: early.contributes,
-              studio: await embedPageSchemas(extDir, early.studio),
-            });
-            console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);
-            return;
-          }
-        } catch {
-          // Malformed manifest — fall through; the engine path re-reads it
-          // and surfaces the parse error properly.
-        }
-      }
-
-      if (!existsSync(enginePath)) {
-        // Try TypeScript source (dev mode)
-        const engineTsPath = join(extDir, 'engine/index.ts');
-        if (!existsSync(engineTsPath)) {
-          console.warn(`⚠️  Extension "${extName}": engine/index.js not found at ${enginePath}`);
-          return;
-        }
-      }
-
-      // Phase 1 — resolve + validate manifest.json (compat / quota / deps /
-      // pg-exts / peerDeps) and compute the manifestMeta payload. The helper is
-      // pure; it reports the exact console.* call + lastLoadError write the
-      // pre-split inline path used, which we replay here verbatim.
-      const manifestPhase = await resolveManifest(extName, extDir, ctx.db);
-      if (!manifestPhase.ok) {
-        if (manifestPhase.logLevel !== 'none') {
-          console[manifestPhase.logLevel](...manifestPhase.logArgs);
-        }
-        if (manifestPhase.lastLoadError !== null) {
-          this.lastLoadError.set(extName, manifestPhase.lastLoadError);
-        }
-        return;
-      }
-      const { manifest, migrationsLimit, extCategory, extRuntime, manifestMeta } =
-        manifestPhase.value;
-      // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint.
-      // Computed inside the phase (including embedPageSchemas); the state write
-      // stays here so the phase is loader-state-free.
-      if (manifestMeta !== null) {
-        this.manifestMeta.set(extName, manifestMeta);
-      }
-
-      // WASM runtime path — if the manifest opts in, load the `.wasm`
-      // extension through `WasmExtensionHost`. Returns a synthetic
-      // `ZveltioExtension` whose register() invokes the WASM module's
-      // exported register inside the capability-bound sandbox. The rest
-      // of the loader treats it the same as a JS extension.
-      //
-      // Note today's WASM ABI is small (log, db_*, fetch_*, crypto*,
-      // env_read, fs_*). Route registration from inside WASM isn't yet
-      // wired through the imports table — that arrives with the
-      // companion tooling wave. So WASM extensions today are
-      // compute-only or background-only. JS first-party extensions
-      // continue to handle the HTTP surface.
-      let extension: ZveltioExtension;
-      if (extRuntime === 'wasm') {
-        const wasmPath = join(extDir, 'engine', 'extension.wasm');
-        if (!existsSync(wasmPath)) {
-          this.lastLoadError.set(
-            extName,
-            `manifest.runtime = "wasm" but engine/extension.wasm is missing`,
-          );
-          return;
-        }
-        const { loadWasmExtension } = await import('./wasm-extension-host.js');
-        const wasm = await loadWasmExtension(wasmPath, { extName });
-        // Synthetic ZveltioExtension that proxies into the WASM handle.
-        extension = {
-          name: extName,
-          category: extCategory,
-          mountStrategy: 'global',
-          async register(_app, _ctx) {
-            // WASM register() runs inside the sandbox. It can't bind
-            // Hono routes today; that requires a routing-bridge ABI.
-            // Compute / background work happens here.
-            await wasm.register();
-          },
-        };
-        // Keep a reference so reloads + unloads can call shutdown().
-        (extension as ZveltioExtension & { __wasmHandle?: unknown }).__wasmHandle = wasm;
-      } else {
-        // Import and register extension.
-        //
-        // History: we previously appended `?v=<timestamp>` whenever
-        // NODE_ENV !== 'production' for hot-reload during dev. In a
-        // compiled Bun binary, the `?v=…` suffix becomes part of the
-        // importer path, which breaks the node_modules walk-up that
-        // resolves bare specifiers like `kysely`. The fix is to:
-        //
-        //   1. Gate the cache-buster on an EXPLICIT dev-reload flag
-        //      (ZVELTIO_EXTENSION_DEV_RELOAD=1) rather than NODE_ENV.
-        //      Detecting "compiled binary" via Bun.embeddedFiles was
-        //      fragile across Bun versions.
-        //   2. Import via `pathToFileURL(...).href` so resolution is
-        //      anchored to the file's own location (which has a path
-        //      walk to <EXTENSIONS_DIR>/node_modules) and not to the
-        //      binary's CWD.
-        //   3. Re-run maybeSymlinkNodeModules at every load — first-time
-        //      install adds new node_modules at the EXTENSIONS_DIR but
-        //      the CWD symlink only gets refreshed by ensureExtensionCoreDeps,
-        //      which runs once at boot.
-        // Manifest v2: when `engine.bundled: true` the extension ships
-        // a pre-built engine/index.js with hono/zod/kysely/@hono/zod-validator
-        // inlined. The Bun compiled binary CAN'T resolve those bare
-        // specifiers from disk-installed node_modules at runtime, so
-        // bundling is the ONLY path that works on production binaries.
-        // When bundled, we skip the CORE_NPM_PACKAGES presence check
-        // and import the .js artifact directly.
-        const isBundled = manifest?.engine?.bundled === true;
-
-        // Phase 2 — MARKETPLACE-POLICY.md §2 publisher-tier gate. Pure helper;
-        // its failure reports the exact console.error line + lastLoadError the
-        // pre-split inline gate used.
-        const tierPhase = await enforcePublisherTier(extName, manifest);
-        if (!tierPhase.ok) {
-          if (tierPhase.logLevel !== 'none') {
-            console[tierPhase.logLevel](...tierPhase.logArgs);
-          }
-          if (tierPhase.lastLoadError !== null) {
-            this.lastLoadError.set(extName, tierPhase.lastLoadError);
-          }
-          return;
-        }
-
-        // Phase 3 — resolve the on-disk module path (bundled entry + integrity +
-        // bundlePeers, or legacy .ts + core-dep presence). Same verbatim-replay
-        // contract for its failures.
-        const entryPhase = await resolveEntryPath(extName, extDir, enginePath, manifest);
-        if (!entryPhase.ok) {
-          if (entryPhase.logLevel !== 'none') {
-            console[entryPhase.logLevel](...entryPhase.logArgs);
-          }
-          if (entryPhase.lastLoadError !== null) {
-            this.lastLoadError.set(extName, entryPhase.lastLoadError);
-          }
-          return;
-        }
-        const resolvedPath = entryPhase.value;
-
-        const useCacheBuster = !isBundled && process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
-        const importHref = useCacheBuster
-          ? `${pathToFileURL(resolvedPath).href}?v=${Date.now()}`
-          : pathToFileURL(resolvedPath).href;
-        const module = await import(importHref);
-        extension = module.default;
-      }
-
-      if (!extension || typeof extension.register !== 'function') {
-        console.warn(`⚠️  Extension "${extName}": missing default export or register() function`);
-        return;
-      }
-
-      // Cache module for re-registration during hot-reload (avoids re-importing)
-      this.modules.set(extName, extension);
-
-      // Run extension migrations
-      const migrationPaths = extension.getMigrations?.() ?? [];
-      if (migrationPaths.length > migrationsLimit) {
-        const err = new QuotaExceededError(
-          'migrations',
-          migrationPaths.length,
-          migrationsLimit,
-          extName,
-        );
-        console.warn(`⚠️  ${err.message}`);
-        this.lastLoadError.set(extName, err.message);
-        return;
-      }
-      if (migrationPaths.length > 0) {
-        await this.runExtensionMigrations(extension, ctx.db);
-      }
-
-      // Register new field types contributed by extension
-      if (extension.registerFieldTypes) {
-        extension.registerFieldTypes(ctx.fieldTypeRegistry);
-      }
-
-      // Build allowed-tables set from migration CREATE TABLE statements + explicit grants.
-      const allowedTables = await buildAllowedTables(migrationPaths);
-      for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);
-
-      // Register-core (build restrictedCtx, mount routes with the
-      // matcher-already-built swallow, register schedules, capture loaded state
-      // + success audit) extracted to lib/extensions/register.ts (H-04 split);
-      // shared with reRegisterExtension. Byte-identical behaviour.
-      await finalizeExtensionLoad(
-        this,
-        extension,
-        extName,
-        extDir,
-        app,
-        ctx,
-        manifest ?? null,
-        allowedTables,
-      );
-    } catch (err) {
-      const errMsg = (err as Error).message ?? String(err);
-      console.error(`❌ Failed to load extension "${extName}":`, err);
-      this.lastLoadError.set(extName, errMsg);
-      // Audit trail — record load failure
-      if (this.ctx) {
-        auditLog(this.ctx.db, {
-          type: 'extension.load_failed',
-          resourceId: extName,
-          resourceType: 'extension',
-          metadata: { error: (err as Error).message, actor: 'system' },
-        }).catch((err: Error) => {
-          console.error('[extension-loader] audit log failed:', err.message);
-        });
-      }
-    }
-  }
-
-  /**
-   * Auto-install npm peerDependencies declared in an extension's manifest.json.
-   * Skips packages that are already resolvable (already installed in the workspace).
-   * Uses `bun add` in the workspace root so packages are available to the engine process.
-   */
-  private async runExtensionMigrations(extension: ZveltioExtension, db: Database): Promise<void> {
-    // Body extracted to lib/extensions/migration-runner.ts (H-04 split). Bare
-    // call resolves to the imported function, not this method.
-    return runExtensionMigrations(extension, db);
+    // Body extracted to lib/extensions/load.ts (H-04 split) — the full
+    // per-extension load pipeline (dir resolution, Studio-only short-circuit,
+    // manifest/tier/entry phases, WASM-or-import, migrations, field types,
+    // then finalizeExtensionLoad). Thin delegator so callers stay unchanged.
+    return loadExtensionFromDir(this, extName, app, ctx, basePath);
   }
 
   /**
@@ -654,17 +332,9 @@ export class ExtensionLoader {
   }
 
   async loadDynamic(name: string, app: Hono): Promise<void> {
-    if (!this.ctx) throw new Error('ExtensionLoader not initialized — call loadAll() first');
-    this.lastLoadError.delete(name);
-    await this.loadExtension(name, app, this.ctx);
-    // loadExtension returns void on silent failure (files not found, bad manifest, etc.)
-    // Verify the extension actually landed in this.loaded before declaring success.
-    if (!this.isActive(name)) {
-      const realError = this.lastLoadError.get(name);
-      const extBase = resolveExtensionsBase();
-      const fallback = `engine/index.ts not found at ${extBase}/${name}/. Ensure EXTENSIONS_DIR is set and the extension package is deployed.`;
-      throw new Error(realError ?? fallback);
-    }
+    // Body extracted to lib/extensions/lifecycle.ts (H-04 split). Thin
+    // delegator so external callers stay unchanged.
+    return loadDynamic(this, name, app);
   }
 
   /**
@@ -691,60 +361,9 @@ export class ExtensionLoader {
   async unload(
     name: string,
   ): Promise<{ unloaded: boolean; needs_restart: boolean; message: string }> {
-    const ext = this.loaded.get(name);
-    if (!ext) {
-      return {
-        unloaded: false,
-        needs_restart: false,
-        message: `Extension "${name}" is not loaded.`,
-      };
-    }
-
-    // Call extension-provided cleanup if available
-    if (ext.cleanup) {
-      try {
-        await ext.cleanup();
-        console.log(`🔌 Extension "${name}" cleanup() completed.`);
-      } catch (err) {
-        console.error(`🔌 Extension "${name}" cleanup() threw an error:`, err);
-      }
-    }
-
-    // Remove all services this extension published. Without this, hot-reload
-    // would throw on duplicate name when the extension is re-enabled.
-    serviceRegistry.unregisterAll(name);
-    // Drop the extension's query alters so post-unload selects don't keep
-    // applying its filters.
-    queryAlterRegistry.unregisterAll(name);
-    // Drop the extension's entity-access checks too, for the same reason.
-    entityAccessRegistry.unregisterAll(name);
-    // Drop the extension's scheduled tasks so the runner stops invoking them.
-    cronRunner.unregisterAll(name);
-
-    this.loaded.delete(name);
-    console.log(`🔌 Extension unloaded from memory: ${name}`);
-
-    // Audit trail — record unload (system-triggered; userId omitted to
-    // avoid FK violation against 'user' table)
-    if (this.ctx) {
-      auditLog(this.ctx.db, {
-        type: 'extension.unloaded',
-        resourceId: name,
-        resourceType: 'extension',
-        metadata: { needs_restart: ext.registeredRoutes, actor: 'system' },
-      }).catch((err: Error) => {
-        console.error('[extension-loader] audit log failed:', err.message);
-      });
-    }
-
-    const needsRestart = ext.registeredRoutes;
-    return {
-      unloaded: true,
-      needs_restart: needsRestart,
-      message: needsRestart
-        ? `Extension "${name}" unloaded. Routes are still active — restart the server to remove them.`
-        : `Extension "${name}" unloaded successfully.`,
-    };
+    // Body extracted to lib/extensions/lifecycle.ts (H-04 split). Thin
+    // delegator so external callers stay unchanged.
+    return unloadExtension(this, name);
   }
 
   /**
@@ -782,26 +401,9 @@ export class ExtensionLoader {
    * `engine/index.ts`.
    */
   async reloadExtensionFromDisk(name: string): Promise<{ ok: boolean; error?: string }> {
-    if (!this.modules.has(name) && !this.loaded.has(name)) {
-      return {
-        ok: false,
-        error: `extension "${name}" is not currently loaded — restart the engine first`,
-      };
-    }
-    this.modules.delete(name);
-    this.loaded.delete(name);
-    this.lastLoadError.delete(name);
-    serviceRegistry.unregisterAll(name);
-    queryAlterRegistry.unregisterAll(name);
-    entityAccessRegistry.unregisterAll(name);
-    cronRunner.unregisterAll(name);
-    await triggerReload(`dev-reload:${name}`);
-    if (this.lastLoadError.has(name)) {
-      return { ok: false, error: this.lastLoadError.get(name)! };
-    }
-    return this.isActive(name)
-      ? { ok: true }
-      : { ok: false, error: 'extension failed to load — check engine logs' };
+    // Body extracted to lib/extensions/lifecycle.ts (H-04 split); triggerReload
+    // (module-private here) is passed in. Thin delegator — callers unchanged.
+    return reloadExtensionFromDisk(this, name, triggerReload);
   }
 
   /**
