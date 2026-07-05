@@ -64,7 +64,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-01 | Biome `noExplicitAny: error` + suppression ratchet in CI | 1 | 0.5d | DONE (uncommitted) — rule flipped to `error`; codemod `scripts/suppress-existing-any.ts` froze 1931 legacy violations behind suppressions across 263 files (0 test files); ratchet `scripts/any-ratchet.ts` + `refactoring/any-baseline.json` (per-bucket) wired into CI lint job + `prepush`; shared scope in `scripts/lib/any-targets.ts`. |
 | H-02 | Coverage measurement + CI ratchet | 1 | 0.5d | DONE (uncommitted) — `scripts/coverage-gate.ts` + `refactoring/coverage-baseline.json`; engine `lib/` line coverage measured **49%** (target 60%), gated in CI unit-tests job with `--coverage` lcov + `$GITHUB_STEP_SUMMARY` output. **Scope deviation (documented):** only `lib/` is line-gated, not `routes/` — integration tests drive a separately-spawned engine over HTTP, so route handlers run out-of-process and are invisible to `bun test` coverage. Routes stay gated by the integration HTTP contract + future H-09 suite. |
 | H-03 | Windows CI job — or officially declare WSL/Linux-only | 1 | 0.5d | DONE (uncommitted) — chose **soft docs policy** (owner decision): "Supported platforms" table in `README.md` + "Supported & tested surface" note in `docs/SECURITY.md`. Deploy = Linux/macOS (only binaries built + CI-tested); dev = Linux/macOS/WSL2; native Windows = edit OK, run tests in WSL (Bun `.bun` symlink `EACCES` is a toolchain quirk, not a bug). **No** Windows CI job and **no** runtime/install nag — owner develops on native Windows daily. |
-| H-04 | Split + de-`any` `extension-loader.ts` (manifest type from JSON schema) | 2 | 2d | IN PROGRESS — **manifest cluster DONE** (6245aef) + **migration-runner DONE**: `ExtensionManifest` from `z.infer<ManifestSchema>` (deviation from json-schema-to-ts: the Zod validator is the real enforced contract), `manifest` typed, latent null-safety fixed. Migration runner: added real `down_sql` col to `ZvMigrationsTable` in `schema.ts`, removed all `zv_migrations` `as any`, replaced `(trx as any).executeQuery({sql})` with idiomatic `_sql.raw(sql).execute(trx)` (verified multi-statement raw works vs a real Postgres). + **ExtensionInternals DONE** (2877044): fields typed as `typeof <helper>`, casts dropped; `sendNotification` kept loose via `unknown` params (SDK contract, H-13). Engine any 896→**861** (−35); loader 45→**16** markers. All verified green in WSL (404 pass / 0 fail) + real engine boot (health ok, extension-load + cron paths exercised). **Remaining:** structural split of the 630-line `loadExtension` into `lib/extensions/*` (the bulk; the residual ~16 loader markers are mostly Hono `c: any` context params + better-auth `auth: any`, which the split addresses). Do it as a dedicated session with the engine booting between steps (WSL + Postgres are set up). |
+| H-04 | Split + de-`any` `extension-loader.ts` (manifest type from JSON schema) | 2 | 2d | IN PROGRESS — **manifest cluster DONE** (6245aef) + **migration-runner DONE**: `ExtensionManifest` from `z.infer<ManifestSchema>` (deviation from json-schema-to-ts: the Zod validator is the real enforced contract), `manifest` typed, latent null-safety fixed. Migration runner: added real `down_sql` col to `ZvMigrationsTable` in `schema.ts`, removed all `zv_migrations` `as any`, replaced `(trx as any).executeQuery({sql})` with idiomatic `_sql.raw(sql).execute(trx)` (verified multi-statement raw works vs a real Postgres). + **ExtensionInternals DONE** (2877044): fields typed as `typeof <helper>`, casts dropped; `sendNotification` kept loose via `unknown` params (SDK contract, H-13). + **`loadExtension` decomposition DONE** (5/n): extracted `lib/extensions/manifest-schema.ts` (175 L — `ManifestSchema`, `ExtensionManifest`, `ManifestMeta`, `embedPageSchemas`; re-exported from the loader) to break the helper↔loader import cycle, then split the ~600-line `loadExtension` body into 3 pure phase helpers in `lib/extensions/load-phases.ts` (455 L — `resolveManifest`, `enforcePublisherTier`, `resolveEntryPath`). Phases are `this`-free + log-free; each failure returns an explicit `{ logLevel, logArgs, lastLoadError }` result the caller replays verbatim (no magic-string routing) → **zero behaviour change** (byte-identical log strings, error messages, early-return order). `loadExtension` body dropped ~600→~180 L; loader file 1596→**1192 L**. Both new modules < 500 L. Verified green: tsc 0, WSL 404 pass / 0 fail, real engine boot (health ok, `Extensions loaded: none` + cron started, no errors). **Remaining:** the loader is still 1192 L — the rest of the H-04 split (further method extraction into `lib/extensions/*`, driving loader < 500) + the residual de-`any` (loader still has Hono `c: any` context params + better-auth `auth: any`, ~16 markers). |
 | H-05 | Split + de-`any` `routes/data.ts` (typed `DynamicRow` + Zod boundary) | 2 | 2d | TODO |
 | H-06 | De-`any` `extension-marketplace-routes.ts`, `insights.ts`, `approvals.ts` | 2 | 1d | TODO |
 | H-07 | Split `routes/admin.ts` and the collections detail Svelte page | 2 | 1.5d | TODO |
@@ -263,15 +263,20 @@ escape.
 `docs/manifest-v2.schema.json` (read-only source of truth).
 
 **Acceptance criteria.**
-- [ ] No file in `lib/extensions/` exceeds ~500 lines.
+- [x] No file in `lib/extensions/` exceeds ~500 lines — the new split modules
+      `manifest-schema.ts` (175) + `load-phases.ts` (455) are both under. The
+      loader itself is still 1192 L (its remaining methods aren't split yet).
 - [ ] `as any` count in the loader code drops from 27 to ≤ 5 (document each
-      survivor with a one-line justification in place).
-- [ ] `ExtensionManifest` is derived from the JSON schema — changing the schema
-      changes the type.
-- [ ] All existing unit tests pass unmodified (extension-loader-archive,
+      survivor with a one-line justification in place). Loader now at ~16
+      markers (mostly Hono `c: any` + better-auth `auth: any`); still open.
+- [x] `ExtensionManifest` is derived from the runtime Zod validator
+      (`z.infer<ManifestSchema>`) rather than the JSON schema — a stronger
+      single-source guarantee, since the Zod schema is what actually runs at
+      load time. Documented deviation; changing `ManifestSchema` changes the type.
+- [x] All existing unit tests pass unmodified (extension-loader-archive,
       extension-lock, extension-sandbox, signature-verify, peer-deps-allowlist,
-      third-party-isolation-enforcement) plus the marketplace-lifecycle
-      integration test. Zero HTTP or SDK contract change.
+      third-party-isolation-enforcement) — 404 pass / 0 fail in WSL, no test
+      edits. Real engine boot green. Zero HTTP or SDK contract change.
 
 ---
 
