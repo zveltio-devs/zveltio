@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { sql as _sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import type { FieldTypeRegistry } from './field-type-registry.js';
 // Extension install/load is naturally a synchronous filesystem operation
@@ -8,21 +7,15 @@ import type { FieldTypeRegistry } from './field-type-registry.js';
 // Bun deliberately exposes node:fs as the native install-time API — there
 // is no synchronous Bun.file equivalent for mkdir/symlink/writeFile. The
 // explicit `node:` prefix makes that intent visible.
-import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'path';
 import { pathToFileURL } from 'node:url';
-import { isCompatible, checkExtensionDependencies, getEngineVersion } from './version-checker.js';
 import type { EventBus } from './event-bus.js';
 import { auth } from './auth.js';
 import { checkPermission, getUserRoles } from './permissions.js';
 import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.js';
-import {
-  resolvePublisherTier,
-  tierAllowsInline,
-  type ExtensionCatalogEntry,
-} from './extension-catalog.js';
 import { createRestrictedDb } from './extension-context.js';
 import { auditLog } from './audit.js';
 import { dynamicInsert } from '../db/dynamic.js';
@@ -61,7 +54,6 @@ import {
   fetchWithRetry,
   isPathInsideBase,
   parseMigrationSql,
-  directorySizeBytes,
 } from './extension-utils.js';
 import {
   getLicenseKey,
@@ -75,22 +67,21 @@ import {
   extensionFilesPresentCached,
   invalidateFilesPresent,
 } from './extension-paths.js';
-import {
-  maybeSymlinkNodeModules,
-  ensureExtensionCoreDeps,
-  CORE_NPM_PACKAGES,
-} from './extension-deps.js';
-import { REGISTRY_URL, fetchRegistryCatalog, downloadExtension } from './extension-download.js';
+import { ensureExtensionCoreDeps } from './extension-deps.js';
+import { REGISTRY_URL, downloadExtension } from './extension-download.js';
 import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
 import { purgeExtensionData, runExtensionMigrations } from './extensions/migration-runner.js';
-import { installExtensionNpmDependencies } from './extensions/npm-install.js';
 import {
-  ManifestSchema,
   embedPageSchemas,
   type ExtensionManifest,
   type ManifestMeta,
 } from './extensions/manifest-schema.js';
+import {
+  enforcePublisherTier,
+  resolveEntryPath,
+  resolveManifest,
+} from './extensions/load-phases.js';
 
 export { serviceRegistry } from './service-registry.js';
 
@@ -550,142 +541,27 @@ export class ExtensionLoader {
         }
       }
 
-      // Migrations quota is determined from manifest (or defaults if no manifest).
-      // Hoisted out of the if-block so the check after getMigrations() can see it.
-      let migrationsLimit: number = DEFAULT_QUOTAS.migrationsMax;
-      // Extension category — hoisted so the WASM branch below can reach it
-      // for the synthetic ZveltioExtension. Default matches the manifest schema.
-      let extCategory: string = 'custom';
-      // Runtime selector ('js' | 'wasm'). Hoisted for the same reason as
-      // migrationsLimit + extCategory. Defaults to 'js' for back-compat.
-      let extRuntime: 'js' | 'wasm' = 'js';
-
-      // Hoisted out of the if-block so the v2 `engine.bundled` check
-      // below (in the JS-runtime path) can see it.
-      let manifest: ExtensionManifest | null = null;
-
-      // Validate manifest.json if present, then check compatibility + dependencies
-      const manifestPath = join(extDir, 'manifest.json');
-      if (existsSync(manifestPath)) {
-        try {
-          const rawManifest = JSON.parse(await Bun.file(manifestPath).text());
-          manifest = ManifestSchema.parse(rawManifest) as ExtensionManifest;
-        } catch (err) {
-          const msg = `invalid manifest.json — ${(err as Error).message}`;
-          this.lastLoadError.set(extName, msg);
-          console.warn(`⚠️  Extension "${extName}": ${msg}`);
-          return;
+      // Phase 1 — resolve + validate manifest.json (compat / quota / deps /
+      // pg-exts / peerDeps) and compute the manifestMeta payload. The helper is
+      // pure; it reports the exact console.* call + lastLoadError write the
+      // pre-split inline path used, which we replay here verbatim.
+      const manifestPhase = await resolveManifest(extName, extDir, ctx.db);
+      if (!manifestPhase.ok) {
+        if (manifestPhase.logLevel !== 'none') {
+          console[manifestPhase.logLevel](...manifestPhase.logArgs);
         }
-        if (typeof manifest.category === 'string') extCategory = manifest.category;
-        if (manifest.runtime === 'wasm') extRuntime = 'wasm';
-
-        // Engine version compatibility
-        const compat = isCompatible(
-          getEngineVersion(),
-          manifest.zveltioMinVersion,
-          manifest.zveltioMaxVersion,
-        );
-        if (!compat.compatible) {
-          console.warn(`⚠️  Extension "${extName}" incompatible: ${compat.reason}`);
-          return;
+        if (manifestPhase.lastLoadError !== null) {
+          this.lastLoadError.set(extName, manifestPhase.lastLoadError);
         }
-
-        // Resource quota: bundle size (extension folder excluding node_modules).
-        // node_modules sits in the shared workspace root, not inside extDir, so
-        // a recursive walk of extDir captures only this extension's own files.
-        const quotas = manifest.quotas ?? DEFAULT_QUOTAS;
-        migrationsLimit = quotas.migrationsMax;
-        const bundleBytes = await directorySizeBytes(extDir);
-        const bundleKb = Math.ceil(bundleBytes / 1024);
-        if (bundleKb > quotas.bundleSizeKbMax) {
-          const err = new QuotaExceededError(
-            'bundleSizeKb',
-            bundleKb,
-            quotas.bundleSizeKbMax,
-            extName,
-          );
-          console.warn(`⚠️  ${err.message}`);
-          this.lastLoadError.set(extName, err.message);
-          return;
-        }
-
-        // Extension dependencies (other Zveltio extensions)
-        if (manifest.dependencies && manifest.dependencies.length > 0) {
-          const deps = await checkExtensionDependencies(ctx.db, manifest.dependencies);
-          if (!deps.satisfied) {
-            const msg = `Missing required extensions: ${deps.missing.join(', ')}. Enable them first.`;
-            console.warn(`⚠️  Extension "${extName}" ${msg}`);
-            this.lastLoadError.set(extName, msg);
-            return;
-          }
-        }
-
-        // PostgreSQL extension requirements (e.g. postgis)
-        const requiredPgExts: string[] = manifest.requires?.postgres_extensions ?? [];
-        if (requiredPgExts.length > 0) {
-          try {
-            const result = await _sql<{ extname: string }>`
-              SELECT extname FROM pg_extension WHERE extname = ANY(${
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-                requiredPgExts as any
-              })
-            `.execute(ctx.db);
-            const installed = new Set(result.rows.map((r) => r.extname));
-            const missing = requiredPgExts.filter((e) => !installed.has(e));
-            if (missing.length > 0) {
-              const msg =
-                `Extension "${extName}" requires PostgreSQL extension(s) not installed: ${missing.join(', ')}. ` +
-                `Install them in psql: ${missing.map((e) => `CREATE EXTENSION "${e}";`).join(' ')} then retry.`;
-              console.warn(`⚠️  ${msg}`);
-              this.lastLoadError.set(extName, msg);
-              return;
-            }
-          } catch {
-            // pg_extension query is non-fatal — continue and let the migration surface the real error.
-          }
-        }
-
-        // npm peerDependencies — auto-install before loading. Failure is fatal
-        // (an extension that needs `imapflow` but couldn't install it will crash
-        // when imported). Cache the error for the marketplace HTTP response.
-        if (manifest.peerDependencies && Object.keys(manifest.peerDependencies).length > 0) {
-          try {
-            await installExtensionNpmDependencies(extName, manifest.peerDependencies);
-          } catch (err) {
-            const msg = (err as Error).message;
-            console.warn(`⚠️  ${msg}`);
-            this.lastLoadError.set(extName, msg);
-            return;
-          }
-
-          // Resource quota: total node_modules size in the shared workspace.
-          // This is a coarse guard against accidentally pulling in multi-GB
-          // packages. Note: it counts ALL extensions' deps, not just this one's,
-          // so the limit needs headroom for the ecosystem total.
-          const nodeModulesDir = join(resolveExtensionsBase(), 'node_modules');
-          const nmBytes = await directorySizeBytes(nodeModulesDir);
-          const nmMb = Math.ceil(nmBytes / (1024 * 1024));
-          if (nmMb > quotas.nodeModulesSizeMbMax) {
-            const err = new QuotaExceededError(
-              'nodeModulesSizeMb',
-              nmMb,
-              quotas.nodeModulesSizeMbMax,
-              extName,
-            );
-            console.warn(`⚠️  ${err.message}`);
-            this.lastLoadError.set(extName, err.message);
-            return;
-          }
-        }
-
-        // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint
-        this.manifestMeta.set(extName, {
-          displayName: manifest.displayName,
-          description: manifest.description,
-          category: manifest.category,
-          contributes: manifest.contributes as ManifestMeta['contributes'],
-          studio: await embedPageSchemas(extDir, manifest.studio),
-        });
+        return;
+      }
+      const { manifest, migrationsLimit, extCategory, extRuntime, manifestMeta } =
+        manifestPhase.value;
+      // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint.
+      // Computed inside the phase (including embedPageSchemas); the state write
+      // stays here so the phase is loader-state-free.
+      if (manifestMeta !== null) {
+        this.manifestMeta.set(extName, manifestMeta);
       }
 
       // WASM runtime path — if the manifest opts in, load the `.wasm`
@@ -756,172 +632,35 @@ export class ExtensionLoader {
         // When bundled, we skip the CORE_NPM_PACKAGES presence check
         // and import the .js artifact directly.
         const isBundled = manifest?.engine?.bundled === true;
-        const extBase = resolveExtensionsBase();
 
-        // MARKETPLACE-POLICY.md §2 enforcement: publisher tier governs
-        // whether an extension may run inline. The registry catalog
-        // carries `publisher_tier` (migration 010); older registries
-        // omit it and resolvePublisherTier() falls back to is_official
-        // (official → first-party, otherwise → community). Local
-        // hardcoded catalog entries default to is_official=true, so the
-        // 54 first-party + smoke fixtures stay exempt.
-        //
-        //   first-party / verified → inline allowed
-        //   community (or unknown) → worker REQUIRED
-        //
-        // Two operator overrides:
-        //   ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 — trusted self-hosted,
-        //     accept inline for any extension (skip the gate entirely)
-        //   ZVELTIO_REQUIRE_CATALOG=1 — fail-closed: if catalog fetch
-        //     fails (network, registry down) refuse rather than
-        //     fall through to local-only assumptions
-        if (
-          process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY !== '1' &&
-          manifest?.engine?.isolation !== 'worker'
-        ) {
-          let catalog: ExtensionCatalogEntry[] | null = null;
-          let catalogFetchFailed = false;
-          try {
-            catalog = await fetchRegistryCatalog();
-          } catch {
-            catalogFetchFailed = true;
+        // Phase 2 — MARKETPLACE-POLICY.md §2 publisher-tier gate. Pure helper;
+        // its failure reports the exact console.error line + lastLoadError the
+        // pre-split inline gate used.
+        const tierPhase = await enforcePublisherTier(extName, manifest);
+        if (!tierPhase.ok) {
+          if (tierPhase.logLevel !== 'none') {
+            console[tierPhase.logLevel](...tierPhase.logArgs);
           }
-          if (catalogFetchFailed && process.env.ZVELTIO_REQUIRE_CATALOG === '1') {
-            const msg =
-              `Extension "${extName}" cannot be enabled: catalog fetch ` +
-              `failed and ZVELTIO_REQUIRE_CATALOG=1 forbids falling back ` +
-              `to local-only first-party assumptions. Retry when the ` +
-              `registry is reachable, or unset the env var.`;
-            this.lastLoadError.set(extName, msg);
-            console.error(`❌ ${msg}`);
-            return;
+          if (tierPhase.lastLoadError !== null) {
+            this.lastLoadError.set(extName, tierPhase.lastLoadError);
           }
-          if (catalog) {
-            // An extension present in a successfully-loaded catalog uses
-            // its declared tier; one that's ABSENT is unknown/unaudited
-            // and must be treated as community (the strictest tier) —
-            // otherwise a sideloaded inline extension that nobody
-            // published would slip past the gate. The local hardcoded
-            // catalog (the 54 first-party + smoke fixtures) is merged in
-            // by fetchRegistryCatalog(), so genuine first-party
-            // extensions are always found. Trusted self-hosted installs
-            // that deliberately sideload inline code use
-            // ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.
-            const catEntry = catalog.find((e) => e.name === extName);
-            const tier = catEntry ? resolvePublisherTier(catEntry) : 'community';
-            if (!tierAllowsInline(tier)) {
-              const what = catEntry
-                ? `is a ${tier} submission`
-                : `is not in the marketplace catalog (treated as ${tier})`;
-              const msg =
-                `Extension "${extName}" ${what} but does ` +
-                `not declare engine.isolation: "worker". Per ` +
-                `MARKETPLACE-POLICY §2, ${tier} extensions must run in ` +
-                `worker isolation. Republish with isolation: "worker" ` +
-                `or, for trusted self-hosted installs, set ` +
-                `ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
-              this.lastLoadError.set(extName, msg);
-              console.error(`❌ ${msg}`);
-              return;
-            }
-          }
+          return;
         }
 
-        let resolvedPath: string;
-        if (isBundled) {
-          // isBundled === true implies manifest?.engine?.bundled === true, so
-          // manifest (and manifest.engine) are non-null in this branch.
-          const m = manifest!;
-          const bundledEntry = join(extDir, m.engine!.entry);
-          if (!existsSync(bundledEntry)) {
-            const msg =
-              `Extension "${extName}" manifest declares engine.bundled=true ` +
-              `but engine.entry "${m.engine!.entry}" is not on disk at ${bundledEntry}. ` +
-              `Run \`zveltio extension pack\` before publishing.`;
-            this.lastLoadError.set(extName, msg);
-            console.error(`❌ ${msg}`);
-            return;
+        // Phase 3 — resolve the on-disk module path (bundled entry + integrity +
+        // bundlePeers, or legacy .ts + core-dep presence). Same verbatim-replay
+        // contract for its failures.
+        const entryPhase = await resolveEntryPath(extName, extDir, enginePath, manifest);
+        if (!entryPhase.ok) {
+          if (entryPhase.logLevel !== 'none') {
+            console[entryPhase.logLevel](...entryPhase.logArgs);
           }
-          // Optional: verify integrity hash if the manifest declares one.
-          if (m.integrity?.engineSha256) {
-            const { createHash } = await import('node:crypto');
-            const actual = createHash('sha256').update(readFileSync(bundledEntry)).digest('hex');
-            if (actual !== m.integrity.engineSha256) {
-              const msg =
-                `Extension "${extName}" integrity check failed: ` +
-                `manifest declares engineSha256=${m.integrity.engineSha256} ` +
-                `but the on-disk bundle hashes to ${actual}. ` +
-                `Re-pack and re-publish, or the bundle was tampered with.`;
-              this.lastLoadError.set(extName, msg);
-              console.error(`❌ ${msg}`);
-              return;
-            }
+          if (entryPhase.lastLoadError !== null) {
+            this.lastLoadError.set(extName, entryPhase.lastLoadError);
           }
-          // Bundled extensions that declare peer deps must inline them
-          // (`engine.bundlePeers: true` at pack time). The compiled
-          // Bun binary cannot resolve bare specifiers from dynamic
-          // imports of disk files — neither via CWD node_modules nor
-          // adjacent-to-the-bundle node_modules walks (verified live
-          // alpha.112: imapflow import threw despite the peer being
-          // installed in EXTENSIONS_DIR/node_modules AND a CWD
-          // symlink AND a sibling engine/node_modules). For native
-          // bindings that cannot be bundled, the extension author
-          // must ship them via a separate engine plugin instead.
-          if (
-            m.peerDependencies &&
-            Object.keys(m.peerDependencies).length > 0 &&
-            m.engine?.bundlePeers !== true
-          ) {
-            const peers = Object.keys(m.peerDependencies).join(', ');
-            const msg =
-              `Extension "${extName}" declares peerDependencies (${peers}) but ` +
-              `engine.bundlePeers is not true. Bun's compiled binary cannot ` +
-              `resolve bare specifiers from a dynamically-imported disk file, ` +
-              `so peers must be inlined at pack time. Re-pack with ` +
-              `\`engine.bundlePeers: true\` in manifest.json, or remove the ` +
-              `peerDependencies entry if the import was inadvertent.`;
-            this.lastLoadError.set(extName, msg);
-            console.error(`❌ ${msg}`);
-            return;
-          }
-          resolvedPath = bundledEntry;
-        } else {
-          // Legacy / dev path: .ts source + on-disk core deps.
-          // Refuse legacy .ts in production. ZVELTIO_EXTENSION_DEV_RELOAD=1
-          // keeps the door open for local development against unbundled
-          // extensions, but the production binary should never load a
-          // .ts because that pulls in the kysely/hono module-resolution
-          // bug we spent 16 alpha releases fixing. Hard-fail here
-          // surfaces "this extension wasn't packed" loudly instead of
-          // letting it slip through to a cryptic dynamic-import throw.
-          const allowLegacy = process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
-          if (!allowLegacy && process.env.NODE_ENV === 'production') {
-            const msg =
-              `Extension "${extName}" is not bundled (manifest.engine.bundled !== true). ` +
-              `Production refuses legacy .ts extensions because Bun's compiled-binary ` +
-              `resolver cannot find core deps via disk node_modules walks. ` +
-              `Run \`zveltio extension pack --dir <ext>\` and re-deploy the ` +
-              `extension, or set ZVELTIO_EXTENSION_DEV_RELOAD=1 in dev environments.`;
-            this.lastLoadError.set(extName, msg);
-            console.error(`❌ ${msg}`);
-            return;
-          }
-          resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');
-          maybeSymlinkNodeModules(extBase);
-          for (const pkg of CORE_NPM_PACKAGES) {
-            const pkgFolder = pkg.startsWith('@') ? pkg : pkg.split('/')[0];
-            if (!existsSync(join(extBase, 'node_modules', pkgFolder))) {
-              const msg =
-                `Core package '${pkg}' not found in ${join(extBase, 'node_modules')}. ` +
-                `Boot-time install of core deps failed or the directory is missing. ` +
-                `Fix: ensure EXTENSIONS_DIR is set correctly and writable, then restart the engine. ` +
-                `(Or migrate this extension to manifest v2 with engine.bundled=true via \`zveltio extension pack\`.)`;
-              this.lastLoadError.set(extName, msg);
-              console.error(`❌ Extension "${extName}":`, msg);
-              return;
-            }
-          }
+          return;
         }
+        const resolvedPath = entryPhase.value;
 
         const useCacheBuster = !isBundled && process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
         const importHref = useCacheBuster
