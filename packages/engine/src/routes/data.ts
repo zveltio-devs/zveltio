@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
@@ -19,7 +20,7 @@ import {
   filterWritableFields,
 } from '../lib/column-permissions.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../lib/query-cache.js';
-import type { RequestUser } from '../lib/data/types.js';
+import type { CollectionDef, JsonValue, RequestUser } from '../lib/data/types.js';
 import type { DynamicRecord } from '../db/dynamic-types.js';
 import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../lib/data/shape.js';
 import {
@@ -34,6 +35,8 @@ import {
   handlePgErrors,
   getVirtualConfig,
   getDb,
+  getTenantId,
+  dynamicDb,
   runAtomic,
   isUuid,
 } from '../lib/data/write-pipeline.js';
@@ -56,13 +59,11 @@ import {
 
 // Authenticate request — session or API key
 async function authenticate(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  c: any,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  c: Context,
+  // biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/HARDENING-9-PLAN.md H-05
   auth: any,
   db: Database,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-): Promise<{ user: any; authType: string } | null> {
+): Promise<{ user: RequestUser; authType: string } | null> {
   // Try session
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (session) return { user: session.user, authType: 'session' };
@@ -116,8 +117,7 @@ async function validateApiKey(
 
 async function checkAccess(
   db: Database,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  user: any,
+  user: RequestUser,
   collection: string,
   action: string,
 ): Promise<boolean> {
@@ -170,7 +170,7 @@ async function checkAccess(
   return checkPermission(user.id, collection, action);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/HARDENING-9-PLAN.md H-05
 export function dataRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -198,13 +198,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Tenant id is part of the cache namespace so a user who is a member of
     // multiple tenants doesn't get tenant A's rows from cache while
     // querying as tenant B.
-    const qcKey = buildQueryCacheKey(
-      collection,
-      user.id,
-      c.req.url,
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      (c.get('tenant') as any)?.id ?? null,
-    );
+    const qcKey = buildQueryCacheKey(collection, user.id, c.req.url, getTenantId(c));
     if (!query.as_of && !query.cursor) {
       const cached = await getQueryCache(qcKey);
       if (cached) {
@@ -226,8 +220,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       // Get the latest revision per record_id up to as_of
       // P0: use effectiveDb (tenant-isolated transaction) to prevent cross-tenant reads
       const effectiveDbTT = getDb(c, db);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const revs = await sql<{ record_id: string; action: string; data: any }>`
+      const revs = await sql<{ record_id: string; action: string; data: JsonValue }>`
         SELECT DISTINCT ON (record_id)
           record_id, action, data
         FROM zv_revisions
@@ -262,15 +255,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (virtualConfig) {
       try {
         // Parse query.filter into VirtualQuery.filters — translated to API URL params (no fetch-all)
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const vFilters: Array<{ field: string; op: string; value: any }> = [];
+        const vFilters: Array<{ field: string; op: string; value: unknown }> = [];
         if (query.filter) {
           try {
-            const raw = JSON.parse(query.filter);
+            const raw = JSON.parse(query.filter) as Record<string, JsonValue>;
             for (const [key, value] of Object.entries(raw)) {
               if (typeof value === 'object' && value !== null) {
-                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-                const [op, val] = Object.entries(value)[0] as [string, any];
+                const [op, val] = Object.entries(value)[0] as [string, JsonValue];
                 vFilters.push({ field: key, op, value: val });
               } else {
                 vFilters.push({ field: key, op: 'eq', value });
@@ -302,7 +293,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       }
     }
 
-    const collectionDef = await DDLManager.getCollection(db, collection);
+    const collectionDef = (await DDLManager.getCollection(db, collection)) as CollectionDef | null;
     if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
 
     const tableName = DDLManager.getTableName(collection);
@@ -343,8 +334,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       if (decoded) {
         // Build keyset query directly with Kysely for proper compound pagination
         // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        let kQuery = (effectiveDb as any).selectFrom(tableName).selectAll();
+        let kQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll();
 
         // Apply existing filters
         for (const [field, cond] of Object.entries(filters)) {
@@ -387,8 +377,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
             limit: query.limit,
             offset,
             fts: query.search ? query.search.trim().substring(0, 500) : undefined,
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            hasTrgm: !!(collectionDef as any).has_trgm,
+            hasTrgm: !!collectionDef.has_trgm,
             applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
           }),
         );
@@ -404,8 +393,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         limit: query.limit,
         offset,
         fts: query.search ? query.search.trim().substring(0, 500) : undefined,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        hasTrgm: !!(collectionDef as any).has_trgm,
+        hasTrgm: !!collectionDef.has_trgm,
         applyAlters: (qb) => queryAlterRegistry.applyAll(qb, tableName, user),
       });
     }
@@ -496,8 +484,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const created: any[] = [];
+    const created: DynamicRecord[] = [];
     const errors: Array<{ index: number; errors: string[] }> = [];
 
     // Per-row pre-insert hook. A hook abort becomes a per-row error so the
@@ -528,12 +515,11 @@ export function dataRoutes(db: Database, auth: any): Hono {
         }
 
         const record = await dynamicInsert(trx, tableName, finalInsert);
-        created.push(record);
+        created.push(record as DynamicRecord);
       }
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const tid = (c.get('tenant') as any)?.id ?? null;
+    const tid = getTenantId(c);
     for (const record of created) {
       afterWrite(effectiveDb, {
         collection,
@@ -572,15 +558,13 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (body.records.length > 500) {
       return c.json({ error: 'Bulk update limited to 500 records per request' }, 400);
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    if (body.records.some((r: any) => !isUuid(r?.id))) {
+    if (body.records.some((r: { id?: unknown }) => !isUuid(String(r?.id)))) {
       return c.json({ error: 'Every record must have a valid UUID id' }, 400);
     }
 
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const updated: any[] = [];
+    const updated: DynamicRecord[] = [];
     const errors: Array<{ index: number; id: string; errors: string[] }> = [];
 
     // Per-row pre-update hook. Before-row fetched inside the transaction so
@@ -595,8 +579,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
           continue;
         }
 
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const beforeRow = await (trx as any)
+        const beforeRow = await dynamicDb(trx)
           .selectFrom(tableName)
           .selectAll()
           .where('id', '=', id)
@@ -625,13 +608,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
         }
 
         const record = await dynamicUpdate(trx, tableName, id, finalPatch);
-        if (record) updated.push(record);
+        if (record) updated.push(record as DynamicRecord);
         else errors.push({ index: i, id, errors: ['Record not found'] });
       }
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const tid = (c.get('tenant') as any)?.id ?? null;
+    const tid = getTenantId(c);
     for (const record of updated) {
       afterWrite(effectiveDb, {
         collection,
@@ -671,16 +653,14 @@ export function dataRoutes(db: Database, auth: any): Hono {
     if (body.ids.length > 500) {
       return c.json({ error: 'Bulk delete limited to 500 records per request' }, 400);
     }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    if (body.ids.some((id: any) => !isUuid(id))) {
+    if (body.ids.some((id: unknown) => !isUuid(String(id)))) {
       return c.json({ error: 'All ids must be valid UUIDs' }, 400);
     }
 
     const tableName = DDLManager.getTableName(collection);
     const effectiveDb = getDb(c, db);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const existing = await (effectiveDb as any)
+    const existing = await dynamicDb(effectiveDb)
       .selectFrom(tableName)
       .selectAll()
       .where('id', 'in', body.ids)
@@ -690,8 +670,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // are reported back as per-row errors (so the caller can distinguish
     // them from rows that didn't exist).
     const aborted: Array<{ id: string; reason: string }> = [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const allowed: any[] = [];
+    const allowed: DynamicRecord[] = [];
     for (const record of existing) {
       try {
         await engineEvents.runBefore('record.beforeDelete', {
@@ -711,8 +690,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     }
 
     if (allowed.length > 0) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      await (effectiveDb as any)
+      await dynamicDb(effectiveDb)
         .deleteFrom(tableName)
         .where(
           'id',
@@ -721,8 +699,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         )
         .execute();
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const tid = (c.get('tenant') as any)?.id ?? null;
+      const tid = getTenantId(c);
       for (const record of allowed) {
         afterWrite(effectiveDb, {
           collection,
@@ -770,8 +747,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
 
       // P0: use effectiveDb for tenant isolation in time-travel queries
       const effectiveDbTTSingle = getDb(c, db);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const rev = await sql<{ action: string; data: any; created_at: string }>`
+      const rev = await sql<{ action: string; data: JsonValue; created_at: string }>`
         SELECT action, data, created_at
         FROM zv_revisions
         WHERE collection = ${collection}
@@ -816,8 +792,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // they're not allowed to see by guessing its ID.
     const rlsSingle = await getRlsFilters(collection, user, c.get('authType'));
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    let recordQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
+    let recordQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
 
     for (const { field, condition } of rlsSingle) {
       if (condition.op === 'eq') recordQuery = recordQuery.where(field, '=', condition.value);
@@ -936,8 +911,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         action: 'create',
         data: record,
         userId: user.id,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        tenantId: (c.get('tenant') as any)?.id ?? null,
+        tenantId: getTenantId(c),
       });
       const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
       return c.json(serialized, 201);
@@ -984,8 +958,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Pre-update hooks need the current row for the `before` field. Read it
     // once — if the record doesn't exist (or extension query alters hide it)
     // we short-circuit before invoking any hooks.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    let beforeQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
+    let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
     beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
     const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -1025,8 +998,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         action: 'update',
         data: record,
         userId: user.id,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        tenantId: (c.get('tenant') as any)?.id ?? null,
+        tenantId: getTenantId(c),
       });
       const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
       return c.json(serialized);
@@ -1082,8 +1054,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
     const effectiveDb = getDb(c, db);
     const toUpdate = { ...allowedPatch, updated_by: user.id };
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    let beforeQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
+    let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
     beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
     const beforeRow = await beforeQuery.executeTakeFirst();
     if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -1119,8 +1090,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
         data: record,
         delta: body,
         userId: user.id,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        tenantId: (c.get('tenant') as any)?.id ?? null,
+        tenantId: getTenantId(c),
       });
       const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
       return c.json(serialized);
@@ -1161,8 +1131,10 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
     // Fetch existing for revision log, then delete atomically. Apply query
     // alters so a row hidden by an extension filter cannot be deleted by ID.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    let existingQuery = (effectiveDb as any).selectFrom(tableName).selectAll().where('id', '=', id);
+    let existingQuery = dynamicDb(effectiveDb)
+      .selectFrom(tableName)
+      .selectAll()
+      .where('id', '=', id);
     existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
     const existing = await existingQuery.executeTakeFirst();
 
@@ -1197,8 +1169,7 @@ export function dataRoutes(db: Database, auth: any): Hono {
       action: 'delete',
       data: existing,
       userId: user.id,
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      tenantId: (c.get('tenant') as any)?.id ?? null,
+      tenantId: getTenantId(c),
     });
 
     return c.json({ success: true, id });

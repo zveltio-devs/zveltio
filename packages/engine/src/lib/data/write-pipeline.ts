@@ -27,13 +27,28 @@ import { engineEvents } from '../event-bus.js';
 import { triggerDataFlows } from '../../routes/flows.js';
 import { invalidateQueryCache } from '../query-cache.js';
 import { normalizeFields } from './shape.js';
-import type { CollectionDef, DynamicRow } from './types.js';
+import type { CollectionDef } from './types.js';
+import type { DynamicDB } from '../../db/dynamic-types.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
 
 /** Returns the tenant-isolated transaction DB when in multi-tenant mode, else
  * the pool. */
 export function getDb(c: Context, fallback: Database): Database {
-  return (c.get('tenantTrx') as Database | null) ?? fallback;
+  return c.get('tenantTrx') ?? fallback;
+}
+
+/** The current request's tenant id (null in single-tenant mode). */
+export function getTenantId(c: Context): string | null {
+  return c.get('tenant')?.id ?? null;
+}
+
+/** Type-erased view of a Database for querying a dynamic (user-created) table
+ * whose columns are only known at runtime. Kysely's schema-typed builder can't
+ * express `selectFrom(runtimeTableName)`, so callers go through this single
+ * documented escape hatch (`DynamicDB` is the one tracked survivor) instead of
+ * scattering `as any` across every handler. */
+export function dynamicDb(db: Database): DynamicDB {
+  return db as unknown as DynamicDB;
 }
 
 /**
@@ -110,7 +125,7 @@ async function broadcastWebhook(
   _db: Database,
   event: string,
   collection: string,
-  data: DynamicRow & { id: string },
+  data: Record<string, unknown> & { id: string },
 ): Promise<void> {
   // WebhookManager.trigger() handles:
   // - matching active webhooks by event + collection
@@ -278,8 +293,10 @@ export async function afterWrite(
     collection: string;
     recordId: string;
     action: 'create' | 'update' | 'delete';
-    data: DynamicRow;
-    delta?: DynamicRow;
+    /** The written row (DB-shaped: values `unknown`). Only stringified +
+     * forwarded to webhooks/realtime/events, never indexed field-by-field. */
+    data: Record<string, unknown>;
+    delta?: Record<string, unknown>;
     userId: string;
     /**
      * Tenant id from the request's `tenantTrx` context. Forwarded onto
@@ -311,7 +328,12 @@ export async function afterWrite(
 
   const eventName = action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
 
-  await broadcastWebhook(db, eventName, collection, data as DynamicRow & { id: string });
+  await broadcastWebhook(
+    db,
+    eventName,
+    collection,
+    data as Record<string, unknown> & { id: string },
+  );
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names
   // collide across tenants on both channel namespaces).
