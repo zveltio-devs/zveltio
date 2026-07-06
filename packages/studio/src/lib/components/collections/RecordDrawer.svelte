@@ -8,11 +8,11 @@ import { X, Layers, Save, Plus } from '@lucide/svelte';
 import { dataApi } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { fieldLabel, fieldBadgeColor, labelFromRecord } from './field-helpers.js';
+import type { CollectionField, CollectionRecord } from './types.js';
 
 interface Props {
   collectionName: string;
-  // biome-ignore lint/suspicious/noExplicitAny: field shape is dynamic (collection schema)
-  insertableFields: any[];
+  insertableFields: CollectionField[];
   /** Called after a successful create/update so the parent can reload rows. */
   onSaved: () => void | Promise<void>;
   /** Called from the "no fields → go to Schema" link. */
@@ -23,28 +23,39 @@ const { collectionName, insertableFields, onSaved, onGoToSchema }: Props = $prop
 let drawerOpen = $state(false);
 let drawerMode = $state<'create' | 'edit'>('create');
 let drawerRecordId = $state<string | null>(null);
-// biome-ignore lint/suspicious/noExplicitAny: dynamic record form values
+// biome-ignore lint/suspicious/noExplicitAny: form values bind to <input> (string|number|boolean|Date) — `unknown` breaks bind:value
 let insertForm = $state<Record<string, any>>({});
 let inserting = $state(false);
 let relOptions = $state<Record<string, { id: string; label: string }[]>>({});
 let loadingRelOpts = $state(false);
 let formErrors = $state<Record<string, string>>({});
 
+// A select field's `options` is a legacy-polymorphic display shape —
+// `{ choices: [...] }`, or an array of bare strings, or an array of
+// `{ value, label }`. Typing it fully isn't worth it for rendering a dropdown;
+// the values are coerced to strings by the <option>.
+// biome-ignore lint/suspicious/noExplicitAny: legacy-polymorphic options shape (see above)
+function selectChoices(field: CollectionField): any[] {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy-polymorphic options shape
+  const o = field.options as any;
+  return o?.choices ?? o ?? [];
+}
+
 async function loadRelOptions() {
   loadingRelOpts = true;
   const relFields = insertableFields.filter(
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic field shape
-    (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
+    (f) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
   );
   const entries = await Promise.all(
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic field shape
-    relFields.map(async (f: any) => {
+    relFields.map(async (f) => {
       try {
-        const res = await dataApi.list(f.options.related_collection, { limit: '200' });
+        const res = await dataApi.list(f.options!.related_collection as string, { limit: '200' });
         return [
           f.name,
-          // biome-ignore lint/suspicious/noExplicitAny: dynamic record shape
-          (res.records ?? []).map((r: any) => ({ id: r.id, label: labelFromRecord(r) })),
+          (res.records ?? []).map((r: CollectionRecord) => ({
+            id: r.id,
+            label: labelFromRecord(r),
+          })),
         ] as const;
       } catch {
         return [f.name, [] as { id: string; label: string }[]] as const;
@@ -64,8 +75,7 @@ export function openCreate() {
   loadRelOptions();
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: dynamic record shape
-export function openEdit(record: any) {
+export function openEdit(record: CollectionRecord) {
   drawerMode = 'edit';
   drawerRecordId = record.id;
   insertForm = {};
@@ -122,8 +132,7 @@ async function saveRecord() {
   inserting = true;
   try {
     // Strip empty strings so server uses defaults / NULL where applicable
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic payload
-    const payload: Record<string, any> = {};
+    const payload: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(insertForm)) {
       if (v === '' || v === undefined) continue;
       payload[k] = v;
@@ -139,9 +148,8 @@ async function saveRecord() {
     insertForm = {};
     drawerRecordId = null;
     await onSaved();
-    // biome-ignore lint/suspicious/noExplicitAny: error shape from api client
-  } catch (e: any) {
-    toast.error(e.message || 'Failed to save record');
+  } catch (e) {
+    toast.error((e as Error).message || 'Failed to save record');
   } finally {
     inserting = false;
   }
@@ -274,14 +282,14 @@ async function saveRecord() {
                   bind:value={insertForm[field.name]}
                 />
 
-              {:else if field.type === 'select' && (field.options?.choices?.length || field.options?.length)}
+              {:else if field.type === 'select' && selectChoices(field).length}
                 <select
                   id="ins-{field.name}"
                   class="select select-bordered w-full"
                   bind:value={insertForm[field.name]}
                 >
                   <option value="">— select —</option>
-                  {#each (field.options?.choices ?? field.options ?? []) as opt}
+                  {#each selectChoices(field) as opt}
                     <option value={opt.value ?? opt}>{opt.label ?? opt}</option>
                   {/each}
                 </select>
