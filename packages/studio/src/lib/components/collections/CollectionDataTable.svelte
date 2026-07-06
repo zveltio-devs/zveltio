@@ -15,23 +15,20 @@ import { realtime } from '$lib/stores/realtime.svelte.js';
 import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import { fieldLabel, fmtCell, labelFromRecord } from './field-helpers.js';
+import type { CollectionField, CollectionRecord } from './types.js';
 
 interface Props {
   collectionName: string;
-  // biome-ignore lint/suspicious/noExplicitAny: dynamic collection-schema field shapes
-  customFields: any[];
-  // biome-ignore lint/suspicious/noExplicitAny: dynamic collection-schema field shapes
-  tableColumns: any[];
+  customFields: CollectionField[];
+  tableColumns: CollectionField[];
   m2oTargetMap: Record<string, string>;
   onCreate: () => void;
-  // biome-ignore lint/suspicious/noExplicitAny: dynamic record shape
-  onEdit: (record: any) => void;
+  onEdit: (record: CollectionRecord) => void;
 }
 const { collectionName, customFields, tableColumns, m2oTargetMap, onCreate, onEdit }: Props =
   $props();
 
-// biome-ignore lint/suspicious/noExplicitAny: dynamic record shape
-let records = $state<any[]>([]);
+let records = $state<CollectionRecord[]>([]);
 let pagination = $state<{ total: number; page: number; limit: number; pages?: number }>({
   total: 0,
   page: 1,
@@ -57,11 +54,10 @@ function buildDataParams(p: { page?: number; limit?: number } = {}) {
   if (searchText.trim()) params.search = searchText.trim();
   const m2oFields = customFields
     .filter(
-      // biome-ignore lint/suspicious/noExplicitAny: dynamic field shape
-      (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
+      (f: CollectionField) =>
+        (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
     )
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic field shape
-    .map((f: any) => f.name);
+    .map((f: CollectionField) => f.name);
   if (m2oFields.length > 0) params.expand = m2oFields.join(',');
   return params;
 }
@@ -74,9 +70,8 @@ async function reloadData(p: { page?: number; limit?: number } = {}) {
     // Drop selection on data refresh — surviving ids may have been deleted
     selectedIds.clear();
     selectedIds = new Set(selectedIds);
-    // biome-ignore lint/suspicious/noExplicitAny: error shape from api client
-  } catch (e: any) {
-    toast.error(e.message || 'Failed to reload');
+  } catch (e) {
+    toast.error((e as Error).message || 'Failed to reload');
   }
 }
 
@@ -139,8 +134,7 @@ function toggleSort(name: string) {
   reloadData({ page: 1 });
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: setTimeout handle
-let searchTimer: any;
+let searchTimer: ReturnType<typeof setTimeout>;
 function onSearchInput() {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => reloadData({ page: 1 }), 250);
@@ -174,9 +168,8 @@ async function bulkDeleteSelected() {
         selectedIds = new Set();
         await reloadData();
         toast.success('Records deleted');
-        // biome-ignore lint/suspicious/noExplicitAny: error shape from api client
-      } catch (e: any) {
-        toast.error(e.message || 'Bulk delete failed');
+      } catch (e) {
+        toast.error((e as Error).message || 'Bulk delete failed');
       }
     },
   };
@@ -328,7 +321,7 @@ let confirmState = $state<{
                 {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
                   <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary hover:badge-primary gap-1 font-normal">
                     <ArrowRight size={10} />
-                    {record[`${col.name}_expanded`]._label}
+                    {(record[`${col.name}_expanded`] as { _label?: unknown })?._label}
                   </a>
                 {:else if col.type === 'm2o' || col.type === 'reference'}
                   <span class="badge badge-xs badge-ghost font-mono opacity-60">{String(record[col.name]).slice(0,8)}…</span>
@@ -338,7 +331,7 @@ let confirmState = $state<{
               </td>
             {/each}
             <td class="text-xs text-base-content/40 whitespace-nowrap">
-              {new Date(record.created_at).toLocaleDateString()}
+              {new Date(String(record.created_at)).toLocaleDateString()}
             </td>
             <td>
               <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -399,7 +392,7 @@ let confirmState = $state<{
                   <span class="text-base-content/20">—</span>
                 {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
                   <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary gap-1">
-                    {record[`${col.name}_expanded`]._label}
+                    {(record[`${col.name}_expanded`] as { _label?: unknown })?._label}
                   </a>
                 {:else}
                   {fmtCell(record[col.name], col.type)}

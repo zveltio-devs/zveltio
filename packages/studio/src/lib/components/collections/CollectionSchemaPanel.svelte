@@ -6,6 +6,12 @@ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import AddFieldDrawer from '$lib/components/fields/AddFieldDrawer.svelte';
 import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
 import { fieldBadgeColor } from '$lib/components/collections/field-helpers.js';
+import type {
+  CollectionField,
+  Relation,
+  FieldType,
+  CollectionSummary,
+} from '$lib/components/collections/types.js';
 
 // Schema tab for a collection: custom fields (add/drop via AddFieldDrawer),
 // virtual relations (add/delete via the inline builder), and the read-only
@@ -25,14 +31,10 @@ let {
   onSchemaChanged,
 }: {
   collectionName: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  customFields: any[];
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  relations: any[];
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  fieldTypes: any[];
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  allCollections: any[];
+  customFields: CollectionField[];
+  relations: Relation[];
+  fieldTypes: FieldType[];
+  allCollections: CollectionSummary[];
   m2oTargetMap: Record<string, string>;
   loading: boolean;
   onSchemaChanged: () => Promise<void> | void;
@@ -40,8 +42,7 @@ let {
 
 // M2O fields already live in customFields (FK column in this table).
 // O2M / M2M / M2A are virtual — no FK column here → shown only in Relations.
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-const virtualRelations = $derived(relations.filter((r: any) => r.type !== 'm2o'));
+const virtualRelations = $derived(relations.filter((r) => r.type !== 'm2o'));
 
 // ── Fields ────────────────────────────────────────────────────────────────
 let addFieldOpen = $state(false);
@@ -49,10 +50,8 @@ export function openAddField() {
   addFieldOpen = true;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function handleAddField(body: Record<string, any>) {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  const exists = customFields.find((f: any) => f.name === body.name);
+async function handleAddField(body: Record<string, unknown>) {
+  const exists = customFields.find((f) => f.name === body.name);
   if (exists) throw new Error(`Field '${body.name}' already exists`);
   await api.post(`/api/collections/${collectionName}/fields`, body);
   await onSchemaChanged();
@@ -70,9 +69,8 @@ function deleteField(fieldName: string) {
         await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
         await onSchemaChanged();
         toast.success(`Field '${fieldName}' deleted`);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      } catch (err: any) {
-        toast.error(err.message);
+      } catch (err) {
+        toast.error((err as Error).message);
       }
     },
   };
@@ -90,8 +88,7 @@ let relForm = $state({
   target_field: '', // o2m only: FK col in target table
   on_delete: 'SET NULL',
 });
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let targetFields = $state<any[]>([]);
+let targetFields = $state<CollectionField[]>([]);
 
 const relTypesMeta = [
   {
@@ -150,11 +147,10 @@ function suggestRelDefaults() {
 async function onRelTargetChange() {
   targetFields = [];
   if (!relForm.target_collection) return;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  const tgt = allCollections.find((c: any) => c.name === relForm.target_collection);
+  const tgt = allCollections.find((c) => c.name === relForm.target_collection);
   if (tgt) {
     const f = typeof tgt.fields === 'string' ? JSON.parse(tgt.fields) : tgt.fields;
-    targetFields = f ?? [];
+    targetFields = (f ?? []) as CollectionField[];
   }
   suggestRelDefaults();
 }
@@ -221,9 +217,8 @@ async function addRelation() {
     await onSchemaChanged();
     showRelForm = false;
     toast.success('Relation created');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (err: any) {
-    relFormError = err.message || 'Failed to create relation';
+  } catch (err) {
+    relFormError = (err as Error).message || 'Failed to create relation';
   } finally {
     savingRel = false;
   }
@@ -241,9 +236,8 @@ function deleteRelation(id: string, relName: string) {
         await api.delete(`/api/relations/${id}`);
         await onSchemaChanged();
         toast.success(`Relation deleted`);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      } catch (err: any) {
-        toast.error(err.message);
+      } catch (err) {
+        toast.error((err as Error).message);
       }
     },
   };

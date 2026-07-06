@@ -19,6 +19,13 @@ import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
 import Slot from '$lib/components/common/Slot.svelte';
 import RecordDrawer from '$lib/components/collections/RecordDrawer.svelte';
 import CollectionDataTable from '$lib/components/collections/CollectionDataTable.svelte';
+import type {
+  CollectionField,
+  CollectionSummary,
+  CollectionRecord,
+  Relation,
+  FieldType,
+} from '$lib/components/collections/types.js';
 import CollectionSchemaPanel from '$lib/components/collections/CollectionSchemaPanel.svelte';
 import { auth } from '$lib/auth.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
@@ -26,19 +33,15 @@ import { toast } from '$lib/stores/toast.svelte.js';
 const collectionName = $derived(page.params.name ?? '');
 
 // ── Core data ──────────────────────────────────────────────────────────────
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let collection = $state<any>(null);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let relations = $state<any[]>([]);
+let collection = $state<CollectionSummary | null>(null);
+let relations = $state<Relation[]>([]);
 let loading = $state(true);
 // Data-table state (records, pagination, search/sort/selection, realtime) now
 // lives in CollectionDataTable; the page holds a ref to call reload() after a
 // RecordDrawer save.
 let dataTable = $state<{ reload: () => void } | undefined>();
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let fieldTypes = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let allCollections = $state<any[]>([]);
+let fieldTypes = $state<FieldType[]>([]);
+let allCollections = $state<CollectionSummary[]>([]);
 
 // ── Tabs ──────────────────────────────────────────────────────────────────
 type Tab = 'data' | 'schema' | 'api' | 'settings';
@@ -58,24 +61,18 @@ function setTab(t: Tab) {
 }
 
 // ── Derived fields ────────────────────────────────────────────────────────
-const customFields = $derived.by(() => {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  if (!collection) return [] as any[];
+const customFields = $derived.by<CollectionField[]>(() => {
+  if (!collection) return [];
   const f = collection.fields;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  return (typeof f === 'string' ? JSON.parse(f) : (f ?? [])) as any[];
+  return (typeof f === 'string' ? JSON.parse(f) : (f ?? [])) as CollectionField[];
 });
 
 // Fields usable in the insert form: customFields + m2o relation FK fields merged
-const insertableFields = $derived.by(() => {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  const fields: any[] = customFields
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    .filter((f: any) => !f.is_system && f.type !== 'computed')
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    .map((f: any) => ({ ...f }));
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  const seen = new Set(fields.map((f: any) => f.name as string));
+const insertableFields = $derived.by<CollectionField[]>(() => {
+  const fields: CollectionField[] = customFields
+    .filter((f) => !f.is_system && f.type !== 'computed')
+    .map((f) => ({ ...f }));
+  const seen = new Set(fields.map((f) => f.name));
   for (const rel of relations) {
     if ((rel.type === 'm2o' || rel.type === 'reference') && rel.source_field) {
       if (!seen.has(rel.source_field)) {
@@ -88,8 +85,7 @@ const insertableFields = $derived.by(() => {
         seen.add(rel.source_field);
       } else {
         // Enhance existing field with relation dropdown capability
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const idx = fields.findIndex((f: any) => f.name === rel.source_field);
+        const idx = fields.findIndex((f) => f.name === rel.source_field);
         if (idx >= 0 && !fields[idx].options?.related_collection) {
           fields[idx] = {
             ...fields[idx],
@@ -105,8 +101,7 @@ const insertableFields = $derived.by(() => {
 
 // Table columns capped at 8 to avoid horizontal overflow
 const tableColumns = $derived(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  customFields.filter((f: any) => f.type !== 'computed' && !f.is_system).slice(0, 8),
+  customFields.filter((f) => f.type !== 'computed' && !f.is_system).slice(0, 8),
 );
 
 // ── Load ──────────────────────────────────────────────────────────────────
@@ -120,21 +115,20 @@ async function loadAll(name: string) {
   try {
     const [colRes, relsRes, typesRes, colsRes] = await Promise.all([
       collectionsApi.get(name),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ relations: any[] }>(`/api/relations?collection=${name}`),
+      api.get<{ relations: Relation[] }>(`/api/relations?collection=${name}`),
       collectionsApi.fieldTypes(),
       collectionsApi.list(),
     ]);
-    collection = colRes.collection;
+    collection = colRes.collection as CollectionSummary;
     relations = relsRes.relations ?? [];
-    fieldTypes = typesRes.field_types ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    allCollections = (colsRes.collections ?? []).filter((c: any) => c.name !== name);
-    aiSearchEnabled = collection?.ai_search_enabled ?? false;
-    aiSearchField = collection?.ai_search_field ?? '';
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e.message || 'Failed to load collection');
+    fieldTypes = (typesRes.field_types ?? []) as FieldType[];
+    allCollections = ((colsRes.collections ?? []) as CollectionSummary[]).filter(
+      (c) => c.name !== name,
+    );
+    aiSearchEnabled = Boolean(collection?.ai_search_enabled);
+    aiSearchField = (collection?.ai_search_field as string) ?? '';
+  } catch (e) {
+    toast.error((e as Error).message || 'Failed to load collection');
   } finally {
     loading = false;
   }
@@ -148,14 +142,12 @@ async function reloadSchema() {
   try {
     const [colRes, relsRes] = await Promise.all([
       collectionsApi.get(collectionName),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ relations: any[] }>(`/api/relations?collection=${collectionName}`),
+      api.get<{ relations: Relation[] }>(`/api/relations?collection=${collectionName}`),
     ]);
-    collection = colRes.collection;
+    collection = colRes.collection as CollectionSummary;
     relations = relsRes.relations ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e.message || 'Failed to reload schema');
+  } catch (e) {
+    toast.error((e as Error).message || 'Failed to reload schema');
   }
 }
 
@@ -163,7 +155,7 @@ async function reloadSchema() {
 // Extracted to $lib/components/collections/RecordDrawer.svelte. Held via
 // bind:this so the header button + table rows can call openCreate()/openEdit().
 let recordDrawer = $state<
-  { openCreate: () => void; openEdit: (record: unknown) => void } | undefined
+  { openCreate: () => void; openEdit: (record: CollectionRecord) => void } | undefined
 >();
 
 // ── Schema tab (fields + relations) ─────────────────────────────────────────
@@ -185,9 +177,8 @@ async function saveAISettings() {
       aiSearchField: aiSearchField || null,
     });
     toast.success('Settings saved');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e.message);
+  } catch (e) {
+    toast.error((e as Error).message);
   } finally {
     savingAI = false;
   }
