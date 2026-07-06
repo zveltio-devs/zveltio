@@ -19,7 +19,7 @@
  */
 
 import type { Database } from '../../db/index.js';
-import type { ExtensionContext } from '../extension-loader.js';
+import type { ExtensionContext } from '../extensions/index.js';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer } from './telemetry.js';
 

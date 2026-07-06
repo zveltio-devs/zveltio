@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import type { Database } from '../db/index.js';
-import type { FieldTypeRegistry } from './data/index.js';
+import type { Database } from '../../db/index.js';
+import type { FieldTypeRegistry } from '../data/index.js';
 // Extension install/load is naturally a synchronous filesystem operation
 // (unpack archive, copy node_modules, build vite bundles, symlink shared
 // deps). The project rule prefers Bun.file/Bun.spawn for runtime IO, but
@@ -8,9 +8,9 @@ import type { FieldTypeRegistry } from './data/index.js';
 // is no synchronous Bun.file equivalent for mkdir/symlink/writeFile. The
 // explicit `node:` prefix makes that intent visible.
 import { existsSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs';
-import type { EventBus } from './runtime/index.js';
-import { auth } from './auth.js';
-import { fieldTypeRegistry as _fieldTypeRegistry } from './data/index.js';
+import type { EventBus } from '../runtime/index.js';
+import { auth } from '../auth.js';
+import { fieldTypeRegistry as _fieldTypeRegistry } from '../data/index.js';
 // checkPermission/getUserRoles/DDLManager/createRestrictedDb/getWorkerHost +
 // ExtensionSchedule now live only inside the extracted register core
 // (lib/extensions/register.ts, H-04 split); dropped from the loader's imports.
@@ -45,8 +45,8 @@ import { ensureExtensionCoreDeps } from './extension-deps.js';
 import { REGISTRY_URL, downloadExtension } from './extension-download.js';
 import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
-import { purgeExtensionData } from './extensions/migration-runner.js';
-import type { ManifestMeta } from './extensions/manifest-schema.js';
+import { purgeExtensionData } from './migration-runner.js';
+import type { ManifestMeta } from './manifest-schema.js';
 // resolveManifest/enforcePublisherTier/resolveEntryPath + finalizeExtensionLoad
 // + buildAllowedTables/EXTENSION_TABLE_GRANTS + embedPageSchemas (internal use)
 // now live inside the extracted load pipeline (lib/extensions/load.ts, H-04
@@ -55,17 +55,17 @@ import {
   buildExtensionInternals,
   type ExtensionContext,
   type ExtensionInternals,
-} from './extensions/internals.js';
-import { reRegisterExtension } from './extensions/register.js';
-import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from './extensions/lifecycle.js';
-import { loadExtensionFromDir } from './extensions/load.js';
+} from './internals.js';
+import { reRegisterExtension } from './register.js';
+import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from './lifecycle.js';
+import { loadExtensionFromDir } from './load.js';
 import {
   discoverExternal,
   getActiveExtensionNames,
   topoSortExtensions,
-} from './extensions/discovery.js';
+} from './discovery.js';
 
-export { serviceRegistry } from './service-registry.js';
+export { serviceRegistry } from '../service-registry.js';
 
 // EXTENSION_TABLE_GRANTS + buildAllowedTables + the HonoRouteFn type + the
 // route-register core moved to lib/extensions/register.ts (H-04 split). Imported
@@ -173,8 +173,8 @@ export type { EventBus };
 // lib/extensions/manifest-schema.ts (H-04 split) to break the circular
 // import between the per-phase load helpers and the loader. Re-exported here
 // so existing import sites keep working.
-export { ManifestSchema, embedPageSchemas } from './extensions/manifest-schema.js';
-export type { ExtensionManifest } from './extensions/manifest-schema.js';
+export { ManifestSchema, embedPageSchemas } from './manifest-schema.js';
+export type { ExtensionManifest } from './manifest-schema.js';
 
 // Default quotas exposed for callers that don't have a full manifest yet.
 // Quota constants + lifecycle errors moved to extension-errors.ts (loader split);

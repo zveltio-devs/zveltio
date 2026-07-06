@@ -11,9 +11,9 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { readFileSync } from 'node:fs';
 import { join } from 'path';
-import type { Database } from '../db/index.js';
-import { auth } from './auth.js';
-import { checkPermission } from './permissions.js';
+import type { Database } from '../../db/index.js';
+import { auth } from '../auth.js';
+import { checkPermission } from '../permissions.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,

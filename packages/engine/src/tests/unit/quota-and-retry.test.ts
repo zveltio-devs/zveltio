@@ -8,7 +8,7 @@ import {
   DownMissingError,
   fetchWithRetry,
   DEFAULT_QUOTAS,
-} from '../../lib/extension-loader.js';
+} from '../../lib/extensions/extension-loader.js';
 
 describe('directorySizeBytes', () => {
   let tmpDir: string;

@@ -10,7 +10,7 @@
 import type { Database } from '../../db/index.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from '../runtime/index.js';
-import { extensionRegistry } from '../extension-registry.js';
+import { extensionRegistry } from '../extensions/index.js';
 import { serviceRegistry } from '../service-registry.js';
 
 const SCHEDULER_POLL_MS = 60_000; // How often the scheduler polls for due flows

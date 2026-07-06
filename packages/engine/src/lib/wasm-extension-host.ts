@@ -44,7 +44,7 @@
  * runtime a given extension uses.
  */
 
-import { policyFor, hasCapability, type ExtensionCapability } from './extension-sandbox.js';
+import { policyFor, hasCapability, type ExtensionCapability } from './extensions/index.js';
 
 /** ABI version of the host-bridge contract. Bumped on any breaking
  *  change to the imports the WASM module sees. Modules can read this

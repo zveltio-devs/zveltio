@@ -23,14 +23,14 @@ import { pathToFileURL } from 'node:url';
 import type { Hono } from 'hono';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import { auditLog } from '../audit.js';
-import { QuotaExceededError } from '../extension-errors.js';
-import { resolveExtensionsBase } from '../extension-paths.js';
+import { QuotaExceededError } from './extension-errors.js';
+import { resolveExtensionsBase } from './extension-paths.js';
 import { runExtensionMigrations } from './migration-runner.js';
 import { embedPageSchemas } from './manifest-schema.js';
 import { enforcePublisherTier, resolveEntryPath, resolveManifest } from './load-phases.js';
 import type { ExtensionContext } from './internals.js';
 import { buildAllowedTables, EXTENSION_TABLE_GRANTS, finalizeExtensionLoad } from './register.js';
-import type { ExtensionLoader } from '../extension-loader.js';
+import type { ExtensionLoader } from './extension-loader.js';
 
 export async function loadExtensionFromDir(
   loader: ExtensionLoader,

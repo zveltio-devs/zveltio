@@ -11,8 +11,8 @@
 import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
-import { DownMissingError } from '../extension-errors.js';
-import { parseMigrationSql } from '../extension-utils.js';
+import { DownMissingError } from './extension-errors.js';
+import { parseMigrationSql } from './extension-utils.js';
 
 /**
  * Apply this extension's not-yet-applied SQL migrations in a single outer

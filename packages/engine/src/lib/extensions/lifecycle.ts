@@ -22,9 +22,9 @@ import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../entity-access.js';
 import { cronRunner } from '../runtime/index.js';
-import { resolveExtensionsBase } from '../extension-paths.js';
+import { resolveExtensionsBase } from './extension-paths.js';
 import type { Hono } from 'hono';
-import type { ExtensionLoader } from '../extension-loader.js';
+import type { ExtensionLoader } from './extension-loader.js';
 
 /**
  * Unloads an extension from memory.

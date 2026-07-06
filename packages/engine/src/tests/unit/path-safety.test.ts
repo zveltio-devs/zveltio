@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { join, sep } from 'path';
-import { isPathInsideBase } from '../../lib/extension-loader.js';
+import { isPathInsideBase } from '../../lib/extensions/extension-loader.js';
 
 const ROOT = sep === '\\' ? 'C:\\Users\\zveltio\\extensions' : '/var/lib/zveltio/extensions';
 
