@@ -15,13 +15,13 @@
  */
 
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
-import { DEFAULT_TENANT_ID } from './tenant-manager.js';
-import { runScript } from './script-runner.js';
-import { sendNotification } from '../routes/notifications.js';
-import { serviceRegistry } from './service-registry.js';
-import { traced } from './telemetry.js';
-import { safeFetch, validatePublicUrl } from './edge-functions/safe-fetch.js';
+import type { Database } from '../../db/index.js';
+import { DEFAULT_TENANT_ID } from '../tenant-manager.js';
+import { runScript } from '../script-runner.js';
+import { sendNotification } from '../../routes/notifications.js';
+import { serviceRegistry } from '../service-registry.js';
+import { traced } from '../telemetry.js';
+import { safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 
 export interface FlowRunResult {
   runId: string;
@@ -158,7 +158,7 @@ async function executeStep(
 
       try {
         // @ts-ignore — email module is an optional extension
-        const { sendEmailDirectly } = await import('./email.js');
+        const { sendEmailDirectly } = await import('../email.js');
         await sendEmailDirectly({
           recipient,
           subject,
@@ -243,7 +243,7 @@ async function executeStep(
       if (!cfg.collection) return { output: prevOutput };
       try {
         // @ts-ignore — export-manager is an optional extension
-        const { ExportManager } = await import('./export-manager.js');
+        const { ExportManager } = await import('../export-manager.js');
 
         // Validate collection name before constructing the table identifier.
         // cfg.collection comes from user-controlled flow config — must match
@@ -280,7 +280,7 @@ async function executeStep(
 
         if (cfg.email_to && exportResult?.buffer) {
           // @ts-ignore — email module is an optional extension
-          const { sendEmailWithAttachment } = await import('./email.js');
+          const { sendEmailWithAttachment } = await import('../email.js');
           const ext = cfg.format === 'excel' ? 'xlsx' : (cfg.format ?? 'csv');
           await sendEmailWithAttachment({
             recipient: cfg.email_to,

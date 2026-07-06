@@ -34,7 +34,7 @@ import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { cancelPendingCleanups } from './lib/ghost-ddl.js';
 import { DDLManager } from './lib/ddl-manager.js';
-import { flowScheduler } from './lib/flow-scheduler.js';
+import { flowScheduler } from './lib/flows/index.js';
 import {
   initTenantManager,
   reconcileTenantRLS,
