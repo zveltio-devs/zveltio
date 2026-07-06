@@ -1,4 +1,4 @@
-import { getCache } from './cache.js';
+import { getCache } from './runtime/index.js';
 import { WebhookManager } from './webhooks.js';
 
 let _running = false;

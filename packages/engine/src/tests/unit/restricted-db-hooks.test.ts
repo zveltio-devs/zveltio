@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { createRestrictedDb, _internalForTests } from '../../lib/extension-context.js';
-import { engineEvents, AbortHookError } from '../../lib/event-bus.js';
+import { engineEvents, AbortHookError } from '../../lib/runtime/event-bus.js';
 
 /**
  * S2-02 follow-up: extension-internal writes via `ctx.db` flow through

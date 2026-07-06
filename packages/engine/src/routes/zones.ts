@@ -40,7 +40,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
-import { zoneRenderRequests, zoneAccessDenied, viewQueryDuration } from '../lib/telemetry.js';
+import { zoneRenderRequests, zoneAccessDenied, viewQueryDuration } from '../lib/runtime/index.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getCache } from './cache.js';
+import { getCache } from './runtime/index.js';
 
 export interface Tenant {
   id: string;

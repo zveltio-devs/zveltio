@@ -239,7 +239,7 @@ export async function initAuth(db: Database) {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let secondaryStorage: any = undefined;
   if (process.env.VALKEY_URL) {
-    const { createCacheSecondaryStorage } = await import('./cache.js');
+    const { createCacheSecondaryStorage } = await import('./runtime/index.js');
     secondaryStorage = await createCacheSecondaryStorage();
   }
 

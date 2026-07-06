@@ -9,7 +9,7 @@
 
 import type { Database } from '../../db/index.js';
 import { executeFlow } from './flow-executor.js';
-import { scheduleGarbageCollector } from '../garbage-collector.js';
+import { scheduleGarbageCollector } from '../runtime/index.js';
 import { extensionRegistry } from '../extension-registry.js';
 import { serviceRegistry } from '../service-registry.js';
 
