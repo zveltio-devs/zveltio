@@ -3,4 +3,8 @@
 // scripts/import-boundaries.ts). Grouped by H-08 from the flat lib/ root.
 export { executeFlow, type FlowRunResult } from './flow-executor.js';
 export { flowScheduler } from './flow-scheduler.js';
-export { validateStepConfig, type StepType, type StepValidationResult } from './flow-step-schemas.js';
+export {
+  validateStepConfig,
+  type StepType,
+  type StepValidationResult,
+} from './flow-step-schemas.js';
