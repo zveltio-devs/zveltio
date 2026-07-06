@@ -7,7 +7,7 @@ import { checkPermission, getEnforcer } from '../../lib/permissions.js';
 import { invalidateColumnPermCache } from '../../lib/column-permissions.js';
 import { fieldTypeRegistry } from '../../lib/field-type-registry.js';
 import { DDLManager } from '../../lib/ddl-manager.js';
-import { getCache } from '../../lib/cache.js';
+import { getCache } from '../../lib/runtime/index.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';

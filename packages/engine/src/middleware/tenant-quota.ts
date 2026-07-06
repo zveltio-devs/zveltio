@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono';
 import type { Database } from '../db/index.js';
-import { getCache } from '../lib/cache.js';
+import { getCache } from '../lib/runtime/index.js';
 
 /**
  * Tenant daily API quota enforcement.

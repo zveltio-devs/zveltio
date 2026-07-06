@@ -13,7 +13,7 @@ import type { Context } from 'hono';
 import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager } from '../../ddl-manager.js';
-import { engineEvents, AbortHookError } from '../../event-bus.js';
+import { engineEvents, AbortHookError } from '../../runtime/index.js';
 import { dynamicInsert, dynamicUpdate } from '../../../db/dynamic.js';
 import {
   processInput,

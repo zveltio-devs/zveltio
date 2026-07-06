@@ -20,7 +20,7 @@ import { DEFAULT_TENANT_ID } from '../tenant-manager.js';
 import { runScript } from '../script-runner.js';
 import { sendNotification } from '../../routes/notifications.js';
 import { serviceRegistry } from '../service-registry.js';
-import { traced } from '../telemetry.js';
+import { traced } from '../runtime/index.js';
 import { safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 
 export interface FlowRunResult {

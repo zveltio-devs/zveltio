@@ -25,11 +25,11 @@ import {
 } from './lib/extension-loader.js';
 import { queryAlterRegistry } from './lib/query-alter.js';
 import { entityAccessRegistry } from './lib/entity-access.js';
-import { cronRunner } from './lib/cron-runner.js';
+import { cronRunner } from './lib/runtime/index.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
-import { realtimeBus, PgNotifyRealtimeBus } from './lib/realtime-bus.js';
+import { realtimeBus, PgNotifyRealtimeBus } from './lib/runtime/index.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { cancelPendingCleanups } from './lib/ghost-ddl.js';
@@ -42,10 +42,10 @@ import {
 } from './lib/tenant-manager.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
-import { initTelemetry, getZoneMetricsLines } from './lib/telemetry.js';
-import { engineEvents } from './lib/event-bus.js';
+import { initTelemetry, getZoneMetricsLines } from './lib/runtime/index.js';
+import { engineEvents } from './lib/runtime/index.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
-import { getMemoryReport } from './lib/memory-monitor.js';
+import { getMemoryReport } from './lib/runtime/index.js';
 
 // ─── Mutable app reference for hot-reload ────────────────────────────────────
 // The fetch handler passed to Bun.serve() is a stable closure that always

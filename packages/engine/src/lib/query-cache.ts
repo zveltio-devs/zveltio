@@ -16,7 +16,7 @@
  * any write to that collection in that tenant.
  */
 
-import { getCache } from './cache.js';
+import { getCache } from './runtime/index.js';
 import { createHash } from 'crypto';
 
 const CACHE_TTL = parseInt(process.env.QUERY_CACHE_TTL_SECONDS ?? '10', 10);

@@ -18,8 +18,8 @@
  * follow-up). For now self-hosted single-engine is the assumption.
  */
 
-import type { Database } from '../db/index.js';
-import type { ExtensionContext } from './extension-loader.js';
+import type { Database } from '../../db/index.js';
+import type { ExtensionContext } from '../extension-loader.js';
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer } from './telemetry.js';
 

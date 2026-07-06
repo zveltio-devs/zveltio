@@ -212,7 +212,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       await enforcer.addPolicy(userId, '*', 'fallback_res', 'read');
 
       // Mock cache to throw on all operations
-      const { getCache } = await import('../../lib/cache.js');
+      const { getCache } = await import('../../lib/runtime/cache.js');
       const cache = getCache();
       if (cache) {
         vi.spyOn(cache, 'get').mockRejectedValue(new Error('Cache unavailable'));

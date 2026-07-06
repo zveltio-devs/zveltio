@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { ENGINE_VERSION, getVersionInfo } from '../version.js';
 import { getLastAppliedMigration, getAppliedMigrations } from '../db/migrations/index.js';
-import { getCache } from '../lib/cache.js';
+import { getCache } from '../lib/runtime/index.js';
 
 interface CheckResult {
   ok: boolean;

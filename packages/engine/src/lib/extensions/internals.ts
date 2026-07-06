@@ -14,7 +14,7 @@ import type { Context } from 'hono';
 import type { ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { dynamicInsert } from '../../db/dynamic.js';
-import type { EventBus } from '../event-bus.js';
+import type { EventBus } from '../runtime/index.js';
 import type { FieldTypeRegistry } from '../field-type-registry.js';
 import { DDLManager } from '../ddl-manager.js';
 import type { QueryAlterScope } from '../query-alter.js';
