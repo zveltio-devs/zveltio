@@ -19,7 +19,7 @@
 
 import { auditLog } from '../audit.js';
 import { serviceRegistry } from '../service-registry.js';
-import { queryAlterRegistry } from '../query-alter.js';
+import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../entity-access.js';
 import { cronRunner } from '../runtime/index.js';
 import { resolveExtensionsBase } from '../extension-paths.js';

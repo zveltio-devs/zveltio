@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import type { FieldTypeRegistry } from './field-type-registry.js';
+import type { FieldTypeRegistry } from './data/index.js';
 // Extension install/load is naturally a synchronous filesystem operation
 // (unpack archive, copy node_modules, build vite bundles, symlink shared
 // deps). The project rule prefers Bun.file/Bun.spawn for runtime IO, but
@@ -10,7 +10,7 @@ import type { FieldTypeRegistry } from './field-type-registry.js';
 import { existsSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import type { EventBus } from './runtime/index.js';
 import { auth } from './auth.js';
-import { fieldTypeRegistry as _fieldTypeRegistry } from './field-type-registry.js';
+import { fieldTypeRegistry as _fieldTypeRegistry } from './data/index.js';
 // checkPermission/getUserRoles/DDLManager/createRestrictedDb/getWorkerHost +
 // ExtensionSchedule now live only inside the extracted register core
 // (lib/extensions/register.ts, H-04 split); dropped from the loader's imports.

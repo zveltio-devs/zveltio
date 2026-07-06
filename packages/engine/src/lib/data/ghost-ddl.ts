@@ -12,7 +12,7 @@
  *                     Reads continue during LOCK, only writes are blocked for a few ms.
  */
 
-import type { Database } from '../db/index.js';
+import type { Database } from '../../db/index.js';
 import { sql } from 'kysely';
 
 const BATCH_SIZE = 10_000;

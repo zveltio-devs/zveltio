@@ -1,4 +1,4 @@
-import type { FieldTypeRegistry } from '../lib/field-type-registry.js';
+import type { FieldTypeRegistry } from '../lib/data/index.js';
 
 export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({

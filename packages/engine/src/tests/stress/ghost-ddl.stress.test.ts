@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
-import { GhostDDL } from '../../lib/ghost-ddl.js';
+import { GhostDDL } from '../../lib/data/ghost-ddl.js';
 
 // Skip all tests if no test DB is configured
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;

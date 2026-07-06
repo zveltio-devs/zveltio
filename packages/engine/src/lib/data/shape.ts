@@ -9,9 +9,9 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../ddl-manager.js';
-import { fieldTypeRegistry } from '../field-type-registry.js';
-import { maybeDecrypt } from '../field-crypto.js';
+import { DDLManager } from './ddl-manager.js';
+import { fieldTypeRegistry } from './field-type-registry.js';
+import { maybeDecrypt } from './field-crypto.js';
 import type {
   CollectionDef,
   CollectionField,

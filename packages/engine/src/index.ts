@@ -17,13 +17,13 @@ import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions, checkPermission, getUserRoles } from './lib/permissions.js';
 import { initRls } from './lib/rls.js';
-import { fieldTypeRegistry } from './lib/field-type-registry.js';
+import { fieldTypeRegistry } from './lib/data/index.js';
 import {
   extensionLoader,
   buildExtensionInternals,
   serviceRegistry,
 } from './lib/extension-loader.js';
-import { queryAlterRegistry } from './lib/query-alter.js';
+import { queryAlterRegistry } from './lib/data/index.js';
 import { entityAccessRegistry } from './lib/entity-access.js';
 import { cronRunner } from './lib/runtime/index.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
@@ -32,8 +32,8 @@ import { websocketHandler } from './routes/ws.js';
 import { realtimeBus, PgNotifyRealtimeBus } from './lib/runtime/index.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
-import { cancelPendingCleanups } from './lib/ghost-ddl.js';
-import { DDLManager } from './lib/ddl-manager.js';
+import { cancelPendingCleanups } from './lib/data/index.js';
+import { DDLManager } from './lib/data/index.js';
 import { flowScheduler } from './lib/flows/index.js';
 import {
   initTenantManager,
@@ -669,7 +669,7 @@ async function bootstrap() {
   // 3a. Field encryption sanity check — warn loudly if FIELD_ENCRYPTION_KEY
   // is unset while collections have encrypted: true fields, so the operator
   // notices that sensitive columns are landing on disk in plaintext.
-  const { checkFieldEncryptionAtBoot } = await import('./lib/field-crypto.js');
+  const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
   await checkFieldEncryptionAtBoot(db);
 
   // 4. Field Type Registry — core types
@@ -836,7 +836,7 @@ async function shutdown() {
     });
   // Stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
-    const { stopDDLQueue } = await import('./lib/ddl-queue.js');
+    const { stopDDLQueue } = await import('./lib/data/index.js');
     await stopDDLQueue();
   } catch {
     /* not initialized yet */

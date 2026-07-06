@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { z } from 'zod';
-import type { Database } from '../db/index.js';
+import type { Database } from '../../db/index.js';
 import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
 
 // ─── Relation type sets ───────────────────────────────────────────────────────
