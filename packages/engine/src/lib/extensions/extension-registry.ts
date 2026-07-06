@@ -10,7 +10,7 @@
  *   extensionRegistry.registerTrashPurgeHandler(async (db) => { ... });
  */
 
-import type { Database } from '../db/index.js';
+import type { Database } from '../../db/index.js';
 
 export type TrashPurgeHandler = (db: Database) => Promise<void>;
 

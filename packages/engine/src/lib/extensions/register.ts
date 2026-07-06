@@ -22,7 +22,7 @@ import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import { checkPermission, getUserRoles } from '../permissions.js';
 import { DDLManager } from '../data/index.js';
-import { createRestrictedDb } from '../extension-context.js';
+import { createRestrictedDb } from './extension-context.js';
 import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../entity-access.js';
@@ -31,7 +31,7 @@ import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext } from './internals.js';
-import type { ExtensionLoader } from '../extension-loader.js';
+import type { ExtensionLoader } from './extension-loader.js';
 
 /**
  * A Hono route-registration method (`app.get`/`post`/…). Used for the dynamic

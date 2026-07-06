@@ -23,7 +23,7 @@ import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
 import { invalidateRulesCache } from '../validation-engine.js';
 import { runFunction as runEdgeFunction } from '../edge-functions/sandbox.js';
-import { extensionRegistry } from '../extension-registry.js';
+import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
 import { generatePDF, renderTemplate } from '../doc-generator.js';
 import { moveToTrash } from '../cloud/trash.js';

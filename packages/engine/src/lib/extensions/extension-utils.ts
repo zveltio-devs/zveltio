@@ -21,7 +21,7 @@
  */
 
 import { sql as _sql } from 'kysely';
-import type { Database } from '../db/index.js';
+import type { Database } from '../../db/index.js';
 import { existsSync } from 'node:fs';
 import { join } from 'path';
 

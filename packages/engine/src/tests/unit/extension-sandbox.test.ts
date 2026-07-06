@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { policyFor, hasCapability, _internalForTests } from '../../lib/extension-sandbox.js';
+import {
+  policyFor,
+  hasCapability,
+  _internalForTests,
+} from '../../lib/extensions/extension-sandbox.js';
 
 /**
  * S5-05 — extension sandbox policy resolution.

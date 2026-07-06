@@ -276,7 +276,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
   // useful for capacity planning, NOT a per-extension breakdown.
   app.get('/extensions/health', async (c) => {
     const { getWorkerHostIfInitialized } = await import('../../lib/worker-extension-host.js');
-    const { extensionLoader } = await import('../../lib/extension-loader.js');
+    const { extensionLoader } = await import('../../lib/extensions/index.js');
     const host = getWorkerHostIfInitialized();
     const workers = host ? host.getHealth() : [];
     const inlineNames = extensionLoader

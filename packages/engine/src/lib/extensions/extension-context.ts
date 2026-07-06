@@ -30,8 +30,8 @@
  * `sql\`...\`.execute(db)` passes through without inspection.
  */
 
-import type { Database } from '../db/index.js';
-import { engineEvents, AbortHookError } from './runtime/index.js';
+import type { Database } from '../../db/index.js';
+import { engineEvents, AbortHookError } from '../runtime/index.js';
 
 // All Kysely query-builder entry points that accept a table name as first arg.
 const QUERY_METHODS = [

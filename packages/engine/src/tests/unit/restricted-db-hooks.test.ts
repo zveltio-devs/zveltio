@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createRestrictedDb, _internalForTests } from '../../lib/extension-context.js';
+import { createRestrictedDb, _internalForTests } from '../../lib/extensions/extension-context.js';
 import { engineEvents, AbortHookError } from '../../lib/runtime/event-bus.js';
 
 /**

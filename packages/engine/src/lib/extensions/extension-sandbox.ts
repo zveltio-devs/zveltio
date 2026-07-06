@@ -37,7 +37,7 @@
  * enforcement mechanism without touching call sites.
  */
 
-import { engineEvents } from './runtime/index.js';
+import { engineEvents } from '../runtime/index.js';
 
 /** Capabilities an extension may request. Closed enum — adding a new
  *  capability requires a code change + policy review. */
