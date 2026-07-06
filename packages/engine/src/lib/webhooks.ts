@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from './runtime/index.js';
 import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
-import { maybeDecrypt } from './field-crypto.js';
+import { maybeDecrypt } from './data/index.js';
 
 let _db: Database | null = null;
 

@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { AwsClient } from 'aws4fetch';
 import type { Database } from '../db/index.js';
-import { escapeLike } from '../lib/query-utils.js';
+import { escapeLike } from '../lib/data/index.js';
 import { generateId } from '../lib/utils.js';
 import { checkPermission } from '../lib/permissions.js';
 // @ts-ignore — cloud/trash is an optional extension

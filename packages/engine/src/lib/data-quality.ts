@@ -252,7 +252,7 @@ async function runScanAsync(
   tableName: string,
   scanType: string,
 ): Promise<void> {
-  const { DDLManager } = await import('./ddl-manager.js');
+  const { DDLManager } = await import('./data/index.js');
   const colDef = await DDLManager.getCollection(db, collection).catch(() => null);
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const fields: any[] = (colDef as any)?.fields || [];

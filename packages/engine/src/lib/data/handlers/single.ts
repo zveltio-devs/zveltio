@@ -14,9 +14,9 @@
 import type { Context } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../../db/index.js';
-import { DDLManager } from '../../ddl-manager.js';
+import { DDLManager } from '../ddl-manager.js';
 import { engineEvents, AbortHookError } from '../../runtime/index.js';
-import { queryAlterRegistry } from '../../query-alter.js';
+import { queryAlterRegistry } from '../query-alter.js';
 import { entityAccessRegistry } from '../../entity-access.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';

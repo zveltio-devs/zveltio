@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
-import { DDLManager } from '../lib/ddl-manager.js';
+import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────

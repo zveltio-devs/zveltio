@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
-import { DDLManager, CollectionSchema, FieldSchema } from '../lib/ddl-manager.js';
+import { DDLManager, CollectionSchema, FieldSchema } from '../lib/data/index.js';
 import { checkPermission } from '../lib/permissions.js';
-import { enqueueDDLJob, getDDLJob } from '../lib/ddl-queue.js';
-import { fieldTypeRegistry } from '../lib/field-type-registry.js';
+import { enqueueDDLJob, getDDLJob } from '../lib/data/index.js';
+import { fieldTypeRegistry } from '../lib/data/index.js';
 import {
   dynamicAddColumn,
   dynamicDropColumn,
@@ -12,7 +12,7 @@ import {
   dynamicChangeColumnType,
   dynamicSetColumnRequired,
 } from '../db/dynamic.js';
-import { resolveConversion } from '../lib/field-type-conversions.js';
+import { resolveConversion } from '../lib/data/index.js';
 import { SYSTEM_COLLECTIONS, getSystemCollection } from '../lib/system-collections.js';
 import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';

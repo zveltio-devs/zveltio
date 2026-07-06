@@ -9,7 +9,7 @@ import {
   invalidateUserPermCache,
 } from '../lib/permissions.js';
 import { auditLog } from '../lib/audit.js';
-import { escapeLike } from '../lib/query-utils.js';
+import { escapeLike } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {

@@ -5,8 +5,8 @@ import type { User } from 'better-auth';
 import { checkPermission } from '../lib/permissions.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
-import { DDLManager } from '../lib/ddl-manager.js';
-import { GhostDDL } from '../lib/ghost-ddl.js';
+import { DDLManager } from '../lib/data/index.js';
+import { GhostDDL } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function schemaBranchesRoutes(db: Database, auth: any): Hono {
@@ -317,15 +317,11 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         for (const change of changes) {
           try {
             if (change.type === 'add_collection') {
-              const { enqueueDDLJob } = await import(
-                '../../../../packages/engine/src/lib/ddl-queue.js'
-              );
+              const { enqueueDDLJob } = await import('../lib/data/index.js');
               await enqueueDDLJob(db, 'create_collection', change.payload);
               applied.push(`Add collection: ${change.payload.name}`);
             } else if (change.type === 'add_field') {
-              const { fieldTypeRegistry } = await import(
-                '../../../../packages/engine/src/lib/field-type-registry.js'
-              );
+              const { fieldTypeRegistry } = await import('../lib/data/index.js');
               const tableName = DDLManager.getTableName(change.payload.collection);
               const colDDL = fieldTypeRegistry.getColumnDDL(change.payload.field);
               if (colDDL) {

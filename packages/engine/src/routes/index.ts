@@ -44,7 +44,7 @@ import { insightsRoutes } from './insights.js';
 import { sqlEditorRoutes } from './sql-editor.js';
 import { templatesRoutes } from './templates.js';
 import { erdLayoutRoutes } from './erd-layout.js';
-import { initDDLQueue } from '../lib/ddl-queue.js';
+import { initDDLQueue } from '../lib/data/index.js';
 import { ensureCoreCollections } from '../core-collections/index.js';
 import {
   authRateLimit,

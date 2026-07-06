@@ -93,7 +93,7 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
     /* cache unavailable */
   }
   if (collection) {
-    const { invalidateQueryCacheForCollection } = await import('./query-cache.js');
+    const { invalidateQueryCacheForCollection } = await import('./data/index.js');
     await invalidateQueryCacheForCollection(collection);
   }
 }
