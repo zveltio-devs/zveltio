@@ -24,7 +24,7 @@
  */
 
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
+import type { Database } from '../../db/index.js';
 
 export interface CreateSsoSessionOptions {
   ipAddress?: string;

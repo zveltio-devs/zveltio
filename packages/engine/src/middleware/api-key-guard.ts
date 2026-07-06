@@ -2,7 +2,7 @@ import type { Context, Next } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
-import { hashApiKey } from '../lib/api-key-hash.js';
+import { hashApiKey } from '../lib/security/index.js';
 
 /**
  * Middleware for Protected API:
