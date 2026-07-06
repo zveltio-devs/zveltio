@@ -17,7 +17,7 @@
  * exists (upgraded installs), so it's safe to run on every boot.
  */
 import type { Database } from '../db/index.js';
-import { DDLManager, type CollectionDefinition } from '../lib/ddl-manager.js';
+import { DDLManager, type CollectionDefinition } from '../lib/data/index.js';
 import { sql } from 'kysely';
 
 /**

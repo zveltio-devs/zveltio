@@ -5,7 +5,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { dynamicUpdate } from '../db/dynamic.js';
-import { DDLManager } from '../lib/ddl-manager.js';
+import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01

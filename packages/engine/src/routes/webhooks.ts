@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/permissions.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
-import { maybeEncrypt, maybeDecrypt } from '../lib/field-crypto.js';
+import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {

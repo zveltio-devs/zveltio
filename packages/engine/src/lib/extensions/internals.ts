@@ -15,9 +15,9 @@ import type { ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { dynamicInsert } from '../../db/dynamic.js';
 import type { EventBus } from '../runtime/index.js';
-import type { FieldTypeRegistry } from '../field-type-registry.js';
-import { DDLManager } from '../ddl-manager.js';
-import type { QueryAlterScope } from '../query-alter.js';
+import type { FieldTypeRegistry } from '../data/index.js';
+import { DDLManager } from '../data/index.js';
+import type { QueryAlterScope } from '../data/index.js';
 import type { EntityAccessScope } from '../entity-access.js';
 import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
@@ -29,10 +29,10 @@ import { generatePDF, renderTemplate } from '../doc-generator.js';
 import { moveToTrash } from '../cloud/trash.js';
 import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-indexer.js';
 import { checkQueryDepth, DataLoaderRegistry } from '../graphql-dataloader.js';
-import { enqueueDDLJob } from '../ddl-queue.js';
+import { enqueueDDLJob } from '../data/index.js';
 import { validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { createBetterAuthSession } from '../security/index.js';
-import { decryptField, encryptField, isEncryptedValue } from '../field-crypto.js';
+import { decryptField, encryptField, isEncryptedValue } from '../data/index.js';
 import { sendNotification } from '../notifications.js';
 
 /**

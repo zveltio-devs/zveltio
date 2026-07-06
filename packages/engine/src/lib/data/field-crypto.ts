@@ -32,7 +32,7 @@ function warnMissingKeyOnce(): void {
  * writes to one of those fields.
  */
 export async function checkFieldEncryptionAtBoot(
-  db: import('../db/index.js').Database,
+  db: import('../../db/index.js').Database,
 ): Promise<void> {
   if (KEY_HEX) return; // key is set — nothing to flag
   try {
