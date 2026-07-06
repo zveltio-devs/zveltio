@@ -8,6 +8,7 @@
 // (passed in rather than imported, to avoid an import cycle with the loader).
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import type { Database } from '../db/index.js';
@@ -37,8 +38,7 @@ export function registerMarketplaceRoutes(
   triggerReloadFn: (reason: string) => Promise<void>,
 ): void {
   // Admin-only guard
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  async function requireAdmin(c: any): Promise<boolean> {
+  async function requireAdmin(c: Context): Promise<boolean> {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return false;
     const isAdmin = await checkPermission(session.user.id, 'admin', '*');
@@ -47,8 +47,7 @@ export function registerMarketplaceRoutes(
 
   // Resolve optional tenant scope from X-Tenant-Id header.
   // null = global (no tenant filter); string = scoped to that tenant.
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  function getTenantId(c: any): string | null {
+  function getTenantId(c: Context): string | null {
     return (c.req.header('x-tenant-id') as string | undefined) ?? null;
   }
 
@@ -62,8 +61,7 @@ export function registerMarketplaceRoutes(
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
 
     const name = c.req.param('name');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const body = (await c.req.json().catch(() => ({}))) as any;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const key = body?.license_key as string | undefined;
     if (!key?.trim()) return c.json({ error: 'license_key is required' }, 400);
 
@@ -76,16 +74,14 @@ export function registerMarketplaceRoutes(
     }).catch(() => null);
 
     if (res && !res.ok) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const err = (await res.json().catch(() => null)) as any;
+      const err = (await res.json().catch(() => null)) as { message?: string } | null;
       return c.json({ error: err?.message || 'Invalid license key' }, 400);
     }
 
     await db
       .insertInto('zv_settings')
       .values({ key: `ext_license:${name}`, value: key.trim(), is_public: false })
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: key.trim() }))
+      .onConflict((oc) => oc.column('key').doUpdateSet({ value: key.trim() }))
       .execute();
 
     return c.json({ ok: true });
@@ -97,10 +93,8 @@ export function registerMarketplaceRoutes(
 
     const name = c.req.param('name');
     await db
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .deleteFrom('zv_settings' as any)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .where('key' as any, '=', `ext_license:${name}`)
+      .deleteFrom('zv_settings')
+      .where('key', '=', `ext_license:${name}`)
       .execute()
       .catch((err: Error) => {
         console.error('[extension-loader] license delete failed:', err.message);
@@ -140,22 +134,17 @@ export function registerMarketplaceRoutes(
     // Capture a fingerprint of the OLD token for the audit row — never
     // log the new token plaintext (it would defeat the rotation purpose).
     const oldRow = await db
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .selectFrom('zv_settings' as any)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .select('value' as any)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .where('key' as any, '=', 'marketplace_auth_token')
+      .selectFrom('zv_settings')
+      .select('value')
+      .where('key', '=', 'marketplace_auth_token')
       .executeTakeFirst()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .catch(() => undefined as any);
+      .catch(() => undefined);
     const oldFingerprint = oldRow?.value ? await fingerprintToken(oldRow.value as string) : null;
 
     await db
       .insertInto('zv_settings')
       .values({ key: 'marketplace_auth_token', value: newToken, is_public: false })
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .onConflict((oc: any) => oc.column('key').doUpdateSet({ value: newToken }))
+      .onConflict((oc) => oc.column('key').doUpdateSet({ value: newToken }))
       .execute();
 
     await writeLicenseAudit(db, {
@@ -174,15 +163,12 @@ export function registerMarketplaceRoutes(
   app.get('/api/admin/license/history', async (c) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
     const rows = await db
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .selectFrom('zv_license_audit' as any)
+      .selectFrom('zv_license_audit')
       .selectAll()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .orderBy('performed_at' as any, 'desc')
+      .orderBy('performed_at', 'desc')
       .limit(50)
       .execute()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .catch(() => [] as any[]);
+      .catch(() => []);
     return c.json({ history: rows });
   });
 
@@ -203,38 +189,28 @@ export function registerMarketplaceRoutes(
       db
         .selectFrom('zv_settings')
         .select(['key'])
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .where('key' as any, 'like', 'ext_license:%')
+        .where('key', 'like', 'ext_license:%')
         .execute()
         .catch(() => []),
     ]);
 
     // When a tenant is specified: prefer tenant-scoped row, fall back to global (tenant_id IS NULL).
     // When no tenant: return the global row (admin view).
-    const rowsFiltered = tenantId
+    type RegRow = (typeof rows)[number];
+    const rowsFiltered: RegRow[] = tenantId
       ? (() => {
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          const tenantRows = (rows as any[]).filter((r) => r.tenant_id === tenantId);
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          const globalRows = (rows as any[]).filter(
-            (r) => r.tenant_id === null || r.tenant_id === undefined,
-          );
+          const tenantRows = rows.filter((r) => r.tenant_id === tenantId);
+          const globalRows = rows.filter((r) => r.tenant_id === null || r.tenant_id === undefined);
           // Merge: tenant row wins over global for the same extension name
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          const merged = new Map<string, any>();
+          const merged = new Map<string, RegRow>();
           for (const r of globalRows) merged.set(r.name, r);
           for (const r of tenantRows) merged.set(r.name, r); // override with tenant row
           return [...merged.values()];
         })()
-      : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        (rows as any[]).filter((r) => r.tenant_id === null || r.tenant_id === undefined);
+      : rows.filter((r) => r.tenant_id === null || r.tenant_id === undefined);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const dbMap = new Map(rowsFiltered.map((r: any) => [r.name, r]));
-    const licenseSet = new Set(
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      (licenseRows as any[]).map((r: any) => r.key.replace('ext_license:', '')),
-    );
+    const dbMap = new Map(rowsFiltered.map((r) => [r.name, r]));
+    const licenseSet = new Set(licenseRows.map((r) => r.key.replace('ext_license:', '')));
 
     // An extension is a satisfied dependency once it is enabled (or already
     // running). Computed once so each extension can report which of its declared
@@ -243,26 +219,21 @@ export function registerMarketplaceRoutes(
     const enabledNames = new Set(
       catalog
         .map((e) => e.name)
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .filter((n) => (dbMap.get(n) as any)?.is_enabled === true || self.isActive(n)),
+        .filter((n) => dbMap.get(n)?.is_enabled === true || self.isActive(n)),
     );
     const readDeps = (name: string): string[] => {
       try {
         const m = JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8'));
-        return (
-          (m.dependencies ?? [])
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            .map((d: any) => (typeof d === 'string' ? d : d?.name))
-            .filter((x: unknown): x is string => typeof x === 'string' && x.length > 0)
-        );
+        return ((m.dependencies ?? []) as unknown[])
+          .map((d) => (typeof d === 'string' ? d : (d as { name?: string })?.name))
+          .filter((x: unknown): x is string => typeof x === 'string' && x.length > 0);
       } catch {
         return [];
       }
     };
 
     const extensions = catalog.map((entry) => {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const dbEntry = dbMap.get(entry.name) as any;
+      const dbEntry = dbMap.get(entry.name);
       const runtimeActive = self.isActive(entry.name);
       const extDir = join(extBase, entry.name);
       const filesOnDisk = extensionFilesPresentCached(extDir);
@@ -362,8 +333,7 @@ export function registerMarketplaceRoutes(
           installed_at: new Date(),
           tenant_id: tenantId,
         })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .onConflict((oc: any) =>
+        .onConflict((oc) =>
           oc
             .column('name')
             .doUpdateSet({ is_installed: true, installed_at: new Date(), tenant_id: tenantId }),
@@ -428,8 +398,7 @@ export function registerMarketplaceRoutes(
           enabled_at: new Date(),
           tenant_id: tenantId,
         })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .onConflict((oc: any) =>
+        .onConflict((oc) =>
           oc.column('name').doUpdateSet({
             is_installed: true,
             is_enabled: true,
@@ -457,8 +426,7 @@ export function registerMarketplaceRoutes(
           await db
             .updateTable('zv_extension_registry')
             .set({ last_load_error: loadError, last_load_at: new Date() })
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            .where('name' as any, '=', name)
+            .where('name', '=', name)
             .execute()
             .catch(() => {});
         }
@@ -470,8 +438,7 @@ export function registerMarketplaceRoutes(
         await db
           .updateTable('zv_extension_registry')
           .set({ last_load_error: null, last_load_at: new Date() })
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .where('name' as any, '=', name)
+          .where('name', '=', name)
           .execute()
           .catch(() => {});
       }
@@ -519,14 +486,12 @@ export function registerMarketplaceRoutes(
     const installed = await db
       .selectFrom('zv_extension_registry')
       .select(['name'])
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .where('is_installed' as any, '=', true)
+      .where('is_installed', '=', true)
       .execute()
       .catch(() => [] as { name: string }[]);
 
     const extBase = resolveExtensionsBase();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const names = installed.map((r: any) => r.name as string);
+    const names = installed.map((r) => r.name);
     const ordered = await self.topoSortExtensions(names, extBase).catch(() => names);
 
     const results: { name: string; ok: boolean; error?: string }[] = [];
@@ -534,10 +499,8 @@ export function registerMarketplaceRoutes(
       // Mark enabled regardless of load outcome (self-heal model).
       await db
         .insertInto('zv_extension_registry')
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .values({ name, display_name: name, is_installed: true, is_enabled: true } as any)
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .onConflict((oc: any) =>
+        .values({ name, display_name: name, is_installed: true, is_enabled: true })
+        .onConflict((oc) =>
           oc.column('name').doUpdateSet({ is_enabled: true, enabled_at: new Date() }),
         )
         .execute()
@@ -560,8 +523,7 @@ export function registerMarketplaceRoutes(
       await db
         .updateTable('zv_extension_registry')
         .set({ last_load_error: ok ? null : err, last_load_at: new Date() })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .where('name' as any, '=', name)
+        .where('name', '=', name)
         .execute()
         .catch(() => {});
       results.push(ok ? { name, ok } : { name, ok, error: err });
@@ -594,8 +556,7 @@ export function registerMarketplaceRoutes(
           is_installed: true,
           is_enabled: false,
         })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .onConflict((oc: any) => oc.column('name').doUpdateSet({ is_enabled: false }))
+        .onConflict((oc) => oc.column('name').doUpdateSet({ is_enabled: false }))
         .execute();
 
       // Remove from in-memory registry so buildHonoApp() won't re-register routes
@@ -639,8 +600,7 @@ export function registerMarketplaceRoutes(
         is_enabled: false,
         config,
       })
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .onConflict((oc: any) => oc.column('name').doUpdateSet({ config }))
+      .onConflict((oc) => oc.column('name').doUpdateSet({ config }))
       .execute();
 
     return c.json({ success: true });
@@ -675,8 +635,7 @@ export function registerMarketplaceRoutes(
         await db
           .updateTable('zv_extension_registry')
           .set({ is_installed: false, is_enabled: false })
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .where('name' as any, '=', name)
+          .where('name', '=', name)
           .execute();
 
         if (wasActive) {
@@ -725,11 +684,7 @@ export function registerMarketplaceRoutes(
         console.warn(`[marketplace] refusing to remove "${extDir}" — not inside extensions base`);
       }
 
-      await db
-        .deleteFrom('zv_extension_registry')
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .where('name' as any, '=', name)
-        .execute();
+      await db.deleteFrom('zv_extension_registry').where('name', '=', name).execute();
 
       if (wasActive) {
         await triggerReloadFn(`uninstall-purge:${name}`);
