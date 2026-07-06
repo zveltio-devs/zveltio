@@ -289,7 +289,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     if (!authed) {
       const rawKey = c.req.header('X-API-Key');
       if (rawKey) {
-        const { hashApiKey } = await import('../lib/api-key-hash.js');
+        const { hashApiKey } = await import('../lib/security/index.js');
         const keyHash = await hashApiKey(rawKey);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const apiKey = await (reqDb(c, db) as any)

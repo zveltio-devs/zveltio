@@ -31,7 +31,7 @@ import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-ind
 import { checkQueryDepth, DataLoaderRegistry } from '../graphql-dataloader.js';
 import { enqueueDDLJob } from '../ddl-queue.js';
 import { validatePublicUrl } from '../edge-functions/safe-fetch.js';
-import { createBetterAuthSession } from '../sso-session.js';
+import { createBetterAuthSession } from '../security/index.js';
 import { decryptField, encryptField, isEncryptedValue } from '../field-crypto.js';
 import { sendNotification } from '../notifications.js';
 

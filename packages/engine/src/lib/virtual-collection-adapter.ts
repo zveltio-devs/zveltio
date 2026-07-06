@@ -52,7 +52,7 @@ export interface VirtualListResult {
   total: number;
 }
 
-import { validatePublicUrl } from './security/url-validator.js';
+import { validatePublicUrl } from './security/index.js';
 
 function buildAuthHeaders(config: VirtualConfig): Record<string, string> {
   if (config.auth_type === 'bearer' && config.auth_value) {
