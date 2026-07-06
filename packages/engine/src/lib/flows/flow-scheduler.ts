@@ -7,11 +7,11 @@
  * manual triggers (flows.ts POST /:id/run) and cron triggers share identical behaviour.
  */
 
-import type { Database } from '../db/index.js';
+import type { Database } from '../../db/index.js';
 import { executeFlow } from './flow-executor.js';
-import { scheduleGarbageCollector } from './garbage-collector.js';
-import { extensionRegistry } from './extension-registry.js';
-import { serviceRegistry } from './service-registry.js';
+import { scheduleGarbageCollector } from '../garbage-collector.js';
+import { extensionRegistry } from '../extension-registry.js';
+import { serviceRegistry } from '../service-registry.js';
 
 const SCHEDULER_POLL_MS = 60_000; // How often the scheduler polls for due flows
 const DEFAULT_CRON_INTERVAL_MS = 60_000; // Default interval when trigger_config.interval_seconds is absent
