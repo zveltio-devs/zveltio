@@ -9,7 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'path';
 import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
 import { fetchWithRetry } from './extension-utils.js';
-import { parseSignature, verifySignature, SignatureMissingError } from './signature-verify.js';
+import { parseSignature, verifySignature, SignatureMissingError } from './security/index.js';
 
 // ── Registry catalog cache ────────────────────────────────────────────────────
 // Default points at the Cloudflare Worker registry (registry.zveltio.com).
