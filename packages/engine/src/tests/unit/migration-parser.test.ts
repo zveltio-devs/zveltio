@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { parseMigrationSql } from '../../lib/extension-loader.js';
+import { parseMigrationSql } from '../../lib/extensions/extension-loader.js';
 
 describe('parseMigrationSql', () => {
   it('treats a file without a DOWN marker as UP-only', () => {

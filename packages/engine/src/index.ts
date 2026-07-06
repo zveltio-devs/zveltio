@@ -22,7 +22,7 @@ import {
   extensionLoader,
   buildExtensionInternals,
   serviceRegistry,
-} from './lib/extension-loader.js';
+} from './lib/extensions/index.js';
 import { queryAlterRegistry } from './lib/data/index.js';
 import { entityAccessRegistry } from './lib/entity-access.js';
 import { cronRunner } from './lib/runtime/index.js';

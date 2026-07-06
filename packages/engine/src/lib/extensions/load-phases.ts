@@ -23,12 +23,12 @@ import {
   type ExtensionCatalogEntry,
   resolvePublisherTier,
   tierAllowsInline,
-} from '../extension-catalog.js';
-import { CORE_NPM_PACKAGES, maybeSymlinkNodeModules } from '../extension-deps.js';
-import { fetchRegistryCatalog } from '../extension-download.js';
-import { DEFAULT_QUOTAS, QuotaExceededError } from '../extension-errors.js';
-import { resolveExtensionsBase } from '../extension-paths.js';
-import { directorySizeBytes } from '../extension-utils.js';
+} from './extension-catalog.js';
+import { CORE_NPM_PACKAGES, maybeSymlinkNodeModules } from './extension-deps.js';
+import { fetchRegistryCatalog } from './extension-download.js';
+import { DEFAULT_QUOTAS, QuotaExceededError } from './extension-errors.js';
+import { resolveExtensionsBase } from './extension-paths.js';
+import { directorySizeBytes } from './extension-utils.js';
 import { checkExtensionDependencies, getEngineVersion, isCompatible } from '../version-checker.js';
 import {
   type ExtensionManifest,

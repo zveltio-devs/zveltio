@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { inMemoryMutex } from '../../lib/extension-loader.js';
+import { inMemoryMutex } from '../../lib/extensions/extension-loader.js';
 
 // We test the in-memory mutex directly. The composed `withExtensionLock`
 // adds a Postgres advisory lock on top, which is covered by integration

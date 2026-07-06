@@ -15,7 +15,7 @@
 
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveExtensionsBase } from '../extension-paths.js';
+import { resolveExtensionsBase } from './extension-paths.js';
 import { isPackageAllowed } from '../peer-deps-allowlist.js';
 
 export async function installExtensionNpmDependencies(
