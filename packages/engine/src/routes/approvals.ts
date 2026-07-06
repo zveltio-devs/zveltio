@@ -19,12 +19,19 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, getUserRoles } from '../lib/permissions.js';
 import { auditLog } from '../lib/audit.js';
+
+/** Minimal shape of the better-auth session user consumed by these routes. */
+interface SessionUser {
+  id: string;
+  role?: string | null;
+}
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -65,18 +72,16 @@ const DecideSchema = z.object({
 
 // ── Route factory ──────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+// biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in docs/HARDENING-9-PLAN.md H-05
 export function approvalsRoutes(db: Database, auth: any) {
   // ── Helpers (auth-scoped) ────────────────────────────────────────────────
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  async function getUser(c: any) {
+  async function getUser(c: Context): Promise<SessionUser | null> {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    return session?.user ?? null;
+    return (session?.user as SessionUser | undefined) ?? null;
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  async function isAdmin(user: any): Promise<boolean> {
+  async function isAdmin(user: SessionUser | null): Promise<boolean> {
     if (!user) return false;
     if (user.role === 'god') return true;
     return checkPermission(user.id, 'approvals', 'manage').catch(() => false);
@@ -97,8 +102,7 @@ export function approvalsRoutes(db: Database, auth: any) {
       .execute();
 
     // Attach step counts
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const ids = workflows.map((w: any) => w.id);
+    const ids = workflows.map((w) => w.id);
     const stepCounts = ids.length
       ? await db
           .selectFrom('zv_approval_steps')
@@ -109,13 +113,11 @@ export function approvalsRoutes(db: Database, auth: any) {
       : [];
 
     const countMap = Object.fromEntries(
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      stepCounts.map((r: any) => [r.workflow_id, Number(r.step_count)]),
+      stepCounts.map((r) => [r.workflow_id, Number(r.step_count)]),
     );
 
     return c.json({
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      workflows: workflows.map((w: any) => ({ ...w, step_count: countMap[w.id] ?? 0 })),
+      workflows: workflows.map((w) => ({ ...w, step_count: countMap[w.id] ?? 0 })),
     });
   });
 
@@ -147,8 +149,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         .insertInto('zv_approval_steps')
         .values(
           data.steps.map((s) => ({
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            workflow_id: (workflow as any).id,
+            workflow_id: workflow.id,
             step_order: s.step_order,
             name: s.name,
             approver_role: s.approver_role ?? null,
@@ -163,8 +164,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     await auditLog(db, {
       type: 'approval.workflow_changed',
       userId: user.id,
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      resourceId: (workflow as any).id,
+      resourceId: workflow.id,
       resourceType: 'approval_workflow',
       metadata: {
         action: 'created',
@@ -185,8 +185,14 @@ export function approvalsRoutes(db: Database, auth: any) {
     const { id } = c.req.param();
     const data = c.req.valid('json');
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const update: any = { updated_at: new Date() };
+    const update: {
+      updated_at: Date;
+      name?: string;
+      description?: string | null;
+      trigger_field?: string | null;
+      trigger_value?: string | null;
+      is_active?: boolean;
+    } = { updated_at: new Date() };
     if (data.name !== undefined) update.name = data.name;
     if (data.description !== undefined) update.description = data.description;
     if (data.trigger_field !== undefined) update.trigger_field = data.trigger_field;
@@ -296,8 +302,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         eb.or([
           eb('r.requested_by', '=', user.id),
           eb('cs.approver_user_id', '=', user.id),
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles as any)] : []),
+          ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles)] : []),
         ]),
       );
     }
@@ -305,20 +310,20 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Filter by status
     if (status) {
       const statuses = status.split(',').map((s) => s.trim());
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      query = query.where('r.status', 'in', statuses as any);
+      query = query.where('r.status', 'in', statuses);
     }
 
     // My pending = requests where I need to decide
     if (myPending) {
       const userRoles = await getUserRoles(user.id);
-      query = query.where('r.status', '=', 'pending').where((eb) =>
-        eb.or([
-          eb('cs.approver_user_id', '=', user.id),
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles as any)] : []),
-        ]),
-      );
+      query = query
+        .where('r.status', '=', 'pending')
+        .where((eb) =>
+          eb.or([
+            eb('cs.approver_user_id', '=', user.id),
+            ...(userRoles.length > 0 ? [eb('cs.approver_role', 'in', userRoles)] : []),
+          ]),
+        );
     }
 
     const requests = await query.execute();
@@ -326,8 +331,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     // Count total (same filters without limit/offset)
     const countResult = await db
       .selectFrom('zv_approval_requests as r')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .select((eb) => eb.fn.count('r.id' as any).as('total'))
+      .select((eb) => eb.fn.count('r.id').as('total'))
       .executeTakeFirst();
 
     return c.json({ requests, total: Number(countResult?.total ?? 0) });
@@ -351,8 +355,7 @@ export function approvalsRoutes(db: Database, auth: any) {
       .executeTakeFirst();
 
     if (!workflow) return c.json({ error: 'Workflow not found or inactive' }, 404);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    if ((workflow as any).collection !== collection) {
+    if (workflow.collection !== collection) {
       return c.json({ error: 'Workflow collection mismatch' }, 400);
     }
 
@@ -382,8 +385,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         workflow_id,
         collection,
         record_id,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        current_step_id: firstStep ? (firstStep as any).id : null,
+        current_step_id: firstStep ? firstStep.id : null,
         status: 'pending',
         requested_by: user.id,
         metadata: JSON.stringify(metadata ?? {}),
@@ -394,8 +396,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     await auditLog(db, {
       type: 'approval.submitted',
       userId: user.id,
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      resourceId: (request as any).id,
+      resourceId: request.id,
       resourceType: 'approval_request',
       metadata: { workflow_id, collection, record_id },
     });
@@ -437,8 +438,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     if (!request) return c.json({ error: 'Request not found' }, 404);
 
     // Access check: own request or admin
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    if (!admin && (request as any).requested_by !== user.id) {
+    if (!admin && request.requested_by !== user.id) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -462,8 +462,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         'd.decided_at',
         sql<string>`COALESCE(du.name, du.email)`.as('decider_name'),
       ])
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .where('s.workflow_id', '=', (request as any).workflow_id)
+      .where('s.workflow_id', '=', request.workflow_id)
       .orderBy('s.step_order asc')
       .execute();
 
@@ -490,20 +489,17 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     if (!request) return c.json({ error: 'Request not found or not pending' }, 404);
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const currentStep = (request as any).current_step_id
+    const currentStep = request.current_step_id
       ? await db
           .selectFrom('zv_approval_steps')
           .selectAll()
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .where('id', '=', (request as any).current_step_id)
+          .where('id', '=', request.current_step_id)
           .executeTakeFirst()
       : null;
 
     // Check if user is allowed to decide this step
     if (!admin && currentStep) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const step = currentStep as any;
+      const step = currentStep;
       const userRoles = await getUserRoles(user.id);
       const isAssigned =
         step.approver_user_id === user.id ||
@@ -513,12 +509,13 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     // Record decision
     await db
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      .insertInto('zv_approval_decisions' as any)
+      .insertInto('zv_approval_decisions')
       .values({
+        // A pending request being decided always has a current step; if it were
+        // null the DB's NOT NULL on step_id would reject the insert (unchanged
+        // from the pre-de-any behaviour).
         request_id: id,
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        step_id: (request as any).current_step_id,
+        step_id: request.current_step_id!,
         decision,
         decided_by: user.id,
         comment: comment ?? null,
@@ -538,8 +535,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         userId: user.id,
         resourceId: id,
         resourceType: 'approval_request',
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        metadata: { decision: 'rejected', step_id: (request as any).current_step_id, comment },
+        metadata: { decision: 'rejected', step_id: request.current_step_id, comment },
       });
       return c.json({ status: 'rejected' });
     }
@@ -549,10 +545,8 @@ export function approvalsRoutes(db: Database, auth: any) {
       ? await db
           .selectFrom('zv_approval_steps')
           .selectAll()
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .where('workflow_id', '=', (currentStep as any).workflow_id)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .where('step_order', '>', (currentStep as any).step_order)
+          .where('workflow_id', '=', currentStep.workflow_id)
+          .where('step_order', '>', currentStep.step_order)
           .orderBy('step_order asc')
           .limit(1)
           .executeTakeFirst()
@@ -561,8 +555,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     if (nextStep) {
       await db
         .updateTable('zv_approval_requests')
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .set({ current_step_id: (nextStep as any).id })
+        .set({ current_step_id: nextStep.id })
         .where('id', '=', id)
         .execute();
       return c.json({ status: 'pending', next_step: nextStep });
@@ -605,8 +598,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     if (!request) return c.json({ error: 'Request not found or not pending' }, 404);
 
     // Only owner or admin can cancel
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    if (!admin && (request as any).requested_by !== user.id) {
+    if (!admin && request.requested_by !== user.id) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
