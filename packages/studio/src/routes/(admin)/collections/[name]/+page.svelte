@@ -26,6 +26,14 @@ import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
 import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
 import AddFieldDrawer from '$lib/components/fields/AddFieldDrawer.svelte';
 import Slot from '$lib/components/common/Slot.svelte';
+import RecordDrawer from '$lib/components/collections/RecordDrawer.svelte';
+import {
+  humanize,
+  fieldLabel,
+  labelFromRecord,
+  fmtCell,
+  fieldBadgeColor,
+} from '$lib/components/collections/field-helpers.js';
 import { auth } from '$lib/auth.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { withOptimistic } from '$lib/stores/optimistic.svelte.js';
@@ -294,18 +302,9 @@ function goToPage(p: number) {
   reloadData({ page: p });
 }
 
-// ── Display helpers ─────────────────────────────────────────────────
-/** Convert "snake_case" field name into "Snake Case" — used as a fallback
- *  table header when a field has no explicit `label`. */
-function humanize(s: string): string {
-  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function fieldLabel(f: any): string {
-  if (f.label) return f.label;
-  return humanize(f.name);
-}
+// Display helpers (humanize, fieldLabel, fmtCell, labelFromRecord,
+// fieldBadgeColor) live in $lib/components/collections/field-helpers.ts and are
+// imported at the top — shared with RecordDrawer + future collection components.
 
 async function reloadSchema() {
   try {
@@ -322,148 +321,12 @@ async function reloadSchema() {
   }
 }
 
-// ── Record drawer (right slide-over) — used for both Insert and Edit ────
-let drawerOpen = $state(false);
-let drawerMode = $state<'create' | 'edit'>('create');
-let drawerRecordId = $state<string | null>(null);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let insertForm = $state<Record<string, any>>({});
-let inserting = $state(false);
-let relOptions = $state<Record<string, { id: string; label: string }[]>>({});
-let loadingRelOpts = $state(false);
-let formErrors = $state<Record<string, string>>({});
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function labelFromRecord(record: any): string {
-  for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
-    if (record[k]) return String(record[k]);
-  }
-  const kv = Object.entries(record).find(
-    ([k, v]) => k !== 'id' && !k.startsWith('created') && !k.startsWith('updated') && v != null,
-  );
-  return kv ? String(kv[1]) : (record.id?.slice(0, 8) ?? '—');
-}
-
-async function loadRelOptions() {
-  loadingRelOpts = true;
-  const relFields = insertableFields.filter(
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    (f: any) => (f.type === 'm2o' || f.type === 'reference') && f.options?.related_collection,
-  );
-  const entries = await Promise.all(
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    relFields.map(async (f: any) => {
-      try {
-        const res = await dataApi.list(f.options.related_collection, { limit: '200' });
-        return [
-          f.name,
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          (res.records ?? []).map((r: any) => ({ id: r.id, label: labelFromRecord(r) })),
-        ] as const;
-      } catch {
-        return [f.name, [] as { id: string; label: string }[]] as const;
-      }
-    }),
-  );
-  relOptions = Object.fromEntries(entries);
-  loadingRelOpts = false;
-}
-
-async function openCreateDrawer() {
-  drawerMode = 'create';
-  drawerRecordId = null;
-  insertForm = {};
-  formErrors = {};
-  drawerOpen = true;
-  loadRelOptions();
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function openEditDrawer(record: any) {
-  drawerMode = 'edit';
-  drawerRecordId = record.id;
-  insertForm = {};
-  formErrors = {};
-  // Seed the form with current values for editable fields only
-  for (const f of insertableFields) {
-    const v = record[f.name];
-    if (v !== undefined && v !== null) insertForm[f.name] = v;
-  }
-  drawerOpen = true;
-  loadRelOptions();
-}
-
-/** Light client-side validation — required fields, basic email/url patterns,
- *  numeric range. Server-side validation still runs and is authoritative. */
-function validateForm(): boolean {
-  formErrors = {};
-  let ok = true;
-  for (const f of insertableFields) {
-    const v = insertForm[f.name];
-    const present = v !== undefined && v !== null && v !== '';
-    if (f.required && !present) {
-      formErrors[f.name] = 'Required';
-      ok = false;
-      continue;
-    }
-    if (!present) continue;
-    if (f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v))) {
-      formErrors[f.name] = 'Invalid email';
-      ok = false;
-    }
-    if (f.type === 'url' && !/^https?:\/\//i.test(String(v))) {
-      formErrors[f.name] = 'Must start with http:// or https://';
-      ok = false;
-    }
-    if (
-      (f.type === 'number' || f.type === 'integer' || f.type === 'decimal') &&
-      Number.isNaN(Number(v))
-    ) {
-      formErrors[f.name] = 'Must be a number';
-      ok = false;
-    }
-    if (f.type === 'integer' && !Number.isInteger(Number(v))) {
-      formErrors[f.name] = 'Must be a whole number';
-      ok = false;
-    }
-  }
-  formErrors = { ...formErrors };
-  return ok;
-}
-
-async function saveRecord() {
-  if (!validateForm()) return;
-  inserting = true;
-  try {
-    // Strip empty strings so server uses defaults / NULL where applicable
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const payload: Record<string, any> = {};
-    for (const [k, v] of Object.entries(insertForm)) {
-      if (v === '' || v === undefined) continue;
-      payload[k] = v;
-    }
-    if (drawerMode === 'create') {
-      await dataApi.create(collectionName, payload);
-      toast.success('Record created');
-    } else if (drawerRecordId) {
-      await dataApi.update(collectionName, drawerRecordId, payload);
-      toast.success('Record updated');
-    }
-    drawerOpen = false;
-    insertForm = {};
-    drawerRecordId = null;
-    await reloadData();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e.message || 'Failed to save record');
-  } finally {
-    inserting = false;
-  }
-}
-
-// Backwards-compat alias used by older onclick handlers in this file.
-const openDrawer = openCreateDrawer;
-const insertRecord = saveRecord;
+// ── Record drawer (create/edit) ────────────────────────────────────────────
+// Extracted to $lib/components/collections/RecordDrawer.svelte. Held via
+// bind:this so the header button + table rows can call openCreate()/openEdit().
+let recordDrawer = $state<
+  { openCreate: () => void; openEdit: (record: unknown) => void } | undefined
+>();
 
 // ── Schema: fields ────────────────────────────────────────────────────────
 let addFieldOpen = $state(false);
@@ -726,16 +589,6 @@ let confirmState = $state<{
   onconfirm: () => void;
 }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
-// ── Formatting helpers ────────────────────────────────────────────────────
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function fmtCell(value: any, type?: string): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'object') return JSON.stringify(value).slice(0, 50) + '…';
-  const s = String(value);
-  return s.length > 60 ? s.slice(0, 60) + '…' : s;
-}
-
 // M2O fields already live in customFields (FK column in this table).
 // O2M / M2M / M2A are virtual — no FK column in this table → shown only in Relations section.
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -763,27 +616,6 @@ function relBadgeColor(type: string): string {
     m2a: 'badge-warning',
   };
   return m[type] ?? 'badge-ghost';
-}
-
-function fieldBadgeColor(type: string): string {
-  const m: Record<string, string> = {
-    text: '',
-    textarea: '',
-    richtext: '',
-    number: 'badge-info',
-    integer: 'badge-info',
-    decimal: 'badge-info',
-    boolean: 'badge-success',
-    date: 'badge-warning',
-    datetime: 'badge-warning',
-    timestamp: 'badge-warning',
-    m2o: 'badge-secondary',
-    reference: 'badge-secondary',
-    uuid: 'badge-neutral',
-    json: 'badge-neutral',
-    jsonb: 'badge-neutral',
-  };
-  return m[type] ?? '';
 }
 </script>
 
@@ -814,7 +646,7 @@ function fieldBadgeColor(type: string): string {
     <Slot name="collection-detail.actions" ctx={{ user: auth.user, collection: collectionName, activeTab }} />
     <!-- Context-sensitive header actions -->
     {#if activeTab === 'data'}
-      <button onclick={openDrawer} class="btn btn-primary btn-sm gap-1.5">
+      <button onclick={() => recordDrawer?.openCreate()} class="btn btn-primary btn-sm gap-1.5">
         <Plus size={14} /> New Record
       </button>
     {:else if activeTab === 'schema'}
@@ -898,7 +730,7 @@ function fieldBadgeColor(type: string): string {
           </p>
         </div>
         {#if !searchText}
-          <button onclick={openCreateDrawer} class="btn btn-primary btn-sm gap-1.5 mt-1">
+          <button onclick={() => recordDrawer?.openCreate()} class="btn btn-primary btn-sm gap-1.5 mt-1">
             <Plus size={14} /> Add first record
           </button>
         {/if}
@@ -975,7 +807,7 @@ function fieldBadgeColor(type: string): string {
                 <td>
                   <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      onclick={() => openEditDrawer(record)}
+                      onclick={() => recordDrawer?.openEdit(record)}
                       class="btn btn-ghost btn-xs"
                       title="Edit record"
                       aria-label="Edit"
@@ -1014,7 +846,7 @@ function fieldBadgeColor(type: string): string {
                 <p class="text-xs text-base-content/40 font-mono mt-0.5">{record.id?.slice(0, 8)}…</p>
               </div>
               <div class="flex gap-1">
-                <button onclick={() => openEditDrawer(record)} class="btn btn-ghost btn-xs btn-square" aria-label="Edit">
+                <button onclick={() => recordDrawer?.openEdit(record)} class="btn btn-ghost btn-xs btn-square" aria-label="Edit">
                   <Settings size={12} />
                 </button>
                 <button onclick={() => deleteRecord(record.id)} class="btn btn-ghost btn-xs btn-square text-error" aria-label="Delete">
@@ -1440,223 +1272,15 @@ function fieldBadgeColor(type: string): string {
 
 </div>
 
-<!-- ── Insert Record Drawer (right slide-over) ──────────────────────────── -->
-{#if drawerOpen}
-  <div
-    class="fixed inset-0 z-50 flex"
-    role="dialog"
-    aria-modal="true"
-    aria-label="New Record"
-  >
-    <!-- Backdrop -->
-    <div
-      class="flex-1 bg-black/30 backdrop-blur-[1px]"
-      role="button"
-      tabindex="-1"
-      onclick={() => (drawerOpen = false)}
-      onkeydown={(e) => e.key === 'Escape' && (drawerOpen = false)}
-    ></div>
-
-    <!-- Panel -->
-    <div class="w-120 max-w-[95vw] bg-base-100 shadow-2xl flex flex-col h-full border-l border-base-200">
-
-      <!-- Panel header -->
-      <div class="flex items-center justify-between px-6 py-4 border-b border-base-200 shrink-0">
-        <div>
-          <h2 class="font-bold text-lg">{drawerMode === 'edit' ? 'Edit Record' : 'New Record'}</h2>
-          <p class="text-xs text-base-content/40 font-mono mt-0.5">
-            {collectionName}{#if drawerMode === 'edit' && drawerRecordId} · {drawerRecordId.slice(0, 8)}…{/if}
-          </p>
-        </div>
-        <button class="btn btn-ghost btn-sm btn-square" onclick={() => (drawerOpen = false)} aria-label="Close">
-          <X size={16} />
-        </button>
-      </div>
-
-      <!-- Panel body (scrollable) -->
-      <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-
-        {#if insertableFields.length === 0}
-          <div class="flex flex-col items-center justify-center h-full py-16 text-base-content/40 gap-3">
-            <Layers size={36} strokeWidth={1.2} />
-            <p class="text-sm text-center">
-              No fields defined yet.
-            </p>
-            <button
-              class="btn btn-link btn-sm"
-              onclick={() => { drawerOpen = false; setTab('schema'); }}
-            >
-              Go to Schema to add fields →
-            </button>
-          </div>
-        {:else}
-
-          {#each insertableFields as field (field.name)}
-            <div class="space-y-1.5">
-
-              <!-- Field label row -->
-              <div class="flex items-center gap-2">
-                <label for="ins-{field.name}" class="text-sm font-semibold leading-none">
-                  {fieldLabel(field)}
-                </label>
-                <span class="badge badge-xs badge-outline font-mono opacity-60 {fieldBadgeColor(field.type)}">
-                  {field.type}
-                </span>
-                {#if field.required}
-                  <span class="text-error text-xs font-bold ml-auto">required</span>
-                {/if}
-              </div>
-
-              {#if field.description}
-                <p class="text-xs text-base-content/40">{field.description}</p>
-              {/if}
-
-              <!-- Input control based on field type -->
-              {#if field.type === 'boolean'}
-                <label class="flex items-center gap-3 cursor-pointer py-1" for="ins-{field.name}">
-                  <input
-                    id="ins-{field.name}"
-                    type="checkbox"
-                    class="toggle toggle-primary toggle-sm"
-                    bind:checked={insertForm[field.name]}
-                  />
-                  <span class="text-sm text-base-content/60">
-                    {insertForm[field.name] ? 'Yes' : 'No'}
-                  </span>
-                </label>
-
-              {:else if field.type === 'textarea' || field.type === 'richtext' || field.type === 'longtext'}
-                <textarea
-                  id="ins-{field.name}"
-                  class="textarea textarea-bordered w-full min-h-28 text-sm resize-y"
-                  placeholder="Enter {field.label || field.name}…"
-                  bind:value={insertForm[field.name]}
-                ></textarea>
-
-              {:else if field.type === 'json' || field.type === 'jsonb'}
-                <textarea
-                  id="ins-{field.name}"
-                  class="textarea textarea-bordered w-full min-h-20 font-mono text-xs resize-y"
-                  placeholder={"{}"}
-                  bind:value={insertForm[field.name]}
-                ></textarea>
-
-              {:else if field.type === 'number' || field.type === 'integer' || field.type === 'decimal'}
-                <input
-                  id="ins-{field.name}"
-                  type="number"
-                  class="input input-bordered w-full"
-                  placeholder="0"
-                  bind:value={insertForm[field.name]}
-                />
-
-              {:else if field.type === 'date'}
-                <input
-                  id="ins-{field.name}"
-                  type="date"
-                  class="input input-bordered w-full"
-                  bind:value={insertForm[field.name]}
-                />
-
-              {:else if field.type === 'datetime' || field.type === 'timestamp'}
-                <input
-                  id="ins-{field.name}"
-                  type="datetime-local"
-                  class="input input-bordered w-full"
-                  bind:value={insertForm[field.name]}
-                />
-
-              {:else if field.type === 'select' && (field.options?.choices?.length || field.options?.length)}
-                <select
-                  id="ins-{field.name}"
-                  class="select select-bordered w-full"
-                  bind:value={insertForm[field.name]}
-                >
-                  <option value="">— select —</option>
-                  {#each (field.options?.choices ?? field.options ?? []) as opt}
-                    <option value={opt.value ?? opt}>{opt.label ?? opt}</option>
-                  {/each}
-                </select>
-
-              {:else if (field.type === 'm2o' || field.type === 'reference') && field.options?.related_collection}
-                <select
-                  id="ins-{field.name}"
-                  class="select select-bordered w-full"
-                  bind:value={insertForm[field.name]}
-                >
-                  <option value="">
-                    {loadingRelOpts ? 'Loading…' : `— select from ${field.options.related_collection} —`}
-                  </option>
-                  {#if !loadingRelOpts}
-                    {#each (relOptions[field.name] ?? []) as opt}
-                      <option value={opt.id}>{opt.label}</option>
-                    {/each}
-                  {/if}
-                </select>
-                {#if !loadingRelOpts && !(relOptions[field.name]?.length)}
-                  <p class="text-xs text-base-content/40 mt-0.5">
-                    No records in <span class="font-mono">{field.options.related_collection}</span> yet
-                  </p>
-                {/if}
-
-              {:else if field.type === 'color'}
-                <div class="flex items-center gap-2">
-                  <input
-                    type="color"
-                    class="h-10 w-12 rounded border border-base-300 cursor-pointer p-0.5 bg-transparent"
-                    bind:value={insertForm[field.name]}
-                  />
-                  <input
-                    id="ins-{field.name}"
-                    type="text"
-                    class="input input-bordered flex-1"
-                    placeholder="#000000"
-                    bind:value={insertForm[field.name]}
-                  />
-                </div>
-
-              {:else}
-                <input
-                  id="ins-{field.name}"
-                  type="text"
-                  class="input input-bordered w-full {formErrors[field.name] ? 'input-error' : ''}"
-                  placeholder="Enter {fieldLabel(field)}…"
-                  bind:value={insertForm[field.name]}
-                />
-              {/if}
-
-              {#if formErrors[field.name]}
-                <p class="text-error text-xs">{formErrors[field.name]}</p>
-              {/if}
-
-            </div>
-          {/each}
-
-        {/if}
-      </div>
-
-      <!-- Panel footer -->
-      <div class="px-6 py-4 border-t border-base-200 flex justify-end gap-2 shrink-0 bg-base-50">
-        <button class="btn btn-ghost" onclick={() => (drawerOpen = false)}>Cancel</button>
-        <button
-          class="btn btn-primary gap-1.5"
-          onclick={saveRecord}
-          disabled={inserting}
-        >
-          {#if inserting}
-            <span class="loading loading-spinner loading-xs"></span>
-          {:else if drawerMode === 'edit'}
-            <Save size={14} />
-          {:else}
-            <Plus size={14} />
-          {/if}
-          {drawerMode === 'edit' ? 'Update Record' : 'Save Record'}
-        </button>
-      </div>
-
-    </div>
-  </div>
-{/if}
+<!-- Record create/edit drawer (extracted). Triggered via bind:this from the
+     header "New Record" button, the empty state, and the table row actions. -->
+<RecordDrawer
+  bind:this={recordDrawer}
+  {collectionName}
+  {insertableFields}
+  onSaved={reloadData}
+  onGoToSchema={() => setTab('schema')}
+/>
 
 <!-- AddFieldDrawer -->
 <AddFieldDrawer
