@@ -1,6 +1,7 @@
 // Pure display helpers shared by the collections page and its extracted
 // components (RecordDrawer, CollectionDataTable, …). Extracted from
 // collections/[name]/+page.svelte (H-07 studio split).
+import type { CollectionField, CollectionRecord } from './types.js';
 
 /** Convert "snake_case" into "Snake Case" — a fallback label when a field has
  * no explicit `label`. */
@@ -8,14 +9,12 @@ export function humanize(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: field shape is dynamic (collection schema)
-export function fieldLabel(f: any): string {
+export function fieldLabel(f: CollectionField): string {
   if (f.label) return f.label;
   return humanize(f.name);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: record shape is dynamic
-export function labelFromRecord(record: any): string {
+export function labelFromRecord(record: CollectionRecord): string {
   for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
     if (record[k]) return String(record[k]);
   }
