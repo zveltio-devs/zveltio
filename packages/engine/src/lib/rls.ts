@@ -12,7 +12,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getCache } from './cache.js';
+import { getCache } from './runtime/index.js';
 import { getUserRoles } from './permissions.js';
 import type { FilterCondition } from '../db/dynamic.js';
 

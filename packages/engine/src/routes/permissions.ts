@@ -245,7 +245,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
 // KEYS scans every key in the Redis keyspace and blocks the server for the duration —
 // prohibited in production. SCAN iterates in batches without blocking.
 async function invalidateAllPermissionCache() {
-  const { getCache } = await import('../lib/cache.js');
+  const { getCache } = await import('../lib/runtime/index.js');
   const cache = getCache();
   if (!cache) return;
   try {

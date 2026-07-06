@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono';
-import { getCache } from '../lib/cache.js';
+import { getCache } from '../lib/runtime/index.js';
 import type { Database } from '../db/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)

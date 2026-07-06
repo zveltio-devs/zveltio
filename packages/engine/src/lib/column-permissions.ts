@@ -1,5 +1,5 @@
 import type { Database } from '../db/index.js';
-import { getCache } from './cache.js';
+import { getCache } from './runtime/index.js';
 
 export interface ColumnAccess {
   /** Columns the user cannot see (filtered from GET responses) */

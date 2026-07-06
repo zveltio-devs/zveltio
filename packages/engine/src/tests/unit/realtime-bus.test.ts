@@ -8,7 +8,7 @@ import {
   NoopRealtimeBus,
   dispatchToWs,
   type RealtimeBusMessage,
-} from '../../lib/realtime-bus.js';
+} from '../../lib/runtime/realtime-bus.js';
 
 /**
  * S5-03 unit tests — the cross-instance realtime bus picks the right

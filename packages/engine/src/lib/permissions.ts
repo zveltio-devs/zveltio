@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getCache } from './cache.js';
+import { getCache } from './runtime/index.js';
 import { getCurrentDomain } from './tenant-context.js';
 
 // Cache TTLs

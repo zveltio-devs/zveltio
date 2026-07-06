@@ -26,7 +26,7 @@ import { createRestrictedDb } from '../extension-context.js';
 import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { entityAccessRegistry } from '../entity-access.js';
-import { cronRunner } from '../cron-runner.js';
+import { cronRunner } from '../runtime/index.js';
 import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';

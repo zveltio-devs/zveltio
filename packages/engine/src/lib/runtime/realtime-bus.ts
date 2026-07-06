@@ -31,7 +31,7 @@
  */
 
 import Redis from 'ioredis';
-import { broadcastEvent } from '../routes/ws.js';
+import { broadcastEvent } from '../../routes/ws.js';
 
 const CHANNEL_NAME = 'zveltio:realtime';
 

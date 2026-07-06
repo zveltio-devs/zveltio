@@ -16,7 +16,7 @@ import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager } from '../../ddl-manager.js';
 import { queryAlterRegistry } from '../../query-alter.js';
 import { dynamicSelect } from '../../../db/dynamic.js';
-import { tracedQuery } from '../../telemetry.js';
+import { tracedQuery } from '../../runtime/index.js';
 import { getRlsFilters } from '../../rls.js';
 import { getColumnAccess, applyColumnAccess } from '../../column-permissions.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../../query-cache.js';

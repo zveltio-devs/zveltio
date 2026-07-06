@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { computeNextRun, CronRunnerImpl } from '../../lib/cron-runner.js';
+import { computeNextRun, CronRunnerImpl } from '../../lib/runtime/cron-runner.js';
 
 describe('computeNextRun', () => {
   it('returns now + intervalMs for interval schedules', () => {

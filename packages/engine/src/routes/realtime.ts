@@ -3,7 +3,7 @@ import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
 import { checkPermission } from '../lib/permissions.js';
-import { getCache } from '../lib/cache.js';
+import { getCache } from '../lib/runtime/index.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
 export const CHANNELS = {
