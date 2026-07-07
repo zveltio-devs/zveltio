@@ -1,0 +1,94 @@
+name: Soak
+
+# Long-running mixed-traffic soak to catch memory leaks before operators do.
+# `memory-monitor.ts` + stress tests exist, but nothing runs long enough. This
+# drives 60 min of CRUD/list/patch/delete churn while sampling RSS from
+# /metrics, then asserts the RSS slope is flat, p95 is stable, and there were no
+# unhandled rejections. Nightly + on-demand.
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # nightly 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Soak duration in minutes'
+        default: '60'
+
+concurrency:
+  group: soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    name: 60-minute mixed-traffic soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zveltio_test
+          POSTGRES_USER: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      valkey:
+        image: valkey/valkey:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+      VALKEY_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+      BETTER_AUTH_URL: http://localhost:3000
+      METRICS_TOKEN: soak-metrics-token
+      NODE_ENV: test
+      SOAK_MINUTES: ${{ github.event.inputs.minutes || '60' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 'latest' }
+      - run: bun install --frozen-lockfile
+      - run: cd packages/sdk && bun run build
+
+      - name: Run migrations
+        run: bun packages/engine/src/db/migrate.ts
+
+      - name: Boot engine + seed god admin
+        run: |
+          bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/api/health >/dev/null && break
+            sleep 1
+          done
+          curl -sf -X POST http://localhost:3000/api/auth/sign-up/email \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@example.com","password":"admin1234","name":"Admin"}' || true
+          PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test \
+            -c "UPDATE \"user\" SET role='god' WHERE email='admin@example.com'"
+
+      - name: Run soak
+        env:
+          BENCH_BASE_URL: http://localhost:3000
+          BENCH_EMAIL: admin@example.com
+          BENCH_PASSWORD: admin1234
+          SOAK_SAMPLE_SEC: '30'
+          SOAK_OUT: bench/results/soak-timeseries.json
+        run: bun run bench/soak.ts
+
+      - name: Upload RSS/latency timeseries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-timeseries
+          path: bench/results/soak-timeseries.json
+          if-no-files-found: warn
+
+      - name: Dump engine log on failure
+        if: failure()
+        run: cat /tmp/engine.log || true
