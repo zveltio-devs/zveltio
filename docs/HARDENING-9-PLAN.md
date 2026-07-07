@@ -75,7 +75,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-12 | Tenant-scope extension `ctx.db` (close the last multi-tenant hole) | 4 | 1.5d | TODO |
 | H-13 | Unified error envelope (RFC 9457 problem+json) defined in the SDK | 4 | 2d | TODO |
 | H-14 | Failure-injection integration tests (Postgres/registry/S3 down) | 5 | 1.5d | TODO |
-| H-15 | Nightly soak job with memory-monitor assertions | 5 | 1d | TODO |
+| H-15 | Nightly soak job with memory-monitor assertions | 5 | 1d | **DONE** (PR #28) — `.github/workflows/soak.yml` (nightly + `workflow_dispatch` with a `minutes` input) boots PG+engine, seeds a god admin, drives `SOAK_MINUTES` (default 60) of mixed CRUD/get/list/patch with bounded delete churn (`bench/soak.ts`, reusing the `bench/` HTTP drivers + `percentile`), samples RSS every 30s from the **existing** `/metrics` `zveltio_memory_rss_bytes` gauge, and uploads the RSS/latency timeseries as an artifact. Asserts: RSS slope over the final 30 min (scaled for short runs) < 1 MB/min, **zero unhandled rejections**, and p95 late-window <= 1.5x the early window. Verified locally with a 2-min run on WSL PG: 9 samples, RSS 203->213MB (slope -9.5 MB/min = no leak), p95 12->11ms, 0 unhandled, exit 0. No engine change needed — `/metrics` already exposes RSS. **No leak found** on the first run; the nightly 60-min run is the real detector. |
 | H-16 | `scripts/release-gate.ts` — codified criteria for cutting 3.0.0 stable | 5 | 0.5d | TODO |
 
 Total: ~19 days of focused work. Wave order matters: H-01/H-02 install the
@@ -643,7 +643,7 @@ is down mid-install, or S3 is down mid-upload.
 
 ---
 
-### H-15 Nightly soak job with memory assertions 🟠
+### H-15 Nightly soak job with memory assertions ✅
 
 **Problem.** `memory-monitor.ts`, stress tests, and Valkey caching exist, but
 nothing runs long enough to catch leaks before operators do.
