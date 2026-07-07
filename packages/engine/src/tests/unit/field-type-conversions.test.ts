@@ -57,15 +57,29 @@ describe('resolveConversion', () => {
   });
 
   test('date ↔ datetime cast between DATE and TIMESTAMP', () => {
-    expect(resolveConversion('date', 'datetime', 'TIMESTAMP', 'due').using).toBe(
-      '"due"::TIMESTAMP',
-    );
-    expect(resolveConversion('datetime', 'date', 'DATE', 'due').using).toBe('"due"::DATE');
+    expect(resolveConversion('date', 'datetime', 'TIMESTAMP', 'due')).toEqual({
+      ok: true,
+      sqlType: 'TIMESTAMP',
+      using: '"due"::TIMESTAMP',
+    });
+    expect(resolveConversion('datetime', 'date', 'DATE', 'due')).toEqual({
+      ok: true,
+      sqlType: 'DATE',
+      using: '"due"::DATE',
+    });
   });
 
   test('text ↔ json cast through JSONB', () => {
-    expect(resolveConversion('text', 'jsonb', 'JSONB', 'meta').using).toBe('"meta"::JSONB');
-    expect(resolveConversion('json', 'text', 'TEXT', 'meta').using).toBe('"meta"::TEXT');
+    expect(resolveConversion('text', 'jsonb', 'JSONB', 'meta')).toEqual({
+      ok: true,
+      sqlType: 'JSONB',
+      using: '"meta"::JSONB',
+    });
+    expect(resolveConversion('json', 'text', 'TEXT', 'meta')).toEqual({
+      ok: true,
+      sqlType: 'TEXT',
+      using: '"meta"::TEXT',
+    });
   });
 
   test('unenumerated pair falls back to a direct cast', () => {
