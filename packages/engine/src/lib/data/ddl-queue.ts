@@ -398,6 +398,11 @@ async function runDropRelation(trx: any, payload: any): Promise<void> {
   }
 }
 
+/** Whether the pg-boss DDL queue worker is started (health probe, H-1.4). */
+export function isDDLQueueStarted(): boolean {
+  return _boss !== null;
+}
+
 /** Stop pg-boss gracefully. Call from process shutdown. */
 export async function stopDDLQueue(): Promise<void> {
   if (_boss) {
