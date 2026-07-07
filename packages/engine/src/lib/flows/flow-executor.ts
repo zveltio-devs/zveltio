@@ -16,7 +16,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DEFAULT_TENANT_ID } from '../tenant-manager.js';
+import { DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { runScript } from '../script-runner.js';
 import { sendNotification } from '../../routes/notifications.js';
 import { serviceRegistry } from '../service-registry.js';

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 
 // Per-connection permission cache (lives only for the WS session duration).

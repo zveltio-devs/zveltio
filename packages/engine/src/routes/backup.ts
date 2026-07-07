@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { createHash } from 'crypto';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import type { Database } from '../db/index.js';
 

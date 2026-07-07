@@ -18,7 +18,7 @@ import type { EventBus } from '../runtime/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
 import { DDLManager } from '../data/index.js';
 import type { QueryAlterScope } from '../data/index.js';
-import type { EntityAccessScope } from '../entity-access.js';
+import type { EntityAccessScope } from '../tenancy/index.js';
 import { introspectSchema } from '../introspection.js';
 import { runQualityScan } from '../data-quality.js';
 import { invalidateRulesCache } from '../validation-engine.js';

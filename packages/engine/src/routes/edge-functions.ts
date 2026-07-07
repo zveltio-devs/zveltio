@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
 import { reqDb } from '../lib/route-db.js';
 

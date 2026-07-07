@@ -5,7 +5,7 @@ import { AwsClient } from 'aws4fetch';
 import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/data/index.js';
 import { generateId } from '../lib/utils.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';

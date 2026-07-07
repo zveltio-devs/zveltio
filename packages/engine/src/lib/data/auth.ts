@@ -12,7 +12,7 @@ import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
 import { DDLManager } from './ddl-manager.js';
-import { checkPermission } from '../permissions.js';
+import { checkPermission } from '../tenancy/index.js';
 import { hashApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
 

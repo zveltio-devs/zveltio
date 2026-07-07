@@ -8,7 +8,7 @@
 import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01

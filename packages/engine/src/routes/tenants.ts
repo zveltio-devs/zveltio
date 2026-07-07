@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getEnforcer, invalidateUserPermCache } from '../lib/permissions.js';
+import { checkPermission, getEnforcer, invalidateUserPermCache } from '../lib/tenancy/index.js';
 import {
   provisionTenantSchema,
   provisionEnvironment,
@@ -11,7 +11,7 @@ import {
   getUserTenants,
   getTenantEnvironments,
   enableRLS,
-} from '../lib/tenant-manager.js';
+} from '../lib/tenancy/index.js';
 
 /** Roles a user can hold within a tenant. The Casbin role granted is
  * `tenant_<role>` (NAMESPACED so it never collides with the global `admin`/
