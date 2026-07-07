@@ -165,7 +165,9 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   const isStudioOnly =
     manifest != null &&
     typeof manifest === 'object' &&
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     (manifest as any)?.contributes?.engine === false &&
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     !(manifest as any)?.engine;
 
   // Read migrations (if folder exists)
@@ -209,7 +211,8 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     peerDeps: {
       peerDependencies:
         manifest && typeof manifest === 'object' && !Array.isArray(manifest)
-          ? (manifest as any).peerDependencies
+          ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+            (manifest as any).peerDependencies
           : undefined,
       allowedPackages: PEER_DEPS_ALLOWLIST,
     },
@@ -222,7 +225,8 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
       bundleBytes,
       bundleSizeKbMax:
         manifest && typeof manifest === 'object' && !Array.isArray(manifest)
-          ? (manifest as any)?.quotas?.bundleSizeKbMax
+          ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+            (manifest as any)?.quotas?.bundleSizeKbMax
           : undefined,
     },
     stats: { tables: parsedTableCount, migrations: sqlFiles.length },
@@ -236,23 +240,30 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   const sduiErrors: ValidationError[] = [];
   {
     const pages =
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       manifest && typeof manifest === 'object' ? ((manifest as any)?.studio?.pages ?? []) : [];
     const schemaPages = (Array.isArray(pages) ? pages : []).filter(
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       (p: any) => typeof p?.schema === 'string',
     );
     if (schemaPages.length > 0) {
       // The manifest's own `name` is authoritative (handles nested names like
       // `hr/payroll` regardless of how `--dir` was passed); fall back to the
       // path only if absent.
-      const extName = (
-        manifest && typeof manifest === 'object' && typeof (manifest as any).name === 'string'
-          ? (manifest as any).name
-          : inferExpectedName(dir)
-      ) as string;
+      const manifestRecord =
+        manifest && typeof manifest === 'object'
+          ? (manifest as Record<string, unknown>)
+          : undefined;
+      const extName =
+        typeof manifestRecord?.name === 'string' ? manifestRecord.name : inferExpectedName(dir);
       const provided = extractEngineRoutes(readEngineSources(dir));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const dependencies: string[] = Array.isArray((manifest as any)?.dependencies)
-        ? (manifest as any).dependencies
+        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          (manifest as any).dependencies
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             .map((d: any) => (typeof d === 'string' ? d : d?.name))
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             .filter((x: any): x is string => typeof x === 'string')
         : [];
       for (const p of schemaPages) {

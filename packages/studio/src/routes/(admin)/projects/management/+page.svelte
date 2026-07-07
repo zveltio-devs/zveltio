@@ -8,8 +8,11 @@ import { toast } from '$lib/stores/toast.svelte.js';
 import { FolderKanban, Plus, X, List, KanbanSquare, LoaderCircle } from '@lucide/svelte';
 
 let view = $state<'list' | 'board'>('board');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let projects = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let activeProject = $state<any | null>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let tasks = $state<any[]>([]);
 let loading = $state(true);
 
@@ -36,9 +39,11 @@ const STATUSES = [
 async function loadProjects() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/projects/management');
     projects = r.data ?? [];
     if (!activeProject && projects[0]) activeProject = projects[0];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -51,8 +56,10 @@ async function loadTasks() {
     return;
   }
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>(`/ext/projects/management/${activeProject.id}/tasks`);
     tasks = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -65,6 +72,7 @@ async function createProject() {
     projectForm = { name: '', description: '', start_date: '', end_date: '' };
     await loadProjects();
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -87,6 +95,7 @@ async function createTask() {
     };
     await loadTasks();
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -97,6 +106,7 @@ async function moveTask(taskId: string, status: string) {
   try {
     await api.patch(`/ext/projects/management/tasks/${taskId}`, { status });
     await loadTasks();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }

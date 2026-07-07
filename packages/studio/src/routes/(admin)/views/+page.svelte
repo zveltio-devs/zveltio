@@ -21,7 +21,9 @@ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let views = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let loading = $state(true);
 let showModal = $state(false);
@@ -71,6 +73,7 @@ onMount(async () => {
 async function loadViews() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ views: any[]; total: number }>('/api/views?limit=200');
     views = res.views ?? [];
   } catch {
@@ -83,6 +86,7 @@ async function loadViews() {
 async function loadCollections() {
   try {
     const res = await collectionsApi.list();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     collections = (res.collections ?? []).filter((c: any) => !c.is_system);
   } catch {
     collections = [];
@@ -103,6 +107,7 @@ async function createView() {
     showModal = false;
     form = { name: '', description: '', collection: '', view_type: 'table', page_size: 20 };
     await loadViews();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to create view');
   } finally {
@@ -121,6 +126,7 @@ async function deleteView(id: string, name: string) {
       try {
         await api.delete(`/api/views/${id}`);
         views = views.filter((v) => v.id !== id);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message ?? 'Failed to delete view');
       }

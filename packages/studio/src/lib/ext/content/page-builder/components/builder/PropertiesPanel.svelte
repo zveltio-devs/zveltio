@@ -17,21 +17,25 @@ onMount(async () => {
   try {
     const res = await fetch('/api/collections');
     const json = await res.json();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     collections = (json.collections ?? []).map((c: any) => c.name);
   } catch {
     /* studio may not be wired yet */
   }
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function patchProp(key: string, value: any) {
   onPatch((b) => ({ ...b, props: { ...b.props, [key]: value } }));
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function patchStyle(key: keyof BlockStyle, value: any) {
   const v = value === '' ? undefined : value;
   onPatch((b) => ({ ...b, style: { ...(b.style ?? {}), [key]: v } }));
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function patchItems(items: any[]) {
   onPatch((b) => ({ ...b, props: { ...b.props, items } }));
 }

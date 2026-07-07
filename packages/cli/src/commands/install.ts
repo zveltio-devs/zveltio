@@ -41,6 +41,7 @@ async function installFromPath(
     process.exit(1);
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let manifest: any;
   try {
     manifest = JSON.parse(await readFile(join(sourcePath, 'manifest.json'), 'utf-8'));
@@ -136,6 +137,7 @@ async function installFromCatalog(name: string, engineUrl: string) {
     process.exit(1);
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const { extensions } = (await catalogRes.json()) as { extensions: any[] };
 
   // Find the extension in the catalog (by name, package, or displayName)
@@ -150,6 +152,7 @@ async function installFromCatalog(name: string, engineUrl: string) {
   if (!entry) {
     console.error(`❌ Extension "${name}" not found in catalog.`);
     console.log('\nAvailable extensions:');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const byCategory: Record<string, any[]> = {};
     for (const e of extensions) {
       if (!byCategory[e.category]) byCategory[e.category] = [];
@@ -185,6 +188,7 @@ async function installFromCatalog(name: string, engineUrl: string) {
     }).catch(() => null);
 
     if (!installRes?.ok) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const err = (await installRes?.json().catch(() => ({}))) as any;
       if (installRes?.status === 501) {
         console.log(`  ℹ️  Bundled extension — skipping install step, enabling directly...`);
@@ -203,11 +207,13 @@ async function installFromCatalog(name: string, engineUrl: string) {
   }).catch(() => null);
 
   if (!enableRes?.ok) {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const err = (await enableRes?.json().catch(() => ({}))) as any;
     console.error(`❌ Enable failed: ${err?.error || `HTTP ${enableRes?.status}`}`);
     process.exit(1);
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const result = (await enableRes.json()) as any;
 
   if (result.hot_loaded) {
@@ -229,6 +235,7 @@ async function activateViaApi(name: string, category: string, engineUrl: string)
       method: 'POST',
     });
     if (res.ok) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const result = (await res.json()) as any;
       console.log(
         `  ✓ ${result.hot_loaded ? 'Hot-loaded into running engine' : 'Registered (restart engine to activate)'}`,

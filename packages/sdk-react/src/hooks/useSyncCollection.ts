@@ -8,6 +8,7 @@ export interface UseSyncCollectionOptions {
   syncInterval?: number;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function useSyncCollection<T = any>(
   collectionName: string,
   options?: UseSyncCollectionOptions,

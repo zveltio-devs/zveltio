@@ -7,7 +7,7 @@ import {
   sha256Hex,
   type ZveltioKeypair,
 } from '@zveltio/sdk/publish';
-import { verifySignature } from '../../lib/signature-verify.js';
+import { verifySignature } from '../../lib/security/signature-verify.js';
 
 /**
  * Tests for the S4-05 publish primitives in `@zveltio/sdk/publish`.

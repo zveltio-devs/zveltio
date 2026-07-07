@@ -11,6 +11,7 @@ import { FileInput, LoaderCircle } from '@lucide/svelte';
 
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let forms = $state<any[]>([]);
 let loading = $state(true);
 let togglingId = $state<string | null>(null);
@@ -20,8 +21,10 @@ onMount(loadForms);
 async function loadForms() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ forms: any[] }>('/ext/forms');
     forms = res.forms ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -29,12 +32,14 @@ async function loadForms() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function toggleActive(form: any) {
   togglingId = form.id;
   try {
     await api.patch(`/ext/forms/${form.id}`, { active: !form.active });
     form.active = !form.active;
     forms = [...forms];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['forms.error.updatePrefix']() + (e.message ?? ''));
   } finally {
@@ -50,11 +55,13 @@ async function deleteFormConfirmed(id: string, name: string) {
     await api.delete(`/ext/forms/${id}`);
     forms = forms.filter((f) => f.id !== id);
     toast.success(m['forms.toast.deleted']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function fieldCount(form: any): number {
   try {
     const fields = typeof form.fields === 'string' ? JSON.parse(form.fields) : form.fields;

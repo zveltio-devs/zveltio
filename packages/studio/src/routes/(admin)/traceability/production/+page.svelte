@@ -4,14 +4,18 @@ import { m } from '$lib/i18n.svelte.js';
 import { api } from '$lib/api.js';
 const API = '/ext/operations/traceability';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let orders = $state<any[]>([]);
 let loading = $state(true);
 let error = $state('');
 let statusFilter = $state('');
 let showNewForm = $state(false);
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let items = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let recipes = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let lots = $state<any[]>([]);
 
 let newOrder = $state({
@@ -22,6 +26,7 @@ let newOrder = $state({
   notes: '',
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selectedOrder = $state<any>(null);
 let consumeForm = $state({ lot_id: '', quantity_used: '' });
 let haccpForm = $state({ ccp: '', value: '', unit: '°C', limit_min: '', ok: true });
@@ -84,6 +89,7 @@ async function createOrder(e: Event) {
     if (!res.ok) throw new Error(await res.text());
     showNewForm = false;
     await loadOrders();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -121,6 +127,7 @@ async function addConsumption(e: Event) {
     if (!res.ok) throw new Error(await res.text());
     consumeForm = { lot_id: '', quantity_used: '' };
     await loadOrder(selectedOrder.id);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {

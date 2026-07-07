@@ -8,6 +8,7 @@ import { api } from '$lib/api.js';
 
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let transactions = $state<any[]>([]);
 let total = $state(0);
 let page = $state(1);
@@ -15,6 +16,7 @@ let filterType = $state('');
 let filterStatus = $state('');
 let loading = $state(false);
 let showModal = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let editingTx = $state<any>(null);
 
 let form = $state({
@@ -70,6 +72,7 @@ function openCreate() {
   showModal = true;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function openEdit(tx: any) {
   editingTx = tx;
   form = {

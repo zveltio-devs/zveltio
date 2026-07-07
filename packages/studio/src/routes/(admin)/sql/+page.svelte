@@ -3,6 +3,7 @@ import { api } from '$lib/api.js';
 import { Terminal } from '@lucide/svelte';
 
 let query = $state('SELECT * FROM "user" LIMIT 10;');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let rows: Record<string, any>[] = $state([]);
 let columns: string[] = $state([]);
 let rowCount = $state<number | null>(null);
@@ -20,6 +21,7 @@ async function runQuery() {
   elapsed = null;
   const start = Date.now();
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const body = await api.post<{ rows: Record<string, any>[]; rowCount: number }>(
       '/api/admin/sql',
       { query },
@@ -28,6 +30,7 @@ async function runQuery() {
     rows = body.rows ?? [];
     rowCount = body.rowCount ?? rows.length;
     columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     elapsed = Date.now() - start;
     error = e.message ?? String(e);

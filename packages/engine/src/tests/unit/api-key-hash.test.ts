@@ -5,7 +5,7 @@ beforeAll(() => {
   process.env.BETTER_AUTH_SECRET = 'unit-test-secret-minimum-32-characters!';
 });
 
-const { hashApiKey } = await import('../../lib/api-key-hash.js');
+const { hashApiKey } = await import('../../lib/security/api-key-hash.js');
 
 describe('hashApiKey', () => {
   it('returns a 64-character hex string', async () => {

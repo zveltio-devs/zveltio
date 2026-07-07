@@ -4,7 +4,7 @@
  * Validation is delegated to the shared url-validator module.
  */
 
-import { validatePublicUrl } from '../security/url-validator.js';
+import { validatePublicUrl } from '../security/index.js';
 export { validatePublicUrl };
 
 export async function safeFetch(

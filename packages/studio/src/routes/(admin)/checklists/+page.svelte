@@ -53,6 +53,7 @@ let newItemText = $state('');
 function extractError(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (e && typeof e === 'object') {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const o = e as any;
     return o.message ?? o.error ?? 'Unknown error';
   }

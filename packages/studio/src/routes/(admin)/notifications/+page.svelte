@@ -9,6 +9,7 @@ interface Notification {
   type: string;
   title: string;
   message: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: any;
   is_read: boolean;
   created_at: string;

@@ -31,6 +31,7 @@ const PositionsSchema = z.object({
     .refine((m) => Object.keys(m).length <= 1000, 'too many entries (max 1000)'),
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function erdLayoutRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -44,6 +45,7 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
 
   // GET / — current user's layout
   app.get('/', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     const rows = (await db
       .selectFrom('zv_erd_layouts')
@@ -62,14 +64,17 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
   // the client doesn't have to track deletions separately. The whole map
   // is small (~50 entries typical) so the cost is negligible.
   app.put('/', zValidator('json', PositionsSchema), async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     const { positions } = c.req.valid('json');
 
     await db.transaction().execute(async (trx: Database) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await (trx as any).deleteFrom('zv_erd_layouts').where('user_id', '=', user.id).execute();
 
       const entries = Object.entries(positions);
       if (entries.length > 0) {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         await (trx as any)
           .insertInto('zv_erd_layouts')
           .values(
@@ -89,6 +94,7 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
 
   // DELETE / — wipe the current user's layout
   app.delete('/', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user' as never) as any;
     const r = await db
       .deleteFrom('zv_erd_layouts')

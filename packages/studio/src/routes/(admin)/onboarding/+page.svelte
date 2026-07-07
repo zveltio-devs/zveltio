@@ -53,6 +53,7 @@ let apiKey = $state('');
 let keyCreated = $state(false);
 
 // Step 4 — test
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let engineUrl = (typeof window !== 'undefined' ? (window as any).__ZVELTIO_ENGINE_URL__ : '') || '';
 let testResult = $state('');
 let testLoading = $state(false);
@@ -134,6 +135,7 @@ async function runTest() {
     });
     const data = await res.json();
     testResult = JSON.stringify(data, null, 2);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     testResult = `Error: ${err.message}`;
   } finally {

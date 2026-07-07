@@ -103,6 +103,7 @@ async function signInWithPasskey() {
       body: JSON.stringify({ response: assertion }),
     });
     if (!verifyRes.ok) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const body = (await verifyRes.json().catch(() => null)) as any;
       throw new Error(body?.message ?? `Sign-in failed: HTTP ${verifyRes.status}`);
     }

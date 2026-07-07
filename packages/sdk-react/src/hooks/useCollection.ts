@@ -3,6 +3,7 @@ import { fetchCollection, type CollectionOptions } from '@zveltio/sdk';
 import { useZveltioClient } from '../context.js';
 import type { HookResult } from '../types.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function useCollection<T = any>(
   collectionName: string,
   options?: CollectionOptions,

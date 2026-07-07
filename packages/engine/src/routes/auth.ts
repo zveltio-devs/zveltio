@@ -6,6 +6,7 @@ import type { Database } from '../db/index.js';
 // Auth routes — Better-Auth handles all /api/auth/** requests
 // This file registers the handler and adds a /me convenience endpoint
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function authRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -73,6 +74,8 @@ export function authRoutes(db: Database, auth: any): Hono {
  *
  * Companion to POST /api/users/invite (admin-side) + migration 004_invitations.
  */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function invitationRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 

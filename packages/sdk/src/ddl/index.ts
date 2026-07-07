@@ -114,6 +114,7 @@ export interface CollectionRecord {
 // directly; the runtime instance handles the rest.
 
 import type { Kysely } from 'kysely';
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export type DDLManagerDb = Kysely<any>;
 
 // ── DDLManager interface ────────────────────────────────────────────────────

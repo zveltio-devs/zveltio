@@ -15,11 +15,12 @@ import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { renderTemplate, generatePDF, getNextDocumentNumber } from '../lib/doc-generator.js';
-import { DDLManager } from '../lib/ddl-manager.js';
+import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function documentsRoutes(db: Database, _auth: any): Hono {
   const app = new Hono();
 
@@ -27,10 +28,15 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     const row = (await db
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .selectFrom('user' as any)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .select(['role'] as any)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .where('id' as any, '=', session.user.id)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .executeTakeFirst()) as any;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     c.set('user', { ...session.user, role: row?.role ?? (session.user as any).role });
     return next();
   });
@@ -38,6 +44,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   // GET /templates
   app.get('/templates', async (c) => {
     const tdb = reqDb(c, db);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const result = await sql<any>`
       SELECT * FROM zv_doc_templates WHERE is_active = true ORDER BY name ASC
     `.execute(tdb);
@@ -48,6 +55,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   app.get('/templates/:id', async (c) => {
     const tdb = reqDb(c, db);
     const id = c.req.param('id');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const result = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(tdb);
     if (result.rows.length === 0) return c.json({ error: 'Template not found' }, 404);
     return c.json({ template: result.rows[0] });
@@ -75,6 +83,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     `.execute(tdb);
 
     const templateResult =
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${result.rows[0].id}`.execute(tdb);
     return c.json({ template: templateResult.rows[0] }, 201);
   });
@@ -127,6 +136,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
       tdb,
     );
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const templateResult = await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${id}`.execute(
       tdb,
     );
@@ -155,6 +165,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const templateId = c.req.param('templateId');
 
     const templateResult =
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await sql<any>`SELECT * FROM zv_doc_templates WHERE id = ${templateId}`.execute(tdb);
     const template = templateResult.rows[0];
     if (!template) return c.json({ error: 'Template not found' }, 404);
@@ -162,6 +173,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const body = await c.req.json();
     const { variables_data, source_record_id, source_collection } = body;
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let allVariables: Record<string, any> = variables_data ? { ...variables_data } : {};
 
     if (source_collection && source_record_id) {
@@ -180,6 +192,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
       const tableName = DDLManager.getTableName(source_collection);
       try {
         const recordResult =
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           await sql<any>`SELECT * FROM ${sql.id(tableName)} WHERE id = ${source_record_id}`.execute(
             tdb,
           );
@@ -227,6 +240,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   // GET /generated — list generated docs
   // Admins see all; regular users see only their own documents.
   app.get('/generated', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     const templateId = c.req.query('template_id');
@@ -240,16 +254,19 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     let result;
     if (templateId) {
       result =
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         await sql<any>`SELECT * FROM zv_generated_docs WHERE template_id = ${templateId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(
           tdb,
         );
     } else if (sourceCollection && sourceRecordId) {
       result =
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         await sql<any>`SELECT * FROM zv_generated_docs WHERE source_collection = ${sourceCollection} AND source_record_id = ${sourceRecordId} ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(
           tdb,
         );
     } else {
       result =
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         await sql<any>`SELECT * FROM zv_generated_docs WHERE 1=1 ${ownerFilter} ORDER BY generated_at DESC LIMIT 50`.execute(
           tdb,
         );
@@ -261,10 +278,12 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   // GET /generated/:id
   app.get('/generated/:id', async (c) => {
     const tdb = reqDb(c, db);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const isAdmin = await checkPermission(user.id, 'admin', '*');
     const id = c.req.param('id');
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const result = await sql<any>`SELECT * FROM zv_generated_docs WHERE id = ${id}`.execute(tdb);
     if (result.rows.length === 0) return c.json({ error: 'Document not found' }, 404);
 

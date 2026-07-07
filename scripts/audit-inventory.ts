@@ -39,11 +39,17 @@ interface RouteHandler {
 
 const HANDLER_RE = /\b(?:app|router)\.(post|patch|put|delete)\(\s*(['"`])([^'"`]+)\2/g;
 
-async function listRouteFiles(): Promise<string[]> {
+async function listRouteFiles(dir: string = ROUTES_DIR): Promise<string[]> {
   const files: string[] = [];
-  for (const entry of await readdir(ROUTES_DIR, { withFileTypes: true })) {
-    if (entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
-      files.push(join(ROUTES_DIR, entry.name));
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    // Recurse into subdirectories (e.g. routes/admin/*.ts after the H-07
+    // admin.ts split) so privileged handlers that moved out of a top-level
+    // file are still inventoried and their auditLog() coverage checked.
+    if (entry.isDirectory()) {
+      files.push(...(await listRouteFiles(full)));
+    } else if (entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+      files.push(full);
     }
   }
   return files.sort();

@@ -24,6 +24,7 @@ import { m } from '$lib/i18n.svelte.js';
 type IllustrationVariant = 'list' | 'table' | 'cloud' | 'target' | 'spark';
 
 interface EmptyConfig {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   icon?: Component<any>;
   illustration?: IllustrationVariant;
   illustrationColor?: string;
@@ -49,6 +50,7 @@ interface Props {
   actionLabel?: string;
   actionHref?: string;
   onAction?: () => void;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   actionIcon?: Component<any>;
   empty?: EmptyConfig;
   /** Custom slot to override the "no match" message when search is active. */

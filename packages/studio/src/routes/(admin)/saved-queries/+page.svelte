@@ -6,6 +6,7 @@ import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { api } from '$lib/api.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let queries = $state<any[]>([]);
 let collections = $state<string[]>([]);
 let loading = $state(true);
@@ -34,11 +35,14 @@ let confirmState = $state<{
 }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
 // Split-view state
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let activeQuery = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let queryResults = $state<any>(null);
 let running = $state(false);
 
 // Inline execute (no save)
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let executeResult = $state<any>(null);
 let executeError = $state('');
 let executing = $state(false);
@@ -61,6 +65,7 @@ async function loadQueries() {
 
 async function loadCollections() {
   const res = await api.fetch(`/api/collections`, { credentials: 'include' }).then((r) => r.json());
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   collections = (res.collections ?? []).map((c: any) => c.name);
 }
 
@@ -176,6 +181,7 @@ async function deleteQuery(id: string) {
 }
 
 // ── Split-view helpers ────────────────────────────────────────────────────────
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function selectQuery(q: any) {
   activeQuery = { ...q };
   queryResults = null;

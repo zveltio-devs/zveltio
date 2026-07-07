@@ -15,37 +15,37 @@ import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
-import { initPermissions, checkPermission, getUserRoles } from './lib/permissions.js';
-import { initRls } from './lib/rls.js';
-import { fieldTypeRegistry } from './lib/field-type-registry.js';
+import { initPermissions, checkPermission, getUserRoles } from './lib/tenancy/index.js';
+import { initRls } from './lib/tenancy/index.js';
+import { fieldTypeRegistry } from './lib/data/index.js';
 import {
   extensionLoader,
   buildExtensionInternals,
   serviceRegistry,
-} from './lib/extension-loader.js';
-import { queryAlterRegistry } from './lib/query-alter.js';
-import { entityAccessRegistry } from './lib/entity-access.js';
-import { cronRunner } from './lib/cron-runner.js';
+} from './lib/extensions/index.js';
+import { queryAlterRegistry } from './lib/data/index.js';
+import { entityAccessRegistry } from './lib/tenancy/index.js';
+import { cronRunner } from './lib/runtime/index.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
-import { realtimeBus, PgNotifyRealtimeBus } from './lib/realtime-bus.js';
+import { realtimeBus, PgNotifyRealtimeBus } from './lib/runtime/index.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
-import { cancelPendingCleanups } from './lib/ghost-ddl.js';
-import { DDLManager } from './lib/ddl-manager.js';
-import { flowScheduler } from './lib/flow-scheduler.js';
+import { cancelPendingCleanups } from './lib/data/index.js';
+import { DDLManager } from './lib/data/index.js';
+import { flowScheduler } from './lib/flows/index.js';
 import {
   initTenantManager,
   reconcileTenantRLS,
   warnIfDbRoleBypassesRls,
-} from './lib/tenant-manager.js';
+} from './lib/tenancy/index.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
-import { initTelemetry, getZoneMetricsLines } from './lib/telemetry.js';
-import { engineEvents } from './lib/event-bus.js';
+import { initTelemetry, getZoneMetricsLines } from './lib/runtime/index.js';
+import { engineEvents } from './lib/runtime/index.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
-import { getMemoryReport } from './lib/memory-monitor.js';
+import { getMemoryReport } from './lib/runtime/index.js';
 
 // ─── Mutable app reference for hot-reload ────────────────────────────────────
 // The fetch handler passed to Bun.serve() is a stable closure that always
@@ -54,6 +54,7 @@ import { getMemoryReport } from './lib/memory-monitor.js';
 // new requests to the updated handler while in-flight requests drain normally.
 let _currentApp = new Hono();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let _bootstrapCtx: { db: any; auth: any } | null = null;
 let _server: ReturnType<typeof Bun.serve> | null = null;
 // Metrics counters persist across hot-reloads (module-level, not app-level)
@@ -228,6 +229,7 @@ if (_cmd === 'status') {
   const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/health`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const body: any = await res.json().catch(() => ({}));
     if (res.ok) {
       console.log(`✅ zveltio is running on ${url}`);
@@ -289,6 +291,7 @@ if (_cmd === 'create-god') {
   const _now = new Date();
   const _id = crypto.randomUUID();
   await _db
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     .insertInto('user' as any)
     .values({
       id: _id,
@@ -301,6 +304,7 @@ if (_cmd === 'create-god') {
     })
     .execute();
   await _db
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     .insertInto('account' as any)
     .values({
       id: crypto.randomUUID(),
@@ -330,6 +334,8 @@ if (_cmd === 'create-god') {
 //   2. Its files are present on disk (EXTENSIONS_DIR or monorepo default)
 // If the files are missing and the registry is unreachable we skip silently —
 // the server starts normally and the user can activate from marketplace later.
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function ensureDefaultExtensions(db: any): Promise<void> {
   const defaults = [
     {
@@ -540,13 +546,17 @@ rm studio.tar.gz</pre>
 
   // ── Extensions list (Studio consumes this to load UI bundles) ────────────
   app.get('/api/extensions', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const dbEnabled = await (db as any)
       .selectFrom('zv_extension_registry')
       .select('name')
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .where('is_enabled' as any, '=', true)
       .execute()
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .catch(() => [] as any[]);
     const allActive = [
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       ...new Set([...extensionLoader.getActive(), ...dbEnabled.map((r: any) => r.name as string)]),
     ];
     return c.json({
@@ -659,7 +669,7 @@ async function bootstrap() {
   // 3a. Field encryption sanity check — warn loudly if FIELD_ENCRYPTION_KEY
   // is unset while collections have encrypted: true fields, so the operator
   // notices that sensitive columns are landing on disk in plaintext.
-  const { checkFieldEncryptionAtBoot } = await import('./lib/field-crypto.js');
+  const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
   await checkFieldEncryptionAtBoot(db);
 
   // 4. Field Type Registry — core types
@@ -826,7 +836,7 @@ async function shutdown() {
     });
   // Stop pg-boss so its connection pool drains cleanly. Best-effort.
   try {
-    const { stopDDLQueue } = await import('./lib/ddl-queue.js');
+    const { stopDDLQueue } = await import('./lib/data/index.js');
     await stopDDLQueue();
   } catch {
     /* not initialized yet */

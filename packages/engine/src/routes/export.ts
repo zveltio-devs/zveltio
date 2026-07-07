@@ -10,8 +10,8 @@
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
-import { DDLManager } from '../lib/ddl-manager.js';
+import { checkPermission } from '../lib/tenancy/index.js';
+import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ const SAFE_TABLE = /^[a-zA-Z0-9_]{1,100}$/;
 
 // ── Route factory ──────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function exportRoutes(db: Database, _auth: any) {
   const app = new Hono();
 
@@ -91,13 +92,18 @@ export function exportRoutes(db: Database, _auth: any) {
 
     if (!schemaRow) return c.json({ error: `Collection "${collection}" not found` }, 404);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const fields: any[] =
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       typeof (schemaRow as any).fields === 'string'
-        ? JSON.parse((schemaRow as any).fields)
-        : ((schemaRow as any).fields ?? []);
+        ? // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          JSON.parse((schemaRow as any).fields)
+        : // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          ((schemaRow as any).fields ?? []);
 
     // Build column list: only fields that exist in schema + system fields
     const systemCols = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by'];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const schemaCols = fields.map((f: any) => f.name).filter((n: string) => SAFE_TABLE.test(n));
     const allCols = [...new Set([...systemCols, ...schemaCols])];
 
@@ -113,7 +119,9 @@ export function exportRoutes(db: Database, _auth: any) {
     const tableName = DDLManager.getTableName(collection);
     const colList = selectCols.map((c) => sql.id(c));
     const records = await tdb
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .selectFrom(tableName as any)
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .select(colList as any)
       .orderBy('created_at asc')
       .limit(limit)
@@ -145,6 +153,7 @@ export function exportRoutes(db: Database, _auth: any) {
     }
 
     // ── CSV ───────────────────────────────────────────────────────────────
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const csv = recordsToCsv(records as any);
     return new Response(csv, {
       headers: {

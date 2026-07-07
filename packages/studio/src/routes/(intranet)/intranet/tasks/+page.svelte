@@ -4,6 +4,7 @@ import { api } from '$lib/api.js';
 import { SquareCheck, Clock, ArrowRight, Inbox } from '@lucide/svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let tasks = $state<any[]>([]);
 let loading = $state(true);
 let busy = $state<string | null>(null);
@@ -13,6 +14,7 @@ async function load() {
   try {
     // The approvals extension exposes /api/approvals; if not installed we
     // fall back to empty so the page degrades gracefully.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ tasks?: any[]; approvals?: any[] }>(
       '/ext/workflow/approvals?status=pending&assigned_to=me',
     );
@@ -30,6 +32,7 @@ async function approve(id: string) {
     await api.post(`/ext/workflow/approvals/${id}/approve`, {});
     toast.success('Approved');
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to approve');
   } finally {
@@ -43,6 +46,7 @@ async function reject(id: string) {
     await api.post(`/ext/workflow/approvals/${id}/reject`, {});
     toast.success('Rejected');
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to reject');
   } finally {

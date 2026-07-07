@@ -32,6 +32,7 @@ export async function statusCommand(opts: { url?: string; json?: boolean }) {
     console.log('');
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let healthData: any;
   try {
     const res = await fetch(`${engineUrl}/api/health`, {
@@ -49,6 +50,7 @@ export async function statusCommand(opts: { url?: string; json?: boolean }) {
     }
 
     healthData = await res.json();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     if (opts.json) {
       console.log(JSON.stringify({ status: 'error', message: err.message }));

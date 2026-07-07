@@ -27,15 +27,18 @@ export class ZveltioClient {
   }
 
   // Direct CRUD methods
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async list<T = any>(collection: string, options?: QueryOptions): Promise<QueryResponse<T>> {
     return this.from(collection).query<T>(options);
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async get<T = any>(collection: string, id: string): Promise<T> {
     const res = await this.request<SingleResponse<T>>(`/api/data/${collection}/${id}`);
     return res.record;
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async create<T = any>(collection: string, data: Partial<T>): Promise<T> {
     const res = await this.request<CreateResponse<T>>(`/api/data/${collection}`, {
       method: 'POST',
@@ -44,6 +47,7 @@ export class ZveltioClient {
     return res.record;
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async update<T = any>(collection: string, id: string, data: Partial<T>): Promise<T> {
     const res = await this.request<SingleResponse<T>>(`/api/data/${collection}/${id}`, {
       method: 'PATCH',
@@ -52,6 +56,7 @@ export class ZveltioClient {
     return res.record;
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async replace<T = any>(collection: string, id: string, data: T): Promise<T> {
     const res = await this.request<SingleResponse<T>>(`/api/data/${collection}/${id}`, {
       method: 'PUT',

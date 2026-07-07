@@ -4,10 +4,14 @@ import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.sve
 import { api } from '$lib/api.js';
 const API = '/ext/operations/traceability';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let items = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let suppliers = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let locations = $state<any[]>([]);
 let saving = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let saved = $state<any>(null);
 let error = $state('');
 
@@ -71,6 +75,7 @@ async function submit(e: Event) {
   saved = null;
 
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const payload: any = {
       item_id: form.item_id,
       lot_type: form.lot_type,
@@ -107,6 +112,7 @@ async function submit(e: Event) {
       notes: '',
       gs1_raw: '',
     };
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {

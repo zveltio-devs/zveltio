@@ -54,6 +54,7 @@ async function loadBackups() {
         pollBackup(b.id);
       }
     }
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to load backups');
   } finally {
@@ -71,6 +72,7 @@ async function createBackup() {
     notes = '';
     await loadBackups();
     pollBackup(data.backup_id);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to create backup');
   } finally {
@@ -112,6 +114,7 @@ async function deleteBackup(id: string, filename: string) {
       try {
         await api.delete(`/api/backup/${id}`);
         backups = backups.filter((b) => b.id !== id);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
         toast.error(e.message ?? 'Failed to delete backup');
       }

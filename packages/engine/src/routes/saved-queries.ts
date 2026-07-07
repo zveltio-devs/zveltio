@@ -16,8 +16,8 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
-import { DDLManager } from '../lib/ddl-manager.js';
+import { checkPermission } from '../lib/tenancy/index.js';
+import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
@@ -76,6 +76,7 @@ const UpdateQuerySchema = z.object({
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface QueryConfig {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   filters: Array<{ field: string; operator: string; value?: any; group?: string }>;
   filter_mode: 'AND' | 'OR';
   filter_groups: Array<{ id: string; mode: 'AND' | 'OR' }>;
@@ -87,6 +88,7 @@ interface QueryConfig {
 
 // ── Filter helpers ─────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function applyFilter(query: any, filter: { field: string; operator: string; value?: any }): any {
   const { field, operator, value } = filter;
 
@@ -140,8 +142,11 @@ function applyFilter(query: any, filter: { field: string; operator: string; valu
 }
 
 function buildFilterCondition(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   eb: any,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   filter: { field: string; operator: string; value?: any },
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): any {
   const { field, operator, value } = filter;
 
@@ -247,6 +252,7 @@ async function executeQueryConfig(
   config: QueryConfig,
   userId: string,
 ): Promise<{
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   records: any[];
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }> {
@@ -261,6 +267,7 @@ async function executeQueryConfig(
   }
 
   const offset = (config.page - 1) * config.limit;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let baseQuery: any = (db as any).selectFrom(tableName);
 
   if (config.columns?.length > 0) {
@@ -286,6 +293,7 @@ async function executeQueryConfig(
       if (config.filter_mode === 'AND') {
         for (const f of ungrouped) baseQuery = applyFilter(baseQuery, f);
       } else {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         baseQuery = baseQuery.where((eb: any) =>
           eb.or(ungrouped.map((f) => buildFilterCondition(eb, f))),
         );
@@ -295,6 +303,7 @@ async function executeQueryConfig(
     for (const [groupId, groupFilters] of Object.entries(filtersByGroup)) {
       const groupConfig = config.filter_groups?.find((g) => g.id === groupId);
       const groupMode = groupConfig?.mode || 'AND';
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       baseQuery = baseQuery.where((eb: any) => {
         const conditions = groupFilters.map((f) => buildFilterCondition(eb, f));
         return groupMode === 'AND' ? eb.and(conditions) : eb.or(conditions);
@@ -304,6 +313,7 @@ async function executeQueryConfig(
 
   const countResult = await baseQuery
     .clearSelect()
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     .select((eb: any) => eb.fn.countAll().as('count'))
     .execute();
   const total = parseInt(countResult[0]?.count || '0');
@@ -329,6 +339,7 @@ async function executeQueryConfig(
 
 // ── Route factory ─────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function savedQueriesRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -434,6 +445,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     const collection = c.req.query('collection');
 
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let query = (reqDb(c, db) as any)
         .selectFrom('zv_saved_queries')
         .select([
@@ -447,6 +459,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
           'created_at',
           'updated_at',
         ])
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .where((eb: any) => eb.or([eb('created_by', '=', user.id), eb('is_shared', '=', true)]))
         .orderBy('created_at', 'desc');
 
@@ -456,8 +469,10 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
 
       const rows = await query.execute();
       const ownedIds = new Set(
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         rows.filter((r: any) => r.created_by === user.id).map((r: any) => r.id),
       );
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const queries = rows.map((q: any) => ({ ...q, is_owner: ownedIds.has(q.id) }));
       return c.json({ queries });
     } catch (err) {
@@ -471,6 +486,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     const id = c.req.param('id');
 
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const result = await sql<any>`
         SELECT id, name, description, collection, config, is_shared, created_by, created_at, updated_at
         FROM zv_saved_queries
@@ -505,12 +521,15 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         if (!hasAdmin) return c.json({ error: 'Only admins can make queries shared' }, 403);
       }
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const updates: Record<string, any> = { updated_at: new Date() };
       if (data.name !== undefined) updates.name = data.name;
       if (data.description !== undefined) updates.description = data.description;
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       if (data.config !== undefined) updates.config = JSON.stringify(data.config) as any;
       if (data.is_shared !== undefined) updates.is_shared = data.is_shared;
 
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await (reqDb(c, db) as any)
         .updateTable('zv_saved_queries')
         .set(updates)
@@ -552,6 +571,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
     const id = c.req.param('id');
 
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const result = await sql<any>`
         SELECT collection, config, is_shared, created_by
         FROM zv_saved_queries

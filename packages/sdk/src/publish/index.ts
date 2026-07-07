@@ -120,6 +120,7 @@ export async function signBundle(
   const bundleSha256 = await sha256Hex(archive);
   const key = await importPrivateKey(keypair.privateJwk);
   const dataBytes = new TextEncoder().encode(bundleSha256.toLowerCase());
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const sigBuf = await crypto.subtle.sign({ name: 'Ed25519' }, key, dataBytes as any);
   return {
     algorithm: 'ed25519',
@@ -164,7 +165,9 @@ export async function verifyBundle(
   const ok = await crypto.subtle.verify(
     { name: 'Ed25519' },
     key,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     sigBytes as any,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     dataBytes as any,
   );
   return ok ? { ok: true } : { ok: false, reason: 'Ed25519 verification failed' };

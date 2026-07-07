@@ -27,6 +27,7 @@ let dismissed = $state(false);
 
 onMount(async () => {
   // Re-use a window-cached value across route changes; tab-scoped only.
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const cached = (window as any).__zveltioDemoCache as DemoState | undefined;
   if (cached) {
     demo = cached;
@@ -42,6 +43,7 @@ onMount(async () => {
       credentials: data?.demo_credentials,
     };
     demo = next;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     (window as any).__zveltioDemoCache = next;
   } catch {
     /* engine unreachable — no banner */

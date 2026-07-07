@@ -20,13 +20,13 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
-import { DDLManager } from '../lib/ddl-manager.js';
-import { fieldTypeRegistry } from '../lib/field-type-registry.js';
-import { enqueueDDLJob } from '../lib/ddl-queue.js';
+import { checkPermission } from '../lib/tenancy/index.js';
+import { DDLManager } from '../lib/data/index.js';
+import { fieldTypeRegistry } from '../lib/data/index.js';
+import { enqueueDDLJob } from '../lib/data/index.js';
 import { dynamicInsert } from '../db/dynamic.js';
 import { auditLog } from '../lib/audit.js';
-import { DEFAULT_TENANT_ID } from '../lib/tenant-manager.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 
 // Static imports so Bun.build bundles the JSON into the binary.
 // Adding a new builtin template = drop a JSON file + add the import here.
@@ -125,6 +125,7 @@ function sortByDependencies(collections: TemplateCollection[]): TemplateCollecti
   return out;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function templatesRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -227,6 +228,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       }
 
       const ordered = sortByDependencies(renamed);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       const created: { name: string; job_id: string | null; status: 'queued' | 'skipped' }[] = [];
 
@@ -255,6 +257,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
             required: f.required ?? false,
             unique: false,
             indexed: false,
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             options: (f.options ?? {}) as Record<string, any>,
           })),
         };
@@ -315,6 +318,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       // install's CREATE INDEX CONCURRENTLY can't run inside a txn), but
       // tenantMiddleware still resolves the request tenant onto the context.
       // Single-tenant installs resolve to the default tenant.
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const tenantId = (c.get('tenant' as never) as any)?.id ?? DEFAULT_TENANT_ID;
 
       // Seed parents before children so "@key" m2o references resolve.
@@ -378,6 +382,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
 
       await auditLog(db, {
         type: 'collection.created',
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         userId: (c.get('user' as never) as any)?.id,
         resourceId: t.id,
         resourceType: 'template_seed',

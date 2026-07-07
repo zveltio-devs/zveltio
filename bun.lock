@@ -22,7 +22,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.3",
+      "version": "3.0.0-beta.29",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -37,7 +37,7 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.3",
+      "version": "3.0.0-beta.29",
       "dependencies": {
         "@lucide/svelte": "^0.575.0",
         "@zveltio/sdk": "workspace:*",
@@ -62,7 +62,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.3",
+      "version": "3.0.0-beta.29",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.6.11",
         "@better-auth/passkey": "^1.6.11",
@@ -90,12 +90,13 @@
         "@types/nodemailer": "^6.4.17",
         "@zveltio/sdk": "workspace:*",
         "bun-types": "latest",
+        "fast-check": "^4.8.0",
         "typescript": "^5.4.0",
       },
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.3",
+      "version": "3.0.0-beta.29",
       "dependencies": {
         "idb": "^8.0.0",
       },
@@ -119,7 +120,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.3",
+      "version": "3.0.0-beta.29",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -135,7 +136,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.3",
+      "version": "3.0.0-beta.29",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -149,7 +150,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.3",
+      "version": "3.0.0-beta.29",
       "dependencies": {
         "@inlang/paraglide-js": "^2.18.0",
         "@lucide/svelte": "^0.575.0",
@@ -1169,6 +1170,8 @@
 
     "fake-indexeddb": ["fake-indexeddb@6.2.5", "", {}, "sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w=="],
 
+    "fast-check": ["fast-check@4.8.0", "", { "dependencies": { "pure-rand": "^8.0.0" } }, "sha512-GOJ158CUMnN6cSahsv4+ExARvIDuzzinFjkp0E9WtiBa5zcVeLozVkWaE4IzFcc+Y48Wp1EDlUZsXRyAztQcSg=="],
+
     "fast-fifo": ["fast-fifo@1.3.2", "", {}, "sha512-/d9sfos4yxzpwkDkuN7k2SqFKtYNmCTzgfEpz82x34IM9/zc8KGxQoXg1liNC/izpRM/MBdt44Nmx41ZWqk+FQ=="],
 
     "fast-glob": ["fast-glob@3.3.3", "", { "dependencies": { "@nodelib/fs.stat": "^2.0.2", "@nodelib/fs.walk": "^1.2.3", "glob-parent": "^5.1.2", "merge2": "^1.3.0", "micromatch": "^4.0.8" } }, "sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg=="],
@@ -1546,6 +1549,8 @@
     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
 
     "punycode.js": ["punycode.js@2.3.1", "", {}, "sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA=="],
+
+    "pure-rand": ["pure-rand@8.4.1", "", {}, "sha512-c58R2+SPFcSIPXoU834QN/KPDDOSd8sXcSrqf6e83Me6Rrp1EYkxukkjXMVrKvKaADs1SOyNkWdfvLf6zY8qLQ=="],
 
     "pvtsutils": ["pvtsutils@1.3.6", "", { "dependencies": { "tslib": "^2.8.1" } }, "sha512-PLgQXQ6H2FWCaeRak8vvk1GW462lMxB5s3Jm673N82zI4vqtVUPuZdffdZbPDFRoU8kAhItWFtPCWiPpp4/EDg=="],
 

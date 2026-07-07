@@ -39,6 +39,7 @@ const rows: Row[] = [];
 
 for (const manifestPath of findManifests(ROOT).sort()) {
   const dir = dirname(manifestPath);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let manifest: any;
   try {
     manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -60,6 +61,7 @@ for (const manifestPath of findManifests(ROOT).sort()) {
 
   const name = manifest.name ?? dir.replace(ROOT + '/', '').replace(/\\/g, '/');
   const pages = manifest.studio?.pages ?? [];
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const schemaPages = pages.filter((p: any) => p?.schema);
   const tier: Row['tier'] =
     pages.length === 0 ? 'no-studio' : schemaPages.length > 0 ? 'sdui' : 'bespoke';

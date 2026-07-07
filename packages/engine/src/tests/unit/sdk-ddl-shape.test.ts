@@ -6,7 +6,7 @@ import type {
   CollectionRecord,
   DDLManagerDb,
 } from '@zveltio/sdk/ddl';
-import { DDLManager as RealDDLManager } from '../../lib/ddl-manager.js';
+import { DDLManager as RealDDLManager } from '../../lib/data/ddl-manager.js';
 
 /**
  * S4-08 contract tests: the `@zveltio/sdk/ddl` interface must stay

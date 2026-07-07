@@ -7,6 +7,7 @@ export class Auth {
     this.config = config;
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async signIn(email: string, password: string): Promise<{ user: any; session: any }> {
     const res = await fetch(`${this.config.baseUrl}/api/auth/sign-in/email`, {
       method: 'POST',
@@ -18,6 +19,7 @@ export class Auth {
     return res.json();
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async signUp(name: string, email: string, password: string): Promise<{ user: any }> {
     const res = await fetch(`${this.config.baseUrl}/api/auth/sign-up/email`, {
       method: 'POST',
@@ -36,6 +38,7 @@ export class Auth {
     });
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async getSession(): Promise<{ user: any; session: any } | null> {
     const res = await fetch(`${this.config.baseUrl}/api/me`, { credentials: 'include' });
     if (!res.ok) return null;

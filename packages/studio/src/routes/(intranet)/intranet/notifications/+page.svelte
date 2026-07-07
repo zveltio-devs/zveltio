@@ -4,6 +4,7 @@ import { api } from '$lib/api.js';
 import { Bell, Check, Clock, Trash2 } from '@lucide/svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let notifications = $state<any[]>([]);
 let loading = $state(true);
 let filter = $state<'all' | 'unread'>('unread');
@@ -13,8 +14,10 @@ async function load() {
   loading = true;
   try {
     const qs = filter === 'unread' ? '?unread_only=true' : '';
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ notifications: any[] }>(`/api/notifications${qs}`);
     notifications = res.notifications ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to load notifications');
   } finally {
@@ -27,6 +30,7 @@ async function markRead(id: string) {
   try {
     await api.patch(`/api/notifications/${id}`, { read: true });
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to mark as read');
   } finally {
@@ -40,6 +44,7 @@ async function markAllRead() {
     await api.post('/api/notifications/mark-all-read', {});
     await load();
     toast.success('All notifications marked as read');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed');
   } finally {
@@ -52,6 +57,7 @@ async function remove(id: string) {
   try {
     await api.delete(`/api/notifications/${id}`);
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to delete');
   } finally {

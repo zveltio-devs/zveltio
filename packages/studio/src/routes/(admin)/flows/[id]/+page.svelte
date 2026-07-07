@@ -38,6 +38,7 @@ interface Step {
   id: string;
   name: string;
   type: StepType;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   config: Record<string, any>;
   order: number;
 }
@@ -47,6 +48,7 @@ interface Flow {
   name: string;
   description: string | null;
   trigger_type: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   trigger_config: Record<string, any>;
   is_active: boolean;
   steps: Step[];
@@ -71,6 +73,7 @@ async function loadFlow() {
     const data = await api.get<{ flow: Flow }>(`/api/flows/${flowId}`);
     flow = data.flow;
     if (flow && !flow.steps) flow.steps = [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? 'Failed to load flow');
   } finally {
@@ -88,6 +91,7 @@ async function saveFlow() {
       description: flow.description,
       steps: flow.steps,
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     saveError = e.message;
   } finally {
@@ -147,6 +151,7 @@ function onDrop() {
   dragOverIdx = null;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function updateStepConfig(key: string, value: any) {
   if (!selectedStep || !flow) return;
   selectedStep = { ...selectedStep, config: { ...selectedStep.config, [key]: value } };

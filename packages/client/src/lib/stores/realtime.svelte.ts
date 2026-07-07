@@ -5,6 +5,7 @@
  */
 export function useRealtime() {
   let isConnected = $state(false);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const handlers = new Map<string, Set<(payload: any) => void>>();
 
   $effect(() => {
@@ -40,6 +41,7 @@ export function useRealtime() {
       return isConnected;
     },
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     on(channel: string, handler: (payload: any) => void): () => void {
       if (!handlers.has(channel)) handlers.set(channel, new Set());
       handlers.get(channel)!.add(handler);

@@ -10,8 +10,8 @@ import {
   withTenantIsolation,
   type Tenant,
   type Environment,
-} from '../lib/tenant-manager.js';
-import { runWithDomain } from '../lib/tenant-context.js';
+} from '../lib/tenancy/index.js';
+import { runWithDomain } from '../lib/tenancy/index.js';
 
 declare module 'hono' {
   interface ContextVariableMap {

@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 
 // In-memory i18n cache: locale → key → value
 const i18nCache = new Map<string, Map<string, string>>();
@@ -15,6 +15,7 @@ function invalidateCache() {
   cacheExpiry = 0;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -22,6 +23,7 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return session.user;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function translationsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -44,6 +46,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       .catch(() => ({ rows: [] }));
 
     const map = new Map<string, string>();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     for (const row of rows.rows as any[]) {
       map.set(row.key, row.value);
     }
@@ -52,6 +55,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       const allKeys = await sql`SELECT key, default_value FROM zvd_translation_keys`
         .execute(db)
         .catch(() => ({ rows: [] }));
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       for (const row of allKeys.rows as any[]) {
         if (row.default_value) map.set(row.key, row.default_value);
       }
@@ -157,6 +161,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
     return c.json({
       keys: rows.rows,
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       pagination: { total: (total.rows[0] as any)?.count ?? 0, page: parseInt(page), limit: lim },
     });
   });
@@ -230,6 +235,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const { keyId, locale } = c.req.param();
       const data = c.req.valid('json');
@@ -255,9 +261,11 @@ export function translationsRoutes(db: Database, auth: any): Hono {
   );
 
   app.post('/:keyId/:locale/approve', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const { keyId, locale } = c.req.param();
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const result = await sql<any>`
       UPDATE zvd_translations
       SET reviewed = true, approved_by = ${user.id}, approved_at = NOW(), updated_at = NOW()
@@ -283,6 +291,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
   // ── Stats ──────────────────────────────────────────────────────
 
   app.get('/stats/coverage', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const stats = await sql<any>`
       SELECT
         l.code AS locale,
@@ -305,6 +314,7 @@ export function translationsRoutes(db: Database, auth: any): Hono {
 
   app.get('/stats/missing/:locale', async (c) => {
     const locale = c.req.param('locale');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const missing = await sql<any>`
       SELECT tk.id, tk.key, tk.default_value, tk.context
       FROM zvd_translation_keys tk
@@ -335,8 +345,10 @@ export function translationsRoutes(db: Database, auth: any): Hono {
       }),
     ),
     async (c) => {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
       const data = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const term = await sql<any>`
         INSERT INTO zvd_translation_glossary (term, locale, translation, definition, forbidden, created_by)
         VALUES (${data.term}, ${data.locale}, ${data.translation}, ${data.definition ?? null}, ${data.forbidden}, ${user.id})

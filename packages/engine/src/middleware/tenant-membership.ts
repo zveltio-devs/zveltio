@@ -17,9 +17,10 @@
 
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
-import { isGodUser } from '../lib/permissions.js';
-import { DEFAULT_TENANT_ID } from '../lib/tenant-manager.js';
+import { isGodUser } from '../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function tenantMembershipMiddleware(auth: any, db: Database) {
   return createMiddleware(async (c, next) => {
     const tenant = c.get('tenant') as { id: string } | null;
@@ -41,6 +42,7 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
     // Cross-tenant operators (god / super-admin) are exempt.
     if (await isGodUser(userId)) return next();
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const member = await (db as any)
       .selectFrom('zv_tenant_users')
       .select('user_id')

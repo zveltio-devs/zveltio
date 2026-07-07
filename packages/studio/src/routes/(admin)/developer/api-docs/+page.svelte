@@ -13,8 +13,11 @@ import { BookOpen, Plus, X, FileCode, Key, LoaderCircle } from '@lucide/svelte';
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
 let tab = $state<'changelog' | 'custom' | 'tokens'>('changelog');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let changelogs = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let customDocs = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let tokens = $state<any[]>([]);
 let loading = $state(false);
 
@@ -30,8 +33,10 @@ let customForm = $state({
 async function loadChangelog() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/changelogs');
     changelogs = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -41,8 +46,10 @@ async function loadChangelog() {
 async function loadCustom() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/custom');
     customDocs = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -52,8 +59,10 @@ async function loadCustom() {
 async function loadTokens() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/access-tokens');
     tokens = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -74,6 +83,7 @@ async function createCustom() {
     };
     await loadCustom();
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -86,6 +96,7 @@ async function generateToken() {
     await api.post('/ext/developer/api-docs/access-tokens', {});
     await loadTokens();
     toast.success(m['developer.apiDocs.toast.tokenGenerated']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -98,6 +109,7 @@ async function revokeTokenConfirmed(id: string) {
     await api.delete(`/ext/developer/api-docs/access-tokens/${id}`);
     await loadTokens();
     toast.success(m['developer.apiDocs.toast.revoked']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
