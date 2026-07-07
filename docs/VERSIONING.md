@@ -40,6 +40,37 @@ All packages (`engine`, `studio`, `sdk`, `sdk-react`, `sdk-vue`, `cli`) are **li
 
 ---
 
+## Stable release gate
+
+Two rules, enforced by machine, not judgement:
+
+1. **Version numbers are never renumbered again.** The 1.0 → orphaned-2.0 → 3.0
+   history is behind us. A published version is immutable; a mistake is fixed by
+   moving *forward* to the next number, never by reusing or renumbering one.
+2. **Stable means the gate passed. Full stop.** A non-prerelease tag is only
+   published when `scripts/release-gate.ts` says so — it is a required job in
+   `release.yml` (`publish-release` needs it). Prerelease tags
+   (`-alpha`/`-beta`/`-rc.`) bypass the gate with a warning.
+
+The gate (`scripts/release-gate.ts`) asserts, with real checks:
+
+- the `any` suppression ratchet is at/below baseline (H-01);
+- gated coverage buckets meet their stable target — engine `lib/` ≥ 60% (H-02);
+- HEAD's migrations are a strict superset of the last release's — nothing
+  renamed/renumbered/deleted (reuses the H-11 invariant);
+- `package.json` version matches the tag;
+- the required CI checks are green on the release-candidate commit (H-09
+  adversarial + H-11 upgrade-path run inside integration; Type Check, Lint,
+  Unit, Integration, Perf Smoke);
+- the latest soak run is green (H-15);
+- there are no open `P0` issues.
+
+Any failure blocks the stable publish. Run it yourself before proposing a stable
+cut: `bun run scripts/release-gate.ts 3.0.0` (add `RELEASE_GATE_SKIP_NETWORK=1`
+to skip the GitHub-API checks offline).
+
+---
+
 ## Workflow for developers
 
 ### 1. Work on a feature / bugfix as normal

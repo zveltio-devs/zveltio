@@ -76,7 +76,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-13 | Unified error envelope (RFC 9457 problem+json) defined in the SDK | 4 | 2d | TODO |
 | H-14 | Failure-injection integration tests (Postgres/registry/S3 down) | 5 | 1.5d | TODO |
 | H-15 | Nightly soak job with memory-monitor assertions | 5 | 1d | TODO |
-| H-16 | `scripts/release-gate.ts` — codified criteria for cutting 3.0.0 stable | 5 | 0.5d | TODO |
+| H-16 | `scripts/release-gate.ts` — codified criteria for cutting 3.0.0 stable | 5 | 0.5d | **DONE** (PR #29) — `scripts/release-gate.ts`: prerelease tags (`-alpha/-beta/-rc.`) BYPASS with a warning; a STABLE tag must pass all checks or exit non-zero. Checks: any-ratchet at baseline (H-01); gated coverage buckets meet stable target — `lib` >= 60% (H-02); HEAD migrations a strict superset of the last release tag (no renumber, reuses H-11); `package.json` == tag; required CI green on the RC commit via `gh api .../check-runs` (Type Check/Lint/Unit/Integration[incl. H-09 adversarial + H-14]/Perf); latest soak green via `gh run list` (H-15); no open `P0` issues. Wired into `release.yml` as job `release-gate` with `publish-release` `needs: [generate-assets, release-gate]` (self-bypasses beta, so current publishes are unaffected). `docs/VERSIONING.md` documents the two rules: versions are never renumbered; stable means the gate passed. Verified locally: beta bypass exit 0; forced `3.0.0` correctly BLOCKS (coverage 24<60 + version mismatch) with the deterministic checks passing and the `gh` paths executing cleanly. |
 
 Total: ~19 days of focused work. Wave order matters: H-01/H-02 install the
 ratchets **before** the big refactors so regressions are impossible, and the
@@ -665,7 +665,7 @@ p95 at minute 55 within 1.5× of p95 at minute 5.
 
 ---
 
-### H-16 `scripts/release-gate.ts` — codified 3.0.0-stable criteria 🔴
+### H-16 `scripts/release-gate.ts` — codified 3.0.0-stable criteria ✅
 
 **Problem.** The 1.0 → 2.0-orphan → 3.0 version history reads as instability
 from the outside. The fix is procedural: stable is cut when a script says so,
