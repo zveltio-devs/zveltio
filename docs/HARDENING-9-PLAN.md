@@ -69,7 +69,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-06 | De-`any` `extension-marketplace-routes.ts`, `insights.ts`, `approvals.ts` | 2 | 1d | DONE — combined markers **98 → 2** (well under ≤10 target; the 2 survivors are the documented better-auth `auth: any` in approvals + insights). Levers: (a) most casts were stale table/row casts — `zv_approval_*`/`zv_settings`/`zv_extension_registry` are already typed, and rows come from `selectAll`/`returningAll`, so `(x as any).field` and `.selectFrom('t' as any)` just dropped; (b) insights' 21× `c.get('user') as any` → typed Hono `Variables` env (one `InsightsEnv` type); (c) Hono `c: Context`, `catch (err: unknown)`, `onConflict((oc) => …)` inferred, request/response bodies → `Record<string, unknown>`/typed; (d) added `ZvLicenseAuditTable` to `schema.ts` (real cols, verified vs live DB) + fixed `ZvExtensionRegistryTable` accuracy (`category`/`version` → `Generated`, `author` → nullable) so the enable-all insert types without a cast. Engine any 789→**693**. Verified: tsc 0, WSL unit 404/0, integration contract 42/0, schema-drift-check 0, lint/coverage green. |
 | H-07 | Split `routes/admin.ts` and the collections detail Svelte page | 2 | 1.5d | **DONE** (both halves). **Engine** (2188981, 1/2): `routes/admin.ts` **1347→244 L** — `adminRoutes()` body cut along its section seams into `routes/admin/{system-routes(565),permission-routes(310),config-routes(299)}.ts` (register-fn pattern, same call order → byte-identical paths). All <600. Verified: tsc 0, WSL 404/0, engine boot mounts every group, gates green. **Studio** (e7a03ca + 608c2bd, 2/2): `collections/[name]/+page.svelte` **1678→390 L**, decomposed into `lib/components/collections/`: `RecordDrawer.svelte` (367, create/edit slide-over), `CollectionDataTable.svelte` (438, owns records+pagination+search/sort/selection+realtime), `CollectionSchemaPanel.svelte` (588, owns fields+relation-builder+system-fields), `field-helpers.ts` (55, shared pure display helpers). Page keeps canonical collection/relations state; children coordinate via bind:this refs (openCreate/openEdit, openAddField/openRelForm, reload) + callback props (onSaved/onSchemaChanged). All <600. Verified LIVE (dev server + preview, auth'd seeded `contacts`): both tabs render; New Record→save→dataTable.reload() and Add Field→onSchemaChanged→reloadSchema→prop round-trips both hold (Svelte 5 prop-down reactivity, which svelte-check can't catch); svelte-check adds 0 errors in any collections file. |
 | H-08 | Subsystem boundaries in `lib/` + import-boundary check | 2 | 1d | **DONE** (7cc729b + 6 subsystem commits). `engine/src/lib` 67 flat → 26 + 8 subsystem dirs; `flows`/`security`/`runtime`/`data`/`extensions`/`tenancy` each barrel-sealed via `index.ts`. `scripts/import-boundaries.ts` (git ls-files walk, auto-detects subsystems, resolves static+dynamic imports) wired into CI Lint — fails on any non-test deep import into a subsystem; verified 0 violations + a negative test. Pure moves; tsc 0, WSL unit 427/0. Coverage dip from barrel eager-load offset by new field-type-conversions + validation-engine tests (22.9%→24.6%). |
-| H-09 | Adversarial multi-tenant suite parametrized over the OpenAPI spec | 3 | 1.5d | TODO |
+| H-09 | Adversarial multi-tenant suite parametrized over the OpenAPI spec | 3 | 1.5d | **DONE** (8dd9885). `tenant-adversarial.integration.test.ts`: seeds tenant B with an unguessable sentinel, then as a non-god user in tenant A walks the live `/api/openapi.json`, substitutes B ids into every fillable route, and asserts B's sentinel never appears in A's responses + B's data record is never 2xx'd or mutated. Explicit justified ALLOWLIST (health/openapi/sitemap/metrics/auth); every other route isolates or the build fails. Verified live (WSL+PG): 3/3 pass, 32 routes checked / 22 skipped-with-reason. Runs in CI integration (`test:integration` globs the dir), ~2s. **Caveats vs plan:** ~59% route coverage not ≥90% (non-data `{id}`/`{channel}`/`{keyPrefix}` params aren't type-fillable from B — all logged); engine runs as DB superuser in CI so RLS is bypassed — isolation held anyway via app-level tenant scoping + RBAC, but the RLS-bound proof stays in tenant-rls.test (non-superuser role). |
 | H-10 | Property/fuzz tests: filter parser + field-type conversions | 3 | 1d | TODO |
 | H-11 | Upgrade-path test in CI (release N-1 binary → HEAD migration → smoke) | 3 | 1d | TODO |
 | H-12 | Tenant-scope extension `ctx.db` (close the last multi-tenant hole) | 4 | 1.5d | TODO |
@@ -430,7 +430,7 @@ grows tendrils into "tenant code".
 
 ## Wave 3 — Tests that prove the promises
 
-### H-09 Adversarial multi-tenant suite over the OpenAPI spec 🔴
+### H-09 Adversarial multi-tenant suite over the OpenAPI spec ✅
 
 **Problem.** Tenant isolation is the product's flagship claim, but it is
 tested point-wise (tenant-rls, tenant-rbac, tenant-membership tests). Every
@@ -457,10 +457,21 @@ new route ships without an isolation proof. The IP-hostname RLS incident
 `src/tests/fixtures/`.
 
 **Acceptance criteria.**
-- [ ] Suite walks ≥ 90% of spec'd routes (log skipped ones with reasons).
-- [ ] Fails loudly on any cross-tenant read or write.
-- [ ] Runs in the existing CI integration job (budget: < 3 min).
-- [ ] The allowlist, not the test body, is the only thing a new route may edit.
+- [~] Walks the spec + logs every skip with a reason. ~59% of routes are
+      actually fired at B (32/54); the rest have `{id}`/`{channel}`/`{keyPrefix}`
+      params that can't be type-safely filled from B — all logged, not silently
+      passed. Short of the ≥90% aspiration; raising it needs per-route type-aware
+      id seeding (follow-up).
+- [x] Fails loudly on any cross-tenant read (sentinel leak / 2xx on B's record)
+      or write (B record mutated after the sweep).
+- [x] Runs in the existing CI integration job (`test:integration` globs the dir),
+      ~2s.
+- [x] The ALLOWLIST (each entry justified) is the only knob a new route touches.
+
+**Caveat.** CI runs the engine as a DB superuser, so Postgres RLS is bypassed;
+isolation held anyway (app-level tenant scoping + RBAC denial), so the guarantee
+doesn't rest on RLS alone. The RLS-bound proof stays in `tenant-rls.test` under a
+non-superuser role.
 
 ---
 
