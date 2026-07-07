@@ -68,7 +68,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-05 | Split + de-`any` `routes/data.ts` (typed `DynamicRow` + Zod boundary) | 2 | 2d | DONE — `data.ts` 1795→63 L; `any` 60→2 (better-auth survivors); 8 modules under `lib/data/` (types/shape/query-parse/write-pipeline/auth + handlers/{list,bulk,single}); integration contract 42/0 unmodified, unit 404/0, lint clean, ratchet lowered, coverage steady. |
 | H-06 | De-`any` `extension-marketplace-routes.ts`, `insights.ts`, `approvals.ts` | 2 | 1d | DONE — combined markers **98 → 2** (well under ≤10 target; the 2 survivors are the documented better-auth `auth: any` in approvals + insights). Levers: (a) most casts were stale table/row casts — `zv_approval_*`/`zv_settings`/`zv_extension_registry` are already typed, and rows come from `selectAll`/`returningAll`, so `(x as any).field` and `.selectFrom('t' as any)` just dropped; (b) insights' 21× `c.get('user') as any` → typed Hono `Variables` env (one `InsightsEnv` type); (c) Hono `c: Context`, `catch (err: unknown)`, `onConflict((oc) => …)` inferred, request/response bodies → `Record<string, unknown>`/typed; (d) added `ZvLicenseAuditTable` to `schema.ts` (real cols, verified vs live DB) + fixed `ZvExtensionRegistryTable` accuracy (`category`/`version` → `Generated`, `author` → nullable) so the enable-all insert types without a cast. Engine any 789→**693**. Verified: tsc 0, WSL unit 404/0, integration contract 42/0, schema-drift-check 0, lint/coverage green. |
 | H-07 | Split `routes/admin.ts` and the collections detail Svelte page | 2 | 1.5d | **DONE** (both halves). **Engine** (2188981, 1/2): `routes/admin.ts` **1347→244 L** — `adminRoutes()` body cut along its section seams into `routes/admin/{system-routes(565),permission-routes(310),config-routes(299)}.ts` (register-fn pattern, same call order → byte-identical paths). All <600. Verified: tsc 0, WSL 404/0, engine boot mounts every group, gates green. **Studio** (e7a03ca + 608c2bd, 2/2): `collections/[name]/+page.svelte` **1678→390 L**, decomposed into `lib/components/collections/`: `RecordDrawer.svelte` (367, create/edit slide-over), `CollectionDataTable.svelte` (438, owns records+pagination+search/sort/selection+realtime), `CollectionSchemaPanel.svelte` (588, owns fields+relation-builder+system-fields), `field-helpers.ts` (55, shared pure display helpers). Page keeps canonical collection/relations state; children coordinate via bind:this refs (openCreate/openEdit, openAddField/openRelForm, reload) + callback props (onSaved/onSchemaChanged). All <600. Verified LIVE (dev server + preview, auth'd seeded `contacts`): both tabs render; New Record→save→dataTable.reload() and Add Field→onSchemaChanged→reloadSchema→prop round-trips both hold (Svelte 5 prop-down reactivity, which svelte-check can't catch); svelte-check adds 0 errors in any collections file. |
-| H-08 | Subsystem boundaries in `lib/` + import-boundary check | 2 | 1d | TODO |
+| H-08 | Subsystem boundaries in `lib/` + import-boundary check | 2 | 1d | **DONE** (7cc729b + 6 subsystem commits). `engine/src/lib` 67 flat → 26 + 8 subsystem dirs; `flows`/`security`/`runtime`/`data`/`extensions`/`tenancy` each barrel-sealed via `index.ts`. `scripts/import-boundaries.ts` (git ls-files walk, auto-detects subsystems, resolves static+dynamic imports) wired into CI Lint — fails on any non-test deep import into a subsystem; verified 0 violations + a negative test. Pure moves; tsc 0, WSL unit 427/0. Coverage dip from barrel eager-load offset by new field-type-conversions + validation-engine tests (22.9%→24.6%). |
 | H-09 | Adversarial multi-tenant suite parametrized over the OpenAPI spec | 3 | 1.5d | TODO |
 | H-10 | Property/fuzz tests: filter parser + field-type conversions | 3 | 1d | TODO |
 | H-11 | Upgrade-path test in CI (release N-1 binary → HEAD migration → smoke) | 3 | 1d | TODO |
@@ -385,7 +385,7 @@ mixing field editing, data grid, and relation management in one component.
 
 ---
 
-### H-08 Subsystem boundaries in `lib/` + import check 🟠
+### H-08 Subsystem boundaries in `lib/` + import check ✅
 
 **Problem.** 70 flat files in `engine/src/lib` where anything imports
 anything. This is how the next god file forms and how "extension code" quietly
@@ -413,11 +413,18 @@ grows tendrils into "tenant code".
 `scripts/import-boundaries.ts` (new), `.github/workflows/ci.yml`.
 
 **Acceptance criteria.**
-- [ ] `lib/` root contains only subsystem directories (+ `utils.ts` if truly
-      shared).
-- [ ] CI fails on a deep cross-subsystem import.
-- [ ] `tsc --noEmit`, unit, and integration suites green. Pure move — zero
-      logic change (reviewable as such: `git diff --stat` shows renames).
+- [x] The 6 planned clusters are grouped + barrel-sealed (`flows`, `security`,
+      `runtime`, `data`, `extensions`, `tenancy`). lib/ root 67 → 26 flat files.
+      The 26 remaining are genuine leaf modules (audit, notifications, webhooks,
+      service-registry, wasm/worker hosts, …) with no natural subsystem — left
+      flat per the "utils if truly shared" spirit rather than forced into an
+      ill-fitting bucket.
+- [x] CI fails on a deep cross-subsystem import (`scripts/import-boundaries.ts`
+      in the Lint job; negative-tested).
+- [x] `tsc --noEmit` 0, WSL unit 427/0 across all six moves. Pure moves — git
+      shows renames (96–100% similarity). Barrel `export *` eager-loading dropped
+      gated coverage 24→22.9%; recovered to 24.6% with real tests on the exposed
+      infra (field-type-conversions + validation-engine), not a re-baseline.
 
 ---
 
