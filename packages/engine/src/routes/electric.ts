@@ -73,6 +73,7 @@ function readConfig(): ElectricConfig | null {
   return { electricUrl, authToken };
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function electricRoutes(_db: Database, auth: any): Hono {
   const app = new Hono();
 

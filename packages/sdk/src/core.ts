@@ -16,6 +16,7 @@ export interface CollectionOptions {
   limit?: number;
   sort?: string;
   order?: 'asc' | 'desc';
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   filter?: Record<string, any>;
   search?: string;
 }
@@ -26,7 +27,9 @@ export interface CollectionResult<T> {
 }
 
 export interface AuthState {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   user: any | null;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   session: any | null;
 }
 
@@ -36,6 +39,7 @@ export interface StorageFile {
   url: string;
   size: number;
   mime_type: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   [key: string]: any;
 }
 
@@ -48,40 +52,51 @@ export interface SyncStatus {
 
 // ── Collection ────────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function fetchCollection<T = any>(
   client: ZveltioClient,
   collectionName: string,
   options?: CollectionOptions,
 ): Promise<T[]> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const result = await client.collection(collectionName).list(options as any);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (result as any)?.data ?? (result as any)?.records ?? result ?? [];
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function fetchRecord<T = any>(
   client: ZveltioClient,
   collectionName: string,
   id: string,
 ): Promise<T | null> {
   const result = await client.collection(collectionName).get(id);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (result as any)?.data ?? (result as any)?.record ?? result ?? null;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function createRecord<T = any>(
   client: ZveltioClient,
   collectionName: string,
   data: Partial<T>,
 ): Promise<T> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const result = await client.collection(collectionName).create(data as any);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (result as any)?.data ?? (result as any)?.record ?? result;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function updateRecord<T = any>(
   client: ZveltioClient,
   collectionName: string,
   id: string,
   data: Partial<T>,
 ): Promise<T> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const result = await client.collection(collectionName).update(id, data as any);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (result as any)?.data ?? (result as any)?.record ?? result;
 }
 
@@ -136,11 +151,13 @@ export async function uploadFile(
   folder?: string,
 ): Promise<StorageFile> {
   const result = await client.storage.upload(file, folder);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (result as any)?.data ?? (result as any)?.file ?? result;
 }
 
 export async function listFiles(client: ZveltioClient, folder?: string): Promise<StorageFile[]> {
   const result = await client.storage.list(folder);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (result as any)?.data ?? (result as any)?.files ?? result ?? [];
 }
 
@@ -153,7 +170,9 @@ export async function removeFile(client: ZveltioClient, fileId: string): Promise
 export function subscribeToCollection(
   realtime: ZveltioRealtime,
   collection: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   callback: (event: { type: string; data: any }) => void,
 ): () => void {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return realtime.subscribe(collection, callback as any);
 }

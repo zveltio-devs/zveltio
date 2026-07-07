@@ -59,6 +59,7 @@ export function godAuditMiddleware(db: Database) {
     // Post-response: inspect session to check for god role
     // We read the user from context after next() to avoid double-resolution.
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = (c.get as any)('user') as { id: string; role?: string } | undefined;
       if (user?.role === 'god') {
         const durationMs = Date.now() - start;

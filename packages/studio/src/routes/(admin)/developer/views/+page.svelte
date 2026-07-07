@@ -20,7 +20,9 @@ import {
 
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let views = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let loading = $state(true);
 
@@ -36,8 +38,10 @@ let form = $state({
 async function load() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/api/views');
     views = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -46,6 +50,7 @@ async function load() {
 }
 async function loadCollections() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ collections?: any[]; data?: any[] }>('/api/collections');
     collections = r.collections ?? r.data ?? [];
   } catch {}
@@ -54,6 +59,7 @@ async function loadCollections() {
 async function createView() {
   saving = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let cfg: any = {};
     try {
       cfg = JSON.parse(form.config);
@@ -70,6 +76,7 @@ async function createView() {
     };
     await load();
     toast.success(m['developer.views.toast.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -84,6 +91,7 @@ async function deleteViewConfirmed(id: string) {
   try {
     await api.delete(`/api/views/${id}`);
     await load();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -94,6 +102,7 @@ onMount(() => {
   loadCollections();
 });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const VIEW_ICONS: Record<string, any> = {
   list: List,
   board: KanbanSquare,

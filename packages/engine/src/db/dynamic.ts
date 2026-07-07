@@ -27,6 +27,7 @@ async function withLockTimeout(
       `Invalid lock_timeout format: "${timeout}". Expected format: "2s", "500ms", "1min".`,
     );
   }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   await (db as any).transaction().execute(async (trx: Database) => {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(trx);
     await fn(trx);
@@ -67,6 +68,7 @@ export type FilterOp =
 
 export interface FilterCondition {
   op: FilterOp;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   value?: any;
 }
 
@@ -92,6 +94,8 @@ export interface QueryOptions {
    * (typically chained `.where()` calls). It's applied to both the rows
    * query and the count query so totals stay consistent with results.
    */
+
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   applyAlters?: (qb: any) => any;
 }
 
@@ -104,6 +108,7 @@ export interface QueryResult {
 
 // ─── Query helpers ────────────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function buildCondition(key: string, condition: FilterCondition): any {
   const col = sql.id(sanitizeIdentifier(key));
   const { op, value } = condition;
@@ -154,7 +159,9 @@ export async function dynamicSelect(
   // uniformly. Raw SQL is used only for the parts Kysely can't express
   // typesafely against a runtime-resolved table: filters (via sql template)
   // and FTS expressions.
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let qb: any = (db as any).selectFrom(tableNameSanitized).selectAll();
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   let countQb: any = (db as any)
     .selectFrom(tableNameSanitized)
     .select(sql<number>`count(*)::int`.as('total'));
@@ -230,7 +237,9 @@ const RESERVED = new Set([
 export async function dynamicInsert(
   db: Database,
   tableName: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<Record<string, any>> {
   const table = sql.id(sanitizeIdentifier(tableName));
   const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
@@ -244,6 +253,7 @@ export async function dynamicInsert(
     RETURNING *
   `.execute(db);
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return result.rows[0] as Record<string, any>;
 }
 
@@ -253,7 +263,9 @@ export async function dynamicUpdate(
   db: Database,
   tableName: string,
   id: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<Record<string, any> | null> {
   const table = sql.id(sanitizeIdentifier(tableName));
   const clean = Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k)));
@@ -271,6 +283,7 @@ export async function dynamicUpdate(
     RETURNING *
   `.execute(db);
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return (result.rows[0] as Record<string, any>) ?? null;
 }
 

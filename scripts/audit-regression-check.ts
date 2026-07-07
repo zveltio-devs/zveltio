@@ -30,19 +30,22 @@ interface Inventory {
  * The check is exact-match. When you rename a route, update this list.
  */
 const MANDATORY: ReadonlySet<string> = new Set([
-  'admin.ts:POST /migrate',
-  'admin.ts:POST /sql',
-  'admin.ts:POST /roles',
-  'admin.ts:DELETE /roles/:id',
-  'admin.ts:POST /permissions/bulk',
-  'admin.ts:POST /roles/hierarchy',
-  'admin.ts:DELETE /roles/hierarchy',
-  'admin.ts:POST /column-permissions',
-  'admin.ts:PUT /column-permissions/:id',
-  'admin.ts:DELETE /column-permissions/:id',
-  'admin.ts:PATCH /rate-limits/:keyPrefix',
-  'admin.ts:POST /rate-limits/reset',
-  'admin.ts:PATCH /api-keys/:id',
+  // Privileged admin routes — moved out of admin.ts into routes/admin/* by the
+  // H-07 split (register-fn pattern; auditLog() calls preserved). Keys track the
+  // new owning file. audit-inventory.ts now recurses into routes/admin/.
+  'system-routes.ts:POST /migrate',
+  'config-routes.ts:POST /sql',
+  'permission-routes.ts:POST /roles',
+  'permission-routes.ts:DELETE /roles/:id',
+  'permission-routes.ts:POST /permissions/bulk',
+  'permission-routes.ts:POST /roles/hierarchy',
+  'permission-routes.ts:DELETE /roles/hierarchy',
+  'config-routes.ts:POST /column-permissions',
+  'config-routes.ts:PUT /column-permissions/:id',
+  'config-routes.ts:DELETE /column-permissions/:id',
+  'config-routes.ts:PATCH /rate-limits/:keyPrefix',
+  'config-routes.ts:POST /rate-limits/reset',
+  'system-routes.ts:PATCH /api-keys/:id',
   'backup.ts:POST /',
   'backup.ts:DELETE /:id',
   'backup.ts:PATCH /pitr/config',

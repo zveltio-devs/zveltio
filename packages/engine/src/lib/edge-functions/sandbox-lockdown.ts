@@ -66,6 +66,7 @@ function buildThrower(name: string): () => never {
  * un-block them.
  */
 export function lockdownGlobals(): void {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const g = globalThis as any;
 
   for (const name of BLOCKED_GLOBALS) {
@@ -101,6 +102,7 @@ export function lockdownGlobals(): void {
     );
   } as unknown as FunctionConstructor;
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const lockProto = (proto: any) => {
     try {
       Object.defineProperty(proto, 'constructor', {

@@ -31,6 +31,7 @@ async function signIn(): Promise<string> {
 
 async function jobDone(cookie: string, jobId: string): Promise<boolean> {
   const r = await fetch(`${BASE}/api/collections/jobs/${jobId}`, { headers: { Cookie: cookie } });
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const j = (await r.json().catch(() => ({}))) as any;
   const status = j?.job?.status;
   if (status === 'failed') throw new Error(`DDL job ${jobId} failed: ${j?.job?.error ?? '?'}`);
@@ -70,11 +71,13 @@ for (const t of templates) {
     headers,
     body: '{}',
   });
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const ins = (await insRes.json().catch(() => ({}))) as any;
   if (!ins?.installed) {
     report.push(`✗ ${t.id}: install failed — ${ins?.error ?? insRes.status}`);
     continue;
   }
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const jobIds = (ins.installed as any[]).filter((i) => i.job_id).map((i) => i.job_id as string);
 
   // 2. Wait for the collections to exist.
@@ -93,15 +96,22 @@ for (const t of templates) {
       headers,
       body: '{}',
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const s = (await seedRes.json().catch(() => ({}))) as any;
     seeded = s?.seeded ?? 0;
     if (seedRes.status !== 425) break;
     await Bun.sleep(1000);
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   totalCollections += (ins.installed as any[]).length;
   totalRows += seeded;
-  report.push(`✓ ${t.id}: ${(ins.installed as any[]).length} collections, ${seeded} sample rows`);
+  report.push(
+    `✓ ${t.id}: ${
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      (ins.installed as any[]).length
+    } collections, ${seeded} sample rows`,
+  );
 }
 
 console.log('\n=== Demo seed ===');

@@ -8,12 +8,14 @@ import { api } from '$lib/api.js';
 
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let contacts = $state<any[]>([]);
 let total = $state(0);
 let page = $state(1);
 let search = $state('');
 let loading = $state(false);
 let showModal = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let editingContact = $state<any>(null);
 
 let form = $state({
@@ -44,6 +46,7 @@ function openCreate() {
   showModal = true;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function openEdit(contact: any) {
   editingContact = contact;
   form = {

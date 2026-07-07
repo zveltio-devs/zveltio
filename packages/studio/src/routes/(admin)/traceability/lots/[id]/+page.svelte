@@ -10,8 +10,11 @@ const API = '/ext/operations/traceability';
 
 let { id }: { id: string } = $props();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let lot = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let timeline = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let upstream = $state<any>(null);
 let loading = $state(true);
 let error = $state('');
@@ -33,6 +36,7 @@ async function loadLot() {
     if (!lotRes.ok) throw new Error(await lotRes.text());
     lot = (await lotRes.json()).data;
     timeline = timelineRes.ok ? (await timelineRes.json()).data : [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -57,6 +61,7 @@ async function releaseLotConfirmed() {
     const res = await api.fetch(`${API}/lots/${id}/release`, { method: 'PATCH' });
     if (!res.ok) throw new Error(await res.text());
     await loadLot();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     alert(e.message);
   } finally {
@@ -80,11 +85,13 @@ function statusClass(status: string): string {
   );
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function renderTree(node: any, depth = 0): string {
   if (!node) return '';
   const indent = '  '.repeat(depth);
   const status = node.status ? ` [${node.status}]` : '';
   const line = `${indent}${node.item_name ?? '?'} — ${node.lot_number ?? node.lot_id}${status}`;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const children = (node.inputs ?? []).map((c: any) => renderTree(c, depth + 1)).join('\n');
   return children ? `${line}\n${children}` : line;
 }

@@ -15,6 +15,7 @@ self.onmessage = async (event: MessageEvent) => {
   const msg = event.data as {
     type: string;
     html: string;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     options: Record<string, any>;
   };
   if (msg.type !== 'generate') return;
@@ -27,6 +28,7 @@ self.onmessage = async (event: MessageEvent) => {
       buffer.byteOffset + buffer.byteLength,
     ) as ArrayBuffer;
     self.postMessage({ type: 'result', buffer: ab }, { transfer: [ab] });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     self.postMessage({
       type: 'error',
@@ -35,6 +37,7 @@ self.onmessage = async (event: MessageEvent) => {
   }
 };
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function generatePDF(html: string, options: Record<string, any>): Promise<Buffer> {
   const text = html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')

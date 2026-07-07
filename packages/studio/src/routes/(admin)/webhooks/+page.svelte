@@ -7,13 +7,16 @@ import Pagination from '$lib/components/common/Pagination.svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let webhooks = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let collections = $state<any[]>([]);
 let loading = $state(true);
 let currentPage = $state(1);
 let total = $state(0);
 const LIMIT = 20;
 let showModal = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let editTarget = $state<any>(null);
 let saving = $state(false);
 let testing = $state<string | null>(null);
@@ -55,7 +58,9 @@ async function load() {
   loading = true;
   try {
     const [wh, col] = await Promise.all([webhooksApi.list(), collectionsApi.list()]);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const allWebhooks: any[] = Array.isArray(wh) ? wh : ((wh as any).webhooks ?? wh);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     total = (wh as any).total ?? allWebhooks.length;
     webhooks = allWebhooks.slice((currentPage - 1) * LIMIT, currentPage * LIMIT);
     collections = col.collections || [];
@@ -69,6 +74,7 @@ function openCreate() {
   form = emptyForm();
   showModal = true;
 }
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function openEdit(wh: any) {
   editTarget = wh;
   form = {

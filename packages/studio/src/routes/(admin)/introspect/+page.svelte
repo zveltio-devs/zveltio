@@ -38,6 +38,7 @@ async function preview() {
     const res = await api.get<{ tables: TablePreview[] }>(`/ext/developer/byod/preview?${params}`);
     previewTables = res.tables ?? [];
     previewed = true;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message || 'Preview failed');
   } finally {
@@ -58,6 +59,7 @@ async function importTables() {
     importResult = res;
     previewTables = [];
     previewed = false;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message || 'Import failed');
   } finally {

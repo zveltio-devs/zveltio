@@ -25,7 +25,9 @@ import { toast } from '$lib/stores/toast.svelte.js';
 
 const zoneSlug = $derived((page.params as Record<string, string>).slug ?? '');
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let zone = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let pages = $state<any[]>([]);
 let loading = $state(true);
 let saving = $state(false);
@@ -59,7 +61,9 @@ async function load() {
   loading = true;
   try {
     const [zoneRes, pagesRes] = await Promise.all([
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ zone: any }>(`/api/zones/${zoneSlug}`),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ pages: any[] }>(`/api/zones/${zoneSlug}/pages`),
     ]);
     zone = zoneRes.zone;
@@ -86,6 +90,7 @@ async function saveZone() {
       nav_position: zone.nav_position,
       show_breadcrumbs: zone.show_breadcrumbs,
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     zone = (res as any).zone;
     toast.success('Zone saved.');
   } catch (e) {
@@ -106,12 +111,14 @@ async function addPage() {
   if (!newPage.title.trim() || !newPage.slug.trim()) return;
   creatingPage = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.post<{ page: any }>(`/api/zones/${zoneSlug}/pages`, {
       title: newPage.title.trim(),
       slug: newPage.slug.trim(),
       description: newPage.description || undefined,
       auth_required: newPage.auth_required,
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     pages = [...pages, (res as any).page];
     newPage = { title: '', slug: '', description: '', auth_required: true };
     showAddPage = false;
@@ -140,17 +147,21 @@ async function deletePage(slug: string, title: string) {
   };
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function togglePageActive(p: any) {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.put<{ page: any }>(`/api/zones/${zoneSlug}/pages/${p.slug}`, {
       is_active: !p.is_active,
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     pages = pages.map((x) => (x.id === p.id ? (res as any).page : x));
   } catch (e) {
     toast.error(extractError(e));
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function setHomepage(p: any) {
   try {
     await api.put(`/api/zones/${zoneSlug}/pages/${p.slug}`, { is_homepage: true });
@@ -198,7 +209,9 @@ async function applyTemplate(templateKey: string) {
   applyingTemplate = true;
   try {
     for (const p of tplPages) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const res = await api.post<{ page: any }>(`/api/zones/${zoneSlug}/pages`, p);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       pages = [...pages, (res as any).page];
     }
     toast.success('Template applied.');

@@ -54,6 +54,8 @@ export const MAX_SCHEMA_VERSION = getMaxSchemaVersion();
  * Verifies schema compatibility at engine startup.
  * Exits the process if the DB schema is incompatible with this engine version.
  */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function checkSchemaCompatibility(db: any): Promise<void> {
   const { getLastAppliedMigration } = await import('./db/migrations/index.js');
   const currentVersion = await getLastAppliedMigration(db);

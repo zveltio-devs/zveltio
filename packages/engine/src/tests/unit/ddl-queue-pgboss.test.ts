@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { _internalForTests } from '../../lib/ddl-queue.js';
+import { _internalForTests } from '../../lib/data/ddl-queue.js';
 
 /**
  * S5-04 unit tests — pure logic in the new pg-boss-backed DDL queue.

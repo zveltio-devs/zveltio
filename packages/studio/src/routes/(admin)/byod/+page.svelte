@@ -11,7 +11,9 @@ import { api as zApi } from '$lib/api.js';
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
 let tab = $state<'profiles' | 'history'>('profiles');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let profiles = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let history = $state<any[]>([]);
 let error = $state('');
 let scanning = $state<string | null>(null);
@@ -30,6 +32,7 @@ let form = $state({
 // `zApi` to avoid colliding with this helper's name). Routes credentials
 // through the centralised module instead of re-implementing the cookie
 // and base-URL logic per page.
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await zApi.fetch(path, init);
   const json = await res.json().catch(() => ({}));
@@ -40,6 +43,7 @@ async function loadProfiles() {
   try {
     const r = await api('/api/byod/scan-profiles');
     profiles = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   }
@@ -48,6 +52,7 @@ async function loadHistory() {
   try {
     const r = await api('/api/byod/scan-history?limit=50');
     history = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   }
@@ -81,6 +86,7 @@ async function createProfile() {
       exclude_patterns: 'pg_*,information_schema.*',
     };
     await loadProfiles();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -95,6 +101,7 @@ async function runScan(id: string) {
     await api(`/api/byod/scan-profiles/${id}/scan`, { method: 'POST' });
     tab = 'history';
     await loadHistory();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {
@@ -109,6 +116,7 @@ async function deleteProfileConfirmed(id: string) {
   try {
     await api(`/api/byod/scan-profiles/${id}`, { method: 'DELETE' });
     await loadProfiles();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   }

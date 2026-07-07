@@ -12,8 +12,10 @@ const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExte
 
 let query = $state('');
 let selectedCollection = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let results = $state<any[]>([]);
 let collections = $state<string[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let indexes = $state<any[]>([]);
 let loading = $state(false);
 let indexesLoading = $state(true);
@@ -35,9 +37,11 @@ let resultColumns = $derived<string[]>(
     : [],
 );
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function getResultRows(): any[] {
   if (!results.length) return [];
   const first = results[0];
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   if (first?.hits) return first.hits.map((h: any) => h.document ?? h);
   return results;
 }
@@ -51,6 +55,7 @@ async function search() {
       `/extensions/search/search?q=${encodeURIComponent(query)}&collection=${encodeURIComponent(selectedCollection)}&limit=50`,
     );
     results = [res.results];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     searchError = e.message ?? m['ai.error.searchFailed']();
     results = [];
@@ -64,6 +69,7 @@ async function syncIndex(collection: string) {
   try {
     await api.post(`/extensions/search/indexes/${encodeURIComponent(collection)}/sync`, {});
     toast.success(m['ext.saved']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['search.error.syncPrefix']() + (e.message ?? ''));
   } finally {
@@ -82,6 +88,7 @@ async function removeIndexConfirmed(collection: string) {
     indexes = indexes.map((idx) =>
       idx.collection === collection ? { ...idx, status: 'inactive' } : idx,
     );
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
   }
@@ -114,6 +121,7 @@ async function saveConfig() {
     showConfigModal = false;
     await loadIndexes();
     toast.success(m['search.toast.indexConfigured']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
   } finally {
@@ -132,13 +140,16 @@ function openConfigModal(col = '') {
 }
 
 async function loadIndexes() {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const res = await api.get<{ indexes: any[] }>('/extensions/search/indexes');
   indexes = res.indexes ?? [];
 }
 
 onMount(async () => {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const colRes = await api.get<{ collections: any[] }>('/api/collections');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     collections = (colRes.collections ?? []).map((c: any) => c.name);
     if (collections.length > 0) selectedCollection = collections[0];
   } catch {}

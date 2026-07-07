@@ -5,8 +5,8 @@ import {
   sha256Hex,
   SignatureInvalidError,
   type ExtensionSignature,
-} from '../../lib/signature-verify.js';
-import { getTrustedKeys, hexToBytes } from '../../lib/registry-keys.js';
+} from '../../lib/security/signature-verify.js';
+import { getTrustedKeys, hexToBytes } from '../../lib/security/registry-keys.js';
 
 // Helpers ─────────────────────────────────────────────────────────────────────
 

@@ -6,6 +6,7 @@ let { data } = $props();
 
 const auth = useAuth();
 const theme = $derived(data?.theme ?? null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const nav = $derived((data?.nav ?? []) as any[]);
 const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? 'Portal');
 </script>

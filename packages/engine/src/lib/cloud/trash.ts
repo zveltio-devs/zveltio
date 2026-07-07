@@ -5,6 +5,7 @@ import type { Database } from '../../db/index.js';
  * Throws if the file is not found or already deleted.
  */
 export async function moveToTrash(db: Database, fileId: string, _deletedBy: string): Promise<void> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const result = await (db as any)
     .updateTable('zv_media_files')
     .set({ deleted_at: new Date().toISOString() })

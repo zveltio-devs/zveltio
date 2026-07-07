@@ -27,15 +27,19 @@
 interface RealtimeEvent {
   type: 'insert' | 'update' | 'delete' | 'connected' | 'subscribed' | string;
   collection?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data?: any;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   record?: any;
   channel?: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   [k: string]: any;
 }
 
 type CollectionListener = (event: RealtimeEvent) => void;
 type SystemListener = (event: RealtimeEvent) => void;
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const ENGINE_URL = (typeof window !== 'undefined' && (window as any).__ZVELTIO_ENGINE_URL__) || '';
 
 let socket: WebSocket | null = null;
@@ -154,6 +158,7 @@ async function connect(): Promise<void> {
   });
 
   socket.addEventListener('error', (e) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     _lastError = (e as any)?.message ?? 'WebSocket error';
   });
 

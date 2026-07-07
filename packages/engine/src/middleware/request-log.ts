@@ -32,6 +32,7 @@ export function requestLogMiddleware(db: Database): MiddlewareHandler {
     }
 
     const duration = Math.round(performance.now() - start);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
 
     db.insertInto('zv_request_logs')

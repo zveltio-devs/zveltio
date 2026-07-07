@@ -8,9 +8,13 @@ import { toast } from '$lib/stores/toast.svelte.js';
 import { Landmark, Plus, X, ArrowLeftRight, FileSpreadsheet, LoaderCircle } from '@lucide/svelte';
 
 let tab = $state<'accounts' | 'transactions' | 'reconciliation'>('accounts');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let accounts = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let transactions = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let unreconciled = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let openInvoices = $state<any[]>([]);
 let loading = $state(true);
 let showForm = $state(false);
@@ -19,6 +23,7 @@ let form = $state({ name: '', bank_name: '', iban: '', currency: 'RON', opening_
 
 async function loadAccounts() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/finance/banking/accounts');
     accounts = r.data ?? [];
   } catch (e: unknown) {
@@ -28,6 +33,7 @@ async function loadAccounts() {
 
 async function loadTransactions() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/finance/banking/transactions?limit=100');
     transactions = r.data ?? [];
   } catch (e: unknown) {
@@ -38,8 +44,10 @@ async function loadTransactions() {
 async function loadReconciliation() {
   try {
     const [u, inv] = await Promise.all([
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ data: any[] }>('/ext/finance/banking/transactions?reconciled=false&limit=100'),
       api
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .get<{ data: any[] }>('/ext/finance/invoicing/invoices?status=sent&limit=100')
         .catch(() => ({ data: [] })),
     ]);

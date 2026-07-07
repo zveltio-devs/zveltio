@@ -15,6 +15,7 @@ async function handleLogin(e: Event) {
   try {
     await auth.signIn(email, password);
     goto(`${base}/portal-client/`);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     error = err?.message ?? 'Login failed';
   } finally {

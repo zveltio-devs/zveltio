@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono';
-import { getCache } from '../lib/cache.js';
+import { getCache } from '../lib/runtime/index.js';
 import type { Database } from '../db/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
@@ -134,6 +134,7 @@ export function rateLimit(config: RateLimitConfig) {
   return async (c: Context, next: Next) => {
     // Resolve live limits from DB (falls back to compiled defaults)
     // Per-API-key override: if request uses API key auth, check apikey:<id> prefix first
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const session = (c as any).get?.('user');
     const apiKeyId = session?.id?.startsWith('apikey:') ? session.id.slice(7) : null;
     const perKeyPrefix = apiKeyId ? `apikey:${apiKeyId}` : null;
@@ -194,6 +195,7 @@ export function rateLimit(config: RateLimitConfig) {
       // Prevents all unauthenticated non-proxied traffic from sharing the same
       // 'rl:api:unknown' rate-limit key, which would allow a single client to DoS others.
       const connectionIp: string | undefined =
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         (c.env as any)?.incoming?.socket?.remoteAddress ?? (c.env as any)?.ip ?? undefined;
 
       const ip = forwardedIp || realIp || connectionIp || 'unknown';
@@ -230,6 +232,7 @@ export function rateLimit(config: RateLimitConfig) {
       // Valkey error — fall back to in-memory limiter instead of failing open.
       // Failing open here would disable ALL rate limits on Valkey outage,
       // allowing brute-force on /api/auth/sign-in and flooding AI endpoints.
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const session = (c as any).get?.('user');
       const identifier = session?.id ?? 'unknown';
       const key = `rl:${keyPrefix}:${identifier}`;

@@ -18,6 +18,7 @@ $effect(() => {
   // Poll pending sync count via LocalStore getPendingOps()
   const interval = setInterval(async () => {
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const ops = (await (sync as any).store?.getPendingOps?.()) ?? [];
       pendingCount = ops.length;
     } catch {

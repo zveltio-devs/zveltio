@@ -20,6 +20,7 @@ export type DynamicRecord = {
 
 /** Kysely query builder for a dynamic table (type-erased). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export type DynamicDB = any;
 
 /** Result of a dynamic SELECT with total count. */

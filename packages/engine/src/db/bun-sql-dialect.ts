@@ -93,6 +93,7 @@ export class BunSqlDialect implements Dialect {
     return new PostgresAdapter();
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   createIntrospector(db: Kysely<any>): DatabaseIntrospector {
     return new PostgresIntrospector(db);
   }
@@ -154,6 +155,7 @@ class BunSqlDriver implements Driver {
     const idleTimeoutMs =
       this.#config.idleTimeoutMs ??
       (process.env.BUN_SQL_IDLE_TIMEOUT_MS ? Number(process.env.BUN_SQL_IDLE_TIMEOUT_MS) : 300_000);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     this.#pool = new (Bun as any).SQL(cleanUrl, {
       max: this.#config.max ?? 20,
       idleTimeout: Math.ceil(idleTimeoutMs / 1000),
