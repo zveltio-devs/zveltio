@@ -214,6 +214,9 @@ interface LoadedExtension {
   registeredRoutes: boolean;
   /** Tables allowed by migration scan + explicit grants. */
   allowedTables?: Set<string>;
+  /** Declared manifest permissions/capabilities (e.g. `db:admin`) — kept so a
+   * hot-reload rebuilds the same capability-gated context (H-12). */
+  permissions?: string[];
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to

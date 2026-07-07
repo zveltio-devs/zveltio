@@ -11,7 +11,7 @@ import {
   type Tenant,
   type Environment,
 } from '../lib/tenancy/index.js';
-import { runWithDomain } from '../lib/tenancy/index.js';
+import { runWithDomain, setCurrentTenantTrx } from '../lib/tenancy/index.js';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -76,6 +76,10 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
         } else {
           await withTenantIsolation(tenant.id, async (trx) => {
             c.set('tenantTrx', trx);
+            // H-12: also expose the tenant transaction via the ALS store so an
+            // extension's `ctx.db` (which has no Hono context inside a hook or
+            // background job) is RLS-scoped to this tenant, not the global pool.
+            setCurrentTenantTrx(trx);
             await next();
           });
         }
