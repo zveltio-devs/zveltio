@@ -12,3 +12,14 @@ export * from './ghost-ddl.js';
 export * from './field-crypto.js';
 export * from './field-type-conversions.js';
 export * from './field-type-registry.js';
+
+// H-05 pipeline modules — folded into the public API now that import-boundaries
+// enforces barrel-only access from outside lib/data.
+export * from './types.js';
+export * from './auth.js';
+export * from './query-parse.js';
+export * from './shape.js';
+export * from './write-pipeline.js';
+export * from './handlers/list.js';
+export * from './handlers/bulk.js';
+export * from './handlers/single.js';
