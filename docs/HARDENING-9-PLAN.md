@@ -70,7 +70,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-07 | Split `routes/admin.ts` and the collections detail Svelte page | 2 | 1.5d | **DONE** (both halves). **Engine** (2188981, 1/2): `routes/admin.ts` **1347→244 L** — `adminRoutes()` body cut along its section seams into `routes/admin/{system-routes(565),permission-routes(310),config-routes(299)}.ts` (register-fn pattern, same call order → byte-identical paths). All <600. Verified: tsc 0, WSL 404/0, engine boot mounts every group, gates green. **Studio** (e7a03ca + 608c2bd, 2/2): `collections/[name]/+page.svelte` **1678→390 L**, decomposed into `lib/components/collections/`: `RecordDrawer.svelte` (367, create/edit slide-over), `CollectionDataTable.svelte` (438, owns records+pagination+search/sort/selection+realtime), `CollectionSchemaPanel.svelte` (588, owns fields+relation-builder+system-fields), `field-helpers.ts` (55, shared pure display helpers). Page keeps canonical collection/relations state; children coordinate via bind:this refs (openCreate/openEdit, openAddField/openRelForm, reload) + callback props (onSaved/onSchemaChanged). All <600. Verified LIVE (dev server + preview, auth'd seeded `contacts`): both tabs render; New Record→save→dataTable.reload() and Add Field→onSchemaChanged→reloadSchema→prop round-trips both hold (Svelte 5 prop-down reactivity, which svelte-check can't catch); svelte-check adds 0 errors in any collections file. |
 | H-08 | Subsystem boundaries in `lib/` + import-boundary check | 2 | 1d | **DONE** (7cc729b + 6 subsystem commits). `engine/src/lib` 67 flat → 26 + 8 subsystem dirs; `flows`/`security`/`runtime`/`data`/`extensions`/`tenancy` each barrel-sealed via `index.ts`. `scripts/import-boundaries.ts` (git ls-files walk, auto-detects subsystems, resolves static+dynamic imports) wired into CI Lint — fails on any non-test deep import into a subsystem; verified 0 violations + a negative test. Pure moves; tsc 0, WSL unit 427/0. Coverage dip from barrel eager-load offset by new field-type-conversions + validation-engine tests (22.9%→24.6%). |
 | H-09 | Adversarial multi-tenant suite parametrized over the OpenAPI spec | 3 | 1.5d | **DONE** (8dd9885). `tenant-adversarial.integration.test.ts`: seeds tenant B with an unguessable sentinel, then as a non-god user in tenant A walks the live `/api/openapi.json`, substitutes B ids into every fillable route, and asserts B's sentinel never appears in A's responses + B's data record is never 2xx'd or mutated. Explicit justified ALLOWLIST (health/openapi/sitemap/metrics/auth); every other route isolates or the build fails. Verified live (WSL+PG): 3/3 pass, 32 routes checked / 22 skipped-with-reason. Runs in CI integration (`test:integration` globs the dir), ~2s. **Caveats vs plan:** ~59% route coverage not ≥90% (non-data `{id}`/`{channel}`/`{keyPrefix}` params aren't type-fillable from B — all logged); engine runs as DB superuser in CI so RLS is bypassed — isolation held anyway via app-level tenant scoping + RBAC, but the RLS-bound proof stays in tenant-rls.test (non-superuser role). |
-| H-10 | Property/fuzz tests: filter parser + field-type conversions | 3 | 1d | TODO |
+| H-10 | Property/fuzz tests: filter parser + field-type conversions | 3 | 1d | **DONE** (2588d32). fast-check@4.8.0 dev-dep + two suites: query-parse.property.test.ts (parseFilters never throws; emitted ops &#8712; canonical set + fields &#8712; allowlist = no operator/column injection; JSON round-trip; unknown field = typed 400. decodeCursor never throws, null-or-{id,val}, round-trips). field-type-conversions.property.test.ts (resolveConversion never throws; well-formed result, sqlType pass-through, column always quoted in USING; identical + relation types refused). ~7,900 assertions, <1s, in CI unit job. No counterexamples. |
 | H-11 | Upgrade-path test in CI (release N-1 binary → HEAD migration → smoke) | 3 | 1d | TODO |
 | H-12 | Tenant-scope extension `ctx.db` (close the last multi-tenant hole) | 4 | 1.5d | TODO |
 | H-13 | Unified error envelope (RFC 9457 problem+json) defined in the SDK | 4 | 2d | TODO |
@@ -475,7 +475,7 @@ non-superuser role.
 
 ---
 
-### H-10 Property/fuzz tests: filter parser + field-type conversions 🟠
+### H-10 Property/fuzz tests: filter parser + field-type conversions ✅
 
 **Problem.** The filter/query parser (H-05's `query-parse.ts`) and
 `field-type-conversions.ts` handle hostile, user-shaped input. Historic bug
@@ -496,9 +496,11 @@ classes here: operator injection, type coercion surprises, crash-on-weird-input.
 (dev-dep).
 
 **Acceptance criteria.**
-- [ ] Both suites run ≥ 500 cases each in < 30s and are in the CI unit job.
-- [ ] Any counterexample found during development is fixed **and** pinned as a
-      named regression test, not just left to the fuzzer.
+- [x] Both suites run ≥ 500 cases each (600 runs/property; ~7,900 assertions
+      total) in < 1s, in the CI unit job (`test:unit` globs `*.test.ts`).
+- [x] No counterexample surfaced — the code held under fuzzing — so there is
+      nothing to pin as a regression. (If one ever does, fix + pin it as a named
+      case above the property blocks.)
 
 ---
 
