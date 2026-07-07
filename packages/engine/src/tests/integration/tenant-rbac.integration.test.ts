@@ -24,9 +24,9 @@ const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const skipAll = !TEST_DB_URL;
 
 let db: Database;
-let checkPermission: typeof import('../../lib/permissions.js').checkPermission;
-let runWithDomain: typeof import('../../lib/tenant-context.js').runWithDomain;
-let getUserRoles: typeof import('../../lib/permissions.js').getUserRoles;
+let checkPermission: typeof import('../../lib/tenancy/permissions.js').checkPermission;
+let runWithDomain: typeof import('../../lib/tenancy/tenant-context.js').runWithDomain;
+let getUserRoles: typeof import('../../lib/tenancy/permissions.js').getUserRoles;
 
 const A = '00000000-0000-0000-0000-0000000a000a';
 const B = '00000000-0000-0000-0000-0000000b000b';
@@ -53,13 +53,13 @@ beforeAll(async () => {
   await sql`CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, role TEXT)`.execute(db);
   await cleanupTestRows();
 
-  const tm = await import('../../lib/tenant-manager.js');
+  const tm = await import('../../lib/tenancy/tenant-manager.js');
   tm.initTenantManager(db);
-  const perms = await import('../../lib/permissions.js');
+  const perms = await import('../../lib/tenancy/permissions.js');
   await perms.initPermissions(db);
   checkPermission = perms.checkPermission;
   getUserRoles = perms.getUserRoles;
-  runWithDomain = (await import('../../lib/tenant-context.js')).runWithDomain;
+  runWithDomain = (await import('../../lib/tenancy/tenant-context.js')).runWithDomain;
 
   const { getEnforcer } = perms;
   const e = await getEnforcer();

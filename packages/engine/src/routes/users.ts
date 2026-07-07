@@ -7,7 +7,7 @@ import {
   getUserRoles,
   getEnforcer,
   invalidateUserPermCache,
-} from '../lib/permissions.js';
+} from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { escapeLike } from '../lib/data/index.js';
 

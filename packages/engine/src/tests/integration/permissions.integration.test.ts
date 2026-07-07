@@ -28,10 +28,10 @@ let godUserId: string;
 let adminUserId: string;
 let employeeUserId: string;
 
-let checkPermission: typeof import('../../lib/permissions.js').checkPermission;
-let initPermissions: typeof import('../../lib/permissions.js').initPermissions;
-let invalidateUserPermCache: typeof import('../../lib/permissions.js').invalidateUserPermCache;
-let getEnforcer: typeof import('../../lib/permissions.js').getEnforcer;
+let checkPermission: typeof import('../../lib/tenancy/permissions.js').checkPermission;
+let initPermissions: typeof import('../../lib/tenancy/permissions.js').initPermissions;
+let invalidateUserPermCache: typeof import('../../lib/tenancy/permissions.js').invalidateUserPermCache;
+let getEnforcer: typeof import('../../lib/tenancy/permissions.js').getEnforcer;
 
 async function signUp(email: string, password: string, name: string): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/auth/sign-up/email`, {
@@ -60,7 +60,7 @@ beforeAll(async () => {
   const { initDatabase } = await import('../../db/index.js');
   db = await initDatabase();
 
-  const perms = await import('../../lib/permissions.js');
+  const perms = await import('../../lib/tenancy/permissions.js');
   checkPermission = perms.checkPermission;
   initPermissions = perms.initPermissions;
   invalidateUserPermCache = perms.invalidateUserPermCache;

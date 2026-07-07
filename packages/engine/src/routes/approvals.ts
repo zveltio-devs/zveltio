@@ -24,7 +24,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getUserRoles } from '../lib/permissions.js';
+import { checkPermission, getUserRoles } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
 /** Minimal shape of the better-auth session user consumed by these routes. */

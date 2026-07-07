@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { reqDb } from '../lib/route-db.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────

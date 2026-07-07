@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { renderTemplate, generatePDF, getNextDocumentNumber } from '../lib/doc-generator.js';
 import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';

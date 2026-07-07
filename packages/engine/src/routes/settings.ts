@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 
 // Security: only these keys can be written via the API.
 // Internal/system keys that affect engine security are listed in READONLY_SETTINGS_KEYS.

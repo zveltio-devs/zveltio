@@ -17,15 +17,11 @@ import type { Database } from '../../../db/index.js';
 import { DDLManager } from '../ddl-manager.js';
 import { engineEvents, AbortHookError } from '../../runtime/index.js';
 import { queryAlterRegistry } from '../query-alter.js';
-import { entityAccessRegistry } from '../../entity-access.js';
+import { entityAccessRegistry } from '../../tenancy/index.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters } from '../../rls.js';
-import {
-  getColumnAccess,
-  applyColumnAccess,
-  filterWritableFields,
-} from '../../column-permissions.js';
+import { getRlsFilters } from '../../tenancy/index.js';
+import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../../tenancy/index.js';
 import {
   virtualGetOne,
   virtualCreate,

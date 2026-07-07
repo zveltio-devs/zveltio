@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
-import { getCache } from './runtime/index.js';
+import type { Database } from '../../db/index.js';
+import { getCache } from '../runtime/index.js';
 import { getCurrentDomain } from './tenant-context.js';
 
 // Cache TTLs
@@ -476,6 +476,6 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
   // The query cache holds rows already RLS-filtered + column-masked for this
   // user's role — a role grant/revoke must drop them too, or the change is
   // served stale for up to the TTL.
-  const { invalidateUserQueryCache } = await import('./data/index.js');
+  const { invalidateUserQueryCache } = await import('../data/index.js');
   await invalidateUserQueryCache(userId);
 }

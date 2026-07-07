@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
 const SqlSchema = z.object({

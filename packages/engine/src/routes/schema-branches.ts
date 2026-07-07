@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { User } from 'better-auth';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
 import { DDLManager } from '../lib/data/index.js';
