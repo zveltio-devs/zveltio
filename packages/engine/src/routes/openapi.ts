@@ -80,6 +80,58 @@ function buildSpec() {
           },
         },
       },
+      '/health/ready': {
+        get: {
+          tags: ['Health'],
+          summary: 'Readiness probe — critical dependencies only (public)',
+          description:
+            'Returns 200 only when every hard dependency (database, migrations) is up. Use as the Kubernetes/load-balancer readinessProbe.',
+          security: [],
+          responses: {
+            '200': { description: 'Ready to serve traffic' },
+            '503': { description: 'A critical dependency is down' },
+          },
+        },
+      },
+      '/health/deep': {
+        get: {
+          tags: ['Health'],
+          summary: 'Deep health — every subsystem (auth required)',
+          description:
+            'Runs a check for each subsystem (database, migrations, cache, queue, realtime, storage, extensions) plus any extension-registered checks. Returns 200 only when ALL are healthy; 503 otherwise. `criticalOk` distinguishes a degraded optional dependency from a critical outage.',
+          responses: {
+            '200': { description: 'All subsystems healthy' },
+            '503': { description: 'One or more subsystems unhealthy (see `checks`)' },
+            '401': {
+              description: 'Unauthorized',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/health/{subsystem}': {
+        get: {
+          tags: ['Health'],
+          summary: 'Probe a single subsystem (auth required)',
+          description:
+            'One of: database, migrations, cache, queue, realtime, storage, extensions, or any extension check (`ext:<name>:<check>`). 200 if healthy, 503 if not, 404 if unknown.',
+          parameters: [
+            { name: 'subsystem', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          responses: {
+            '200': { description: 'Subsystem healthy' },
+            '503': { description: 'Subsystem unhealthy' },
+            '404': {
+              description: 'Unknown subsystem',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Unauthorized',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
 
       // ── Auth ───────────────────────────────────────────────────────────────
       '/auth/sign-up/email': {
