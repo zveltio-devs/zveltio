@@ -93,6 +93,11 @@ jobs:
         # Fails if any package introduced a NEW `any` suppression above its
         # baseline (docs/HARDENING-9-PLAN.md H-01). Type the value instead.
         run: bun run any:ratchet
+      - name: Import boundaries
+        # Fails if code outside a lib/ subsystem deep-imports one of its
+        # internal files instead of going through the barrel index
+        # (docs/HARDENING-9-PLAN.md H-08). Import from lib/<subsystem> instead.
+        run: bun run scripts/import-boundaries.ts
       - name: Format check
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.
