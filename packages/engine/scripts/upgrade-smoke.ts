@@ -98,8 +98,20 @@ async function seed(): Promise<void> {
 
   // ── Records with unguessable sentinels covering each type ───────────────
   const inputs: Record<string, unknown>[] = [
-    { title: `SENTINEL-A-${stamp}`, qty: 42, active: true, meta: { k: 'v', n: 1 }, due: '2027-01-15' },
-    { title: `SENTINEL-B-${stamp}`, qty: -7, active: false, meta: { nested: { deep: true } }, due: '2030-12-31' },
+    {
+      title: `SENTINEL-A-${stamp}`,
+      qty: 42,
+      active: true,
+      meta: { k: 'v', n: 1 },
+      due: '2027-01-15',
+    },
+    {
+      title: `SENTINEL-B-${stamp}`,
+      qty: -7,
+      active: false,
+      meta: { nested: { deep: true } },
+      due: '2030-12-31',
+    },
     { title: `SENTINEL-C-${stamp}`, qty: 0, active: true, meta: [], due: '2026-06-06' },
   ];
   const records: SeededRecord[] = [];
@@ -215,7 +227,9 @@ async function verify(): Promise<void> {
       failures.push(`record ${rec.id}: HTTP ${res.status} (expected 200)`);
       continue;
     }
-    const body = (await res.json()) as Record<string, unknown> & { record?: Record<string, unknown> };
+    const body = (await res.json()) as Record<string, unknown> & {
+      record?: Record<string, unknown>;
+    };
     const row = (body.record ?? body) as Record<string, unknown>;
     for (const [k, want] of Object.entries(rec.expected)) {
       if (!eq(row[k], want)) {
