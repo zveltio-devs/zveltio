@@ -48,9 +48,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@zveltio/sdk": "workspace:*",
     "@types/nodemailer": "^6.4.17",
+    "@zveltio/sdk": "workspace:*",
     "bun-types": "latest",
+    "fast-check": "^4.8.0",
     "typescript": "^5.4.0"
   }
 }
