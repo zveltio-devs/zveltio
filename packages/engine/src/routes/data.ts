@@ -1,18 +1,18 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
-import type { RequestUser } from '../lib/data/index.js';
-import { authenticate } from '../lib/data/index.js';
-import { QuerySchema } from '../lib/data/index.js';
-import { listRecords } from '../lib/data/index.js';
-import { bulkCreate, bulkUpdate, bulkDelete } from '../lib/data/index.js';
+import type { RequestUser } from '../lib/data/types.js';
+import { authenticate } from '../lib/data/auth.js';
+import { QuerySchema } from '../lib/data/query-parse.js';
+import { listRecords } from '../lib/data/handlers/list.js';
+import { bulkCreate, bulkUpdate, bulkDelete } from '../lib/data/handlers/bulk.js';
 import {
   getRecord,
   createRecord,
   replaceRecord,
   patchRecord,
   deleteRecord,
-} from '../lib/data/index.js';
+} from '../lib/data/handlers/single.js';
 
 export type { RequestUser };
 
