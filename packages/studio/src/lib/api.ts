@@ -17,8 +17,20 @@ class ApiClient {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `Request failed: ${res.status}`);
+      // Unified error envelope (H-13): prefer problem+json `detail`/`title`,
+      // keep tolerant fallback for legacy `{ error }` bodies during the beta.
+      const err = await res.json().catch(() => ({}));
+      const message =
+        err.detail || err.title || err.error || err.message || `Request failed: ${res.status}`;
+      const e = new Error(message) as Error & {
+        code?: string;
+        status?: number;
+        traceId?: string;
+      };
+      e.code = err.code;
+      e.status = res.status;
+      e.traceId = err.traceId;
+      throw e;
     }
 
     return res.json();

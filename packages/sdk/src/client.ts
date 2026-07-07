@@ -1,3 +1,5 @@
+import { ZveltioApiError } from './errors.js';
+
 export interface ZveltioClientConfig {
   baseUrl: string;
   apiKey?: string;
@@ -106,8 +108,7 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`${method} ${path} failed: ${res.status} ${text}`);
+      throw await ZveltioApiError.fromResponse(res);
     }
     return res.json();
   }
@@ -139,7 +140,7 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
       credentials: 'include',
       body: formData,
     });
-    if (!res.ok) throw new Error(`Upload ${path} failed: ${res.status}`);
+    if (!res.ok) throw await ZveltioApiError.fromResponse(res);
     return res.json();
   }
 

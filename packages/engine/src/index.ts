@@ -14,6 +14,7 @@ import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { initDatabase } from './db/index.js';
+import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { initAuth } from './lib/auth.js';
 import { initPermissions, checkPermission, getUserRoles } from './lib/tenancy/index.js';
 import { initRls } from './lib/tenancy/index.js';
@@ -411,6 +412,12 @@ async function buildHonoApp(): Promise<Hono> {
 
   // ── Middleware (identical to original bootstrap) ──────────────────────────
   app.use('*', logger());
+  // Unified error envelope (H-13): thrown errors → problem+json; and every
+  // non-2xx a route RETURNS under /api|/ext gets rewrapped into the envelope.
+  // Registered outermost (before tenant/cors) so it wraps all inner responses.
+  app.onError(problemOnError);
+  app.use('/api/*', problemNormalizer());
+  app.use('/ext/*', problemNormalizer());
   app.use('/api/*', async (c, next) => {
     const path = c.req.path;
     if (path === '/api/storage/upload' || path.startsWith('/api/import')) return next();

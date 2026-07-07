@@ -73,7 +73,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-10 | Property/fuzz tests: filter parser + field-type conversions | 3 | 1d | **DONE** (2588d32). fast-check@4.8.0 dev-dep + two suites: query-parse.property.test.ts (parseFilters never throws; emitted ops &#8712; canonical set + fields &#8712; allowlist = no operator/column injection; JSON round-trip; unknown field = typed 400. decodeCursor never throws, null-or-{id,val}, round-trips). field-type-conversions.property.test.ts (resolveConversion never throws; well-formed result, sqlType pass-through, column always quoted in USING; identical + relation types refused). ~7,900 assertions, <1s, in CI unit job. No counterexamples. |
 | H-11 | Upgrade-path test in CI (release N-1 binary → HEAD migration → smoke) | 3 | 1d | TODO |
 | H-12 | Tenant-scope extension `ctx.db` (close the last multi-tenant hole) | 4 | 1.5d | TODO |
-| H-13 | Unified error envelope (RFC 9457 problem+json) defined in the SDK | 4 | 2d | TODO |
+| H-13 | Unified error envelope (RFC 9457 problem+json) defined in the SDK | 4 | 2d | **DONE** (PR #26) — SDK `errors.ts` is the contract (`ProblemDetails` + `ZveltioApiError` with a tolerant `fromResponse`/`fromParts` for legacy `{error}` during beta); exported from the SDK root; `client.ts` throws typed errors. Engine `lib/problem.ts` mirrors the type + a `problem(code,status,detail)` helper (`ProblemException`), an `onError` renderer, and a **scoped `problemNormalizer()`** mounted on `/api/*`+`/ext/*` that rewraps ANY returned non-2xx (legacy `c.json({error})`, plain 404, zValidator body) into the envelope with an inferred `code` — so every non-2xx conforms WITHOUT touching hundreds of call sites. Rich stable code adopted at the tenant-membership 403 (`tenant.membership_required`). Unhandled throws → generic 500 (no leak; logged server-side with traceId). OpenAPI `Error` schema upgraded to the envelope + common-codes list, error responses → `application/problem+json`. Studio `api.ts` reads `detail`/`code`/`traceId`. Proof: in-process Hono test (`problem-envelope.test.ts`, 7/7 — legacy/plain/zod/thrown/generic all envelope, no leak) + live spec-walk (`error-envelope.integration.test.ts`, 14 non-2xx GETs all problem+json). No existing test asserted the old body shape (dev-reload uses a bare sub-router; the one `.error` in sync is a per-item batch status). CHANGELOG + `MIGRATION-ALPHA-TO-BETA.md` note the breaking-ish change. **Deferred:** mechanical per-route adoption of `problem()` for richer codes (normalizer covers correctness; rich codes added incrementally). |
 | H-14 | Failure-injection integration tests (Postgres/registry/S3 down) | 5 | 1.5d | TODO |
 | H-15 | Nightly soak job with memory-monitor assertions | 5 | 1d | TODO |
 | H-16 | `scripts/release-gate.ts` — codified criteria for cutting 3.0.0 stable | 5 | 0.5d | TODO |
@@ -577,7 +577,7 @@ typing — SDK is the contract source of truth),
 
 ---
 
-### H-13 Unified error envelope (problem+json) defined in the SDK 🟠
+### H-13 Unified error envelope (problem+json) defined in the SDK ✅
 
 **Problem.** Each route family formats errors ad hoc; the SDK and Studio guess
 at shapes. Debuggability and client ergonomics both suffer, and error shapes
