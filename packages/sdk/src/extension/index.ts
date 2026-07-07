@@ -138,6 +138,28 @@ export interface ExtensionContext<DB = any> {
   entityAccess: EntityAccessScope;
 
   /**
+   * Register a subsystem health check surfaced at `GET /api/health/deep` and
+   * `GET /api/health/<name>`. Use it to report the liveness of anything your
+   * extension owns (an external API, a worker, a provider):
+   *
+   *   ctx.onHealthCheck('smtp', async () => {
+   *     const ok = await pingSmtp();
+   *     return { ok, detail: { host: SMTP_HOST } };
+   *   });
+   *
+   * Checks are namespaced `ext:<yourExtension>:<name>` and cleared on reload.
+   * Mark `{ critical: true }` only if your extension being down should fail the
+   * engine's readiness probe (rarely — most extensions are optional).
+   */
+  onHealthCheck?: (
+    name: string,
+    run: () =>
+      | Promise<{ ok: boolean; error?: string; detail?: Record<string, unknown> }>
+      | { ok: boolean; error?: string; detail?: Record<string, unknown> },
+    opts?: { critical?: boolean },
+  ) => void;
+
+  /**
    * Register a route on the engine's GLOBAL app, outside the extension's
    * `/ext/<name>/` namespace. Use sparingly — most routes should live on
    * the sub-app provided to `register()`. Valid cases:

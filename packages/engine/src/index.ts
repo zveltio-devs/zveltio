@@ -25,6 +25,7 @@ import {
 } from './lib/extensions/index.js';
 import { queryAlterRegistry } from './lib/data/index.js';
 import { entityAccessRegistry } from './lib/tenancy/index.js';
+import { registerHealthCheck } from './lib/health-registry.js';
 import { cronRunner } from './lib/runtime/index.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
@@ -707,6 +708,7 @@ async function bootstrap() {
         services: serviceRegistry.scope('engine'),
         queryAlter: queryAlterRegistry.scope('engine'),
         entityAccess: entityAccessRegistry.scope('engine'),
+        onHealthCheck: (name, run, opts) => registerHealthCheck(name, run, opts),
         // Bootstrap context: routes registered through this stub during load
         // are tagged as engine-owned, not extension-owned. Real extensions
         // get an `app`-bound version from extension-loader's loadExtension.
@@ -785,6 +787,7 @@ async function bootstrap() {
     services: serviceRegistry.scope('engine'),
     queryAlter: queryAlterRegistry.scope('engine'),
     entityAccess: entityAccessRegistry.scope('engine'),
+    onHealthCheck: (name, run, opts) => registerHealthCheck(name, run, opts),
     // Cron handlers cannot register routes (no app reference in runtime).
     registerPublicRoute: () => {
       console.warn('[cron-runner] schedules cannot register public routes — no-op');
