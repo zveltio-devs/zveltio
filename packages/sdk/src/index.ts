@@ -1,5 +1,7 @@
 export { ZveltioClient, createZveltioClient } from './client.js';
 export type { ZveltioClientConfig, ListParams, ListResult } from './client.js';
+export { ZveltioApiError, PROBLEM_CONTENT_TYPE } from './errors.js';
+export type { ProblemDetails } from './errors.js';
 export { ZveltioRealtime } from './realtime.js';
 export { LocalStore } from './local-store.js';
 export { SyncManager } from './sync-manager.js';

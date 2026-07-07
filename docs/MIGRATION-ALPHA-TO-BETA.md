@@ -181,6 +181,38 @@ PATCH /api/admin/rate-limits/api
 
 ---
 
+## Error Envelope (RFC 9457 `problem+json`) — action may be required
+
+As of the Hardening Wave 9 betas, **every non-2xx engine response** is an
+RFC 9457 `application/problem+json` object instead of the old ad-hoc
+`{ "error": "…" }` shape:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Forbidden",
+  "status": 403,
+  "code": "tenant.membership_required",
+  "detail": "You are not a member of this tenant. Access denied.",
+  "instance": "/api/data/orders",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+}
+```
+
+- **`code`** is a **stable machine-readable string** — switch on it instead of
+  parsing prose (`unauthorized`, `forbidden`, `not_found`, `validation_failed`,
+  `conflict`, `rate_limited`, `internal_error`, `tenant.membership_required`, …).
+- **`traceId`** correlates with server logs for support.
+- The schema is documented in the generated OpenAPI (`components.schemas.Error`).
+
+**Client action:**
+- Using `@zveltio/sdk`? None — the client now throws a typed `ZveltioApiError`
+  (`.code`, `.status`, `.detail`, `.traceId`). Catch it instead of reading a
+  response body.
+- Hand-rolled clients reading `body.error`? Read `body.detail` (human message)
+  and `body.code` (machine code). The engine keeps parsing tolerant of the old
+  shape during the beta, but new integrations should target the envelope.
+
 ## API Changes Summary
 
 | New endpoint | Description |
