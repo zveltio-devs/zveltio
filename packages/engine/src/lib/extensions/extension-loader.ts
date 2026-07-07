@@ -59,11 +59,7 @@ import {
 import { reRegisterExtension } from './register.js';
 import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from './lifecycle.js';
 import { loadExtensionFromDir } from './load.js';
-import {
-  discoverExternal,
-  getActiveExtensionNames,
-  topoSortExtensions,
-} from './discovery.js';
+import { discoverExternal, getActiveExtensionNames, topoSortExtensions } from './discovery.js';
 
 export { serviceRegistry } from '../service-registry.js';
 
