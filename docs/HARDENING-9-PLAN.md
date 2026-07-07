@@ -74,7 +74,7 @@ score improvement; waves 3–5 are what makes the score *defensible*.
 | H-11 | Upgrade-path test in CI (release N-1 binary → HEAD migration → smoke) | 3 | 1d | TODO |
 | H-12 | Tenant-scope extension `ctx.db` (close the last multi-tenant hole) | 4 | 1.5d | TODO |
 | H-13 | Unified error envelope (RFC 9457 problem+json) defined in the SDK | 4 | 2d | TODO |
-| H-14 | Failure-injection integration tests (Postgres/registry/S3 down) | 5 | 1.5d | TODO |
+| H-14 | Failure-injection integration tests (Postgres/registry/S3 down) | 5 | 1.5d | **DONE** (PR #27) — `failure-injection.integration.test.ts` + `fixtures/fault-injection.ts`, all three with EXACT mid-flight injection + state assertions (not just the error): **S1** a multi-statement write is held open via `pg_sleep` and its backend is `pg_terminate_backend`'d from a 2nd connection mid-write → the txn rejects, **no partial row** survives (full rollback), a fresh connection serves traffic (DB recovers, no restart). Uses a raw `Bun.SQL({max:1})` victim so no Kysely pool wrapper masks the fault. **S2** spawns a fault engine (`REGISTRY_URL`→a mock that serves the catalog but 500s the tarball download — the real "down mid-install") → install returns problem+json (H-13), **no orphan `zv_extension_registry` row**, `pg_advisory_xact_lock` released so a **retry proceeds** (downloadHits>1). **S3** spawns a fault engine (`S3_ENDPOINT` at a dead port) → upload → 5xx problem+json, **no orphan `zv_media_files` row** (the metadata insert only runs after a successful PUT). Verified locally on non-superuser WSL PG: 3/3 pass. Runs under the CI integration job (superuser PG → terminate + zv_* reads work). No bug found — the no-orphan invariants are structural (insert-after-success ordering); tests pin them. |
 | H-15 | Nightly soak job with memory-monitor assertions | 5 | 1d | TODO |
 | H-16 | `scripts/release-gate.ts` — codified criteria for cutting 3.0.0 stable | 5 | 0.5d | TODO |
 
@@ -615,7 +615,7 @@ all `routes/*.ts` (mechanical), `packages/client/src/*`,
 
 ## Wave 5 — Reliability you can point at
 
-### H-14 Failure-injection integration tests 🟠
+### H-14 Failure-injection integration tests ✅
 
 **Problem.** DLQ, retries, and pg-boss exist, but only happy paths are tested.
 Nobody knows what actually happens when Postgres drops mid-write, the registry
