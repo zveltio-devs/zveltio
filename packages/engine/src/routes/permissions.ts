@@ -15,7 +15,7 @@ import {
   getEnforcer,
   getUserRoles,
   invalidateUserPermCache,
-} from '../lib/permissions.js';
+} from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -62,7 +62,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       .returning(['id', 'email', 'role'])
       .executeTakeFirst();
     if (!result) return c.json({ error: `No user found with email: ${email}` }, 404);
-    const { invalidateGodCache } = await import('../lib/permissions.js');
+    const { invalidateGodCache } = await import('../lib/tenancy/index.js');
     await invalidateGodCache(result.id).catch((err: Error) => {
       // Cache invalidation failure on a privilege grant is HIGH-IMPACT:
       // the new god role won't be visible until the cache TTL expires.

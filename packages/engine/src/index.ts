@@ -15,8 +15,8 @@ import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { initDatabase } from './db/index.js';
 import { initAuth } from './lib/auth.js';
-import { initPermissions, checkPermission, getUserRoles } from './lib/permissions.js';
-import { initRls } from './lib/rls.js';
+import { initPermissions, checkPermission, getUserRoles } from './lib/tenancy/index.js';
+import { initRls } from './lib/tenancy/index.js';
 import { fieldTypeRegistry } from './lib/data/index.js';
 import {
   extensionLoader,
@@ -24,7 +24,7 @@ import {
   serviceRegistry,
 } from './lib/extensions/index.js';
 import { queryAlterRegistry } from './lib/data/index.js';
-import { entityAccessRegistry } from './lib/entity-access.js';
+import { entityAccessRegistry } from './lib/tenancy/index.js';
 import { cronRunner } from './lib/runtime/index.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
@@ -39,7 +39,7 @@ import {
   initTenantManager,
   reconcileTenantRLS,
   warnIfDbRoleBypassesRls,
-} from './lib/tenant-manager.js';
+} from './lib/tenancy/index.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initTelemetry, getZoneMetricsLines } from './lib/runtime/index.js';

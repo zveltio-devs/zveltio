@@ -255,7 +255,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const name = (job.data as any)?.name;
       if (name) {
-        const { applyTenantRLS } = await import('../tenant-manager.js');
+        const { applyTenantRLS } = await import('../tenancy/index.js');
         await applyTenantRLS(db, `zvd_${name}`);
       }
     } catch (err) {

@@ -16,7 +16,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 
 const PublishSettingsSchema = z.object({
   drafts_enabled: z.boolean().optional(),

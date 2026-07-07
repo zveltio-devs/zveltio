@@ -2,8 +2,13 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
-import { listRlsPolicies, createRlsPolicy, updateRlsPolicy, deleteRlsPolicy } from '../lib/rls.js';
+import { checkPermission } from '../lib/tenancy/index.js';
+import {
+  listRlsPolicies,
+  createRlsPolicy,
+  updateRlsPolicy,
+  deleteRlsPolicy,
+} from '../lib/tenancy/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {

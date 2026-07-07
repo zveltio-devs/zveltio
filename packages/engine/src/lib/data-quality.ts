@@ -9,7 +9,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { DEFAULT_TENANT_ID, withTenantIsolation } from './tenant-manager.js';
+import { DEFAULT_TENANT_ID, withTenantIsolation } from './tenancy/index.js';
 
 export type IssueType =
   | 'duplicate'

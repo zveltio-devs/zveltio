@@ -20,13 +20,13 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import { enqueueDDLJob } from '../lib/data/index.js';
 import { dynamicInsert } from '../db/dynamic.js';
 import { auditLog } from '../lib/audit.js';
-import { DEFAULT_TENANT_ID } from '../lib/tenant-manager.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 
 // Static imports so Bun.build bundles the JSON into the binary.
 // Adding a new builtin template = drop a JSON file + add the import here.

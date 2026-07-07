@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
-import { checkPermission } from '../permissions.js';
+import { checkPermission } from '../tenancy/index.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,

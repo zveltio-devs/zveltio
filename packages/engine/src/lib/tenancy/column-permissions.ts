@@ -1,5 +1,5 @@
-import type { Database } from '../db/index.js';
-import { getCache } from './runtime/index.js';
+import type { Database } from '../../db/index.js';
+import { getCache } from '../runtime/index.js';
 
 export interface ColumnAccess {
   /** Columns the user cannot see (filtered from GET responses) */
@@ -93,7 +93,7 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
     /* cache unavailable */
   }
   if (collection) {
-    const { invalidateQueryCacheForCollection } = await import('./data/index.js');
+    const { invalidateQueryCacheForCollection } = await import('../data/index.js');
     await invalidateQueryCacheForCollection(collection);
   }
 }

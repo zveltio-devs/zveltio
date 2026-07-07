@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { EntityAccessRegistryImpl } from '../../lib/entity-access.js';
+import { EntityAccessRegistryImpl } from '../../lib/tenancy/entity-access.js';
 
 describe('EntityAccessRegistryImpl', () => {
   let registry: EntityAccessRegistryImpl;

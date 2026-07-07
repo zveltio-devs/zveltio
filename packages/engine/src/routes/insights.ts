@@ -7,7 +7,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getUserRoles, listAllRoles } from '../lib/permissions.js';
+import { checkPermission, getUserRoles, listAllRoles } from '../lib/tenancy/index.js';
 
 /**
  * Resolve whether `userId` can read a dashboard. Order matters — admin

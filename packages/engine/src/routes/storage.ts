@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { AwsClient } from 'aws4fetch';
 

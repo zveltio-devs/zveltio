@@ -17,8 +17,8 @@
 
 import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
-import { isGodUser } from '../lib/permissions.js';
-import { DEFAULT_TENANT_ID } from '../lib/tenant-manager.js';
+import { isGodUser } from '../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function tenantMembershipMiddleware(auth: any, db: Database) {

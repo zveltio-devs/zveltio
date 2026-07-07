@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
 import { DDLManager, CollectionSchema, FieldSchema } from '../lib/data/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { enqueueDDLJob, getDDLJob } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import {

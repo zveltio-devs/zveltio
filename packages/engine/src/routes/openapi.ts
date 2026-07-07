@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { ENGINE_VERSION } from '../version.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 
 export function openApiRoutes(): Hono {
   const app = new Hono();

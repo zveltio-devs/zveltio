@@ -11,10 +11,10 @@
  */
 
 import { sql } from 'kysely';
-import type { Database } from '../db/index.js';
-import { getCache } from './runtime/index.js';
+import type { Database } from '../../db/index.js';
+import { getCache } from '../runtime/index.js';
 import { getUserRoles } from './permissions.js';
-import type { FilterCondition } from '../db/dynamic.js';
+import type { FilterCondition } from '../../db/dynamic.js';
 
 const RLS_CACHE_TTL = 30; // seconds — short TTL so policy changes apply quickly
 
@@ -94,7 +94,7 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
   }
   // The query cache stores already-RLS-filtered rows — drop it for this
   // collection so a policy change takes effect immediately, not after the TTL.
-  const { invalidateQueryCacheForCollection } = await import('./data/index.js');
+  const { invalidateQueryCacheForCollection } = await import('../data/index.js');
   await invalidateQueryCacheForCollection(collection);
 }
 
