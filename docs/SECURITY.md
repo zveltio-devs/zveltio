@@ -5,6 +5,17 @@ the public internet.
 
 ---
 
+## Supported & tested surface
+
+The trusted deployment surface is **Linux (x64/arm64) and macOS** — these are
+the only targets a release binary is built for and the only platforms the test
+suite runs against in CI. There is no Windows binary; do not run a production
+engine on native Windows. Development is supported on Linux, macOS, and WSL2.
+See [README → Supported platforms](../README.md#supported-platforms) for the
+full matrix and the native-Windows test caveat.
+
+---
+
 ## Cookie security & CSRF
 
 Zveltio relies on **SameSite cookies + HMAC-signed session tokens** for

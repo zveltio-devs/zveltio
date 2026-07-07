@@ -10,13 +10,16 @@ import { Plus, Play, Trash2, Save, Code, CheckCircle, LoaderCircle } from '@luci
 
 const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let functions = $state<any[]>([]);
 let loading = $state(true);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selected = $state<any>(null);
 let saving = $state(false);
 let saved = $state(false);
 let invoking = $state(false);
 let invokeInput = $state('{}');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let invokeResult = $state<any>(null);
 let showCreateModal = $state(false);
 let creating = $state(false);
@@ -34,9 +37,11 @@ onMount(loadFunctions);
 async function loadFunctions() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ functions: any[] }>('/ext/developer/edge-functions');
     functions = data.functions ?? [];
     if (functions.length > 0 && !selected) await selectFunction(functions[0]);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -44,11 +49,14 @@ async function loadFunctions() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function selectFunction(fn: any) {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.get<{ function: any }>(`/ext/developer/edge-functions/${fn.id}`);
     selected = data.function;
     invokeResult = null;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -61,6 +69,7 @@ async function saveCode() {
     await api.patch(`/ext/developer/edge-functions/${selected.id}`, { code: selected.code });
     saved = true;
     setTimeout(() => (saved = false), 2000);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['developer.edge-functions.error.save']());
   } finally {
@@ -73,11 +82,13 @@ async function invoke() {
   invoking = true;
   invokeResult = null;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.post<{ result: any }>(
       `/ext/developer/edge-functions/${selected.id}/invoke`,
       JSON.parse(invokeInput),
     );
     invokeResult = data.result;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['developer.edge-functions.error.invoke']());
   } finally {
@@ -89,6 +100,7 @@ async function createFunction() {
   if (!form.name || !form.display_name) return;
   creating = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = await api.post<{ function: any }>('/ext/developer/edge-functions', {
       ...form,
       code: DEFAULT_CODE,
@@ -98,6 +110,7 @@ async function createFunction() {
     await loadFunctions();
     await selectFunction(data.function);
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -113,16 +126,19 @@ async function deleteFunctionConfirmed(id: string) {
     await api.delete(`/ext/developer/edge-functions/${id}`);
     selected = null;
     await loadFunctions();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function toggleActive(fn: any) {
   try {
     await api.patch(`/ext/developer/edge-functions/${fn.id}`, { is_active: !fn.is_active });
     await loadFunctions();
     if (selected?.id === fn.id) selected = { ...selected, is_active: !fn.is_active };
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }

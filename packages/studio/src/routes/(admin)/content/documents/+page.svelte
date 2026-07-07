@@ -49,6 +49,7 @@ async function loadDocs() {
   try {
     const r = await api.get<{ documents: Doc[] }>('/ext/content/documents/generated');
     docs = r.documents ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -82,6 +83,7 @@ async function generate() {
     showGenModal = false;
     tab = 'documents';
     toast.success(m['content.documents.toast.generated']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -97,6 +99,7 @@ async function deleteDocConfirmed(id: string) {
     await api.delete(`/ext/content/documents/generated/${id}`);
     docs = docs.filter((d) => d.id !== id);
     toast.success(m['ext.deleted']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -110,6 +113,7 @@ async function sendSignRequest() {
     signModal = null;
     signForm = { signer_email: '', signer_name: '', message: '' };
     toast.success(m['ext.sent']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {

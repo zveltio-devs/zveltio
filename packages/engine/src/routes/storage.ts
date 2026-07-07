@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/permissions.js';
+import { checkPermission } from '../lib/tenancy/index.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { AwsClient } from 'aws4fetch';
 
@@ -196,6 +196,7 @@ function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
   return MIME_BY_EXT[ext] ?? null;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function storageRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -204,6 +205,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // error as a 500. Checked per-handler — a `/:id` middleware would also
   // swallow the real /folders and /upload routes.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
 
   // Auth middleware
@@ -234,6 +236,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // F1 FIX: Rate-limit uploads to 60/min per user (same as writeRateLimit) to prevent
   // disk/storage quota exhaustion from rapid automated uploads.
   app.post('/upload', writeRateLimit, async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const client = getAws();
 
@@ -389,6 +392,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
   // POST /folders — Create folder (must be before GET /:id to prevent route conflict)
   app.post('/folders', async (c) => {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const foldersWriteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const { name, parent_id } = await c.req.json();
@@ -439,6 +443,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'File not found' }, 404);
 
     // Build presigned URL: aws4fetch puts the signature in query params via signQuery: true.
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const target = new URL(s3Url((file as any).storage_path));
     target.searchParams.set('X-Amz-Expires', '3600');
     const signed = await client.sign(target, {
@@ -461,6 +466,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     if (!file) return c.json({ error: 'File not found' }, 404);
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const mime: string = (file as any).mimetype || '';
     if (!mime.startsWith('image/')) return c.json({ error: 'Not an image' }, 400);
 
@@ -477,7 +483,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // Fetch source bytes
     let sourceBytes: Uint8Array;
     const client = getAws();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if (client && (file as any).storage_path) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const res = await client.fetch(s3Url((file as any).storage_path), { method: 'GET' });
       if (!res.ok) return c.json({ error: 'Failed to fetch source file' }, 502);
       sourceBytes = new Uint8Array(await res.arrayBuffer());
@@ -509,6 +517,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     let outMime: string;
     if (targetFmt === 'jpeg' || targetFmt === 'jpg') {
       // imagescript JPEGQuality is 1-100 integer cast
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       outBytes = await img.encodeJPEG(targetQuality as any);
       outMime = 'image/jpeg';
     } else {
@@ -529,6 +538,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Delete file (owner or admin only)
   app.delete('/:id', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
     const client = getAws();
@@ -542,11 +552,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // I5: use checkPermission() instead of user.role — Better-Auth may not populate role on session
     const isAdmin = await checkPermission(user.id, 'admin', '*');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if ((file as any).created_by !== user.id && !isAdmin) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
     if (client) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await client.fetch(s3Url((file as any).storage_path), { method: 'DELETE' }).catch(() => {
         /* non-fatal if file missing from storage */
       });
@@ -554,6 +566,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     await deleteDb
       .deleteFrom('zv_media_files')
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .where('id', '=', (file as any).id)
       .execute();
     return c.json({ success: true });

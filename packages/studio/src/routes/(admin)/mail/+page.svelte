@@ -31,16 +31,23 @@ import { toast } from '$lib/stores/toast.svelte.js';
 type Tab = 'mail' | 'drafts' | 'contacts' | 'signatures' | 'filters';
 
 let activeTab = $state<Tab>('mail');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let accounts = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selectedAccount = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let folders = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selectedFolder = $state<any>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let messages = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selectedMessage = $state<any>(null);
 let selectedIds = $state<Set<string>>(new Set());
 let searchQuery = $state('');
 let loading = $state(false);
 let syncing = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let stats = $state<any>({});
 
 let showCompose = $state(false);
@@ -54,8 +61,10 @@ let composePriority = $state('normal');
 let composeRequestReceipt = $state(false);
 let sendingMail = $state(false);
 let replyToMessageId = $state<string | null>(null);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let autoSaveTimer: any = null;
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let toSuggestions = $state<any[]>([]);
 let showToSuggestions = $state(false);
 
@@ -82,14 +91,19 @@ let newAccount = $state({
 });
 let addingAccount = $state(false);
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let drafts = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let contacts = $state<any[]>([]);
 let contactSearch = $state('');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let signatures = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let editSig = $state<any | null>(null);
 let sigName = $state('');
 let sigHtml = $state('');
 let sigDefault = $state(false);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let filters = $state<any[]>([]);
 let showFilterModal = $state(false);
 let newFilter = $state({
@@ -103,12 +117,15 @@ let showBulkMenu = $state(false);
 async function loadAll() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ accounts: any[] }>('/ext/communications/mail/accounts');
     accounts = r.accounts ?? [];
     if (accounts.length > 0 && !selectedAccount) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       await selectAccount(accounts.find((a: any) => a.is_default) ?? accounts[0]);
     }
     await loadStats();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.load']());
   } finally {
@@ -118,6 +135,7 @@ async function loadAll() {
 
 async function loadStats() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ stats: any }>('/ext/communications/mail/stats');
     stats = r.stats ?? {};
   } catch {
@@ -125,6 +143,7 @@ async function loadStats() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function selectAccount(account: any) {
   selectedAccount = account;
   selectedFolder = null;
@@ -134,12 +153,15 @@ async function selectAccount(account: any) {
   summary = '';
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ folders: any[] }>(
       `/ext/communications/mail/accounts/${account.id}/folders`,
     );
     folders = r.folders ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const inbox = folders.find((f: any) => f.type === 'inbox') ?? folders[0];
     if (inbox) await selectFolder(inbox);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.folders']());
   } finally {
@@ -147,6 +169,7 @@ async function selectAccount(account: any) {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function selectFolder(folder: any) {
   selectedFolder = folder;
   selectedMessage = null;
@@ -155,10 +178,12 @@ async function selectFolder(folder: any) {
   messages = [];
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ messages: any[] }>(
       `/ext/communications/mail/folders/${folder.id}/messages?limit=50`,
     );
     messages = r.messages ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.messages']());
   } finally {
@@ -166,13 +191,17 @@ async function selectFolder(folder: any) {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function selectMessage(msg: any) {
   summary = '';
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ message: any }>(`/ext/communications/mail/messages/${msg.id}`);
     selectedMessage = r.message;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     messages = messages.map((m: any) => (m.id === msg.id ? { ...m, is_read: true } : m));
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.message']());
   } finally {
@@ -187,6 +216,7 @@ async function syncAccount() {
     await api.post(`/ext/communications/mail/accounts/${selectedAccount.id}/sync`, {});
     if (selectedFolder) await selectFolder(selectedFolder);
     await loadStats();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.sync']());
   } finally {
@@ -194,13 +224,17 @@ async function syncAccount() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function toggleStar(msg: any) {
   await api.patch(`/ext/communications/mail/messages/${msg.id}`, { is_starred: !msg.is_starred });
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   messages = messages.map((m: any) => (m.id === msg.id ? { ...m, is_starred: !m.is_starred } : m));
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function deleteMessage(msg: any) {
   await api.delete(`/ext/communications/mail/messages/${msg.id}`);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   messages = messages.filter((m: any) => m.id !== msg.id);
   if (selectedMessage?.id === msg.id) selectedMessage = null;
 }
@@ -219,8 +253,10 @@ async function bulkAction(action: string) {
   if (selectedIds.size === 0) return;
   await api.post('/ext/communications/mail/bulk', { message_ids: [...selectedIds], action });
   if (action === 'delete' || action === 'spam') {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     messages = messages.filter((m: any) => !selectedIds.has(m.id));
   } else {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     messages = messages.map((m: any) => {
       if (!selectedIds.has(m.id)) return m;
       if (action === 'mark_read' || action === 'mark_unread')
@@ -256,17 +292,21 @@ function openCompose(
 async function openReplyContext(type: 'reply' | 'reply_all' | 'forward') {
   if (!selectedMessage) return;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const ctx = await api.post<any>(
       `/ext/communications/mail/messages/${selectedMessage.id}/reply-context`,
       { type },
     );
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     composeTo = (ctx.to ?? []).map((a: any) => a.address).join(', ');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     composeCc = (ctx.cc ?? []).map((a: any) => a.address).join(', ');
     composeSubject = ctx.subject ?? '';
     composeBody = ctx.bodyText ?? '';
     replyToMessageId = selectedMessage.id;
     draftId = null;
     showCompose = true;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.failed']());
   }
@@ -281,6 +321,7 @@ async function autoSaveDraft() {
       to: composeTo
         .split(',')
         .map((s: string) => ({ address: s.trim() }))
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .filter((a: any) => a.address),
       cc: composeCc ? composeCc.split(',').map((s: string) => ({ address: s.trim() })) : [],
       bcc: composeBcc ? composeBcc.split(',').map((s: string) => ({ address: s.trim() })) : [],
@@ -333,6 +374,7 @@ async function sendEmail() {
     showCompose = false;
     if (selectedFolder?.type === 'sent') await selectFolder(selectedFolder);
     await loadStats();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.send']());
   } finally {
@@ -346,6 +388,7 @@ async function fetchSuggestions(q: string) {
     return;
   }
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ contacts: any[] }>(
       `/ext/communications/mail/contacts?q=${encodeURIComponent(q)}&limit=8`,
     );
@@ -355,6 +398,7 @@ async function fetchSuggestions(q: string) {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function pickSuggestion(contact: any) {
   const parts = composeTo.split(',');
   parts[parts.length - 1] = contact.display_name
@@ -375,6 +419,7 @@ async function summarizeMessage() {
       {},
     );
     summary = r.summary ?? '';
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.failed']());
   } finally {
@@ -394,6 +439,7 @@ async function generateAiDraft() {
       openReplyContext('reply').then(() => {
         composeBody = r.draft;
       });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e.message ?? m['communications.mail.error.failed']());
   } finally {
@@ -403,6 +449,7 @@ async function generateAiDraft() {
 
 async function loadDrafts() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ drafts: any[] }>('/ext/communications/mail/drafts');
     drafts = r.drafts ?? [];
   } catch {
@@ -412,14 +459,19 @@ async function loadDrafts() {
 
 async function deleteDraft(id: string) {
   await api.delete(`/ext/communications/mail/drafts/${id}`);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   drafts = drafts.filter((d: any) => d.id !== id);
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function openDraft(draft: any) {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const r = await api.get<{ draft: any }>(`/ext/communications/mail/drafts/${draft.id}`);
   const d = r.draft;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const parseAddrs = (v: any) => {
     try {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       return (Array.isArray(v) ? v : JSON.parse(v)).map((a: any) => a.address).join(', ');
     } catch {
       return '';
@@ -437,6 +489,7 @@ async function openDraft(draft: any) {
 
 async function loadContacts() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ contacts: any[] }>(
       `/ext/communications/mail/contacts?q=${encodeURIComponent(contactSearch)}&limit=50`,
     );
@@ -448,6 +501,7 @@ async function loadContacts() {
 
 async function loadSignatures() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ signatures: any[] }>('/ext/communications/mail/signatures');
     signatures = r.signatures ?? [];
   } catch {
@@ -477,6 +531,7 @@ async function deleteSignature(id: string) {
 async function loadFilters() {
   if (!selectedAccount) return;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ filters: any[] }>(
       `/ext/communications/mail/accounts/${selectedAccount.id}/filters`,
     );
@@ -499,6 +554,7 @@ async function saveFilter() {
   await loadFilters();
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function toggleFilter(filter: any) {
   await api.patch(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${filter.id}`, {
     is_active: !filter.is_active,
@@ -508,6 +564,7 @@ async function toggleFilter(filter: any) {
 
 async function deleteFilter(id: string) {
   await api.delete(`/ext/communications/mail/accounts/${selectedAccount.id}/filters/${id}`);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   filters = filters.filter((f: any) => f.id !== id);
 }
 
@@ -523,6 +580,7 @@ $effect(() => {
 
 function folderIcon(type: string) {
   return (
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     ({ inbox: Inbox, sent: Send, trash: Trash2, archive: Archive, spam: AlertCircle } as any)[
       type
     ] ?? Mail

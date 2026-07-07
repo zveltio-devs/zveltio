@@ -5,6 +5,7 @@ import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.sve
 import { api } from '$lib/api.js';
 const API = '/ext/operations/traceability';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let lots = $state<any[]>([]);
 let loading = $state(true);
 let error = $state('');
@@ -27,6 +28,7 @@ async function load() {
     const json = await res.json();
     lots = json.data;
     total = json.meta.total;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { engineEvents, AbortHookError } from '../../lib/event-bus.js';
+import { engineEvents, AbortHookError } from '../../lib/runtime/event-bus.js';
 
 beforeEach(() => {
   engineEvents.clearPreHooks();

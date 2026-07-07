@@ -56,6 +56,7 @@ onMount(async () => {
   try {
     const data = await settingsApi.getAll();
     for (const [k, v] of Object.entries(data)) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       if (k in s) (s as any)[k] = v;
     }
   } finally {
@@ -66,6 +67,7 @@ onMount(async () => {
 
 async function loadRateLimiting() {
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ rate_limits: any[] }>('/api/admin/rate-limits');
     if (Array.isArray(res?.rate_limits)) rlTiers = res.rate_limits;
   } catch {

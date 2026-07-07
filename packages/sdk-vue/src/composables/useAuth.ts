@@ -5,7 +5,9 @@ import type { ZveltioClient } from '@zveltio/sdk';
 import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 
 export function useAuth(): {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   user: Ref<any | null>;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   session: Ref<any | null>;
   loading: Ref<boolean>;
   error: Ref<Error | null>;
@@ -16,7 +18,9 @@ export function useAuth(): {
   const client = inject<ZveltioClient>(ZVELTIO_CLIENT_KEY);
   if (!client) throw new Error('useAuth must be used within ZveltioPlugin');
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const user = ref<any | null>(null);
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const session = ref<any | null>(null);
   const loading = ref(true);
   const error = ref<Error | null>(null);

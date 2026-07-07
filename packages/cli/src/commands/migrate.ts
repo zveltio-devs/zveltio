@@ -17,6 +17,7 @@ export const migrateCommand = new Command('migrate')
     }
   });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function runMigrationsDirectly(opts: any, databaseUrl: string): Promise<void> {
   try {
     process.env.DATABASE_URL = databaseUrl;
@@ -25,9 +26,11 @@ async function runMigrationsDirectly(opts: any, databaseUrl: string): Promise<vo
     const dbPath = new URL('../../../engine/src/db/index.js', import.meta.url).href;
     const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url)
       .href;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const { initDatabase } = (await import(dbPath)) as any;
     const { runMigrations, getAppliedMigrations, getLastAppliedMigration } = (await import(
       migrationsPath
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     )) as any;
 
     const db = await initDatabase();
@@ -45,12 +48,14 @@ async function runMigrationsDirectly(opts: any, databaseUrl: string): Promise<vo
     await runMigrations(db);
     console.log('\n✅ All migrations applied.\n');
     await db.destroy?.();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     console.error(`\n❌ Migration failed: ${err.message}\n`);
     process.exit(1);
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function runMigrationsViaAPI(opts: any): Promise<void> {
   try {
     const res = await fetch(`${opts.url}/api/admin/migrate`, {
@@ -71,14 +76,17 @@ async function runMigrationsViaAPI(opts: any): Promise<void> {
     }
 
     if (!res.ok) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const body = (await res.json().catch(() => ({}))) as any;
       throw new Error(body.error ?? `Engine returned ${res.status}`);
     }
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const data = (await res.json()) as any;
     console.log(
       `✅ ${data.applied} migration(s) applied. Schema version: ${data.schema_version}\n`,
     );
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
     if (err.message?.includes('fetch') || err.code === 'ECONNREFUSED') {
       console.error(`\n❌ Cannot reach engine at ${opts.url}`);

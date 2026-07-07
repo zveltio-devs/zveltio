@@ -4,6 +4,7 @@ import { fetchCollection, type CollectionOptions } from '@zveltio/sdk';
 import type { ZveltioClient } from '@zveltio/sdk';
 import { ZVELTIO_CLIENT_KEY } from '../plugin.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function useCollection<T = any>(
   collectionName: string,
   options?: CollectionOptions,

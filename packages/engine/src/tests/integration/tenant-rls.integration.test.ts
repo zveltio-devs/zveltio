@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import { createDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
-import { applyTenantRLS } from '../../lib/tenant-manager.js';
+import { applyTenantRLS } from '../../lib/tenancy/tenant-manager.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const skipAll = !TEST_DB_URL;

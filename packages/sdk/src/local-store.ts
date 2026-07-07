@@ -5,12 +5,14 @@ import { generateUUID } from './utils.js';
 export interface LocalRecord {
   id: string;
   collection: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>;
   _localVersion: number; // Incremented on every local write
   _serverVersion: number; // Confirmed version from server
   _syncStatus: 'synced' | 'pending' | 'conflict';
   _updatedAt: number; // timestamp ms
   _deletedAt?: number; // soft delete for sync
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   _conflictData?: Record<string, any>; // server data at conflict time, for UI resolution
   _crdtDoc?: LWWDocument; // CRDT field-level version vector (optional)
 }
@@ -20,6 +22,7 @@ export interface SyncQueueItem {
   collection: string;
   recordId: string;
   operation: 'create' | 'update' | 'delete';
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   payload: Record<string, any>;
   attempts: number;
   createdAt: number;
@@ -88,6 +91,7 @@ export class LocalStore {
   }
 
   /** Write a local record and add to sync queue */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async put(collection: string, id: string, data: Record<string, any>): Promise<LocalRecord> {
     if (!this.db) throw new Error('LocalStore not opened');
 
@@ -227,6 +231,7 @@ export class LocalStore {
   async applyServerUpdate(
     collection: string,
     id: string,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     data: Record<string, any>,
     serverVersion: number,
   ): Promise<void> {
@@ -237,7 +242,9 @@ export class LocalStore {
     // Conflict detection: local has changes not yet confirmed by server
     if (existing && existing._localVersion > existing._serverVersion) {
       // CRDT field-level merge if both sides have CRDT docs
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       if (existing._crdtDoc && (data as any).__crdt) {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const remoteCrdtDoc = (data as any).__crdt as LWWDocument;
         const merged = mergeLWW(existing._crdtDoc, remoteCrdtDoc);
         const mergedData = fromDocument(merged);
@@ -289,6 +296,7 @@ export class LocalStore {
   async resolveConflict(
     collection: string,
     id: string,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     resolvedData: Record<string, any>,
   ): Promise<void> {
     if (!this.db) throw new Error('LocalStore not opened');

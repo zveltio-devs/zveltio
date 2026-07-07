@@ -7,10 +7,11 @@ import {
   getUserRoles,
   getEnforcer,
   invalidateUserPermCache,
-} from '../lib/permissions.js';
+} from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
-import { escapeLike } from '../lib/query-utils.js';
+import { escapeLike } from '../lib/data/index.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -28,6 +29,7 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function usersRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -47,6 +49,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     let query = db.selectFrom('user').selectAll().orderBy('createdAt', 'desc');
     if (search) {
       const safeSearch = `%${escapeLike(search)}%`;
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       query = query.where((eb: any) =>
         eb.or([eb('name', 'like', safeSearch), eb('email', 'like', safeSearch)]),
       );
@@ -63,6 +66,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     // Batch-fetch all roles in one Casbin call — avoids N+1 queries
     const e = await getEnforcer();
     const usersWithRoles = await Promise.all(
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       users.map(async (u: any) => {
         // getRolesForUser is a single Casbin in-memory lookup (no DB round-trip)
         const roles = await e.getRolesForUser(u.id).catch(() => []);
@@ -108,6 +112,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const { name, image, role } = c.req.valid('json');
       const userId = c.req.param('id');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const updates: Record<string, any> = { updatedAt: new Date() };
       if (name !== undefined) updates.name = name;
       if (image !== undefined) updates.image = image;
@@ -128,6 +133,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
         await e.deleteRolesForUser(userId);
         await e.addRoleForUser(userId, role, '*');
         await invalidateUserPermCache(userId);
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const admin = c.get('user') as any;
         await auditLog(db, {
           type: 'user.role_changed',
@@ -155,6 +161,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { email, name, role } = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const adminUser = c.get('user') as any;
 
       // Check if user already exists
@@ -232,6 +239,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Delete user
   app.delete('/:id', async (c) => {
     const userId = c.req.param('id');
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const adminUser = c.get('user') as any;
 
     if (userId === adminUser.id) {

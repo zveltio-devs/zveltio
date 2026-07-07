@@ -7,8 +7,11 @@ import { Languages, Plus, X, Globe, Key } from '@lucide/svelte';
 import { api as zApi } from '$lib/api.js';
 
 let tab = $state<'translations' | 'locales' | 'glossary'>('translations');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let translations = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let locales = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let glossary = $state<any[]>([]);
 let selectedLocale = $state('en');
 let q = $state('');
@@ -18,6 +21,7 @@ let showLocaleForm = $state(false);
 let saving = $state(false);
 let localeForm = $state({ code: '', name: '', is_active: true });
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await zApi.fetch(path, init);
   const json = await res.json().catch(() => ({}));
@@ -31,6 +35,7 @@ async function loadTranslations() {
     if (q) params.set('q', q);
     const r = await api(`/ext/i18n/translations/keys?${params}`);
     translations = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   }
@@ -39,6 +44,7 @@ async function loadLocales() {
   try {
     const r = await api('/ext/i18n/translations/locales');
     locales = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   }
@@ -47,6 +53,7 @@ async function loadGlossary() {
   try {
     const r = await api('/ext/i18n/translations/glossary');
     glossary = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   }
@@ -59,6 +66,7 @@ async function saveTranslation(key: string, value: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key, locale: selectedLocale, value }),
     });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   }
@@ -76,6 +84,7 @@ async function createLocale() {
     showLocaleForm = false;
     localeForm = { code: '', name: '', is_active: true };
     await loadLocales();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     error = e.message;
   } finally {

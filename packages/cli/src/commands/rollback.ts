@@ -22,7 +22,9 @@ export const rollbackCommand = new Command('rollback')
     const migrationsPath = new URL('../../../engine/src/db/migrations/index.js', import.meta.url)
       .href;
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const { initDatabase } = (await import(dbPath)) as any;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const { getLastAppliedMigration, rollbackMigration } = (await import(migrationsPath)) as any;
 
     // Determine target version
@@ -80,6 +82,7 @@ export const rollbackCommand = new Command('rollback')
       console.log(`\n✅ Rolled back to schema version ${targetVersion}.\n`);
       console.log('   ⚠️  Restart engine after rollback:');
       console.log('   zveltio stop && zveltio start\n');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
       console.error(`\n❌ Rollback error: ${err.message}\n`);
       process.exit(1);

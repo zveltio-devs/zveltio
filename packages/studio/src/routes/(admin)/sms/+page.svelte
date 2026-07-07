@@ -7,7 +7,9 @@ import { toast } from '$lib/stores/toast.svelte.js';
 import { MessageSquare, Send, LoaderCircle } from '@lucide/svelte';
 
 let stats = $state<Record<string, number>>({});
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let messages = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let templates = $state<any[]>([]);
 let loading = $state(true);
 
@@ -37,8 +39,11 @@ async function loadAll() {
   loading = true;
   try {
     const [statsRes, msgsRes, tplRes] = await Promise.all([
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ stats: any[] }>('/extensions/sms/stats'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ messages: any[] }>('/extensions/sms/messages?limit=50'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ templates: any[] }>('/extensions/sms/templates'),
     ]);
     const agg: Record<string, number> = {};
@@ -46,6 +51,7 @@ async function loadAll() {
     stats = agg;
     messages = msgsRes.messages ?? [];
     templates = tplRes.templates ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -87,6 +93,7 @@ async function sendSms() {
     sendTemplateId = '';
     sendVariables = '';
     await loadAll();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     sendResult = { ok: false, msg: 'Error: ' + (e.message ?? 'Failed to send') };
   } finally {
@@ -101,6 +108,7 @@ async function createTemplate() {
   }
   savingTpl = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.post<{ template: any }>('/extensions/sms/templates', {
       name: newTplName.trim(),
       body: newTplBody.trim(),
@@ -110,6 +118,7 @@ async function createTemplate() {
     newTplName = '';
     newTplBody = '';
     toast.success(m['ext.created']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(m['ext.errorPrefix']() + (e.message ?? ''));
   } finally {
@@ -125,6 +134,7 @@ function statusBadge(s: string) {
         delivered: 'badge-success',
         failed: 'badge-error',
         pending: 'badge-warning',
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } as any
     )[s] ?? 'badge-ghost'
   );

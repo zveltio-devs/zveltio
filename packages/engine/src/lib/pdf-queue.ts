@@ -9,6 +9,7 @@ const MAX_WORKERS = 4;
 
 interface PendingRequest {
   html: string;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   options: Record<string, any>;
   resolve: (buf: Buffer) => void;
   reject: (err: Error) => void;
@@ -74,6 +75,7 @@ function processQueue(): void {
   assignToWorker(freeWorker, next);
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function generatePDFAsync(html: string, options: Record<string, any> = {}): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     let freeWorker = pool.find((pw) => !pw.busy);

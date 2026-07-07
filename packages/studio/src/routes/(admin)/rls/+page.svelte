@@ -59,11 +59,15 @@ async function loadAll() {
   try {
     const [rlsRes, colRes, roleRes] = await Promise.all([
       api.get<{ policies: RlsPolicy[] }>('/api/admin/rls'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ collections: any[] }>('/api/collections'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ roles: any[] }>('/api/admin/roles'),
     ]);
     policies = rlsRes.policies ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     collections = (colRes.collections ?? []).map((c: any) => c.slug ?? c.name);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const customRoles = (roleRes.roles ?? []).map((r: any) => r.name);
     roles = ['*', 'god', 'admin', 'member', ...customRoles];
   } catch (err) {

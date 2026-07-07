@@ -14,7 +14,7 @@ import { describe, it, expect } from 'bun:test';
  * the loader predicate. If the production code changes, this test
  * updates accordingly.
  */
-import { resolvePublisherTier, tierAllowsInline } from '../../lib/extension-catalog.js';
+import { resolvePublisherTier, tierAllowsInline } from '../../lib/extensions/extension-catalog.js';
 
 type PublisherTier = 'first-party' | 'verified' | 'community';
 

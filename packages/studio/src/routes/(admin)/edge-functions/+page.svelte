@@ -4,13 +4,16 @@ import { Plus, Play, Trash2, Save, Code, CircleCheck } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import { api } from '$lib/api.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let functions = $state<any[]>([]);
 let loading = $state(true);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let selected = $state<any>(null);
 let saving = $state(false);
 let saved = $state(false);
 let invoking = $state(false);
 let invokeInput = $state('{}');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let invokeResult = $state<any>(null);
 let showCreateModal = $state(false);
 let creating = $state(false);
@@ -54,6 +57,7 @@ async function loadFunctions() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function selectFunction(fn: any) {
   const res = await api.fetch(`/ext/developer/edge-functions/${fn.id}`, { credentials: 'include' });
   const data = await res.json();
@@ -134,6 +138,7 @@ async function deleteFunction(id: string) {
   };
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function toggleActive(fn: any) {
   await api.fetch(`/ext/developer/edge-functions/${fn.id}`, {
     method: 'PATCH',

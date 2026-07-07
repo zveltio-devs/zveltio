@@ -5,6 +5,7 @@
 import { generateUUID } from './utils.js';
 
 // LWW-Register (Last Write Wins) with Lamport timestamp per field
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export interface LWWField<T = any> {
   value: T;
   lamport: number; // Lamport clock value at time of write
@@ -39,6 +40,7 @@ export function mergeLWW(local: LWWDocument, remote: LWWDocument): LWWDocument {
 
 /** Convert a plain record to an LWW document */
 export function toDocument(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   data: Record<string, any>,
   lamport: number,
   clientId: string,
@@ -51,7 +53,9 @@ export function toDocument(
 }
 
 /** Extract plain data from an LWW document */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function fromDocument(doc: LWWDocument): Record<string, any> {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const data: Record<string, any> = {};
   for (const [key, field] of Object.entries(doc)) {
     data[key] = field.value;
@@ -61,12 +65,14 @@ export function fromDocument(doc: LWWDocument): Record<string, any> {
 
 // ── OR-Set (Observed-Remove Set) for array fields ─────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export interface ORSetElement<T = any> {
   value: T;
   uid: string; // unique tag for this add operation
   removed: boolean;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export type ORSet<T = any> = ORSetElement<T>[];
 
 export function orSetAdd<T>(set: ORSet<T>, value: T): ORSet<T> {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { QueryAlterRegistryImpl } from '../../lib/query-alter.js';
+import { QueryAlterRegistryImpl } from '../../lib/data/query-alter.js';
 
 // Fake query builder for testing — the real one is Kysely, but the registry
 // itself doesn't care about the shape: it just chains the user-provided alters.

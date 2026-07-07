@@ -79,6 +79,10 @@ export interface ZvMigrationsTable {
   id: Generated<number>;
   name: string;
   applied_at: Generated<Date>;
+  /** DOWN SQL persisted alongside each extension migration so uninstall with
+   * purgeData=true can replay rollbacks without the original files. Added by
+   * migration 071_zv_migrations_down_sql (folded into 001_initial). */
+  down_sql: string | null;
 }
 
 export interface ZvSchemaVersionsTable {
@@ -100,6 +104,17 @@ export interface ZvSettingsTable {
   is_public: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+}
+
+export interface ZvLicenseAuditTable {
+  id: Generated<string>;
+  action: string;
+  extension_name: string | null;
+  performed_by: string | null;
+  performed_at: Generated<Date>;
+  ip: string | null;
+  user_agent: string | null;
+  details: Generated<unknown>; // JSONB DEFAULT '{}'
 }
 
 export interface ZvDdlJobsTable {
@@ -574,9 +589,9 @@ export interface ZvExtensionRegistryTable {
   name: string;
   display_name: string;
   description: string | null;
-  category: string;
-  version: string;
-  author: string;
+  category: Generated<string>; // DB DEFAULT 'custom'
+  version: Generated<string>; // DB DEFAULT '1.0.0'
+  author: string | null;
   is_installed: boolean;
   is_enabled: boolean;
   config: unknown; // JSONB
@@ -1642,6 +1657,7 @@ export interface DbSchema {
   zv_migrations: ZvMigrationsTable;
   zv_schema_versions: ZvSchemaVersionsTable;
   zv_settings: ZvSettingsTable;
+  zv_license_audit: ZvLicenseAuditTable;
   zv_ddl_jobs: ZvDdlJobsTable;
   zv_api_keys: ZvApiKeysTable;
   zv_api_key_access_log: ZvApiKeyAccessLogTable;

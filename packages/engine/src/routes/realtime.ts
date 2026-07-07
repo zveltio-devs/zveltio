@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/permissions.js';
-import { getCache } from '../lib/cache.js';
+import { checkPermission } from '../lib/tenancy/index.js';
+import { getCache } from '../lib/runtime/index.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
 export const CHANNELS = {
@@ -17,10 +17,12 @@ export const CHANNELS = {
 interface SubscriptionFilter {
   field: string;
   op: 'eq' | 'neq' | 'in';
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   value: any;
 }
 
 interface StreamSub {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   stream: any;
   collections: string[]; // empty = all
   recordId?: string; // filter to specific record ID
@@ -54,9 +56,11 @@ function presenceCleanup(channel: string) {
 }
 
 async function presenceJoin(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   cache: any,
   channel: string,
   userId: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   meta: Record<string, any>,
 ) {
   const ts = Date.now();
@@ -77,6 +81,7 @@ async function presenceJoin(
   presenceStore.get(channel)!.set(userId, ts);
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function presenceLeave(cache: any, channel: string, userId: string) {
   if (cache) {
     try {
@@ -91,6 +96,7 @@ async function presenceLeave(cache: any, channel: string, userId: string) {
 }
 
 async function presenceList(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   cache: any,
   channel: string,
 ): Promise<Array<{ userId: string; lastSeen: number }>> {
@@ -115,6 +121,7 @@ async function presenceList(
   return [...members.entries()].map(([userId, lastSeen]) => ({ userId, lastSeen }));
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function matchesSub(sub: StreamSub, collection: string, record: any): boolean {
   if (sub.collections.length > 0 && !sub.collections.includes(collection)) return false;
   if (sub.recordId && record?.id !== sub.recordId) return false;
@@ -139,6 +146,7 @@ function matchesSub(sub: StreamSub, collection: string, record: any): boolean {
 export function broadcastDataEvent(
   collection: string,
   event: string,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   record: any,
   tenantId: string | null = null,
 ): void {
@@ -166,6 +174,7 @@ export function broadcastDataEvent(
 }
 
 /** Broadcast a generic (non-data) event to all connected clients. */
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function broadcastSSE(channel: string, event: string, data: any): void {
   const payload = JSON.stringify({
     channel,
@@ -193,6 +202,7 @@ function parseSubFilters(raw: string | undefined): SubscriptionFilter[] {
     if (typeof obj !== 'object' || Array.isArray(obj)) return [];
     return Object.entries(obj).map(([field, value]) => {
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const [op, val] = Object.entries(value)[0] as [string, any];
         const mappedOp = op === 'neq' ? 'neq' : op === 'in' ? 'in' : 'eq';
         return { field, op: mappedOp, value: val };
@@ -204,6 +214,7 @@ function parseSubFilters(raw: string | undefined): SubscriptionFilter[] {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function realtimeRoutes(_db: Database, _auth: any): Hono {
   const app = new Hono();
 
@@ -275,6 +286,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       );
     }
 
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
     return streamSSE(c, async (stream) => {
       const sub: StreamSub = { stream, collections, recordId, filters, tenantId };
@@ -285,6 +297,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
 
       // Subscribe to cache channels if cache is available
       const cache = getCache();
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let subscriber: any = null;
 
       if (cache) {

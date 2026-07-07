@@ -7,8 +7,11 @@ import { toast } from '$lib/stores/toast.svelte.js';
 import { Network, Play, Save, LoaderCircle } from '@lucide/svelte';
 
 let tab = $state<'playground' | 'logs' | 'persisted' | 'policies'>('playground');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let logs = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let persisted = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let policies = $state<any[]>([]);
 let loading = $state(false);
 
@@ -22,6 +25,7 @@ async function runQuery() {
   try {
     const res = await api.post<object>('/ext/developer/graphql', { query: queryText });
     queryResult = JSON.stringify(res, null, 2);
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? m['developer.graphql.error.queryFailed']());
     queryResult = '';
@@ -33,8 +37,10 @@ async function runQuery() {
 async function loadLogs() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/developer/graphql/operations?limit=100');
     logs = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -44,8 +50,10 @@ async function loadLogs() {
 async function loadPersisted() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/developer/graphql/persisted');
     persisted = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -55,8 +63,10 @@ async function loadPersisted() {
 async function loadPolicies() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const r = await api.get<{ data: any[] }>('/ext/developer/graphql/field-policies');
     policies = r.data ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {

@@ -3,6 +3,7 @@ import type { ZveltioConfig, QueryOptions, QueryResponse } from '../types/index.
 export class QueryBuilder {
   private _collection: string;
   private _config: ZveltioConfig;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   private _filters: Record<string, any> = {};
   private _options: QueryOptions = {};
 
@@ -12,8 +13,11 @@ export class QueryBuilder {
   }
 
   // Filtering
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   where(field: string, value: any): this;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   where(field: string, op: string, value: any): this;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   where(field: string, opOrValue: any, value?: any): this {
     if (value === undefined) {
       this._filters[field] = opOrValue;
@@ -47,6 +51,7 @@ export class QueryBuilder {
   }
 
   // Execute
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async query<T = any>(overrideOptions?: QueryOptions): Promise<QueryResponse<T>> {
     const opts = { ...this._options, ...overrideOptions };
     const params = new URLSearchParams();
@@ -80,6 +85,7 @@ export class QueryBuilder {
   }
 
   // Async iterable — allows `for await (const page of query)`
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   async *[Symbol.asyncIterator]<T = any>(): AsyncGenerator<T[]> {
     let currentPage = this._options.page || 1;
     const pageSize = this._options.limit || 20;

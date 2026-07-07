@@ -18,6 +18,7 @@ import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import CrudListPage from '$lib/components/common/CrudListPage.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let zones = $state<any[]>([]);
 let loading = $state(true);
 let showModal = $state(false);
@@ -55,6 +56,7 @@ onMount(load);
 async function load() {
   loading = true;
   try {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const res = await api.get<{ zones: any[] }>('/api/zones');
     zones = res.zones ?? [];
   } catch {

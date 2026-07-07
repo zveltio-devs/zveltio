@@ -5,6 +5,7 @@ import { z } from 'zod';
 // Extend Hono's ContextVariableMap so c.set/c.get('adminUser') pass type-checking.
 declare module 'hono' {
   interface ContextVariableMap {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     adminUser: any;
   }
 }
@@ -14,9 +15,10 @@ import {
   getEnforcer,
   getUserRoles,
   invalidateUserPermCache,
-} from '../lib/permissions.js';
+} from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -24,6 +26,7 @@ async function requireAdmin(c: any, auth: any): Promise<any | null> {
   return session.user;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function permissionsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -59,7 +62,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       .returning(['id', 'email', 'role'])
       .executeTakeFirst();
     if (!result) return c.json({ error: `No user found with email: ${email}` }, 404);
-    const { invalidateGodCache } = await import('../lib/permissions.js');
+    const { invalidateGodCache } = await import('../lib/tenancy/index.js');
     await invalidateGodCache(result.id).catch((err: Error) => {
       // Cache invalidation failure on a privilege grant is HIGH-IMPACT:
       // the new god role won't be visible until the cache TTL expires.
@@ -109,6 +112,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { userId, role } = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
       await e.addRoleForUser(userId, role, '*');
@@ -141,6 +145,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { userId, role } = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
       await e.deleteRoleForUser(userId, role, '*');
@@ -174,6 +179,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { subject, resource, action } = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
       await e.addPolicy(subject, '*', resource, action);
@@ -206,6 +212,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { subject, resource, action } = c.req.valid('json');
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
       await e.removePolicy(subject, '*', resource, action);
@@ -238,7 +245,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
 // KEYS scans every key in the Redis keyspace and blocks the server for the duration —
 // prohibited in production. SCAN iterates in batches without blocking.
 async function invalidateAllPermissionCache() {
-  const { getCache } = await import('../lib/cache.js');
+  const { getCache } = await import('../lib/runtime/index.js');
   const cache = getCache();
   if (!cache) return;
   try {

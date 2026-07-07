@@ -15,11 +15,11 @@ const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const skipAll = !TEST_DB_URL;
 
 let db: Database;
-let checkPermission: typeof import('../../lib/permissions.js').checkPermission;
-let initPermissions: typeof import('../../lib/permissions.js').initPermissions;
-let invalidateUserPermCache: typeof import('../../lib/permissions.js').invalidateUserPermCache;
-let invalidateGodCache: typeof import('../../lib/permissions.js').invalidateGodCache;
-let getEnforcer: typeof import('../../lib/permissions.js').getEnforcer;
+let checkPermission: typeof import('../../lib/tenancy/permissions.js').checkPermission;
+let initPermissions: typeof import('../../lib/tenancy/permissions.js').initPermissions;
+let invalidateUserPermCache: typeof import('../../lib/tenancy/permissions.js').invalidateUserPermCache;
+let invalidateGodCache: typeof import('../../lib/tenancy/permissions.js').invalidateGodCache;
+let getEnforcer: typeof import('../../lib/tenancy/permissions.js').getEnforcer;
 
 beforeAll(async () => {
   if (skipAll) return;
@@ -36,7 +36,7 @@ beforeAll(async () => {
     process.env.DATABASE_URL = originalDbUrl;
   }
 
-  const perms = await import('../../lib/permissions.js');
+  const perms = await import('../../lib/tenancy/permissions.js');
   checkPermission = perms.checkPermission;
   initPermissions = perms.initPermissions;
   invalidateUserPermCache = perms.invalidateUserPermCache;
@@ -212,7 +212,7 @@ describe.skipIf(skipAll)('Casbin RBAC — Stress & Lockout Tests', () => {
       await enforcer.addPolicy(userId, '*', 'fallback_res', 'read');
 
       // Mock cache to throw on all operations
-      const { getCache } = await import('../../lib/cache.js');
+      const { getCache } = await import('../../lib/runtime/cache.js');
       const cache = getCache();
       if (cache) {
         vi.spyOn(cache, 'get').mockRejectedValue(new Error('Cache unavailable'));

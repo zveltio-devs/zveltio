@@ -25,6 +25,7 @@ declare module 'pdfkit' {
     on(event: 'data', listener: (chunk: Buffer) => void): this;
     on(event: 'end', listener: () => void): this;
     on(event: 'error', listener: (err: Error) => void): this;
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     on(event: string, listener: (...args: any[]) => void): this;
   }
 

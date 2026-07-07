@@ -8,8 +8,11 @@ import { toast } from '$lib/stores/toast.svelte.js';
 import { Plus, CheckCircle, Package, Users, BarChart3, LoaderCircle } from '@lucide/svelte';
 
 let activeTab = $state<'orders' | 'suppliers' | 'budget'>('orders');
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let orders = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let suppliers = $state<any[]>([]);
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let budgetLines = $state<any[]>([]);
 let loading = $state(true);
 
@@ -38,8 +41,11 @@ async function loadAll() {
   loading = true;
   try {
     const [ord, sup, bud] = await Promise.all([
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ orders: any[] }>('/ext/compliance/ro/procurement/orders'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ suppliers: any[] }>('/ext/compliance/ro/procurement/suppliers'),
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ budget_lines: any[] }>(
         `/ext/compliance/ro/procurement/budget?year=${new Date().getFullYear()}`,
       ),
@@ -47,6 +53,7 @@ async function loadAll() {
     orders = ord.orders ?? [];
     suppliers = sup.suppliers ?? [];
     budgetLines = bud.budget_lines ?? [];
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
   } finally {
@@ -54,6 +61,7 @@ async function loadAll() {
   }
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function recalcItem(item: any) {
   item.total = Math.round(item.quantity * item.unit_price * 100) / 100;
   orderForm.subtotal = orderForm.items.reduce((s, i) => s + i.total, 0);
@@ -69,6 +77,7 @@ async function createOrder() {
     showOrderModal = false;
     await loadAll();
     toast.success(m['compliance.ro.procurement.toast.orderCreated']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -85,6 +94,7 @@ async function createSupplier() {
     supplierForm = { name: '', cui: '', county: '', category: '', contact_email: '' };
     await loadAll();
     toast.success(m['compliance.ro.procurement.toast.vendorRegistered']());
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   } finally {
@@ -96,6 +106,7 @@ async function approveOrder(id: string) {
   try {
     await api.post(`/ext/compliance/ro/procurement/orders/${id}/approve`, {});
     await loadAll();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -105,6 +116,7 @@ async function receiveOrder(id: string) {
   try {
     await api.post(`/ext/compliance/ro/procurement/orders/${id}/receive`, {});
     await loadAll();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -123,6 +135,7 @@ function statusBadge(status: string): string {
   );
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 function budgetPercent(line: any): number {
   if (!line.allocated || line.allocated === 0) return 0;
   return Math.min(100, Math.round((line.spent / line.allocated) * 100));

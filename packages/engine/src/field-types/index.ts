@@ -1,4 +1,4 @@
-import type { FieldTypeRegistry } from '../lib/field-type-registry.js';
+import type { FieldTypeRegistry } from '../lib/data/index.js';
 
 export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
@@ -330,6 +330,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       deserialize: async (v: string) => {
         if (!v || v.startsWith('$2')) return v; // already hashed
         try {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           return (await (globalThis as any).Bun?.password?.hash(v)) ?? v;
         } catch {
           return v;

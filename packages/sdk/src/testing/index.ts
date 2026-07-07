@@ -60,11 +60,15 @@ export interface MockDb {
  * `.executeTakeFirstOrThrow()` returns a preset if matched, otherwise
  * an empty list (for execute) or undefined.
  */
+
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function mockDb(presets: MockDbPresets = {}): any & MockDb {
   const calls: MockCall[] = [];
   const presetMap = new Map<string, unknown>(Object.entries(presets));
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   function buildChain(prefix: string[]): any {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const proxy: any = new Proxy(() => {}, {
       get(_, prop) {
         if (typeof prop === 'symbol') return undefined;
@@ -119,6 +123,7 @@ export function mockDb(presets: MockDbPresets = {}): any & MockDb {
     return proxy;
   }
 
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   return buildChain([]) as any;
 }
 
@@ -136,8 +141,11 @@ function matchPreset(chain: string, presets: Map<string, unknown>): unknown {
 
 export interface MockEventBus {
   emit(event: string, payload: unknown): void;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   on(event: string, handler: (payload: any) => void): () => void;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   onBefore(event: string, handler: (payload: any) => any): () => void;
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   runBefore(event: string, seed: Record<string, unknown>): Promise<any>;
   /** Recorded emits, oldest first. */
   readonly emitted: Array<{ event: string; payload: unknown }>;
@@ -147,7 +155,9 @@ export interface MockEventBus {
 
 export function mockEventBus(): MockEventBus {
   const emitted: Array<{ event: string; payload: unknown }> = [];
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const listeners = new Map<string, Array<(p: any) => void>>();
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const beforeHandlers = new Map<string, Array<(p: any) => any>>();
 
   return {
@@ -180,12 +190,14 @@ export function mockEventBus(): MockEventBus {
       };
     },
     async runBefore(event, seed) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const payload: any = { ...seed };
       let aborted = false;
       let abortReason = '';
       payload.abort = (reason: string) => {
         aborted = true;
         abortReason = reason;
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         const err: any = new Error(`Aborted: ${reason}`);
         err.name = 'AbortHookError';
         err.reason = reason;
@@ -249,8 +261,10 @@ export function mockServiceRegistry(): {
 // ─── Mock queryAlter / entityAccess scoped registries ──────────────────────
 
 function mockQueryAlterScope() {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const entries: Array<{ table: string; alter: any }> = [];
   return {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     register(def: { table: string; alter: any }) {
       entries.push(def);
     },
@@ -264,8 +278,10 @@ function mockQueryAlterScope() {
 }
 
 function mockEntityAccessScope() {
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   const entries: Array<{ table: string; check: any }> = [];
   return {
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     register(def: { table: string; check: any }) {
       entries.push(def);
     },
@@ -285,6 +301,7 @@ export interface MockAuthOptions {
   user?: { id: string; email?: string; name?: string; roles?: string[] } | null;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function mockAuth(opts: MockAuthOptions = {}): any {
   const user =
     opts.user === undefined ? { id: 'test-user', email: 'test@example.com', roles: [] } : opts.user;
@@ -301,15 +318,19 @@ export function mockAuth(opts: MockAuthOptions = {}): any {
 
 export interface CreateTestContextOptions {
   /** Override the mocked db. Default: `mockDb()`. */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   db?: any;
   /** Override the mocked auth. Default: signed-in test user. */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   auth?: any;
   /** Override the mocked event bus. Default: in-memory. */
   events?: MockEventBus;
   /** Provide additional fields. They go onto the returned ctx as-is. */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   extra?: Partial<ExtensionContext<any>>;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function createTestContext(opts: CreateTestContextOptions = {}): ExtensionContext<any> {
   const db = opts.db ?? mockDb();
   const events = opts.events ?? mockEventBus();
@@ -325,14 +346,20 @@ export function createTestContext(opts: CreateTestContextOptions = {}): Extensio
       deserialize: (_t, v) => v,
       serialize: (_t, v) => v,
     },
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     events: events as any,
     checkPermission: async () => true,
     getUserRoles: async () => ['admin'],
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     DDLManager: {} as any,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     services: mockServiceRegistry() as any,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     queryAlter: mockQueryAlterScope() as any,
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     entityAccess: mockEntityAccessScope() as any,
     registerPublicRoute: () => {},
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     internals: {} as any,
     ...(opts.extra ?? {}),
   };
@@ -342,6 +369,7 @@ export function createTestContext(opts: CreateTestContextOptions = {}): Extensio
 
 export interface CreateTestAppOptions {
   /** Override the context handed to register(). Default: `createTestContext()`. */
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   ctx?: ExtensionContext<any>;
   /**
    * When the extension uses `mountStrategy: 'subapp'`, the engine normally
@@ -361,6 +389,7 @@ export interface CreateTestAppOptions {
  * the engine produces in production.
  */
 export async function createTestApp(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   extension: ZveltioExtension<any>,
   opts: CreateTestAppOptions = {},
 ): Promise<Hono> {
