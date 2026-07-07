@@ -45,6 +45,16 @@ function detectSubsystems(files: string[]): Set<string> {
 
 const IMPORT_RE = /(?:from|import\()\s*['"](\.\.?\/[^'"]+?)\.js['"]/g;
 
+// Owning entrypoints allowed to deep-import a subsystem's internals — the route
+// that IS that subsystem's public HTTP surface. This is same-concern use (the
+// data route driving the data pipeline), not the cross-concern leakage the
+// boundary exists to stop. Kept minimal + explicit: the heavy pipeline modules
+// (write-pipeline, handlers, shape) deliberately stay OUT of the barrel so the
+// ~40 barrel consumers don't eager-load them (coverage + startup cost).
+const OWNER_EXEMPTIONS: Record<string, readonly string[]> = {
+  data: ['packages/engine/src/routes/data.ts'],
+};
+
 interface Violation {
   file: string;
   spec: string;
@@ -77,6 +87,8 @@ function main(): void {
       // Is the importer itself inside this subsystem? Then deep import is fine.
       const importerInSub = abs.startsWith(`${ENGINE_LIB}/${sub}/`);
       if (importerInSub) continue;
+      // The subsystem's owning entrypoint may reach into its internals.
+      if (OWNER_EXEMPTIONS[sub]?.includes(file.replace(/\\/g, '/'))) continue;
       violations.push({ file, spec, subsystem: sub });
     }
   }
