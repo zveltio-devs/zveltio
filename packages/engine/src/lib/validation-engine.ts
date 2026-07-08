@@ -18,6 +18,19 @@ const parser = new Parser({
   },
 });
 
+// expr-eval@2.0.2 is unmaintained (no upstream fix) and is advised for prototype
+// pollution via crafted member access (GHSA-jrhh-cvxc-8h5j / GHSA-6px8-2fmm-x2j2).
+// Our Parser exposes only `{ value }` and disables assignment, but a rule
+// expression authored by an admin could still reach `constructor`/`__proto__`/
+// `prototype` and pollute the shared Node process — a cross-tenant risk in shared
+// hosting. Reject those tokens before parsing; a legitimate validation
+// expression (comparisons/logic over `value`) never needs them. Defense-in-depth.
+const UNSAFE_EXPR_TOKEN =
+  /(__proto__|constructor|prototype|__define[GS]etter__|__lookup[GS]etter__)/;
+function isSafeExpression(expr: string): boolean {
+  return !UNSAFE_EXPR_TOKEN.test(expr);
+}
+
 export interface ValidationRule {
   field_name: string;
   rule_type: string;
@@ -179,6 +192,14 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
       case 'nlp':
         try {
           if (cfg.expression) {
+            if (!isSafeExpression(String(cfg.expression))) {
+              // Reject prototype-pollution vectors; leave the field valid
+              // (matching the parse-error path) but log for the operator.
+              console.warn(
+                `[validation-engine] refused an unsafe expression (blocked token): ${rule.field_name}`,
+              );
+              break;
+            }
             const result = parser.parse(cfg.expression).evaluate({ value });
             violated = !result;
           }
