@@ -118,9 +118,13 @@ jobs:
         run: bun audit || true
       - name: Gate on CRITICAL advisories
         # Blocks a merge that pulls in a CRITICAL-severity CVE. High/moderate are
-        # reported above but not gated yet — the current highs (better-auth XSS,
-        # dev-only vite/undici) are tracked for a dependency bump. Tighten to
-        # `--audit-level=high` once those are resolved.
+        # reported above but not gated yet. Triage (2026-07-08): better-auth XSS
+        # is already resolved (engine on 1.6.23, no longer advised); DOMPurify
+        # advisories closed by the 3.4.11 bump. Remaining highs are not
+        # exploitable in our usage (Kysely JSON-path/sql.lit APIs are unused;
+        # we're Postgres, not MySQL) or need a breaking major bump tracked as
+        # planned work (nodemailer 6→9, kysely 0.27→0.29; dev-only vite/esbuild).
+        # Tighten to `--audit-level=high` once those planned bumps land.
         run: bun audit --audit-level=critical
 
   unit-tests:
