@@ -19,6 +19,7 @@ import { createMiddleware } from 'hono/factory';
 import type { Database } from '../db/index.js';
 import { isGodUser } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
+import { problem } from '../lib/problem.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function tenantMembershipMiddleware(auth: any, db: Database) {
@@ -52,7 +53,11 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
       .catch(() => null);
 
     if (!member) {
-      return c.json({ error: 'You are not a member of this tenant. Access denied.' }, 403);
+      throw problem(
+        'tenant.membership_required',
+        403,
+        'You are not a member of this tenant. Access denied.',
+      );
     }
     return next();
   });
