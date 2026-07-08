@@ -91,6 +91,25 @@ describe('validateFieldValue', () => {
     expect(await validateFieldValue(1, [rule('nlp', { expression: 'value >' })])).toEqual([]);
   });
 
+  test('refuses prototype-pollution expressions without throwing or polluting', async () => {
+    const before = ({} as Record<string, unknown>).polluted;
+    // Crafted expressions targeting expr-eval's prototype-pollution vectors are
+    // rejected (blocked token) → no violation, no throw, and Object.prototype
+    // stays clean.
+    for (const expr of [
+      'constructor.constructor("return 1")()',
+      'value.__proto__.polluted = 1',
+      'value.constructor.prototype.polluted = 1',
+    ]) {
+      expect(await validateFieldValue('x', [rule('custom', { expression: expr })])).toEqual([]);
+    }
+    expect(({} as Record<string, unknown>).polluted).toBe(before);
+    // A legitimate expression still works.
+    expect(
+      await validateFieldValue(3, [rule('custom', { expression: 'value > 10' })]),
+    ).toHaveLength(1);
+  });
+
   test('uses the custom error_message, else a default', async () => {
     const [custom] = await validateFieldValue(null, [rule('required', {}, 'Field is required')]);
     expect(custom).toBe('Field is required');
