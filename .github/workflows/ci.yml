@@ -116,16 +116,28 @@ jobs:
       - name: Report all advisories (informational)
         # Full report in the log for triage — never fails the build.
         run: bun audit || true
-      - name: Gate on CRITICAL advisories
-        # Blocks a merge that pulls in a CRITICAL-severity CVE. High/moderate are
-        # reported above but not gated yet. Triage (2026-07-08): better-auth XSS
-        # is already resolved (engine on 1.6.23, no longer advised); DOMPurify
-        # advisories closed by the 3.4.11 bump. Remaining highs are not
-        # exploitable in our usage (Kysely JSON-path/sql.lit APIs are unused;
-        # we're Postgres, not MySQL) or need a breaking major bump tracked as
-        # planned work (nodemailer 6→9, kysely 0.27→0.29; dev-only vite/esbuild).
-        # Tighten to `--audit-level=high` once those planned bumps land.
-        run: bun audit --audit-level=critical
+      - name: Gate on HIGH+ advisories
+        # Blocks a merge that introduces a high/critical CVE. Moderates/lows are
+        # reported (above) but not gated. The planned bumps have landed
+        # (DOMPurify 3.4.11, nodemailer 6→9, kysely 0.27→0.29, hono 4.12.28,
+        # dropped dead @auth/kysely-adapter), so the gate is now at `high`. The
+        # highs that remain are triaged + ignored by GHSA id — a NEW high (not on
+        # this list) fails the build. Re-triage when deps move (drop an id once
+        # its advisory clears upstream):
+        #   GHSA-fx2h-pf6j-xcff  vite server.fs.deny — dev tooling, not the prod runtime
+        #   GHSA-vmh5-mc38-953g  undici TLS-bypass via SOCKS5 — engine uses no SOCKS5 proxy
+        #   GHSA-vxpw-j846-p89q  undici WebSocket DoS — engine uses no undici WS client
+        #   GHSA-hm92-r4w5-c3mj  undici cross-origin via SOCKS5 — as above
+        #   GHSA-jc85-fpwf-qm7x  expr-eval functions — no upstream fix; only {value} is in scope
+        #   GHSA-8gw3-rxh4-v6jx  expr-eval prototype pollution — no fix; guarded by isSafeExpression()
+        run: >-
+          bun audit --audit-level=high
+          --ignore=GHSA-fx2h-pf6j-xcff
+          --ignore=GHSA-vmh5-mc38-953g
+          --ignore=GHSA-vxpw-j846-p89q
+          --ignore=GHSA-hm92-r4w5-c3mj
+          --ignore=GHSA-jc85-fpwf-qm7x
+          --ignore=GHSA-8gw3-rxh4-v6jx
 
   unit-tests:
     name: Unit Tests
