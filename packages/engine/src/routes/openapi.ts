@@ -1095,15 +1095,38 @@ function buildSpec() {
       responses: {
         Unauthorized: {
           description: 'Not authenticated',
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+          content: {
+            'application/problem+json': { schema: { $ref: '#/components/schemas/Error' } },
+          },
         },
         Forbidden: {
           description: 'Insufficient permissions',
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+          content: {
+            'application/problem+json': { schema: { $ref: '#/components/schemas/Error' } },
+          },
         },
       },
       schemas: {
-        Error: { type: 'object', properties: { error: { type: 'string' } }, required: ['error'] },
+        // Unified error envelope (H-13). Every non-2xx response is RFC 9457
+        // `application/problem+json` with a STABLE `code` clients can switch on.
+        Error: {
+          type: 'object',
+          description:
+            'RFC 9457 problem-details envelope. `code` is a stable machine string. ' +
+            'Common codes: `unauthorized`, `forbidden`, `not_found`, `validation_failed`, ' +
+            '`conflict`, `rate_limited`, `internal_error`, `tenant.membership_required`.',
+          properties: {
+            type: { type: 'string', description: 'Problem type URI (`about:blank` by default)' },
+            title: { type: 'string', description: 'Short human-readable summary' },
+            status: { type: 'integer', description: 'HTTP status code' },
+            detail: { type: 'string', description: 'Explanation specific to this occurrence' },
+            instance: { type: 'string', description: 'The request path' },
+            code: { type: 'string', description: 'Stable machine-readable error code' },
+            traceId: { type: 'string', description: 'Correlation id for server logs / trace' },
+            errors: { description: 'Optional structured details (e.g. validation issues)' },
+          },
+          required: ['type', 'title', 'status', 'code'],
+        },
         Pagination: {
           type: 'object',
           properties: {

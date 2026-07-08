@@ -2,6 +2,24 @@
 
 All notable changes to Zveltio will be documented in this file.
 
+## [Unreleased]
+
+Hardening Wave 9 (path to 3.0.0 stable — see `docs/HARDENING-9-PLAN.md`):
+
+- **feat(security) H-12**: extension `ctx.db` is now **tenant-scoped** — it
+  resolves the current request/job tenant transaction (FORCE-RLS isolated)
+  instead of the global pool. Cross-tenant access is opt-in via `ctx.adminDb`,
+  gated on a `db:admin` manifest permission. Closes the last multi-tenant hole.
+- **test(ci) H-11**: new `upgrade-path` workflow — boots the latest published
+  release, seeds data via the API, then boots HEAD against the same DB and
+  asserts the data survives byte-for-byte + a migration-superset guard.
+- **feat(api) H-13 — BREAKING-ish**: every non-2xx engine response is now an
+  RFC 9457 `application/problem+json` envelope (`type`/`title`/`status`/`detail`/
+  `instance` + a stable `code` + `traceId`), replacing the ad-hoc
+  `{ "error": "…" }` shape. The SDK throws a typed `ZveltioApiError`; Studio reads
+  `detail`/`code`/`traceId`. Legacy `{ error }` parsing is kept as a tolerant
+  fallback during the beta. See `docs/MIGRATION-ALPHA-TO-BETA.md`.
+
 ## [3.0.0-beta.29] - 2026-07-04
 
 **Access-by-IP broke the whole data plane** — found in a full functional sweep of a
