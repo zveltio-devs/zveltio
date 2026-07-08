@@ -1,0 +1,167 @@
+name: Upgrade Path
+
+# Tests what an operator actually does: run the latest published release, upgrade
+# the binary to HEAD against the SAME database, and keep working. `migrate-safety`
+# lints migrations in isolation; this proves the end-to-end upgrade — migrations
+# apply, seeded data survives byte-for-byte, and the auth session still works.
+# For a self-hosted Business OS a broken upgrade is the most expensive bug.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/engine/src/db/migrations/**'
+      - 'packages/engine/src/**'
+      - 'packages/engine/scripts/upgrade-smoke.ts'
+      - '.github/workflows/upgrade-path.yml'
+  schedule:
+    - cron: '0 4 * * *' # nightly — catches drift even without a migration PR
+  workflow_dispatch:
+
+concurrency:
+  group: upgrade-path-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade:
+    name: Release → HEAD upgrade smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zveltio_test
+          POSTGRES_USER: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      valkey:
+        image: valkey/valkey:8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      # Identical secrets across BOTH phases — session cookies + password hashes
+      # depend on BETTER_AUTH_SECRET; a fixed FIELD_ENCRYPTION_KEY keeps any
+      # encrypted column readable after the swap.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+      VALKEY_URL: redis://localhost:6379
+      BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+      BETTER_AUTH_URL: http://localhost:3000
+      FIELD_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      # Makes enqueueDDLJob synchronously await the job (ddl-queue.ts) so a
+      # collection-create isn't racing the worker poll; upgrade-smoke also polls.
+      NODE_ENV: test
+      UPGRADE_BASE_URL: http://localhost:3000
+      UPGRADE_EMAIL: admin@example.com
+      UPGRADE_PASSWORD: admin1234
+      UPGRADE_STATE_FILE: /tmp/upgrade-smoke-state.json
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need tags for the release binary + superset diff
+
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 'latest' }
+
+      - name: Resolve latest published release tag
+        run: |
+          LATEST=$(gh release list --exclude-drafts --limit 40 \
+            --json tagName --jq '[.[] | select(.tagName | startswith("v"))][0].tagName')
+          if [ -z "$LATEST" ]; then echo "no v* release found"; exit 1; fi
+          echo "Latest release: $LATEST"
+          echo "LATEST_TAG=$LATEST" >> "$GITHUB_ENV"
+
+      - name: Download the release engine binary
+        run: |
+          gh release download "$LATEST_TAG" -D reldl \
+            -p zveltio-linux-x64 -p zveltio-linux-x64-baseline || true
+          # Prefer the optimized build; fall back to baseline if the runner CPU
+          # can't run it (illegal instruction).
+          BIN=reldl/zveltio-linux-x64
+          chmod +x reldl/zveltio-linux-x64* || true
+          if ! "$BIN" version >/dev/null 2>&1; then
+            echo "x64 build did not run — falling back to baseline"
+            BIN=reldl/zveltio-linux-x64-baseline
+          fi
+          echo "Using release binary: $BIN ($($BIN version 2>/dev/null | head -1))"
+          echo "REL_BIN=$PWD/$BIN" >> "$GITHUB_ENV"
+
+      - name: Migration superset guard (HEAD ⊇ release — no rename/renumber/delete)
+        run: |
+          DIR=packages/engine/src/db/migrations/sql
+          REL_FILES=$(git ls-tree -r --name-only "$LATEST_TAG" -- "$DIR" | grep '\.sql$' || true)
+          fail=0
+          for f in $REL_FILES; do
+            if [ ! -f "$f" ]; then
+              echo "::error::migration removed/renamed since $LATEST_TAG: $f"; fail=1; continue
+            fi
+            rel=$(git show "$LATEST_TAG:$f" | sha256sum | cut -d' ' -f1)
+            head=$(sha256sum "$f" | cut -d' ' -f1)
+            if [ "$rel" != "$head" ]; then
+              echo "::error::already-released migration edited since $LATEST_TAG: $f"; fail=1
+            fi
+          done
+          if [ "$fail" = 0 ]; then
+            echo "OK: HEAD migrations are a strict superset of $LATEST_TAG"
+          fi
+          exit $fail
+
+      # ── Phase 1: run the RELEASE binary, seed via its API ──────────────────
+      - name: Release — migrate + boot
+        run: |
+          "$REL_BIN" migrate
+          "$REL_BIN" > /tmp/engine-release.log 2>&1 &
+          echo $! > /tmp/release.pid
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/api/health >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:3000/api/health || { echo "release engine never came up"; cat /tmp/engine-release.log; exit 1; }
+
+      - name: Release — create god admin
+        run: |
+          curl -sf -X POST http://localhost:3000/api/auth/sign-up/email \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$UPGRADE_EMAIL\",\"password\":\"$UPGRADE_PASSWORD\",\"name\":\"Admin\"}" || true
+          PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test \
+            -c "UPDATE \"user\" SET role='god' WHERE email='$UPGRADE_EMAIL'"
+
+      - name: Release — seed
+        run: bun packages/engine/scripts/upgrade-smoke.ts seed
+
+      - name: Stop the release binary
+        run: |
+          kill "$(cat /tmp/release.pid)" 2>/dev/null || true
+          sleep 2
+
+      # ── Phase 2: build HEAD, boot against the SAME DB, verify ──────────────
+      - name: Build HEAD
+        run: |
+          bun install --frozen-lockfile
+          cd packages/sdk && bun run build && cd -
+          cd packages/engine && bun run build
+
+      - name: HEAD — boot (auto-migrates the same DB)
+        run: |
+          bun packages/engine/dist/index.js > /tmp/engine-head.log 2>&1 &
+          echo $! > /tmp/head.pid
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000/api/health >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:3000/api/health || { echo "HEAD engine never came up"; cat /tmp/engine-head.log; exit 1; }
+
+      - name: HEAD — verify seeded data survived the upgrade
+        run: bun packages/engine/scripts/upgrade-smoke.ts verify
+
+      - name: Engine logs (always)
+        if: always()
+        run: |
+          echo "===== release engine log ====="; cat /tmp/engine-release.log 2>/dev/null || true
+          echo "===== HEAD engine log ====="; cat /tmp/engine-head.log 2>/dev/null || true

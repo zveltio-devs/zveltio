@@ -127,6 +127,19 @@ systemctl restart zveltio
 
 The engine is stateless; reinstalling restores `/api/health` in < 30 s.
 
+> **Upgrades (binary swap on a live DB).** Replacing the engine binary with a
+> newer release runs that release's pending migrations against your existing
+> data on first boot. This path is guarded in CI by the **`upgrade-path`**
+> workflow (`.github/workflows/upgrade-path.yml`): it boots the latest published
+> release, seeds data + a user through the API, then boots HEAD against the same
+> database and asserts the data reads back byte-for-byte, the auth session still
+> works, and `/api/health` is green. It also fails the build if any
+> already-released migration is renamed, renumbered, or deleted (the reverse
+> guard). If an upgrade ever misbehaves in production, take a T1 dump first
+> (§ 3.1), then roll back to the prior binary — migrations are additive, so the
+> old binary keeps working against the newer schema unless a migration dropped a
+> column it still reads.
+
 ### Scenario B — Restore from `pg_dump` (T1)
 
 ```sh
