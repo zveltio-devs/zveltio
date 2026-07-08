@@ -106,8 +106,8 @@ run in CI via the `perf-smoke` job (see 3.1).
 
 ---
 
-### 1.4 Production health checks — beyond `/api/health` 🟠 P1
-**Gap.** Current `/api/health` returns DB connectivity OK/degraded. No deep health checks: extension load status, queue worker liveness, file storage reachability, Valkey connectivity, embedding provider status.
+### 1.4 Production health checks — beyond `/api/health` ✅ DONE
+**Shipped.** `GET /api/health/deep` runs a check per subsystem (database, migrations, cache, queue, realtime, storage, extensions) + any extension-registered checks — 200 only when all healthy, `criticalOk` distinguishes degraded-optional from critical-outage. `GET /api/health/<subsystem>` probes one; `GET /api/health/ready` now runs the CRITICAL subset only (db+migrations) so an optional-dep blip keeps the pod ready. Per-extension `ctx.onHealthCheck(name, run, {critical})` hook (SDK contract + `lib/health-registry.ts`, namespaced + cleared on reload). Documented in OpenAPI; Helm `values.yaml` liveness→`/api/health`, readiness→`/api/health/ready`. Verified live on WSL Postgres. **Original gap (history):**
 
 **Why it matters.** Kubernetes / Proxmox / load balancer integration needs deep health endpoints. Surface-level health = false confidence.
 
