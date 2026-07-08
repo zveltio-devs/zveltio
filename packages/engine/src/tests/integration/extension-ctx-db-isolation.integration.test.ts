@@ -17,7 +17,11 @@ import { sql } from 'kysely';
 import { createDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
 import { applyTenantRLS } from '../../lib/tenancy/tenant-manager.js';
-import { runWithDomain, setCurrentTenantTrx, getCurrentTenantTrx } from '../../lib/tenancy/index.js';
+import {
+  runWithDomain,
+  setCurrentTenantTrx,
+  getCurrentTenantTrx,
+} from '../../lib/tenancy/index.js';
 import {
   createRestrictedDb,
   createDeniedAdminDb,
