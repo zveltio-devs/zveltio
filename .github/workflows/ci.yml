@@ -103,6 +103,26 @@ jobs:
         # locally before pushing to fix any violations.
         run: bun run format:check
 
+  security-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Report all advisories (informational)
+        # Full report in the log for triage — never fails the build.
+        run: bun audit || true
+      - name: Gate on CRITICAL advisories
+        # Blocks a merge that pulls in a CRITICAL-severity CVE. High/moderate are
+        # reported above but not gated yet — the current highs (better-auth XSS,
+        # dev-only vite/undici) are tracked for a dependency bump. Tighten to
+        # `--audit-level=high` once those are resolved.
+        run: bun audit --audit-level=critical
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
