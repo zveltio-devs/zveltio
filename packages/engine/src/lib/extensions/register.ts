@@ -24,6 +24,7 @@ import { checkPermission, getUserRoles, getCurrentTenantTrx } from '../tenancy/i
 import { DDLManager } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import { serviceRegistry } from '../service-registry.js';
+import { clearExtensionHealthChecks, registerHealthCheck } from '../health-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
@@ -86,6 +87,9 @@ export function buildRestrictedContext(
   capabilities: readonly string[] = [],
 ): ExtensionContext {
   const hasAdminDb = capabilities.includes('db:admin');
+  // Drop any health checks this extension registered on a previous load so a
+  // hot-reload never leaves a stale probe pointing at unloaded code (H-1.4).
+  clearExtensionHealthChecks(extName);
   return {
     ...ctx,
     // H-12: `ctx.db` is now TENANT-SCOPED. It resolves the current request/job
@@ -116,6 +120,9 @@ export function buildRestrictedContext(
     services: serviceRegistry.scope(extName),
     queryAlter: queryAlterRegistry.scope(extName),
     entityAccess: entityAccessRegistry.scope(extName),
+    // Subsystem health checks (H-1.4). Namespaced + cleared here so a hot-reload
+    // drops the previous registration before the extension re-adds it.
+    onHealthCheck: (name, run, opts) => registerHealthCheck(`ext:${extName}:${name}`, run, opts),
     // Escape hatch: extensions on `mountStrategy: 'subapp'` may need a few
     // routes outside the `/ext/<name>/` namespace (public CDN links, dynamic
     // user-deployed endpoints). registerPublicRoute mounts them on the

@@ -70,6 +70,16 @@ export interface ExtensionContext {
   /** Entity-access registry — see entity-access.ts. Per-record allow/deny
    * callbacks; first deny wins across all extensions. */
   entityAccess: EntityAccessScope;
+  /** Register a subsystem health check surfaced at `/api/health/deep` and
+   * `/api/health/<name>` (H-1.4). Namespaced `ext:<extName>:<name>`; cleared on
+   * reload. Mark `critical` only if this failing should fail readiness. */
+  onHealthCheck: (
+    name: string,
+    run: () =>
+      | Promise<{ ok: boolean; error?: string; detail?: Record<string, unknown> }>
+      | { ok: boolean; error?: string; detail?: Record<string, unknown> },
+    opts?: { critical?: boolean },
+  ) => void;
   /** Escape hatch for routes on the engine's global app (outside /ext/<name>).
    * See SDK `registerPublicRoute` JSDoc for usage and trade-offs. */
   registerPublicRoute: (spec: {
