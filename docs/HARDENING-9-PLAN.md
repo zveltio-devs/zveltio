@@ -28,6 +28,8 @@
 
 ## Context — measured baseline (2026-07-04, 3.0.0-beta.29)
 
+> **Current state (2026-07-08, after H-01…H-16 + follow-ups):** all 16 items DONE; the numbers below are the ORIGINAL wave-1 baseline kept for the before/after record. Now: the 801 raw `any` are frozen behind a ratchet at **1690 suppressions** (0 new); every god-file is split (`extension-loader` 1773→422, `data.ts` 1734→54, `admin.ts` 1320→244; `openapi.ts` 1133→~1192 is the one that GREW, via H-13 — still a split candidate); **57 unit test files / ~573 tests**; engine `lib/` line coverage measured + ratcheted at **30.5%** (target 60%). See the Backlog table for per-item status.
+
 Verified with commands, not estimated:
 
 - ~120,000 lines of TS/Svelte across 566 tracked source files, 7 workspace
