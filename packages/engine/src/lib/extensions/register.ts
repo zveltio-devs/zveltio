@@ -20,9 +20,9 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
-import { checkPermission, getUserRoles } from '../tenancy/index.js';
+import { checkPermission, getUserRoles, getCurrentTenantTrx } from '../tenancy/index.js';
 import { DDLManager } from '../data/index.js';
-import { createRestrictedDb } from './extension-context.js';
+import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
@@ -83,14 +83,25 @@ export function buildRestrictedContext(
   app: Hono,
   allowedTables: Set<string> | undefined,
   logPublicRoute: boolean,
+  capabilities: readonly string[] = [],
 ): ExtensionContext {
+  const hasAdminDb = capabilities.includes('db:admin');
   return {
     ...ctx,
-    db: createRestrictedDb(ctx.db, extName, allowedTables),
-    // Per-request tenant-scoped DB: the request's tenant transaction (so
-    // FORCE-RLS'd rows are visible + isolated), wrapped in the same table
-    // guard. Data-touching extension handlers MUST use ctx.reqDb(c); ctx.db
-    // (global pool) bypasses tenant isolation. See MULTI-TENANT-ENABLEMENT §5.
+    // H-12: `ctx.db` is now TENANT-SCOPED. It resolves the current request/job
+    // tenant transaction (with the RLS GUC set) via the ALS on every query,
+    // falling back to the global pool only outside any tenant context
+    // (boot/CLI). So an extension can no longer read or write across tenants by
+    // reaching for `ctx.db` instead of `reqDb(c)` — the last multi-tenant hole.
+    db: createRestrictedDb(() => getCurrentTenantTrx() ?? ctx.db, extName, allowedTables),
+    // Explicit, capability-gated cross-tenant handle (the global pool). Present
+    // only when the manifest declares the `db:admin` permission — otherwise any
+    // use throws, so the escape hatch is visible at review + install time.
+    adminDb: hasAdminDb
+      ? createRestrictedDb(ctx.db, extName, allowedTables)
+      : createDeniedAdminDb(extName),
+    // Per-request tenant-scoped DB (explicit form, when the handler has `c`):
+    // the request's tenant transaction wrapped in the same table guard.
     reqDb: (c: Context) =>
       createRestrictedDb(
         (c?.get?.('tenantTrx') as Database | null) ?? ctx.db,
@@ -190,7 +201,14 @@ export async function finalizeExtensionLoad(
   // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables.
   // Also inject the full public API (checkPermission, auth, DDLManager…) and
   // ctx.internals.* so extensions never have to relative-import engine modules.
-  const restrictedCtx = buildRestrictedContext(ctx, extName, app, allowedTables, true);
+  const restrictedCtx = buildRestrictedContext(
+    ctx,
+    extName,
+    app,
+    allowedTables,
+    true,
+    manifest?.permissions ?? [],
+  );
 
   // Register routes — if the live app's Hono matcher is already built (happens
   // after the first request during hot-load), swallow that specific error and
@@ -243,6 +261,7 @@ export async function finalizeExtensionLoad(
       typeof extension.cleanup === 'function' ? extension.cleanup.bind(extension) : undefined,
     registeredRoutes: true,
     allowedTables,
+    permissions: manifest?.permissions ?? [],
   });
   console.log(`🔌 Extension loaded: ${extName}`);
 
@@ -272,8 +291,15 @@ export async function reRegisterExtension(
   const extension = loader.modules.get(name);
   if (!extension || !loader.ctx) return;
 
-  const allowedTables = loader.loaded.get(name)?.allowedTables;
-  const restrictedCtx = buildRestrictedContext(loader.ctx, name, app, allowedTables, false);
+  const loaded = loader.loaded.get(name);
+  const restrictedCtx = buildRestrictedContext(
+    loader.ctx,
+    name,
+    app,
+    loaded?.allowedTables,
+    false,
+    loaded?.permissions ?? [],
+  );
 
   try {
     await registerExtensionRoutes(extension, restrictedCtx, app, name, '', null);

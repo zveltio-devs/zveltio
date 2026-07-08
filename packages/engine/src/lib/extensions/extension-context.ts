@@ -67,16 +67,25 @@ function shouldFireHooks(tableName: string): boolean {
  * @param extName  Extension name — included in error messages for debugging.
  */
 export function createRestrictedDb(
-  db: Database,
+  dbOrResolver: Database | (() => Database),
   extName: string,
   allowedTables?: Set<string>,
 ): RestrictedDatabase {
+  // H-12: accept a RESOLVER so `ctx.db` can bind to the CURRENT request/job
+  // tenant transaction (resolved per query via the ALS) rather than a single
+  // fixed handle captured at extension-load time. A plain Database still works
+  // (e.g. the explicit cross-tenant `ctx.adminDb`).
+  const resolveDb: () => Database =
+    typeof dbOrResolver === 'function' ? (dbOrResolver as () => Database) : () => dbOrResolver;
   // An extension named "ai" owns `zv_ai_*`. An extension named "compliance/ro/saft"
   // owns `zv_compliance_ro_saft_*` (slashes normalized to underscores).
   const ownedPrefix = `zv_${extName.replace(/[^a-z0-9]/gi, '_')}_`;
 
-  return new Proxy(db, {
-    get(target, prop: string | symbol) {
+  // Proxy over an empty object; every property access resolves the real
+  // (possibly request-scoped) Database on demand via `resolveDb()`.
+  return new Proxy({} as Database, {
+    get(_dummy, prop: string | symbol) {
+      const target = resolveDb();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const value = (target as any)[prop];
 
@@ -122,6 +131,28 @@ export function createRestrictedDb(
       }
 
       return value;
+    },
+  }) as RestrictedDatabase;
+}
+
+/**
+ * A `ctx.adminDb` stand-in for extensions that did NOT declare the `db:admin`
+ * capability (H-12). Any query method throws, so the cross-tenant escape hatch
+ * is unavailable unless explicitly requested in the manifest `permissions`.
+ */
+export function createDeniedAdminDb(extName: string): RestrictedDatabase {
+  return new Proxy({} as Database, {
+    get(_dummy, prop: string | symbol) {
+      if (typeof prop === 'string' && (QUERY_METHODS as readonly string[]).includes(prop)) {
+        return () => {
+          throw new ExtensionSecurityError(
+            `Extension "${extName}" used ctx.adminDb without declaring the "db:admin" ` +
+              `capability. adminDb grants CROSS-TENANT database access; add "db:admin" to the ` +
+              `manifest "permissions" to enable it (it is surfaced at review + install time).`,
+          );
+        };
+      }
+      return undefined;
     },
   }) as RestrictedDatabase;
 }
