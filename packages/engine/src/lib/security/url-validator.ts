@@ -80,15 +80,21 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /^192\.168\.\d+\.\d+$/, // 192.168.0.0/16
   /^169\.254\.\d+\.\d+$/, // 169.254.0.0/16 (link-local / cloud metadata)
   /^::1$/, // IPv6 loopback
-  /^fd[0-9a-f]{2}:/, // IPv6 ULA (fc00::/7)
+  /^::$/, // IPv6 unspecified (equivalent to 0.0.0.0)
+  /^fe[89ab][0-9a-f]:/, // IPv6 link-local fe80::/10
+  /^f[cd][0-9a-f]{2}:/, // IPv6 ULA fc00::/7 (fc.. and fd..)
   /^0\.0\.0\.0$/,
   /host\.docker\.internal$/,
   /kubernetes\.default$/,
 ];
 
 function isBlockedHost(host: string): boolean {
-  const normalized = normalizeHost(host);
-  return BLOCKED_PATTERNS.some((re) => re.test(host) || re.test(normalized));
+  // `URL.hostname` wraps IPv6 in brackets ("[::1]"); strip them so the IPv6
+  // patterns (and IPv4-mapped normalization) actually match — otherwise
+  // http://[::1] / http://[::ffff:127.0.0.1] slip past the SSRF guard.
+  const bare = host.replace(/^\[|\]$/g, '');
+  const normalized = normalizeHost(bare);
+  return BLOCKED_PATTERNS.some((re) => re.test(bare) || re.test(normalized));
 }
 
 /**
