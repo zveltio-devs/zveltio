@@ -120,7 +120,12 @@ export function parseFilters(
           return { ok: false, error: `Unknown filter field: '${key}'` };
         }
         if (typeof value === 'object' && value !== null) {
-          const [op, val] = Object.entries(value)[0] as [string, JsonValue];
+          // `{field: {op: val}}` — but an EMPTY object/array (`{field: {}}`)
+          // has no first entry; guard before destructuring or it throws a
+          // TypeError (→ a 500 on a malformed-but-plausible filter).
+          const entry = Object.entries(value)[0];
+          if (!entry) continue; // empty operator object — ignore this field
+          const [op, val] = entry as [string, JsonValue];
           const mappedOp = OP_ALIAS[op];
           if (mappedOp) filters[key] = { op: mappedOp, value: val };
         } else {
