@@ -58,12 +58,20 @@ export interface ExtensionContext<DB = any> {
    * Kysely database instance (restricted — cannot query zv_* system tables).
    * Typed via the `DB` generic; use `ZveltioExtension<MySchema>` to opt in.
    *
-   * NOTE: `ctx.db` is the GLOBAL pool — it is NOT tenant-scoped. In a route
-   * handler that reads/writes tenant data, use `ctx.reqDb(c)` instead, or
-   * Postgres row-level security will hide rows (or, on un-RLS'd tables, leak
-   * across tenants). Reserve `ctx.db` for setup/migrations (no request context).
+   * TENANT-SCOPED (since H-12): queries run against the current request/job
+   * tenant's transaction (so the `zveltio.current_tenant` GUC is set and
+   * FORCE-RLS rows are isolated), or the global pool outside any tenant context
+   * (boot/migrations). You no longer need `ctx.reqDb(c)` for isolation — `ctx.db`
+   * is safe by default. For explicit CROSS-tenant access, see `ctx.adminDb`.
    */
   db: Kysely<DB>;
+  /**
+   * Explicit CROSS-TENANT database handle (the global pool). Present ONLY when
+   * the manifest declares the `db:admin` permission — otherwise any query throws.
+   * Use for legitimately global operations (platform-wide reporting, backup).
+   * Declaring `db:admin` surfaces the cross-tenant access at review + install.
+   */
+  adminDb?: Kysely<DB>;
   /**
    * Per-request, tenant-scoped database. Returns the request's tenant
    * transaction (so the `zveltio.current_tenant` GUC is set and FORCE-RLS rows

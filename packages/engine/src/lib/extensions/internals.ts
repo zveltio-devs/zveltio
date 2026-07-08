@@ -41,9 +41,16 @@ import { sendNotification } from '../notifications.js';
  * Extensions receive this at runtime but only see the public interface.
  */
 export interface ExtensionContext {
+  /** Tenant-scoped DB (H-12): resolves the current request/job tenant
+   * transaction (RLS-isolated), or the global pool outside a tenant context.
+   * Safe for normal data access — no longer the cross-tenant global handle. */
   db: Database;
+  /** Explicit CROSS-TENANT handle. Present only when the manifest declares the
+   * `db:admin` permission; otherwise any use throws. For legitimately global
+   * operations only (e.g. platform-wide reporting). */
+  adminDb?: Database;
   /** Per-request tenant-scoped DB (request's tenant transaction + table guard).
-   * Data handlers should use `ctx.reqDb(c)`; `ctx.db` is the global pool. */
+   * Equivalent to `ctx.db` within a request; kept for handlers that pass `c`. */
   reqDb?: (c: Context) => Database;
   // Better-Auth instance. Its type is a deep generic over the configured
   // plugins/adapters; naming it here would couple the loader to the exact

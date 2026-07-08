@@ -14,7 +14,8 @@
 >
 > **Recent (3.0 betas):** extensions are delivered **from the registry on demand**
 > (not bundled on disk); studio pages are **declarative SDUI** schemas (no per-host
-> rebuild); data handlers should use **`ctx.reqDb(c)`** for tenant-safe access.
+> rebuild); **`ctx.db` is now tenant-scoped by default** (H-12) — cross-tenant
+> access requires the `db:admin` permission + `ctx.adminDb`.
 
 ---
 
@@ -315,12 +316,18 @@ Key facts:
   handler twice.
 - `app` is a Hono router. (v1.0) it is a sub-app mounted under
   `/ext/<your-name>`. Today it is the main app — use unique paths.
-- `ctx.db` is a `Kysely<DB>` (v1.0) or `any` (today). **It is the GLOBAL pool —
-  not tenant-scoped.** In a route handler that reads/writes tenant data, use
-  **`ctx.reqDb(c)`** instead (the request's tenant transaction + the same table
-  guard), or Postgres row-level security will hide rows / leak across tenants in
-  multi-tenant deployments. Reserve `ctx.db` for setup and migrations. See
-  `EXTENSION-AUTHORING.md` → "`ctx.db` vs `ctx.reqDb(c)`" and
+- `ctx.db` is a `Kysely<DB>` (v1.0) or `any` (today). **It is TENANT-SCOPED
+  (since H-12):** every query runs against the current request/job tenant's
+  transaction, so the `zveltio.current_tenant` GUC is set and FORCE row-level
+  security isolates your rows automatically. You no longer need `ctx.reqDb(c)`
+  for isolation — `ctx.db` is safe by default in a request handler. Outside any
+  tenant context (boot, migrations) it falls back to the global pool. `reqDb(c)`
+  remains as an explicit equivalent for handlers that already pass `c`.
+- **Cross-tenant access is opt-in via `ctx.adminDb`.** For legitimately global
+  work (platform-wide reporting, backup) declare the **`db:admin`** permission
+  in your manifest; the engine then hands you `ctx.adminDb` (the global pool).
+  Without that permission any use of `ctx.adminDb` throws — so cross-tenant
+  access is always visible at review + install time. See
   `MULTI-TENANT-ENABLEMENT.md` §5.
 - `cleanup()` is optional but recommended for any extension that holds
   resources (timers, sockets, file handles).
