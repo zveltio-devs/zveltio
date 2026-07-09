@@ -640,6 +640,33 @@ rm studio.tar.gz</pre>
   return app;
 }
 
+/**
+ * Test-only: build the real Hono app in the CURRENT process so the
+ * in-process handler-coverage harness (`src/testing/app-harness.ts`) can
+ * drive routes via `app.request()` and have coverage see the handlers,
+ * write-pipeline, and middleware execute — which the out-of-process
+ * integration engine (a separate `bun src/index.ts`) is blind to.
+ *
+ * Runs the SAME essential init sequence bootstrap() does (minus telemetry,
+ * extensions, cron, and Bun.serve), reusing the exact symbols already wired
+ * above so there is one definition of "what the app needs". The caller
+ * supplies an already-migrated test database.
+ */
+export async function _createAppForTests(
+  db: Awaited<ReturnType<typeof initDatabase>>,
+): Promise<Hono> {
+  const auth = await initAuth(db);
+  initTenantManager(db);
+  await initPermissions(db);
+  initRls(db);
+  const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
+  await checkFieldEncryptionAtBoot(db);
+  registerCoreFieldTypes(fieldTypeRegistry);
+  WebhookManager.init(db);
+  _bootstrapCtx = { db, auth };
+  return buildHonoApp();
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────
 async function bootstrap() {
   // OTel — no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set
@@ -911,7 +938,13 @@ process.on('uncaughtException', (err: Error & { code?: string }) => {
   process.exit(1);
 });
 
-bootstrap().catch((err) => {
-  console.error('❌ Bootstrap failed:', err);
-  process.exit(1);
-});
+// Only auto-boot when run as the entrypoint (`bun src/index.ts`, the compiled
+// binary). Guarding on import.meta.main lets tests `import` this module — for
+// the in-process app-harness (_createAppForTests) — WITHOUT starting a real
+// server, database, cron, and Bun.serve on a port.
+if (import.meta.main) {
+  bootstrap().catch((err) => {
+    console.error('❌ Bootstrap failed:', err);
+    process.exit(1);
+  });
+}
