@@ -74,9 +74,14 @@ for (const [file, cov] of [...merged.entries()].sort()) {
   const b = bucketOf(file);
   const lf = cov.lines.size;
   const lh = [...cov.lines.values()].filter((h) => h > 0).length;
-  (buckets[b] ??= { lf: 0, lh: 0, files: 0 }).lf += lf;
-  buckets[b]!.lh += lh;
-  buckets[b]!.files += 1;
+  let tally = buckets[b];
+  if (!tally) {
+    tally = { lf: 0, lh: 0, files: 0 };
+    buckets[b] = tally;
+  }
+  tally.lf += lf;
+  tally.lh += lh;
+  tally.files += 1;
 
   out.push(`SF:${file}`);
   for (const [ln, hits] of [...cov.lines.entries()].sort((a, b2) => a[0] - b2[0])) {
