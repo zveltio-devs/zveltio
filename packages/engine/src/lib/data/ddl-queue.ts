@@ -416,4 +416,11 @@ export async function stopDDLQueue(): Promise<void> {
 }
 
 // Internal helpers exposed for tests only.
-export const _internalForTests = { mapJobToPublic, QUEUE_NAMES };
+export const _internalForTests = {
+  mapJobToPublic,
+  QUEUE_NAMES,
+  runCreateRelation,
+  runDropRelation,
+  skipForByod,
+  reindexInvalid,
+};
