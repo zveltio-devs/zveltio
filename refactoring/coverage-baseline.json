@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-08",
+  "generated": "2026-07-09",
   "note": "Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. See docs/HARDENING-9-PLAN.md H-02.",
   "source": "bun test src/tests/unit --coverage --coverage-reporter=lcov (lines over loaded files)",
   "maxDropPct": 0.5,
@@ -8,9 +8,9 @@
   },
   "gated": ["lib"],
   "measured": {
-    "lib": 30.6,
+    "lib": 33.6,
     "other": 53.2,
     "routes": 32.3,
-    "src-other": 11.4
+    "src-other": 17.3
   }
 }
