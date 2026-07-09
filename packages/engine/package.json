@@ -22,7 +22,9 @@
     "test:watch": "bun test --watch",
     "test:unit": "bun test src/tests/unit",
     "test:unit:coverage": "bun test src/tests/unit --coverage --coverage-reporter=lcov --coverage-dir=coverage",
-    "test:integration": "bun test src/tests/integration"
+    "test:integration": "bun test src/tests/integration",
+    "test:harness": "bun test src/tests/harness",
+    "test:harness:coverage": "bun test src/tests/harness --coverage --coverage-reporter=lcov --coverage-dir=coverage-harness"
   },
   "dependencies": {
     "@better-auth/kysely-adapter": "1.6.23",
