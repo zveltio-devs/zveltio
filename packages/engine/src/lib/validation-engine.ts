@@ -3,10 +3,10 @@
  *
  * Loads validation rules from zv_validation_rules, caches them in-memory for 60s,
  * and provides helpers to validate field values and entire records.
- * Uses expr-eval for safe expression parsing (no eval/Function usage).
+ * Uses expr-eval-fork for safe expression parsing (no eval/Function usage).
  */
 
-import { Parser } from 'expr-eval';
+import { Parser } from 'expr-eval-fork';
 import type { Database } from '../db/index.js';
 
 const parser = new Parser({
@@ -18,13 +18,12 @@ const parser = new Parser({
   },
 });
 
-// expr-eval@2.0.2 is unmaintained (no upstream fix) and is advised for prototype
-// pollution via crafted member access (GHSA-jrhh-cvxc-8h5j / GHSA-6px8-2fmm-x2j2).
-// Our Parser exposes only `{ value }` and disables assignment, but a rule
-// expression authored by an admin could still reach `constructor`/`__proto__`/
-// `prototype` and pollute the shared Node process — a cross-tenant risk in shared
-// hosting. Reject those tokens before parsing; a legitimate validation
-// expression (comparisons/logic over `value`) never needs them. Defense-in-depth.
+// expr-eval-fork@3 patches upstream expr-eval's prototype-pollution and
+// unrestricted-functions advisories (the original is unmaintained at 2.0.2).
+// The token guard stays as defense-in-depth: our Parser exposes only `{ value }`
+// and a legitimate validation expression (comparisons/logic over `value`) never
+// needs `constructor`/`__proto__`/`prototype` — reject them before parsing, so a
+// tenant-admin-authored rule can't even attempt to pollute the shared process.
 const UNSAFE_EXPR_TOKEN =
   /(__proto__|constructor|prototype|__define[GS]etter__|__lookup[GS]etter__)/;
 function isSafeExpression(expr: string): boolean {
