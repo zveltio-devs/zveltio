@@ -1,14 +1,15 @@
 {
   "generated": "2026-07-09",
   "note": "Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. See docs/HARDENING-9-PLAN.md H-02.",
+  "targetNote": "target.lib raised 60->85 (owner decision 2026-07-09): a business-grade quality bar for the lib/ business-logic core, NOT vanity 100%. The last ~10-15% of lib/ is external-service wiring (better-auth, S3, pg-boss, ioredis, Bun.SQL.subscribe, OTel SDK) and defensive catch-branches, better exercised by the integration/soak suites than by heavily-mocked unit tests. Routes are intentionally NOT unit-gated - they run out-of-process under the integration HTTP contract.",
   "source": "bun test src/tests/unit --coverage --coverage-reporter=lcov (lines over loaded files)",
   "maxDropPct": 0.5,
   "target": {
-    "lib": 60
+    "lib": 85
   },
   "gated": ["lib"],
   "measured": {
-    "lib": 52,
+    "lib": 52.2,
     "other": 53.2,
     "routes": 32.3,
     "src-other": 52.4
