@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import {
   realtimeBus,
   _resetForTests,
@@ -9,6 +9,7 @@ import {
   dispatchToWs,
   type RealtimeBusMessage,
 } from '../../lib/runtime/realtime-bus.js';
+import * as wsModule from '../../routes/ws.js';
 
 /**
  * S5-03 unit tests — the cross-instance realtime bus picks the right
@@ -147,5 +148,100 @@ describe('S5-03 _ORIGIN_ID', () => {
     // doesn't change between calls.
     const stillSame = _ORIGIN_ID;
     expect(stillSame).toBe(_ORIGIN_ID);
+  });
+});
+
+// ── Observed dispatch: spy on broadcastEvent to assert the actual contract
+//    (event mapping, data fallback, tenant scoping, self-echo drop), not just
+//    "does not throw". ──────────────────────────────────────────────────────
+function baseMsg(over: Partial<RealtimeBusMessage> = {}): RealtimeBusMessage {
+  return {
+    originId: 'other-origin',
+    event: 'record.created',
+    collection: 'contacts',
+    record_id: 'r1',
+    data: { id: 'r1', name: 'A' },
+    timestamp: '2026-07-09T00:00:00Z',
+    tenantId: 'tenant-1',
+    ...over,
+  };
+}
+
+describe('dispatchToWs — observed via broadcastEvent', () => {
+  it('maps record.updated → update and forwards data + tenantId', () => {
+    const spy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
+    try {
+      dispatchToWs(baseMsg({ event: 'record.updated' }));
+      expect(spy).toHaveBeenCalledWith('contacts', 'update', { id: 'r1', name: 'A' }, 'tenant-1');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('falls back to { id: record_id } and null tenant when data/tenantId are absent', () => {
+    const spy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
+    try {
+      dispatchToWs(baseMsg({ event: 'record.deleted', data: undefined, tenantId: null }));
+      expect(spy).toHaveBeenCalledWith('contacts', 'delete', { id: 'r1' }, null);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('never calls broadcastEvent for self-echo / unknown event / missing collection', () => {
+    const spy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
+    try {
+      dispatchToWs(baseMsg({ originId: _ORIGIN_ID }));
+      dispatchToWs(baseMsg({ event: 'record.frobnicated' }));
+      dispatchToWs(baseMsg({ collection: '' }));
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('PgNotifyRealtimeBus.publish', () => {
+  it('is a no-op until a publisher is plugged in', async () => {
+    const bus = new PgNotifyRealtimeBus('postgres://localhost/x');
+    await expect(bus.publish(baseMsg())).resolves.toBeUndefined();
+  });
+
+  it('emits pg_notify with the origin id stamped and single quotes escaped', async () => {
+    const bus = new PgNotifyRealtimeBus('postgres://localhost/x');
+    const calls: string[] = [];
+    bus.setPublisher({
+      execute: async (sql: string) => {
+        calls.push(sql);
+        return null;
+      },
+    });
+    await bus.publish(baseMsg({ data: { note: "O'Brien" } }));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(`SELECT pg_notify('zveltio_changes'`);
+    expect(calls[0]).toContain(_ORIGIN_ID);
+    expect(calls[0]).toContain("O''Brien"); // '' == escaped single quote
+  });
+
+  it('swallows a publisher execute failure without throwing', async () => {
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const bus = new PgNotifyRealtimeBus('postgres://localhost/x');
+      bus.setPublisher({ execute: async () => Promise.reject(new Error('conn lost')) });
+      await expect(bus.publish(baseMsg())).resolves.toBeUndefined();
+      expect(errSpy.mock.calls.some((c) => String(c[0]).includes('pg_notify failed'))).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+});
+
+describe('ValkeyRealtimeBus (no connection)', () => {
+  it('reports the valkey backend, is not running, and publish is a safe no-op before start()', async () => {
+    const bus = new ValkeyRealtimeBus('redis://localhost:6379');
+    expect(bus.backend).toBe('valkey');
+    expect(bus.isRunning).toBe(false);
+    await expect(bus.publish(baseMsg())).resolves.toBeUndefined();
   });
 });
