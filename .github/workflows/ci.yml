@@ -153,19 +153,16 @@ jobs:
         run: cd packages/sdk && bun run build
       - name: Run unit tests (with coverage)
         run: cd packages/engine && bun run test:unit:coverage
-      - name: Coverage ratchet
-        # Fails if engine lib/ line coverage drops below baseline
-        # (docs/HARDENING-9-PLAN.md H-02). Add tests for changed code.
-        run: bun run coverage:gate
-      - name: Coverage summary
-        if: always()
-        run: |
-          {
-            echo '### Engine coverage (unit suite)'
-            echo '```'
-            bun run coverage:gate || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+      # The authoritative coverage gate now runs in the Handler Coverage job on
+      # the HONEST combined number (this unit lcov UNIONed with the in-process
+      # harness lcov) — the unit lane alone only loads ~76 files and flatters
+      # the %. Publish this lcov for that job to merge.
+      - name: Upload unit lcov (merged + gated in Handler Coverage)
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-lcov
+          path: packages/engine/coverage/lcov.info
+          retention-days: 1
       - name: Run CLI tests
         # Tier-policy resolution + peer-deps allowlist drift guard live in
         # the CLI; run them in CI (typecheck alone doesn't exercise them).
@@ -297,7 +294,10 @@ jobs:
     # and drives routes via app.request(), so route/handler/middleware code that
     # the out-of-process integration engine can't attribute becomes visible to
     # coverage. Needs Postgres but — unlike Integration Tests — NO separately
-    # started engine (the app boots in-process).
+    # started engine (the app boots in-process). Also the authoritative coverage
+    # gate: it merges the unit lcov (from the Unit Tests job) with the harness
+    # lcov and ratchets the HONEST combined number against the baseline.
+    needs: [unit-tests]
     services:
       postgres:
         image: pgvector/pgvector:pg18
@@ -325,14 +325,36 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
         run: bun packages/engine/src/db/migrate.ts
-      - name: Run in-process harness tests
+      - name: Download unit lcov
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-lcov
+          path: packages/engine/coverage
+      - name: Run in-process harness tests (with coverage)
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
           FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
           NODE_ENV: test
           SLOW_QUERY_THRESHOLD_MS: '0'
-        run: cd packages/engine && bun run test:harness
+        run: cd packages/engine && bun run test:harness:coverage
+      - name: Merge unit + harness coverage and gate the honest combined number
+        # Unions per-line hits from both lanes → the real all-of-lib/ figure,
+        # then ratchets it against refactoring/coverage-baseline.json (H-02/H-16).
+        run: |
+          bun run scripts/merge-coverage.ts \
+            packages/engine/coverage/lcov.info \
+            packages/engine/coverage-harness/lcov.info
+          bun run scripts/coverage-gate.ts packages/engine/coverage-merged/lcov.info
+      - name: Combined coverage summary
+        if: always()
+        run: |
+          {
+            echo '### Engine coverage (honest combined: unit + in-process harness)'
+            echo '```'
+            bun run scripts/coverage-gate.ts packages/engine/coverage-merged/lcov.info || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   perf-smoke:
     name: Perf Smoke (CRUD + list p95 budgets)
