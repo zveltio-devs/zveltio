@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto';
-import { newEnforcer, newModelFromString, type Enforcer } from 'casbin';
+import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
@@ -54,7 +54,12 @@ class KyselyCasbinAdapter {
       const tokens = [line.ptype, line.v0, line.v1, line.v2, line.v3, line.v4, line.v5].filter(
         (v): v is string => v !== null,
       );
-      model.addPolicy(tokens);
+      // Helper.loadPolicyLine is the canonical adapter load path. The previous
+      // `model.addPolicy(tokens)` called Model.addPolicy(sec, key, rule) with a
+      // single array — it returned false and loaded NOTHING, so every policy in
+      // zvd_permissions was silently ignored at boot and runtime grants only
+      // lived until the next restart (deny-by-default afterwards).
+      Helper.loadPolicyLine(tokens.join(', '), model);
     }
   }
 
@@ -64,12 +69,24 @@ class KyselyCasbinAdapter {
     // window where zvd_permissions is empty. A crash in the middle would
     // otherwise wipe every Casbin policy and lock out all non-god users.
     // TRUNCATE is transactional in PostgreSQL and rolls back on failure.
+    // Collect BOTH policy sections. The previous `model.getPolicy()` called
+    // Model.getPolicy(sec, key) with no arguments — it returned nothing, so
+    // savePolicy would TRUNCATE the table and re-insert zero rows, wiping every
+    // policy AND role grant (the old loop also never read the 'g' section).
+    const lines: string[][] = [];
+    for (const section of ['p', 'g'] as const) {
+      const astMap = model.model.get(section);
+      if (!astMap) continue;
+      for (const [ptype, ast] of astMap) {
+        for (const rule of ast.policy) {
+          lines.push([ptype, ...rule]);
+        }
+      }
+    }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     await (_db as any).transaction().execute(async (trx: Database) => {
       await sql`TRUNCATE TABLE zvd_permissions`.execute(trx);
-      const policies = model.getPolicy();
-      for (const policy of policies) {
-        const [ptype, ...values] = policy;
+      for (const [ptype, ...values] of lines) {
         await sql`
           INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
           VALUES (${ptype}, ${values[0] ?? null}, ${values[1] ?? null}, ${values[2] ?? null},
