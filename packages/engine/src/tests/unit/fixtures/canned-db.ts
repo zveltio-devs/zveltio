@@ -35,6 +35,8 @@ interface CannedHandler {
   match: RegExp;
   rows?: RowsProvider;
   error?: Error;
+  /** Override numAffectedRows (defaults to rows.length) — for INSERT…SELECT-style statements. */
+  affected?: number | ((q: ExecutedQuery) => number);
 }
 
 export class CannedDb {
@@ -55,7 +57,8 @@ export class CannedDb {
           if (h.match.test(q.sql)) {
             if (h.error) throw h.error;
             const rows = typeof h.rows === 'function' ? h.rows(q) : (h.rows ?? []);
-            return { rows: rows as R[], numAffectedRows: BigInt(rows.length) };
+            const affected = typeof h.affected === 'function' ? h.affected(q) : h.affected;
+            return { rows: rows as R[], numAffectedRows: BigInt(affected ?? rows.length) };
           }
         }
         return { rows: [], numAffectedRows: 0n };
@@ -90,6 +93,12 @@ export class CannedDb {
   /** Register canned rows for queries whose compiled SQL matches. Returns `this` for chaining. */
   when(match: RegExp, rows: RowsProvider): this {
     this.handlers.push({ match, rows });
+    return this;
+  }
+
+  /** Like when(), but with an explicit numAffectedRows (INSERT…SELECT etc. return no rows). */
+  whenAffected(match: RegExp, affected: number | ((q: ExecutedQuery) => number)): this {
+    this.handlers.push({ match, rows: [], affected });
     return this;
   }
 
