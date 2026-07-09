@@ -6,9 +6,7 @@
   "target": {
     "lib": 60
   },
-  "gated": [
-    "lib"
-  ],
+  "gated": ["lib"],
   "measured": {
     "lib": 33.6,
     "other": 53.2,
