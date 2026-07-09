@@ -52,8 +52,12 @@ export class GhostDDL {
     await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
 
     // 2. Apply DDL changes on ghost — strict validation to prevent SQL injection
+    // NOTE: the optional IF EXISTS must not consume the separator whitespace —
+    // `DROP\s+COLUMN\s+(IF\s+EXISTS\s+)?` ate the single space before the column
+    // name, so a plain `DROP COLUMN fax` was rejected while `DROP COLUMN  fax`
+    // (two spaces) passed. Keep the group's whitespace INSIDE the optional part.
     const ALLOWED_DDL_RE =
-      /^(ADD\s+COLUMN|DROP\s+COLUMN\s+(IF\s+EXISTS\s+)?|ALTER\s+COLUMN|RENAME\s+COLUMN)\s+/i;
+      /^(ADD\s+COLUMN|DROP\s+COLUMN(\s+IF\s+EXISTS)?|ALTER\s+COLUMN|RENAME\s+COLUMN)\s+/i;
     for (const ddl of ddlStatements) {
       if (!ALLOWED_DDL_RE.test(ddl.trim())) {
         throw new Error(
