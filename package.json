@@ -24,6 +24,7 @@
     "any:suppress": "bun run scripts/suppress-existing-any.ts",
     "coverage:unit": "cd packages/engine && bun run test:unit:coverage",
     "coverage:gate": "bun run scripts/coverage-gate.ts",
+    "studio:dev": "cd packages/studio && bunx vite dev --port 5173",
     "prepush": "bun run check:schema && bun run any:ratchet && bun run format:check && bun run typecheck",
     "studio:build": "cd packages/studio && bun run build",
     "studio:embed": "cp -r packages/studio/dist packages/engine/src/studio-dist",
