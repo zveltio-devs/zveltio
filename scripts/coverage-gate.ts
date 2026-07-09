@@ -48,6 +48,8 @@ type Bucket = { found: number; hit: number; files: number };
 type CoverageBaseline = {
   generated: string;
   note: string;
+  /** Optional rationale for the target values; preserved across --update rewrites. */
+  targetNote?: string;
   source: string;
   maxDropPct: number;
   target: Record<string, number>;
@@ -136,6 +138,8 @@ if (update) {
   const baseline: CoverageBaseline = {
     generated: new Date().toISOString().slice(0, 10),
     note: 'Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. See docs/HARDENING-9-PLAN.md H-02.',
+    // Preserve any human-authored target rationale across automated rewrites.
+    ...(prev.targetNote ? { targetNote: prev.targetNote } : {}),
     source: 'bun test src/tests/unit --coverage --coverage-reporter=lcov (lines over loaded files)',
     maxDropPct: 0.5,
     target: prev.target ?? { lib: 60 },
