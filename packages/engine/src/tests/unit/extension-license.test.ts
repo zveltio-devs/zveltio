@@ -6,7 +6,13 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { clientIp, fingerprintToken } from '../../lib/extensions/extension-license.js';
+import {
+  clientIp,
+  fingerprintToken,
+  getLicenseKey,
+  writeLicenseAudit,
+} from '../../lib/extensions/extension-license.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
 describe('fingerprintToken', () => {
   it('is a stable 16-char hex digest', async () => {
@@ -39,5 +45,57 @@ describe('clientIp', () => {
 
   it('returns null when neither header is present', () => {
     expect(clientIp(ctx({}))).toBeNull();
+  });
+});
+
+describe('getLicenseKey', () => {
+  it('reads the per-extension license key from zv_settings', async () => {
+    const db = new CannedDb();
+    db.when(/FROM "zv_settings"/i, [{ value: 'lic-abc-123' }]);
+    expect(await getLicenseKey(db.kysely, 'paid-ext')).toBe('lic-abc-123');
+  });
+
+  it('returns undefined when no row exists', async () => {
+    const db = new CannedDb();
+    db.when(/FROM "zv_settings"/i, []);
+    expect(await getLicenseKey(db.kysely, 'free-ext')).toBeUndefined();
+  });
+
+  it('returns undefined when the settings query fails', async () => {
+    const db = new CannedDb();
+    db.fail(/FROM "zv_settings"/i, new Error('db down'));
+    expect(await getLicenseKey(db.kysely, 'x')).toBeUndefined();
+  });
+});
+
+describe('writeLicenseAudit', () => {
+  it('inserts an audit row with stringified details', async () => {
+    const db = new CannedDb();
+    db.when(/INSERT INTO "zv_license_audit"/i, []);
+    await writeLicenseAudit(db.kysely, {
+      action: 'rotate',
+      extension_name: 'my-ext',
+      performed_by: 'u1',
+      ip: '203.0.113.1',
+      user_agent: 'test-agent',
+      details: { fingerprint: 'abc' },
+    });
+    const insert = db.executed(/INSERT INTO "zv_license_audit"/i)[0]!;
+    expect(insert.parameters).toContain('rotate');
+    expect(insert.parameters).toContain('my-ext');
+  });
+
+  it('swallows insert failures without throwing', async () => {
+    const db = new CannedDb();
+    db.fail(/INSERT INTO "zv_license_audit"/i, new Error('write failed'));
+    await expect(
+      writeLicenseAudit(db.kysely, {
+        action: 'delete',
+        extension_name: null,
+        performed_by: null,
+        ip: null,
+        user_agent: null,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

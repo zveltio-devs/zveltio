@@ -22,6 +22,7 @@ let _running = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _stopGC: (() => void) | null = null;
 let _stopTrashPurge: (() => void) | null = null;
+let _executeFlowOverride: typeof executeFlow | null = null;
 
 export const flowScheduler = {
   /**
@@ -182,7 +183,10 @@ export const flowScheduler = {
     // ── Standard flow execution ───────────────────────────────────
     console.log(`[FlowScheduler] executing flow`, { flow: flow.id, name: flow.name });
 
-    const result = await executeFlow(_db, flow.id, { trigger: 'cron', flow_id: flow.id });
+    const result = await (_executeFlowOverride ?? executeFlow)(_db, flow.id, {
+      trigger: 'cron',
+      flow_id: flow.id,
+    });
 
     if (result.status === 'success') {
       console.log(`[FlowScheduler] flow completed`, {
@@ -263,3 +267,11 @@ function scheduleTrashPurge(db: Database): () => void {
     }
   };
 }
+
+/** Test seam — never import outside src/tests/. */
+export const _internalForTests = {
+  scheduleTrashPurge,
+  setExecuteFlowForTests(fn: typeof executeFlow | null): void {
+    _executeFlowOverride = fn;
+  },
+};
