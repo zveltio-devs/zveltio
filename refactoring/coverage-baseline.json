@@ -7,11 +7,9 @@
   "target": {
     "lib": 85
   },
-  "gated": [
-    "lib"
-  ],
+  "gated": ["lib"],
   "measured": {
-    "lib": 57.8,
+    "lib": 58.5,
     "other": 53.2,
     "routes": 32.3,
     "src-other": 48.9
