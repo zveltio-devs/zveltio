@@ -9,7 +9,15 @@
  */
 
 const ENC_PREFIX = 'enc:v1:';
-const KEY_HEX = process.env.FIELD_ENCRYPTION_KEY ?? '';
+
+// Read the key LAZILY (not captured at module load). This module is pulled in by
+// the route/write-pipeline import chain, which can evaluate before a test harness
+// or a secret loader sets FIELD_ENCRYPTION_KEY — capturing at load time then left
+// encryption silently disabled (encrypted:true fields written in PLAINTEXT).
+// Reading per-call also lets an operator rotate the key without a restart.
+function keyHex(): string {
+  return process.env.FIELD_ENCRYPTION_KEY ?? '';
+}
 
 let _key: CryptoKey | null = null;
 
@@ -34,7 +42,7 @@ function warnMissingKeyOnce(): void {
 export async function checkFieldEncryptionAtBoot(
   db: import('../../db/index.js').Database,
 ): Promise<void> {
-  if (KEY_HEX) return; // key is set — nothing to flag
+  if (keyHex()) return; // key is set — nothing to flag
   try {
     const rows = (await db
       .selectFrom('zvd_collections')
@@ -75,13 +83,14 @@ export async function checkFieldEncryptionAtBoot(
 
 async function getKey(): Promise<CryptoKey> {
   if (_key) return _key;
-  if (!KEY_HEX || KEY_HEX.length !== 64) {
+  const hex = keyHex();
+  if (!hex || hex.length !== 64) {
     throw new Error(
       'FIELD_ENCRYPTION_KEY env var must be set to a 64-char hex string (32 bytes). ' +
         'Generate with: openssl rand -hex 32',
     );
   }
-  const raw = new Uint8Array(KEY_HEX.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
+  const raw = new Uint8Array(hex.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
   _key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, [
     'encrypt',
     'decrypt',
@@ -124,7 +133,7 @@ export async function decryptField(value: string): Promise<string> {
 /** Encrypt a field value if the field definition has encrypted:true and FIELD_ENCRYPTION_KEY is set */
 export async function maybeEncrypt(value: unknown, isEncrypted: boolean): Promise<unknown> {
   if (!isEncrypted || value === null || value === undefined) return value;
-  if (!KEY_HEX) {
+  if (!keyHex()) {
     // Graceful degradation: store in plaintext rather than refusing the
     // write, but log once so the operator notices that a sensitive field
     // didn't actually get encrypted.
