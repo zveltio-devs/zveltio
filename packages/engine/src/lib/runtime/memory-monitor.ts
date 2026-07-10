@@ -121,11 +121,13 @@ export function getMemoryReport(): {
   const peak = getPeakStats();
   const heapUsagePercent = Math.round((current.heapUsed / current.heapTotal) * 100);
 
+  // Check the tighter threshold first — otherwise `> 80` always wins and the
+  // "Critical" status is unreachable (95% would report only "Warning").
   let heapEfficiency = 'Good';
-  if (heapUsagePercent > 80) {
-    heapEfficiency = 'Warning: High heap usage';
-  } else if (heapUsagePercent > 90) {
+  if (heapUsagePercent > 90) {
     heapEfficiency = 'Critical: Near heap limit';
+  } else if (heapUsagePercent > 80) {
+    heapEfficiency = 'Warning: High heap usage';
   }
 
   return {
