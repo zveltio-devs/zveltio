@@ -285,7 +285,7 @@ describe('WorkerExtensionHost — stop() teardown', () => {
     managed.registeredServices.add('stop.svc');
     serviceRegistry.registerAs('stop-ext', 'stop.svc', () => 'x');
     const timer = setInterval(() => {}, 60_000);
-    managed.heartbeatTimer = timer;
+    (managed as { heartbeatTimer?: ReturnType<typeof setInterval> }).heartbeatTimer = timer;
     await host.stop('stop-ext');
     expect(serviceRegistry.get('stop.svc')).toBeNull();
     expect(host.isRunning('stop-ext')).toBe(false);
