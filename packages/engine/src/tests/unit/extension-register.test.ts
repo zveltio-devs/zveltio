@@ -1,0 +1,148 @@
+/**
+ * Unit coverage for lib/extensions/register.ts — allowed-tables scan,
+ * restricted context wiring, finalizeExtensionLoad, reRegisterExtension.
+ */
+
+import { afterEach, describe, expect, it } from 'bun:test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Hono } from 'hono';
+import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import {
+  EXTENSION_TABLE_GRANTS,
+  buildAllowedTables,
+  buildRestrictedContext,
+  finalizeExtensionLoad,
+  reRegisterExtension,
+} from '../../lib/extensions/register.js';
+import type { ExtensionContext } from '../../lib/extensions/internals.js';
+import { CannedDb } from './fixtures/canned-db.js';
+
+function fakeLoader(over: Record<string, unknown> = {}) {
+  const db = new CannedDb();
+  return {
+    loaded: new Map(),
+    modules: new Map<string, ZveltioExtension>(),
+    lastLoadError: new Map(),
+    ctx: { db: db.kysely } as ExtensionContext,
+    ...over,
+  };
+}
+
+function baseCtx(): ExtensionContext {
+  const db = new CannedDb();
+  return { db: db.kysely as ExtensionContext['db'] };
+}
+
+describe('buildAllowedTables', () => {
+  it('extracts CREATE TABLE names from migration SQL files', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'zv-mig-'));
+    const mig = join(dir, '001.sql');
+    writeFileSync(
+      mig,
+      `CREATE TABLE IF NOT EXISTS zv_probe_items (id uuid primary key);
+       CREATE TABLE zv_probe_tags (id uuid primary key);`,
+    );
+    const tables = await buildAllowedTables([mig]);
+    expect(tables.has('zv_probe_items')).toBe(true);
+    expect(tables.has('zv_probe_tags')).toBe(true);
+  });
+
+  it('skips unreadable migration paths', async () => {
+    const tables = await buildAllowedTables(['/no/such/migration.sql']);
+    expect(tables.size).toBe(0);
+  });
+});
+
+describe('EXTENSION_TABLE_GRANTS', () => {
+  it('declares explicit table grants for known extensions', () => {
+    expect(EXTENSION_TABLE_GRANTS['content/drafts']).toContain('zv_revisions');
+    expect(EXTENSION_TABLE_GRANTS['developer/validation']).toContain('zv_validation_rules');
+  });
+});
+
+describe('buildRestrictedContext', () => {
+  it('mounts registerPublicRoute on the global app for supported methods', () => {
+    const app = new Hono();
+    app.get('/health', (c) => c.text('ok'));
+    const ctx = buildRestrictedContext(baseCtx(), 'pub-ext', app, new Set(), true);
+    ctx.registerPublicRoute?.({
+      method: 'GET',
+      path: '/ext-public/ping',
+      handler: (c) => c.text('pong'),
+    });
+    // Unsupported methods are ignored (no throw).
+    ctx.registerPublicRoute?.({
+      method: 'TRACE',
+      path: '/ext-public/trace',
+      handler: () => new Response('nope'),
+    });
+    expect(typeof ctx.services).toBe('object');
+    expect(typeof ctx.onHealthCheck).toBe('function');
+  });
+});
+
+describe('finalizeExtensionLoad', () => {
+  afterEach(() => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = undefined;
+  });
+
+  it('registers a subapp-mounted extension under /ext/<name>', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const app = new Hono();
+    const loader = fakeLoader();
+    const extension: ZveltioExtension = {
+      name: 'subapp-ext',
+      mountStrategy: 'subapp',
+      async register(sub, _ctx) {
+        sub.get('/hello', (c) => c.text('hi'));
+      },
+    };
+    await finalizeExtensionLoad(
+      loader,
+      extension,
+      'subapp-ext',
+      '/tmp/subapp-ext',
+      app,
+      loader.ctx!,
+      { name: 'subapp-ext', version: '1.0.0' },
+      new Set(['zv_subapp_ext_items']),
+    );
+    expect(loader.loaded.has('subapp-ext')).toBe(true);
+    const res = await app.request('/ext/subapp-ext/hello');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('hi');
+  });
+});
+
+describe('reRegisterExtension', () => {
+  it('no-ops when the module is not cached', async () => {
+    const loader = fakeLoader();
+    const app = new Hono();
+    await reRegisterExtension(loader, 'ghost', app);
+    expect(loader.loaded.size).toBe(0);
+  });
+
+  it('re-mounts routes from the cached module on a fresh app', async () => {
+    const loader = fakeLoader();
+    const extension: ZveltioExtension = {
+      name: 'reload-ext',
+      mountStrategy: 'subapp',
+      async register(sub) {
+        sub.get('/v', (c) => c.text('v2'));
+      },
+    };
+    loader.modules.set('reload-ext', extension);
+    loader.loaded.set('reload-ext', {
+      name: 'reload-ext',
+      registeredRoutes: true,
+      allowedTables: new Set(),
+    });
+    const app = new Hono();
+    await reRegisterExtension(loader, 'reload-ext', app);
+    const res = await app.request('/ext/reload-ext/v');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('v2');
+  });
+});

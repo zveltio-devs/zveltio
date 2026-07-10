@@ -6,7 +6,7 @@
  * third-party-isolation suites.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +15,9 @@ import {
   resolveEntryPath,
   resolveManifest,
 } from '../../lib/extensions/load-phases.js';
+import * as extensionDownload from '../../lib/extensions/extension-download.js';
 import type { Database } from '../../db/index.js';
+import { CannedDb } from './fixtures/canned-db.js';
 // biome-ignore lint/suspicious/noExplicitAny: manifest/db fixtures in tests
 type Any = any;
 
@@ -91,6 +93,49 @@ describe('resolveManifest', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.logArgs.join(' ')).toContain('incompatible');
   });
+
+  it('bundle size quota exceeded → PhaseFail', async () => {
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({
+        name: 'probe',
+        version: '1.0.0',
+        quotas: { bundleSizeKbMax: 1, migrationsMax: 100, nodeModulesSizeMbMax: 200 },
+      }),
+      'big.bin': 'x'.repeat(4096),
+    });
+    const r = await resolveManifest('probe', dir, db);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.lastLoadError).toContain('bundleSizeKb');
+  });
+
+  it('missing extension dependency → PhaseFail', async () => {
+    const canned = new CannedDb();
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({
+        name: 'probe',
+        version: '1.0.0',
+        dependencies: [{ name: 'needs-other-ext' }],
+      }),
+    });
+    const r = await resolveManifest('probe', dir, canned.kysely as unknown as Database);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.lastLoadError).toContain('Missing required extensions');
+  });
+
+  it('missing postgres extension → PhaseFail', async () => {
+    const canned = new CannedDb();
+    canned.when(/pg_extension/, []);
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({
+        name: 'probe',
+        version: '1.0.0',
+        requires: { postgres_extensions: ['postgis'] },
+      }),
+    });
+    const r = await resolveManifest('probe', dir, canned.kysely as unknown as Database);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.lastLoadError).toContain('postgis');
+  });
 });
 
 describe('enforcePublisherTier — fast paths', () => {
@@ -108,6 +153,49 @@ describe('enforcePublisherTier — fast paths', () => {
     } finally {
       if (prev === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
       else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = prev;
+    }
+  });
+
+  it('community catalog entry without worker isolation → PhaseFail', async () => {
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+      {
+        name: 'community-ext',
+        displayName: 'Community',
+        description: 'x',
+        category: 'custom',
+        version: '1.0.0',
+        author: 'x',
+        tags: [],
+        permissions: [],
+        publisher_tier: 'community',
+      },
+    ]);
+    try {
+      const r = await enforcePublisherTier('community-ext', {
+        name: 'community-ext',
+        version: '1.0.0',
+      } as never);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.lastLoadError).toContain('worker isolation');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('ZVELTIO_REQUIRE_CATALOG=1 with catalog fetch failure → PhaseFail', async () => {
+    const prevRequire = process.env.ZVELTIO_REQUIRE_CATALOG;
+    process.env.ZVELTIO_REQUIRE_CATALOG = '1';
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockRejectedValue(
+      new Error('offline'),
+    );
+    try {
+      const r = await enforcePublisherTier('ext', { name: 'ext', version: '1.0.0' } as never);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.lastLoadError).toContain('ZVELTIO_REQUIRE_CATALOG');
+    } finally {
+      spy.mockRestore();
+      if (prevRequire === undefined) delete process.env.ZVELTIO_REQUIRE_CATALOG;
+      else process.env.ZVELTIO_REQUIRE_CATALOG = prevRequire;
     }
   });
 });
@@ -152,5 +240,26 @@ describe('resolveEntryPath', () => {
     const r = await resolveEntryPath('probe', dir, join(dir, 'engine/index.js'), manifest);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.lastLoadError).toContain('bundlePeers');
+  });
+
+  it('non-bundled extension refused in production without dev-reload flag', async () => {
+    const prevNode = process.env.NODE_ENV;
+    const prevReload = process.env.ZVELTIO_EXTENSION_DEV_RELOAD;
+    process.env.NODE_ENV = 'production';
+    delete process.env.ZVELTIO_EXTENSION_DEV_RELOAD;
+    const dir = tmpExt({ 'engine/index.js': 'export default {}' });
+    try {
+      const r = await resolveEntryPath('probe', dir, join(dir, 'engine/index.js'), {
+        name: 'probe',
+        version: '1.0.0',
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.lastLoadError).toContain('not bundled');
+    } finally {
+      if (prevNode === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevNode;
+      if (prevReload === undefined) delete process.env.ZVELTIO_EXTENSION_DEV_RELOAD;
+      else process.env.ZVELTIO_EXTENSION_DEV_RELOAD = prevReload;
+    }
   });
 });
