@@ -37,6 +37,15 @@ export async function initCache(): Promise<Redis | null> {
   return _cache;
 }
 
+/**
+ * Test-only: inject (or clear) the cache singleton so cache-backed modules
+ * (webhook-worker, rate-limiter, query-cache) can be unit-tested against a fake
+ * Redis without a live Valkey. Pass null to reset.
+ */
+export function _setCacheForTests(cache: Redis | null): void {
+  _cache = cache;
+}
+
 export async function createCacheSecondaryStorage() {
   const cache = await initCache();
   if (!cache) return null;
