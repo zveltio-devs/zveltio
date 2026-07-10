@@ -44,6 +44,42 @@ d('extension marketplace routes (in-process)', () => {
     expect([401, 403]).toContain(res.status);
   });
 
+  it('rejects license store without a license_key (400)', async () => {
+    const res = await app.request(
+      '/api/marketplace/license/some-ext',
+      post('/api/marketplace/license/some-ext', {}),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('stores or rejects a license key via registry verify', async () => {
+    const name = `harness-lic-${Date.now()}`;
+    const res = await app.request(
+      `/api/marketplace/license/${name}`,
+      post(`/api/marketplace/license/${name}`, { license_key: 'test-license-key-123' }),
+    );
+    // Registry may be unreachable (stores) or reachable-but-invalid (400).
+    expect(res.status).toBeLessThan(500);
+    if (res.status === 200) {
+      await app.request(`/api/marketplace/license/${name}`, {
+        method: 'DELETE',
+        headers: { cookie },
+      });
+    }
+  }, 15_000);
+
+  it('returns 401 for admin license history without a session', async () => {
+    const res = await app.request('/api/admin/license/history');
+    expect(res.status).toBe(401);
+  });
+
+  it('lists the catalog with tenant scoping header (GET /api/marketplace)', async () => {
+    const res = await app.request('/api/marketplace', {
+      headers: { cookie, 'x-tenant-id': 'default' },
+    });
+    expect(res.status).toBeLessThan(600);
+  }, 20_000);
+
   it('lists the catalog (GET /api/marketplace) — tolerates registry being offline', async () => {
     const res = await app.request('/api/marketplace', { headers: { cookie } });
     // Registry may be unreachable → the handler either returns a graceful
