@@ -11,9 +11,9 @@
     "lib"
   ],
   "measured": {
-    "lib": 54.1,
+    "lib": 54.4,
     "other": 53.2,
-    "routes": 32.5,
+    "routes": 32.3,
     "src-other": 48.9
   }
 }
