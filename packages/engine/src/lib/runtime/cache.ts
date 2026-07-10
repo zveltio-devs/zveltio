@@ -47,7 +47,7 @@ export function _setCacheForTests(cache: Redis | null): void {
 }
 
 export async function createCacheSecondaryStorage() {
-  const cache = await initCache();
+  const cache = getCache() ?? (await initCache());
   if (!cache) return null;
 
   /**
