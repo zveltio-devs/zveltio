@@ -78,34 +78,29 @@ const safeFetch = async (
 };
 
 // ═══ Security prefix injected before user code ═══
-// Shadows dangerous globals so user code cannot access them via identifier lookup.
+// The dangerous globals (process, require, Bun, globalThis, …) are shadowed as
+// `undefined` PARAMETERS via safeGlobals below — so this prefix must NOT also
+// `const`-declare them: a param + a same-named `const` under 'use strict' is a
+// "Cannot declare a const variable twice" error, and `const eval`/`eval` as a
+// param name is an "Invalid parameters in strict mode" error. Both bugs made
+// EVERY sandbox invocation fail to compile (→ 500) until this was corrected.
+// lockdownGlobals() is the real enforcement; the params are UX shadowing.
+//
+// The only thing left here is the per-call fetch timeout. safeFetch (SSRF-safe)
+// is passed in as `__zvSafeFetch` so we can wrap it and expose the wrapper as
+// `fetch` without colliding with a `fetch` parameter.
 const SECURITY_PREFIX = `
 'use strict';
-const process = undefined;
-const require = undefined;
-const module = undefined;
-const exports = undefined;
-const global = undefined;
-const globalThis = undefined;
-const Bun = undefined;
-const Deno = undefined;
-const self = undefined;
-const eval = undefined;
-const Function = undefined;
-const importScripts = undefined;
-
-// Enforce timeout via wrapper
 let _timeoutFired = false;
-const _originalFetch = fetch;
 const _wrapFetch = (input, init) => {
   if (_timeoutFired) throw new Error('Function execution timeout - fetch not allowed');
-  const timeoutPromise = new Promise((_, reject) => 
+  const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => {
       _timeoutFired = true;
       reject(new Error('Fetch timeout'));
     }, 5000)
   );
-  return Promise.race([_originalFetch(input, init), timeoutPromise]);
+  return Promise.race([__zvSafeFetch(input, init), timeoutPromise]);
 };
 const fetch = _wrapFetch;
 `;
@@ -136,7 +131,10 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const safeGlobals: Record<string, any> = {
       // ═══ Allowed globals ═══
-      fetch: safeFetch, // SSRF-protected proxy, NOT raw fetch
+      // SSRF-protected proxy (NOT raw fetch). Exposed to user code as `fetch`
+      // via the timeout wrapper in SECURITY_PREFIX — passed under this name so
+      // the wrapper can reference it without a `fetch`-param name collision.
+      __zvSafeFetch: safeFetch,
       Request,
       Response,
       URL,
@@ -179,7 +177,10 @@ self.onmessage = async (e: MessageEvent<WorkerPayload>) => {
       self: undefined,
       postMessage: undefined,
       importScripts: undefined,
-      eval: undefined,
+      // 'eval' is intentionally omitted — it's illegal as a strict-mode
+      // parameter name (Object.keys(safeGlobals) become the Function params),
+      // which broke compilation for every invocation. lockdownGlobals() blocks
+      // reflective eval access instead.
       Function: undefined,
     };
 
