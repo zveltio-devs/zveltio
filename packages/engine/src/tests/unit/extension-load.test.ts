@@ -20,7 +20,10 @@ function fakeLoader(): any {
     manifestMeta: new Map(),
     modules: new Map(),
     lastLoadError: new Map(),
-    ctx: { db: db.kysely, fieldTypeRegistry: { register: () => {} } } as ExtensionContext,
+    ctx: {
+      db: db.kysely,
+      fieldTypeRegistry: { register: () => {} },
+    } as unknown as ExtensionContext,
   };
 }
 

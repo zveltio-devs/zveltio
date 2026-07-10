@@ -252,7 +252,7 @@ describe('resolveEntryPath', () => {
       const r = await resolveEntryPath('probe', dir, join(dir, 'engine/index.js'), {
         name: 'probe',
         version: '1.0.0',
-      });
+      } as never);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('not bundled');
     } finally {

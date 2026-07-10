@@ -16,23 +16,24 @@ import {
   finalizeExtensionLoad,
   reRegisterExtension,
 } from '../../lib/extensions/register.js';
+import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-function fakeLoader(over: Record<string, unknown> = {}) {
+function fakeLoader(over: Record<string, unknown> = {}): ExtensionLoader {
   const db = new CannedDb();
   return {
     loaded: new Map(),
     modules: new Map<string, ZveltioExtension>(),
     lastLoadError: new Map(),
-    ctx: { db: db.kysely } as ExtensionContext,
+    ctx: { db: db.kysely } as unknown as ExtensionContext,
     ...over,
-  };
+  } as unknown as ExtensionLoader;
 }
 
 function baseCtx(): ExtensionContext {
   const db = new CannedDb();
-  return { db: db.kysely as ExtensionContext['db'] };
+  return { db: db.kysely } as unknown as ExtensionContext;
 }
 
 describe('buildAllowedTables', () => {
@@ -74,7 +75,7 @@ describe('buildRestrictedContext', () => {
     });
     // Unsupported methods are ignored (no throw).
     ctx.registerPublicRoute?.({
-      method: 'TRACE',
+      method: 'TRACE' as 'GET',
       path: '/ext-public/trace',
       handler: () => new Response('nope'),
     });
@@ -94,6 +95,7 @@ describe('finalizeExtensionLoad', () => {
     const loader = fakeLoader();
     const extension: ZveltioExtension = {
       name: 'subapp-ext',
+      category: 'custom',
       mountStrategy: 'subapp',
       async register(sub, _ctx) {
         sub.get('/hello', (c) => c.text('hi'));
@@ -106,7 +108,7 @@ describe('finalizeExtensionLoad', () => {
       '/tmp/subapp-ext',
       app,
       loader.ctx!,
-      { name: 'subapp-ext', version: '1.0.0' },
+      { name: 'subapp-ext', version: '1.0.0', category: 'custom' } as never,
       new Set(['zv_subapp_ext_items']),
     );
     expect(loader.loaded.has('subapp-ext')).toBe(true);
@@ -128,6 +130,7 @@ describe('reRegisterExtension', () => {
     const loader = fakeLoader();
     const extension: ZveltioExtension = {
       name: 'reload-ext',
+      category: 'custom',
       mountStrategy: 'subapp',
       async register(sub) {
         sub.get('/v', (c) => c.text('v2'));
