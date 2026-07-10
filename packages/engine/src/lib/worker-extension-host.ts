@@ -594,6 +594,30 @@ export class WorkerExtensionHost {
   }
 }
 
+/** Test-only export — never import outside src/tests/. */
+export const _internalForTests = {
+  dispatchMessage(
+    host: WorkerExtensionHost,
+    managed: ManagedWorker,
+    msg: WorkerToHostMessage,
+  ): void {
+    (
+      host as unknown as { handleWorkerMessage(m: ManagedWorker, msg: WorkerToHostMessage): void }
+    ).handleWorkerMessage(managed, msg);
+  },
+  mountProxy(host: WorkerExtensionHost, managed: ManagedWorker): () => void {
+    return (host as unknown as { mountProxyRoutes(m: ManagedWorker): () => void }).mountProxyRoutes(
+      managed,
+    );
+  },
+  heartbeat(host: WorkerExtensionHost, managed: ManagedWorker): void {
+    (host as unknown as { heartbeat(m: ManagedWorker): void }).heartbeat(managed);
+  },
+  resetInvokeWaiters(): void {
+    invokeWaiters.clear();
+  },
+};
+
 // Waiter pool for cross-worker service invokes. Module-scoped so any
 // host method can stash a resolver under the rpcId and any worker's
 // reply handler can route the response back.
