@@ -11,9 +11,10 @@
  * extension registered).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { flowScheduler } from '../../lib/flows/flow-scheduler.js';
+import { extensionRegistry } from '../../lib/extensions/index.js';
+import { flowScheduler, _internalForTests } from '../../lib/flows/flow-scheduler.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -37,6 +38,7 @@ beforeEach(() => {
 afterEach(() => {
   flowScheduler.stop();
   serviceRegistry.unregisterAs('test', 'ai.runBackgroundTask');
+  _internalForTests.setExecuteFlowForTests(null);
 });
 
 describe('flowScheduler lifecycle', () => {
@@ -137,5 +139,61 @@ describe('flowScheduler._executeScheduledFlow (ai_task)', () => {
     // The error is caught + logged; next_run_at still advances.
     await flowScheduler._executeScheduledFlow(aiFlow);
     expect(db.executed(FLOWS_UPDATE).length).toBe(1);
+  });
+});
+
+describe('flowScheduler._executeScheduledFlow (cron)', () => {
+  const cronFlow = {
+    id: 'flow-cron',
+    name: 'Cron Flow',
+    trigger_type: 'cron',
+    trigger_config: { interval_seconds: 120 },
+    created_by: 'creator',
+  };
+
+  it('delegates to executeFlow and advances next_run_at', async () => {
+    let executedId = '';
+    _internalForTests.setExecuteFlowForTests(async (_db, flowId) => {
+      executedId = flowId;
+      return { status: 'success', runId: 'run-cron-1', output: {} };
+    });
+    await injectDb(db);
+    await flowScheduler._executeScheduledFlow(cronFlow);
+    expect(executedId).toBe('flow-cron');
+    expect(db.executed(FLOWS_UPDATE).length).toBe(1);
+  });
+
+  it('still advances next_run_at when executeFlow reports failure', async () => {
+    _internalForTests.setExecuteFlowForTests(async () => ({
+      status: 'failed',
+      runId: 'run-bad',
+      output: {},
+      error: 'step blew up',
+    }));
+    await injectDb(db);
+    await flowScheduler._executeScheduledFlow(cronFlow);
+    expect(db.executed(FLOWS_UPDATE).length).toBe(1);
+  });
+});
+
+describe('scheduleTrashPurge (_internalForTests)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => {
+    jest.useRealTimers();
+    extensionRegistry.registerTrashPurgeHandler(async () => {});
+  });
+
+  it('runs the registered trash purge handler at 03:30', async () => {
+    let purged = false;
+    extensionRegistry.registerTrashPurgeHandler(async () => {
+      purged = true;
+    });
+    const canned = new CannedDb();
+    jest.setSystemTime(new Date('2026-06-17T03:29:00'));
+    const stop = _internalForTests.scheduleTrashPurge(canned.kysely as unknown as Database);
+    jest.advanceTimersByTime(61_000);
+    await Promise.resolve();
+    expect(purged).toBe(true);
+    stop();
   });
 });
