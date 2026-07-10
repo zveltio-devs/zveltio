@@ -117,14 +117,26 @@ function lockdownGlobals(stashed) {
     info:  (...a) => logs.push('[info] '  + a.map(String).join(' ')),
   };
 
+  // Stash the result-channel BEFORE the try/lockdown — lockdownGlobals() (run
+  // inside the try) makes process throw, but BOTH the success and catch arms
+  // still need process.stdout/exit to send the response envelope to the parent.
+  // Declared out here so the catch block can see them (const is block-scoped).
+  const _procWrite = process.stdout.write.bind(process.stdout);
+  const _procExit = process.exit.bind(process);
+
   try {
     const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
     const _fetch = fetch;
     lockdownGlobals();
 
+    // 'eval' is intentionally absent from this shadow-parameter list: it is an
+    // illegal strict-mode parameter name, and the body below is '"use strict"',
+    // so including it made the AsyncFunction constructor throw for EVERY
+    // subprocess invocation. lockdownGlobals() above already blocks eval via a
+    // throwing globalThis getter.
     const userFn = new AsyncFn(
       'request','env','console','fetch',
-      'process','Bun','require','module','exports','globalThis','eval','Function','Worker','importScripts','self',
+      'process','Bun','require','module','exports','globalThis','Function','Worker','importScripts','self',
       '"use strict";\n' + code +
       '\nif (typeof handler !== "function") throw new Error("Edge function must define: async function handler(request, env)");' +
       '\nreturn handler(request, env);'
@@ -136,7 +148,7 @@ function lockdownGlobals(stashed) {
 
     const raw = await Promise.race([
       userFn(request, env, _console, _fetch,
-        undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
+        undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
       timeout,
     ]);
 
@@ -146,11 +158,11 @@ function lockdownGlobals(stashed) {
     } else {
       response = { status: 200, body: raw ?? null, headers: {} };
     }
-    process.stdout.write(JSON.stringify({ ok: true, response, logs }) + '\n');
-    process.exit(0);
+    _procWrite(JSON.stringify({ ok: true, response, logs }) + '\n');
+    _procExit(0);
   } catch (err) {
-    process.stdout.write(JSON.stringify({ ok: false, error: err.message, logs }) + '\n');
-    process.exit(1);
+    _procWrite(JSON.stringify({ ok: false, error: err.message, logs }) + '\n');
+    _procExit(1);
   }
 })();
 `;
