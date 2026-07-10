@@ -155,7 +155,7 @@ describe('flowScheduler._executeScheduledFlow (cron)', () => {
     let executedId = '';
     _internalForTests.setExecuteFlowForTests(async (_db, flowId) => {
       executedId = flowId;
-      return { status: 'success', runId: 'run-cron-1' };
+      return { status: 'success', runId: 'run-cron-1', output: {} };
     });
     await injectDb(db);
     await flowScheduler._executeScheduledFlow(cronFlow);
@@ -167,6 +167,7 @@ describe('flowScheduler._executeScheduledFlow (cron)', () => {
     _internalForTests.setExecuteFlowForTests(async () => ({
       status: 'failed',
       runId: 'run-bad',
+      output: {},
       error: 'step blew up',
     }));
     await injectDb(db);

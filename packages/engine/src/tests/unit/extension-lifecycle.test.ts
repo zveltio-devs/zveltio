@@ -11,7 +11,11 @@
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
-import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from '../../lib/extensions/lifecycle.js';
+import {
+  loadDynamic,
+  reloadExtensionFromDisk,
+  unloadExtension,
+} from '../../lib/extensions/lifecycle.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
