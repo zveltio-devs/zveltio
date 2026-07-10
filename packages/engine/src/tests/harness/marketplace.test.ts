@@ -13,8 +13,11 @@
  * Registry-fetching routes carry a widened timeout. Skips without a test DB.
  */
 
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Hono } from 'hono';
+import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -22,6 +25,33 @@ const d = harnessAvailable() ? describe : describe.skip;
 // An extension that is definitely not installed — exercises the not-found /
 // error arms of the install/enable/disable/config/uninstall handlers.
 const GHOST = 'no-such-ext-xyz';
+const HELLO_EXT = 'hello-ext';
+const FIXTURE_DIR = join(import.meta.dir, '../fixtures/hello-ext');
+
+let originalFetch: typeof fetch;
+
+function stubLicenseVerifyOk(): void {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/api/licenses/verify')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ valid: true }),
+      } as Response;
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+}
+
+function ensureHelloExtOnDisk(): void {
+  const extBase = resolveExtensionsBase();
+  const target = join(extBase, HELLO_EXT);
+  if (!existsSync(join(target, 'manifest.json'))) {
+    mkdirSync(extBase, { recursive: true });
+    cpSync(FIXTURE_DIR, target, { recursive: true });
+  }
+}
 
 d('extension marketplace routes (in-process)', () => {
   let app: Hono;
@@ -34,9 +64,15 @@ d('extension marketplace routes (in-process)', () => {
   });
 
   beforeAll(async () => {
+    originalFetch = globalThis.fetch;
     const t = await getTestApp();
     app = t.app;
     cookie = await createGodSession(app, t.db);
+    ensureHelloExtOnDisk();
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
   });
 
   it('requires auth for the marketplace catalog', async () => {
@@ -50,6 +86,23 @@ d('extension marketplace routes (in-process)', () => {
       post('/api/marketplace/license/some-ext', {}),
     );
     expect(res.status).toBe(400);
+  });
+
+  it('stores a license key when registry verify succeeds (stubbed fetch)', async () => {
+    stubLicenseVerifyOk();
+    const name = `harness-lic-ok-${Date.now()}`;
+    const res = await app.request(
+      `/api/marketplace/license/${name}`,
+      post(`/api/marketplace/license/${name}`, { license_key: 'verified-key-abc' }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    const clear = await app.request(`/api/marketplace/license/${name}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(clear.status).toBe(200);
   });
 
   it('stores or rejects a license key via registry verify', async () => {
@@ -80,6 +133,14 @@ d('extension marketplace routes (in-process)', () => {
     expect(res.status).toBeLessThan(600);
   }, 20_000);
 
+  it('lists the catalog (GET /api/marketplace) — returns extensions array', async () => {
+    const res = await app.request('/api/marketplace', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { extensions: unknown[] };
+    expect(Array.isArray(body.extensions)).toBe(true);
+    expect(body.extensions.length).toBeGreaterThan(0);
+  }, 20_000);
+
   it('lists the catalog (GET /api/marketplace) — tolerates registry being offline', async () => {
     const res = await app.request('/api/marketplace', { headers: { cookie } });
     // Registry may be unreachable → the handler either returns a graceful
@@ -92,9 +153,12 @@ d('extension marketplace routes (in-process)', () => {
     expect(res.status).toBeLessThan(500);
   });
 
-  it('rotates the license (POST /api/admin/license/rotate) — tolerates registry', async () => {
+  it('rotates the marketplace auth token (POST /api/admin/license/rotate)', async () => {
     const res = await app.request('/api/admin/license/rotate', post('/api/admin/license/rotate'));
-    expect(res.status).toBeLessThan(600);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; token: string };
+    expect(body.ok).toBe(true);
+    expect(body.token.length).toBeGreaterThanOrEqual(32);
   }, 20_000);
 
   it('verifies + clears a license (POST/DELETE /api/marketplace/license/:name)', async () => {
@@ -109,6 +173,28 @@ d('extension marketplace routes (in-process)', () => {
     });
     expect(clear.status).toBeLessThan(600);
   }, 20_000);
+
+  it('installs hello-ext from on-disk files (POST /:name/install)', async () => {
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/install`,
+      post(`/${HELLO_EXT}/install`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean; files_on_disk: boolean };
+    expect(body.success).toBe(true);
+    expect(body.files_on_disk).toBe(true);
+  }, 20_000);
+
+  it('enables hello-ext when files are on disk (POST /:name/enable)', async () => {
+    ensureHelloExtOnDisk();
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/enable`,
+      post(`/${HELLO_EXT}/enable`),
+    );
+    expect(res.status).toBeLessThan(600);
+    const body = (await res.json()) as { success?: boolean; hot_loaded?: boolean };
+    expect(typeof body).toBe('object');
+  }, 30_000);
 
   it('installs an unknown extension (POST /:name/install) — tolerates download failure', async () => {
     const res = await app.request(`/api/marketplace/${GHOST}/install`, post(`/${GHOST}/install`));

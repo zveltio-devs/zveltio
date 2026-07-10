@@ -157,6 +157,41 @@ d('executeStep — flow-executor branches', () => {
     ).rejects.toThrow(/blocked|sandbox/i);
   });
 
+  it('query_db runs a read-only SELECT inside tenant context', async () => {
+    const { output } = await executeStep(
+      db,
+      step('query_db', { query: `SELECT title FROM "zvd_${COLLECTION}" LIMIT 5` }),
+      {},
+      {},
+    );
+    expect(Array.isArray(output)).toBe(true);
+  });
+
+  it('query_db rejects non-SELECT statements', async () => {
+    await expect(
+      executeStep(db, step('query_db', { query: 'DELETE FROM "user"' }), {}, {}),
+    ).rejects.toThrow(/SELECT|read-only/i);
+  });
+
+  it('run_script evaluates sandboxed code with input', async () => {
+    const { output } = await executeStep(
+      db,
+      step('run_script', {
+        code: 'return { sum: (input.a ?? 0) + (input.b ?? 0) };',
+        input: { a: 10, b: 32 },
+      }),
+      {},
+      {},
+    );
+    expect(output.sum).toBe(42);
+  });
+
+  it('run_script throws when the script fails', async () => {
+    await expect(
+      executeStep(db, step('run_script', { code: 'throw new Error("boom");' }), {}, {}),
+    ).rejects.toThrow(/Script error|boom/i);
+  });
+
   it('webhook reaches a public URL', async () => {
     const { output } = await executeStep(
       db,
