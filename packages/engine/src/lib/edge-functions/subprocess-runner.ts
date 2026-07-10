@@ -87,6 +87,59 @@ function lockdownGlobals(stashed) {
   try { Object.freeze(Function.prototype); } catch (_) {}
 }
 
+// ── SSRF guard (inlined; a subprocess .mjs cannot import url-validator.ts) ──
+// Mirrors packages/engine/src/lib/security/url-validator.ts — keep in sync.
+// Untrusted edge code must not reach loopback/link-local/RFC1918/metadata or
+// non-http(s) schemes, incl. IPv6 (bracket-stripped) + IPv4-mapped/alt encodings.
+function _intToIPv4(n) {
+  return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
+}
+function _normalizeHost(host) {
+  const h = String(host).toLowerCase();
+  let m = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (m) return m[1];
+  m = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (m) {
+    const hi = parseInt(m[1], 16), lo = parseInt(m[2], 16);
+    return ((hi >> 8) & 0xff) + '.' + (hi & 0xff) + '.' + ((lo >> 8) & 0xff) + '.' + (lo & 0xff);
+  }
+  if (/^0x[0-9a-f]+$/.test(h)) return _intToIPv4(parseInt(h, 16));
+  if (/^\d+$/.test(h)) { const n = parseInt(h, 10); if (n > 0xffff && n <= 0xffffffff) return _intToIPv4(n); }
+  if (/^[\da-fx.]+$/.test(h) && h.indexOf('.') !== -1) {
+    const octets = h.split('.');
+    if (octets.length === 4) {
+      const nums = octets.map(function (o) {
+        if (o.indexOf('0x') === 0) return parseInt(o, 16);
+        if (o.charAt(0) === '0' && o.length > 1) return parseInt(o, 8);
+        return parseInt(o, 10);
+      });
+      if (nums.every(function (n) { return !Number.isNaN(n) && n >= 0 && n <= 255; })) return nums.join('.');
+    }
+  }
+  return h;
+}
+const _BLOCKED = [
+  /^localhost$/, /^127\.\d+\.\d+\.\d+$/, /^10\.\d+\.\d+\.\d+$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/, /^192\.168\.\d+\.\d+$/, /^169\.254\.\d+\.\d+$/,
+  /^::1$/, /^::$/, /^fe[89ab][0-9a-f]:/, /^f[cd][0-9a-f]{2}:/, /^0\.0\.0\.0$/,
+  /host\.docker\.internal$/, /kubernetes\.default$/,
+];
+function _isBlockedHost(host) {
+  const bare = String(host).replace(/^\[|\]$/g, '');
+  const normalized = _normalizeHost(bare);
+  return _BLOCKED.some(function (re) { return re.test(bare) || re.test(normalized); });
+}
+function _validateUrl(rawUrl) {
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch (_) { throw new Error('[sandbox] Invalid URL: ' + rawUrl); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('[sandbox] Only http/https URLs are allowed (got "' + parsed.protocol + '")');
+  }
+  if (_isBlockedHost(parsed.hostname.toLowerCase())) {
+    throw new Error('[sandbox] Network access to internal/private address blocked: ' + rawUrl);
+  }
+}
+
 (async () => {
   // Read a single line of JSON from stdin (the parent sends one envelope)
   const reader = Bun.stdin.stream().getReader();
@@ -127,6 +180,24 @@ function lockdownGlobals(stashed) {
   try {
     const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
     const _fetch = fetch;
+    // Wrap fetch so untrusted user code cannot reach internal/private addresses
+    // (SSRF). Validates the target + re-validates every redirect hop.
+    async function safeFetch(input, init, _hops) {
+      _hops = _hops || 0;
+      let _url;
+      if (typeof input === 'string') _url = input;
+      else if (input && typeof input === 'object' && input.url) _url = input.url;
+      else _url = String(input);
+      _validateUrl(_url);
+      if (_hops > 5) throw new Error('[sandbox] Too many redirects.');
+      const _res = await _fetch(input, Object.assign({}, init || {}, { redirect: 'manual' }));
+      if (_res.status >= 300 && _res.status < 400) {
+        const _loc = _res.headers.get('location');
+        if (!_loc) throw new Error('[sandbox] Redirect with no Location header blocked.');
+        return safeFetch(new URL(_loc, _url).toString(), init, _hops + 1);
+      }
+      return _res;
+    }
     lockdownGlobals();
 
     // 'eval' is intentionally absent from this shadow-parameter list: it is an
@@ -147,7 +218,7 @@ function lockdownGlobals(stashed) {
     );
 
     const raw = await Promise.race([
-      userFn(request, env, _console, _fetch,
+      userFn(request, env, _console, safeFetch,
         undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
       timeout,
     ]);
