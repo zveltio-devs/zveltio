@@ -58,8 +58,10 @@ d('flow execution (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie: string;
+  let godUserId = '';
   let flowId = '';
   let failFlowId = '';
+  let notifyFlowId = '';
 
   const createFlow = async (name: string): Promise<string> => {
     const res = await app.request('/api/flows', {
@@ -74,12 +76,35 @@ d('flow execution (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    const row = await sql<{
+      id: string;
+    }>`SELECT id FROM "user" WHERE role = 'god' ORDER BY "createdAt" DESC LIMIT 1`.execute(db);
+    godUserId = row.rows[0]!.id;
 
     // A flow whose steps all run cleanly in-process.
     flowId = await createFlow('Harness Run Flow');
     await insertStep(db, flowId, 0, 'query_db', { query: 'SELECT 1 AS ok, 2 AS two' });
     await insertStep(db, flowId, 1, 'run_script', { code: 'return { doubled: 21 * 2 };' });
     await insertStep(db, flowId, 2, 'condition', { expression: '1 == 1' });
+
+    // Notification + webhook + email arms of the executor.
+    notifyFlowId = await createFlow('Harness Notify Flow');
+    await insertStep(db, notifyFlowId, 0, 'send_notification', {
+      user_id: godUserId,
+      title: 'Flow ping',
+      message: 'from harness',
+    });
+    await insertStep(db, notifyFlowId, 1, 'webhook', {
+      url: 'https://example.com/',
+      method: 'POST',
+      body: { ok: true },
+      timeout_ms: 5000,
+    });
+    await insertStep(db, notifyFlowId, 2, 'send_email', {
+      to: 'user@example.com',
+      subject: 'Harness',
+      body: 'hi',
+    });
 
     // A flow whose query_db step is rejected by the read-only guard (a write
     // statement) — exercises the executor's error arm + on_error handling.
@@ -88,7 +113,7 @@ d('flow execution (in-process)', () => {
   });
 
   afterAll(async () => {
-    for (const id of [flowId, failFlowId]) {
+    for (const id of [flowId, failFlowId, notifyFlowId]) {
       if (db && id) {
         await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
         await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
@@ -136,4 +161,17 @@ d('flow execution (in-process)', () => {
     const runs = body.runs ?? (body as unknown as unknown[]);
     expect(Array.isArray(runs)).toBe(true);
   });
+
+  it('runs notification, webhook, and email step types', async () => {
+    const res = await app.request(`/api/flows/${notifyFlowId}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: '{}',
+    });
+    expect(res.status).toBe(202);
+
+    const status = await waitForRun(db, notifyFlowId, 15_000);
+    expect(status).not.toBeNull();
+    expect(['completed', 'success']).toContain(status as string);
+  }, 20_000);
 });
