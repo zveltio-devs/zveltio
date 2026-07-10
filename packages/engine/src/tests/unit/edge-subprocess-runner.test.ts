@@ -72,4 +72,34 @@ describe('runEdgeFunctionInSubprocess', () => {
     expect(res.ok).toBe(true);
     expect(res.response?.body).toEqual({ process: 'undefined', Bun: 'undefined', escaped: false });
   });
+
+  it('blocks SSRF to internal addresses via safeFetch', async () => {
+    const code = `async function handler() {
+      await fetch('http://127.0.0.1/admin');
+      return { status: 200, body: 'should not reach' };
+    }`;
+    const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 5000);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/blocked|sandbox/i);
+  });
+
+  it('blocks non-http(s) fetch schemes', async () => {
+    const code = `async function handler() {
+      await fetch('file:///etc/passwd');
+      return { status: 200, body: 'nope' };
+    }`;
+    const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 5000);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/http\/https|sandbox/i);
+  });
+
+  it('allows fetch to a public https URL', async () => {
+    const code = `async function handler() {
+      const res = await fetch('https://example.com/');
+      return { status: 200, body: { status: res.status } };
+    }`;
+    const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 15000);
+    expect(res.ok).toBe(true);
+    expect((res.response?.body as { status: number }).status).toBeGreaterThanOrEqual(200);
+  });
 });
