@@ -34,8 +34,14 @@ export async function runScript(
   // The worker (worker-runner.ts) prepends STDLIB which defines `_logs` and `console`.
   // The handler receives `input` from the request body and returns the result as JSON.
   // `_logs` is accessible via closure from STDLIB scope.
+  //
+  // NB: a top-level `handler` declaration — NOT `export default`. The sandbox
+  // compiles this via `new Function(...)`, where an `export` statement is a
+  // SyntaxError ("Unexpected keyword 'export'"); worker-runner resolves the
+  // handler by `typeof handler !== 'undefined'`, so a plain declaration is what
+  // it expects.
   const wrappedCode = `
-export default async function handler(ctx) {
+async function handler(ctx) {
   const input = await ctx.request.json().catch(() => ({}));
   let __output;
   try {
