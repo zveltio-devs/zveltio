@@ -16,10 +16,7 @@ const RUN_INSERT = /INSERT INTO zv_flow_runs/i;
 const STEPS_SELECT = /SELECT \* FROM zv_flow_steps/i;
 const RUN_UPDATE = /UPDATE zv_flow_runs/i;
 
-function dbForFlow(
-  steps: unknown[],
-  runId = 'run-1',
-): CannedDb {
+function dbForFlow(steps: unknown[], runId = 'run-1'): CannedDb {
   const db = new CannedDb();
   db.when(RUN_INSERT, [{ id: runId }]);
   db.when(STEPS_SELECT, steps);
