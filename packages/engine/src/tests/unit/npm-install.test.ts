@@ -29,7 +29,9 @@ describe('installExtensionNpmDependencies', () => {
   it('returns immediately when every peer is already on disk', async () => {
     mkdirSync(join(extBase, 'node_modules', 'hono'), { recursive: true });
     writeFileSync(join(extBase, 'node_modules', 'hono', 'package.json'), '{}');
-    await expect(installExtensionNpmDependencies('probe', { hono: '^4.0.0' })).resolves.toBeUndefined();
+    await expect(
+      installExtensionNpmDependencies('probe', { hono: '^4.0.0' }),
+    ).resolves.toBeUndefined();
   });
 
   it('rejects unsafe package names before spawning', async () => {

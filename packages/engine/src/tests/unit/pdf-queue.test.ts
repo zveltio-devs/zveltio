@@ -75,6 +75,8 @@ describe('generatePDFAsync', () => {
       terminate() {}
     } as unknown as typeof Worker;
 
-    await expect(generatePDFAsync('<html></html>')).rejects.toThrow(/worker crashed|PDF worker error/);
+    await expect(generatePDFAsync('<html></html>')).rejects.toThrow(
+      /worker crashed|PDF worker error/,
+    );
   });
 });
