@@ -98,3 +98,16 @@ process.on('beforeExit', () => {
     pw.worker.terminate();
   }
 });
+
+/** Test-only — clears the worker pool between unit tests. */
+export function _resetPdfQueueForTests(): void {
+  for (const pw of pool) {
+    try {
+      pw.worker.terminate();
+    } catch {
+      /* */
+    }
+  }
+  pool.length = 0;
+  queue.length = 0;
+}

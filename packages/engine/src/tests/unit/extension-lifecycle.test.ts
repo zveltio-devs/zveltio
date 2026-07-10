@@ -11,7 +11,11 @@
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
-import { loadDynamic, unloadExtension } from '../../lib/extensions/lifecycle.js';
+import {
+  loadDynamic,
+  reloadExtensionFromDisk,
+  unloadExtension,
+} from '../../lib/extensions/lifecycle.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -20,8 +24,10 @@ function fakeLoader(over: Record<string, unknown> = {}): any {
   const db = new CannedDb();
   return {
     loaded: new Map(),
+    modules: new Map(),
     ctx: { db: db.kysely },
     lastLoadError: new Map(),
+    isActive: () => false,
     ...over,
   };
 }
@@ -29,7 +35,7 @@ function fakeLoader(over: Record<string, unknown> = {}): any {
 const noApp = {} as unknown as Hono;
 
 afterEach(() => {
-  for (const owner of ['e-svc']) serviceRegistry.unregisterAll(owner);
+  for (const owner of ['e-svc', 'e-reload']) serviceRegistry.unregisterAll(owner);
 });
 
 describe('unloadExtension', () => {
@@ -124,5 +130,47 @@ describe('loadDynamic', () => {
   it('throws a helpful fallback error when no specific error was recorded', async () => {
     const loader = fakeLoader({ loadExtension: async () => {}, isActive: () => false });
     await expect(loadDynamic(loader, 'e5', noApp)).rejects.toThrow(/engine\/index\.ts not found/);
+  });
+});
+
+describe('reloadExtensionFromDisk', () => {
+  it('returns an error when the extension is not loaded', async () => {
+    const r = await reloadExtensionFromDisk(fakeLoader(), 'missing', async () => {});
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/not currently loaded/i);
+  });
+
+  it('clears module state, unregisters services, and invokes triggerReload', async () => {
+    serviceRegistry.registerAs('e-reload', 'reloadSvc', { x: 1 });
+    const loader = fakeLoader({ isActive: () => true });
+    loader.modules.set('e-reload', {});
+    loader.loaded.set('e-reload', {});
+    let reason = '';
+    const r = await reloadExtensionFromDisk(loader, 'e-reload', async (why) => {
+      reason = why;
+    });
+    expect(reason).toBe('dev-reload:e-reload');
+    expect(loader.modules.has('e-reload')).toBe(false);
+    expect(loader.loaded.has('e-reload')).toBe(false);
+    expect(serviceRegistry.has('reloadSvc')).toBe(false);
+    expect(r.ok).toBe(true);
+  });
+
+  it('surfaces lastLoadError from the reload attempt', async () => {
+    const loader = fakeLoader({ isActive: () => false });
+    loader.loaded.set('e-bad', {});
+    const r = await reloadExtensionFromDisk(loader, 'e-bad', async () => {
+      loader.lastLoadError.set('e-bad', 'syntax error in engine/index.ts');
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe('syntax error in engine/index.ts');
+  });
+
+  it('reports a generic failure when reload leaves the extension inactive', async () => {
+    const loader = fakeLoader({ isActive: () => false });
+    loader.modules.set('e-inert', {});
+    const r = await reloadExtensionFromDisk(loader, 'e-inert', async () => {});
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/failed to load/i);
   });
 });

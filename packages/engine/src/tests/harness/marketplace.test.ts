@@ -196,6 +196,31 @@ d('extension marketplace routes (in-process)', () => {
     expect(typeof body).toBe('object');
   }, 30_000);
 
+  it('reads hello-ext config (GET /:name/config)', async () => {
+    ensureHelloExtOnDisk();
+    const res = await app.request(`/api/marketplace/${HELLO_EXT}/config`, { headers: { cookie } });
+    expect(res.status).toBeLessThan(600);
+  }, 20_000);
+
+  it('updates hello-ext config (PUT /:name/config)', async () => {
+    ensureHelloExtOnDisk();
+    const res = await app.request(`/api/marketplace/${HELLO_EXT}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ config: { greeting: 'harness' } }),
+    });
+    expect(res.status).toBeLessThan(600);
+  }, 20_000);
+
+  it('disables hello-ext after enable (POST /:name/disable)', async () => {
+    ensureHelloExtOnDisk();
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/disable`,
+      post(`/${HELLO_EXT}/disable`),
+    );
+    expect(res.status).toBeLessThan(600);
+  }, 20_000);
+
   it('installs an unknown extension (POST /:name/install) — tolerates download failure', async () => {
     const res = await app.request(`/api/marketplace/${GHOST}/install`, post(`/${GHOST}/install`));
     // No such extension in the registry → not-found / gateway error, never a
