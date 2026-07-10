@@ -90,9 +90,14 @@ self.onmessage = async (e) => {
     const _fetch = fetch;
     lockdownGlobals();
 
+    // NB: 'eval' and 'arguments' are illegal as strict-mode parameter names —
+    // listing 'eval' here made the AsyncFunction constructor throw "Invalid
+    // parameters in strict mode" for EVERY worker-mode edge function. It's
+    // already neutralised by lockdownGlobals() (globalThis.eval throws), so it
+    // must not appear in the shadow-parameter list.
     const userFn = new AsyncFn(
       'request','env','console','fetch',
-      'process','Bun','require','module','exports','globalThis','eval','Function','Worker','importScripts','self',
+      'process','Bun','require','module','exports','globalThis','Function','Worker','importScripts','self',
       '"use strict";\\n' + code +
       '\\nif (typeof handler !== "function") throw new Error("Edge function must define: async function handler(request, env)");' +
       '\\nreturn handler(request, env);'
@@ -102,7 +107,7 @@ self.onmessage = async (e) => {
     );
     const raw = await Promise.race([
       userFn(request, env, _console, _fetch,
-        undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
+        undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
       timeout,
     ]);
     let response;
