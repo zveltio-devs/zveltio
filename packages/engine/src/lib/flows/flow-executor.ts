@@ -510,3 +510,6 @@ export async function executeFlow(
     return { runId, status: 'failed', output, error: String(err) };
   }
 }
+
+/** Test-only export — never import outside src/tests/. */
+export const _internalForTests = { executeStep };
