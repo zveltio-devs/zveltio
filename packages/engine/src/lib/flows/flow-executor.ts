@@ -241,20 +241,19 @@ async function executeStep(
     // ── export_collection ──
     case 'export_collection': {
       if (!cfg.collection) return { output: prevOutput };
+
+      const SAFE_COLLECTION = /^[a-z][a-z0-9_]*$/;
+      const rawCollection = cfg.collection.startsWith('zvd_')
+        ? cfg.collection.slice(4)
+        : cfg.collection;
+      if (!SAFE_COLLECTION.test(rawCollection)) {
+        return { output: { error: `Invalid collection name: "${cfg.collection}"` } };
+      }
+
       try {
         // @ts-ignore — export-manager is an optional extension
         const { ExportManager } = await import('../export-manager.js');
 
-        // Validate collection name before constructing the table identifier.
-        // cfg.collection comes from user-controlled flow config — must match
-        // ^[a-z][a-z0-9_]*$ to prevent SQL injection via sql.id().
-        const SAFE_COLLECTION = /^[a-z][a-z0-9_]*$/;
-        const rawCollection = cfg.collection.startsWith('zvd_')
-          ? cfg.collection.slice(4)
-          : cfg.collection;
-        if (!SAFE_COLLECTION.test(rawCollection)) {
-          return { output: { error: `Invalid collection name: "${cfg.collection}"` } };
-        }
         const tableName = `zvd_${rawCollection}`;
 
         // sql.id() quotes the identifier — safe against injection even if validation
