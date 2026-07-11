@@ -29,7 +29,7 @@ describe('DDLManager metadata cache', () => {
     const first = await DDLManager.getCollections(asDb(db));
     const second = await DDLManager.getCollections(asDb(db));
     expect(first).toHaveLength(1);
-    expect(second[0]!.name).toBe('articles');
+    expect(second[0]?.name).toBe('articles');
     expect(hits).toBe(1);
   });
 
@@ -46,7 +46,7 @@ describe('DDLManager metadata cache', () => {
       ];
     });
     const row = await DDLManager.getCollection(asDb(db), 'widgets');
-    expect(row?.fields[0]!.name).toBe('title');
+    expect(row?.fields?.[0]?.name).toBe('title');
     await DDLManager.getCollection(asDb(db), 'widgets');
     expect(hits).toBe(1);
   });
