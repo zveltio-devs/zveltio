@@ -53,12 +53,10 @@ d('relations routes (in-process)', () => {
       .catch(() => {});
   });
 
-  const jsonHeaders = { 'Content-Type': 'application/json', cookie };
-
   it('POST /api/relations creates an m2o FK + metadata', async () => {
     const res = await app.request('/api/relations', {
       method: 'POST',
-      headers: jsonHeaders,
+      headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({
         name: `${SRC}_customer`,
         type: 'm2o',

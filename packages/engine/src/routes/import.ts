@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
+import { DDLManager } from '../lib/data/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 import { reqDb } from '../lib/route-db.js';
 
@@ -321,9 +322,10 @@ export function importRoutes(db: Database, auth: any) {
 
       if (toInsert.length > 0) {
         try {
+          const tableName = DDLManager.getTableName(collection);
           await tdb
             // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            .insertInto(collection as any)
+            .insertInto(tableName as any)
             // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             .values(toInsert as any)
             .execute();

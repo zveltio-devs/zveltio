@@ -40,12 +40,10 @@ d('collections DDL lifecycle (in-process)', () => {
     }
   });
 
-  const jsonHeaders = { 'Content-Type': 'application/json', cookie };
-
   it('POST / creates a collection and provisions the physical table', async () => {
     const res = await app.request('/api/collections', {
       method: 'POST',
-      headers: jsonHeaders,
+      headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({
         name: COLLECTION,
         fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
@@ -61,7 +59,7 @@ d('collections DDL lifecycle (in-process)', () => {
   it('POST /:name/fields adds a column and updates metadata', async () => {
     const res = await app.request(`/api/collections/${COLLECTION}/fields`, {
       method: 'POST',
-      headers: jsonHeaders,
+      headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({
         name: 'subtitle',
         type: 'text',
