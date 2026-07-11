@@ -460,6 +460,30 @@ describe('executeStep — CannedDb branches', () => {
     expect(output).toEqual({ prev: 7 });
   });
 
+  it('webhook returns the HTTP status from a public URL', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({ ok: true, status: 201 })) as unknown as typeof fetch;
+    try {
+      const { output } = await executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'webhook',
+          config: {
+            url: 'https://example.com/hooks/flow',
+            method: 'POST',
+            body: { event: 'done' },
+          },
+        },
+        {},
+        {},
+      );
+      expect(output.ok).toBe(true);
+      expect(output.status).toBe(201);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('run_script with empty code passes through previous output', async () => {
     const { output } = await executeStep(
       new CannedDb().kysely as unknown as Database,
