@@ -45,6 +45,7 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
   // The engine reads DATABASE_URL; the secrets are required by auth + field
   // crypto. Defaults are deterministic and test-only.
   process.env.DATABASE_URL = TEST_DB_URL;
+  process.env.NODE_ENV = 'test';
   process.env.BETTER_AUTH_SECRET ??= 'test-secret-minimum-32-characters-long-xx';
   process.env.FIELD_ENCRYPTION_KEY ??= '0'.repeat(64);
   // Don't let a stray VALKEY_URL make the realtime bus try to connect.

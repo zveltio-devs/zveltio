@@ -43,8 +43,15 @@ const SAFE_TABLE = /^[a-zA-Z0-9_]{1,100}$/;
 // ── Route factory ──────────────────────────────────────────────────────────
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-export function exportRoutes(db: Database, _auth: any) {
+export function exportRoutes(db: Database, auth: any) {
   const app = new Hono();
+
+  app.use('*', async (c, next) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
+    c.set('user', session.user);
+    await next();
+  });
 
   /** GET /api/export/:collection */
   app.get('/:collection', async (c) => {
