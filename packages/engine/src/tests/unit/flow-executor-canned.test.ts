@@ -352,6 +352,26 @@ describe('executeStep — CannedDb branches', () => {
     expect(output.error).toMatch(/Invalid recipient/i);
   });
 
+  it('send_email without a recipient passes through prevOutput', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'send_email', config: { subject: 'Hi' } },
+      { kept: true },
+      {},
+    );
+    expect(output).toEqual({ kept: true });
+  });
+
+  it('webhook without a url passes through prevOutput', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'webhook', config: {} },
+      { prev: 7 },
+      {},
+    );
+    expect(output).toEqual({ prev: 7 });
+  });
+
   it('run_script with empty code passes through previous output', async () => {
     const { output } = await executeStep(
       new CannedDb().kysely as unknown as Database,

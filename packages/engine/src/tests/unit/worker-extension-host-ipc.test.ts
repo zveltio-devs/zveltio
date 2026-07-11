@@ -180,6 +180,48 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     if (err?.type === 'service:err') expect(err.error).toContain('not found');
   });
 
+  it('service:call returns service:err when an inline service throws', async () => {
+    serviceRegistry.registerAs('engine', 'inline.boom', () => {
+      throw new Error('inline exploded');
+    });
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed, posted } = makeManaged(host, { name: 'svc-throw' });
+    dispatchMessage(host, managed, {
+      type: 'service:call',
+      id: 'svc-3',
+      name: 'inline.boom',
+      args: [],
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    const err = posted.find((m) => m.type === 'service:err' && m.id === 'svc-3');
+    expect(err?.type).toBe('service:err');
+    if (err?.type === 'service:err') expect(err.error).toContain('inline exploded');
+    serviceRegistry.unregisterAs('engine', 'inline.boom');
+  });
+
+  it('posts db:err when the pool query throws', async () => {
+    const bunSql = await import('../../db/bun-sql-dialect.js');
+    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
+      unsafe: async () => {
+        throw new Error('query exploded');
+      },
+    } as never);
+
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed, posted } = makeManaged(host, { name: 'db-throw' });
+    dispatchMessage(host, managed, {
+      type: 'db:query',
+      id: 'db-3',
+      sql: 'SELECT boom',
+      params: [],
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    const err = posted.find((m) => m.type === 'db:err' && m.id === 'db-3');
+    expect(err?.type).toBe('db:err');
+    if (err?.type === 'db:err') expect(err.error).toContain('query exploded');
+    poolSpy.mockRestore();
+  });
+
   it('rejects pending route invokes on route:err', async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, { name: 'route-err-ext' });
