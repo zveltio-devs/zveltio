@@ -102,6 +102,22 @@ describe('batchCopy', () => {
     expect(inserts[1]!.sql).toContain('WHERE id >');
     expect(inserts[1]!.parameters).toContain('r10000');
   });
+
+  it('copies a large table in multiple cursor-based batches', async () => {
+    const db = new CannedDb();
+    db.when(/SELECT count\(\*\) AS cnt/i, [{ cnt: '15000' }]);
+    db.whenAffected(
+      /INSERT INTO "_zv_ghost_zvd_orders"[\s\S]*ON CONFLICT \(id\) DO NOTHING/,
+      10000,
+    );
+    db.when(/SELECT id FROM "_zv_ghost_zvd_orders" ORDER BY id DESC/i, [{ id: 'r10000' }]);
+    db.whenAffected(/INSERT INTO "_zv_ghost_zvd_orders"[\s\S]*WHERE id >/, 5000);
+    db.when(/SELECT id FROM "_zv_ghost_zvd_orders" ORDER BY id DESC LIMIT 1/i, [{ id: 'r15000' }]);
+
+    const copied = await GhostDDL.batchCopy(asDb(db), MIGRATION);
+    expect(copied).toBe(15000);
+    expect(db.executed(/INSERT INTO "_zv_ghost_zvd_orders"/)).toHaveLength(2);
+  });
 });
 
 describe('applyChangelog', () => {
@@ -160,6 +176,26 @@ describe('atomicSwap', () => {
     expect(renameGhostIdx).toBeGreaterThan(renameOldIdx);
     expect(dropTrgIdx).toBeGreaterThan(renameGhostIdx);
     expect(dropFnIdx).toBeGreaterThan(dropTrgIdx);
+  });
+
+  it('schedules async cleanup that cancelPendingCleanups cancels', async () => {
+    const db = new CannedDb();
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      const t = origSetTimeout(fn, ms);
+      timers.push(t);
+      return t;
+    }) as typeof setTimeout;
+
+    try {
+      await GhostDDL.atomicSwap(asDb(db), MIGRATION);
+      expect(timers.length).toBeGreaterThan(0);
+      cancelPendingCleanups();
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
+      cancelPendingCleanups();
+    }
   });
 });
 

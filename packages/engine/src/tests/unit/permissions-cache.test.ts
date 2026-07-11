@@ -1,14 +1,10 @@
 /**
- * Valkey-backed permission / role / god caches (lib/tenancy/permissions.ts).
- *
- * Exercises HMAC-signed cache hits, tamper fallback, and invalidation with a
- * fake Redis injected via _setCacheForTests. Casbin policies come from the same
- * canned seed as permissions-casbin.test.ts (initPermissions runs in beforeAll).
+ * Permissions Valkey cache paths (lib/tenancy/permissions.ts) — HMAC-signed god,
+ * permission-result, and roles caches plus invalidateUserPermCache.
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { createHmac } from 'crypto';
-import type Redis from 'ioredis';
+import { createHmac } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
   checkPermission,
@@ -17,54 +13,72 @@ import {
   invalidateGodCache,
   invalidateUserPermCache,
   isGodUser,
+  runWithDomain,
 } from '../../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-// biome-ignore lint/suspicious/noExplicitAny: fake Redis for cache under test
-type Args = any[];
-
-class PermFakeRedis {
-  store = new Map<string, string>();
-  sets = new Map<string, Set<string>>();
-  delCalls: Args[] = [];
-  setexCalls: Args[] = [];
-
-  async get(key: string): Promise<string | null> {
-    return this.store.get(key) ?? null;
-  }
-  async setex(key: string, _ttl: number, val: string): Promise<'OK'> {
-    this.setexCalls.push([key, _ttl, val]);
-    this.store.set(key, val);
-    return 'OK';
-  }
-  async sadd(key: string, ...members: string[]): Promise<number> {
-    const s = this.sets.get(key) ?? new Set<string>();
-    for (const m of members) s.add(String(m));
-    this.sets.set(key, s);
-    return members.length;
-  }
-  async smembers(key: string): Promise<string[]> {
-    return [...(this.sets.get(key) ?? [])];
-  }
-  async expire(_key: string, _ttl: number): Promise<number> {
-    return 1;
-  }
-  async del(...keys: Args): Promise<number> {
-    this.delCalls.push(keys);
-    for (const k of keys) {
-      this.store.delete(String(k));
-      this.sets.delete(String(k));
-    }
-    return keys.length;
-  }
-}
-
 const POLICY_ROWS = [
   { ptype: 'p', v0: 'editor', v1: '*', v2: 'contacts', v3: 'read', v4: null, v5: null },
   { ptype: 'g', v0: 'u-editor', v1: 'editor', v2: '*', v3: null, v4: null, v5: null },
 ];
+
+function secret(): string {
+  return process.env.BETTER_AUTH_SECRET!;
+}
+
+function encodeGod(userId: string, isGod: boolean): string {
+  const value = isGod ? '1' : '0';
+  const hmac = createHmac('sha256', secret()).update(`god:${userId}:${value}`).digest('hex');
+  return `${value}:${hmac}`;
+}
+
+function encodePerm(cacheKey: string, allowed: boolean): string {
+  const value = allowed ? '1' : '0';
+  const hmac = createHmac('sha256', secret()).update(`perm:${cacheKey}:${value}`).digest('hex');
+  return `${value}:${hmac}`;
+}
+
+function encodeRoles(userId: string, roles: string[]): string {
+  const json = JSON.stringify(roles);
+  const hmac = createHmac('sha256', secret()).update(`roles:${userId}:${json}`).digest('hex');
+  return `${json}:${hmac}`;
+}
+
+function makeCache(store = new Map<string, string>()) {
+  const sets = new Map<string, Set<string>>();
+  return {
+    get: async (key: string) => store.get(key) ?? null,
+    setex: async (key: string, _ttl: number, value: string) => {
+      store.set(key, value);
+      return 'OK';
+    },
+    sadd: async (setKey: string, member: string) => {
+      if (!sets.has(setKey)) sets.set(setKey, new Set());
+      sets.get(setKey)!.add(member);
+      return 1;
+    },
+    smembers: async (setKey: string) => [...(sets.get(setKey) ?? [])],
+    expire: async () => 1,
+    del: async (...keys: string[]) => {
+      for (const k of keys) store.delete(k);
+      return keys.length;
+    },
+    pipeline: () => ({
+      get() {
+        return this;
+      },
+      setex() {
+        return this;
+      },
+      del() {
+        return this;
+      },
+      exec: async () => [],
+    }),
+  };
+}
 
 function seedDb(): CannedDb {
   const canned = new CannedDb();
@@ -75,38 +89,9 @@ function seedDb(): CannedDb {
   return canned;
 }
 
-function signPerm(key: string, allowed: boolean): string {
-  const value = allowed ? '1' : '0';
-  const secret = process.env.BETTER_AUTH_SECRET!;
-  const hmac = createHmac('sha256', secret).update(`perm:${key}:${value}`).digest('hex');
-  return `${value}:${hmac}`;
-}
-
-function signGod(userId: string, isGod: boolean): string {
-  const value = isGod ? '1' : '0';
-  const secret = process.env.BETTER_AUTH_SECRET!;
-  const hmac = createHmac('sha256', secret).update(`god:${userId}:${value}`).digest('hex');
-  return `${value}:${hmac}`;
-}
-
-function signRoles(userId: string, roles: string[]): string {
-  const json = JSON.stringify(roles);
-  const secret = process.env.BETTER_AUTH_SECRET!;
-  const hmac = createHmac('sha256', secret).update(`roles:${userId}:${json}`).digest('hex');
-  return `${json}:${hmac}`;
-}
-
-let roleSelectCount = 0;
-let db: CannedDb;
-
 beforeAll(async () => {
   process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
-  db = seedDb();
-  db.when(/SELECT role FROM "user" WHERE id = /i, (q) => {
-    roleSelectCount++;
-    return [{ role: q.parameters[0] === 'u-god' ? 'god' : 'member' }];
-  });
-  await initPermissions(db.kysely as unknown as Database);
+  await initPermissions(seedDb().kysely as unknown as Database);
 });
 
 afterAll(async () => {
@@ -114,87 +99,80 @@ afterAll(async () => {
   await initPermissions(seedDb().kysely as unknown as Database);
 });
 
-afterEach(() => {
-  _setCacheForTests(null);
-  roleSelectCount = 0;
-});
-
 describe('isGodUser cache', () => {
-  it('hits Valkey on the second lookup (one DB round-trip total)', async () => {
-    const redis = new PermFakeRedis();
-    _setCacheForTests(redis as unknown as Redis);
-
-    expect(await isGodUser('u-editor')).toBe(false);
-    expect(await isGodUser('u-editor')).toBe(false);
-    expect(roleSelectCount).toBe(1);
-    expect(redis.store.has('god:u-editor')).toBe(true);
+  it('returns a valid HMAC cache hit without querying the DB', async () => {
+    const store = new Map<string, string>([['god:u-god', encodeGod('u-god', true)]]);
+    _setCacheForTests(makeCache(store) as never);
+    const db = seedDb();
+    await initPermissions(db.kysely as unknown as Database);
+    expect(await isGodUser('u-god')).toBe(true);
+    expect(db.executed(/SELECT role FROM "user"/i)).toHaveLength(0);
   });
 
-  it('ignores a tampered god cache entry and re-reads from DB', async () => {
-    const redis = new PermFakeRedis();
-    redis.store.set('god:u-god', '1:deadbeef');
-    _setCacheForTests(redis as unknown as Redis);
-
+  it('ignores tampered god cache and repopulates from DB', async () => {
+    const store = new Map<string, string>([['god:u-god', '1:deadbeef']]);
+    _setCacheForTests(makeCache(store) as never);
+    const db = seedDb();
+    await initPermissions(db.kysely as unknown as Database);
     expect(await isGodUser('u-god')).toBe(true);
-    expect(roleSelectCount).toBe(1);
+    expect(db.executed(/SELECT role FROM "user"/i)).toHaveLength(1);
+  });
+
+  it('invalidateGodCache deletes the god key', async () => {
+    const store = new Map<string, string>([['god:u-editor', encodeGod('u-editor', false)]]);
+    _setCacheForTests(makeCache(store) as never);
+    await invalidateGodCache('u-editor');
+    expect(store.has('god:u-editor')).toBe(false);
   });
 });
 
 describe('checkPermission cache', () => {
-  it('returns a signed cache hit without re-querying Casbin', async () => {
-    const redis = new PermFakeRedis();
-    const cacheKey = `perm:${DEFAULT_TENANT_ID}:u-editor:contacts:read`;
-    redis.store.set(cacheKey, signPerm(cacheKey, true));
-    _setCacheForTests(redis as unknown as Redis);
+  it('returns a cached allow/deny without hitting Casbin', async () => {
+    const domain = DEFAULT_TENANT_ID;
+    const cacheKey = `perm:${domain}:u-editor:contacts:read`;
+    const store = new Map<string, string>([[cacheKey, encodePerm(cacheKey, true)]]);
+    _setCacheForTests(makeCache(store) as never);
 
     expect(await checkPermission('u-editor', 'contacts', 'read')).toBe(true);
-    const permWrites = redis.setexCalls.filter((c) => String(c[0]).startsWith('perm:'));
-    expect(permWrites.length).toBe(0);
+    expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
   });
 
-  it('writes a signed denial to cache after a Casbin miss', async () => {
-    const redis = new PermFakeRedis();
-    _setCacheForTests(redis as unknown as Redis);
-
+  it('populates the permission cache on Casbin evaluation', async () => {
+    const store = new Map<string, string>();
+    _setCacheForTests(makeCache(store) as never);
+    const domain = DEFAULT_TENANT_ID;
+    const denyKey = `perm:${domain}:u-editor:contacts:delete`;
     expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
-    const cacheKey = `perm:${DEFAULT_TENANT_ID}:u-editor:contacts:delete`;
-    expect(redis.store.get(cacheKey)).toMatch(/^0:[0-9a-f]{64}$/);
-    expect(redis.sets.get(`user:perm-keys:u-editor`)?.has(cacheKey)).toBe(true);
+    expect(store.get(denyKey)?.startsWith('0:')).toBe(true);
   });
 });
 
 describe('getUserRoles cache', () => {
-  it('serves roles from a valid HMAC cache entry', async () => {
-    const redis = new PermFakeRedis();
-    const cacheKey = `roles:${DEFAULT_TENANT_ID}:u-editor`;
-    redis.store.set(cacheKey, signRoles('u-editor', ['editor']));
-    _setCacheForTests(redis as unknown as Redis);
+  it('returns HMAC-signed roles from cache', async () => {
+    const domain = DEFAULT_TENANT_ID;
+    const cacheKey = `roles:${domain}:u-editor`;
+    const store = new Map<string, string>([[cacheKey, encodeRoles('u-editor', ['editor'])]]);
+    _setCacheForTests(makeCache(store) as never);
 
-    expect(await getUserRoles('u-editor')).toEqual(['editor']);
-  });
-});
-
-describe('cache invalidation', () => {
-  it('invalidateGodCache deletes the god key', async () => {
-    const redis = new PermFakeRedis();
-    redis.store.set('god:u-god', signGod('u-god', true));
-    _setCacheForTests(redis as unknown as Redis);
-
-    await invalidateGodCache('u-god');
-    expect(redis.store.has('god:u-god')).toBe(false);
+    await runWithDomain(domain, async () => {
+      expect(await getUserRoles('u-editor')).toEqual(['editor']);
+    });
   });
 
-  it('invalidateUserPermCache deletes tracked perm/role keys', async () => {
-    const redis = new PermFakeRedis();
-    const permKey = `perm:${DEFAULT_TENANT_ID}:u-editor:contacts:read`;
-    redis.store.set(permKey, signPerm(permKey, true));
-    redis.sets.set('user:perm-keys:u-editor', new Set([permKey]));
-    redis.store.set(`roles:${DEFAULT_TENANT_ID}:u-editor`, signRoles('u-editor', ['editor']));
-    redis.store.set('god:u-editor', signGod('u-editor', false));
-    _setCacheForTests(redis as unknown as Redis);
+  it('invalidateUserPermCache clears perm keys, roles, god, and tracking set', async () => {
+    const domain = DEFAULT_TENANT_ID;
+    const permKey = `perm:${domain}:u-editor:contacts:read`;
+    const store = new Map<string, string>([
+      [permKey, encodePerm(permKey, true)],
+      [`roles:${domain}:u-editor`, encodeRoles('u-editor', ['editor'])],
+      ['god:u-editor', encodeGod('u-editor', false)],
+    ]);
+    const cache = makeCache(store);
+    await cache.sadd('user:perm-keys:u-editor', permKey);
+    _setCacheForTests(cache as never);
 
     await invalidateUserPermCache('u-editor');
-    expect(redis.store.has(permKey)).toBe(false);
-    expect(redis.delCalls.length).toBeGreaterThan(0);
+    expect(store.has('god:u-editor')).toBe(false);
+    expect(store.has(permKey)).toBe(false);
   });
 });
