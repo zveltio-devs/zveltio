@@ -184,4 +184,32 @@ describe('executeStep — CannedDb branches', () => {
       globalThis.fetch = originalFetch;
     }
   }, 15_000);
+
+  it('send_email strips newlines from the subject and reports missing mail service', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      {
+        type: 'send_email',
+        config: {
+          to: 'user@example.com',
+          subject: 'Hello\r\nBcc: evil@bad.com',
+          body: 'text',
+        },
+      },
+      {},
+      {},
+    );
+    expect(output.sent).toBe(false);
+    expect(String(output.error)).toMatch(/not configured|Email/i);
+  });
+
+  it('unknown step types pass through the previous output', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'custom_step', config: {} },
+      { kept: true },
+      {},
+    );
+    expect(output).toEqual({ kept: true });
+  });
 });
