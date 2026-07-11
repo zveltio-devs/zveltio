@@ -27,17 +27,23 @@ const ENTRY = {
 
 /** Smallest valid ZIP local-file header + EOCD (empty archive still has PK magic). */
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]);
+const GZIP_MAGIC = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
 let originalFetch: typeof fetch;
 let originalSpawn: typeof Bun.spawn;
 let destBase: string;
 let savedRequireSig: string | undefined;
 
-function mockProc(exitCode: number) {
+function mockProc(exitCode: number, stderrText = '') {
   return {
     exited: Promise.resolve(exitCode),
     stdout: new ReadableStream(),
-    stderr: new ReadableStream(),
+    stderr: new ReadableStream({
+      start(controller) {
+        if (stderrText) controller.enqueue(new TextEncoder().encode(stderrText));
+        controller.close();
+      },
+    }),
   };
 }
 
@@ -76,13 +82,22 @@ beforeEach(() => {
     if (cmd[0] === 'unzip') {
       const destIdx = cmd.indexOf('-d');
       const stageDir = destIdx >= 0 ? cmd[destIdx + 1]! : join(destBase, ENTRY.name, '_stage');
+      const nestedRoot = join(stageDir, 'nested-package');
+      const engineDir = join(nestedRoot, 'engine');
+      mkdirSync(engineDir, { recursive: true });
+      writeFileSync(join(nestedRoot, 'manifest.json'), '{}');
+      writeFileSync(join(engineDir, 'index.ts'), 'export default {}');
+      return mockProc(0) as ReturnType<typeof Bun.spawn>;
+    }
+    if (cmd[0] === 'tar') {
+      const destIdx = cmd.indexOf('-C');
+      const stageDir = destIdx >= 0 ? cmd[destIdx + 1]! : join(destBase, ENTRY.name, '_stage');
       const engineDir = join(stageDir, 'engine');
       mkdirSync(engineDir, { recursive: true });
       writeFileSync(join(stageDir, 'manifest.json'), '{}');
       writeFileSync(join(engineDir, 'index.ts'), 'export default {}');
       return mockProc(0) as ReturnType<typeof Bun.spawn>;
     }
-    if (cmd[0] === 'tar') return mockProc(0) as ReturnType<typeof Bun.spawn>;
     return originalSpawn(cmd, opts as never);
   }) as typeof Bun.spawn;
 });
@@ -160,5 +175,29 @@ describe('downloadExtension', () => {
     }) as typeof fetch;
     await downloadExtension(ENTRY, destBase, 'lic-xyz');
     expect(urls.some((u) => u.includes('/download'))).toBe(true);
+  });
+
+  it('extracts a gzip tarball into the destination directory', async () => {
+    stubDownloadResponse(GZIP_MAGIC);
+    await downloadExtension(ENTRY, destBase);
+    expect(existsSync(join(destBase, ENTRY.name, 'manifest.json'))).toBe(true);
+    expect(existsSync(join(destBase, ENTRY.name, 'engine', 'index.ts'))).toBe(true);
+  });
+
+  it('flattens a single top-level folder from a ZIP archive', async () => {
+    stubDownloadResponse(ZIP_MAGIC);
+    await downloadExtension(ENTRY, destBase);
+    expect(existsSync(join(destBase, ENTRY.name, 'manifest.json'))).toBe(true);
+    expect(existsSync(join(destBase, ENTRY.name, 'engine', 'index.ts'))).toBe(true);
+    expect(existsSync(join(destBase, ENTRY.name, '_stage'))).toBe(false);
+  });
+
+  it('throws when archive extraction exits non-zero', async () => {
+    Bun.spawn = ((cmd: string[]) => {
+      if (cmd[0] === 'unzip') return mockProc(1, 'corrupt zip') as ReturnType<typeof Bun.spawn>;
+      return originalSpawn(cmd as never);
+    }) as typeof Bun.spawn;
+    stubDownloadResponse(ZIP_MAGIC);
+    await expect(downloadExtension(ENTRY, destBase)).rejects.toThrow(/Extraction failed/i);
   });
 });
