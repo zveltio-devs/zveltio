@@ -275,6 +275,114 @@ describe('executeStep — CannedDb branches', () => {
     expect(output.usedFallback).toBe(true);
     expect(output.decision).toBe('a');
   });
+
+  it('ai_decision falls back when provider text does not match an option', async () => {
+    serviceRegistry.registerAs('test', 'ai.providers', {
+      getDefault: () => ({
+        chat: async () => ({ content: 'maybe-later' }),
+      }),
+    });
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      {
+        type: 'ai_decision',
+        config: { prompt: 'Pick', options: ['yes', 'no'], fallback: 'no' },
+      },
+      {},
+      {},
+    );
+    expect(output.decision).toBe('no');
+    expect(output.usedFallback).toBe(true);
+    expect(output.aiRawResponse).toBe('maybe-later');
+  });
+
+  it('send_notification reports missing role and user_id', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'send_notification', config: { title: 'x' } },
+      {},
+      {},
+    );
+    expect(output.sent).toBe(false);
+    expect(output.error).toMatch(/No role or user_id/i);
+  });
+
+  it('send_notification with an empty role still reports sent with count 0', async () => {
+    const db = new CannedDb();
+    db.when(/SELECT v0 FROM zvd_permissions/i, []);
+    const { output } = await executeStep(
+      db.kysely as unknown as Database,
+      { type: 'send_notification', config: { role: 'ghost-role' } },
+      {},
+      {},
+    );
+    expect(output.sent).toBe(true);
+    expect(output.count).toBe(0);
+  });
+
+  it('send_email rejects invalid recipient addresses', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      {
+        type: 'send_email',
+        config: { to: 'not-an-email', subject: 'Hi', body: 'x' },
+      },
+      {},
+      {},
+    );
+    expect(output.sent).toBe(false);
+    expect(output.error).toMatch(/Invalid recipient/i);
+  });
+
+  it('run_script with empty code passes through previous output', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'run_script', config: { code: '' } },
+      { kept: 1 },
+      {},
+    );
+    expect(output).toEqual({ kept: 1 });
+  });
+
+  it('query_db allows read-only WITH queries', async () => {
+    const db = new CannedDb();
+    db.when(/set_config/i, []);
+    db.when(/statement_timeout/i, []);
+    db.when(/WITH x AS/i, [{ n: 1 }]);
+    const { output } = await executeStep(
+      db.kysely as unknown as Database,
+      {
+        type: 'query_db',
+        config: { query: 'WITH x AS (SELECT 1 AS n) SELECT * FROM x' },
+      },
+      {},
+      {},
+    );
+    expect(output).toEqual([{ n: 1 }]);
+  });
+
+  it('export_collection rejects unsafe collection names', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      {
+        type: 'export_collection',
+        config: { collection: 'DROP-table' },
+      },
+      {},
+      {},
+    );
+    expect(output.error).toMatch(/Invalid collection name/i);
+  });
+
+  it('export_collection without a collection passes through prevOutput', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'export_collection', config: {} },
+      { prev: true },
+      {},
+    );
+    expect(output).toEqual({ prev: true });
+  });
 });
 
 afterEach(() => {
