@@ -413,4 +413,176 @@ describe('registerMarketplaceRoutes (unit)', () => {
     const row = body.extensions.find((e) => e.name === CATALOG_ENTRY.name);
     expect(row?.missing_dependencies).toContain('dep-a');
   });
+
+  it('POST enable returns 422 when files are missing and download fails', async () => {
+    downloadMock.mockImplementation(async () => {
+      throw new Error('registry timeout');
+    });
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/enable`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toContain('download failed');
+    expect(body.error).toContain('registry timeout');
+  });
+
+  it('POST enable returns 404 when the extension is absent from the catalog', async () => {
+    fetchCatalogMock.mockImplementation(async () => []);
+    const app = mountRoutes(db, extBase);
+    const res = await app.request('/api/marketplace/ghost-ext/enable', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST enable downloads missing files before hot-loading', async () => {
+    downloadMock.mockImplementation(async () => {
+      writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    });
+    let active = false;
+    isActiveMock.mockImplementation(() => active);
+    loadDynamicMock.mockImplementation(async () => {
+      active = true;
+    });
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/enable`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    expect(downloadMock).toHaveBeenCalled();
+    const body = (await res.json()) as { hot_loaded: boolean };
+    expect(body.hot_loaded).toBe(true);
+  });
+
+  it('POST license store persists a verified key', async () => {
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: 'valid-key-123' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(db.executed(/insert into "zv_settings"/i).length).toBeGreaterThan(0);
+  });
+
+  it('DELETE license removes a stored key', async () => {
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
+      method: 'DELETE',
+      headers: adminHeaders,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(db.executed(/delete from "zv_settings"/i).length).toBeGreaterThan(0);
+  });
+
+  it('POST uninstall purge removes files and marks purged', async () => {
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(
+      `/api/marketplace/${CATALOG_ENTRY.name}/uninstall?purgeData=true`,
+      {
+        method: 'POST',
+        headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { purged: boolean; success: boolean };
+    expect(body.purged).toBe(true);
+    expect(body.success).toBe(true);
+    expect(purgeMock).toHaveBeenCalled();
+    expect(db.executed(/delete from "zv_extension_registry"/i).length).toBeGreaterThan(0);
+  });
+
+  it('enable-all records per-extension load failures without aborting', async () => {
+    writeExtOnDisk(extBase, 'ext-a');
+    writeExtOnDisk(extBase, 'ext-b');
+    db.when(/from "zv_extension_registry"[\s\S]*is_installed/i, [
+      { name: 'ext-a' },
+      { name: 'ext-b' },
+    ]);
+    isActiveMock.mockImplementation(() => false);
+    loadDynamicMock.mockImplementation(async (...args: unknown[]) => {
+      const name = args[0] as string;
+      if (name === 'ext-b') throw new Error('npm install failed');
+    });
+    const app = mountRoutes(db, extBase);
+    const res = await app.request('/api/marketplace/enable-all', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      success: boolean;
+      failed: number;
+      results: Array<{ name: string; ok: boolean; error?: string }>;
+    };
+    expect(body.success).toBe(false);
+    expect(body.failed).toBe(1);
+    const failed = body.results.find((r) => r.name === 'ext-b');
+    expect(failed?.ok).toBe(false);
+    expect(failed?.error).toContain('npm install failed');
+  });
+
+  it('catalog marks has_license when a license row exists', async () => {
+    db.when(/from "zv_settings"/i, (q) => {
+      if (String(q.parameters.join(' ')).includes('ext_license')) {
+        return [{ key: `ext_license:${CATALOG_ENTRY.name}` }];
+      }
+      return [];
+    });
+    const app = mountRoutes(db, extBase);
+    const res = await app.request('/api/marketplace', { headers: adminHeaders });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      extensions: Array<{ name: string; has_license: boolean }>;
+    };
+    const row = body.extensions.find((e) => e.name === CATALOG_ENTRY.name);
+    expect(row?.has_license).toBe(true);
+  });
+
+  it('catalog prefers tenant-scoped registry rows over global rows', async () => {
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    db.when(/from "zv_extension_registry"/i, [
+      {
+        name: CATALOG_ENTRY.name,
+        is_installed: true,
+        is_enabled: false,
+        tenant_id: null,
+        config: { scope: 'global' },
+      },
+      {
+        name: CATALOG_ENTRY.name,
+        is_installed: true,
+        is_enabled: true,
+        tenant_id: 'tenant-42',
+        config: { scope: 'tenant' },
+      },
+    ]);
+    const app = mountRoutes(db, extBase);
+    const res = await app.request('/api/marketplace', {
+      headers: { ...adminHeaders, 'x-tenant-id': 'tenant-42' },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      extensions: Array<{ name: string; is_enabled: boolean; config: Record<string, unknown> }>;
+    };
+    const row = body.extensions.find((e) => e.name === CATALOG_ENTRY.name);
+    expect(row?.is_enabled).toBe(true);
+    expect(row?.config).toEqual({ scope: 'tenant' });
+  });
 });
