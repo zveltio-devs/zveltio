@@ -6,11 +6,7 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { _resetForTests } from '../../lib/runtime/realtime-bus.js';
-import {
-  afterWrite,
-  processInput,
-  runAtomic,
-} from '../../lib/data/write-pipeline.js';
+import { afterWrite, processInput, runAtomic } from '../../lib/data/write-pipeline.js';
 import * as wsModule from '../../routes/ws.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
