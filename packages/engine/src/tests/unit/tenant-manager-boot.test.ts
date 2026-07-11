@@ -2,7 +2,7 @@
  * Tenant manager boot helpers (lib/tenancy/tenant-manager.ts) — RLS role warning.
  */
 
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { warnIfDbRoleBypassesRls } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';

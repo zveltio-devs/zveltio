@@ -249,9 +249,7 @@ describe('registered work handlers', () => {
     const db2 = setupDb();
     await initDDLQueue(asDb(db2));
     const handler2 = workHandlers.get('ddl.drop_relation');
-    await handler2!([
-      { id: 'j6', data: { type: 'm2m', junction_table: 'zvd_jnc_orders_tags' } },
-    ]);
+    await handler2!([{ id: 'j6', data: { type: 'm2m', junction_table: 'zvd_jnc_orders_tags' } }]);
     expect(db2.executed(/DROP TABLE IF EXISTS zvd_jnc_orders_tags CASCADE/)).toHaveLength(1);
   });
 

@@ -46,7 +46,10 @@ describe('dropCollection — dependents + force', () => {
     db.when(/information_schema\.table_constraints/i, [
       { table: 'zvd_books', constraint: 'fk_books_author', column: 'author_id' },
     ]);
-    db.when(/select "source_collection", "target_collection", "junction_table" from "zvd_relations"/i, []);
+    db.when(
+      /select "source_collection", "target_collection", "junction_table" from "zvd_relations"/i,
+      [],
+    );
     await DDLManager.dropCollection(asDb(db), 'authors', { force: true });
     expect(db.executed(/DROP TABLE IF EXISTS zvd_authors CASCADE/)).toHaveLength(1);
     expect(db.executed(/delete from "zvd_collections"/)).toHaveLength(1);
@@ -123,9 +126,7 @@ describe('previewCollection — index preview', () => {
   it('includes CREATE INDEX and UNIQUE constraint lines', async () => {
     const preview = await DDLManager.previewCollection({
       name: 'preview_me',
-      fields: [
-        { name: 'slug', type: 'text', required: true, unique: true, indexed: true },
-      ],
+      fields: [{ name: 'slug', type: 'text', required: true, unique: true, indexed: true }],
     } as never);
     expect(preview.sql.some((s) => /CREATE INDEX/i.test(s))).toBe(true);
     expect(preview.sql.some((s) => /UNIQUE/i.test(s))).toBe(true);
