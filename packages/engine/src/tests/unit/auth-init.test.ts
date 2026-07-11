@@ -17,6 +17,10 @@ let savedGoogleId: string | undefined;
 let savedGoogleSecret: string | undefined;
 let savedGithubId: string | undefined;
 let savedGithubSecret: string | undefined;
+let savedMicrosoftId: string | undefined;
+let savedMicrosoftSecret: string | undefined;
+let savedDiscordId: string | undefined;
+let savedDiscordSecret: string | undefined;
 
 beforeEach(() => {
   savedSecret = process.env.BETTER_AUTH_SECRET;
@@ -28,6 +32,10 @@ beforeEach(() => {
   savedGoogleSecret = process.env.GOOGLE_CLIENT_SECRET;
   savedGithubId = process.env.GITHUB_CLIENT_ID;
   savedGithubSecret = process.env.GITHUB_CLIENT_SECRET;
+  savedMicrosoftId = process.env.MICROSOFT_CLIENT_ID;
+  savedMicrosoftSecret = process.env.MICROSOFT_CLIENT_SECRET;
+  savedDiscordId = process.env.DISCORD_CLIENT_ID;
+  savedDiscordSecret = process.env.DISCORD_CLIENT_SECRET;
   process.env.BETTER_AUTH_SECRET = 'unit-test-secret-minimum-32-characters-xx';
   delete process.env.VALKEY_URL;
   delete process.env.CORS_ORIGINS;
@@ -37,6 +45,10 @@ beforeEach(() => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.GITHUB_CLIENT_ID;
   delete process.env.GITHUB_CLIENT_SECRET;
+  delete process.env.MICROSOFT_CLIENT_ID;
+  delete process.env.MICROSOFT_CLIENT_SECRET;
+  delete process.env.DISCORD_CLIENT_ID;
+  delete process.env.DISCORD_CLIENT_SECRET;
   _setCacheForTests(null);
 });
 
@@ -59,6 +71,14 @@ afterEach(() => {
   else process.env.GITHUB_CLIENT_ID = savedGithubId;
   if (savedGithubSecret === undefined) delete process.env.GITHUB_CLIENT_SECRET;
   else process.env.GITHUB_CLIENT_SECRET = savedGithubSecret;
+  if (savedMicrosoftId === undefined) delete process.env.MICROSOFT_CLIENT_ID;
+  else process.env.MICROSOFT_CLIENT_ID = savedMicrosoftId;
+  if (savedMicrosoftSecret === undefined) delete process.env.MICROSOFT_CLIENT_SECRET;
+  else process.env.MICROSOFT_CLIENT_SECRET = savedMicrosoftSecret;
+  if (savedDiscordId === undefined) delete process.env.DISCORD_CLIENT_ID;
+  else process.env.DISCORD_CLIENT_ID = savedDiscordId;
+  if (savedDiscordSecret === undefined) delete process.env.DISCORD_CLIENT_SECRET;
+  else process.env.DISCORD_CLIENT_SECRET = savedDiscordSecret;
   _setCacheForTests(null);
 });
 
@@ -140,6 +160,19 @@ describe('initAuth', () => {
   it('initializes with GitHub social provider when GITHUB_CLIENT_ID is set', async () => {
     process.env.GITHUB_CLIENT_ID = 'github-client-id';
     process.env.GITHUB_CLIENT_SECRET = 'github-secret';
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+  });
+
+  it('initializes with Microsoft social provider when MICROSOFT_CLIENT_ID is set', async () => {
+    process.env.MICROSOFT_CLIENT_ID = 'ms-client-id';
+    process.env.MICROSOFT_CLIENT_SECRET = 'ms-secret';
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+    expect(getAuth().api).toBeDefined();
+  });
+
+  it('initializes with Discord social provider when DISCORD_CLIENT_ID is set', async () => {
+    process.env.DISCORD_CLIENT_ID = 'discord-client-id';
+    process.env.DISCORD_CLIENT_SECRET = 'discord-secret';
     await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
   });
 });

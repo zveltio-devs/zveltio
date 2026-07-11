@@ -494,6 +494,34 @@ describe('executeStep — CannedDb branches', () => {
     expect(output).toEqual({ kept: 1 });
   });
 
+  it('query_db rejects non-read-only statements', async () => {
+    await expect(
+      executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'query_db',
+          config: { query: 'DELETE FROM zvd_contacts' },
+        },
+        {},
+        {},
+      ),
+    ).rejects.toThrow(/only allows SELECT or WITH/i);
+  });
+
+  it('query_db blocks dangerous SQL patterns inside SELECT', async () => {
+    await expect(
+      executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'query_db',
+          config: { query: 'SELECT pg_sleep(10)' },
+        },
+        {},
+        {},
+      ),
+    ).rejects.toThrow(/blocked dangerous SQL pattern/i);
+  });
+
   it('query_db allows read-only WITH queries', async () => {
     const db = new CannedDb();
     db.when(/set_config/i, []);
