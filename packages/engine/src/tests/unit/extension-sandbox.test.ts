@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import {
   policyFor,
   hasCapability,
@@ -137,6 +137,20 @@ describe('S5-05 hasCapability', () => {
   it('denies fs.* for third-party', () => {
     expect(hasCapability('unknown-ext', 'fs.read')).toBe(false);
     expect(hasCapability('unknown-ext', 'fs.write')).toBe(false);
+  });
+
+  it('logs a warning when a capability is denied', () => {
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(hasCapability('unknown-ext', 'env.read')).toBe(false);
+      expect(
+        warnSpy.mock.calls.some((c) =>
+          String(c[0]).includes('extension="unknown-ext" capability="env.read" decision=denied'),
+        ),
+      ).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

@@ -539,6 +539,46 @@ describe('executeStep — CannedDb branches', () => {
     expect(output).toEqual([{ n: 1 }]);
   });
 
+  it('query_db runs SELECT inside a transaction with tenant context', async () => {
+    const db = new CannedDb();
+    db.when(/set_config/i, (q) => {
+      expect(q.parameters[0]).toBe('tenant-99');
+      return [];
+    });
+    db.when(/statement_timeout/i, []);
+    db.when(/SELECT id, name FROM zvd_contacts/i, [
+      { id: 'c1', name: 'Ada' },
+      { id: 'c2', name: 'Bob' },
+    ]);
+    const { output } = await executeStep(
+      db.kysely as unknown as Database,
+      {
+        type: 'query_db',
+        config: { query: 'SELECT id, name FROM zvd_contacts ORDER BY name' },
+      },
+      {},
+      { trigger: { tenantId: 'tenant-99' } },
+    );
+    expect(output).toEqual([
+      { id: 'c1', name: 'Ada' },
+      { id: 'c2', name: 'Bob' },
+    ]);
+  });
+
+  it('webhook blocks private-network URLs (SSRF)', async () => {
+    await expect(
+      executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'webhook',
+          config: { url: 'http://127.0.0.1/admin', method: 'POST', body: {} },
+        },
+        {},
+        {},
+      ),
+    ).rejects.toThrow(/internal\/private address blocked/i);
+  });
+
   it('export_collection rejects unsafe collection names', async () => {
     const { output } = await executeStep(
       new CannedDb().kysely as unknown as Database,

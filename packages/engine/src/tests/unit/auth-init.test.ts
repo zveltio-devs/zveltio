@@ -21,6 +21,12 @@ let savedMicrosoftId: string | undefined;
 let savedMicrosoftSecret: string | undefined;
 let savedDiscordId: string | undefined;
 let savedDiscordSecret: string | undefined;
+let savedTwitterId: string | undefined;
+let savedTwitterSecret: string | undefined;
+let savedAppleId: string | undefined;
+let savedAppleSecret: string | undefined;
+let savedAppleTeamId: string | undefined;
+let savedAppleKeyId: string | undefined;
 
 beforeEach(() => {
   savedSecret = process.env.BETTER_AUTH_SECRET;
@@ -36,6 +42,12 @@ beforeEach(() => {
   savedMicrosoftSecret = process.env.MICROSOFT_CLIENT_SECRET;
   savedDiscordId = process.env.DISCORD_CLIENT_ID;
   savedDiscordSecret = process.env.DISCORD_CLIENT_SECRET;
+  savedTwitterId = process.env.TWITTER_CLIENT_ID;
+  savedTwitterSecret = process.env.TWITTER_CLIENT_SECRET;
+  savedAppleId = process.env.APPLE_CLIENT_ID;
+  savedAppleSecret = process.env.APPLE_CLIENT_SECRET;
+  savedAppleTeamId = process.env.APPLE_TEAM_ID;
+  savedAppleKeyId = process.env.APPLE_KEY_ID;
   process.env.BETTER_AUTH_SECRET = 'unit-test-secret-minimum-32-characters-xx';
   delete process.env.VALKEY_URL;
   delete process.env.CORS_ORIGINS;
@@ -49,6 +61,12 @@ beforeEach(() => {
   delete process.env.MICROSOFT_CLIENT_SECRET;
   delete process.env.DISCORD_CLIENT_ID;
   delete process.env.DISCORD_CLIENT_SECRET;
+  delete process.env.TWITTER_CLIENT_ID;
+  delete process.env.TWITTER_CLIENT_SECRET;
+  delete process.env.APPLE_CLIENT_ID;
+  delete process.env.APPLE_CLIENT_SECRET;
+  delete process.env.APPLE_TEAM_ID;
+  delete process.env.APPLE_KEY_ID;
   _setCacheForTests(null);
 });
 
@@ -79,6 +97,18 @@ afterEach(() => {
   else process.env.DISCORD_CLIENT_ID = savedDiscordId;
   if (savedDiscordSecret === undefined) delete process.env.DISCORD_CLIENT_SECRET;
   else process.env.DISCORD_CLIENT_SECRET = savedDiscordSecret;
+  if (savedTwitterId === undefined) delete process.env.TWITTER_CLIENT_ID;
+  else process.env.TWITTER_CLIENT_ID = savedTwitterId;
+  if (savedTwitterSecret === undefined) delete process.env.TWITTER_CLIENT_SECRET;
+  else process.env.TWITTER_CLIENT_SECRET = savedTwitterSecret;
+  if (savedAppleId === undefined) delete process.env.APPLE_CLIENT_ID;
+  else process.env.APPLE_CLIENT_ID = savedAppleId;
+  if (savedAppleSecret === undefined) delete process.env.APPLE_CLIENT_SECRET;
+  else process.env.APPLE_CLIENT_SECRET = savedAppleSecret;
+  if (savedAppleTeamId === undefined) delete process.env.APPLE_TEAM_ID;
+  else process.env.APPLE_TEAM_ID = savedAppleTeamId;
+  if (savedAppleKeyId === undefined) delete process.env.APPLE_KEY_ID;
+  else process.env.APPLE_KEY_ID = savedAppleKeyId;
   _setCacheForTests(null);
 });
 
@@ -174,5 +204,21 @@ describe('initAuth', () => {
     process.env.DISCORD_CLIENT_ID = 'discord-client-id';
     process.env.DISCORD_CLIENT_SECRET = 'discord-secret';
     await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+  });
+
+  it('initializes with Twitter social provider when TWITTER_CLIENT_ID is set', async () => {
+    process.env.TWITTER_CLIENT_ID = 'twitter-client-id';
+    process.env.TWITTER_CLIENT_SECRET = 'twitter-secret';
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+    expect(getAuth().api).toBeDefined();
+  });
+
+  it('initializes with Apple social provider when APPLE_CLIENT_ID is set', async () => {
+    process.env.APPLE_CLIENT_ID = 'apple-client-id';
+    process.env.APPLE_CLIENT_SECRET = 'apple-secret';
+    process.env.APPLE_TEAM_ID = 'apple-team';
+    process.env.APPLE_KEY_ID = 'apple-key';
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+    expect(getAuth().api).toBeDefined();
   });
 });
