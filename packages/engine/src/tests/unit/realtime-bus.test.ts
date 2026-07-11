@@ -168,6 +168,16 @@ function baseMsg(over: Partial<RealtimeBusMessage> = {}): RealtimeBusMessage {
 }
 
 describe('dispatchToWs — observed via broadcastEvent', () => {
+  it('maps record.created → insert and forwards data + tenantId', () => {
+    const spy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
+    try {
+      dispatchToWs(baseMsg({ event: 'record.created' }));
+      expect(spy).toHaveBeenCalledWith('contacts', 'insert', { id: 'r1', name: 'A' }, 'tenant-1');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('maps record.updated → update and forwards data + tenantId', () => {
     const spy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     try {
