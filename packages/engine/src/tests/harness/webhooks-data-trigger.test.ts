@@ -22,7 +22,7 @@ d('webhook trigger via data write (in-process)', () => {
   beforeAll(async () => {
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
-      ({ ok: true, status: 200, text: async () => 'ok' }) as Response) as typeof fetch;
+      ({ ok: true, status: 200, text: async () => 'ok' }) as Response) as unknown as typeof fetch;
 
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
@@ -37,7 +37,7 @@ d('webhook trigger via data write (in-process)', () => {
       body: JSON.stringify({
         name: `Harness WH ${Date.now()}`,
         url: 'https://example.test/hook',
-        events: ['record.created'],
+        events: ['insert'],
         collections: [COLLECTION],
       }),
     });
@@ -65,7 +65,7 @@ d('webhook trigger via data write (in-process)', () => {
       .catch(() => {});
   });
 
-  it('POST /api/data/:collection creates a delivery row for record.created', async () => {
+  it('POST /api/data/:collection creates a delivery row for insert', async () => {
     const res = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },

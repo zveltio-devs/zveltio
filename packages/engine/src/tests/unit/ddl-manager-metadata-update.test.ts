@@ -34,7 +34,7 @@ describe('DDLManager.updateCollectionMetadata', () => {
   it('patches display_name and invalidates cache', async () => {
     const db = new CannedDb();
     await DDLManager.updateCollectionMetadata(asDb(db), 'widgets', {
-      display_name: 'All Widgets',
+      displayName: 'All Widgets',
     });
     expect(db.executed(/update "zvd_collections"/i)).toHaveLength(1);
   });
