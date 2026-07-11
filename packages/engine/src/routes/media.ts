@@ -74,10 +74,9 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const user = c.get('user' as never) as any;
       const data = c.req.valid('json');
       const folder = {
-        id: generateId(21),
+        id: crypto.randomUUID(),
         name: data.name,
         parent_id: data.parent_id || null,
-        description: data.description || null,
         created_by: user.id,
       };
       await reqDb(c, db).insertInto('zv_media_folders').values(folder).execute();
