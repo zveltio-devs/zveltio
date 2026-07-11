@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'bun:test';
-import { WASM_HOST_ABI_VERSION, _internalForTests } from '../../lib/wasm-extension-host.js';
+import {
+  WASM_HOST_ABI_VERSION,
+  instantiateWasmExtension,
+  _internalForTests,
+} from '../../lib/wasm-extension-host.js';
+
+/** Minimal valid WASM: `(module (func (export "register")))`. */
+const WASM_EXPORTS_REGISTER = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 12, 1, 8, 114, 101, 103, 105, 115,
+  116, 101, 114, 0, 0, 10, 4, 1, 2, 0, 11,
+]);
+
+/** Minimal WASM exporting `foo` instead of `register`. */
+const WASM_EXPORTS_FOO = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 7, 1, 3, 102, 111, 111, 0, 0, 10,
+  4, 1, 2, 0, 11,
+]);
+
+function writeUtf8(memory: WebAssembly.Memory, text: string): { ptr: number; len: number } {
+  const bytes = new TextEncoder().encode(text);
+  const view = new Uint8Array(memory.buffer, 0, bytes.length);
+  view.set(bytes);
+  return { ptr: 0, len: bytes.length };
+}
 
 /**
  * S5-05 full — WASM extension host runtime tests.
@@ -85,5 +108,56 @@ describe('S5-05 WASM host — CPU budget', () => {
     }
     expect(caught).not.toBeNull();
     expect(caught!.message).toContain('exceeded 50ms CPU budget');
+  });
+});
+
+describe('S5-05 WASM host — instantiateWasmExtension', () => {
+  it('loads a module that exports register()', async () => {
+    const handle = await instantiateWasmExtension(WASM_EXPORTS_REGISTER, { extName: 'wasm-ok' });
+    expect(handle.name).toBe('wasm-ok');
+    await handle.register();
+  });
+
+  it('throws when the module does not export register()', async () => {
+    await expect(
+      instantiateWasmExtension(WASM_EXPORTS_FOO, { extName: 'wasm-bad' }),
+    ).rejects.toThrow(/does not export a register/i);
+  });
+
+  it('throws on invalid WASM bytes', async () => {
+    await expect(
+      instantiateWasmExtension(new Uint8Array([0, 1, 2, 3]), { extName: 'wasm-garbage' }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('S5-05 WASM host — third-party policy guards', () => {
+  it('denies fetch.http for third-party extensions', () => {
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const imports = _internalForTests.buildHostImports('unknown-ext', memory, {
+      extName: 'unknown-ext',
+    });
+    const z = imports.zveltio as Record<string, (ptr: number, len: number) => number>;
+    const { ptr, len } = writeUtf8(memory, 'http://example.com/hook');
+    expect(() => z.fetch_begin(ptr, len, 0)).toThrow(/denied capability "fetch.http"/i);
+  });
+
+  it('denies env.read and fs.read for third-party extensions', () => {
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const imports = _internalForTests.buildHostImports('unknown-ext', memory, {
+      extName: 'unknown-ext',
+    });
+    const z = imports.zveltio as Record<string, (ptr: number, len: number) => number>;
+    expect(() => z.env_read(0, 0)).toThrow(/denied capability "env.read"/i);
+    expect(() => z.fs_read(0, 0)).toThrow(/denied capability "fs.read"/i);
+  });
+
+  it('decodes log/warn messages from linear memory', () => {
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const imports = _internalForTests.buildHostImports('ai', memory, { extName: 'ai' });
+    const z = imports.zveltio as Record<string, (ptr: number, len: number) => void>;
+    const { ptr, len } = writeUtf8(memory, 'hello wasm');
+    expect(() => z.log(ptr, len)).not.toThrow();
+    expect(() => z.warn(ptr, len)).not.toThrow();
   });
 });

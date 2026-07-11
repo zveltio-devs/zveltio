@@ -311,4 +311,55 @@ d('extension marketplace routes (in-process)', () => {
     );
     expect(res.status).toBeLessThan(600);
   }, 30_000);
+
+  it('stores a license key when registry verify is offline (stubbed fetch)', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/licenses/verify')) {
+        throw new Error('registry offline');
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    const name = `harness-lic-offline-${Date.now()}`;
+    const res = await app.request(
+      `/api/marketplace/license/${name}`,
+      post(`/api/marketplace/license/${name}`, { license_key: 'offline-key' }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    await app.request(`/api/marketplace/license/${name}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+  }, 15_000);
+
+  it('soft-uninstall preserves data (purgeData omitted)', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/uninstall`,
+      post(`/${HELLO_EXT}/uninstall`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean; purged: boolean; message: string };
+    expect(body.success).toBe(true);
+    expect(body.purged).toBe(false);
+    expect(body.message).toMatch(/purgeData=true/i);
+  }, 30_000);
+
+  it('purge uninstall removes hello-ext when installed (purgeData=true)', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/uninstall?purgeData=true`,
+      post(`/${HELLO_EXT}/uninstall?purgeData=true`),
+    );
+    expect(res.status).toBeLessThan(600);
+    if (res.status === 200) {
+      const body = (await res.json()) as { purged?: boolean };
+      expect(body.purged).toBe(true);
+    }
+    ensureHelloExtOnDisk();
+  }, 40_000);
 });
