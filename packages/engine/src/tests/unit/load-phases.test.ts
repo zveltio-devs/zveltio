@@ -136,6 +136,34 @@ describe('resolveManifest', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.lastLoadError).toContain('postgis');
   });
+
+  it('continues when pg_extension lookup throws (non-fatal)', async () => {
+    const canned = new CannedDb();
+    canned.fail(/pg_extension/, new Error('permission denied'));
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({
+        name: 'probe',
+        version: '1.0.0',
+        requires: { postgres_extensions: ['postgis'] },
+      }),
+    });
+    const r = await resolveManifest('probe', dir, canned.kysely as unknown as Database);
+    expect(r.ok).toBe(true);
+  });
+
+  it('passes when declared extension dependencies are satisfied', async () => {
+    const canned = new CannedDb();
+    canned.when(/zv_extension_registry/i, [{ version: '2.0.0', is_enabled: true }]);
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({
+        name: 'probe',
+        version: '1.0.0',
+        dependencies: [{ name: 'dep-ext' }],
+      }),
+    });
+    const r = await resolveManifest('dep-ext', dir, canned.kysely as unknown as Database);
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe('enforcePublisherTier — fast paths', () => {
