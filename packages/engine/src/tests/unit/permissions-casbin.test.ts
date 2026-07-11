@@ -171,10 +171,10 @@ describe('adapter write-through', () => {
     await initPermissions(canned.kysely as unknown as Database);
     try {
       const e = await getEnforcer();
-      await e.removeFilteredPolicy('p', 'p', 0, 'editor', '*');
+      await e.removeFilteredPolicy(0, 'editor');
       const del = canned.executed(/DELETE FROM zvd_permissions/i)[0]!;
+      expect(del.parameters).toContain('p');
       expect(del.parameters).toContain('editor');
-      expect(del.parameters).toContain('*');
     } finally {
       await initPermissions(seedDb().kysely as unknown as Database);
     }
