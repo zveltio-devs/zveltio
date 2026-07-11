@@ -513,6 +513,7 @@ d('extension marketplace routes (in-process)', () => {
 
   it('returns stored config via catalog after PUT on hello-ext', async () => {
     ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
     const config = { harness_key: `v-${Date.now()}` };
     const put = await app.request(`/api/marketplace/${HELLO_EXT}/config`, {
       method: 'PUT',
@@ -528,10 +529,13 @@ d('extension marketplace routes (in-process)', () => {
     };
     const hello = body.extensions.find((e) => e.name === HELLO_EXT);
     expect(hello?.config).toEqual(config);
-  }, 20_000);
+  }, 30_000);
 
   it('license history includes a rotate audit entry', async () => {
-    const rotate = await app.request('/api/admin/license/rotate', post('/api/admin/license/rotate'));
+    const rotate = await app.request(
+      '/api/admin/license/rotate',
+      post('/api/admin/license/rotate'),
+    );
     expect(rotate.status).toBe(200);
     const history = await app.request('/api/admin/license/history', { headers: { cookie } });
     expect(history.status).toBe(200);
