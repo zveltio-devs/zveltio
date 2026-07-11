@@ -73,4 +73,24 @@ describe('auth SMTP sendEmail', () => {
     await _internalForTests.sendEmailForTests('a@b.com', 'two', '<p>2</p>', '2');
     expect(createTransportCalls).toBe(2);
   });
+
+  it('uses SMTP_USER as from when SMTP_FROM is unset', async () => {
+    delete process.env.SMTP_FROM;
+    process.env.SMTP_USER = 'mailer@example.com';
+    _internalForTests.resetSmtpCacheForTests();
+    await _internalForTests.sendEmailForTests('u@x.com', 'Hi', '<p>x</p>', 'x');
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'mailer@example.com' }),
+    );
+  });
+
+  it('falls back to no-reply when neither SMTP_FROM nor SMTP_USER is set', async () => {
+    delete process.env.SMTP_FROM;
+    delete process.env.SMTP_USER;
+    _internalForTests.resetSmtpCacheForTests();
+    await _internalForTests.sendEmailForTests('u@x.com', 'Hi', '<p>x</p>', 'x');
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'no-reply@zveltio.com' }),
+    );
+  });
 });

@@ -3,14 +3,21 @@
  * (Studio-only short-circuit, missing engine bundle, manifest/tier failures).
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import * as extensionDownload from '../../lib/extensions/extension-download.js';
 import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+
+/** Minimal valid WASM exporting register(). */
+const WASM_EXPORTS_REGISTER = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 12, 1, 8, 114, 101, 103, 105, 115,
+  116, 101, 114, 0, 0, 10, 4, 1, 2, 0, 11,
+]);
 
 // biome-ignore lint/suspicious/noExplicitAny: minimal loader stub
 function fakeLoader(): any {
@@ -41,6 +48,7 @@ const app = new Hono();
 
 afterEach(() => {
   delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  delete process.env.EXTENSIONS_DIR;
 });
 
 describe('loadExtensionFromDir', () => {
@@ -123,5 +131,105 @@ describe('loadExtensionFromDir', () => {
     const res = await app.request('/ext/inline-probe/ok');
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('loaded');
+  });
+
+  it('loads a wasm runtime extension when extension.wasm is present', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const base = tmpExt({
+      'wasm-ok/manifest.json': JSON.stringify({
+        name: 'wasm-ok',
+        version: '1.0.0',
+        runtime: 'wasm',
+      }),
+      'wasm-ok/engine/index.js': 'export default {}',
+    });
+    writeFileSync(join(base, 'wasm-ok/engine/extension.wasm'), WASM_EXPORTS_REGISTER);
+    const loader = fakeLoader();
+    await loadExtensionFromDir(loader, 'wasm-ok', app, loader.ctx, base);
+    expect(loader.loaded.has('wasm-ok')).toBe(true);
+    expect(loader.modules.has('wasm-ok')).toBe(true);
+  });
+
+  it('warns when the module has no register() function', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const base = tmpExt({
+      'no-register/manifest.json': JSON.stringify({
+        name: 'no-register',
+        version: '1.0.0',
+        engine: { bundled: true, entry: 'engine/index.js' },
+      }),
+      'no-register/engine/index.js': 'export default { name: "no-register" };',
+    });
+    const loader = fakeLoader();
+    await loadExtensionFromDir(loader, 'no-register', app, loader.ctx, base);
+    expect(loader.loaded.has('no-register')).toBe(false);
+  });
+
+  it('records lastLoadError when migrations exceed the quota', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const base = tmpExt({
+      'many-mig/manifest.json': JSON.stringify({
+        name: 'many-mig',
+        version: '1.0.0',
+        engine: { bundled: true, entry: 'engine/index.js' },
+        quotas: { migrationsMax: 1 },
+      }),
+      'many-mig/engine/index.js': `
+        export default {
+          name: 'many-mig',
+          getMigrations() { return ['001.sql', '002.sql']; },
+          async register() {},
+        };
+      `,
+    });
+    const loader = fakeLoader();
+    await loadExtensionFromDir(loader, 'many-mig', app, loader.ctx, base);
+    expect(loader.lastLoadError.get('many-mig')).toMatch(/migrations/i);
+  });
+
+  it('records lastLoadError when publisher tier gate fails', async () => {
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+      {
+        name: 'community-ext',
+        displayName: 'Community',
+        description: 'x',
+        category: 'custom',
+        version: '1.0.0',
+        author: 'x',
+        tags: [],
+        permissions: [],
+        publisher_tier: 'community',
+      },
+    ]);
+    try {
+      const base = tmpExt({
+        'community-ext/manifest.json': JSON.stringify({
+          name: 'community-ext',
+          version: '1.0.0',
+          engine: { bundled: true, entry: 'engine/index.js' },
+        }),
+        'community-ext/engine/index.js': 'export default { async register(){} };',
+      });
+      const loader = fakeLoader();
+      await loadExtensionFromDir(loader, 'community-ext', app, loader.ctx, base);
+      expect(loader.lastLoadError.get('community-ext')).toMatch(/worker isolation/i);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('records lastLoadError and audits when dynamic import throws', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const base = tmpExt({
+      'import-boom/manifest.json': JSON.stringify({
+        name: 'import-boom',
+        version: '1.0.0',
+        engine: { bundled: true, entry: 'engine/index.js' },
+      }),
+      'import-boom/engine/index.js': 'throw new Error("import boom");',
+    });
+    const loader = fakeLoader();
+    await loadExtensionFromDir(loader, 'import-boom', app, loader.ctx, base);
+    expect(loader.lastLoadError.get('import-boom')).toContain('import boom');
   });
 });

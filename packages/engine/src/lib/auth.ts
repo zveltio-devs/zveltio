@@ -22,7 +22,7 @@ function isLegacyScryptDeadlinePassed(): boolean {
   const deadline = process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
   if (!deadline) return false;
   const d = new Date(deadline);
-  if (isNaN(d.getTime())) return false;
+  if (Number.isNaN(d.getTime())) return false;
   return Date.now() > d.getTime();
 }
 
@@ -46,6 +46,61 @@ function argonTimeCost(): number {
 
 function argonOptions(): { algorithm: 'argon2id'; memoryCost: number; timeCost: number } {
   return { algorithm: 'argon2id', memoryCost: argonMemoryCost(), timeCost: argonTimeCost() };
+}
+
+function hashPassword(password: string) {
+  return Bun.password.hash(password, argonOptions());
+}
+
+async function verifyPassword({
+  hash,
+  password,
+}: {
+  hash: string;
+  password: string;
+}): Promise<boolean> {
+  // New hashes: argon2id / bcrypt — start with '$'
+  if (hash.startsWith('$')) {
+    return Bun.password.verify(password, hash);
+  }
+  // S4-09: legacy scrypt path. Verify, then schedule a silent
+  // re-hash so the next sign-in goes through the argon2id branch.
+  if (isLegacyScryptDeadlinePassed()) {
+    console.warn('[auth] Refusing legacy scrypt hash — past PASSWORD_LEGACY_SCRYPT_DEADLINE.');
+    return false;
+  }
+  // Legacy hashes: better-auth default scrypt format "salt:hexkey"
+  const [salt, key] = hash.split(':');
+  if (!salt || !key) return false;
+  try {
+    const { scryptSync } = await import('crypto');
+    const derived = scryptSync(password, salt, 64, { N: 16384, r: 16, p: 1 });
+    if (derived.toString('hex') !== key) return false;
+    // Schedule re-hash — fire-and-forget so a DB error doesn't
+    // block sign-in. The user is already authenticated.
+    rehashLegacyAccountToArgon2id(_authDb, hash, password).catch((err) => {
+      console.warn('[auth] Re-hash to argon2id failed (will retry on next login):', err.message);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Patched getSession wrapper — exported for unit tests. */
+export function wrapGetSession<T extends (...args: never[]) => Promise<unknown>>(orig: T): T {
+  return (async (...args: Parameters<T>) => {
+    try {
+      return await orig(...args);
+    } catch (err) {
+      if (isBenignGetSessionError(err)) {
+        return null;
+      }
+      const e = err as { message?: string };
+      console.error('[getSession] Unexpected error — re-throwing:', e?.message ?? err);
+      throw err;
+    }
+  }) as T;
 }
 
 /**
@@ -237,7 +292,7 @@ export async function initAuth(db: Database) {
 
   // Optional cache secondary storage for sessions
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  let secondaryStorage: any = undefined;
+  let secondaryStorage: any;
   if (process.env.VALKEY_URL) {
     const { createCacheSecondaryStorage } = await import('./runtime/index.js');
     secondaryStorage = await createCacheSecondaryStorage();
@@ -298,40 +353,8 @@ export async function initAuth(db: Database) {
       // (S4-09 migration). After PASSWORD_LEGACY_SCRYPT_DEADLINE has
       // passed, scrypt verification fails — by then nobody should be left.
       password: {
-        hash: (password: string) => Bun.password.hash(password, argonOptions()),
-        verify: async ({ hash, password }: { hash: string; password: string }) => {
-          // New hashes: argon2id / bcrypt — start with '$'
-          if (hash.startsWith('$')) {
-            return Bun.password.verify(password, hash);
-          }
-          // S4-09: legacy scrypt path. Verify, then schedule a silent
-          // re-hash so the next sign-in goes through the argon2id branch.
-          if (isLegacyScryptDeadlinePassed()) {
-            console.warn(
-              '[auth] Refusing legacy scrypt hash — past PASSWORD_LEGACY_SCRYPT_DEADLINE.',
-            );
-            return false;
-          }
-          // Legacy hashes: better-auth default scrypt format "salt:hexkey"
-          const [salt, key] = hash.split(':');
-          if (!salt || !key) return false;
-          try {
-            const { scryptSync } = await import('crypto');
-            const derived = scryptSync(password, salt, 64, { N: 16384, r: 16, p: 1 });
-            if (derived.toString('hex') !== key) return false;
-            // Schedule re-hash — fire-and-forget so a DB error doesn't
-            // block sign-in. The user is already authenticated.
-            rehashLegacyAccountToArgon2id(_authDb, hash, password).catch((err) => {
-              console.warn(
-                '[auth] Re-hash to argon2id failed (will retry on next login):',
-                err.message,
-              );
-            });
-            return true;
-          } catch {
-            return false;
-          }
-        },
+        hash: hashPassword,
+        verify: verifyPassword,
       },
     },
 
@@ -448,21 +471,7 @@ export async function initAuth(db: Database) {
   // narrowing, every infrastructure failure looked like "logged out".
   const origGetSession = authInstance.api.getSession.bind(authInstance.api);
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  (authInstance.api as any).getSession = async (...args: any[]) => {
-    try {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      return await origGetSession(...(args as [any]));
-    } catch (err) {
-      if (isBenignGetSessionError(err)) {
-        return null;
-      }
-      const e = err as { message?: string };
-      // Unexpected: DB outage, code bug, etc. Log loudly AND re-throw so
-      // the route's error handler returns the right status code.
-      console.error('[getSession] Unexpected error — re-throwing:', e?.message ?? err);
-      throw err;
-    }
-  };
+  (authInstance.api as any).getSession = wrapGetSession(origGetSession);
 
   // @ts-ignore — specific Auth<Options> not assignable to Auth<BetterAuthOptions>
   _auth = authInstance;
@@ -491,5 +500,18 @@ export const _internalForTests = {
     _smtpTransport = null;
     _smtpFingerprint = '';
   },
+  resetAuthModuleForTests() {
+    _auth = null;
+    _authDb = null;
+    _smtpTransport = null;
+    _smtpFingerprint = '';
+  },
+  setAuthDbForTests(db: Database | null) {
+    _authDb = db;
+  },
   sendEmailForTests: sendEmail,
+  hashPassword,
+  verifyPassword,
+  isLegacyScryptDeadlinePassed,
+  wrapGetSession,
 };
