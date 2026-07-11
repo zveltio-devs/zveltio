@@ -230,14 +230,14 @@ d('extension marketplace routes (in-process)', () => {
     expect(res.status).toBeLessThan(600);
   }, 20_000);
 
-  it('rejects a license when registry verify returns invalid (stubbed fetch)', async () => {
+  it('rejects a license when registry verify returns non-ok (stubbed fetch)', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/licenses/verify')) {
         return {
-          ok: true,
-          status: 200,
-          json: async () => ({ valid: false, reason: 'expired' }),
+          ok: false,
+          status: 400,
+          json: async () => ({ message: 'Invalid license key' }),
         } as Response;
       }
       return originalFetch(input);
