@@ -236,6 +236,27 @@ describe('registered work handlers', () => {
 
   it('create_collection handler applies tenant RLS after table creation', async () => {
     const db = setupDb();
+    await initDDLQueue(asDb(db));
+    const handler = workHandlers.get('ddl.drop_relation');
+    await handler!([
+      {
+        id: 'j5',
+        data: { type: 'm2o', source_collection: 'orders', source_field: 'customer_id' },
+      },
+    ]);
+    expect(db.executed(/DROP COLUMN IF EXISTS "customer_id"/)).toHaveLength(1);
+
+    const db2 = setupDb();
+    await initDDLQueue(asDb(db2));
+    const handler2 = workHandlers.get('ddl.drop_relation');
+    await handler2!([
+      { id: 'j6', data: { type: 'm2m', junction_table: 'zvd_jnc_orders_tags' } },
+    ]);
+    expect(db2.executed(/DROP TABLE IF EXISTS zvd_jnc_orders_tags CASCADE/)).toHaveLength(1);
+  });
+
+  it('drop_relation handler drops m2o columns and m2m junction tables', async () => {
+    const db = setupDb();
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     const log = spyOn(console, 'log').mockImplementation(() => {});
     try {
