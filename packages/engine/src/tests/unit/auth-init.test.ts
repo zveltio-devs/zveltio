@@ -55,7 +55,9 @@ describe('initAuth', () => {
     try {
       await initAuth(new CannedDb().kysely as unknown as Database);
       expect(
-        warnSpy.mock.calls.some((c) => String(c[0]).includes('CORS_ORIGINS is not set in production')),
+        warnSpy.mock.calls.some((c) =>
+          String(c[0]).includes('CORS_ORIGINS is not set in production'),
+        ),
       ).toBe(true);
     } finally {
       warnSpy.mockRestore();
