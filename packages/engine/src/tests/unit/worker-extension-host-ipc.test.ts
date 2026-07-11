@@ -215,16 +215,16 @@ describe('WorkerExtensionHost — IPC message routing', () => {
   it('forwards worker log lines to console', () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, { name: 'log-ext' });
-    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+    const logSpy = spyOn(console, 'log').mockImplementation(() => {});
     try {
       dispatchMessage(host, managed, {
         type: 'log',
-        level: 'info',
+        level: 'log',
         message: 'hello from worker',
       });
-      expect(infoSpy.mock.calls.some((c) => String(c[0]).includes('hello from worker'))).toBe(true);
+      expect(logSpy.mock.calls.some((c) => String(c[0]).includes('hello from worker'))).toBe(true);
     } finally {
-      infoSpy.mockRestore();
+      logSpy.mockRestore();
     }
   });
 
