@@ -13,6 +13,8 @@ let savedCors: string | undefined;
 let savedNodeEnv: string | undefined;
 let savedValkey: string | undefined;
 let savedSmtp: string | undefined;
+let savedGoogleId: string | undefined;
+let savedGoogleSecret: string | undefined;
 
 beforeEach(() => {
   savedSecret = process.env.BETTER_AUTH_SECRET;
@@ -20,11 +22,15 @@ beforeEach(() => {
   savedNodeEnv = process.env.NODE_ENV;
   savedValkey = process.env.VALKEY_URL;
   savedSmtp = process.env.SMTP_HOST;
+  savedGoogleId = process.env.GOOGLE_CLIENT_ID;
+  savedGoogleSecret = process.env.GOOGLE_CLIENT_SECRET;
   process.env.BETTER_AUTH_SECRET = 'unit-test-secret-minimum-32-characters-xx';
   delete process.env.VALKEY_URL;
   delete process.env.CORS_ORIGINS;
   delete process.env.NODE_ENV;
   delete process.env.SMTP_HOST;
+  delete process.env.GOOGLE_CLIENT_ID;
+  delete process.env.GOOGLE_CLIENT_SECRET;
   _setCacheForTests(null);
 });
 
@@ -39,6 +45,10 @@ afterEach(() => {
   else process.env.VALKEY_URL = savedValkey;
   if (savedSmtp === undefined) delete process.env.SMTP_HOST;
   else process.env.SMTP_HOST = savedSmtp;
+  if (savedGoogleId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+  else process.env.GOOGLE_CLIENT_ID = savedGoogleId;
+  if (savedGoogleSecret === undefined) delete process.env.GOOGLE_CLIENT_SECRET;
+  else process.env.GOOGLE_CLIENT_SECRET = savedGoogleSecret;
   _setCacheForTests(null);
 });
 
@@ -108,5 +118,12 @@ describe('initAuth', () => {
       createTransport: () => transportMock,
     }));
     await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+  });
+
+  it('initializes with Google social provider when GOOGLE_CLIENT_ID is set', async () => {
+    process.env.GOOGLE_CLIENT_ID = 'google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+    expect(getAuth().api).toBeDefined();
   });
 });
