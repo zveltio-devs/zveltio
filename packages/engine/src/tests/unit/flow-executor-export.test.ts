@@ -12,6 +12,9 @@ const exportMock = mock(async () => ({
 }));
 
 const emailAttachMock = mock(async () => {});
+const sendDirectMock = mock<(opts: unknown) => Promise<void>>(async () => {
+  throw new Error('Email service not configured');
+});
 
 mock.module('../../lib/export-manager.js', () => ({
   ExportManager: { export: exportMock },
@@ -19,9 +22,7 @@ mock.module('../../lib/export-manager.js', () => ({
 
 mock.module('../../lib/email.js', () => ({
   sendEmailWithAttachment: emailAttachMock,
-  sendEmailDirectly: async () => {
-    throw new Error('Email service not configured');
-  },
+  sendEmailDirectly: sendDirectMock,
 }));
 
 const { _internalForTests } = await import('../../lib/flows/flow-executor.js');
@@ -74,5 +75,33 @@ describe('executeStep — export_collection (mocked ExportManager)', () => {
     expect(output.exported).toBe(true);
     expect(output.sent_to).toBe('ops@example.com');
     expect(emailAttachMock).toHaveBeenCalled();
+  });
+});
+
+describe('executeStep — send_email (mocked email.js)', () => {
+  it('sends mail when the optional email service is configured', async () => {
+    sendDirectMock.mockImplementation(async () => {});
+    try {
+      const { output } = await executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'send_email',
+          config: {
+            to: 'user@example.com',
+            subject: 'Hello\r\nInjected: nope',
+            body: 'plain body',
+          },
+        },
+        {},
+        {},
+      );
+      expect(output.sent).toBe(true);
+      expect(output.to).toBe('user@example.com');
+      expect(sendDirectMock).toHaveBeenCalled();
+    } finally {
+      sendDirectMock.mockImplementation(async () => {
+        throw new Error('Email service not configured');
+      });
+    }
   });
 });

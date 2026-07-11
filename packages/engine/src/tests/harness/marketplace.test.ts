@@ -272,10 +272,13 @@ d('extension marketplace routes (in-process)', () => {
 
   it('installs an unknown extension (POST /:name/install) — tolerates download failure', async () => {
     const res = await app.request(`/api/marketplace/${GHOST}/install`, post(`/${GHOST}/install`));
-    // No such extension in the registry → not-found / gateway error, never a
-    // silent 200 for a ghost package.
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(600);
+    if (res.status === 422) {
+      const body = (await res.json()) as { files_on_disk?: boolean; success?: boolean };
+      expect(body.success).toBe(false);
+      expect(body.files_on_disk).toBe(false);
+    }
   }, 20_000);
 
   it('enables an uninstalled extension (POST /:name/enable) → error', async () => {
@@ -439,6 +442,36 @@ d('extension marketplace routes (in-process)', () => {
     expect(typeof body.enabled).toBe('number');
     expect(typeof body.failed).toBe('number');
   }, 40_000);
+
+  it('PUT config on a ghost extension upserts registry config', async () => {
+    const res = await app.request(`/api/marketplace/${GHOST}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ greeting: 'harness-config' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
+  }, 20_000);
+
+  it('enable hello-ext returns structured enable payload', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/enable`,
+      post(`/${HELLO_EXT}/enable`),
+    );
+    expect(res.status).toBeLessThan(600);
+    const body = (await res.json()) as {
+      success?: boolean;
+      hot_loaded?: boolean;
+      studio_pages_prebuilt?: boolean;
+    };
+    expect(typeof body).toBe('object');
+    if (res.status === 200) {
+      expect(typeof body.studio_pages_prebuilt).toBe('boolean');
+    }
+  }, 30_000);
 
   it('DELETE license clears a stored key after stubbed verify', async () => {
     stubLicenseVerifyOk();

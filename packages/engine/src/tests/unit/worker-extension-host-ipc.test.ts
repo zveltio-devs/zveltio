@@ -254,6 +254,22 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     if (res.type === 'init:err') expect(res.error).toBe('bad manifest');
   });
 
+  it('resolves pending init waiters on init:ok', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = makeManaged(host, { name: 'init-ok-ext' });
+    const promise = new Promise<WorkerToHostMessage>((resolve) => {
+      managed.pendingInits.set('init-ok', resolve);
+    });
+    dispatchMessage(host, managed, {
+      type: 'init:ok',
+      id: 'init-ok',
+      routes: [{ method: 'GET', path: '/ready' }],
+    });
+    const res = await promise;
+    expect(res.type).toBe('init:ok');
+    if (res.type === 'init:ok') expect(res.routes).toHaveLength(1);
+  });
+
   it('forwards worker log lines to console', () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, { name: 'log-ext' });
@@ -324,6 +340,47 @@ describe('WorkerExtensionHost — IPC message routing', () => {
       'handler blew up',
     );
     serviceRegistry.unregisterAll('owner-err');
+  });
+
+  it('service:call forwards to a different worker that owns the service', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed: owner, posted: ownerPosted } = makeManaged(host, {
+      name: 'owner-svc',
+      onPost: (msg) => {
+        if (msg.type === 'service:invoke' && msg.name === 'owner.echo') {
+          queueMicrotask(() => {
+            dispatchMessage(host, owner, {
+              type: 'service:invoke:ok',
+              id: msg.id,
+              result: 'echoed',
+            });
+          });
+        }
+      },
+    });
+    dispatchMessage(host, owner, {
+      type: 'service:register',
+      id: 'reg-owner',
+      name: 'owner.echo',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const { managed: caller, posted: callerPosted } = makeManaged(host, { name: 'caller-svc' });
+    dispatchMessage(host, caller, {
+      type: 'service:call',
+      id: 'cross-1',
+      name: 'owner.echo',
+      args: ['ping'],
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const ok = callerPosted.find((m) => m.type === 'service:ok' && m.id === 'cross-1');
+    expect(ok?.type).toBe('service:ok');
+    if (ok?.type === 'service:ok') expect(ok.result).toBe('echoed');
+    expect(ownerPosted.some((m) => m.type === 'service:invoke' && m.name === 'owner.echo')).toBe(
+      true,
+    );
+    serviceRegistry.unregisterAll('owner-svc');
   });
 });
 

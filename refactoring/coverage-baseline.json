@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-10",
+  "generated": "2026-07-11",
   "note": "Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. Measured over the HONEST combined surface: the unit lcov UNIONed with the Phase C in-process harness lcov (scripts/merge-coverage.ts). See docs/HARDENING-9-PLAN.md H-02.",
   "targetNote": "target.lib=85 is a business-grade quality bar for the lib/ business-logic core, NOT vanity 100%. As of 2026-07-09 the gate measures the HONEST combined number: unit-only coverage (53.5%, ~76 loaded files) flattered the % by excluding the route/handler files that only load when the app boots; unioning the in-process harness lcov gives the real all-of-lib/ figure (45.4%, 94 files). The harness route suites (src/tests/harness/) climb it toward 85%. The last ~10-15% is external-service wiring (better-auth, S3, pg-boss, ioredis, Bun.SQL.subscribe, OTel SDK) + defensive catch-branches, left to the integration/soak suites.",
   "source": "union of `bun test src/tests/unit --coverage` and `bun test src/tests/harness --coverage` lcovs via scripts/merge-coverage.ts (per-line DA hit union)",
@@ -9,7 +9,7 @@
   },
   "gated": ["lib"],
   "measured": {
-    "lib": 73.3,
+    "lib": 73.4,
     "other": 54.7,
     "routes": 36,
     "src-other": 46.8

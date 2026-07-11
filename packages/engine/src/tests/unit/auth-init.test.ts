@@ -2,7 +2,7 @@
  * initAuth bootstrap (lib/auth.ts) — fail-closed secret check and singleton wiring.
  */
 
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { getAuth, initAuth } from '../../lib/auth.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
@@ -12,16 +12,19 @@ let savedSecret: string | undefined;
 let savedCors: string | undefined;
 let savedNodeEnv: string | undefined;
 let savedValkey: string | undefined;
+let savedSmtp: string | undefined;
 
 beforeEach(() => {
   savedSecret = process.env.BETTER_AUTH_SECRET;
   savedCors = process.env.CORS_ORIGINS;
   savedNodeEnv = process.env.NODE_ENV;
   savedValkey = process.env.VALKEY_URL;
+  savedSmtp = process.env.SMTP_HOST;
   process.env.BETTER_AUTH_SECRET = 'unit-test-secret-minimum-32-characters-xx';
   delete process.env.VALKEY_URL;
   delete process.env.CORS_ORIGINS;
   delete process.env.NODE_ENV;
+  delete process.env.SMTP_HOST;
   _setCacheForTests(null);
 });
 
@@ -34,6 +37,8 @@ afterEach(() => {
   else process.env.NODE_ENV = savedNodeEnv;
   if (savedValkey === undefined) delete process.env.VALKEY_URL;
   else process.env.VALKEY_URL = savedValkey;
+  if (savedSmtp === undefined) delete process.env.SMTP_HOST;
+  else process.env.SMTP_HOST = savedSmtp;
   _setCacheForTests(null);
 });
 
@@ -93,5 +98,15 @@ describe('initAuth', () => {
     } as never);
     await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
     expect(getAuth().api).toBeDefined();
+  });
+
+  it('initializes when SMTP_HOST is configured (transport created lazily)', async () => {
+    process.env.SMTP_HOST = 'smtp.example.com';
+    process.env.SMTP_PORT = '587';
+    const transportMock = { sendMail: mock(async () => ({ messageId: 'test' })) };
+    mock.module('nodemailer', () => ({
+      createTransport: () => transportMock,
+    }));
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
   });
 });
