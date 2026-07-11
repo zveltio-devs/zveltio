@@ -43,7 +43,7 @@ d('collections field rename (in-process)', () => {
     const res = await app.request(`/api/collections/${COLLECTION}/fields/label`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ name: 'headline' }),
+      body: JSON.stringify({ new_name: 'headline' }),
     });
     expect([200, 202]).toContain(res.status);
 
