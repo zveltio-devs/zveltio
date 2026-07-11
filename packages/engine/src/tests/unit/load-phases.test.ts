@@ -198,6 +198,57 @@ describe('enforcePublisherTier — fast paths', () => {
       else process.env.ZVELTIO_REQUIRE_CATALOG = prevRequire;
     }
   });
+
+  it('verified publisher tier in catalog → inline allowed', async () => {
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+      {
+        name: 'verified-ext',
+        displayName: 'Verified',
+        description: 'x',
+        category: 'custom',
+        version: '1.0.0',
+        author: 'x',
+        tags: [],
+        permissions: [],
+        publisher_tier: 'verified',
+        is_official: false,
+      },
+    ]);
+    try {
+      const r = await enforcePublisherTier('verified-ext', {
+        name: 'verified-ext',
+        version: '1.0.0',
+      } as never);
+      expect(r.ok).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('is_official first-party catalog entry → inline allowed', async () => {
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+      {
+        name: 'finance/invoicing',
+        displayName: 'Invoicing',
+        description: 'x',
+        category: 'finance',
+        version: '1.0.0',
+        author: 'zveltio',
+        tags: [],
+        permissions: [],
+        is_official: true,
+      },
+    ]);
+    try {
+      const r = await enforcePublisherTier('finance/invoicing', {
+        name: 'finance/invoicing',
+        version: '1.0.0',
+      } as never);
+      expect(r.ok).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('resolveEntryPath', () => {
