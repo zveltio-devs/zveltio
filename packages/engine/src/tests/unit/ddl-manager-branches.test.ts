@@ -159,3 +159,18 @@ describe('addField metadata', () => {
     expect(db.executed(/update "zvd_collections" set/)).toHaveLength(0);
   });
 });
+
+describe('updateCollectionMetadata — all keys', () => {
+  it('writes icon, description, and fields when provided', async () => {
+    const db = setup();
+    await DDLManager.updateCollectionMetadata(asDb(db), 'widgets', {
+      icon: 'Star',
+      description: 'All widgets',
+      fields: [TEXT],
+    } as never);
+    const q = db.executed(/update "zvd_collections" set/)[0]!;
+    expect(q.sql).toContain('"fields"');
+    expect(q.parameters).toContain('Star');
+    expect(q.parameters).toContain('All widgets');
+  });
+});
