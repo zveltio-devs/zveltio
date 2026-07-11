@@ -73,6 +73,13 @@ d('export + import routes (in-process)', () => {
     expect(text).toContain('Alpha');
   });
 
+  it('GET /api/import/jobs lists recent import logs for admins', async () => {
+    const res = await app.request('/api/import/jobs', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { jobs: unknown[] };
+    expect(Array.isArray(body.jobs)).toBe(true);
+  });
+
   it('POST /api/import/:collection ingests JSON rows', async () => {
     const payload = JSON.stringify([{ title: 'Imported', qty: 99 }]);
     const form = new FormData();
