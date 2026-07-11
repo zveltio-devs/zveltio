@@ -3,7 +3,7 @@
  * restricted context wiring, finalizeExtensionLoad, reRegisterExtension.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +16,8 @@ import {
   finalizeExtensionLoad,
   reRegisterExtension,
 } from '../../lib/extensions/register.js';
+import * as workerExtensionHost from '../../lib/worker-extension-host.js';
+import { cronRunner } from '../../lib/runtime/index.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -142,6 +144,69 @@ describe('finalizeExtensionLoad', () => {
     const res = await app.request('/global/ping');
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('pong');
+  });
+
+  it('delegates to WorkerExtensionHost when isolation=worker', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const startMock = mock(async () => {});
+    const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      start: startMock,
+    } as never);
+    try {
+      const app = new Hono();
+      const loader = fakeLoader();
+      const extension: ZveltioExtension = {
+        name: 'worker-ext',
+        category: 'custom',
+        async register() {},
+      };
+      await finalizeExtensionLoad(
+        loader,
+        extension,
+        'worker-ext',
+        '/tmp/worker-ext',
+        app,
+        loader.ctx!,
+        {
+          name: 'worker-ext',
+          version: '1.0.0',
+          engine: { bundled: true, isolation: 'worker', entry: 'engine/index.js' },
+        } as never,
+        new Set(),
+      );
+      expect(startMock).toHaveBeenCalled();
+    } finally {
+      hostSpy.mockRestore();
+    }
+  });
+
+  it('registers cron schedules from extension.schedules()', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const registerSpy = spyOn(cronRunner, 'register').mockImplementation(() => {});
+    try {
+      const app = new Hono();
+      const loader = fakeLoader();
+      const extension: ZveltioExtension = {
+        name: 'sched-ext',
+        category: 'custom',
+        mountStrategy: 'subapp',
+        schedules: () => [{ name: 'tick', cron: '* * * * *', handler: async () => {} }],
+        async register() {},
+      };
+      await finalizeExtensionLoad(
+        loader,
+        extension,
+        'sched-ext',
+        '/tmp/sched-ext',
+        app,
+        loader.ctx!,
+        { name: 'sched-ext', version: '1.0.0' } as never,
+        new Set(),
+      );
+      expect(registerSpy).toHaveBeenCalled();
+    } finally {
+      registerSpy.mockRestore();
+    }
   });
 });
 
