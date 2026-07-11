@@ -15,6 +15,8 @@ let savedValkey: string | undefined;
 let savedSmtp: string | undefined;
 let savedGoogleId: string | undefined;
 let savedGoogleSecret: string | undefined;
+let savedGithubId: string | undefined;
+let savedGithubSecret: string | undefined;
 
 beforeEach(() => {
   savedSecret = process.env.BETTER_AUTH_SECRET;
@@ -24,6 +26,8 @@ beforeEach(() => {
   savedSmtp = process.env.SMTP_HOST;
   savedGoogleId = process.env.GOOGLE_CLIENT_ID;
   savedGoogleSecret = process.env.GOOGLE_CLIENT_SECRET;
+  savedGithubId = process.env.GITHUB_CLIENT_ID;
+  savedGithubSecret = process.env.GITHUB_CLIENT_SECRET;
   process.env.BETTER_AUTH_SECRET = 'unit-test-secret-minimum-32-characters-xx';
   delete process.env.VALKEY_URL;
   delete process.env.CORS_ORIGINS;
@@ -31,6 +35,8 @@ beforeEach(() => {
   delete process.env.SMTP_HOST;
   delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.GITHUB_CLIENT_ID;
+  delete process.env.GITHUB_CLIENT_SECRET;
   _setCacheForTests(null);
 });
 
@@ -49,6 +55,10 @@ afterEach(() => {
   else process.env.GOOGLE_CLIENT_ID = savedGoogleId;
   if (savedGoogleSecret === undefined) delete process.env.GOOGLE_CLIENT_SECRET;
   else process.env.GOOGLE_CLIENT_SECRET = savedGoogleSecret;
+  if (savedGithubId === undefined) delete process.env.GITHUB_CLIENT_ID;
+  else process.env.GITHUB_CLIENT_ID = savedGithubId;
+  if (savedGithubSecret === undefined) delete process.env.GITHUB_CLIENT_SECRET;
+  else process.env.GITHUB_CLIENT_SECRET = savedGithubSecret;
   _setCacheForTests(null);
 });
 
@@ -125,5 +135,11 @@ describe('initAuth', () => {
     process.env.GOOGLE_CLIENT_SECRET = 'google-secret';
     await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
     expect(getAuth().api).toBeDefined();
+  });
+
+  it('initializes with GitHub social provider when GITHUB_CLIENT_ID is set', async () => {
+    process.env.GITHUB_CLIENT_ID = 'github-client-id';
+    process.env.GITHUB_CLIENT_SECRET = 'github-secret';
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
   });
 });

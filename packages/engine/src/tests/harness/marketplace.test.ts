@@ -270,15 +270,9 @@ d('extension marketplace routes (in-process)', () => {
     expect(res.status).toBe(400);
   }, 15_000);
 
-  it('installs an unknown extension (POST /:name/install) — tolerates download failure', async () => {
+  it('installs an unknown extension (POST /:name/install) — not in catalog', async () => {
     const res = await app.request(`/api/marketplace/${GHOST}/install`, post(`/${GHOST}/install`));
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(600);
-    if (res.status === 422) {
-      const body = (await res.json()) as { files_on_disk?: boolean; success?: boolean };
-      expect(body.success).toBe(false);
-      expect(body.files_on_disk).toBe(false);
-    }
+    expect(res.status).toBe(404);
   }, 20_000);
 
   it('enables an uninstalled extension (POST /:name/enable) → error', async () => {
