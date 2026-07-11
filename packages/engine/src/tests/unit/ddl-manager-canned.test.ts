@@ -61,6 +61,16 @@ describe('CollectionSchema', () => {
 });
 
 describe('createCollection', () => {
+  it('rejects disallowed PostgreSQL extensions', async () => {
+    const db = setup();
+    await expect(
+      DDLManager.createCollection(asDb(db), {
+        name: 'evil',
+        fields: [{ name: 'vec', type: 'vector', options: { dimensions: 3 } }],
+      } as never),
+    ).rejects.toThrow('not in the allowed extensions whitelist');
+  });
+
   it('creates the table with system columns, indexes, FTS and triggers', async () => {
     const db = setup();
     await DDLManager.createCollection(asDb(db), {
@@ -193,6 +203,17 @@ describe('createCollection', () => {
 });
 
 describe('relation helpers', () => {
+  it('applyRelationFK emits ALTER + CONCURRENTLY index for valid payloads', async () => {
+    const db = setup();
+    await DDLManager.applyRelationFK(asDb(db), 'zvd_orders', 'customer_id', 'zvd_customers');
+    expect(
+      db.executed(/ALTER TABLE "zvd_orders" ADD COLUMN IF NOT EXISTS "customer_id" UUID/),
+    ).toHaveLength(1);
+    expect(
+      db.executed(/CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zvd_orders_customer_id/),
+    ).toHaveLength(1);
+  });
+
   it('applyRelationFK refuses unsafe ON DELETE/UPDATE actions', async () => {
     const db = setup();
     await expect(
@@ -417,6 +438,44 @@ describe('introspection', () => {
 });
 
 describe('metadata cache', () => {
+  it('getCollection caches per-name until invalidated', async () => {
+    const db = setup();
+    db.when(/select \* from "zvd_collections" where "name" = /, [
+      { name: 'solo', fields: JSON.stringify([TEXT_FIELD]) },
+    ]);
+
+    const first = await DDLManager.getCollection(asDb(db), 'solo');
+    expect(first?.name).toBe('solo');
+    expect(first?.fields).toEqual([TEXT_FIELD]);
+
+    await DDLManager.getCollection(asDb(db), 'solo');
+    expect(db.executed(/where "name" = /)).toHaveLength(1);
+
+    DDLManager.invalidateCache('solo');
+    await DDLManager.getCollection(asDb(db), 'solo');
+    expect(db.executed(/where "name" = /)).toHaveLength(2);
+  });
+
+  it('getCollection returns null for unknown collections', async () => {
+    const db = setup();
+    expect(await DDLManager.getCollection(asDb(db), 'ghost')).toBeNull();
+  });
+
+  it('registerMetadata upserts collection rows with defaults', async () => {
+    const db = setup();
+    await DDLManager.registerMetadata(asDb(db), {
+      name: 'widgets',
+      fields: [TEXT_FIELD],
+      displayName: 'Widgets',
+      icon: 'Box',
+      routeGroup: 'admin',
+    } as never);
+    const insert = db.executed(/insert into "zvd_collections"/)[0]!;
+    expect(insert.parameters).toContain('Widgets');
+    expect(insert.parameters).toContain('admin');
+    expect(insert.sql).toContain('on conflict');
+  });
+
   it('getCollections caches the normalized list until invalidated', async () => {
     const db = setup();
     db.when(/select \* from "zvd_collections" order by/, [
