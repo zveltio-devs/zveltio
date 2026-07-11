@@ -116,6 +116,33 @@ describe('finalizeExtensionLoad', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('hi');
   });
+
+  it('registers a global-mounted extension directly on the host app', async () => {
+    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    const app = new Hono();
+    const loader = fakeLoader();
+    const extension: ZveltioExtension = {
+      name: 'global-ext',
+      category: 'custom',
+      mountStrategy: 'global',
+      async register(sub, _ctx) {
+        sub.get('/global/ping', (c) => c.text('pong'));
+      },
+    };
+    await finalizeExtensionLoad(
+      loader,
+      extension,
+      'global-ext',
+      '/tmp/global-ext',
+      app,
+      loader.ctx!,
+      { name: 'global-ext', version: '1.0.0', category: 'custom' } as never,
+      new Set(),
+    );
+    const res = await app.request('/global/ping');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('pong');
+  });
 });
 
 describe('reRegisterExtension', () => {
