@@ -180,6 +180,54 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     if (err?.type === 'service:err') expect(err.error).toContain('not found');
   });
 
+  it('rejects pending route invokes on route:err', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = makeManaged(host, { name: 'route-err-ext' });
+    const promise = new Promise<WorkerToHostMessage>((resolve) => {
+      managed.pendingInvokes.set('inv-err', resolve);
+    });
+    dispatchMessage(host, managed, {
+      type: 'route:err',
+      id: 'inv-err',
+      error: 'handler failed',
+    });
+    const res = await promise;
+    expect(res.type).toBe('route:err');
+    if (res.type === 'route:err') expect(res.error).toBe('handler failed');
+  });
+
+  it('resolves pending init waiters on init:err', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = makeManaged(host, { name: 'init-err-ext' });
+    const promise = new Promise<WorkerToHostMessage>((resolve) => {
+      managed.pendingInits.set('init-err', resolve);
+    });
+    dispatchMessage(host, managed, {
+      type: 'init:err',
+      id: 'init-err',
+      error: 'bad manifest',
+    });
+    const res = await promise;
+    expect(res.type).toBe('init:err');
+    if (res.type === 'init:err') expect(res.error).toBe('bad manifest');
+  });
+
+  it('forwards worker log lines to console', () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = makeManaged(host, { name: 'log-ext' });
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      dispatchMessage(host, managed, {
+        type: 'log',
+        level: 'info',
+        message: 'hello from worker',
+      });
+      expect(infoSpy.mock.calls.some((c) => String(c[0]).includes('hello from worker'))).toBe(true);
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
   it('service:register publishes a worker-owned service callable from the host', async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed, posted } = makeManaged(host, {
@@ -206,6 +254,34 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     expect(managed.registeredServices.has('a.ping')).toBe(true);
     const result = await serviceRegistry.get<{ (): Promise<string> }>('a.ping')?.();
     expect(result).toBe('pong');
+  });
+
+  it('service:invoke:err rejects the host caller', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = makeManaged(host, {
+      name: 'owner-err',
+      onPost: (msg) => {
+        if (msg.type === 'service:invoke' && msg.name === 'err.boom') {
+          queueMicrotask(() => {
+            dispatchMessage(host, managed, {
+              type: 'service:invoke:err',
+              id: msg.id,
+              error: 'handler blew up',
+            });
+          });
+        }
+      },
+    });
+    dispatchMessage(host, managed, {
+      type: 'service:register',
+      id: 'reg-err',
+      name: 'err.boom',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    await expect(serviceRegistry.get<() => Promise<string>>('err.boom')?.()).rejects.toThrow(
+      'handler blew up',
+    );
+    serviceRegistry.unregisterAll('owner-err');
   });
 });
 
