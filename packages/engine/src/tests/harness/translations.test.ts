@@ -48,8 +48,8 @@ d('translations routes (in-process)', () => {
     expect(Array.isArray(body.glossary)).toBe(true);
   });
 
-  it('rejects unauthenticated admin locale access', async () => {
-    const res = await app.request('/api/translations/locales');
+  it('rejects unauthenticated admin translation key listing', async () => {
+    const res = await app.request('/api/translations');
     expect([401, 403]).toContain(res.status);
   });
 });

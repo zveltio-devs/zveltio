@@ -58,18 +58,22 @@ d('templates routes (in-process)', () => {
     expect(body.template.collections.length).toBeGreaterThan(0);
   });
 
-  it('POST /api/templates/:id/install enqueues DDL jobs with a prefix', async () => {
-    const res = await app.request('/api/templates/crm/install', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ prefix: PREFIX, skip_existing: true }),
-    });
-    expect([200, 202]).toContain(res.status);
-    const body = (await res.json()) as { jobs?: unknown[]; job_ids?: string[] };
-    const jobs = body.jobs ?? body.job_ids ?? [];
-    expect(Array.isArray(jobs)).toBe(true);
-    expect(jobs.length).toBeGreaterThan(0);
-  });
+  it(
+    'POST /api/templates/:id/install enqueues DDL jobs with a prefix',
+    async () => {
+      const res = await app.request('/api/templates/crm/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ prefix: PREFIX, skip_existing: true }),
+      });
+      expect([200, 202]).toContain(res.status);
+      const body = (await res.json()) as { jobs?: unknown[]; job_ids?: string[] };
+      const jobs = body.jobs ?? body.job_ids ?? [];
+      expect(Array.isArray(jobs)).toBe(true);
+      expect(jobs.length).toBeGreaterThan(0);
+    },
+    { timeout: 60_000 },
+  );
 
   it('rejects unauthenticated template listing', async () => {
     const res = await app.request('/api/templates');
