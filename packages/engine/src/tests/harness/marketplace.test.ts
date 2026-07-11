@@ -290,4 +290,25 @@ d('extension marketplace routes (in-process)', () => {
     const res = await app.request('/api/marketplace/enable-all', post('/enable-all'));
     expect(res.status).toBeLessThan(600);
   }, 20_000);
+
+  it('enable-all returns a structured payload after hello-ext install', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const res = await app.request('/api/marketplace/enable-all', post('/enable-all'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enabled: number; failed: number; success: boolean };
+    expect(typeof body.enabled).toBe('number');
+    expect(typeof body.failed).toBe('number');
+    expect(typeof body.success).toBe('boolean');
+  }, 30_000);
+
+  it('re-enables hello-ext via enable after disable', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/disable`, post(`/${HELLO_EXT}/disable`));
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/enable`,
+      post(`/${HELLO_EXT}/enable`),
+    );
+    expect(res.status).toBeLessThan(600);
+  }, 30_000);
 });
