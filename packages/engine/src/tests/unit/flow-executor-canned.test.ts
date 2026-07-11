@@ -133,6 +133,72 @@ describe('executeFlow (CannedDb)', () => {
       expect.arrayContaining([expect.stringContaining('hello from flow')]),
     );
   });
+
+  it('chains run_script steps via prevOutput', async () => {
+    const db = dbForFlow(
+      [
+        {
+          id: 's1',
+          name: 'inc',
+          type: 'run_script',
+          step_order: 1,
+          config: { code: 'return { n: input.base + 1 };', input: { base: 4 } },
+        },
+        {
+          id: 's2',
+          name: 'double',
+          type: 'run_script',
+          step_order: 2,
+          config: { code: 'return { total: input.n * 2 };' },
+        },
+      ],
+      'run-chain',
+    );
+
+    const result = await executeFlow(db.kysely as unknown as Database, 'flow-chain', {});
+    expect(result.status).toBe('success');
+    expect(result.output.total).toBe(10);
+  });
+
+  it('ai_decision interpolates stepResults from earlier steps', async () => {
+    serviceRegistry.registerAs('test', 'ai.providers', {
+      getDefault: () => ({
+        chat: async () => ({ content: 'approve' }),
+      }),
+    });
+    try {
+      const db = dbForFlow(
+        [
+          {
+            id: 'pick',
+            name: 'pick',
+            type: 'run_script',
+            step_order: 1,
+            config: { code: 'return { mood: "happy" };' },
+          },
+          {
+            id: 'decide',
+            name: 'decide',
+            type: 'ai_decision',
+            step_order: 2,
+            config: {
+              prompt: 'Mood is {{stepResults.pick.mood}}',
+              options: ['approve', 'reject'],
+              fallback: 'reject',
+            },
+          },
+        ],
+        'run-ai',
+      );
+
+      const result = await executeFlow(db.kysely as unknown as Database, 'flow-ai', {});
+      expect(result.status).toBe('success');
+      expect(result.output.decision).toBe('approve');
+      expect(result.output.matched).toBe(true);
+    } finally {
+      serviceRegistry.unregisterAll('test');
+    }
+  });
 });
 
 describe('executeStep — CannedDb branches', () => {

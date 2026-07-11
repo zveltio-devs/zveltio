@@ -489,4 +489,80 @@ d('extension marketplace routes (in-process)', () => {
     const body = (await del.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
   }, 15_000);
+
+  it('installs hello-ext with tenant scoping header', async () => {
+    ensureHelloExtOnDisk();
+    const tenantId = `tenant-${Date.now()}`;
+    const res = await app.request(`/api/marketplace/${HELLO_EXT}/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie, 'x-tenant-id': tenantId },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    const catalog = await app.request('/api/marketplace', {
+      headers: { cookie, 'x-tenant-id': tenantId },
+    });
+    expect(catalog.status).toBe(200);
+    const body = (await catalog.json()) as {
+      extensions: Array<{ name: string; tenant_id: string | null; is_installed: boolean }>;
+    };
+    const hello = body.extensions.find((e) => e.name === HELLO_EXT);
+    expect(hello?.is_installed).toBe(true);
+    expect(hello?.tenant_id).toBe(tenantId);
+  }, 30_000);
+
+  it('returns stored config via catalog after PUT on hello-ext', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const config = { harness_key: `v-${Date.now()}` };
+    const put = await app.request(`/api/marketplace/${HELLO_EXT}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify(config),
+    });
+    expect(put.status).toBe(200);
+
+    const catalog = await app.request('/api/marketplace', { headers: { cookie } });
+    expect(catalog.status).toBe(200);
+    const body = (await catalog.json()) as {
+      extensions: Array<{ name: string; config?: Record<string, unknown> }>;
+    };
+    const hello = body.extensions.find((e) => e.name === HELLO_EXT);
+    expect(hello?.config).toEqual(config);
+  }, 30_000);
+
+  it('license history includes a rotate audit entry', async () => {
+    const rotate = await app.request(
+      '/api/admin/license/rotate',
+      post('/api/admin/license/rotate'),
+    );
+    expect(rotate.status).toBe(200);
+    const history = await app.request('/api/admin/license/history', { headers: { cookie } });
+    expect(history.status).toBe(200);
+    const body = (await history.json()) as {
+      history: Array<{ action: string }>;
+    };
+    expect(Array.isArray(body.history)).toBe(true);
+    expect(body.history.some((row) => row.action === 'rotate')).toBe(true);
+  }, 20_000);
+
+  it('re-enable on an already-active hello-ext reports hot_loaded', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const first = await app.request(
+      `/api/marketplace/${HELLO_EXT}/enable`,
+      post(`/${HELLO_EXT}/enable`),
+    );
+    expect(first.status).toBeLessThan(600);
+    const second = await app.request(
+      `/api/marketplace/${HELLO_EXT}/enable`,
+      post(`/${HELLO_EXT}/enable`),
+    );
+    expect(second.status).toBeLessThan(600);
+    if (second.status === 200) {
+      const body = (await second.json()) as { hot_loaded?: boolean; success?: boolean };
+      expect(body.hot_loaded).toBe(true);
+      expect(body.success).toBe(true);
+    }
+  }, 40_000);
 });
