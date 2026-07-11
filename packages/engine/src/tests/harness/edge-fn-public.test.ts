@@ -59,8 +59,8 @@ d('public edge function invoke (in-process)', () => {
       body: JSON.stringify({ ping: true }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { body?: { echo?: boolean } };
-    expect(body.body?.echo).toBe(true);
+    const body = (await res.json()) as { echo?: boolean };
+    expect(body.echo).toBe(true);
   });
 
   it('rejects unauthenticated invoke', async () => {

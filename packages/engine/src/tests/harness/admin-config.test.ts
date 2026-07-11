@@ -41,15 +41,14 @@ d('admin config routes (in-process)', () => {
     expect((body.rate_limits ?? []).length).toBeGreaterThan(0);
   });
 
-  it('PATCH /api/admin/rate-limits/:keyPrefix updates a tier', async () => {
-    const res = await app.request('/api/admin/rate-limits/api', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ description: 'Harness tier update' }),
+  it('POST /api/admin/rate-limits/reset restores default tiers', async () => {
+    const res = await app.request('/api/admin/rate-limits/reset', {
+      method: 'POST',
+      headers: { cookie },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { rate_limit: { key_prefix: string } };
-    expect(body.rate_limit.key_prefix).toBe('api');
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
   });
 
   it('GET /api/admin/column-permissions lists column-level rules', async () => {
