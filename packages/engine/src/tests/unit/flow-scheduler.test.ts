@@ -97,6 +97,28 @@ describe('flowScheduler._tick', () => {
     await flowScheduler._tick();
     expect(db.executed(FLOWS_UPDATE).length).toBe(0);
   });
+
+  it('polls zv_flows and dispatches a due cron flow', async () => {
+    let executedId = '';
+    _internalForTests.setExecuteFlowForTests(async (_db, flowId) => {
+      executedId = flowId;
+      return { status: 'success', runId: 'run-1', output: {} };
+    });
+    db.when(FLOWS_SELECT, [
+      {
+        id: 'flow-cron',
+        name: 'Nightly',
+        trigger_type: 'cron',
+        trigger_config: { interval_seconds: 300 },
+        created_by: 'u1',
+      },
+    ]);
+    await injectDb(db);
+    await flowScheduler._tick();
+    await new Promise((r) => setTimeout(r, 25));
+    expect(executedId).toBe('flow-cron');
+    expect(db.executed(FLOWS_UPDATE).length).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe('flowScheduler._executeScheduledFlow (ai_task)', () => {

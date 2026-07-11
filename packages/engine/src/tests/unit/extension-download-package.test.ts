@@ -9,8 +9,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { exportTrustedKeyEntry, generateKeypair, signBundle } from '@zveltio/sdk/publish';
 import { downloadExtension } from '../../lib/extensions/extension-download.js';
-import { SignatureMissingError } from '../../lib/security/index.js';
+import { SignatureInvalidError, SignatureMissingError } from '../../lib/security/index.js';
 
 const ENTRY = {
   name: 'pkg-test',
@@ -33,6 +34,7 @@ let originalFetch: typeof fetch;
 let originalSpawn: typeof Bun.spawn;
 let destBase: string;
 let savedRequireSig: string | undefined;
+let savedRegistryKeys: string | undefined;
 
 function mockProc(exitCode: number, stderrText = '') {
   return {
@@ -76,6 +78,7 @@ beforeEach(() => {
   originalSpawn = Bun.spawn;
   destBase = mkdtempSync(join(tmpdir(), 'zveltio-dl-'));
   savedRequireSig = process.env.REQUIRE_EXTENSION_SIGNATURES;
+  savedRegistryKeys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
   delete process.env.REQUIRE_EXTENSION_SIGNATURES;
 
   Bun.spawn = ((cmd: string[], opts?: { cwd?: string }) => {
@@ -107,6 +110,8 @@ afterEach(() => {
   Bun.spawn = originalSpawn;
   if (savedRequireSig === undefined) delete process.env.REQUIRE_EXTENSION_SIGNATURES;
   else process.env.REQUIRE_EXTENSION_SIGNATURES = savedRequireSig;
+  if (savedRegistryKeys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
+  else process.env.REGISTRY_PUBLIC_KEYS_JSON = savedRegistryKeys;
   try {
     rmSync(destBase, { recursive: true, force: true });
   } catch {
@@ -204,5 +209,70 @@ describe('downloadExtension', () => {
   it('throws when the registry download returns a server error', async () => {
     stubDownloadResponse(Buffer.alloc(0), { ok: false, status: 502, text: 'bad gateway' });
     await expect(downloadExtension(ENTRY, destBase)).rejects.toThrow(/Registry returned 502/i);
+  });
+
+  it('throws SignatureInvalidError when a present signature does not match the archive', async () => {
+    const kp = await generateKeypair('dl-invalid-sig');
+    const trusted = await exportTrustedKeyEntry(kp.keyId, kp.publicJwk);
+    process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([trusted]);
+    const signedArchive = Buffer.from(ZIP_MAGIC);
+    const sig = await signBundle(new Uint8Array(signedArchive), kp);
+    const tamperedArchive = Buffer.concat([ZIP_MAGIC, Buffer.from('extra')]);
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('.sig')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => sig,
+          text: async () => JSON.stringify(sig),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        arrayBuffer: async () =>
+          tamperedArchive.buffer.slice(
+            tamperedArchive.byteOffset,
+            tamperedArchive.byteOffset + tamperedArchive.byteLength,
+          ),
+        text: async () => '',
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureInvalidError);
+  });
+
+  it('extracts when the archive signature verifies', async () => {
+    const kp = await generateKeypair('dl-valid-sig');
+    const trusted = await exportTrustedKeyEntry(kp.keyId, kp.publicJwk);
+    process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([trusted]);
+    const archive = Buffer.from(ZIP_MAGIC);
+    const sig = await signBundle(new Uint8Array(archive), kp);
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('.sig')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => sig,
+          text: async () => JSON.stringify(sig),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        arrayBuffer: async () =>
+          archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength),
+        text: async () => '',
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    await downloadExtension(ENTRY, destBase);
+    expect(existsSync(join(destBase, ENTRY.name, 'manifest.json'))).toBe(true);
   });
 });
