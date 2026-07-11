@@ -320,6 +320,24 @@ describe('executeStep — CannedDb branches', () => {
     expect(output.count).toBe(0);
   });
 
+  it('send_notification delivers to a single user_id', async () => {
+    const db = new CannedDb();
+    db.when(/INSERT INTO "zv_notifications"/i, []);
+    const { output } = await executeStep(
+      db.kysely as unknown as Database,
+      {
+        type: 'send_notification',
+        config: { user_id: 'user-42', title: 'Ping', message: 'Hi' },
+      },
+      {},
+      {},
+    );
+    expect(output.sent).toBe(true);
+    expect(output.sent_to).toBe('user');
+    expect(output.user_id).toBe('user-42');
+    expect(db.executed(/INSERT INTO "zv_notifications"/i).length).toBe(1);
+  });
+
   it('send_email rejects invalid recipient addresses', async () => {
     const { output } = await executeStep(
       new CannedDb().kysely as unknown as Database,

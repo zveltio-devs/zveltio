@@ -141,6 +141,26 @@ d('extension marketplace routes (in-process)', () => {
     expect(body.extensions.length).toBeGreaterThan(0);
   }, 20_000);
 
+  it('catalog entries expose marketplace merge fields', async () => {
+    const res = await app.request('/api/marketplace', {
+      headers: { cookie, 'x-tenant-id': 'default' },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      extensions: Array<Record<string, unknown>>;
+    };
+    const first = body.extensions[0]!;
+    expect(typeof first.name).toBe('string');
+    expect(Array.isArray(first.dependencies)).toBe(true);
+    expect(Array.isArray(first.missing_dependencies)).toBe(true);
+    expect(typeof first.is_installed).toBe('boolean');
+    expect(typeof first.is_enabled).toBe('boolean');
+    expect(typeof first.is_running).toBe('boolean');
+    expect(typeof first.files_on_disk).toBe('boolean');
+    expect(typeof first.has_license).toBe('boolean');
+    expect('needs_restart' in first).toBe(true);
+  }, 20_000);
+
   it('lists the catalog (GET /api/marketplace) — tolerates registry being offline', async () => {
     const res = await app.request('/api/marketplace', { headers: { cookie } });
     // Registry may be unreachable → the handler either returns a graceful
