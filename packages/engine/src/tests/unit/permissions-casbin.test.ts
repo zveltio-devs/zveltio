@@ -166,6 +166,20 @@ describe('adapter write-through', () => {
     }
   });
 
+  it('removeFilteredPolicy deletes rows matching partial field values', async () => {
+    const canned = seedDb();
+    await initPermissions(canned.kysely as unknown as Database);
+    try {
+      const e = await getEnforcer();
+      await e.removeFilteredPolicy(0, 'editor');
+      const del = canned.executed(/DELETE FROM zvd_permissions/i)[0]!;
+      expect(del.parameters).toContain('p');
+      expect(del.parameters).toContain('editor');
+    } finally {
+      await initPermissions(seedDb().kysely as unknown as Database);
+    }
+  });
+
   it('savePolicy TRUNCATEs and re-inserts inside one transaction', async () => {
     const canned = seedDb();
     await initPermissions(canned.kysely as unknown as Database);
