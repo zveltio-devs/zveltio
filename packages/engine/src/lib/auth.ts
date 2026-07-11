@@ -22,7 +22,7 @@ function isLegacyScryptDeadlinePassed(): boolean {
   const deadline = process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE;
   if (!deadline) return false;
   const d = new Date(deadline);
-  if (isNaN(d.getTime())) return false;
+  if (Number.isNaN(d.getTime())) return false;
   return Date.now() > d.getTime();
 }
 
@@ -93,6 +93,7 @@ async function verifyPassword({
 /** Patched getSession wrapper — exported for unit tests. */
 // biome-ignore lint/suspicious/noExplicitAny: test seam mirrors production patch
 export function wrapGetSession<T extends (...args: any[]) => Promise<any>>(orig: T): T {
+  // biome-ignore lint/suspicious/noExplicitAny: mirrors production getSession patch arity
   return (async (...args: any[]) => {
     try {
       return await orig(...args);
@@ -296,7 +297,7 @@ export async function initAuth(db: Database) {
 
   // Optional cache secondary storage for sessions
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  let secondaryStorage: any = undefined;
+  let secondaryStorage: any;
   if (process.env.VALKEY_URL) {
     const { createCacheSecondaryStorage } = await import('./runtime/index.js');
     secondaryStorage = await createCacheSecondaryStorage();
