@@ -111,6 +111,28 @@ describe('executeFlow (CannedDb)', () => {
     expect(result.runId).toBe('run-4');
     expect(result.error).toMatch(/steps table missing/);
   });
+
+  it('aggregates run_script console logs into output._step_logs', async () => {
+    const db = dbForFlow(
+      [
+        {
+          id: 'script-1',
+          name: 'script',
+          type: 'run_script',
+          step_order: 1,
+          config: { code: 'console.log("hello from flow"); return { done: true };' },
+        },
+      ],
+      'run-logs',
+    );
+
+    const result = await executeFlow(db.kysely as unknown as Database, 'flow-logs', {});
+    expect(result.status).toBe('success');
+    expect(result.output.done).toBe(true);
+    expect(result.output._step_logs?.['script-1']).toEqual(
+      expect.arrayContaining([expect.stringContaining('hello from flow')]),
+    );
+  });
 });
 
 describe('executeStep — CannedDb branches', () => {
