@@ -7,7 +7,8 @@
  * in #79 — runFunction 500'd on every call, so runScript never returned output.)
  */
 
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
+import * as sandbox from '../../lib/edge-functions/sandbox.js';
 import { runScript } from '../../lib/script-runner.js';
 
 describe('runScript', () => {
@@ -43,5 +44,22 @@ describe('runScript', () => {
   it('blocks dangerous globals inside the script (sandboxed)', async () => {
     const res = await runScript('return typeof process + "," + typeof Bun;');
     expect(res.output).toBe('undefined,undefined');
+  });
+
+  it('treats a non-JSON worker body as raw output', async () => {
+    const spy = spyOn(sandbox, 'runFunction').mockResolvedValue({
+      status: 200,
+      body: 'plain-text-output',
+      logs: ['worker-log'],
+      duration_ms: 1,
+    });
+    try {
+      const res = await runScript('return 1;');
+      expect(res.error).toBeUndefined();
+      expect(res.output).toBe('plain-text-output');
+      expect(res.logs).toContain('worker-log');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
