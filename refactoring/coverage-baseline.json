@@ -9,9 +9,9 @@
   },
   "gated": ["lib"],
   "measured": {
-    "lib": 79.5,
+    "lib": 79.6,
     "other": 54.7,
     "routes": 35.7,
-    "src-other": 47.0
+    "src-other": 47.3
   }
 }
