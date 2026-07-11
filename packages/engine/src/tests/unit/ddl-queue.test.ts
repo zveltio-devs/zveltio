@@ -145,7 +145,9 @@ describe('runCreateRelation (m2o / m2m DDL emitter)', () => {
       on_delete: 'CASCADE',
       on_update: 'RESTRICT',
     });
-    const alter = db.executed(/ALTER TABLE zvd_orders ADD COLUMN IF NOT EXISTS "customer_id" UUID/)[0]!;
+    const alter = db.executed(
+      /ALTER TABLE zvd_orders ADD COLUMN IF NOT EXISTS "customer_id" UUID/,
+    )[0]!;
     expect(alter.sql).toContain('ON DELETE CASCADE ON UPDATE RESTRICT');
   });
 
