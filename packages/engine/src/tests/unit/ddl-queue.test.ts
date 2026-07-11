@@ -135,6 +135,22 @@ describe('guards when the queue is not running', () => {
 });
 
 describe('runCreateRelation (m2o / m2m DDL emitter)', () => {
+  it('creates the FK ALTER for a valid m2o payload with custom ON DELETE/UPDATE', async () => {
+    const db = new CannedDb();
+    await runCreateRelation(asDb(db), {
+      type: 'm2o',
+      source_collection: 'orders',
+      target_collection: 'customers',
+      source_field: 'customer_id',
+      on_delete: 'CASCADE',
+      on_update: 'RESTRICT',
+    });
+    const alter = db.executed(
+      /ALTER TABLE zvd_orders ADD COLUMN IF NOT EXISTS "customer_id" UUID/,
+    )[0]!;
+    expect(alter.sql).toContain('ON DELETE CASCADE ON UPDATE RESTRICT');
+  });
+
   it('emits the FK ALTER for a valid m2o payload with default actions', async () => {
     const db = new CannedDb();
     await runCreateRelation(asDb(db), {
@@ -234,6 +250,12 @@ describe('skipForByod', () => {
     const byod = new CannedDb();
     byod.when(/select "is_managed" from "zvd_collections"/, [{ is_managed: false }]);
     expect(await skipForByod(asDb(byod), { name: 'external' }, 'drop_collection')).toBe(true);
+  });
+
+  it('returns false when the collection lookup fails', async () => {
+    const db = new CannedDb();
+    db.fail(/select "is_managed" from "zvd_collections"/i, new Error('relation missing'));
+    expect(await skipForByod(asDb(db), { collection: 'ghost' }, 'add_field')).toBe(false);
   });
 
   it('returns false when the payload names no collection', async () => {
