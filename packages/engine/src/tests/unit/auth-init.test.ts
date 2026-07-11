@@ -30,7 +30,8 @@ describe('initAuth', () => {
 
   it('initializes the auth singleton usable via getAuth()', async () => {
     const auth = await initAuth(new CannedDb().kysely as unknown as Database);
-    expect(auth).toBe(getAuth());
-    expect(auth.api).toBeDefined();
+    expect(auth).toBeTruthy();
+    expect(getAuth()).toBe(auth);
+    expect(getAuth().api).toBeDefined();
   });
 });
