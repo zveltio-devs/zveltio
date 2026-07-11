@@ -67,10 +67,12 @@ d('templates routes (in-process)', () => {
         body: JSON.stringify({ prefix: PREFIX, skip_existing: true }),
       });
       expect([200, 202]).toContain(res.status);
-      const body = (await res.json()) as { jobs?: unknown[]; job_ids?: string[] };
-      const jobs = body.jobs ?? body.job_ids ?? [];
-      expect(Array.isArray(jobs)).toBe(true);
-      expect(jobs.length).toBeGreaterThan(0);
+      const body = (await res.json()) as {
+        installed?: Array<{ job_id: string | null; status: string }>;
+      };
+      const installed = body.installed ?? [];
+      expect(installed.length).toBeGreaterThan(0);
+      expect(installed.some((row) => row.status === 'queued')).toBe(true);
     },
     { timeout: 60_000 },
   );
