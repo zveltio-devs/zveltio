@@ -89,6 +89,21 @@ describe('createCollection — relation + extension branches', () => {
     }
   });
 
+  it('skips m2m when target collection name is unsafe', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const db = setup(['zvd_tags']);
+      await DDLManager.createCollection(asDb(db), {
+        name: 'notes',
+        fields: [TEXT, { name: 'tags', type: 'm2m', options: { related_collection: 'Bad-Name' } }],
+      } as never);
+      expect(db.executed(/zvd_jnc_notes/)).toHaveLength(0);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('Invalid m2m target'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('adds reference-type FK columns like m2o', async () => {
     const db = setup(['zvd_users']);
     await DDLManager.createCollection(asDb(db), {
