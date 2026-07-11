@@ -5,20 +5,24 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { getAuth, initAuth } from '../../lib/auth.js';
+import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 let savedSecret: string | undefined;
 let savedCors: string | undefined;
 let savedNodeEnv: string | undefined;
+let savedValkey: string | undefined;
 
 beforeEach(() => {
   savedSecret = process.env.BETTER_AUTH_SECRET;
   savedCors = process.env.CORS_ORIGINS;
   savedNodeEnv = process.env.NODE_ENV;
+  savedValkey = process.env.VALKEY_URL;
   process.env.BETTER_AUTH_SECRET = 'unit-test-secret-minimum-32-characters-xx';
   delete process.env.VALKEY_URL;
   delete process.env.CORS_ORIGINS;
   delete process.env.NODE_ENV;
+  _setCacheForTests(null);
 });
 
 afterEach(() => {
@@ -28,6 +32,9 @@ afterEach(() => {
   else process.env.CORS_ORIGINS = savedCors;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = savedNodeEnv;
+  if (savedValkey === undefined) delete process.env.VALKEY_URL;
+  else process.env.VALKEY_URL = savedValkey;
+  _setCacheForTests(null);
 });
 
 describe('initAuth', () => {
@@ -62,5 +69,29 @@ describe('initAuth', () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it('initializes with Valkey secondary storage when cache is injected', async () => {
+    process.env.VALKEY_URL = 'redis://localhost:6379';
+    _setCacheForTests({
+      get: async () => null,
+      setex: async () => 'OK',
+      set: async () => 'OK',
+      del: async () => 1,
+      pipeline: () => ({
+        get() {
+          return this;
+        },
+        setex() {
+          return this;
+        },
+        del() {
+          return this;
+        },
+        exec: async () => [],
+      }),
+    } as never);
+    await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
+    expect(getAuth().api).toBeDefined();
   });
 });
