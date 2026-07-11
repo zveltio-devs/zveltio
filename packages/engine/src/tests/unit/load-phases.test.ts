@@ -164,6 +164,26 @@ describe('resolveManifest', () => {
     const r = await resolveManifest('dep-ext', dir, canned.kysely as unknown as Database);
     expect(r.ok).toBe(true);
   });
+
+  it('embeds studio page schemas into manifestMeta', async () => {
+    const schema = { type: 'object', properties: { title: { type: 'string' } } };
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({
+        name: 'studio-ext',
+        version: '1.0.0',
+        displayName: 'Studio Ext',
+        studio: { pages: [{ path: '/main', label: 'Main', schema: 'page.json' }] },
+      }),
+      'studio/page.json': JSON.stringify(schema),
+    });
+    const r = await resolveManifest('studio-ext', dir, db);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.manifestMeta?.displayName).toBe('Studio Ext');
+      expect(r.value.manifestMeta?.studio?.pages?.[0]?.render).toBe('schema');
+      expect(r.value.manifestMeta?.studio?.pages?.[0]?.schema).toEqual(schema);
+    }
+  });
 });
 
 describe('enforcePublisherTier — fast paths', () => {
