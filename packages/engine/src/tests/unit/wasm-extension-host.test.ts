@@ -137,7 +137,7 @@ describe('S5-05 WASM host — third-party policy guards', () => {
     const imports = _internalForTests.buildHostImports('unknown-ext', memory, {
       extName: 'unknown-ext',
     });
-    const z = imports.zveltio as Record<string, (ptr: number, len: number) => number>;
+    const z = imports.zveltio as Record<string, (...args: number[]) => number>;
     const { ptr, len } = writeUtf8(memory, 'http://example.com/hook');
     expect(() => z.fetch_begin(ptr, len, 0)).toThrow(/denied capability "fetch.http"/i);
   });

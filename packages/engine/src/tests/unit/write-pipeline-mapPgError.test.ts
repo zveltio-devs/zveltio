@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import type { Context } from 'hono';
 import { handlePgErrors, mapPgError } from '../../lib/data/write-pipeline.js';
+import type { Context } from 'hono';
 
 describe('mapPgError', () => {
   it('returns null for falsy input', () => {
@@ -70,9 +70,8 @@ describe('mapPgError', () => {
 
 describe('handlePgErrors', () => {
   const ctx = {
-    json: (body: unknown, status: number) =>
-      new Response(JSON.stringify(body), { status }) as ReturnType<Context['json']>,
-  } as Context;
+    json: (body: unknown, status: number) => new Response(JSON.stringify(body), { status }),
+  } as unknown as Context;
 
   it('returns mapped JSON for known Postgres errors', async () => {
     const out = await handlePgErrors(ctx, async () => {
