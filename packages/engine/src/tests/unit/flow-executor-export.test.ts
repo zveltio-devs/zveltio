@@ -19,7 +19,9 @@ mock.module('../../lib/export-manager.js', () => ({
 
 mock.module('../../lib/email.js', () => ({
   sendEmailWithAttachment: emailAttachMock,
-  sendEmailDirectly: async () => {},
+  sendEmailDirectly: async () => {
+    throw new Error('Email service not configured');
+  },
 }));
 
 const { _internalForTests } = await import('../../lib/flows/flow-executor.js');
