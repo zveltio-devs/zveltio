@@ -101,7 +101,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
           timeout_ms: body.timeout_ms,
           env_vars: JSON.stringify(body.env_vars),
           is_active: body.is_active,
-          created_by: user.id,
+          // Better-Auth user ids are TEXT; zv_edge_functions.created_by is UUID — omit.
         })
         .returningAll()
         .executeTakeFirst();
