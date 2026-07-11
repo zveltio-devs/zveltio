@@ -91,10 +91,8 @@ async function verifyPassword({
 }
 
 /** Patched getSession wrapper — exported for unit tests. */
-// biome-ignore lint/suspicious/noExplicitAny: test seam mirrors production patch
-export function wrapGetSession<T extends (...args: any[]) => Promise<any>>(orig: T): T {
-  // biome-ignore lint/suspicious/noExplicitAny: mirrors production getSession patch arity
-  return (async (...args: any[]) => {
+export function wrapGetSession<T extends (...args: never[]) => Promise<unknown>>(orig: T): T {
+  return (async (...args: Parameters<T>) => {
     try {
       return await orig(...args);
     } catch (err) {
