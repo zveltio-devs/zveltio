@@ -42,7 +42,7 @@ d('media folders (in-process)', () => {
     const res = await app.request('/api/media/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ name: FOLDER, description: 'harness media folder' }),
+      body: JSON.stringify({ name: FOLDER }),
     });
     expect([200, 201]).toContain(res.status);
     const body = (await res.json()) as { folder: { id: string; name: string } };
