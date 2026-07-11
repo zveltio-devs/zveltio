@@ -411,4 +411,49 @@ d('extension marketplace routes (in-process)', () => {
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
   }, 30_000);
+
+  it('install reports downloaded=false when hello-ext is already on disk', async () => {
+    ensureHelloExtOnDisk();
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/install`,
+      post(`/${HELLO_EXT}/install`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { downloaded: boolean; files_on_disk: boolean };
+    expect(body.files_on_disk).toBe(true);
+    expect(body.downloaded).toBe(false);
+  }, 20_000);
+
+  it('enable-all returns per-extension results when extensions are installed', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const res = await app.request('/api/marketplace/enable-all', post('/enable-all'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      results: Array<{ name: string; ok: boolean }>;
+      enabled: number;
+      failed: number;
+    };
+    expect(Array.isArray(body.results)).toBe(true);
+    expect(body.results.length).toBeGreaterThan(0);
+    expect(typeof body.enabled).toBe('number');
+    expect(typeof body.failed).toBe('number');
+  }, 40_000);
+
+  it('DELETE license clears a stored key after stubbed verify', async () => {
+    stubLicenseVerifyOk();
+    const name = `harness-lic-del-${Date.now()}`;
+    const store = await app.request(
+      `/api/marketplace/license/${name}`,
+      post(`/api/marketplace/license/${name}`, { license_key: 'del-me' }),
+    );
+    expect(store.status).toBe(200);
+    const del = await app.request(`/api/marketplace/license/${name}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(del.status).toBe(200);
+    const body = (await del.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+  }, 15_000);
 });
