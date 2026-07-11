@@ -382,4 +382,33 @@ d('extension marketplace routes (in-process)', () => {
     }
     ensureHelloExtOnDisk();
   }, 40_000);
+
+  it('enable on a catalog ghost returns 404', async () => {
+    const res = await app.request(`/api/marketplace/${GHOST}/enable`, post(`/${GHOST}/enable`));
+    expect(res.status).toBe(404);
+  }, 20_000);
+
+  it('catalog includes hello-ext with runtime merge fields', async () => {
+    ensureHelloExtOnDisk();
+    const res = await app.request('/api/marketplace', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { extensions: Array<Record<string, unknown>> };
+    const hello = body.extensions.find((e) => e.name === HELLO_EXT);
+    expect(hello).toBeDefined();
+    expect(typeof hello!.files_on_disk).toBe('boolean');
+    expect(typeof hello!.is_running).toBe('boolean');
+    expect(typeof hello!.has_license).toBe('boolean');
+  }, 20_000);
+
+  it('disable on an installed extension returns success JSON', async () => {
+    ensureHelloExtOnDisk();
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/disable`,
+      post(`/${HELLO_EXT}/disable`),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean };
+    expect(body.success).toBe(true);
+  }, 30_000);
 });

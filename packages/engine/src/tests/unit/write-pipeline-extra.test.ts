@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { _resetForTests } from '../../lib/runtime/realtime-bus.js';
-import { afterWrite, processInput, runAtomic } from '../../lib/data/write-pipeline.js';
+import { afterWrite, processInput, runAtomic, isUuid } from '../../lib/data/write-pipeline.js';
 import * as wsModule from '../../routes/ws.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -52,6 +52,14 @@ describe('processInput', () => {
     const { errors, processed } = await processInput({ a: 1 }, null, false);
     expect(errors).toEqual([]);
     expect(processed).toEqual({ a: 1 });
+  });
+});
+
+describe('isUuid', () => {
+  it('accepts RFC-4122 UUIDs and rejects garbage', () => {
+    expect(isUuid('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+    expect(isUuid('not-a-uuid')).toBe(false);
+    expect(isUuid('')).toBe(false);
   });
 });
 
@@ -105,6 +113,35 @@ describe('afterWrite', () => {
       expect(payloads).toHaveLength(1);
       const rev = db.executed(/zv_revisions/i)[0]!;
       expect(rev.parameters.some((p) => p === 'delete')).toBe(true);
+    } finally {
+      unsub();
+      wsSpy.mockRestore();
+    }
+  });
+
+  it('maps update actions to update broadcasts and record.updated events', async () => {
+    const db = new CannedDb();
+    db.when(/insert into "zv_revisions"/i, []);
+    const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
+    const payloads: unknown[] = [];
+    const unsub = engineEvents.on('record.updated', (p) => payloads.push(p));
+    try {
+      await afterWrite(db.kysely as unknown as Database, {
+        collection: 'contacts',
+        recordId: 'rec-3',
+        action: 'update',
+        data: { id: 'rec-3', name: 'New' },
+        delta: { name: 'New' },
+        userId: 'user-3',
+        tenantId: 'tenant-b',
+      });
+      expect(wsSpy).toHaveBeenCalledWith(
+        'contacts',
+        'update',
+        { id: 'rec-3', name: 'New' },
+        'tenant-b',
+      );
+      expect(payloads).toHaveLength(1);
     } finally {
       unsub();
       wsSpy.mockRestore();
