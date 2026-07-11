@@ -56,4 +56,31 @@ describe('DDLManager.syncFieldsFromDB', () => {
     const count = await DDLManager.syncFieldsFromDB(asDb(db), 'missing');
     expect(count).toBe(0);
   });
+
+  it('returns 0 when metadata is empty but the physical table is missing', async () => {
+    const db = new CannedDb();
+    db.when(/select \* from "zvd_collections" where "name" = /, [
+      { name: 'orphan', fields: JSON.stringify([]) },
+    ]);
+    db.when(/SELECT EXISTS[\s\S]*pg_tables/i, [{ exists: false }]);
+    const count = await DDLManager.syncFieldsFromDB(asDb(db), 'orphan');
+    expect(count).toBe(0);
+    expect(db.executed(/information_schema\.columns/)).toHaveLength(0);
+  });
+
+  it('returns 0 when introspection yields only system columns', async () => {
+    const db = new CannedDb();
+    db.when(/select \* from "zvd_collections" where "name" = /, [
+      { name: 'orphan', fields: JSON.stringify([]) },
+    ]);
+    db.when(/SELECT EXISTS[\s\S]*pg_tables/i, [{ exists: true }]);
+    db.when(/FROM information_schema\.columns/i, [
+      { column_name: 'id', data_type: 'uuid', udt_name: 'uuid', is_nullable: 'NO' },
+      { column_name: 'tenant_id', data_type: 'uuid', udt_name: 'uuid', is_nullable: 'NO' },
+    ]);
+    db.when(/FROM information_schema\.table_constraints tc/i, []);
+    const count = await DDLManager.syncFieldsFromDB(asDb(db), 'orphan');
+    expect(count).toBe(0);
+    expect(db.executed(/update "zvd_collections" set/)).toHaveLength(0);
+  });
 });
