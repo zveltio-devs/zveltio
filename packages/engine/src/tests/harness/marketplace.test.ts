@@ -221,6 +221,35 @@ d('extension marketplace routes (in-process)', () => {
     expect(res.status).toBeLessThan(600);
   }, 20_000);
 
+  it('uninstalls hello-ext after install (POST /:name/uninstall)', async () => {
+    ensureHelloExtOnDisk();
+    const res = await app.request(
+      `/api/marketplace/${HELLO_EXT}/uninstall`,
+      post(`/${HELLO_EXT}/uninstall`),
+    );
+    expect(res.status).toBeLessThan(600);
+  }, 20_000);
+
+  it('rejects a license when registry verify returns invalid (stubbed fetch)', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/licenses/verify')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ valid: false, reason: 'expired' }),
+        } as Response;
+      }
+      return originalFetch(input);
+    }) as typeof fetch;
+    const name = `harness-lic-bad-${Date.now()}`;
+    const res = await app.request(
+      `/api/marketplace/license/${name}`,
+      post(`/api/marketplace/license/${name}`, { license_key: 'bad-key' }),
+    );
+    expect(res.status).toBe(400);
+  }, 15_000);
+
   it('installs an unknown extension (POST /:name/install) — tolerates download failure', async () => {
     const res = await app.request(`/api/marketplace/${GHOST}/install`, post(`/${GHOST}/install`));
     // No such extension in the registry → not-found / gateway error, never a
