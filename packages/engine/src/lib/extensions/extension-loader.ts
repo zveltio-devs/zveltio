@@ -461,4 +461,13 @@ export class ExtensionLoader {
   }
 }
 
+/** Test seam — triggerReload coalescing; never import outside src/tests/. */
+export const _internalForTests = {
+  triggerReload,
+  resetReloadState(): void {
+    _reloadInFlight = null;
+    _reloadQueued = null;
+  },
+};
+
 export const extensionLoader = new ExtensionLoader();
