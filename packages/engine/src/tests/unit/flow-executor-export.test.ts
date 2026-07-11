@@ -12,7 +12,7 @@ const exportMock = mock(async () => ({
 }));
 
 const emailAttachMock = mock(async () => {});
-const sendDirectMock = mock(async () => {
+const sendDirectMock = mock<(opts: unknown) => Promise<void>>(async () => {
   throw new Error('Email service not configured');
 });
 
