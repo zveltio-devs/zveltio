@@ -7,12 +7,8 @@ import type { Database } from '../../db/index.js';
 import { _internalForTests } from '../../lib/auth.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-const {
-  hashPassword,
-  verifyPassword,
-  setAuthDbForTests,
-  isLegacyScryptDeadlinePassed,
-} = _internalForTests;
+const { hashPassword, verifyPassword, setAuthDbForTests, isLegacyScryptDeadlinePassed } =
+  _internalForTests;
 
 function legacyScryptHash(keyHex = 'a'.repeat(128)): string {
   return `testsalt:${keyHex}`;
@@ -117,9 +113,9 @@ describe('verifyPassword (legacy scrypt)', () => {
     try {
       const hash = legacyScryptHash();
       expect(await verifyPassword({ hash, password: 'old' })).toBe(false);
-      expect(
-        warnSpy.mock.calls.some((c) => String(c[0]).includes('Refusing legacy scrypt')),
-      ).toBe(true);
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('Refusing legacy scrypt'))).toBe(
+        true,
+      );
     } finally {
       warnSpy.mockRestore();
     }

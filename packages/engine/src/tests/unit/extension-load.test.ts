@@ -15,8 +15,8 @@ import { CannedDb } from './fixtures/canned-db.js';
 
 /** Minimal valid WASM exporting register(). */
 const WASM_EXPORTS_REGISTER = new Uint8Array([
-  0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 12, 1, 8, 114, 101, 103, 105,
-  115, 116, 101, 114, 0, 0, 10, 4, 1, 2, 0, 11,
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 12, 1, 8, 114, 101, 103, 105, 115,
+  116, 101, 114, 0, 0, 10, 4, 1, 2, 0, 11,
 ]);
 
 // biome-ignore lint/suspicious/noExplicitAny: minimal loader stub

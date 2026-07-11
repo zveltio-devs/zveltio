@@ -79,10 +79,7 @@ async function verifyPassword({
     // Schedule re-hash — fire-and-forget so a DB error doesn't
     // block sign-in. The user is already authenticated.
     rehashLegacyAccountToArgon2id(_authDb, hash, password).catch((err) => {
-      console.warn(
-        '[auth] Re-hash to argon2id failed (will retry on next login):',
-        err.message,
-      );
+      console.warn('[auth] Re-hash to argon2id failed (will retry on next login):', err.message);
     });
     return true;
   } catch {
