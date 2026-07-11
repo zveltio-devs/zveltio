@@ -453,20 +453,10 @@ export async function initAuth(db: Database) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       return await origGetSession(...(args as [any]));
     } catch (err) {
-      const e = err as { name?: string; status?: number; statusCode?: number; message?: string };
-      const isApiError =
-        e?.name === 'APIError' ||
-        e?.name === 'BetterAuthError' ||
-        // Status codes in the 4xx range are expected client-side cookie
-        // problems (missing, malformed, expired). 5xx and unset status
-        // mean something else broke — surface it.
-        (typeof e?.status === 'number' && e.status >= 400 && e.status < 500) ||
-        (typeof e?.statusCode === 'number' && e.statusCode >= 400 && e.statusCode < 500);
-      if (isApiError) {
-        // Expected: bad cookie → no session. Log at debug so the noise
-        // floor stays low.
+      if (isBenignGetSessionError(err)) {
         return null;
       }
+      const e = err as { message?: string };
       // Unexpected: DB outage, code bug, etc. Log loudly AND re-throw so
       // the route's error handler returns the right status code.
       console.error('[getSession] Unexpected error — re-throwing:', e?.message ?? err);
@@ -477,6 +467,17 @@ export async function initAuth(db: Database) {
   // @ts-ignore — specific Auth<Options> not assignable to Auth<BetterAuthOptions>
   _auth = authInstance;
   return _auth;
+}
+
+/** True when getSession should return null (bad/expired cookie) instead of re-throwing. */
+export function isBenignGetSessionError(err: unknown): boolean {
+  const e = err as { name?: string; status?: number; statusCode?: number };
+  return (
+    e?.name === 'APIError' ||
+    e?.name === 'BetterAuthError' ||
+    (typeof e?.status === 'number' && e.status >= 400 && e.status < 500) ||
+    (typeof e?.statusCode === 'number' && e.statusCode >= 400 && e.statusCode < 500)
+  );
 }
 
 export function getAuth() {

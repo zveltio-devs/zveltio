@@ -5,9 +5,10 @@
  * driving the run orchestration and lightweight step branches entirely in-memory.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { executeFlow, _internalForTests } from '../../lib/flows/flow-executor.js';
+import { serviceRegistry } from '../../lib/service-registry.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const { executeStep } = _internalForTests;
@@ -222,4 +223,60 @@ describe('executeStep — CannedDb branches', () => {
     );
     expect(output).toEqual({ prev: 42 });
   });
+
+  it('ai_decision reports missing prompt/options without calling AI', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'ai_decision', config: { prompt: '', options: [], fallback: 'skip' } },
+      {},
+      {},
+    );
+    expect(output.decision).toBe('skip');
+    expect(output.error).toMatch(/Missing prompt/i);
+  });
+
+  it('ai_decision matches provider output to an option', async () => {
+    serviceRegistry.registerAs('test', 'ai.providers', {
+      getDefault: () => ({
+        chat: async () => ({ content: 'YES' }),
+      }),
+    });
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      {
+        type: 'ai_decision',
+        id: 'pick',
+        config: { prompt: 'Choose', options: ['yes', 'no'], fallback: 'no' },
+      },
+      {},
+      {},
+    );
+    expect(output.decision).toBe('yes');
+    expect(output.matched).toBe(true);
+  });
+
+  it('ai_decision uses fallback when the provider chat throws', async () => {
+    serviceRegistry.registerAs('test', 'ai.providers', {
+      getDefault: () => ({
+        chat: async () => {
+          throw new Error('model offline');
+        },
+      }),
+    });
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      {
+        type: 'ai_decision',
+        config: { prompt: 'x', options: ['a'], fallback: 'a' },
+      },
+      {},
+      {},
+    );
+    expect(output.usedFallback).toBe(true);
+    expect(output.decision).toBe('a');
+  });
+});
+
+afterEach(() => {
+  serviceRegistry.unregisterAs('test', 'ai.providers');
 });
