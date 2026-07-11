@@ -212,4 +212,14 @@ describe('executeStep — CannedDb branches', () => {
     );
     expect(output).toEqual({ kept: true });
   });
+
+  it('query_db with no query returns the previous output unchanged', async () => {
+    const { output } = await executeStep(
+      new CannedDb().kysely as unknown as Database,
+      { type: 'query_db', config: {} },
+      { prev: 42 },
+      {},
+    );
+    expect(output).toEqual({ prev: 42 });
+  });
 });
