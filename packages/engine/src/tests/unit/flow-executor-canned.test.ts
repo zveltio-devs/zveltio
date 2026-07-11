@@ -552,6 +552,21 @@ describe('executeStep — CannedDb branches', () => {
     expect(output.error).toMatch(/Invalid collection name/i);
   });
 
+  it('run_script surfaces script errors as step failures', async () => {
+    await expect(
+      executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'run_script',
+          name: 'bad-script',
+          config: { code: 'throw new Error("syntax blowup");' },
+        },
+        {},
+        {},
+      ),
+    ).rejects.toThrow(/Script error in step "bad-script"/);
+  });
+
   it('export_collection without a collection passes through prevOutput', async () => {
     const { output } = await executeStep(
       new CannedDb().kysely as unknown as Database,
