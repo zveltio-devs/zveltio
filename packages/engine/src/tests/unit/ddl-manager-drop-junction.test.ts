@@ -30,13 +30,16 @@ beforeEach(() => {
 describe('dropCollection m2m junction tables', () => {
   it('drops a stored junction_table name before the main table', async () => {
     const db = setup();
-    db.when(/select "source_collection", "target_collection", "junction_table" from "zvd_relations"/i, [
-      {
-        source_collection: 'articles',
-        target_collection: 'tags',
-        junction_table: 'zvd_jnc_articles_tags',
-      },
-    ]);
+    db.when(
+      /select "source_collection", "target_collection", "junction_table" from "zvd_relations"/i,
+      [
+        {
+          source_collection: 'articles',
+          target_collection: 'tags',
+          junction_table: 'zvd_jnc_articles_tags',
+        },
+      ],
+    );
     await DDLManager.dropCollection(asDb(db), 'tags');
     expect(db.executed(/DROP TABLE IF EXISTS "zvd_jnc_articles_tags" CASCADE/)).toHaveLength(1);
     expect(db.executed(/DROP TABLE IF EXISTS zvd_tags CASCADE/)).toHaveLength(1);
@@ -46,17 +49,22 @@ describe('dropCollection m2m junction tables', () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const db = setup();
-      db.when(/select "source_collection", "target_collection", "junction_table" from "zvd_relations"/i, [
-        {
-          source_collection: 'articles',
-          target_collection: 'tags',
-          junction_table: 'zvd_jnc_articles_tags',
-        },
-      ]);
+      db.when(
+        /select "source_collection", "target_collection", "junction_table" from "zvd_relations"/i,
+        [
+          {
+            source_collection: 'articles',
+            target_collection: 'tags',
+            junction_table: 'zvd_jnc_articles_tags',
+          },
+        ],
+      );
       db.fail(/DROP TABLE IF EXISTS "zvd_jnc_articles_tags"/i, new Error('locked'));
       await DDLManager.dropCollection(asDb(db), 'tags');
       expect(
-        warn.mock.calls.some((c) => String(c[0]).includes('DROP TABLE zvd_jnc_articles_tags failed')),
+        warn.mock.calls.some((c) =>
+          String(c[0]).includes('DROP TABLE zvd_jnc_articles_tags failed'),
+        ),
       ).toBe(true);
       expect(db.executed(/DROP TABLE IF EXISTS zvd_tags CASCADE/)).toHaveLength(1);
     } finally {
