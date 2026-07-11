@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
+import { DDLManager } from '../lib/data/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 import { reqDb } from '../lib/route-db.js';
 
@@ -117,8 +118,15 @@ function coerce(val: string, fieldDef: any): unknown {
 // ── Route factory ──────────────────────────────────────────────────────────
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-export function importRoutes(db: Database, _auth: any) {
+export function importRoutes(db: Database, auth: any) {
   const app = new Hono();
+
+  app.use('*', async (c, next) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
+    c.set('user', session.user);
+    await next();
+  });
 
   // ── GET /api/import/jobs ─────────────────────────────────────────────────
 
@@ -314,9 +322,10 @@ export function importRoutes(db: Database, _auth: any) {
 
       if (toInsert.length > 0) {
         try {
+          const tableName = DDLManager.getTableName(collection);
           await tdb
             // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            .insertInto(collection as any)
+            .insertInto(tableName as any)
             // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
             .values(toInsert as any)
             .execute();
