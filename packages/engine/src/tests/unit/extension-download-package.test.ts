@@ -200,4 +200,9 @@ describe('downloadExtension', () => {
     stubDownloadResponse(ZIP_MAGIC);
     await expect(downloadExtension(ENTRY, destBase)).rejects.toThrow(/Extraction failed/i);
   });
+
+  it('throws when the registry download returns a server error', async () => {
+    stubDownloadResponse(Buffer.alloc(0), { ok: false, status: 502, text: 'bad gateway' });
+    await expect(downloadExtension(ENTRY, destBase)).rejects.toThrow(/Registry returned 502/i);
+  });
 });

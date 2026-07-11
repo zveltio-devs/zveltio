@@ -5,7 +5,7 @@
  * early-return case; validation failures are pure.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -44,5 +44,44 @@ describe('installExtensionNpmDependencies', () => {
     await expect(
       installExtensionNpmDependencies('evil', { 'not-on-allowlist-xyz': '^1.0.0' }),
     ).rejects.toThrow(/allow-list/i);
+  });
+
+  it('installs missing allow-listed peers via bun add', async () => {
+    const originalSpawn = Bun.spawn;
+    Bun.spawn = ((cmd: string[]) => {
+      if (cmd[0] === 'bun' && cmd[1] === 'add') {
+        const pkg = cmd[2]!.startsWith('nanoid@') ? 'nanoid' : cmd[2]!.split('@')[0]!;
+        const dest = join(extBase, 'node_modules', pkg);
+        mkdirSync(dest, { recursive: true });
+        writeFileSync(join(dest, 'package.json'), '{}');
+        return {
+          exited: Promise.resolve(0),
+          stdout: new ReadableStream(),
+          stderr: new ReadableStream(),
+        } as ReturnType<typeof Bun.spawn>;
+      }
+      return originalSpawn(cmd as never);
+    }) as typeof Bun.spawn;
+
+    try {
+      await installExtensionNpmDependencies('mail-ext', { nanoid: '^5.0.0' });
+      expect(existsSync(join(extBase, 'node_modules', 'nanoid'))).toBe(true);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+  });
+
+  it('throws when neither bun nor npm can install missing peers', async () => {
+    const originalSpawn = Bun.spawn;
+    Bun.spawn = (() => {
+      throw new Error('ENOENT');
+    }) as typeof Bun.spawn;
+    try {
+      await expect(
+        installExtensionNpmDependencies('mail-ext', { nanoid: '^5.0.0' }),
+      ).rejects.toThrow(/could not install peer packages/i);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
   });
 });
