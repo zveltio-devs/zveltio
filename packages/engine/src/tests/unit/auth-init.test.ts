@@ -78,7 +78,18 @@ describe('initAuth', () => {
       setex: async () => 'OK',
       set: async () => 'OK',
       del: async () => 1,
-      pipeline: () => ({ get() { return this; }, setex() { return this; }, del() { return this; }, exec: async () => [] }),
+      pipeline: () => ({
+        get() {
+          return this;
+        },
+        setex() {
+          return this;
+        },
+        del() {
+          return this;
+        },
+        exec: async () => [],
+      }),
     } as never);
     await expect(initAuth(new CannedDb().kysely as unknown as Database)).resolves.toBeDefined();
     expect(getAuth().api).toBeDefined();
