@@ -484,3 +484,12 @@ export function getAuth() {
   if (!_auth) throw new Error('Auth not initialized. Call initAuth() first.');
   return _auth;
 }
+
+/** Test-only export — never import outside src/tests/. */
+export const _internalForTests = {
+  resetSmtpCacheForTests() {
+    _smtpTransport = null;
+    _smtpFingerprint = '';
+  },
+  sendEmailForTests: sendEmail,
+};

@@ -76,6 +76,38 @@ describe('executeStep — export_collection (mocked ExportManager)', () => {
     expect(output.sent_to).toBe('ops@example.com');
     expect(emailAttachMock).toHaveBeenCalled();
   });
+
+  it('emails an excel export with the xlsx content type', async () => {
+    const db = new CannedDb();
+    db.when(/set_config/i, []);
+    db.when(/from "zvd_reports"/i, [{ id: '1' }]);
+
+    const { output } = await executeStep(
+      db.kysely as unknown as Database,
+      {
+        type: 'export_collection',
+        config: {
+          collection: 'reports',
+          format: 'excel',
+          email_to: 'finance@example.com',
+          filename: 'q1',
+        },
+      },
+      {},
+      {},
+    );
+
+    expect(output.exported).toBe(true);
+    expect(output.sent_to).toBe('finance@example.com');
+    expect(emailAttachMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachment: expect.objectContaining({
+          contentType: expect.stringContaining('spreadsheetml'),
+          filename: expect.stringMatching(/\.xlsx$/),
+        }),
+      }),
+    );
+  });
 });
 
 describe('executeStep — send_email (mocked email.js)', () => {
