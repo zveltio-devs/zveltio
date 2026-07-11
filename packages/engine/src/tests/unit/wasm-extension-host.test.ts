@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'bun:test';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   WASM_HOST_ABI_VERSION,
   instantiateWasmExtension,
+  loadWasmExtension,
   _internalForTests,
 } from '../../lib/wasm-extension-host.js';
 
@@ -129,6 +132,21 @@ describe('S5-05 WASM host — instantiateWasmExtension', () => {
       instantiateWasmExtension(new Uint8Array([0, 1, 2, 3]), { extName: 'wasm-garbage' }),
     ).rejects.toThrow();
   });
+
+  it('loadWasmExtension reads bytes from disk via Bun.file', async () => {
+    const dir = join(process.cwd(), 'src/tests/unit/fixtures/wasm-tmp');
+    mkdirSync(dir, { recursive: true });
+    const wasmPath = join(dir, 'register.wasm');
+    writeFileSync(wasmPath, WASM_EXPORTS_REGISTER);
+    try {
+      const handle = await loadWasmExtension(wasmPath, { extName: 'disk-wasm' });
+      expect(handle.name).toBe('disk-wasm');
+      await handle.register();
+      await handle.shutdown();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('S5-05 WASM host — third-party policy guards', () => {
@@ -159,5 +177,20 @@ describe('S5-05 WASM host — third-party policy guards', () => {
     const { ptr, len } = writeUtf8(memory, 'hello wasm');
     expect(() => z.log(ptr, len)).not.toThrow();
     expect(() => z.warn(ptr, len)).not.toThrow();
+  });
+
+  it('allows fetch.https for first-party extensions', () => {
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const imports = _internalForTests.buildHostImports('ai', memory, { extName: 'ai' });
+    const z = imports.zveltio as Record<string, (...args: number[]) => number>;
+    const { ptr, len } = writeUtf8(memory, 'https://api.example.com/hook');
+    expect(z.fetch_begin(ptr, len, 1)).toBe(0);
+  });
+
+  it('exposes fs.write for first-party extensions', () => {
+    const memory = new WebAssembly.Memory({ initial: 1 });
+    const imports = _internalForTests.buildHostImports('ai', memory, { extName: 'ai' });
+    const z = imports.zveltio as Record<string, (...args: number[]) => number>;
+    expect(z.fs_write(0, 0, 0, 0)).toBe(0);
   });
 });
