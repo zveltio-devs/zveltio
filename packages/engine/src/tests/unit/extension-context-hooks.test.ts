@@ -15,9 +15,7 @@ describe('extension-context hook helpers', () => {
   });
 
   it('extractSingleId reads a single id = ? predicate', () => {
-    expect(
-      extractSingleId([{ method: 'where', args: ['id', '=', 'abc-123'] }]),
-    ).toBe('abc-123');
+    expect(extractSingleId([{ method: 'where', args: ['id', '=', 'abc-123'] }])).toBe('abc-123');
     expect(extractSingleId([{ method: 'where', args: ['id', '=', 42] }])).toBe('42');
   });
 
