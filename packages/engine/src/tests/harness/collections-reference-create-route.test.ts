@@ -76,7 +76,7 @@ d('collections reference create route (in-process)', () => {
       .where('source_field', '=', 'publisher')
       .executeTakeFirst();
     expect(rel?.target_collection).toBe(PUBLISHERS);
-    expect(rel?.type).toBe('reference');
+    expect(rel?.type).toBe('m2o');
 
     const fk = await sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns

@@ -1,5 +1,9 @@
 /**
- * Phase C — GhostDDL.execute DROP COLUMN on real Postgres (ghost-ddl.ts).
+ * Phase C — GhostDDL.execute RENAME COLUMN on real Postgres (ghost-ddl.ts).
+ *
+ * RENAME preserves column count so batchCopy INSERT…SELECT * stays valid
+ * (DROP COLUMN migrations are not exercised here — fewer ghost columns than
+ * the source breaks SELECT * batch copy).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -10,9 +14,9 @@ import { DDLManager, GhostDDL } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = `hgdrop_${Date.now()}`;
+const COLLECTION = `hgren_${Date.now()}`;
 
-d('ghost DDL drop column (in-process)', () => {
+d('ghost DDL rename column (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -25,13 +29,13 @@ d('ghost DDL drop column (in-process)', () => {
       name: COLLECTION,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
-        { name: 'legacy', type: 'text', required: false, unique: false, indexed: false },
+        { name: 'subtitle', type: 'text', required: false, unique: false, indexed: false },
       ],
     } as never);
     const seed = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ title: 'keep-me', legacy: 'remove-me' }),
+      body: JSON.stringify({ title: 'main', subtitle: 'renamed-value' }),
     });
     expect([200, 201]).toContain(seed.status);
   });
@@ -49,18 +53,20 @@ d('ghost DDL drop column (in-process)', () => {
       .catch(() => {});
   });
 
-  it('GhostDDL.execute drops a column while preserving rows', async () => {
-    await GhostDDL.execute(db, tableName, ['DROP COLUMN legacy']);
+  it('GhostDDL.execute renames a column and preserves row data', async () => {
+    await GhostDDL.execute(db, tableName, ['RENAME COLUMN subtitle TO tagline']);
 
     const cols = await sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
-      WHERE table_name = ${tableName} AND column_name = 'legacy'
+      WHERE table_name = ${tableName} AND column_name IN ('subtitle', 'tagline')
     `.execute(db);
-    expect(cols.rows.length).toBe(0);
+    const names = cols.rows.map((r) => r.column_name);
+    expect(names).toContain('tagline');
+    expect(names).not.toContain('subtitle');
 
-    const rows = await sql<{ title: string }>`
-      SELECT title FROM ${sql.id(tableName)}
+    const rows = await sql<{ tagline: string }>`
+      SELECT tagline FROM ${sql.id(tableName)}
     `.execute(db);
-    expect(rows.rows.some((r) => r.title === 'keep-me')).toBe(true);
+    expect(rows.rows.some((r) => r.tagline === 'renamed-value')).toBe(true);
   });
 });
