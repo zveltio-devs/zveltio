@@ -109,4 +109,107 @@ d('data virtual collection (in-process)', () => {
     });
     expect(res.status).toBe(502);
   });
+
+  it('returns 502 when virtual PUT fetch fails', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL, _init?: RequestInit) => ({
+      ok: false,
+      status: 500,
+      text: async () => 'put failed',
+    })) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000099`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'replace' }),
+    });
+    expect(res.status).toBe(502);
+  });
+
+  it('returns 502 when virtual PATCH fetch fails', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: false,
+      status: 503,
+      text: async () => 'patch failed',
+    })) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000099`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'patch' }),
+    });
+    expect(res.status).toBe(502);
+  });
+
+  it('returns 502 when virtual DELETE fetch fails', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return { ok: false, status: 500, text: async () => 'delete failed' };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000099`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(res.status).toBe(502);
+  });
+
+  it('returns 404 when virtual get-one upstream has no record', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: false,
+      status: 404,
+      text: async () => 'missing',
+    })) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000088`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('proxies virtual list with filter + sort when upstream succeeds', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL) => {
+      const u = String(url);
+      expect(u).toContain('title=filtered');
+      expect(u).toContain('sort=');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [{ id: 'ext-1', title: 'filtered' }],
+          total: 1,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    const filter = encodeURIComponent(JSON.stringify({ title: { eq: 'filtered' } }));
+    const res = await app.request(`/api/data/${COLLECTION}?filter=${filter}&sort=title&order=asc`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records: Array<{ title?: string }> };
+    expect(body.records[0]?.title).toBe('filtered');
+  });
+
+  it('proxies virtual get-one when upstream succeeds', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'ext-2', title: 'one-row' }),
+    })) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000077`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { record?: { title?: string } };
+    expect(body.record?.title).toBe('one-row');
+  });
 });
