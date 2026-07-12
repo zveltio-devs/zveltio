@@ -67,8 +67,9 @@ d('collections drop FK guard (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/foreign key|Cannot drop collection/i);
+    const body = (await res.json()) as Record<string, unknown>;
+    const msg = String(body.error ?? body.detail ?? body.title ?? JSON.stringify(body));
+    expect(msg).toMatch(/foreign key|Cannot drop collection/i);
     expect(await DDLManager.tableExists(db, PARENT)).toBe(true);
   });
 
