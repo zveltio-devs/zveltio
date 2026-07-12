@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import {
   problem,
   problemNormalizer,
+  problemNotFound,
   problemOnError,
   PROBLEM_CONTENT_TYPE,
 } from '../../lib/problem.js';
@@ -31,6 +32,7 @@ function makeApp(): Hono {
   app.get('/api/zod', (c) =>
     c.json({ success: false, error: { issues: [{ path: ['name'], message: 'Required' }] } }, 400),
   );
+  app.notFound(problemNotFound);
   return app;
 }
 
@@ -107,5 +109,16 @@ describe('H-13 error envelope', () => {
     isEnvelope(body, 400);
     expect(body.code).toBe('validation_failed');
     expect(Array.isArray(body.errors)).toBe(true);
+  });
+
+  it('app.notFound(problemNotFound) returns a problem+json 404 envelope', async () => {
+    const res = await call('/api/does-not-exist');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).toContain(PROBLEM_CONTENT_TYPE);
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 404);
+    expect(body.code).toBe('not_found');
+    expect(body.detail).toBe('No route for GET /api/does-not-exist.');
+    expect(body.instance).toBe('/api/does-not-exist');
   });
 });
