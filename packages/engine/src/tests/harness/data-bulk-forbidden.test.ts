@@ -1,5 +1,5 @@
 /**
- * Phase C — checkAccess forbidden paths on single handlers (handlers/single.ts).
+ * Phase C — checkAccess forbidden on bulk handlers (handlers/bulk.ts).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -10,16 +10,16 @@ import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = `hforb_${Date.now()}`;
+const COLLECTION = `hbforb_${Date.now()}`;
 
 async function createLimitedSession(app: Hono): Promise<string> {
-  const email = `harness-limited-${Date.now()}@test.local`;
+  const email = `harness-bulk-limited-${Date.now()}@test.local`;
   const password = 'LimitedUser123!';
 
   await app.request('/api/auth/sign-up/email', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name: 'Limited' }),
+    body: JSON.stringify({ email, password, name: 'Bulk Limited' }),
   });
 
   const signIn = await app.request('/api/auth/sign-in/email', {
@@ -35,7 +35,7 @@ async function createLimitedSession(app: Hono): Promise<string> {
     .join('; ');
 }
 
-d('data single forbidden (in-process)', () => {
+d('data bulk forbidden (in-process)', () => {
   let app: Hono;
   let db: Database;
   let godCookie = '';
@@ -55,7 +55,7 @@ d('data single forbidden (in-process)', () => {
     const create = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: godCookie },
-      body: JSON.stringify({ title: 'owned-by-god' }),
+      body: JSON.stringify({ title: 'seed' }),
     });
     expect(create.status).toBe(201);
     recordId = ((await create.json()) as { id: string }).id;
@@ -74,44 +74,29 @@ d('data single forbidden (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 403 when a non-privileged user creates without collection access', async () => {
-    const res = await app.request(`/api/data/${COLLECTION}`, {
+  it('returns 403 on bulk POST without collection create access', async () => {
+    const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: limitedCookie },
-      body: JSON.stringify({ title: 'nope' }),
+      body: JSON.stringify({ records: [{ title: 'bulk-row' }] }),
     });
     expect(res.status).toBe(403);
   });
 
-  it('returns 403 when a non-privileged user reads a record', async () => {
-    const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
-      headers: { cookie: limitedCookie },
-    });
-    expect(res.status).toBe(403);
-  });
-
-  it('returns 403 when a non-privileged user patches a record', async () => {
-    const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
+  it('returns 403 on bulk PATCH without collection update access', async () => {
+    const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', cookie: limitedCookie },
-      body: JSON.stringify({ title: 'nope' }),
+      body: JSON.stringify({ records: [{ id: recordId, title: 'changed' }] }),
     });
     expect(res.status).toBe(403);
   });
 
-  it('returns 403 when a non-privileged user replaces a record', async () => {
-    const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', cookie: limitedCookie },
-      body: JSON.stringify({ title: 'replaced' }),
-    });
-    expect(res.status).toBe(403);
-  });
-
-  it('returns 403 when a non-privileged user deletes a record', async () => {
-    const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
+  it('returns 403 on bulk DELETE without collection delete access', async () => {
+    const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'DELETE',
-      headers: { cookie: limitedCookie },
+      headers: { 'Content-Type': 'application/json', cookie: limitedCookie },
+      body: JSON.stringify({ ids: [recordId] }),
     });
     expect(res.status).toBe(403);
   });
