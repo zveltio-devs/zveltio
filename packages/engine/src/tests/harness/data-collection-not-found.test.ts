@@ -40,4 +40,24 @@ d('data collection not found (in-process)', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('returns 404 on bulk PATCH for an unknown collection', async () => {
+    const res = await app.request(`/api/data/${MISSING}/bulk`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        records: [{ id: '00000000-0000-4000-8000-000000000001', title: 'x' }],
+      }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 on bulk DELETE for an unknown collection', async () => {
+    const res = await app.request(`/api/data/${MISSING}/bulk`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ ids: ['00000000-0000-4000-8000-000000000001'] }),
+    });
+    expect(res.status).toBe(404);
+  });
 });

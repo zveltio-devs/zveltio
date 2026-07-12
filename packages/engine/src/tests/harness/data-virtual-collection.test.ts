@@ -315,4 +315,23 @@ d('data virtual collection (in-process)', () => {
     const body = (await res.json()) as { success?: boolean };
     expect(body.success).toBe(true);
   });
+
+  it('ignores invalid virtual list filter JSON and still proxies', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [{ id: 'ext-bad-filter', title: 'ok' }],
+        total: 1,
+      }),
+    })) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}?filter=not-json`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records: Array<{ title?: string }> };
+    expect(body.records[0]?.title).toBe('ok');
+  });
 });

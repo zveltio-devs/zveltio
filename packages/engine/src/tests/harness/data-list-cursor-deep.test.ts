@@ -75,6 +75,28 @@ d('data list cursor deep paths (in-process)', () => {
     expect(page2.records.every((r) => r.rank <= first.records[1]!.rank)).toBe(true);
   });
 
+  it('paginates with asc cursor keyset via next_cursor', async () => {
+    const first = (await (await list('?limit=2&sort=rank&order=asc')).json()) as ListBody;
+    expect(first.records).toHaveLength(2);
+    expect(first.next_cursor).toBeTruthy();
+
+    const second = await list(
+      `?limit=2&sort=rank&order=asc&cursor=${encodeURIComponent(first.next_cursor!)}`,
+    );
+    expect(second.status).toBe(200);
+    const page2 = (await second.json()) as ListBody;
+    expect(page2.records).toHaveLength(2);
+    expect(page2.records[0]!.id).not.toBe(first.records[0]!.id);
+    expect(page2.records.every((r) => r.rank >= first.records[1]!.rank)).toBe(true);
+  });
+
+  it('emits next_cursor on offset pagination when more pages exist', async () => {
+    const body = (await (await list('?limit=2&page=1&sort=rank&order=asc')).json()) as ListBody;
+    expect(body.records).toHaveLength(2);
+    expect(body.next_cursor).toBeTruthy();
+    expect(body.pagination.total).toBeGreaterThanOrEqual(6);
+  });
+
   it('falls back to offset pagination when cursor is malformed', async () => {
     const res = await list('?limit=3&cursor=not-valid-base64url');
     expect(res.status).toBe(200);
