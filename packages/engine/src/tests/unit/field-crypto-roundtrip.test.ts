@@ -106,4 +106,34 @@ describe('checkFieldEncryptionAtBoot', () => {
     expect(warns.join('\n')).toMatch(/people/);
     expect(warns.join('\n')).not.toMatch(/\bplain\b/);
   });
+
+  it('ignores collections whose fields JSON is malformed', async () => {
+    delete process.env.FIELD_ENCRYPTION_KEY;
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (...a: unknown[]) => warns.push(a.join(' '));
+    try {
+      const db = new CannedDb();
+      db.when(/zvd_collections/i, [
+        { name: 'broken', fields: '{not-json' },
+        { name: 'secure', fields: JSON.stringify([{ name: 'token', encrypted: true }]) },
+      ]);
+      await checkFieldEncryptionAtBoot(db.kysely as unknown as Database);
+    } finally {
+      console.warn = orig;
+      process.env.FIELD_ENCRYPTION_KEY = KEY;
+    }
+    expect(warns.join('\n')).toMatch(/secure/);
+    expect(warns.join('\n')).not.toMatch(/\bbroken\b/);
+  });
+
+  it('swallows DB errors when zvd_collections is unavailable', async () => {
+    delete process.env.FIELD_ENCRYPTION_KEY;
+    const db = new CannedDb();
+    db.fail(/zvd_collections/i, new Error('relation does not exist'));
+    await expect(
+      checkFieldEncryptionAtBoot(db.kysely as unknown as Database),
+    ).resolves.toBeUndefined();
+    process.env.FIELD_ENCRYPTION_KEY = KEY;
+  });
 });

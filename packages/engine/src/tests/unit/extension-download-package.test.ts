@@ -140,6 +140,14 @@ describe('downloadExtension', () => {
     await expect(downloadExtension(ENTRY, destBase)).rejects.toThrow(/SHA-256 mismatch/i);
   });
 
+  it('extracts when X-Archive-Sha256 matches the downloaded bytes', async () => {
+    const body = Buffer.concat([ZIP_MAGIC, Buffer.from('payload')]);
+    const sha = createHash('sha256').update(body).digest('hex');
+    stubDownloadResponse(body, { sha });
+    await downloadExtension(ENTRY, destBase);
+    expect(existsSync(join(destBase, ENTRY.name, 'manifest.json'))).toBe(true);
+  });
+
   it('throws SignatureMissingError when signatures are required but absent', async () => {
     process.env.REQUIRE_EXTENSION_SIGNATURES = 'true';
     stubDownloadResponse(ZIP_MAGIC);
