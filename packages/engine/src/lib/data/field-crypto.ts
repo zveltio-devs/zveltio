@@ -164,3 +164,8 @@ export async function maybeDecrypt(value: unknown, isEncrypted: boolean): Promis
     return value;
   }
 }
+
+/** Test-only hook to reset the cached CryptoKey between cases. */
+export function resetFieldCryptoKeyCacheForTests(): void {
+  _key = null;
+}

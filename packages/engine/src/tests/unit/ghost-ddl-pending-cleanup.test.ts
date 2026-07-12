@@ -45,6 +45,27 @@ describe('GhostDDL.atomicSwap — pending cleanup timer', () => {
       cancelPendingCleanups();
     }
   });
+
+  it('swallows errors during deferred cleanup without throwing', async () => {
+    const db = new CannedDb();
+    db.when(/FROM "_zv_changelog_zvd_widgets"/, []);
+    db.fail(/DROP TABLE IF EXISTS "_zv_old_zvd_widgets"/, new Error('drop blocked'));
+
+    let captured: (() => void) | null = null;
+    const origSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void, _ms?: number) => {
+      captured = fn;
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+
+    try {
+      await GhostDDL.atomicSwap(asDb(db), MIGRATION);
+      await expect(captured!()).resolves.toBeUndefined();
+    } finally {
+      globalThis.setTimeout = origSetTimeout;
+      cancelPendingCleanups();
+    }
+  });
 });
 
 describe('GhostDDL.execute — cleanup failure branches', () => {

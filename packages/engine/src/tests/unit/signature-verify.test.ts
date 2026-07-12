@@ -248,6 +248,34 @@ describe('registry-keys env loading', () => {
     expect(envOnlyKeys()).toEqual([]);
   });
 
+  it('returns no env keys when JSON is not an array', () => {
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (...a: unknown[]) => warns.push(a.join(' '));
+    try {
+      process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify({ keyId: 'solo' });
+      expect(envOnlyKeys()).toEqual([]);
+      expect(warns.join('\n')).toMatch(/must be a JSON array/);
+    } finally {
+      console.warn = orig;
+    }
+  });
+
+  it('skips env entries whose publicKeyHex contains invalid bytes', () => {
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (...a: unknown[]) => warns.push(a.join(' '));
+    try {
+      process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
+        { keyId: 'bad-hex', publicKeyHex: `gg${'aa'.repeat(31)}` },
+      ]);
+      expect(envOnlyKeys()).toEqual([]);
+      expect(warns.join('\n')).toMatch(/bad-hex rejected/);
+    } finally {
+      console.warn = orig;
+    }
+  });
+
   it('hexToBytes round-trips', () => {
     const input = 'deadbeef';
     const bytes = hexToBytes(input);
@@ -256,5 +284,9 @@ describe('registry-keys env loading', () => {
 
   it('hexToBytes rejects odd length', () => {
     expect(() => hexToBytes('abc')).toThrow();
+  });
+
+  it('hexToBytes rejects non-hex characters', () => {
+    expect(() => hexToBytes('gghh')).toThrow(/invalid hex byte/);
   });
 });

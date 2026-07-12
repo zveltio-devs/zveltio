@@ -18,6 +18,10 @@ describe('normalizeHost', () => {
     expect(normalizeHost('0x7f.0.0.1')).toBe('127.0.0.1');
     expect(normalizeHost('0177.0.0.1')).toBe('127.0.0.1');
   });
+
+  it('normalizes IPv4-mapped IPv6 hex-word hosts', () => {
+    expect(normalizeHost('::ffff:7f00:0001')).toBe('127.0.0.1');
+  });
 });
 
 describe('validatePublicUrl — encoded loopback bypasses', () => {
@@ -31,5 +35,9 @@ describe('validatePublicUrl — encoded loopback bypasses', () => {
 
   it('blocks octal-dotted loopback hosts', () => {
     expect(() => validatePublicUrl('http://0177.0.0.1/')).toThrow(/internal\/private/);
+  });
+
+  it('blocks IPv4-mapped IPv6 hex-word loopback hosts', () => {
+    expect(() => validatePublicUrl('http://[::ffff:7f00:0001]/')).toThrow(/internal\/private/);
   });
 });
