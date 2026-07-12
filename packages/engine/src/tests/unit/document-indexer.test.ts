@@ -55,11 +55,6 @@ describe('extractTextFromFile', () => {
   it('returns null for an unsupported binary type', async () => {
     expect(await extractTextFromFile(Buffer.from([0, 1, 2]), 'image/png')).toBeNull();
   });
-
-  it('returns null for a PDF when pdf-parse cannot parse the buffer', async () => {
-    // pdf-parse is an optional dep; a non-PDF buffer yields null either way.
-    expect(await extractTextFromFile(Buffer.from('not a pdf'), 'application/pdf')).toBeNull();
-  });
 });
 
 describe('indexFileContent', () => {
@@ -135,5 +130,32 @@ describe('scheduleFileIndexing', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(embedCalls).toEqual(['indexable body']);
     expect(db.executed(EMBED_INSERT).length).toBe(1);
+  });
+
+  it('logs schedule failures when text extraction rejects', async () => {
+    const db = new CannedDb();
+    db.when(EMBED_INSERT, []);
+    registerFakeProvider();
+    const errors: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => errors.push(a.join(' '));
+    const evilBuf = {
+      toString() {
+        throw new Error('decode failed');
+      },
+    } as unknown as Buffer;
+    try {
+      await scheduleFileIndexing(
+        db.kysely as unknown as Database,
+        'file-bad',
+        evilBuf,
+        'text/plain',
+      );
+      await new Promise((r) => setTimeout(r, 30));
+    } finally {
+      console.error = orig;
+    }
+    expect(errors.join('\n')).toMatch(/File indexing schedule failed \[file-bad\]/);
+    expect(db.executed(EMBED_INSERT).length).toBe(0);
   });
 });

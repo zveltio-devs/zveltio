@@ -74,6 +74,35 @@ describe('validateFieldValue — regex edges', () => {
       g.Worker = OriginalWorker;
     }
   });
+
+  test('Worker runtime errors are treated as non-match', async () => {
+    const g = globalThis as Record<string, unknown>;
+    const OriginalWorker = g.Worker;
+    class BrokenWorker {
+      onerror: (() => void) | null = null;
+      onmessage: ((ev: MessageEvent) => void) | null = null;
+      constructor(_url: string) {
+        queueMicrotask(() => this.onerror?.());
+      }
+      postMessage() {}
+      terminate() {}
+    }
+    g.Worker = BrokenWorker;
+    try {
+      const errors = await validateFieldValue('hello', [
+        {
+          field_name: 'f',
+          rule_type: 'pattern',
+          rule_config: { pattern: '^hello$' },
+          error_message: 'no match',
+        },
+      ]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBe('no match');
+    } finally {
+      g.Worker = OriginalWorker;
+    }
+  });
 });
 
 describe('getValidationRules — field filter + cache keys', () => {
