@@ -125,6 +125,35 @@ d('data bulk handler deep paths (in-process)', () => {
     expect(body.errors.some((e) => e.errors.join('').includes('EXT_HOOK_ABORTED'))).toBe(true);
   });
 
+  it('returns 207 when beforeUpdate aborts one row in a bulk patch', async () => {
+    const locked = await app.request(`/api/data/${COLLECTION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ label: 'lock-me', score: 5 }),
+    });
+    const lockedId = ((await locked.json()) as { id: string }).id;
+
+    engineEvents.onBefore('record.beforeUpdate', (p) => {
+      if (p.id === lockedId) p.abort('frozen');
+    });
+
+    const res = await bulk('PATCH', {
+      records: [
+        { id: goodId, score: 99 },
+        { id: lockedId, score: 88 },
+      ],
+    });
+    expect(res.status).toBe(207);
+    const body = (await res.json()) as {
+      updated: number;
+      errors: Array<{ id: string; errors: string[] }>;
+    };
+    expect(body.updated).toBe(1);
+    expect(
+      body.errors.some((e) => e.id === lockedId && e.errors.join('').includes('EXT_HOOK_ABORTED')),
+    ).toBe(true);
+  });
+
   it('returns 207 when beforeDelete aborts one id in bulk delete', async () => {
     const extra = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
