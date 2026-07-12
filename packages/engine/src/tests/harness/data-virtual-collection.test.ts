@@ -233,4 +233,86 @@ d('data virtual collection (in-process)', () => {
     const body = (await res.json()) as { record?: { title?: string } };
     expect(body.record?.title).toBe('created-remote');
   });
+
+  it('proxies virtual list with scalar filter shorthand', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL) => {
+      const u = String(url);
+      expect(u).toContain('title=plain-eq');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [{ id: 'ext-3', title: 'plain-eq' }],
+          total: 1,
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    const filter = encodeURIComponent(JSON.stringify({ title: 'plain-eq' }));
+    const res = await app.request(`/api/data/${COLLECTION}?filter=${filter}`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records: Array<{ title?: string }> };
+    expect(body.records[0]?.title).toBe('plain-eq');
+  });
+
+  it('proxies virtual PUT when upstream succeeds', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('PATCH');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'ext-put', title: 'put-ok' }),
+      };
+    }) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000055`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'put-ok' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { record?: { title?: string } };
+    expect(body.record?.title).toBe('put-ok');
+  });
+
+  it('proxies virtual PATCH when upstream succeeds', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('PATCH');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'ext-patch', title: 'patch-ok' }),
+      };
+    }) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000044`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'patch-ok' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { record?: { title?: string } };
+    expect(body.record?.title).toBe('patch-ok');
+  });
+
+  it('proxies virtual DELETE when upstream succeeds', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('DELETE');
+      return { ok: true, status: 204, text: async () => '' };
+    }) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}/00000000-0000-4000-8000-000000000033`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success?: boolean };
+    expect(body.success).toBe(true);
+  });
 });
