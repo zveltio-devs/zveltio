@@ -142,7 +142,37 @@ describe('misc', () => {
     expect(warns[0]).toMatch(/exceeded 1024MB/);
   });
 
-  it('forceGC returns a boolean', () => {
-    expect(typeof forceGC()).toBe('boolean');
+  it('forceGC returns true when global.gc is available', () => {
+    const g = globalThis as typeof globalThis & { gc?: () => void };
+    const original = g.gc;
+    let called = false;
+    g.gc = (async () => {
+      called = true;
+    }) as typeof g.gc;
+    try {
+      expect(forceGC()).toBe(true);
+      expect(called).toBe(true);
+    } finally {
+      g.gc = original;
+    }
+  });
+
+  it('logs heap usage during development sampling', async () => {
+    const saved = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    const logs: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => logs.push(a.join(' '));
+    try {
+      stubUsage(12, 24);
+      startMemorySampling(10);
+      await new Promise((r) => setTimeout(r, 35));
+      stopMemorySampling();
+      expect(logs.some((l) => l.includes('[Memory Monitor]'))).toBe(true);
+    } finally {
+      console.log = orig;
+      if (saved === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = saved;
+    }
   });
 });
