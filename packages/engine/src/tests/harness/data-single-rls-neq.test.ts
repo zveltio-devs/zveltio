@@ -92,9 +92,9 @@ d('data single RLS neq (in-process)', () => {
         body: JSON.stringify(body),
       });
 
-    openId = ((await (await post({ title: 'open', status: 'open' })).json()) as { id: string }).id;
+    openId = ((await (await post({ title: 'open', bucket: 'open' })).json()) as { id: string }).id;
     hiddenId = (
-      (await (await post({ title: 'hidden', status: 'restricted' })).json()) as {
+      (await (await post({ title: 'hidden', bucket: 'restricted' })).json()) as {
         id: string;
       }
     ).id;
