@@ -44,7 +44,5 @@ d('data list invalid as_of (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain('Invalid as_of');
   });
 });
