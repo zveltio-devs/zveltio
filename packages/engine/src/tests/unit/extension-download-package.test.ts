@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { exportTrustedKeyEntry, generateKeypair, signBundle } from '@zveltio/sdk/publish';
 import { downloadExtension } from '../../lib/extensions/extension-download.js';
 import { SignatureInvalidError, SignatureMissingError } from '../../lib/security/index.js';
@@ -243,6 +243,59 @@ describe('downloadExtension', () => {
     }) as unknown as typeof fetch;
 
     await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureInvalidError);
+  });
+
+  it('warns and proceeds when signature fetch returns a server error', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('.sig')) {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({}),
+            text: async () => '',
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          arrayBuffer: async () => ZIP_MAGIC.buffer,
+          text: async () => '',
+        } as Response;
+      }) as typeof fetch;
+      await downloadExtension(ENTRY, destBase);
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).includes('signature fetch returned 503')),
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('warns when signature fetch throws and proceeds without a signature', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('.sig')) throw new Error('sig timeout');
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          arrayBuffer: async () => ZIP_MAGIC.buffer,
+          text: async () => '',
+        } as Response;
+      }) as typeof fetch;
+      await downloadExtension(ENTRY, destBase);
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).includes('signature fetch failed: sig timeout')),
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('extracts when the archive signature verifies', async () => {
