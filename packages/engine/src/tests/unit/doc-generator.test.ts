@@ -78,11 +78,8 @@ describe('generatePDF', () => {
   it('delegates to generatePDFAsync in the pdf-queue worker pool', async () => {
     let captured: { html: string; options: Record<string, unknown> } | undefined;
     spyOn(pdfQueue, 'generatePDFAsync').mockImplementation(
-      async (
-        html: string,
-        options: { title?: string; author?: string; subject?: string; pageSize?: 'A4' | 'LETTER' },
-      ) => {
-        captured = { html, options };
+      async (html: string, options?: Record<string, unknown>) => {
+        captured = { html, options: options ?? {} };
         return Buffer.from('mock-pdf');
       },
     );
