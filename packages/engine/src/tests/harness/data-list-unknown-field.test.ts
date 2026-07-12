@@ -45,8 +45,8 @@ d('data list unknown field (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("Unknown filter field: 'no_such_col'");
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toContain("Unknown filter field: 'no_such_col'");
   });
 
   it('returns 400 for unknown sort field', async () => {
@@ -54,7 +54,7 @@ d('data list unknown field (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("Unknown sort field: 'no_such_col'");
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toContain("Unknown sort field: 'no_such_col'");
   });
 });

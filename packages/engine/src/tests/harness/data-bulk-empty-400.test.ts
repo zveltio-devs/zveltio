@@ -49,21 +49,21 @@ d('data bulk empty payload 400 (in-process)', () => {
   it('returns 400 when bulk POST has empty records array', async () => {
     const res = await bulk('POST', { records: [] });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain('at least one item');
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toContain('at least one item');
   });
 
   it('returns 400 when bulk PATCH has empty records array', async () => {
     const res = await bulk('PATCH', { records: [] });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain('records');
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toContain('records');
   });
 
   it('returns 400 when bulk DELETE has empty ids array', async () => {
     const res = await bulk('DELETE', { ids: [] });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain('ids');
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toContain('ids');
   });
 });
