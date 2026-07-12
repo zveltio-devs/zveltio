@@ -30,6 +30,50 @@ describe('validateFieldValue — regex edges', () => {
     ]);
     expect(errors).toHaveLength(1);
   });
+
+  test('valid patterns are evaluated via the Worker sandbox', async () => {
+    const errors = await validateFieldValue('hello', [
+      {
+        field_name: 'f',
+        rule_type: 'pattern',
+        rule_config: { pattern: '^hello$' },
+        error_message: null,
+      },
+    ]);
+    expect(errors).toHaveLength(0);
+  });
+
+  test('catastrophic backtracking times out as non-match', async () => {
+    const errors = await validateFieldValue(`${'a'.repeat(30)}!`, [
+      {
+        field_name: 'f',
+        rule_type: 'pattern',
+        rule_config: { pattern: '(a+)+$' },
+        error_message: 'too slow',
+      },
+    ]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBe('too slow');
+  });
+
+  test('falls back to direct regex test when Worker is unavailable', async () => {
+    const g = globalThis as Record<string, unknown>;
+    const OriginalWorker = g.Worker;
+    g.Worker = undefined;
+    try {
+      const errors = await validateFieldValue('abc', [
+        {
+          field_name: 'f',
+          rule_type: 'pattern',
+          rule_config: { pattern: '^abc$' },
+          error_message: null,
+        },
+      ]);
+      expect(errors).toHaveLength(0);
+    } finally {
+      g.Worker = OriginalWorker;
+    }
+  });
 });
 
 describe('getValidationRules — field filter + cache keys', () => {

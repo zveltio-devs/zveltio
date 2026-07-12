@@ -314,6 +314,21 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(body.purged).toBe(false);
   });
 
+  it('POST soft uninstall triggers reload when the extension was active', async () => {
+    isActiveMock.mockImplementation(() => true);
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/uninstall`, {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    expect(unloadMock).toHaveBeenCalled();
+    expect(triggerReloadMock).toHaveBeenCalledWith(`uninstall:${CATALOG_ENTRY.name}`);
+    const body = (await res.json()) as { needs_restart: boolean };
+    expect(body.needs_restart).toBe(true);
+  });
+
   it('POST uninstall purge returns 422 on DownMissingError', async () => {
     purgeMock.mockImplementation(async () => {
       throw new DownMissingError(CATALOG_ENTRY.name, ['001.sql']);
@@ -488,6 +503,37 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(db.executed(/delete from "zv_settings"/i).length).toBeGreaterThan(0);
   });
 
+  it('DELETE license still returns ok when delete or audit logging fails', async () => {
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    db.fail(/delete from "zv_settings"/i, new Error('db locked'));
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
+      method: 'DELETE',
+      headers: adminHeaders,
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { ok: boolean }).toEqual({ ok: true });
+    expect(errSpy.mock.calls.some((c) => String(c[0]).includes('license delete failed'))).toBe(
+      true,
+    );
+    errSpy.mockRestore();
+  });
+
+  it('POST purge uninstall refuses to remove directories outside the extensions base', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    isActiveMock.mockImplementation(() => true);
+    const app = mountRoutes(db, extBase);
+    const res = await app.request('/api/marketplace/..%2F..%2Foutside/uninstall?purgeData=true', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    expect(triggerReloadMock).toHaveBeenCalledWith('uninstall-purge:../../outside');
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('refusing to remove'))).toBe(true);
+    warn.mockRestore();
+  });
+
   it('POST uninstall purge removes files and marks purged', async () => {
     writeExtOnDisk(extBase, CATALOG_ENTRY.name);
     const app = mountRoutes(db, extBase);
@@ -505,6 +551,23 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(body.success).toBe(true);
     expect(purgeMock).toHaveBeenCalled();
     expect(db.executed(/delete from "zv_extension_registry"/i).length).toBeGreaterThan(0);
+  });
+
+  it('enable-all skips load when the extension is already active', async () => {
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    db.when(/from "zv_extension_registry"[\s\S]*is_installed/i, [{ name: CATALOG_ENTRY.name }]);
+    isActiveMock.mockImplementation(() => true);
+    loadDynamicMock.mockClear();
+    const app = mountRoutes(db, extBase);
+    const res = await app.request('/api/marketplace/enable-all', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { results: Array<{ name: string; ok: boolean }> };
+    expect(body.results).toEqual([{ name: CATALOG_ENTRY.name, ok: true }]);
+    expect(loadDynamicMock).not.toHaveBeenCalled();
   });
 
   it('enable-all records per-extension load failures without aborting', async () => {
