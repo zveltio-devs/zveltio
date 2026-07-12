@@ -1,7 +1,7 @@
 /**
  * Phase C — column-level read/write masks on single handlers (handlers/single.ts).
  *
- * god role is not admin-bypassed for column permissions — drives filterWritableFields 403.
+ * Session user.role may be unset (→ public); use role '*' mask to hit filterWritableFields 403.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -38,7 +38,7 @@ d('data single column access (in-process)', () => {
       .values({
         collection_name: COLLECTION,
         column_name: 'secret',
-        role: 'god',
+        role: '*',
         can_read: true,
         can_write: false,
       })
