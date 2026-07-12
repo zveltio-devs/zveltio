@@ -65,7 +65,7 @@ d('data single RLS neq (in-process)', () => {
       name: COLLECTION,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
-        { name: 'status', type: 'text', required: false, unique: false, indexed: false },
+        { name: 'bucket', type: 'text', required: false, unique: false, indexed: false },
       ],
     } as never);
 
@@ -75,7 +75,7 @@ d('data single RLS neq (in-process)', () => {
       body: JSON.stringify({
         collection: COLLECTION,
         role: '*',
-        filter_field: 'status',
+        filter_field: 'bucket',
         filter_op: 'neq',
         filter_value_source: 'static:restricted',
         description: 'hide restricted rows',
