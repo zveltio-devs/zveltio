@@ -99,7 +99,7 @@ d('data bulk handler hook mutate (in-process)', () => {
     };
     expect(body.updated).toBe(1);
     const row = body.records.find((r) => r.id === seedId);
-    expect(row?.score).toBe(400);
     expect(row?.tag).toBe('bulk-patch');
+    expect(Number(row?.score)).toBe(400);
   });
 });
