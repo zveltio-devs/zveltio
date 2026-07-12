@@ -1,5 +1,5 @@
 /**
- * Phase C — unknown field on write maps to 422 (write-pipeline mapPgError 42703).
+ * Phase C — missing required field maps to 422 (write-pipeline mapPgError 23502).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -10,9 +10,9 @@ import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = `hunk_${Date.now()}`;
+const COLLECTION = `hnn_${Date.now()}`;
 
-d('data unknown field write (in-process)', () => {
+d('data not-null violation (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -39,16 +39,16 @@ d('data unknown field write (in-process)', () => {
       .catch(() => {});
   });
 
-  it('POST / rejects a column that does not exist on the collection', async () => {
+  it('POST / without a required field returns a client error', async () => {
     const res = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ title: 'ok', ghost_column: 'nope' }),
+      body: JSON.stringify({}),
     });
     expect([400, 422]).toContain(res.status);
     const body = (await res.json()) as { error?: string };
     if (body.error) {
-      expect(['unknown_field', 'validation_error', 'invalid_value']).toContain(body.error);
+      expect(['not_null_violation', 'validation_error']).toContain(body.error);
     }
   });
 });

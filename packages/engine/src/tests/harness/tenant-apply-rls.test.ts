@@ -48,7 +48,7 @@ d('tenant apply RLS (in-process)', () => {
 
     const policy = await sql<{ policyname: string }>`
       SELECT policyname FROM pg_policies
-      WHERE tablename = ${COLLECTION} AND policyname = 'tenant_isolation'
+      WHERE tablename = ${tableName} AND policyname = 'tenant_isolation'
     `.execute(db);
     expect(policy.rows.length).toBe(1);
 
