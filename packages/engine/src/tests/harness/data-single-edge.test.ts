@@ -35,8 +35,8 @@ d('data single-record edge cases (in-process)', () => {
       body: JSON.stringify({ title: 'single-target' }),
     });
     expect(create.status).toBe(201);
-    const body = (await create.json()) as { record?: { id: string }; data?: { id: string } };
-    recordId = body.record?.id ?? body.data?.id ?? '';
+    const body = (await create.json()) as { id?: string; data?: { id: string } };
+    recordId = body.data?.id ?? body.id ?? '';
     expect(recordId).toBeTruthy();
   });
 
@@ -71,8 +71,13 @@ d('data single-record edge cases (in-process)', () => {
   it('fetches a single record by id', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, { headers: { cookie } });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { record: { id: string; title: string } };
-    expect(body.record.id).toBe(recordId);
-    expect(body.record.title).toBe('single-target');
+    const body = (await res.json()) as {
+      id?: string;
+      title?: string;
+      data?: { id: string; title: string };
+    };
+    const rec = body.data ?? body;
+    expect(rec.id).toBe(recordId);
+    expect(rec.title).toBe('single-target');
   });
 });
