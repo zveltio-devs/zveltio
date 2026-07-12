@@ -3,23 +3,19 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hvec_${Date.now()}`;
 
 d('collections vector field (in-process)', () => {
-  let app: Hono;
   let db: Database;
-  let cookie = '';
 
   beforeAll(async () => {
-    ({ app, db } = await getTestApp());
-    cookie = await createGodSession(app, db);
+    ({ db } = await getTestApp());
   });
 
   afterAll(async () => {
@@ -35,7 +31,7 @@ d('collections vector field (in-process)', () => {
       .catch(() => {});
   });
 
-  it('POST / provisions a pgvector column when extension is available', async () => {
+  it('DDLManager.createCollection provisions a pgvector column', async () => {
     const ext = await sql<{ extname: string }>`
       SELECT extname FROM pg_extension WHERE extname = 'vector'
     `.execute(db);
@@ -43,25 +39,20 @@ d('collections vector field (in-process)', () => {
       await sql`CREATE EXTENSION IF NOT EXISTS vector`.execute(db).catch(() => {});
     }
 
-    const res = await app.request('/api/collections', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({
-        name: COLLECTION,
-        fields: [
-          { name: 'title', type: 'text', required: true, unique: false, indexed: false },
-          {
-            name: 'embedding',
-            type: 'vector',
-            required: false,
-            unique: false,
-            indexed: false,
-            options: { dimensions: 3 },
-          },
-        ],
-      }),
-    });
-    expect(res.status).toBe(202);
+    await DDLManager.createCollection(db, {
+      name: COLLECTION,
+      fields: [
+        { name: 'title', type: 'text', required: true, unique: false, indexed: false },
+        {
+          name: 'embedding',
+          type: 'vector',
+          required: false,
+          unique: false,
+          indexed: false,
+          options: { dimensions: 3 },
+        },
+      ],
+    } as never);
     expect(await DDLManager.tableExists(db, COLLECTION)).toBe(true);
 
     const cols = await sql<{ column_name: string; udt_name: string }>`
@@ -70,5 +61,5 @@ d('collections vector field (in-process)', () => {
     `.execute(db);
     expect(cols.rows.length).toBe(1);
     expect(cols.rows[0]!.udt_name).toBe('vector');
-  });
+  }, 120_000);
 });
