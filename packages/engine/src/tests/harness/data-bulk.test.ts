@@ -81,19 +81,25 @@ d('bulk data operations (in-process)', () => {
   });
 
   it('bulk-updates records (PATCH /bulk)', async () => {
-    const res = await req('PATCH', {
-      // update-all-matching by filter, or per-id set; use a broad patch
-      where: { qty: { gt: 0 } },
-      data: { qty: 0 },
-    });
-    // handler accepts either a filter+data or an ids+patch shape; a 400 here
-    // still means the bulk-update handler ran and validated the payload.
-    expect([200, 204, 400]).toContain(res.status);
+    expect(ids.length).toBeGreaterThanOrEqual(3);
+    const res = await req('PATCH', { records: ids.map((id) => ({ id, qty: 0 })) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { updated?: number; errors?: unknown[] };
+    expect(body.updated).toBeGreaterThanOrEqual(3);
+    expect(body.errors ?? []).toHaveLength(0);
   });
 
   it('bulk-deletes records (DELETE /bulk)', async () => {
-    const res = await req('DELETE', { where: { qty: { gte: 0 } } });
-    expect([200, 204, 400]).toContain(res.status);
+    expect(ids.length).toBeGreaterThanOrEqual(3);
+    const res = await req('DELETE', { ids });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted?: number; ids?: string[] };
+    expect(body.deleted).toBeGreaterThanOrEqual(3);
+
+    const list = await app.request(`/api/data/${COLLECTION}`, { headers: { cookie } });
+    expect(list.status).toBe(200);
+    const listed = (await list.json()) as { pagination: { total: number } };
+    expect(listed.pagination.total).toBe(0);
   });
 
   it('rejects unauthenticated bulk access', async () => {
