@@ -212,6 +212,30 @@ describe('virtualList', () => {
     await virtualList(baseConfig({ auth_type: 'bearer', auth_value: 'tok123' }), baseQuery());
     expect(lastCall?.headers.Authorization).toBe('Bearer tok123');
   });
+
+  it('derives total from count when total is absent', async () => {
+    stubFetch(200, { data: [{ id: 1 }], count: 99 });
+    const res = await virtualList(baseConfig(), baseQuery());
+    expect(res.total).toBe(99);
+  });
+
+  it('derives total from meta.total', async () => {
+    stubFetch(200, { data: [{ id: 1 }], meta: { total: 77 } });
+    const res = await virtualList(baseConfig(), baseQuery());
+    expect(res.total).toBe(77);
+  });
+
+  it('wraps a single non-array list_path leaf as one item', async () => {
+    stubFetch(200, { payload: { id: 1, ext_name: 'solo' } });
+    const cfg = baseConfig({
+      list_path: '$.payload',
+      field_mapping: { name: 'ext_name' },
+    });
+    const res = await virtualList(cfg, baseQuery());
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].name).toBe('solo');
+    expect(res.total).toBe(1);
+  });
 });
 
 describe('virtualGetOne', () => {
