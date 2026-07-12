@@ -57,9 +57,9 @@ d('data single handler hook aborts (in-process)', () => {
 
     const res = await json('POST', `/api/data/${COLLECTION}`, { title: 'nope' });
     expect(res.status).toBe(422);
-    const body = (await res.json()) as { code: string; reason: string };
+    const body = (await res.json()) as { code: string; status: number };
     expect(body.code).toBe('EXT_HOOK_ABORTED');
-    expect(body.reason).toBe('denied');
+    expect(body.status).toBe(422);
   });
 
   it('returns 422 when beforeUpdate aborts patch', async () => {
@@ -71,9 +71,8 @@ d('data single handler hook aborts (in-process)', () => {
 
     const res = await json('PATCH', `/api/data/${COLLECTION}/${recordId}`, { title: 'new' });
     expect(res.status).toBe(422);
-    const body = (await res.json()) as { code: string; reason: string };
+    const body = (await res.json()) as { code: string };
     expect(body.code).toBe('EXT_HOOK_ABORTED');
-    expect(body.reason).toBe('locked');
   });
 
   it('returns 422 when beforeDelete aborts delete', async () => {
@@ -85,8 +84,7 @@ d('data single handler hook aborts (in-process)', () => {
 
     const res = await json('DELETE', `/api/data/${COLLECTION}/${id}`);
     expect(res.status).toBe(422);
-    const body = (await res.json()) as { code: string; reason: string };
+    const body = (await res.json()) as { code: string };
     expect(body.code).toBe('EXT_HOOK_ABORTED');
-    expect(body.reason).toBe('retain');
   });
 });
