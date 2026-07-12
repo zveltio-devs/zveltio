@@ -109,6 +109,52 @@ describe('installExtensionNpmDependencies', () => {
     }
   });
 
+  it('warns when npm install exits non-zero after bun add fails', async () => {
+    const originalSpawn = Bun.spawn;
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...a: unknown[]) => warns.push(a.join(' '));
+    const closedStream = () =>
+      new ReadableStream({
+        start(c) {
+          c.close();
+        },
+      });
+    Bun.spawn = ((cmd: string[]) => {
+      if (cmd[0] === 'bun' && cmd[1] === 'add') {
+        return {
+          exited: Promise.resolve(1),
+          stdout: closedStream(),
+          stderr: closedStream(),
+        } as ReturnType<typeof Bun.spawn>;
+      }
+      if (cmd[0] === 'npm') {
+        return {
+          exited: Promise.resolve(1),
+          stdout: closedStream(),
+          stderr: new ReadableStream({
+            start(c) {
+              c.enqueue(new TextEncoder().encode('peer not found'));
+              c.close();
+            },
+          }),
+        } as ReturnType<typeof Bun.spawn>;
+      }
+      return originalSpawn(cmd as never);
+    }) as typeof Bun.spawn;
+
+    try {
+      await expect(
+        installExtensionNpmDependencies('mail-ext', { nanoid: '^5.0.0' }),
+      ).rejects.toThrow(/could not install peer packages/i);
+      expect(warns.join('\n')).toMatch(/npm install failed for "mail-ext"/);
+      expect(warns.join('\n')).toMatch(/peer not found/);
+    } finally {
+      Bun.spawn = originalSpawn;
+      console.warn = origWarn;
+    }
+  });
+
   it('throws when neither bun nor npm can install missing peers', async () => {
     const originalSpawn = Bun.spawn;
     Bun.spawn = (() => {

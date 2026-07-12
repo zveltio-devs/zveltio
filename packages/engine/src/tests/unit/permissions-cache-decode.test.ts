@@ -6,6 +6,7 @@ import { createHmac } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
+  checkPermission,
   getUserRoles,
   initPermissions,
   isGodUser,
@@ -85,6 +86,31 @@ describe('cache decode catch paths', () => {
 
     await runWithDomain(domain, async () => {
       expect(await getUserRoles('u-editor')).toEqual(['editor']);
+    });
+  });
+
+  it('falls through permission cache decode when BETTER_AUTH_SECRET is unset', async () => {
+    const domain = DEFAULT_TENANT_ID;
+    const cacheKey = `perm:${domain}:u-editor:contacts:read`;
+    const saved = process.env.BETTER_AUTH_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+    _setCacheForTests(makeCache(new Map([[cacheKey, '1:deadbeef']])) as never);
+    try {
+      await runWithDomain(domain, async () => {
+        expect(await checkPermission('u-editor', 'contacts', 'read')).toBe(true);
+      });
+    } finally {
+      if (saved === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = saved;
+    }
+  });
+
+  it('ignores permission cache entries with malformed HMAC hex', async () => {
+    const domain = DEFAULT_TENANT_ID;
+    const cacheKey = `perm:${domain}:u-editor:contacts:delete`;
+    _setCacheForTests(makeCache(new Map([[cacheKey, '0:not-valid-hex']])) as never);
+    await runWithDomain(domain, async () => {
+      expect(await checkPermission('u-editor', 'contacts', 'delete')).toBe(false);
     });
   });
 });
