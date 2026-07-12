@@ -71,6 +71,44 @@ describe('installExtensionNpmDependencies', () => {
     }
   });
 
+  it('falls back to npm install when bun add exits non-zero', async () => {
+    const originalSpawn = Bun.spawn;
+    let npmCalled = false;
+    Bun.spawn = ((cmd: string[]) => {
+      if (cmd[0] === 'bun' && cmd[1] === 'add') {
+        return {
+          exited: Promise.resolve(1),
+          stdout: new ReadableStream(),
+          stderr: new ReadableStream({
+            start(c) {
+              c.enqueue(new TextEncoder().encode('peer conflict'));
+              c.close();
+            },
+          }),
+        } as ReturnType<typeof Bun.spawn>;
+      }
+      if (cmd[0] === 'npm') {
+        npmCalled = true;
+        mkdirSync(join(extBase, 'node_modules', 'nanoid'), { recursive: true });
+        writeFileSync(join(extBase, 'node_modules', 'nanoid', 'package.json'), '{}');
+        return {
+          exited: Promise.resolve(0),
+          stdout: new ReadableStream(),
+          stderr: new ReadableStream(),
+        } as ReturnType<typeof Bun.spawn>;
+      }
+      return originalSpawn(cmd as never);
+    }) as typeof Bun.spawn;
+
+    try {
+      await installExtensionNpmDependencies('mail-ext', { nanoid: '^5.0.0' });
+      expect(npmCalled).toBe(true);
+      expect(existsSync(join(extBase, 'node_modules', 'nanoid'))).toBe(true);
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
+  });
+
   it('throws when neither bun nor npm can install missing peers', async () => {
     const originalSpawn = Bun.spawn;
     Bun.spawn = (() => {

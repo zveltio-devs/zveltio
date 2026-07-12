@@ -264,6 +264,7 @@ function observePolicyDecision(
 export const _internalForTests = {
   isFirstParty,
   resetCache: () => _cache.clear(),
+  parsePolicyOverrides: loadOverrides,
   FIRST_PARTY_CAPABILITIES,
   THIRD_PARTY_CAPABILITIES,
 };
