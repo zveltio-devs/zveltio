@@ -62,4 +62,16 @@ describe('runScript', () => {
       spy.mockRestore();
     }
   });
+
+  it('returns a structured error when runFunction throws', async () => {
+    const spy = spyOn(sandbox, 'runFunction').mockRejectedValue(new Error('worker crashed'));
+    try {
+      const res = await runScript('return 1;');
+      expect(res.output).toBeNull();
+      expect(res.error).toBe('worker crashed');
+      expect(res.duration_ms).toBeGreaterThanOrEqual(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
