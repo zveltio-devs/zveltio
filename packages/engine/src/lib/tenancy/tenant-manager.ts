@@ -89,9 +89,15 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
     .raw(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS tenant_id UUID DEFAULT ${def}`)
     .execute(db);
   await sql.raw(`UPDATE ${t} SET tenant_id = ${def} WHERE tenant_id IS NULL`).execute(db);
+  // NULLIF(..., '') is load-bearing: current_setting(..., true) returns an EMPTY
+  // STRING (not NULL) when the GUC is set-but-blank — e.g. a god/single-tenant
+  // request that runs without a tenant context. COALESCE only catches NULL, so
+  // without the NULLIF the default evaluates `''::uuid` → "invalid input syntax
+  // for type uuid" and every insert into an RLS table 500s. NULLIF maps '' → NULL
+  // so COALESCE falls back to the default tenant.
   await sql
     .raw(
-      `ALTER TABLE ${t} ALTER COLUMN tenant_id SET DEFAULT COALESCE(current_setting('zveltio.current_tenant', true)::uuid, ${def})`,
+      `ALTER TABLE ${t} ALTER COLUMN tenant_id SET DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, ${def})`,
     )
     .execute(db);
   await sql.raw(`ALTER TABLE ${t} ALTER COLUMN tenant_id SET NOT NULL`).execute(db);
