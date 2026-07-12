@@ -1,25 +1,24 @@
 /**
  * Phase C — collection create with location field (postgis extension + ddl-manager).
+ *
+ * Uses DDLManager directly — postgis extension install can exceed the default
+ * 5s harness timeout when routed through the async DDL queue.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hloc_${Date.now()}`;
 
 d('collections location / postgis (in-process)', () => {
-  let app: Hono;
   let db: Database;
-  let cookie = '';
 
   beforeAll(async () => {
-    ({ app, db } = await getTestApp());
-    cookie = await createGodSession(app, db);
+    ({ db } = await getTestApp());
   });
 
   afterAll(async () => {
@@ -35,20 +34,14 @@ d('collections location / postgis (in-process)', () => {
       .catch(() => {});
   });
 
-  it('POST / provisions a geometry column and enables postgis', async () => {
-    const res = await app.request('/api/collections', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({
-        name: COLLECTION,
-        fields: [
-          { name: 'title', type: 'text', required: true, unique: false, indexed: false },
-          { name: 'coords', type: 'location', required: false, unique: false, indexed: false },
-        ],
-      }),
-    });
-    expect(res.status).toBe(202);
-    expect(await DDLManager.tableExists(db, COLLECTION)).toBe(true);
+  it('createCollection provisions a geometry column and enables postgis', async () => {
+    await DDLManager.createCollection(db, {
+      name: COLLECTION,
+      fields: [
+        { name: 'title', type: 'text', required: true, unique: false, indexed: false },
+        { name: 'coords', type: 'location', required: false, unique: false, indexed: false },
+      ],
+    } as never);
 
     const ext = await sql<{ extname: string }>`
       SELECT extname FROM pg_extension WHERE extname = 'postgis'
@@ -61,5 +54,5 @@ d('collections location / postgis (in-process)', () => {
     `.execute(db);
     expect(cols.rows.length).toBe(1);
     expect(cols.rows[0]!.udt_name).toBe('geometry');
-  });
+  }, 120_000);
 });

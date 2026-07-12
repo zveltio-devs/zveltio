@@ -44,7 +44,7 @@ d('collections enum field (in-process)', () => {
         fields: [
           { name: 'title', type: 'text', required: true, unique: false, indexed: false },
           {
-            name: 'status',
+            name: 'phase',
             type: 'enum',
             required: false,
             unique: false,
@@ -60,10 +60,10 @@ d('collections enum field (in-process)', () => {
     const write = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ title: 'Enum item', status: 'published' }),
+      body: JSON.stringify({ title: 'Enum item', phase: 'published' }),
     });
     expect([200, 201]).toContain(write.status);
-    const body = (await write.json()) as { status?: string; title?: string };
-    expect(body.status ?? (body as { data?: { status: string } }).data?.status).toBe('published');
+    const body = (await write.json()) as { phase?: string; title?: string };
+    expect(body.phase ?? (body as { data?: { phase: string } }).data?.phase).toBe('published');
   });
 });
