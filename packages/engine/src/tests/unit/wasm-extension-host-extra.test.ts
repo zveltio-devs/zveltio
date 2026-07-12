@@ -53,10 +53,7 @@ describe('instantiateWasmExtension — extra paths', () => {
   });
 
   it('invokes db_execute import stub for first-party extensions', async () => {
-    WebAssembly.instantiate = (async (
-      _bytes: BufferSource,
-      imports?: WebAssembly.Imports,
-    ) => {
+    WebAssembly.instantiate = (async (_bytes: BufferSource, imports?: WebAssembly.Imports) => {
       const z = imports!.zveltio as Record<string, (ptr: number, len: number) => number>;
       expect(z.db_execute(0, 0)).toBe(0);
       return {
