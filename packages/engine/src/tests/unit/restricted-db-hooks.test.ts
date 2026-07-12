@@ -371,4 +371,22 @@ describe('S2-02 follow-up: deleteFrom interception', () => {
     const original = db.__deletes[0];
     expect(original.__log.some((c: any) => c.method === 'execute')).toBe(false);
   });
+
+  it('skips the hook on bulk DELETE WHERE without id (and still executes)', async () => {
+    let fired = 0;
+    engineEvents.onBefore('record.beforeDelete', async () => {
+      fired++;
+    });
+
+    const db = makeStubDb();
+    const rdb = createRestrictedDb(db, 'forms');
+    await rdb
+      .deleteFrom('zvd_forms' as any)
+      .where('tenant_id' as any, '=', 't-x')
+      .execute();
+
+    expect(fired).toBe(0);
+    const original = db.__deletes[0];
+    expect(original.__log.some((c: any) => c.method === 'execute')).toBe(true);
+  });
 });

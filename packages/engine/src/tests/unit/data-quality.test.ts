@@ -200,6 +200,25 @@ describe('missing-data detection', () => {
     expect(db.executed(/WITH missing/)).toHaveLength(0);
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
   });
+
+  it('skips a field when its missing-data query throws', async () => {
+    const fieldsWithBroken = [
+      { name: 'email', type: 'email', required: true },
+      { name: 'broken', type: 'text', required: false },
+    ];
+    const db = setup('contacts', fieldsWithBroken);
+    db.when(/SELECT COUNT\(\*\)::text AS total/i, [{ total: '50' }]);
+    db.fail(/WITH missing[\s\S]*"broken"/i, new Error('column broken does not exist'));
+    db.when(/WITH missing[\s\S]*"email"/i, [{ count: '30', sample_ids: ['e1'] }]);
+
+    await runQualityScan(asDb(db), 'contacts', 'missing_data', 'user-1');
+    await awaitScanEnd(db);
+
+    const inserts = db.executed(/insert into "zv_quality_issues"/);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]!.parameters).toContain('missing_required');
+    expect(db.executed(/WITH missing[\s\S]*"broken"/i)).toHaveLength(1);
+  });
 });
 
 describe('outlier detection', () => {
