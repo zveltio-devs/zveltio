@@ -15,7 +15,10 @@ function makeCache(store = new Map<string, string>()) {
       return 'OK';
     },
     set: async (...args: unknown[]) => {
-      if (args.length >= 2) store.set(String(args[0]), String(args[1]));
+      const key = String(args[0]);
+      const hasNx = args.includes('NX');
+      if (hasNx && store.has(key)) return null;
+      if (args.length >= 2) store.set(key, String(args[1]));
       return 'OK';
     },
     del: async (...keys: string[]) => {
@@ -86,6 +89,18 @@ describe('createCacheSecondaryStorage', () => {
     _setCacheForTests(fake as never);
     const storage = await createCacheSecondaryStorage();
     expect(await storage!.get('bad')).toBeNull();
+  });
+
+  it('setnx writes only when the key is absent', async () => {
+    const fake = makeCache();
+    _setCacheForTests(fake as never);
+    const storage = await createCacheSecondaryStorage();
+    await storage!.set('nx-key', { first: true });
+    await storage!.setnx('nx-key', { second: true });
+    expect(await storage!.get('nx-key')).toEqual({ first: true });
+    await storage!.delete('nx-key');
+    await storage!.setnx('nx-key', { fresh: true });
+    expect(await storage!.get('nx-key')).toEqual({ fresh: true });
   });
 
   it('runs pipeline get/set/del operations', async () => {
