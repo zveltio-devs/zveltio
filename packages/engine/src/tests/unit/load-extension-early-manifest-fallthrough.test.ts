@@ -34,7 +34,13 @@ describe('loadExtensionFromDir — early manifest parse failure', () => {
     writeFileSync(join(extDir, 'manifest.json'), '{not json');
     // No engine bundle — full path should surface missing bundle, not crash.
     const loader = fakeLoader();
-    await loadExtensionFromDir(loader as unknown as ExtensionLoader, 'broken-early', new Hono(), loader.ctx, base);
+    await loadExtensionFromDir(
+      loader as unknown as ExtensionLoader,
+      'broken-early',
+      new Hono(),
+      loader.ctx,
+      base,
+    );
     expect(loader.loaded.has('broken-early')).toBe(false);
     expect(loader.modules.has('broken-early')).toBe(false);
   });
