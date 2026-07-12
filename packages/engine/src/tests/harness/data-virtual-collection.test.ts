@@ -212,4 +212,25 @@ d('data virtual collection (in-process)', () => {
     const body = (await res.json()) as { record?: { title?: string } };
     expect(body.record?.title).toBe('one-row');
   });
+
+  it('proxies virtual create when upstream succeeds', async () => {
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('POST');
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ id: 'ext-new', title: 'created-remote' }),
+      };
+    }) as unknown as typeof fetch;
+
+    const res = await app.request(`/api/data/${COLLECTION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'created-remote' }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { record?: { title?: string } };
+    expect(body.record?.title).toBe('created-remote');
+  });
 });
