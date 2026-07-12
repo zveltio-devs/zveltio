@@ -18,6 +18,7 @@ import {
   isEncryptedValue,
   maybeDecrypt,
   maybeEncrypt,
+  resetFieldCryptoKeyCacheForTests,
 } from '../../lib/data/field-crypto.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -34,6 +35,18 @@ afterAll(() => {
 });
 
 describe('encryptField / decryptField', () => {
+  it('rejects encryption when FIELD_ENCRYPTION_KEY is the wrong length', async () => {
+    resetFieldCryptoKeyCacheForTests();
+    const saved = process.env.FIELD_ENCRYPTION_KEY;
+    process.env.FIELD_ENCRYPTION_KEY = 'tooshort';
+    try {
+      await expect(encryptField('secret')).rejects.toThrow(/64-char hex/);
+    } finally {
+      resetFieldCryptoKeyCacheForTests();
+      process.env.FIELD_ENCRYPTION_KEY = saved ?? KEY;
+    }
+  });
+
   it('produces an enc:v1: ciphertext that is not the plaintext', async () => {
     const enc = await encryptField('super-secret-value');
     expect(enc.startsWith('enc:v1:')).toBe(true);
