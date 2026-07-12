@@ -75,6 +75,19 @@ d('data single handler hook aborts (in-process)', () => {
     expect(body.code).toBe('EXT_HOOK_ABORTED');
   });
 
+  it('returns 422 when beforeUpdate aborts PUT replace', async () => {
+    const create = await json('POST', `/api/data/${COLLECTION}`, { title: 'put-target' });
+    expect(create.status).toBe(201);
+    const id = ((await create.json()) as { id: string }).id;
+
+    engineEvents.onBefore('record.beforeUpdate', (p) => p.abort('replace-blocked'));
+
+    const res = await json('PUT', `/api/data/${COLLECTION}/${id}`, { title: 'replaced' });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe('EXT_HOOK_ABORTED');
+  });
+
   it('returns 422 when beforeDelete aborts delete', async () => {
     const create = await json('POST', `/api/data/${COLLECTION}`, { title: 'delete-target' });
     expect(create.status).toBe(201);
