@@ -78,4 +78,15 @@ d('data single validation 422 (in-process)', () => {
     expect(Array.isArray(body.errors)).toBe(true);
     expect(body.errors?.some((e) => e.includes('Must be a number'))).toBe(true);
   });
+
+  it('returns 422 with errors array when PUT replace has invalid number field', async () => {
+    const res = await json('PUT', `/api/data/${COLLECTION}/${recordId}`, {
+      title: 'replaced',
+      amount: 'bad-number',
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors?: string[] };
+    expect(Array.isArray(body.errors)).toBe(true);
+    expect(body.errors?.some((e) => e.includes('Must be a number'))).toBe(true);
+  });
 });
