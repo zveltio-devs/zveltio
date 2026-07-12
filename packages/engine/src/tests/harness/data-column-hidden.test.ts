@@ -35,6 +35,14 @@ d('data column hidden on read (in-process)', () => {
     } as never);
     tableName = `zvd_${COLLECTION}`;
 
+    const create = await app.request(`/api/data/${COLLECTION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'visible', secret: 'classified' }),
+    });
+    expect(create.status).toBe(201);
+    recordId = ((await create.json()) as { id: string }).id;
+
     const perm = await db
       .insertInto('zvd_column_permissions')
       .values({
@@ -48,14 +56,6 @@ d('data column hidden on read (in-process)', () => {
       .executeTakeFirst();
     colPermId = perm?.id ?? '';
     await invalidateColumnPermCache(COLLECTION);
-
-    const inserted = await sql<{ id: string }>`
-      INSERT INTO ${sql.table(tableName)} (title, secret, created_by, updated_by)
-      VALUES ('visible', 'classified', ${sql.lit('harness')}, ${sql.lit('harness')})
-      RETURNING id
-    `.execute(db);
-    recordId = inserted.rows[0]?.id ?? '';
-    expect(recordId).toBeTruthy();
   });
 
   afterAll(async () => {
