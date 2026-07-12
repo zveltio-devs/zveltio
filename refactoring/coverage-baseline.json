@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-11",
+  "generated": "2026-07-12",
   "note": "Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. Measured over the HONEST combined surface: the unit lcov UNIONed with the Phase C in-process harness lcov (scripts/merge-coverage.ts). See docs/HARDENING-9-PLAN.md H-02.",
   "targetNote": "target.lib=90 is the autonomous coverage campaign goal for the lib/ business-logic core. The gate measures the HONEST combined number: unit lcov UNIONed with the in-process harness lcov (scripts/merge-coverage.ts). Harness route suites (src/tests/harness/) plus focused unit tests climb toward 90%. External-service wiring (better-auth, S3, pg-boss, ioredis, Bun.SQL.subscribe, OTel SDK) + defensive catch-branches remain for integration/soak suites.",
   "source": "union of `bun test src/tests/unit --coverage` and `bun test src/tests/harness --coverage` lcovs via scripts/merge-coverage.ts (per-line DA hit union)",
@@ -9,7 +9,7 @@
   },
   "gated": ["lib"],
   "measured": {
-    "lib": 84.4,
+    "lib": 84.5,
     "other": 54.7,
     "routes": 35.7,
     "src-other": 47.3
