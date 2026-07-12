@@ -103,6 +103,44 @@ describe('validateFieldValue — regex edges', () => {
       g.Worker = OriginalWorker;
     }
   });
+
+  test('Worker postMessage result is used for pattern matching', async () => {
+    const g = globalThis as Record<string, unknown>;
+    const OriginalWorker = g.Worker;
+    class MockWorker {
+      onmessage: ((ev: MessageEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      postMessage(data: { pattern: string; value: string }) {
+        const matched = new RegExp(data.pattern).test(data.value);
+        queueMicrotask(() => this.onmessage?.({ data: { result: matched } } as MessageEvent));
+      }
+      terminate() {}
+    }
+    g.Worker = MockWorker;
+    try {
+      const miss = await validateFieldValue('nope', [
+        {
+          field_name: 'f',
+          rule_type: 'pattern',
+          rule_config: { pattern: '^yes$' },
+          error_message: 'pattern miss',
+        },
+      ]);
+      expect(miss).toEqual(['pattern miss']);
+
+      const hit = await validateFieldValue('yes', [
+        {
+          field_name: 'f',
+          rule_type: 'pattern',
+          rule_config: { pattern: '^yes$' },
+          error_message: null,
+        },
+      ]);
+      expect(hit).toEqual([]);
+    } finally {
+      g.Worker = OriginalWorker;
+    }
+  });
 });
 
 describe('getValidationRules — field filter + cache keys', () => {
