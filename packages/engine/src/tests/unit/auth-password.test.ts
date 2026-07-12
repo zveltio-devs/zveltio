@@ -105,6 +105,19 @@ describe('verifyPassword (legacy scrypt)', () => {
     });
   });
 
+  it('returns false when scryptSync throws', async () => {
+    const crypto = await import('crypto');
+    const scryptSpy = spyOn(crypto, 'scryptSync').mockImplementation(() => {
+      throw new Error('scrypt unavailable');
+    });
+    try {
+      const hash = legacyScryptHash();
+      expect(await verifyPassword({ hash, password: 'any' })).toBe(false);
+    } finally {
+      scryptSpy.mockRestore();
+    }
+  });
+
   it('refuses scrypt after PASSWORD_LEGACY_SCRYPT_DEADLINE', async () => {
     process.env.PASSWORD_LEGACY_SCRYPT_DEADLINE = new Date(
       Date.now() - 24 * 60 * 60 * 1000,
