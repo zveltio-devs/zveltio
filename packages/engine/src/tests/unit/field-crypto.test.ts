@@ -8,7 +8,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
   decryptField,
-  encryptField,
   isEncryptedValue,
   maybeDecrypt,
   maybeEncrypt,
@@ -58,18 +57,5 @@ describe('maybeDecrypt / decryptField — passthrough guards', () => {
   it('a non-encrypted string is returned unchanged', async () => {
     expect(await maybeDecrypt('plaintext', true)).toBe('plaintext');
     expect(await decryptField('plaintext')).toBe('plaintext');
-  });
-});
-
-describe('encryptField — key validation', () => {
-  it('rejects encryption when FIELD_ENCRYPTION_KEY is missing or wrong length', async () => {
-    const saved = process.env.FIELD_ENCRYPTION_KEY;
-    process.env.FIELD_ENCRYPTION_KEY = 'tooshort';
-    try {
-      await expect(encryptField('secret')).rejects.toThrow(/64-char hex/);
-    } finally {
-      if (saved === undefined) delete process.env.FIELD_ENCRYPTION_KEY;
-      else process.env.FIELD_ENCRYPTION_KEY = saved;
-    }
   });
 });

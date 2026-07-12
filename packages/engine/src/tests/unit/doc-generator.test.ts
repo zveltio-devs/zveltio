@@ -7,9 +7,10 @@
  * generatePDF delegates to the pdf-queue worker pool and is covered elsewhere.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { getNextDocumentNumber, renderTemplate } from '../../lib/doc-generator.js';
+import { generatePDF, getNextDocumentNumber, renderTemplate } from '../../lib/doc-generator.js';
+import * as pdfQueue from '../../lib/pdf-queue.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 describe('renderTemplate', () => {
@@ -66,5 +67,29 @@ describe('getNextDocumentNumber', () => {
     const year = new Date().getFullYear();
     const num = await getNextDocumentNumber(db.kysely as unknown as Database, 'missing', 'PV-');
     expect(num).toBe(`PV-1/${year}`);
+  });
+});
+
+describe('generatePDF', () => {
+  afterEach(() => {
+    spyOn(pdfQueue, 'generatePDFAsync').mockRestore();
+  });
+
+  it('delegates to generatePDFAsync in the pdf-queue worker pool', async () => {
+    let captured: { html: string; options: Record<string, unknown> } | undefined;
+    spyOn(pdfQueue, 'generatePDFAsync').mockImplementation(
+      async (
+        html: string,
+        options: { title?: string; author?: string; subject?: string; pageSize?: 'A4' | 'LETTER' },
+      ) => {
+        captured = { html, options };
+        return Buffer.from('mock-pdf');
+      },
+    );
+    const buf = await generatePDF('<p>hi</p>', { title: 'Invoice', pageSize: 'A4' });
+    expect(buf.toString()).toBe('mock-pdf');
+    expect(captured).toBeDefined();
+    expect(captured!.html).toBe('<p>hi</p>');
+    expect(captured!.options).toEqual({ title: 'Invoice', pageSize: 'A4' });
   });
 });
