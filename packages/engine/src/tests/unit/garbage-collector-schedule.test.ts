@@ -91,4 +91,51 @@ describe('runGarbageCollector — purge outer catch', () => {
       log.mockRestore();
     }
   });
+
+  it('warns when slow-query purge logging throws', async () => {
+    process.env.REQUEST_LOG_RETENTION_DAYS = '7';
+    const db = new CannedDb();
+    db.when(/FROM information_schema\.schemata/i, []);
+    db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 0 }]);
+    db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 2 }]);
+
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const log = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      if (String(args[0]).includes('zv_slow_queries')) {
+        throw new Error('log sink broken');
+      }
+    });
+    try {
+      await runGarbageCollector(asDb(db));
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).includes('zv_slow_queries purge failed')),
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it('warns when audit-log purge logging throws', async () => {
+    process.env.AUDIT_LOG_RETENTION_DAYS = '30';
+    const db = new CannedDb();
+    db.when(/FROM information_schema\.schemata/i, []);
+    db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 4 }]);
+
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const log = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      if (String(args[0]).includes('zv_audit_log')) {
+        throw new Error('log sink broken');
+      }
+    });
+    try {
+      await runGarbageCollector(asDb(db));
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('zv_audit_log purge failed'))).toBe(
+        true,
+      );
+    } finally {
+      warn.mockRestore();
+      log.mockRestore();
+    }
+  });
 });
