@@ -125,15 +125,24 @@ d('data write-pipeline (in-process)', () => {
     const upd = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ ids: [b1.id, b2.id], data: { amount: 50 } }),
+      body: JSON.stringify({
+        records: [
+          { id: b1.id, amount: 50 },
+          { id: b2.id, amount: 50 },
+        ],
+      }),
     });
-    expect([200, 204, 400]).toContain(upd.status);
+    expect(upd.status).toBe(200);
+    const updBody = (await upd.json()) as { updated: number };
+    expect(updBody.updated).toBe(2);
 
     const del = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ ids: [b1.id, b2.id] }),
     });
-    expect([200, 204, 400]).toContain(del.status);
+    expect(del.status).toBe(200);
+    const delBody = (await del.json()) as { deleted: number };
+    expect(delBody.deleted).toBe(2);
   });
 });
