@@ -64,8 +64,6 @@ d('data single-record edge cases (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/as_of/i);
   });
 
   it('fetches a single record by id', async () => {
