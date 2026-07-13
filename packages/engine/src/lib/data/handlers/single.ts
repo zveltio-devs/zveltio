@@ -78,8 +78,17 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
 
     const data =
       typeof rev.rows[0].data === 'string' ? JSON.parse(rev.rows[0].data) : rev.rows[0].data;
+
+    // Time travel MUST honour the same read authorization as the live read path
+    // below — otherwise `?as_of=` is a bypass: a user denied entity-access to a
+    // record, or denied read on a column, could read it from history.
+    const ttTable = DDLManager.getTableName(collection);
+    if (!(await entityAccessRegistry.isAllowed(ttTable, data, user, 'view'))) {
+      return c.json({ error: 'Record not found' }, 404);
+    }
+    const ttColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
     return c.json({
-      record: data,
+      record: applyColumnAccess(data as Record<string, unknown>, ttColAccess),
       time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at },
     });
   }
