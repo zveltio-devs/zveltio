@@ -358,6 +358,7 @@ export interface ZvdPushTokensTable {
 
 export interface ZvMediaFoldersTable {
   id: Generated<string>;
+  tenant_id: Generated<string>; // 010_media_tenant_isolation
   name: string;
   parent_id: string | null;
   created_by: string | null;
@@ -367,6 +368,7 @@ export interface ZvMediaFoldersTable {
 
 export interface ZvMediaFilesTable {
   id: Generated<string>;
+  tenant_id: Generated<string>; // 010_media_tenant_isolation
   folder_id: string | null;
   filename: string;
   original_name: string;
