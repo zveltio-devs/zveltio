@@ -26,7 +26,7 @@ describe('problemNormalizer — clone text failure', () => {
       expect(res.headers.get('content-type')).toContain(PROBLEM_CONTENT_TYPE);
       const body = (await res.json()) as { code: string; detail?: string };
       expect(body.code).toBe('forbidden');
-      expect(body.detail).toBe('');
+      expect(body.detail).toBeUndefined();
     } finally {
       textSpy.mockRestore();
     }
