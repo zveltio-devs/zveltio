@@ -232,3 +232,8 @@ export async function sendPushToUsers(
     { sent: 0, failed: 0 },
   );
 }
+
+/** Test-only — never import outside src/tests/. */
+export function _resetApnsJwtCacheForTests(): void {
+  _apnsJwt = null;
+}
