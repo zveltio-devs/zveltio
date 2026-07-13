@@ -147,6 +147,27 @@ describe('getValidationRules + cache', () => {
     invalidateRulesCache(col);
     expect(await getValidationRules(emptyDb, col)).toHaveLength(0);
   });
+
+  test('caches field-specific lookups separately from the collection wildcard', async () => {
+    const col = `field_${Date.now()}`;
+    const emailDb = fakeDb({
+      email: [
+        {
+          field_name: 'email',
+          rule_type: 'email',
+          rule_config: {},
+          error_message: 'bad email',
+        },
+      ],
+      '*': [],
+    });
+    const wildcardDb = fakeDb({ '*': [] });
+
+    const emailRules = await getValidationRules(emailDb, col, 'email');
+    expect(emailRules).toHaveLength(1);
+    expect(await getValidationRules(wildcardDb, col)).toHaveLength(0);
+    invalidateRulesCache(col);
+  });
 });
 
 describe('validateRecord', () => {
