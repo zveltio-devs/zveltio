@@ -79,7 +79,12 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
 
     const total = records.length;
     const offset = (query.page - 1) * query.limit;
-    const page = records.slice(offset, offset + query.limit);
+    // Time travel MUST hide columns the role can't read, same as the live list
+    // path below — otherwise `?as_of=` leaks columns hidden by column permissions.
+    const colAccessTT = await getColumnAccess(db, collection, user.role ?? 'public');
+    const page = records
+      .slice(offset, offset + query.limit)
+      .map((r) => applyColumnAccess(r, colAccessTT));
 
     return c.json({
       records: page,
