@@ -19,8 +19,16 @@ describe('normalizeHost', () => {
     expect(normalizeHost('0177.0.0.1')).toBe('127.0.0.1');
   });
 
+  it('normalizes IPv4-mapped IPv6 dotted hosts', () => {
+    expect(normalizeHost('::ffff:127.0.0.1')).toBe('127.0.0.1');
+  });
+
   it('normalizes IPv4-mapped IPv6 hex-word hosts', () => {
     expect(normalizeHost('::ffff:7f00:0001')).toBe('127.0.0.1');
+  });
+
+  it('leaves small decimal hosts unchanged', () => {
+    expect(normalizeHost('8080')).toBe('8080');
   });
 });
 
