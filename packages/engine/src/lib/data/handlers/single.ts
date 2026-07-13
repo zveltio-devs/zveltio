@@ -99,7 +99,10 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     try {
       const record = await virtualGetOne(virtualConfigSingle, id);
       if (!record) return c.json({ error: 'Record not found' }, 404);
-      return c.json({ record });
+      // Column permissions apply to virtual collections too — hide columns the
+      // role can't read instead of proxying them through verbatim.
+      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      return c.json({ record: applyColumnAccess(record, vColAccess) });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
