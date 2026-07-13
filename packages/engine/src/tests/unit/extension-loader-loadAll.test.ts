@@ -2,7 +2,7 @@
  * ExtensionLoader.loadAll — env-driven boot load without touching disk/npm.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Hono } from 'hono';
 import { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
@@ -54,6 +54,33 @@ describe('ExtensionLoader.loadAll', () => {
 
     await loader.loadAll(noApp, { db: new CannedDb().kysely } as ExtensionContext);
     expect(calls).toEqual(['only-one']);
+  });
+
+  it('continues boot when ensureExtensionCoreDeps rejects (non-fatal warn)', async () => {
+    savedExtensions = process.env.ZVELTIO_EXTENSIONS;
+    process.env.ZVELTIO_EXTENSIONS = 'deps-ok';
+
+    const deps = await import('../../lib/extensions/extension-deps.js');
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const depsSpy = spyOn(deps, 'ensureExtensionCoreDeps').mockRejectedValue(
+      new Error('npm registry down'),
+    );
+
+    const loader = new ExtensionLoader();
+    loader.loadExtension = async (name) => {
+      loader.loaded.set(name, { registeredRoutes: false } as never);
+    };
+
+    try {
+      await loader.loadAll(noApp, { db: new CannedDb().kysely } as ExtensionContext);
+      expect(loader.isActive('deps-ok')).toBe(true);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('Core dep install failed'))).toBe(
+        true,
+      );
+    } finally {
+      warn.mockRestore();
+      depsSpy.mockRestore();
+    }
   });
 });
 
