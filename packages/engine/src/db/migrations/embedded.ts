@@ -14,6 +14,10 @@ import m002 from './sql/003_translation_glossary.sql' with { type: 'text' };
 import m003 from './sql/004_invitations.sql' with { type: 'text' };
 import m004 from './sql/005_flow_dlq.sql' with { type: 'text' };
 import m005 from './sql/006_extension_load_errors.sql' with { type: 'text' };
+import m006 from './sql/007_default_tenant.sql' with { type: 'text' };
+import m007 from './sql/008_casbin_domains.sql' with { type: 'text' };
+import m008 from './sql/009_tenant_role_policies.sql' with { type: 'text' };
+import m009 from './sql/010_media_tenant_isolation.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -23,4 +27,8 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '004_invitations.sql': m003,
   '005_flow_dlq.sql': m004,
   '006_extension_load_errors.sql': m005,
+  '007_default_tenant.sql': m006,
+  '008_casbin_domains.sql': m007,
+  '009_tenant_role_policies.sql': m008,
+  '010_media_tenant_isolation.sql': m009,
 };
