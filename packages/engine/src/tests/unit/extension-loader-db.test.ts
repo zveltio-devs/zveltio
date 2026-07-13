@@ -98,6 +98,26 @@ describe('ExtensionLoader.loadFromDB', () => {
     expect(db.executed(REGISTRY_UPDATE).length).toBe(0);
   });
 
+  it('persists generic "load failed" when an extension stays inactive without lastLoadError', async () => {
+    const loader = new ExtensionLoader();
+    loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
+
+    const db = new CannedDb();
+    db.when(REGISTRY_SELECT, [{ name: 'silent-fail' }]);
+    db.whenAffected(REGISTRY_UPDATE, 1);
+
+    loader.loadExtension = async () => {
+      // No-op: extension never lands in loaded and no explicit error is recorded.
+    };
+    loader.topoSortExtensions = async (names) => names;
+
+    await loader.loadFromDB(db.kysely as unknown as Database, noApp);
+
+    const update = db.executed(REGISTRY_UPDATE)[0]!;
+    expect(update.parameters).toContain('load failed');
+    expect(loader.isActive('silent-fail')).toBe(false);
+  });
+
   it('swallows registry update failures without aborting other extensions', async () => {
     const loader = new ExtensionLoader();
     loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
