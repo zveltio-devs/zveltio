@@ -67,7 +67,7 @@
     "@testcontainers/postgresql": "^11.14.0",
     "@types/pg": "^8.11.0",
     "fake-indexeddb": "^6.2.5",
-    "hono": "^4.12.5",
+    "hono": "^4.12.30",
     "kysely": "^0.29.0",
     "pg": "^8.13.0",
     "typescript": "^5.4.0"
