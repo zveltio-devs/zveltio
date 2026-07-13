@@ -15,6 +15,7 @@ import {
   spyOn,
 } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import * as nodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -551,6 +552,34 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(body.success).toBe(true);
     expect(purgeMock).toHaveBeenCalled();
     expect(db.executed(/delete from "zv_extension_registry"/i).length).toBeGreaterThan(0);
+  });
+
+  it('POST uninstall purge still succeeds when rmSync fails', async () => {
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    const rmSpy = spyOn(nodeFs, 'rmSync').mockImplementation(() => {
+      throw new Error('EBUSY');
+    });
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const app = mountRoutes(db, extBase);
+    try {
+      const res = await app.request(
+        `/api/marketplace/${CATALOG_ENTRY.name}/uninstall?purgeData=true`,
+        {
+          method: 'POST',
+          headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+          body: '{}',
+        },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { purged: boolean; success: boolean };
+      expect(body.purged).toBe(true);
+      expect(body.success).toBe(true);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('could not remove'))).toBe(true);
+      expect(purgeMock).toHaveBeenCalled();
+    } finally {
+      rmSpy.mockRestore();
+      warn.mockRestore();
+    }
   });
 
   it('enable-all skips load when the extension is already active', async () => {

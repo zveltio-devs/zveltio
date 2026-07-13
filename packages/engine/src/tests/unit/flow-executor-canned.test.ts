@@ -5,7 +5,7 @@
  * driving the run orchestration and lightweight step branches entirely in-memory.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { executeFlow, _internalForTests } from '../../lib/flows/flow-executor.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
@@ -351,17 +351,26 @@ describe('executeStep — CannedDb branches', () => {
         },
       }),
     });
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      {
-        type: 'ai_decision',
-        config: { prompt: 'x', options: ['a'], fallback: 'a' },
-      },
-      {},
-      {},
-    );
-    expect(output.usedFallback).toBe(true);
-    expect(output.decision).toBe('a');
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { output } = await executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'ai_decision',
+          id: 'pick-fail',
+          config: { prompt: 'x', options: ['a'], fallback: 'a' },
+        },
+        {},
+        {},
+      );
+      expect(output.usedFallback).toBe(true);
+      expect(output.decision).toBe('a');
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes('AI Decision failed [pick-fail]')),
+      ).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it('ai_decision falls back when provider text does not match an option', async () => {
