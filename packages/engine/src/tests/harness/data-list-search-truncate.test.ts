@@ -49,7 +49,7 @@ d('data list search truncation (in-process)', () => {
   it('still finds matches when search is padded beyond 500 characters', async () => {
     const pad = 'x'.repeat(520);
     const res = await app.request(
-      `/api/data/${COLLECTION}?search=${encodeURIComponent(`${pad}${NEEDLE}`)}`,
+      `/api/data/${COLLECTION}?search=${encodeURIComponent(`${NEEDLE}${pad}`)}`,
       { headers: { cookie } },
     );
     expect(res.status).toBe(200);
