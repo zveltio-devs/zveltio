@@ -127,8 +127,10 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         limit: query.limit,
         search: query.search,
       });
+      // Column permissions apply to virtual collections too.
+      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
       return c.json({
-        records: data,
+        records: data.map((r: Record<string, unknown>) => applyColumnAccess(r, vColAccess)),
         pagination: {
           total,
           page: query.page,
