@@ -314,6 +314,32 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     expect(result).toBe('pong');
   });
 
+  it('service:register:err when host registry registration throws', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed, posted } = makeManaged(host, { name: 'reg-fail' });
+    const regSpy = spyOn(serviceRegistry, 'registerAs').mockImplementation(() => {
+      throw new Error('registry full');
+    });
+    try {
+      dispatchMessage(host, managed, {
+        type: 'service:register',
+        id: 'reg-bad',
+        name: 'reg.fail',
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(
+        posted.some(
+          (m) =>
+            m.type === 'service:register:err' && m.id === 'reg-bad' && m.error === 'registry full',
+        ),
+      ).toBe(true);
+      expect(managed.registeredServices.has('reg.fail')).toBe(false);
+    } finally {
+      regSpy.mockRestore();
+      serviceRegistry.unregisterAll('reg-fail');
+    }
+  });
+
   it('service:invoke:err rejects the host caller', async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, {

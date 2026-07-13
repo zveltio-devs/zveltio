@@ -77,6 +77,34 @@ describe('executeStep — export_collection (mocked ExportManager)', () => {
     expect(emailAttachMock).toHaveBeenCalled();
   });
 
+  it('skips email when email_to is set but ExportManager returns no buffer', async () => {
+    emailAttachMock.mockClear();
+    // @ts-expect-error — deliberate missing buffer to hit the non-email branch
+    exportMock.mockImplementationOnce(async () => ({ filename: 'reports-export.csv' }));
+    const db = new CannedDb();
+    db.when(/set_config/i, []);
+    db.when(/from "zvd_reports"/i, [{ id: '1', total: 9 }]);
+
+    const { output } = await executeStep(
+      db.kysely as unknown as Database,
+      {
+        type: 'export_collection',
+        config: {
+          collection: 'reports',
+          format: 'csv',
+          email_to: 'ops@example.com',
+        },
+      },
+      {},
+      {},
+    );
+
+    expect(output.exported).toBe(true);
+    expect(output.rows).toBe(1);
+    expect(output.sent_to).toBeUndefined();
+    expect(emailAttachMock).not.toHaveBeenCalled();
+  });
+
   it('emails an excel export with the xlsx content type', async () => {
     const db = new CannedDb();
     db.when(/set_config/i, []);
