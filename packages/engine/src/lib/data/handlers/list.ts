@@ -255,7 +255,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
 
   // ── Expand m2o relations on demand (?expand=customer_id,author_id) ──
   const expandPlan = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
-  await applyExpand(effectiveDb, serialized, expandPlan);
+  await applyExpand(effectiveDb, serialized, expandPlan, user.role ?? 'public');
 
   // ── ETag + Cache-Control ───────────────────────────────────────
   const etag = `"${await computeEtag(serialized)}"`;
