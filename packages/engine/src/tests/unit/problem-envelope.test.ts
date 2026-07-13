@@ -225,6 +225,43 @@ describe('H-13 error envelope', () => {
     expect(body.errors).toEqual({ name: ['Required'] });
   });
 
+  it('normalizes uncommon 5xx statuses with generic server-error codes', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get(
+      '/api/unusual',
+      () =>
+        new Response(JSON.stringify({ error: 'upstream died' }), {
+          status: 599,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const res = await app.request('http://local/api/unusual');
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 599);
+    expect(body.code).toBe('internal_error');
+    expect(body.title).toBe('Server Error');
+    expect(body.detail).toBe('upstream died');
+  });
+
+  it('normalizes uncommon 4xx statuses with request-error codes', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get(
+      '/api/client-weird',
+      () =>
+        new Response(JSON.stringify({ error: 'nope' }), {
+          status: 499,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const res = await app.request('http://local/api/client-weird');
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 499);
+    expect(body.code).toBe('request_error');
+    expect(body.title).toBe('Request Error');
+  });
+
   it('problemNormalizer leaves responses that are already problem+json untouched', async () => {
     const app = new Hono();
     app.use('/api/*', problemNormalizer());

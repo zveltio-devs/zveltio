@@ -60,4 +60,39 @@ d('data collection not found (in-process)', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('returns 404 on single POST for an unknown collection', async () => {
+    const res = await app.request(`/api/data/${MISSING}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'x' }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 on single PATCH for an unknown collection', async () => {
+    const res = await app.request(`/api/data/${MISSING}/00000000-0000-4000-8000-000000000002`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'x' }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 on single PUT for an unknown collection', async () => {
+    const res = await app.request(`/api/data/${MISSING}/00000000-0000-4000-8000-000000000003`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'x' }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 on single DELETE for an unknown collection', async () => {
+    const res = await app.request(`/api/data/${MISSING}/00000000-0000-4000-8000-000000000004`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(res.status).toBe(404);
+  });
 });
