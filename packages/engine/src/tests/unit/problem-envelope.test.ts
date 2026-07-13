@@ -6,6 +6,8 @@
 
 import { describe, it, expect } from 'bun:test';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
+import type { Context } from 'hono';
 import {
   problem,
   problemNormalizer,
@@ -120,5 +122,58 @@ describe('H-13 error envelope', () => {
     expect(body.code).toBe('not_found');
     expect(body.detail).toBe('No route for GET /api/does-not-exist.');
     expect(body.instance).toBe('/api/does-not-exist');
+  });
+
+  it('problemNotFound extracts traceId from traceparent when invoked directly', async () => {
+    const trace = '00-abcdef0123456789abcdef0123456789-0123456789abcdef-01';
+    const c = {
+      req: {
+        method: 'PATCH',
+        path: '/api/missing',
+        header: (name: string) => (name === 'traceparent' ? trace : undefined),
+      },
+      res: { headers: { get: () => null } },
+    } as unknown as Context;
+
+    const res = problemNotFound(c);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.traceId).toBe('abcdef0123456789abcdef0123456789');
+    expect(body.detail).toBe('No route for PATCH /api/missing.');
+  });
+
+  it('problemOnError maps HTTPException to problem+json with default code', async () => {
+    const app = new Hono();
+    app.onError(problemOnError);
+    app.get('/teapot', () => {
+      throw new HTTPException(418, { message: 'short and stout' });
+    });
+    const res = await app.request('http://local/teapot');
+    expect(res.status).toBe(418);
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 418);
+    expect(body.detail).toBe('short and stout');
+    expect(typeof body.code).toBe('string');
+  });
+
+  it('problemNormalizer leaves responses that are already problem+json untouched', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get('/api/problem', (c) =>
+      c.json(
+        {
+          type: 'about:blank',
+          title: 'Forbidden',
+          status: 403,
+          code: 'custom_code',
+          traceId: 'trace-1',
+        },
+        403,
+        { 'content-type': PROBLEM_CONTENT_TYPE },
+      ),
+    );
+    const res = await app.request('http://local/api/problem');
+    expect(res.headers.get('content-type')).toContain(PROBLEM_CONTENT_TYPE);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.code).toBe('custom_code');
   });
 });

@@ -12,6 +12,20 @@ describe('createRestrictedDb — proxy transparency', () => {
     const rdb = createRestrictedDb(db as never, 'ext-a');
     expect((rdb as unknown as { dialect: string }).dialect).toBe('postgres');
   });
+
+  it('binds non-query methods to the backing database', () => {
+    let called = false;
+    const db = {
+      destroy: () => {
+        called = true;
+        return Promise.resolve();
+      },
+      insertInto: () => db,
+    };
+    const rdb = createRestrictedDb(db as never, 'ext-bind');
+    (rdb as unknown as { destroy: () => Promise<void> }).destroy();
+    expect(called).toBe(true);
+  });
 });
 
 describe('hook wrappers — chain leaf properties', () => {
