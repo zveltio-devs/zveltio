@@ -11,6 +11,7 @@ import { createGodSession, getTestApp, harnessAvailable } from '../../testing/ap
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hvpatchmask_${Date.now()}`;
+const ID = '00000000-0000-4000-8000-000000000043';
 
 const VIRTUAL_CONFIG = {
   source_url: 'https://example.com/virtual-api',
@@ -95,11 +96,11 @@ d('virtual PATCH response column mask (in-process)', () => {
     globalThis.fetch = (async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ id: 'ext-patch-1', title: 'patched', secret: 'upstream-secret' }),
+      json: async () => ({ id: ID, title: 'patched', secret: 'upstream-secret' }),
       text: async () => '',
     })) as unknown as typeof fetch;
 
-    const res = await app.request(`/api/data/${COLLECTION}/ext-patch-1`, {
+    const res = await app.request(`/api/data/${COLLECTION}/${ID}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ title: 'patched' }),
