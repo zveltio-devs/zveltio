@@ -66,4 +66,54 @@ describe('ExtensionLoader.loadFromDB', () => {
     ).resolves.toBeUndefined();
     expect(db.executed(REGISTRY_UPDATE).length).toBe(0);
   });
+
+  it('returns early when every enabled extension is already loaded', async () => {
+    const loader = new ExtensionLoader();
+    loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
+    loader.loaded.set('ext-a', { registeredRoutes: false } as never);
+
+    const db = new CannedDb();
+    db.when(REGISTRY_SELECT, [{ name: 'ext-a' }]);
+
+    const loadSpy = async () => {
+      throw new Error('should not load');
+    };
+    loader.loadExtension = loadSpy;
+
+    await loader.loadFromDB(db.kysely as unknown as Database, noApp);
+    expect(db.executed(REGISTRY_UPDATE).length).toBe(0);
+  });
+
+  it('returns early when loader context was never initialized', async () => {
+    const loader = new ExtensionLoader();
+    const db = new CannedDb();
+    db.when(REGISTRY_SELECT, [{ name: 'ext-a' }]);
+
+    loader.loadExtension = async () => {
+      throw new Error('should not load');
+    };
+
+    await loader.loadFromDB(db.kysely as unknown as Database, noApp);
+    expect(db.executed(REGISTRY_SELECT).length).toBe(1);
+    expect(db.executed(REGISTRY_UPDATE).length).toBe(0);
+  });
+
+  it('swallows registry update failures without aborting other extensions', async () => {
+    const loader = new ExtensionLoader();
+    loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
+
+    const db = new CannedDb();
+    db.when(REGISTRY_SELECT, [{ name: 'ext-a' }, { name: 'ext-b' }]);
+    db.fail(REGISTRY_UPDATE, new Error('update denied'));
+
+    const loaded: string[] = [];
+    loader.loadExtension = async (name) => {
+      loaded.push(name);
+      loader.loaded.set(name, { registeredRoutes: false } as never);
+    };
+    loader.topoSortExtensions = async (names) => names;
+
+    await loader.loadFromDB(db.kysely as unknown as Database, noApp);
+    expect(loaded.sort()).toEqual(['ext-a', 'ext-b']);
+  });
 });
