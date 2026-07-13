@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { sendPushToUser } from '../../lib/push-notifications.js';
+import { sendPushToUser, _resetApnsJwtCacheForTests } from '../../lib/push-notifications.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const TOKENS_RE = /select .* from "zvd_push_tokens"/i;
@@ -14,6 +14,7 @@ let savedEnv: Record<string, string | undefined>;
 let originalFetch: typeof fetch;
 
 beforeEach(() => {
+  _resetApnsJwtCacheForTests();
   originalFetch = globalThis.fetch;
   savedEnv = {};
   for (const k of ENV_KEYS) {
