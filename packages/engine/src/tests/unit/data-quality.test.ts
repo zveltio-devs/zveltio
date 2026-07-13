@@ -318,6 +318,21 @@ describe('AI normalization pass', () => {
     expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
   });
 
+  it('ignores AI output whose JSON array fails to parse', async () => {
+    const db = setup('contacts', fields);
+    db.when(/select \* from "zvd_contacts" limit/, [{ id: 's1', phone: 'x' }]);
+    serviceRegistry.registerAs(
+      'engine',
+      'ai.providers',
+      fakeAiProvider('Issues: [{not valid json}]'),
+    );
+
+    await runQualityScan(asDb(db), 'contacts', 'normalization', 'user-1');
+    await awaitScanEnd(db);
+
+    expect(db.executed(/insert into "zv_quality_issues"/)).toHaveLength(0);
+  });
+
   it('skips the AI pass when the sample is empty', async () => {
     const db = setup('contacts', fields);
     let chatCalled = false;
