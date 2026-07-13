@@ -25,6 +25,7 @@ import {
   isUuid,
 } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
+import { getColumnAccess, filterWritableFields } from '../../tenancy/index.js';
 
 export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
@@ -47,6 +48,9 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
+  // Column-level write permission — mirror single createRecord. Without it the
+  // bulk endpoint was an escalation hole around read-only columns.
+  const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
   const created: DynamicRecord[] = [];
   const errors: Array<{ index: number; errors: string[] }> = [];
 
@@ -61,11 +65,20 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
         continue;
       }
 
+      const { data: writable, blocked } = filterWritableFields(processed, colAccess);
+      if (blocked.length > 0) {
+        errors.push({
+          index: i,
+          errors: [`Fields are read-only for your role: ${blocked.join(', ')}`],
+        });
+        continue;
+      }
+
       let finalInsert: Record<string, unknown>;
       try {
         const hooked = await engineEvents.runBefore('record.beforeInsert', {
           collection,
-          data: { ...processed, created_by: user.id, updated_by: user.id },
+          data: { ...writable, created_by: user.id, updated_by: user.id },
           userId: user.id,
         });
         finalInsert = hooked.data;
@@ -126,6 +139,8 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
+  // Column-level write permission — mirror single patchRecord.
+  const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
   const updated: DynamicRecord[] = [];
   const errors: Array<{ index: number; id: string; errors: string[] }> = [];
 
@@ -138,6 +153,16 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
       const { errors: valErrors, processed } = await processInput(fields, collectionDef, true);
       if (valErrors.length > 0) {
         errors.push({ index: i, id, errors: valErrors });
+        continue;
+      }
+
+      const { data: writable, blocked } = filterWritableFields(processed, colAccess);
+      if (blocked.length > 0) {
+        errors.push({
+          index: i,
+          id,
+          errors: [`Fields are read-only for your role: ${blocked.join(', ')}`],
+        });
         continue;
       }
 
@@ -157,7 +182,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           collection,
           id,
           before: beforeRow,
-          patch: { ...processed, updated_by: user.id },
+          patch: { ...writable, updated_by: user.id },
           userId: user.id,
         });
         finalPatch = hooked.patch;
