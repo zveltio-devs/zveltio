@@ -263,8 +263,18 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   const { errors, processed } = await processInput(body, collectionDef);
   if (errors.length > 0) return c.json({ errors }, 422);
 
+  // Column-level write permission — MUST mirror createRecord/patchRecord.
+  // Without this, PUT was an escalation hole: a role denied write access to a
+  // column could still overwrite it via replace, since POST and PATCH block it
+  // but PUT did not.
+  const colAccessPut = await getColumnAccess(db, collection, user.role ?? 'public');
+  const { data: allowedPut, blocked: blockedPut } = filterWritableFields(processed, colAccessPut);
+  if (blockedPut.length > 0) {
+    return c.json({ error: `Fields are read-only for your role: ${blockedPut.join(', ')}` }, 403);
+  }
+
   const effectiveDb = getDb(c, db);
-  const toUpdate = { ...processed, updated_by: user.id };
+  const toUpdate = { ...allowedPut, updated_by: user.id };
 
   // Pre-update hooks need the current row for the `before` field. Read it
   // once — if the record doesn't exist (or extension query alters hide it)
