@@ -76,6 +76,36 @@ describe('H-13 error envelope', () => {
     expect(body.code).toBe('not_found');
   });
 
+  it('legacy bodies with a detail field are normalized', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get('/api/legacy-detail', (c) => c.json({ detail: 'field X is invalid' }, 409));
+    const res = await app.request('http://local/api/legacy-detail');
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 409);
+    expect(body.detail).toBe('field X is invalid');
+  });
+
+  it('legacy bodies with an explicit code are preserved', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get('/api/legacy-code', (c) => c.json({ error: 'nope', code: 'custom_legacy' }, 403));
+    const res = await app.request('http://local/api/legacy-code');
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 403);
+    expect(body.code).toBe('custom_legacy');
+  });
+
+  it('malformed JSON bodies fall back to the raw text snippet', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get('/api/bad-json', (c) => c.body('{ not json', 400));
+    const res = await app.request('http://local/api/bad-json');
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 400);
+    expect(body.detail).toBe('{ not json');
+  });
+
   it('legacy bodies with a message field are normalized', async () => {
     const app = new Hono();
     app.use('/api/*', problemNormalizer());

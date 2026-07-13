@@ -81,6 +81,26 @@ describe('runGarbageCollector — soft-delete sweep', () => {
     }
     expect(db.executed(/delete from "public"\."zvd_ok"/i)).toHaveLength(1);
   });
+
+  it('logs per-table soft-delete counts when rows are purged', async () => {
+    const db = new CannedDb();
+    db.when(/FROM information_schema\.schemata/i, [{ schema_name: 'public' }]);
+    db.when(/FROM information_schema\.columns/i, [{ table_name: 'zvd_archive' }]);
+    db.whenAffected(/delete from "public"\."zvd_archive"/i, 3);
+
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await runGarbageCollector(asDb(db));
+      expect(
+        log.mock.calls.some((c) => String(c[0]).includes('public.zvd_archive') && String(c[0]).includes('3')),
+      ).toBe(true);
+      expect(log.mock.calls.some((c) => String(c[0]).includes('Total rows purged: 3'))).toBe(true);
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('runGarbageCollector — retention purges', () => {
@@ -159,6 +179,25 @@ describe('runGarbageCollector — retention purges', () => {
     // request-logs failed (swallowed) but slow-queries + audit still executed
     expect(db.executed(/DELETE FROM zv_slow_queries/i)).toHaveLength(1);
     expect(db.executed(/DELETE FROM zv_audit_log/i)).toHaveLength(1);
+  });
+
+  it('logs retention purge counts when rows are deleted', async () => {
+    const db = new CannedDb();
+    db.when(/FROM information_schema\.schemata/i, []);
+    db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 11 }]);
+    db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 0 }]);
+    db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 4 }]);
+
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await runGarbageCollector(asDb(db));
+      expect(log.mock.calls.some((c) => String(c[0]).includes('zv_request_logs: 11'))).toBe(true);
+      expect(log.mock.calls.some((c) => String(c[0]).includes('zv_audit_log: 4'))).toBe(true);
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
   });
 });
 
