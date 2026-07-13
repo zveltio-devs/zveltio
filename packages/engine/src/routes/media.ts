@@ -9,7 +9,7 @@ import { checkPermission } from '../lib/tenancy/index.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
-import { reqDb } from '../lib/route-db.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
 
 // Lazy aws4fetch client — initialized on first use so startup is not blocked
 // when S3_ENDPOINT is not configured.
@@ -53,6 +53,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const folders = await reqDb(c, db)
       .selectFrom('zv_media_folders')
       .selectAll()
+      .where('tenant_id', '=', tenantId(c))
       .where('deleted_at', 'is', null)
       .orderBy('name', 'asc')
       .execute();
@@ -75,6 +76,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const data = c.req.valid('json');
       const folder = {
         id: crypto.randomUUID(),
+        tenant_id: tenantId(c),
         name: data.name,
         parent_id: data.parent_id || null,
         created_by: user.id,
@@ -102,6 +104,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .selectFrom('zv_media_folders')
         .select(['id', 'created_by'])
         .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
         .executeTakeFirst();
       if (!folder) return c.json({ error: 'Folder not found' }, 404);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -111,7 +114,12 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       }
 
       // zv_media_folders has no updated_at column — don't write it.
-      await reqDb(c, db).updateTable('zv_media_folders').set(data).where('id', '=', id).execute();
+      await reqDb(c, db)
+        .updateTable('zv_media_folders')
+        .set(data)
+        .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
+        .execute();
       return c.json({ success: true });
     },
   );
@@ -123,6 +131,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_folders')
       .select(['id', 'created_by'])
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
     if (!folder) return c.json({ error: 'Folder not found' }, 404);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -135,6 +144,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_folders')
       .select((eb) => eb.fn.count('id').as('count'))
       .where('parent_id', '=', id)
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (Number(subfolders?.count) > 0) {
@@ -145,13 +155,18 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_files')
       .select((eb) => eb.fn.count('id').as('count'))
       .where('folder_id', '=', id)
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (Number(fileCount?.count) > 0) {
       return c.json({ error: 'Folder is not empty. Move or delete files first.' }, 400);
     }
 
-    await reqDb(c, db).deleteFrom('zv_media_folders').where('id', '=', id).execute();
+    await reqDb(c, db)
+      .deleteFrom('zv_media_folders')
+      .where('id', '=', id)
+      .where('tenant_id', '=', tenantId(c))
+      .execute();
     return c.json({ success: true });
   });
 
@@ -165,6 +180,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     let query = reqDb(c, db)
       .selectFrom('zv_media_files')
       .selectAll()
+      .where('tenant_id', '=', tenantId(c))
       .where('deleted_at', 'is', null)
       .orderBy('created_at', 'desc');
 
@@ -227,6 +243,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     let countQuery = reqDb(c, db)
       .selectFrom('zv_media_files')
       .select(({ fn }) => fn.count('id').as('count'))
+      .where('tenant_id', '=', tenantId(c))
       .where('deleted_at', 'is', null);
 
     if (folder_id) countQuery = countQuery.where('folder_id', '=', folder_id);
@@ -260,6 +277,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_media_files')
       .selectAll()
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantId(c))
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
 
@@ -291,6 +309,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const usageResult = await reqDb(c, db)
       .selectFrom('zv_media_files')
       .select(({ fn }) => fn.sum('size').as('total'))
+      .where('tenant_id', '=', tenantId(c))
       .where('created_by', '=', user.id)
       .where('deleted_at', 'is', null)
       .executeTakeFirst();
@@ -497,6 +516,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
 
     const fileRecord = {
       id: fileId,
+      tenant_id: tenantId(c),
       folder_id: folderId || null,
       filename,
       original_name: file.name,
@@ -540,6 +560,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .selectFrom('zv_media_files')
         .select(['id', 'created_by'])
         .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
         .executeTakeFirst();
       if (!file) return c.json({ error: 'File not found' }, 404);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -552,6 +573,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
         .updateTable('zv_media_files')
         .set({ ...data, updated_at: new Date() })
         .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
         .execute();
       return c.json({ success: true });
     },
@@ -563,7 +585,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const id = c.req.param('id');
 
     try {
-      await moveToTrash(reqDb(c, db), id, user.id);
+      await moveToTrash(reqDb(c, db), id, user.id, tenantId(c));
       return c.json({ success: true });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (err: any) {
@@ -581,7 +603,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const { ids } = c.req.valid('json');
 
       const results = await Promise.allSettled(
-        ids.map((id) => moveToTrash(reqDb(c, db), id, user.id)),
+        ids.map((id) => moveToTrash(reqDb(c, db), id, user.id, tenantId(c))),
       );
       const moved = results.filter((r) => r.status === 'fulfilled').length;
 
@@ -687,16 +709,19 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       reqDb(c, db)
         .selectFrom('zv_media_files')
         .select(({ fn }) => fn.count('id').as('count'))
+        .where('tenant_id', '=', tenantId(c))
         .where('deleted_at', 'is', null)
         .executeTakeFirst(),
       reqDb(c, db)
         .selectFrom('zv_media_files')
         .select(({ fn }) => fn.sum('size').as('total'))
+        .where('tenant_id', '=', tenantId(c))
         .where('deleted_at', 'is', null)
         .executeTakeFirst(),
       reqDb(c, db)
         .selectFrom('zv_media_files')
         .select(['mimetype', (eb) => eb.fn.count('id').as('count')])
+        .where('tenant_id', '=', tenantId(c))
         .where('deleted_at', 'is', null)
         .groupBy('mimetype')
         .orderBy('count', 'desc')
@@ -705,6 +730,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       reqDb(c, db)
         .selectFrom('zv_media_folders')
         .select(({ fn }) => fn.count('id').as('count'))
+        .where('tenant_id', '=', tenantId(c))
         .where('deleted_at', 'is', null)
         .executeTakeFirst(),
       reqDb(c, db)
