@@ -12,6 +12,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { maybeDecrypt } from './field-crypto.js';
+import { getColumnAccess, applyColumnAccess } from '../tenancy/index.js';
 import type {
   CollectionDef,
   CollectionField,
@@ -128,6 +129,7 @@ export async function applyExpand(
   db: Database,
   records: DynamicRow[],
   expandPlan: ExpandTarget[],
+  role = 'public',
 ): Promise<void> {
   if (expandPlan.length === 0 || records.length === 0) return;
 
@@ -141,21 +143,25 @@ export async function applyExpand(
     `.execute(db);
 
     const targetDef = (await DDLManager.getCollection(db, exp.targetCollection)) as CollectionDef;
+    // Column permissions of the RELATED collection apply to expanded rows too —
+    // otherwise `?expand=` leaks columns the role can't read on the target.
+    const colAccess = await getColumnAccess(db, exp.targetCollection, role);
     const byId = new Map<string, DynamicRow>();
     for (const r of rows.rows) {
-      const serialized = await serializeRecord(r, targetDef);
-      // Add a default `_label` (best-effort: name → title → email → id slice)
-      const idVal = serialized.id;
+      const visible = applyColumnAccess(await serializeRecord(r, targetDef), colAccess);
+      // Add a default `_label` (best-effort: name → title → email → id slice),
+      // derived only from VISIBLE fields so a hidden column can't leak via _label.
+      const idVal = visible.id;
       const label =
-        serialized.name ??
-        serialized.title ??
-        serialized.label ??
-        serialized.email ??
-        serialized.full_name ??
-        serialized.display_name ??
+        visible.name ??
+        visible.title ??
+        visible.label ??
+        visible.email ??
+        visible.full_name ??
+        visible.display_name ??
         (typeof idVal === 'string' ? idVal.slice(0, 8) : undefined) ??
         '—';
-      byId.set(r.id as string, { ...serialized, _label: label });
+      byId.set(r.id as string, { ...visible, _label: label });
     }
     for (const rec of records) {
       const id = rec[exp.field];
