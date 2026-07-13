@@ -48,9 +48,7 @@ describe('duplicate detection — multiple text fields', () => {
   it('reports duplicates from the second text field when the first query fails', async () => {
     const db = setup('contacts', fields);
     db.fail(/similarity\(a\."email"/, new Error('function similarity does not exist'));
-    db.when(/similarity\(a\."nickname"/, [
-      { id1: 'a1', id2: 'a2', sim: 0.93, value1: 'alice' },
-    ]);
+    db.when(/similarity\(a\."nickname"/, [{ id1: 'a1', id2: 'a2', sim: 0.93, value1: 'alice' }]);
 
     await runQualityScan(asDb(db), 'contacts', 'duplicates', 'user-1');
     await awaitScanEnd(db);
