@@ -8,7 +8,7 @@
  * network.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type Redis from 'ioredis';
 import { _setCacheForTests } from '../../lib/runtime/index.js';
 import { webhookWorker } from '../../lib/webhook-worker.js';
@@ -156,5 +156,26 @@ describe('webhookWorker lifecycle', () => {
     webhookWorker.stop();
     // stop is safe to call twice
     expect(() => webhookWorker.stop()).not.toThrow();
+  });
+
+  it('logs unexpected _process errors from the polling interval', async () => {
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const origProcess = webhookWorker._process;
+    webhookWorker._process = async () => {
+      throw new Error('poll blew up');
+    };
+    try {
+      _setCacheForTests({} as never);
+      webhookWorker.start(5);
+      await new Promise((r) => setTimeout(r, 20));
+      webhookWorker.stop();
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes('Unexpected error in _process')),
+      ).toBe(true);
+    } finally {
+      webhookWorker._process = origProcess;
+      errSpy.mockRestore();
+      _setCacheForTests(null);
+    }
   });
 });

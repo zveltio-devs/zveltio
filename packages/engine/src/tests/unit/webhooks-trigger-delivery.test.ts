@@ -82,4 +82,39 @@ describe('WebhookManager.trigger — delivery insert + secrets', () => {
       decryptSpy.mockRestore();
     }
   });
+
+  it('delivers directly with a decrypted secret when no cache is configured', async () => {
+    const decryptSpy = spyOn(fieldCrypto, 'maybeDecrypt').mockResolvedValue('direct-secret');
+    const db = new CannedDb();
+    db.when(/from zvd_webhooks/i, [
+      {
+        id: 'wh-direct',
+        url: 'https://hooks.example.com/direct',
+        method: 'POST',
+        events: ['*'],
+        collections: null,
+        retry_attempts: 1,
+        secret: 'enc:v1:abc',
+      },
+    ]);
+    db.when(/insert into "zvd_webhook_deliveries"/i, [{ id: 'del-direct' }]);
+    WebhookManager.init(db.kysely as unknown as Database);
+
+    let authHeader: string | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      authHeader = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      return { status: 200, ok: true, text: async () => '' } as Response;
+    }) as typeof fetch;
+
+    try {
+      await WebhookManager.trigger('record.created', 'contacts', { id: 'r4' });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(decryptSpy).toHaveBeenCalled();
+      expect(authHeader).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+      decryptSpy.mockRestore();
+    }
+  });
 });
