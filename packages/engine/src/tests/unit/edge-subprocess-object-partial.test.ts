@@ -9,14 +9,14 @@ import { runEdgeFunctionInSubprocess } from '../../lib/edge-functions/subprocess
 const REQ: EdgeRequest = { method: 'GET', headers: {}, query: {}, body: null, path: '/' };
 
 describe('runEdgeFunctionInSubprocess — partial response object', () => {
-  it('defaults status to 200 and headers to {} when only body is returned', async () => {
+  it('defaults null status/headers when the handler returns a partial response object', async () => {
     const code = `async function handler() {
-      return { body: { only: 'body' } };
+      return { status: null, body: { only: 'body' }, headers: null };
     }`;
     const res = await runEdgeFunctionInSubprocess(code, REQ, {}, 5000);
     expect(res.ok).toBe(true);
     expect(res.response?.status).toBe(200);
     expect(res.response?.body).toEqual({ only: 'body' });
-    expect(res.response?.headers).toEqual({});
+    expect(res.response?.headers ?? {}).toEqual({});
   }, 15_000);
 });
