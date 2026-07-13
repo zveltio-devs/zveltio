@@ -25,7 +25,11 @@ import {
   isUuid,
 } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
-import { getColumnAccess, filterWritableFields } from '../../tenancy/index.js';
+import {
+  getColumnAccess,
+  filterWritableFields,
+  entityAccessRegistry,
+} from '../../tenancy/index.js';
 
 export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
@@ -176,6 +180,13 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         continue;
       }
 
+      // Per-row entity-access — mirror single patchRecord/replaceRecord. Without
+      // it, bulk update let a user modify rows they have no row-level access to.
+      if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
+        errors.push({ index: i, id, errors: ['Forbidden'] });
+        continue;
+      }
+
       let finalPatch: Record<string, unknown>;
       try {
         const hooked = await engineEvents.runBefore('record.beforeUpdate', {
@@ -256,8 +267,15 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
   // are reported back as per-row errors (so the caller can distinguish
   // them from rows that didn't exist).
   const aborted: Array<{ id: string; reason: string }> = [];
+  const forbidden: string[] = [];
   const allowed: DynamicRecord[] = [];
   for (const record of existing) {
+    // Per-row entity-access — mirror single deleteRecord. Without it, bulk
+    // delete let a user delete rows they have no row-level access to.
+    if (!(await entityAccessRegistry.isAllowed(tableName, record, user, 'delete'))) {
+      forbidden.push(record.id);
+      continue;
+    }
     try {
       await engineEvents.runBefore('record.beforeDelete', {
         collection,
@@ -305,7 +323,8 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
       deleted: allowed.length,
       ids: allowed.map((r) => r.id),
       ...(aborted.length > 0 ? { aborted } : {}),
+      ...(forbidden.length > 0 ? { forbidden } : {}),
     },
-    aborted.length > 0 ? 207 : 200,
+    aborted.length > 0 || forbidden.length > 0 ? 207 : 200,
   );
 }
