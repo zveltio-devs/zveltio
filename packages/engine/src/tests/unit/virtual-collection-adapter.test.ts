@@ -236,6 +236,28 @@ describe('virtualList', () => {
     expect(res.data[0].name).toBe('solo');
     expect(res.total).toBe(1);
   });
+
+  it('translates lt/lte operators', () => {
+    const qs = translateQuery(
+      baseConfig(),
+      baseQuery({
+        filters: [
+          { field: 'a', op: 'lt', value: 4 },
+          { field: 'b', op: 'lte', value: 6 },
+        ],
+      }),
+    );
+    const p = new URLSearchParams(qs);
+    expect(p.get('a[lt]')).toBe('4');
+    expect(p.get('b[lte]')).toBe('6');
+  });
+
+  it('extracts an empty list when list_path points past a null intermediate', async () => {
+    stubFetch(200, { data: null });
+    const res = await virtualList(baseConfig({ list_path: '$.data.items' }), baseQuery());
+    expect(res.data).toEqual([]);
+    expect(res.total).toBe(0);
+  });
 });
 
 describe('virtualGetOne', () => {
