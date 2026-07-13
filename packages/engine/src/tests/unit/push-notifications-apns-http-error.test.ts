@@ -1,5 +1,5 @@
 /**
- * push-notifications.ts — APNS JWT generation failure + APNS network errors.
+ * push-notifications.ts — APNS non-200 HTTP responses.
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
@@ -31,30 +31,8 @@ afterEach(() => {
   }
 });
 
-describe('sendPushToUser — APNS failure paths', () => {
-  it('counts failed when APNS JWT signing fails on invalid key material', async () => {
-    process.env.APNS_KEY = '-----BEGIN PRIVATE KEY-----\nnot-valid-pem\n-----END PRIVATE KEY-----';
-    process.env.APNS_KEY_ID = 'ABC1234567';
-    process.env.APNS_TEAM_ID = 'TEAM123456';
-
-    const db = new CannedDb();
-    db.when(TOKENS_RE, [{ id: 't1', token: 'iosdev', platform: 'apns' }]);
-    const warn = spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const res = await sendPushToUser(db.kysely as unknown as Database, 'u1', {
-        title: 'a',
-        body: 'b',
-      });
-      expect(res).toEqual({ sent: 0, failed: 1 });
-      expect(warn.mock.calls.some((c) => String(c[0]).includes('JWT generation failed'))).toBe(
-        true,
-      );
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
-  it('counts failed when the APNS HTTP request throws', async () => {
+describe('sendPushToUser — APNS HTTP error responses', () => {
+  it('counts failed and logs when APNS returns a non-200 status', async () => {
     const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
       'sign',
       'verify',
@@ -66,9 +44,11 @@ describe('sendPushToUser — APNS failure paths', () => {
     process.env.APNS_TEAM_ID = 'TEAM123456';
     process.env.APNS_BUNDLE_ID = 'com.example.app';
 
-    globalThis.fetch = (async () => {
-      throw new Error('apns network down');
-    }) as unknown as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ reason: 'BadDeviceToken' }), {
+        status: 410,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch;
 
     const db = new CannedDb();
     db.when(TOKENS_RE, [{ id: 't1', token: 'iosdev', platform: 'apns' }]);
@@ -79,9 +59,13 @@ describe('sendPushToUser — APNS failure paths', () => {
         body: 'b',
       });
       expect(res).toEqual({ sent: 0, failed: 1 });
-      expect(warn.mock.calls.some((c) => String(c[0]).includes('[push:apns] request failed'))).toBe(
-        true,
-      );
+      expect(
+        warn.mock.calls.some(
+          (c) =>
+            String(c[0]).includes('[push:apns] HTTP 410') &&
+            String(c[0]).includes('BadDeviceToken'),
+        ),
+      ).toBe(true);
     } finally {
       warn.mockRestore();
     }
