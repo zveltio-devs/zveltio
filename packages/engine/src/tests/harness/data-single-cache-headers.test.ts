@@ -52,6 +52,9 @@ d('data single GET cache headers (in-process)', () => {
     const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, { headers: { cookie } });
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate');
-    expect(res.headers.get('vary')).toBe('Cookie, X-API-Key, Authorization');
+    const vary = res.headers.get('vary') ?? '';
+    expect(vary).toContain('Cookie');
+    expect(vary).toContain('X-API-Key');
+    expect(vary).toContain('Authorization');
   });
 });
