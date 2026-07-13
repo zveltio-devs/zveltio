@@ -75,6 +75,18 @@ describe('ValkeyRealtimeBus (mocked ioredis)', () => {
       expect(spy).not.toHaveBeenCalled();
 
       messageHandler!(
+        'other-channel',
+        JSON.stringify({
+          originId: 'other-engine',
+          event: 'record.created',
+          collection: 'contacts',
+          data: { id: 'x' },
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      expect(spy).not.toHaveBeenCalled();
+
+      messageHandler!(
         'zveltio:realtime',
         JSON.stringify({
           originId: _ORIGIN_ID,
