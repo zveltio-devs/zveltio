@@ -111,6 +111,28 @@ describe('WebhookManager.deliver', () => {
     expect(ok).toBe(false);
   });
 
+  it('treats a non-Error throw as a failed delivery', async () => {
+    globalThis.fetch = (async () => {
+      throw 'network down';
+    }) as unknown as typeof fetch;
+    const ok = await WebhookManager.deliver({ ...basePayload });
+    expect(ok).toBe(false);
+    expect(lastReq).toBeNull();
+  });
+
+  it('still returns delivery outcome when reading the response body fails', async () => {
+    globalThis.fetch = (async () =>
+      ({
+        status: 200,
+        ok: true,
+        text: async () => {
+          throw new Error('body unreadable');
+        },
+      }) as unknown as Response) as unknown as typeof fetch;
+    const ok = await WebhookManager.deliver({ ...basePayload });
+    expect(ok).toBe(true);
+  });
+
   it('records the delivery outcome when a deliveryId + db are present', async () => {
     const db = new CannedDb();
     db.when(/update "zvd_webhook_deliveries"/i, []);
