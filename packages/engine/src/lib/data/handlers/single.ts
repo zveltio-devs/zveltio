@@ -177,8 +177,14 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
   if (virtualConfigCreate) {
     try {
       const body = await c.req.json();
-      const record = await virtualCreate(virtualConfigCreate, body);
-      return c.json({ record }, 201);
+      // Column-level write permission applies to virtual writes too.
+      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const { data: writable, blocked } = filterWritableFields(body, vColAccess);
+      if (blocked.length > 0) {
+        return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
+      }
+      const record = await virtualCreate(virtualConfigCreate, writable);
+      return c.json({ record: applyColumnAccess(record, vColAccess) }, 201);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
@@ -259,8 +265,13 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   if (virtualConfigPut) {
     try {
       const body = await c.req.json();
-      const record = await virtualUpdate(virtualConfigPut, id, body);
-      return c.json({ record });
+      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const { data: writable, blocked } = filterWritableFields(body, vColAccess);
+      if (blocked.length > 0) {
+        return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
+      }
+      const record = await virtualUpdate(virtualConfigPut, id, writable);
+      return c.json({ record: applyColumnAccess(record, vColAccess) });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
@@ -355,8 +366,13 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   if (virtualConfigPatch) {
     try {
       const body = await c.req.json();
-      const record = await virtualUpdate(virtualConfigPatch, id, body);
-      return c.json({ record });
+      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const { data: writable, blocked } = filterWritableFields(body, vColAccess);
+      if (blocked.length > 0) {
+        return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
+      }
+      const record = await virtualUpdate(virtualConfigPatch, id, writable);
+      return c.json({ record: applyColumnAccess(record, vColAccess) });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
