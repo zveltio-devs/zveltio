@@ -196,6 +196,35 @@ describe('H-13 error envelope', () => {
     expect(typeof body.code).toBe('string');
   });
 
+  it('problemOnError extracts traceId from response traceparent when request header is absent', async () => {
+    const trace = '00-fedcba9876543210fedcba9876543210-0123456789abcdef-01';
+    const app = new Hono();
+    app.onError(problemOnError);
+    app.get('/api/trace-res', (c) => {
+      c.res.headers.set('traceparent', trace);
+      throw problem('demo.trace', 400, 'trace from response headers');
+    });
+    const res = await app.request('http://local/api/trace-res');
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.traceId).toBe('fedcba9876543210fedcba9876543210');
+  });
+
+  it('thrown problem() surfaces structured errors on the envelope', async () => {
+    const app = new Hono();
+    app.onError(problemOnError);
+    app.get('/api/field-errors', () => {
+      throw problem('validation.field_errors', 422, 'Fix the fields', {
+        name: ['Required'],
+      });
+    });
+    const res = await app.request('http://local/api/field-errors');
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 422);
+    expect(body.code).toBe('validation.field_errors');
+    expect(body.errors).toEqual({ name: ['Required'] });
+  });
+
   it('problemNormalizer leaves responses that are already problem+json untouched', async () => {
     const app = new Hono();
     app.use('/api/*', problemNormalizer());
