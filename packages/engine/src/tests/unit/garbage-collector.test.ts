@@ -93,7 +93,9 @@ describe('runGarbageCollector — soft-delete sweep', () => {
     try {
       await runGarbageCollector(asDb(db));
       expect(
-        log.mock.calls.some((c) => String(c[0]).includes('public.zvd_archive') && String(c[0]).includes('3')),
+        log.mock.calls.some(
+          (c) => String(c[0]).includes('public.zvd_archive') && String(c[0]).includes('3'),
+        ),
       ).toBe(true);
       expect(log.mock.calls.some((c) => String(c[0]).includes('Total rows purged: 3'))).toBe(true);
     } finally {
