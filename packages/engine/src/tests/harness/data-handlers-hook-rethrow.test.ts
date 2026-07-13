@@ -73,6 +73,19 @@ d('data single handler hook rethrow (in-process)', () => {
     expect(res.status).toBe(500);
   });
 
+  it('rethrows when beforeUpdate throws a non-abort error on PUT replace', async () => {
+    const create = await json('POST', `/api/data/${COLLECTION}`, { title: 'put-me' });
+    expect(create.status).toBe(201);
+    const id = ((await create.json()) as { id: string }).id;
+
+    engineEvents.onBefore('record.beforeUpdate', () => {
+      throw new Error('put hook failed');
+    });
+
+    const res = await json('PUT', `/api/data/${COLLECTION}/${id}`, { title: 'replaced' });
+    expect(res.status).toBe(500);
+  });
+
   it('rethrows when beforeDelete throws a non-abort error on delete', async () => {
     const create = await json('POST', `/api/data/${COLLECTION}`, { title: 'delete-me' });
     expect(create.status).toBe(201);
