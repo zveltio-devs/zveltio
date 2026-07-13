@@ -138,4 +138,21 @@ describe('invalidateTenantCache', () => {
     await invalidateTenantCache('acme', 'id-1', 'u-1');
     expect(store.size).toBe(0);
   });
+
+  it('throws when populating cache without BETTER_AUTH_SECRET', async () => {
+    const store = new Map<string, string>();
+    _setCacheForTests(makeCache(store) as never);
+    const db = setup();
+    db.when(/select \* from "zv_tenants" where "slug" = /, [TENANT]);
+
+    const saved = process.env.BETTER_AUTH_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+    try {
+      await expect(getTenantBySlug('acme')).rejects.toThrow(/BETTER_AUTH_SECRET/);
+      expect(store.has('tenant:slug:acme')).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = saved;
+    }
+  });
 });
