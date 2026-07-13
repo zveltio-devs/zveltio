@@ -77,6 +77,6 @@ d('data list time-travel pagination (in-process)', () => {
     expect(second.status).toBe(200);
     const page2 = (await second.json()) as { records: Array<{ seq: number }> };
     expect(page2.records).toHaveLength(2);
-    expect(page2.records[0]!.seq).toBeGreaterThan(page1.records[1]!.seq);
+    expect(Number(page2.records[0]!.seq)).toBeGreaterThan(Number(page1.records[1]!.seq));
   });
 });
