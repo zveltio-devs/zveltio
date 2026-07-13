@@ -73,4 +73,58 @@ describe('ensureExtensionCoreDeps npm tarball fallback', () => {
       expect(existsSync(join(extBase, 'node_modules', folder))).toBe(true);
     }
   });
+
+  it('falls back to npm tarballs when bun install is not on PATH', async () => {
+    Bun.spawn = ((cmd: string[]) => {
+      if (cmd[0] === 'bun') {
+        throw new Error('ENOENT');
+      }
+      if (cmd[0] === 'tar') {
+        return {
+          exited: Promise.resolve(0),
+          stdout: new ReadableStream({
+            start(c) {
+              c.close();
+            },
+          }),
+          stderr: new ReadableStream({
+            start(c) {
+              c.close();
+            },
+          }),
+        } as ReturnType<typeof Bun.spawn>;
+      }
+      return originalSpawn(cmd as never);
+    }) as typeof Bun.spawn;
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...a: unknown[]) => logs.push(a.join(' '));
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('registry.npmjs.org') && url.endsWith('/latest')) {
+        const pkg = url.split('/').slice(-2, -1)[0]!;
+        return {
+          ok: true,
+          json: async () => ({
+            version: '9.9.9',
+            dist: { tarball: `https://registry.npmjs.org/${pkg}/-/${pkg}-9.9.9.tgz` },
+          }),
+        } as Response;
+      }
+      if (url.endsWith('.tgz')) {
+        return { ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer } as Response;
+      }
+      return originalFetch(input);
+    }) as typeof fetch;
+
+    try {
+      await ensureExtensionCoreDeps(extBase);
+      expect(logs.join('\n')).toMatch(/bun CLI unavailable/);
+      expect(existsSync(join(extBase, 'node_modules', 'hono'))).toBe(true);
+    } finally {
+      console.log = origLog;
+    }
+  });
 });

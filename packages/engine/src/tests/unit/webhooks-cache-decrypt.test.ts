@@ -2,21 +2,14 @@
  * webhooks.ts — Valkey queue path + encrypted secret decrypt failure.
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import * as fieldCrypto from '../../lib/data/field-crypto.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
+import { WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-const maybeDecryptMock = mock(async (value: unknown) => value);
-
-mock.module('../../lib/data/field-crypto.js', () => ({
-  maybeDecrypt: maybeDecryptMock,
-}));
-
-const { WebhookManager } = await import('../../lib/webhooks.js');
-
 beforeEach(() => {
-  maybeDecryptMock.mockImplementation(async (value: unknown) => value);
   _setCacheForTests(null);
 });
 
@@ -59,9 +52,9 @@ describe('WebhookManager.trigger — cache + secrets', () => {
 
   it('warns and omits the secret when decrypt fails', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
-    maybeDecryptMock.mockImplementation(async () => {
-      throw new Error('bad ciphertext');
-    });
+    const decryptSpy = spyOn(fieldCrypto, 'maybeDecrypt').mockRejectedValue(
+      new Error('bad ciphertext'),
+    );
 
     const db = new CannedDb();
     db.when(/from zvd_webhooks/i, [
@@ -79,7 +72,6 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     WebhookManager.init(db.kysely as unknown as Database);
 
     const originalFetch = globalThis.fetch;
-    let capturedSecret: string | null | undefined;
     globalThis.fetch = (async () => ({ status: 200, ok: true, text: async () => '' })) as never;
 
     try {
@@ -90,9 +82,11 @@ describe('WebhookManager.trigger — cache + secrets', () => {
           String(c[0]).includes('failed to decrypt secret for webhook wh-enc'),
         ),
       ).toBe(true);
+      expect(decryptSpy).toHaveBeenCalled();
     } finally {
       globalThis.fetch = originalFetch;
       warn.mockRestore();
+      decryptSpy.mockRestore();
     }
   });
 
