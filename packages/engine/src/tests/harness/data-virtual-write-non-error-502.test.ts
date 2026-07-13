@@ -78,8 +78,8 @@ d('data virtual write non-Error failures (in-process)', () => {
       body: JSON.stringify({ title: 'new' }),
     });
     expect(res.status).toBe(502);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe('Virtual source error');
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toBe('Virtual source error');
   });
 
   it('returns 502 when virtual PATCH fetch throws a string', async () => {
@@ -94,8 +94,8 @@ d('data virtual write non-Error failures (in-process)', () => {
       body: JSON.stringify({ title: 'patched' }),
     });
     expect(res.status).toBe(502);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe('Virtual source error');
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toBe('Virtual source error');
   });
 
   it('returns 502 when virtual PUT fetch throws a string', async () => {
@@ -110,7 +110,7 @@ d('data virtual write non-Error failures (in-process)', () => {
       body: JSON.stringify({ title: 'replaced' }),
     });
     expect(res.status).toBe(502);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe('Virtual source error');
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toBe('Virtual source error');
   });
 });

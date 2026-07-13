@@ -49,8 +49,8 @@ d('data bulk wrong body shape (in-process)', () => {
   it('returns 400 when bulk POST body omits records', async () => {
     const res = await bulk('POST', {});
     expect(res.status).toBe(400);
-    const text = (await res.json()) as { error?: string };
-    expect(text.error).toMatch(/records/i);
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail?.toLowerCase()).toMatch(/records/);
   });
 
   it('returns 400 when bulk POST records is not an array', async () => {
@@ -66,7 +66,7 @@ d('data bulk wrong body shape (in-process)', () => {
   it('returns 400 when bulk DELETE body omits ids', async () => {
     const res = await bulk('DELETE', {});
     expect(res.status).toBe(400);
-    const text = (await res.json()) as { error?: string };
-    expect(text.error).toMatch(/ids/i);
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail?.toLowerCase()).toMatch(/ids/);
   });
 });
