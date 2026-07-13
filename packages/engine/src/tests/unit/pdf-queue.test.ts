@@ -61,6 +61,23 @@ describe('generatePDFAsync', () => {
     await expect(generatePDFAsync('<html></html>')).rejects.toThrow(/render failed/);
   });
 
+  it('rejects with a default message when the worker posts a bare error result', async () => {
+    _resetPdfQueueForTests();
+    globalThis.Worker = class BareErrorWorker {
+      onmessage: ((e: MessageEvent) => void) | null = null;
+      onerror: ((e: ErrorEvent) => void) | null = null;
+      constructor(_url: URL | string) {}
+      postMessage(_msg: unknown) {
+        queueMicrotask(() => {
+          this.onmessage?.({ data: { type: 'error' } } as MessageEvent);
+        });
+      }
+      terminate() {}
+    } as unknown as typeof Worker;
+
+    await expect(generatePDFAsync('<html></html>')).rejects.toThrow(/PDF generation failed/);
+  });
+
   it('rejects when the worker fires onerror', async () => {
     _resetPdfQueueForTests();
     globalThis.Worker = class CrashWorker {
