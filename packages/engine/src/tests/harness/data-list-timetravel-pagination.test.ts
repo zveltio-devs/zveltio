@@ -58,12 +58,12 @@ d('data list time-travel pagination (in-process)', () => {
   it('paginates reconstructed records for ?as_of= with page and limit', async () => {
     const asOf = encodeURIComponent(new Date().toISOString());
     const first = await app.request(
-      `/api/data/${COLLECTION}?as_of=${asOf}&page=1&limit=2&sort=seq&order=asc`,
+      `/api/data/${COLLECTION}?as_of=${asOf}&page=1&limit=2`,
       { headers: { cookie } },
     );
     expect(first.status).toBe(200);
     const page1 = (await first.json()) as {
-      records: Array<{ seq: number }>;
+      records: Array<{ id: string }>;
       pagination: { total: number; page: number; limit: number; pages: number };
     };
     expect(page1.records).toHaveLength(2);
@@ -71,12 +71,27 @@ d('data list time-travel pagination (in-process)', () => {
     expect(page1.pagination.pages).toBe(3);
 
     const second = await app.request(
-      `/api/data/${COLLECTION}?as_of=${asOf}&page=2&limit=2&sort=seq&order=asc`,
+      `/api/data/${COLLECTION}?as_of=${asOf}&page=2&limit=2`,
       { headers: { cookie } },
     );
     expect(second.status).toBe(200);
-    const page2 = (await second.json()) as { records: Array<{ seq: number }> };
+    const page2 = (await second.json()) as { records: Array<{ id: string }> };
     expect(page2.records).toHaveLength(2);
-    expect(Number(page2.records[0]!.seq)).toBeGreaterThan(Number(page1.records[1]!.seq));
+    const page1Ids = new Set(page1.records.map((r) => r.id));
+    expect(page2.records.every((r) => !page1Ids.has(r.id))).toBe(true);
+
+    const third = await app.request(
+      `/api/data/${COLLECTION}?as_of=${asOf}&page=3&limit=2`,
+      { headers: { cookie } },
+    );
+    expect(third.status).toBe(200);
+    const page3 = (await third.json()) as { records: Array<{ id: string }> };
+    expect(page3.records).toHaveLength(1);
+    const allIds = new Set([
+      ...page1.records.map((r) => r.id),
+      ...page2.records.map((r) => r.id),
+      ...page3.records.map((r) => r.id),
+    ]);
+    expect(allIds.size).toBe(5);
   });
 });
