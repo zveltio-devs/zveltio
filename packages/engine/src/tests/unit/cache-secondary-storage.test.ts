@@ -116,4 +116,23 @@ describe('createCacheSecondaryStorage', () => {
     expect(results[1]).toBe('{"n":1}');
     expect(await storage!.get('a')).toBeNull();
   });
+
+  it('returns an empty array when pipeline exec yields null', async () => {
+    const fake = makeCache();
+    fake.pipeline = () => ({
+      get() {
+        return this;
+      },
+      setex() {
+        return this;
+      },
+      del() {
+        return this;
+      },
+      exec: async () => null as never,
+    });
+    _setCacheForTests(fake as never);
+    const storage = await createCacheSecondaryStorage();
+    expect(await storage!.pipeline([{ type: 'get', key: 'missing' }])).toEqual([]);
+  });
 });

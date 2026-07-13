@@ -48,4 +48,12 @@ describe('checkExtensionDependencies', () => {
     ]);
     expect(result).toEqual({ satisfied: true, missing: [] });
   });
+
+  it('treats a registry query failure as not installed', async () => {
+    const db = new CannedDb();
+    db.fail(/from "zv_extension_registry"/i, new Error('registry offline'));
+    const result = await checkExtensionDependencies(asDb(db), [{ name: 'forms' }]);
+    expect(result.satisfied).toBe(false);
+    expect(result.missing).toEqual(['forms (not installed)']);
+  });
 });

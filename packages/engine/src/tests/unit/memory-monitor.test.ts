@@ -157,6 +157,17 @@ describe('misc', () => {
     }
   });
 
+  it('forceGC returns false when global.gc is unavailable', () => {
+    const g = globalThis as typeof globalThis & { gc?: () => void };
+    const original = g.gc;
+    delete g.gc;
+    try {
+      expect(forceGC()).toBe(false);
+    } finally {
+      g.gc = original;
+    }
+  });
+
   it('logs heap usage during development sampling', async () => {
     const saved = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';

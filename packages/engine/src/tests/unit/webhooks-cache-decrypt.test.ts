@@ -90,6 +90,41 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     }
   });
 
+  it('omits the secret when decrypt returns a non-string value', async () => {
+    const decryptSpy = spyOn(fieldCrypto, 'maybeDecrypt').mockResolvedValue({ not: 'string' });
+    const queued: string[] = [];
+    _setCacheForTests({
+      rpush: async (_key: string, payload: string) => {
+        queued.push(payload);
+      },
+    } as never);
+
+    const db = new CannedDb();
+    db.when(/from zvd_webhooks/i, [
+      {
+        id: 'wh-nonstring',
+        url: 'https://hooks.example.com/ns',
+        method: 'POST',
+        events: ['*'],
+        collections: null,
+        retry_attempts: 1,
+        secret: 'enc:v1:abc',
+      },
+    ]);
+    db.when(/insert into "zvd_webhook_deliveries"/i, [{ id: 'del-ns' }]);
+    WebhookManager.init(db.kysely as unknown as Database);
+
+    try {
+      await WebhookManager.trigger('record.created', 'contacts', { id: 'r2' });
+      expect(queued).toHaveLength(1);
+      const payload = JSON.parse(queued[0]!) as { secret: string | null };
+      expect(payload.secret).toBeNull();
+      expect(decryptSpy).toHaveBeenCalled();
+    } finally {
+      decryptSpy.mockRestore();
+    }
+  });
+
   it('matches collection-scoped webhooks via the collections array', async () => {
     const db = new CannedDb();
     db.when(/from zvd_webhooks/i, [

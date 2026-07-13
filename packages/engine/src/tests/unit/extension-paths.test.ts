@@ -46,6 +46,12 @@ describe('extensionFilesPresent', () => {
     expect(extensionFilesPresent(extDir)).toBe(true);
   });
 
+  it('detects engine/index.js', () => {
+    mkdirSync(join(extDir, 'engine'), { recursive: true });
+    writeFileSync(join(extDir, 'engine', 'index.js'), 'module.exports = {}');
+    expect(extensionFilesPresent(extDir)).toBe(true);
+  });
+
   it('detects an alternate engine entry from manifest.engine.routes', () => {
     const routesDir = join(extDir, 'server');
     mkdirSync(routesDir, { recursive: true });
@@ -68,6 +74,23 @@ describe('extensionFilesPresent', () => {
   it('returns false for a malformed manifest', () => {
     writeFileSync(join(extDir, 'manifest.json'), '{ not json');
     expect(extensionFilesPresent(extDir)).toBe(false);
+  });
+
+  it('returns false when manifest routes point at a missing engine file', () => {
+    writeFileSync(
+      join(extDir, 'manifest.json'),
+      JSON.stringify({ engine: { routes: './server/missing.ts' } }),
+    );
+    expect(extensionFilesPresent(extDir)).toBe(false);
+  });
+
+  it('invalidateFilesPresent() without an argument clears the whole cache', () => {
+    mkdirSync(join(extDir, 'engine'), { recursive: true });
+    writeFileSync(join(extDir, 'engine', 'index.ts'), 'export default {}');
+    expect(extensionFilesPresentCached(extDir)).toBe(true);
+    invalidateFilesPresent();
+    rmSync(join(extDir, 'engine'), { recursive: true, force: true });
+    expect(extensionFilesPresentCached(extDir)).toBe(false);
   });
 
   it('caches presence for a few seconds', () => {
