@@ -580,6 +580,8 @@ export class WorkerExtensionHost {
               status: resp.status ?? 200,
               headers: resp.headers,
             });
+          } catch (err) {
+            return new Response((err as Error).message, { status: 500 });
           } finally {
             live.inFlightRequests--;
           }

@@ -58,4 +58,25 @@ describe('executeFlow — bookkeeping update failures', () => {
       warn.mockRestore();
     }
   });
+
+  it('warns when steps SELECT and the failed-run UPDATE both fail', async () => {
+    const db = new CannedDb();
+    db.when(RUN_INSERT, [{ id: 'run-steps-fail' }]);
+    db.fail(STEPS_SELECT, new Error('steps table missing'));
+    db.fail(RUN_UPDATE, new Error('update also denied'));
+
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await executeFlow(db.kysely as unknown as Database, 'flow-steps-fail', {});
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('steps table missing');
+      expect(
+        warn.mock.calls.some((c) =>
+          String(c[0]).includes('failed to mark run run-steps-fail as failed'),
+        ),
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
