@@ -35,6 +35,71 @@ describe('hook wrappers — chain leaf properties', () => {
     await wrapped.values({ id: '1' } as never).execute();
   });
 
+  it('exposes non-function properties on wrapped update builders', async () => {
+    engineEvents.onBefore('record.beforeUpdate', async () => {});
+
+    const builder = {
+      marker: 'update-leaf',
+      set: () => builder,
+      where: () => builder,
+      execute: async () => [],
+    };
+    const db = {
+      updateTable: () => builder,
+      selectFrom: () => ({
+        selectAll: () => ({
+          where: () => ({
+            executeTakeFirst: async () => ({ id: '1' }),
+          }),
+        }),
+      }),
+    };
+    const rdb = createRestrictedDb(db as never, 'ext-u');
+    const wrapped = rdb.updateTable('zvd_items' as never);
+    expect((wrapped as unknown as { marker: string }).marker).toBe('update-leaf');
+    await wrapped
+      .set({ title: 'x' } as never)
+      .where('id' as never, '=', '1' as never)
+      .execute();
+  });
+
+  it('exposes non-function properties on wrapped delete builders', async () => {
+    engineEvents.onBefore('record.beforeDelete', async () => {});
+
+    const builder = {
+      marker: 'delete-leaf',
+      where: () => builder,
+      execute: async () => [],
+    };
+    const db = {
+      deleteFrom: () => builder,
+      selectFrom: () => ({
+        selectAll: () => ({
+          where: () => ({
+            executeTakeFirst: async () => ({ id: '1' }),
+          }),
+        }),
+      }),
+    };
+    const rdb = createRestrictedDb(db as never, 'ext-d');
+    const wrapped = rdb.deleteFrom('zvd_items' as never);
+    expect((wrapped as unknown as { marker: string }).marker).toBe('delete-leaf');
+    await wrapped.where('id' as never, '=', '1' as never).execute();
+  });
+
+  it('passes Symbol-keyed properties through insert builder proxies', () => {
+    const sym = Symbol('builder-tag');
+    const builder = {
+      [sym]: 'symbol-leaf',
+      values: () => builder,
+      execute: async () => [],
+    };
+    const db = { insertInto: () => builder };
+    const rdb = createRestrictedDb(db as never, 'ext-sym');
+    const wrapped = rdb.insertInto('zvd_items' as never);
+    expect((wrapped as unknown as Record<symbol, string>)[sym]).toBe('symbol-leaf');
+  });
+
   it('uses an empty record when the before-delete snapshot read fails', async () => {
     engineEvents.onBefore('record.beforeDelete', async (p) => {
       expect(p.record).toEqual({});
