@@ -187,7 +187,7 @@ describe('runGarbageCollector — retention purges', () => {
     const db = new CannedDb();
     db.when(/FROM information_schema\.schemata/i, []);
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 11 }]);
-    db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 0 }]);
+    db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 6 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 4 }]);
 
     const log = spyOn(console, 'log').mockImplementation(() => {});
@@ -195,6 +195,7 @@ describe('runGarbageCollector — retention purges', () => {
     try {
       await runGarbageCollector(asDb(db));
       expect(log.mock.calls.some((c) => String(c[0]).includes('zv_request_logs: 11'))).toBe(true);
+      expect(log.mock.calls.some((c) => String(c[0]).includes('zv_slow_queries: 6'))).toBe(true);
       expect(log.mock.calls.some((c) => String(c[0]).includes('zv_audit_log: 4'))).toBe(true);
     } finally {
       log.mockRestore();
