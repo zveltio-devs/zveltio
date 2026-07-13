@@ -76,6 +76,17 @@ describe('H-13 error envelope', () => {
     expect(body.code).toBe('not_found');
   });
 
+  it('legacy bodies with a message field are normalized', async () => {
+    const app = new Hono();
+    app.use('/api/*', problemNormalizer());
+    app.get('/api/legacy-msg', (c) => c.json({ message: 'bad input' }, 422));
+    const res = await app.request('http://local/api/legacy-msg');
+    const body = (await res.json()) as Record<string, unknown>;
+    isEnvelope(body, 422);
+    expect(body.detail).toBe('bad input');
+    expect(body.code).toBe('validation_failed');
+  });
+
   it('a plain non-JSON 500 body is still rewrapped', async () => {
     const res = await call('/api/plain-500');
     expect(res.status).toBe(500);

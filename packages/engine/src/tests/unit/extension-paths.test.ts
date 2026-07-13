@@ -37,6 +37,20 @@ describe('resolveExtensionsBase', () => {
     process.env.EXTENSIONS_DIR = '/custom/extensions';
     expect(resolveExtensionsBase()).toBe('/custom/extensions');
   });
+
+  it('falls back to ./extensions under the current working directory', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'zv-ext-cwd-'));
+    const ext = join(cwd, 'extensions');
+    mkdirSync(ext, { recursive: true });
+    const orig = process.cwd();
+    try {
+      process.chdir(cwd);
+      expect(resolveExtensionsBase()).toBe(ext);
+    } finally {
+      process.chdir(orig);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('extensionFilesPresent', () => {
