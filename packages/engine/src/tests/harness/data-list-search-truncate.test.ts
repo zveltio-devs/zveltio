@@ -1,5 +1,7 @@
 /**
  * Phase C — list handler truncates long ?search= queries (handlers/list.ts fts trim).
+ *
+ * Requires FTS/trgm collection (richtext field) so ?search= hits the fts path.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -23,13 +25,19 @@ d('data list search truncation (in-process)', () => {
     cookie = await createGodSession(app, db);
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
+      fields: [
+        { name: 'title', type: 'text', required: true, unique: false, indexed: false },
+        { name: 'body', type: 'richtext', required: false, unique: false, indexed: false },
+      ],
     } as never);
+
+    const meta = await DDLManager.getCollection(db, COLLECTION);
+    expect(meta?.has_trgm).toBe(true);
 
     await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ title: `${NEEDLE} item` }),
+      body: JSON.stringify({ title: `${NEEDLE} item`, body: 'content' }),
     });
   });
 
