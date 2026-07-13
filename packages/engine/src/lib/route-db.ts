@@ -31,3 +31,16 @@ export function reqDb(c: Context, fallback: Database): Database {
   const trx = c.get('tenantTrx') as Database | null | undefined;
   return trx ?? fallback;
 }
+
+/** Default tenant id ("always-one-tenant") — single-tenant installs run as this. */
+export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
+
+/**
+ * The current request's tenant id. `tenantMiddleware` always resolves a tenant
+ * (the default tenant in single-tenant installs), so this is always defined.
+ * Use it to explicitly scope tables that are NOT yet under RLS (e.g.
+ * `zv_media_files`) so one tenant can't reach another's rows by id.
+ */
+export function tenantId(c: Context): string {
+  return (c.get('tenant') as { id?: string } | null | undefined)?.id ?? DEFAULT_TENANT_ID;
+}
