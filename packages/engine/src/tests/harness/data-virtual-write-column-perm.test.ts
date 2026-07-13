@@ -126,6 +126,17 @@ d('virtual collection write column permission (in-process)', () => {
     expect(fetchCalled).toBe(false);
   });
 
+  it('virtual PATCH rejects a write-denied column with 403', async () => {
+    stubFetch();
+    const res = await app.request(`/api/data/${COLLECTION}/${ID}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ secret: 'nope' }),
+    });
+    expect(res.status).toBe(403);
+    expect(fetchCalled).toBe(false);
+  });
+
   it('virtual write allowed when only writable columns are sent', async () => {
     stubFetch();
     const res = await app.request(`/api/data/${COLLECTION}`, {
