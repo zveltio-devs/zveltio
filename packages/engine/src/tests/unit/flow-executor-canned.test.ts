@@ -566,7 +566,10 @@ describe('executeStep — CannedDb branches', () => {
         config: { query: 'SELECT id, name FROM zvd_contacts ORDER BY name' },
       },
       {},
-      { trigger: { tenantId: 'tenant-99' } },
+      {},
+      // Tenant is now threaded explicitly by executeFlow (the flow's OWN tenant),
+      // not derived from caller-supplied flowContext.trigger.tenantId.
+      'tenant-99',
     );
     expect(output).toEqual([
       { id: 'c1', name: 'Ada' },
