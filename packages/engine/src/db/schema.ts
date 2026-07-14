@@ -238,6 +238,7 @@ export interface ZvEnvironmentsTable {
 
 export interface ZvFlowsTable {
   id: Generated<string>;
+  tenant_id: Generated<string>;
   name: string;
   description: string | null;
   trigger_type: Generated<'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook'>;
