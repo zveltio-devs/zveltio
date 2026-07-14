@@ -567,9 +567,11 @@ function toTriggerConfig(trigger: TriggerInput): Record<string, unknown> {
  *
  * Reads each candidate flow's trigger_config to decide which to execute.
  *
- * NOTE: this scans flows across ALL tenants and executes them from a background
- * context. Tenant-scoping the candidate query + threading the flow's own tenant_id
- * through executeFlow is the executor pass (deferred), not this route-level change.
+ * Scoped to the writing tenant: a write in tenant A must only fire tenant A's
+ * flows. Without this a record created in one tenant would trigger (and run) every
+ * other tenant's matching flow — cross-tenant execution. The write pipeline passes
+ * its resolved tenant id; when absent (single-tenant installs) it falls back to the
+ * default tenant, which is also where those flows' backfilled tenant_id points.
  */
 export async function triggerDataFlows(
   db: Database,
@@ -577,6 +579,7 @@ export async function triggerDataFlows(
   event: 'insert' | 'update' | 'delete',
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   record: any,
+  tenantId?: string | null,
 ): Promise<void> {
   try {
     // Map the data-route event vocabulary onto the trigger_type CHECK
@@ -589,6 +592,7 @@ export async function triggerDataFlows(
       .selectAll()
       .where('is_active', '=', true)
       .where('trigger_type', '=', triggerType)
+      .where('tenant_id', '=', tenantId || DEFAULT_TENANT)
       .execute()
       .catch(() => []);
 
