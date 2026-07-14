@@ -226,12 +226,12 @@ export interface ZvApprovalRequestsTable {
   requested_at: Generated<Date>;
   completed_at: Date | null;
   metadata: Generated<unknown>;
-  tenant_id: string | null;
   priority: Generated<'low' | 'normal' | 'high' | 'urgent'>;
   sla_due_at: Date | null;
   sla_breached: Generated<boolean>;
   reminder_sent_at: Date | null;
   rejection_reason: string | null;
+  tenant_id: string | null;
 }
 
 export interface ZvApprovalSlaAlertsTable {
@@ -254,12 +254,12 @@ export interface ZvApprovalStepsTable {
   deadline_hours: number | null;
   is_required: Generated<boolean>;
   created_at: Generated<Date>;
-  tenant_id: string | null;
   condition_field: string | null;
   condition_value: string | null;
   allow_parallel: Generated<boolean>;
   escalation_user_id: string | null;
   escalation_hours: number | null;
+  tenant_id: string | null;
 }
 
 export interface ZvApprovalTemplatesTable {
@@ -536,117 +536,6 @@ export interface ZvCollectionPublishSettingsTable {
   tenant_id: string | null;
 }
 
-export interface ZvComplianceAnsvsaAppEventsTable {
-  id: Generated<string>;
-  application_id: string;
-  from_status: string | null;
-  to_status: string;
-  actor: string | null;
-  note: string | null;
-  created_at: Generated<Date>;
-  tenant_id: string | null;
-}
-
-export interface ZvComplianceAnsvsaReportSequencesTable {
-  tenant_id: Generated<string>;
-  county_code: string;
-  doc_type: string;
-  year: number;
-  last_seq: Generated<number>;
-  created_at: Generated<Date>;
-}
-
-export interface ZvComplianceRiskAssessmentAssessmentsTable {
-  id: Generated<string>;
-  tenant_id: Generated<string>;
-  unit_id: string;
-  evaluator: string | null;
-  assessed_at: Generated<Date>;
-  sector_key: string | null;
-  scores: unknown;
-  i_value: number | null;
-  nc_value: number | null;
-  m_value: number | null;
-  score_final: number | null;
-  risk_class: string | null;
-  frequency: string | null;
-  modifiers: Generated<unknown>;
-  snapshot_id: string | null;
-}
-
-export interface ZvComplianceRiskAssessmentAuditTable {
-  id: Generated<string>;
-  tenant_id: Generated<string>;
-  entity: string;
-  action: string;
-  diff: unknown | null;
-  reason: string | null;
-  actor: string | null;
-  created_at: Generated<Date>;
-}
-
-export interface ZvComplianceRiskAssessmentCriteriaTable {
-  key: Generated<string>;
-  dimension_key: string;
-  label: string;
-  scale_hint: string | null;
-  type: 'inherent' | 'compliance';
-  sort_order: Generated<number>;
-}
-
-export interface ZvComplianceRiskAssessmentDimensionsTable {
-  key: Generated<string>;
-  label: string;
-  default_weight: number;
-  block_role: 'inherent' | 'compliance';
-  sort_order: Generated<number>;
-}
-
-export interface ZvComplianceRiskAssessmentSectorExtraCriteriaTable {
-  key: Generated<string>;
-  module_key: string;
-  label: string;
-  target_dimension_key: string;
-  sort_order: Generated<number>;
-}
-
-export interface ZvComplianceRiskAssessmentSectorHazardsTable {
-  id: Generated<string>;
-  module_key: string;
-  product_category: string;
-  suggested_i1: number;
-  sort_order: Generated<number>;
-}
-
-export interface ZvComplianceRiskAssessmentSectorModulesTable {
-  key: Generated<string>;
-  name: string;
-  description: string | null;
-  is_active: Generated<boolean>;
-}
-
-export interface ZvComplianceRiskAssessmentSectorWeightOverridesTable {
-  id: Generated<string>;
-  module_key: string;
-  dimension_key: string;
-  weight: number;
-  justification: string;
-}
-
-export interface ZvComplianceRiskAssessmentSnapshotsTable {
-  id: Generated<string>;
-  tenant_id: Generated<string>;
-  dictionary: unknown;
-  weights: unknown;
-  created_at: Generated<Date>;
-}
-
-export interface ZvComplianceRiskAssessmentTenantWeightsTable {
-  tenant_id: Generated<string>;
-  dimension_key: string;
-  weight: number;
-}
-
 export interface ZvContentDraftsTable {
   id: Generated<string>;
   collection: string;
@@ -682,7 +571,6 @@ export interface ZvDashboardsTable {
   tags: Generated<string[]>;
   last_viewed_at: Date | null;
   view_count: Generated<number>;
-  tenant_id: string | null;
 }
 
 export interface ZvDdlJobsTable {
@@ -1553,10 +1441,10 @@ export interface ZvMediaFoldersTable {
   created_by: string | null;
   created_at: Generated<Date>;
   deleted_at: Generated<Date | null>;
-  tenant_id: string | null;
   description: string | null;
   cover_image_id: string | null;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvMediaSharesTable {
@@ -5333,18 +5221,6 @@ export interface DbSchema {
   zv_cloud_shares: ZvCloudSharesTable;
   zv_cloud_trash: ZvCloudTrashTable;
   zv_collection_publish_settings: ZvCollectionPublishSettingsTable;
-  zv_compliance_ansvsa_app_events: ZvComplianceAnsvsaAppEventsTable;
-  zv_compliance_ansvsa_report_sequences: ZvComplianceAnsvsaReportSequencesTable;
-  zv_compliance_risk_assessment_assessments: ZvComplianceRiskAssessmentAssessmentsTable;
-  zv_compliance_risk_assessment_audit: ZvComplianceRiskAssessmentAuditTable;
-  zv_compliance_risk_assessment_criteria: ZvComplianceRiskAssessmentCriteriaTable;
-  zv_compliance_risk_assessment_dimensions: ZvComplianceRiskAssessmentDimensionsTable;
-  zv_compliance_risk_assessment_sector_extra_criteria: ZvComplianceRiskAssessmentSectorExtraCriteriaTable;
-  zv_compliance_risk_assessment_sector_hazards: ZvComplianceRiskAssessmentSectorHazardsTable;
-  zv_compliance_risk_assessment_sector_modules: ZvComplianceRiskAssessmentSectorModulesTable;
-  zv_compliance_risk_assessment_sector_weight_overrides: ZvComplianceRiskAssessmentSectorWeightOverridesTable;
-  zv_compliance_risk_assessment_snapshots: ZvComplianceRiskAssessmentSnapshotsTable;
-  zv_compliance_risk_assessment_tenant_weights: ZvComplianceRiskAssessmentTenantWeightsTable;
   zv_content_drafts: ZvContentDraftsTable;
   zv_dashboards: ZvDashboardsTable;
   zv_ddl_jobs: ZvDdlJobsTable;
