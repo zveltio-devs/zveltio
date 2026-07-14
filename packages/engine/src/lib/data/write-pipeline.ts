@@ -126,13 +126,14 @@ async function broadcastWebhook(
   event: string,
   collection: string,
   data: Record<string, unknown> & { id: string },
+  tenantId?: string | null,
 ): Promise<void> {
   // WebhookManager.trigger() handles:
-  // - matching active webhooks by event + collection
+  // - matching active webhooks by event + collection (scoped to the writing tenant)
   // - queuing via Redis (webhook:queue)
   // - audit trail in zvd_webhook_deliveries
   // - retry logic via webhook:retry sorted set
-  await WebhookManager.trigger(event, collection, data);
+  await WebhookManager.trigger(event, collection, data, tenantId);
 }
 
 /** Map Postgres SQLSTATE codes to HTTP responses with structured error bodies.
@@ -333,6 +334,7 @@ export async function afterWrite(
     eventName,
     collection,
     data as Record<string, unknown> & { id: string },
+    tenantId ?? null,
   );
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names

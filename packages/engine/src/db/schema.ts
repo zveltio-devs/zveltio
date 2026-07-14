@@ -809,6 +809,7 @@ export interface ZvdWebhooksTable {
   retry_attempts: number;
   timeout: number;
   created_by: string | null;
+  tenant_id: Generated<string>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -826,6 +827,7 @@ export interface ZvdWebhookDeliveriesTable {
   response_body: string | null;
   error: string | null;
   delivered_at: Date | null;
+  tenant_id: Generated<string>;
   created_at: Generated<Date>;
 }
 
