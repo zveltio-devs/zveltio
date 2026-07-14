@@ -367,10 +367,15 @@ export async function afterWrite(
     console.warn(`[data] invalidateQueryCache failed for ${collection}:`, (err as Error).message);
   });
 
-  // Trigger data_event flows (fire-and-forget — must not block the request)
-  triggerDataFlows(db, collection, eventName as 'insert' | 'update' | 'delete', data).catch((err) =>
-    console.error('[afterWrite] flow trigger failed:', err),
-  );
+  // Trigger data_event flows (fire-and-forget — must not block the request).
+  // Scoped to the writing tenant so a write in tenant A doesn't fire tenant B's flows.
+  triggerDataFlows(
+    db,
+    collection,
+    eventName as 'insert' | 'update' | 'delete',
+    data,
+    tenantId ?? null,
+  ).catch((err) => console.error('[afterWrite] flow trigger failed:', err));
 
   const engineEvent =
     action === 'create'
