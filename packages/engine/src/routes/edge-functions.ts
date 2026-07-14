@@ -5,7 +5,7 @@ import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
-import { reqDb } from '../lib/route-db.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
@@ -44,6 +44,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
         'created_at',
         'updated_at',
       ])
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .execute();
     return c.json({ functions: fns });
@@ -83,6 +84,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
         .selectFrom('zv_edge_functions')
         .select('id')
         .where('name', '=', body.name)
+        .where('tenant_id', '=', tenantId(c))
         .executeTakeFirst();
       if (existing) return c.json({ error: 'Function name already exists' }, 409);
 
@@ -92,6 +94,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       const fn = await (reqDb(c, db) as any)
         .insertInto('zv_edge_functions')
         .values({
+          tenant_id: tenantId(c),
           name: body.name,
           display_name: body.display_name,
           description: body.description,
@@ -128,6 +131,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_edge_functions')
       .selectAll()
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
     if (!fn) return c.json({ error: 'Not found' }, 404);
     return c.json({ function: fn });
@@ -169,6 +173,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
         .updateTable('zv_edge_functions')
         .set(updates)
         .where('id', '=', c.req.param('id'))
+        .where('tenant_id', '=', tenantId(c))
         .returningAll()
         .executeTakeFirst();
       if (!fn) return c.json({ error: 'Not found' }, 404);
@@ -195,7 +200,13 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    await (reqDb(c, db) as any).deleteFrom('zv_edge_functions').where('id', '=', id).execute();
+    const deleted = await (reqDb(c, db) as any)
+      .deleteFrom('zv_edge_functions')
+      .where('id', '=', id)
+      .where('tenant_id', '=', tenantId(c))
+      .returning('id')
+      .executeTakeFirst();
+    if (!deleted) return c.json({ error: 'Not found' }, 404);
     await auditLog(db, {
       type: 'settings.changed',
       userId: user?.id,
@@ -214,6 +225,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_edge_function_logs')
       .selectAll()
       .where('function_id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .limit(Math.min(parseInt(limit) || 50, 200))
       .execute();
@@ -227,6 +239,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_edge_functions')
       .selectAll()
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
     if (!fn) return c.json({ error: 'Not found' }, 404);
 
@@ -247,6 +260,7 @@ export function edgeFunctionsRoutes(db: Database, auth: any): Hono {
     void (reqDb(c, db) as any)
       .insertInto('zv_edge_function_logs')
       .values({
+        tenant_id: tenantId(c),
         function_id: fn.id,
         status: runResult.ok ? (runResult.response?.status ?? 200) : 500,
         duration_ms: runResult.duration_ms,
@@ -310,6 +324,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       .selectAll()
       .where('name', '=', name)
       .where('is_active', '=', true)
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
     if (!fn) return c.json({ error: 'Function not found' }, 404);
 
@@ -351,6 +366,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     void (reqDb(c, db) as any)
       .insertInto('zv_edge_function_logs')
       .values({
+        tenant_id: tenantId(c),
         function_id: fn.id,
         status: runResult.ok ? (runResult.response?.status ?? 200) : 500,
         duration_ms: runResult.duration_ms,
