@@ -57,7 +57,7 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     let value: any = context;
     for (const key of keys) {
-      if (!Object.prototype.hasOwnProperty.call(value, key)) return match;
+      if (!Object.hasOwn(value, key)) return match;
       value = value[key];
       if (value === undefined || value === null) return match;
     }
@@ -75,14 +75,27 @@ async function executeStep(
   prevOutput: any,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   flowContext: Record<string, any> = {},
+  // Tenant for any collection-data access in this step (query_db / export_collection
+  // run inside a `set_config('zveltio.current_tenant', …)` transaction, and collection
+  // tables are FORCE-RLS'd). This is the flow's OWN tenant, resolved by executeFlow —
+  // NOT derived from caller-supplied trigger data, which a caller could set to another
+  // tenant's id to read/export across tenants.
+  flowTenantId: string = DEFAULT_TENANT_ID,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<{ output: any; logs?: string[] }> {
-  const cfg = step.config ?? {};
-  // Tenant for any collection-data access in this step. Collection tables are
-  // FORCE-RLS'd, so reads/writes outside a tenant transaction see zero rows.
-  // Data-triggered flows carry the originating tenant via trigger.tenantId;
-  // others (cron) default to the default tenant.
-  const flowTenantId: string = (flowContext?.trigger?.tenantId as string) || DEFAULT_TENANT_ID;
+  // The Bun SQL driver hands jsonb columns back as strings, so step.config read via
+  // `SELECT * FROM zv_flow_steps` can be a JSON string (see the pervasive
+  // `typeof x === 'string' ? JSON.parse(x)` guards elsewhere). Without parsing it,
+  // cfg.query / cfg.code / cfg.url / … are all undefined and every config-driven
+  // step silently no-ops (returns prevOutput).
+  let cfg = step.config ?? {};
+  if (typeof cfg === 'string') {
+    try {
+      cfg = JSON.parse(cfg);
+    } catch {
+      cfg = {};
+    }
+  }
 
   switch (step.type) {
     // ── query_db ──
@@ -448,6 +461,22 @@ export async function executeFlow(
   const stepResults: Record<string, any> = {};
   const flowContext = { trigger: triggerData, stepResults };
 
+  // Authoritative tenant for this run's data access: the flow's OWN tenant_id.
+  // Every caller (manual run, cron scheduler, DLQ retry, data-event trigger) goes
+  // through here, so resolving it from the flow row — rather than trusting
+  // triggerData — closes both the "runs as default tenant" leak and the
+  // "caller spoofs trigger.tenantId" escalation. Best-effort: falls back to the
+  // default tenant if the lookup fails (a missing flow fails later on the run FK).
+  let flowTenantId = DEFAULT_TENANT_ID;
+  try {
+    const tRow = await sql<{ tenant_id: string }>`
+      SELECT tenant_id::text AS tenant_id FROM zv_flows WHERE id = ${flowId}
+    `.execute(db);
+    if (tRow.rows[0]?.tenant_id) flowTenantId = tRow.rows[0].tenant_id;
+  } catch {
+    // keep default tenant
+  }
+
   try {
     for (const step of steps) {
       try {
@@ -458,7 +487,7 @@ export async function executeFlow(
             'flow.step.id': step.id || step.name || 'unknown',
             'flow.step.type': step.type,
           },
-          () => executeStep(db, step, output, flowContext),
+          () => executeStep(db, step, output, flowContext, flowTenantId),
         );
         output = result.output;
         if (step.id) stepResults[step.id] = output;
