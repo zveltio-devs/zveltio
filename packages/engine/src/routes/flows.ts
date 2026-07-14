@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -8,6 +8,17 @@ import { validateStepConfig } from '../lib/flows/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// zv_flows has no RLS and these routes run on the raw pool `db`, so every query is
+// scoped to the request's tenant explicitly — otherwise one tenant's admin could
+// read/patch/delete/run another tenant's flows by id, or enumerate the whole flow
+// list (cross-tenant IDOR). "always-one-tenant", so this resolves to the default
+// tenant in single-tenant installs. Child rows (steps/runs/dlq) are always reached
+// through a flow, so scoping the flow (or joining the child reads to zv_flows)
+// transitively protects them.
+const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
+const tenantOf = (c: Context): string =>
+  (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
@@ -40,12 +51,14 @@ const TriggerSchema = z.object({
 type TriggerInput = z.infer<typeof TriggerSchema>;
 
 // Reads a flow joined with its steps in step_order. Returns null if the
-// flow doesn't exist.
-async function loadFlowWithSteps(db: Database, flowId: string) {
+// flow doesn't exist for the given tenant. Steps are keyed by flow_id, so
+// scoping the flow lookup transitively scopes the steps.
+async function loadFlowWithSteps(db: Database, flowId: string, tenantId: string) {
   const flow = await db
     .selectFrom('zv_flows')
     .selectAll()
     .where('id', '=', flowId)
+    .where('tenant_id', '=', tenantId)
     .executeTakeFirst();
   if (!flow) return null;
 
@@ -100,6 +113,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const flows = await db
       .selectFrom('zv_flows')
       .selectAll()
+      .where('tenant_id', '=', tenantOf(c))
       .orderBy('updated_at', 'desc')
       .execute();
     return c.json({ flows });
@@ -110,9 +124,17 @@ export function flowsRoutes(db: Database, auth: any): Hono {
   // zv_flows.id throws "invalid input syntax for type uuid" → 500.
   app.get('/dlq', async (c) => {
     const flowId = c.req.query('flow_id');
-    let query = db.selectFrom('zv_flow_dlq').selectAll().orderBy('created_at', 'desc').limit(100);
+    // DLQ entries have no tenant_id of their own; scope by joining to the owning
+    // flow so one tenant can't read another tenant's failed-flow payloads.
+    let query = db
+      .selectFrom('zv_flow_dlq as dlq')
+      .innerJoin('zv_flows as f', 'f.id', 'dlq.flow_id')
+      .selectAll('dlq')
+      .where('f.tenant_id', '=', tenantOf(c))
+      .orderBy('dlq.created_at', 'desc')
+      .limit(100);
 
-    if (flowId) query = query.where('flow_id', '=', flowId);
+    if (flowId) query = query.where('dlq.flow_id', '=', flowId);
 
     const entries = await query.execute();
     return c.json({ entries });
@@ -122,9 +144,11 @@ export function flowsRoutes(db: Database, auth: any): Hono {
   // /:id for the same reason.
   app.get('/runs/:runId', async (c) => {
     const run = await db
-      .selectFrom('zv_flow_runs')
-      .selectAll()
-      .where('id', '=', c.req.param('runId'))
+      .selectFrom('zv_flow_runs as r')
+      .innerJoin('zv_flows as f', 'f.id', 'r.flow_id')
+      .selectAll('r')
+      .where('r.id', '=', c.req.param('runId'))
+      .where('f.tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!run) return c.json({ error: 'Run not found' }, 404);
@@ -138,7 +162,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     // path that fell through) would make Postgres throw on the cast and
     // surface as a 500. Treat it as not-found instead.
     if (!UUID_RE.test(id)) return c.json({ error: 'Flow not found' }, 404);
-    const flow = await loadFlowWithSteps(db, id);
+    const flow = await loadFlowWithSteps(db, id, tenantOf(c));
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
     return c.json({ flow });
   });
@@ -174,6 +198,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       const flow = await db
         .insertInto('zv_flows')
         .values({
+          tenant_id: tenantOf(c),
           name: body.name,
           description: body.description ?? null,
           is_active: body.is_active,
@@ -203,7 +228,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         },
       });
 
-      const created = await loadFlowWithSteps(db, flow.id);
+      const created = await loadFlowWithSteps(db, flow.id, tenantOf(c));
       return c.json({ flow: created }, 201);
     },
   );
@@ -251,6 +276,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         .updateTable('zv_flows')
         .set(updates)
         .where('id', '=', flowId)
+        .where('tenant_id', '=', tenantOf(c))
         .returningAll()
         .executeTakeFirst();
 
@@ -274,7 +300,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
         },
       });
 
-      const updated = await loadFlowWithSteps(db, flowId);
+      const updated = await loadFlowWithSteps(db, flowId, tenantOf(c));
       return c.json({ flow: updated });
     },
   );
@@ -284,7 +310,13 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const flowId = c.req.param('id');
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
-    await db.deleteFrom('zv_flows').where('id', '=', flowId).execute();
+    const deleted = await db
+      .deleteFrom('zv_flows')
+      .where('id', '=', flowId)
+      .where('tenant_id', '=', tenantOf(c))
+      .returning('id')
+      .executeTakeFirst();
+    if (!deleted) return c.json({ error: 'Flow not found' }, 404);
     await auditLog(db, {
       type: 'settings.changed',
       userId: user?.id,
@@ -301,6 +333,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_flows')
       .selectAll()
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
@@ -324,10 +357,12 @@ export function flowsRoutes(db: Database, auth: any): Hono {
   // GET /:id/runs — run history
   app.get('/:id/runs', async (c) => {
     const runs = await db
-      .selectFrom('zv_flow_runs')
-      .select(['id', 'status', 'error', 'started_at', 'finished_at'])
-      .where('flow_id', '=', c.req.param('id'))
-      .orderBy('started_at', 'desc')
+      .selectFrom('zv_flow_runs as r')
+      .innerJoin('zv_flows as f', 'f.id', 'r.flow_id')
+      .select(['r.id', 'r.status', 'r.error', 'r.started_at', 'r.finished_at'])
+      .where('r.flow_id', '=', c.req.param('id'))
+      .where('f.tenant_id', '=', tenantOf(c))
+      .orderBy('r.started_at', 'desc')
       .limit(50)
       .execute();
 
@@ -348,6 +383,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_flows')
       .selectAll()
       .where('id', '=', entry.flow_id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
@@ -381,6 +417,7 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_flows')
       .select(['id'])
       .where('id', '=', flowId)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
 
@@ -414,6 +451,15 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     const body = c.req.valid('json');
     const flowId = c.req.param('id');
     const stepId = c.req.param('stepId');
+
+    // Confirm the flow belongs to this tenant before touching its steps.
+    const owner = await db
+      .selectFrom('zv_flows')
+      .select(['id'])
+      .where('id', '=', flowId)
+      .where('tenant_id', '=', tenantOf(c))
+      .executeTakeFirst();
+    if (!owner) return c.json({ error: 'Step not found' }, 404);
 
     const existing = await db
       .selectFrom('zv_flow_steps')
@@ -455,6 +501,15 @@ export function flowsRoutes(db: Database, auth: any): Hono {
   app.delete('/:id/steps/:stepId', async (c) => {
     const flowId = c.req.param('id');
     const stepId = c.req.param('stepId');
+
+    // Confirm the flow belongs to this tenant before touching its steps.
+    const owner = await db
+      .selectFrom('zv_flows')
+      .select(['id'])
+      .where('id', '=', flowId)
+      .where('tenant_id', '=', tenantOf(c))
+      .executeTakeFirst();
+    if (!owner) return c.json({ error: 'Step not found' }, 404);
 
     await db.transaction().execute(async (trx) => {
       const removed = await trx
@@ -511,6 +566,10 @@ function toTriggerConfig(trigger: TriggerInput): Record<string, unknown> {
  * Called from the data route after each write operation.
  *
  * Reads each candidate flow's trigger_config to decide which to execute.
+ *
+ * NOTE: this scans flows across ALL tenants and executes them from a background
+ * context. Tenant-scoping the candidate query + threading the flow's own tenant_id
+ * through executeFlow is the executor pass (deferred), not this route-level change.
  */
 export async function triggerDataFlows(
   db: Database,
