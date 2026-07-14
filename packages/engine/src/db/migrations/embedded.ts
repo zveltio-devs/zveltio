@@ -22,6 +22,7 @@ import m010 from './sql/011_approvals_tenant_isolation.sql' with { type: 'text' 
 import m011 from './sql/012_media_tags_tenant_isolation.sql' with { type: 'text' };
 import m012 from './sql/013_dashboards_tenant_isolation.sql' with { type: 'text' };
 import m013 from './sql/014_flows_tenant_isolation.sql' with { type: 'text' };
+import m014 from './sql/015_edge_functions_tenant_isolation.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -39,4 +40,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '012_media_tags_tenant_isolation.sql': m011,
   '013_dashboards_tenant_isolation.sql': m012,
   '014_flows_tenant_isolation.sql': m013,
+  '015_edge_functions_tenant_isolation.sql': m014,
 };
