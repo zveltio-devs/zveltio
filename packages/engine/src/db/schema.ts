@@ -614,6 +614,7 @@ export interface ZvExtensionRegistryTable {
 
 export interface ZvEdgeFunctionsTable {
   id: Generated<string>;
+  tenant_id: Generated<string>;
   name: string;
   display_name: string | null;
   description: string | null;
@@ -631,6 +632,7 @@ export interface ZvEdgeFunctionsTable {
 
 export interface ZvEdgeFunctionLogsTable {
   id: Generated<string>;
+  tenant_id: Generated<string>;
   function_id: string;
   status: string;
   duration_ms: number | null;
