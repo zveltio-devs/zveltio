@@ -1316,6 +1316,7 @@ export interface ZvDashboardsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: Generated<string>; // 013_dashboards_tenant_isolation
 }
 
 export interface ZvPanelsTable {

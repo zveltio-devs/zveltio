@@ -3,6 +3,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -114,6 +115,13 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     return next();
   });
 
+  // Tenant of the request (always resolved — default tenant in single-tenant).
+  // Dashboards have no RLS and are queried on the raw pool db, so every dashboard
+  // query is scoped by this — otherwise a PUBLIC dashboard leaks to every tenant.
+  const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
+  const tenantOf = (c: Context): string =>
+    (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
+
   // ── GET /stats ───────────────────────────────────────────────────────────────
   app.get('/stats', async (c) => {
     const user = c.get('user');
@@ -153,9 +161,12 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       FROM zv_dashboards d
       LEFT JOIN zv_panels p ON p.dashboard_id = d.id
       LEFT JOIN zvd_dashboard_shares s ON s.dashboard_id = d.id
-      WHERE d.is_public = true
-         OR d.created_by = ${user.id}
-         OR s.shared_with_user_id = ${user.id}
+      WHERE d.tenant_id = ${tenantOf(c)}
+        AND (
+          d.is_public = true
+          OR d.created_by = ${user.id}
+          OR s.shared_with_user_id = ${user.id}
+        )
       GROUP BY d.id
       ORDER BY d.updated_at DESC
     `.execute(db);
@@ -189,6 +200,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
           is_public: body.is_public,
           tags: body.tags,
           created_by: user.id,
+          tenant_id: tenantOf(c),
         })
         .returningAll()
         .executeTakeFirst();
@@ -206,6 +218,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       .selectFrom('zv_dashboards')
       .selectAll()
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!dash) return c.json({ error: 'Not found' }, 404);
@@ -249,6 +262,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by'])
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!dash) return c.json({ error: 'Not found' }, 404);
@@ -271,6 +285,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by'])
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!dash) return c.json({ error: 'Not found' }, 404);
@@ -365,6 +380,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by'])
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
@@ -415,6 +431,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         .selectFrom('zv_dashboards')
         .select(['id'])
         .where('id', '=', dashboardId)
+        .where('tenant_id', '=', tenantOf(c))
         .executeTakeFirst();
 
       if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
@@ -517,6 +534,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       .selectFrom('zv_dashboards')
       .select(['id', 'created_by', 'is_public'])
       .where('id', '=', panel.dashboard_id)
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
     if (!dash) return c.json({ error: 'Panel not found' }, 404);
 
@@ -870,6 +888,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
         .selectFrom('zv_dashboards')
         .select(['id'])
         .where('id', '=', body.dashboard_id)
+        .where('tenant_id', '=', tenantOf(c))
         .executeTakeFirst();
 
       if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
