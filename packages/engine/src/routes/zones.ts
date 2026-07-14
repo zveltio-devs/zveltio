@@ -40,6 +40,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
+import { tenantId } from '../lib/route-db.js';
 import { zoneRenderRequests, zoneAccessDenied, viewQueryDuration } from '../lib/runtime/index.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
@@ -183,7 +184,12 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const denied = await requireAdmin(c);
     if (denied) return denied;
 
-    const zones = await db.selectFrom('zvd_zones').selectAll().orderBy('name asc').execute();
+    const zones = await db
+      .selectFrom('zvd_zones')
+      .selectAll()
+      .where('tenant_id', '=', tenantId(c))
+      .orderBy('name asc')
+      .execute();
 
     return c.json({ zones });
   });
@@ -211,6 +217,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
         custom_css: data.custom_css ?? null,
         nav_position: data.nav_position ?? 'sidebar',
         show_breadcrumbs: data.show_breadcrumbs ?? true,
+        tenant_id: tenantId(c),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -227,6 +234,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_zones')
       .selectAll()
       .where('slug', '=', c.req.param('slug'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!zone) return c.json({ error: 'Zone not found' }, 404);
@@ -243,6 +251,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .updateTable('zvd_zones')
       .set({ ...data, updated_at: new Date() })
       .where('slug', '=', c.req.param('slug'))
+      .where('tenant_id', '=', tenantId(c))
       .returningAll()
       .executeTakeFirst();
 
@@ -255,7 +264,11 @@ export function zonesRoutes(db: Database, auth: any): Hono {
     const denied = await requireAdmin(c);
     if (denied) return denied;
 
-    await db.deleteFrom('zvd_zones').where('slug', '=', c.req.param('slug')).execute();
+    await db
+      .deleteFrom('zvd_zones')
+      .where('slug', '=', c.req.param('slug'))
+      .where('tenant_id', '=', tenantId(c))
+      .execute();
 
     return c.json({ success: true });
   });
@@ -271,6 +284,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_zones')
       .select('id')
       .where('slug', '=', c.req.param('slug'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!zone) return c.json({ error: 'Zone not found' }, 404);
@@ -295,6 +309,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_zones')
       .select('id')
       .where('slug', '=', c.req.param('slug'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!zone) return c.json({ error: 'Zone not found' }, 404);
@@ -324,6 +339,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
         allowed_roles: data.allowed_roles ?? [],
         parent_id: data.parent_id ?? null,
         sort_order: data.sort_order ?? 0,
+        tenant_id: tenantId(c),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -340,6 +356,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_zones')
       .select('id')
       .where('slug', '=', c.req.param('slug'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!zone) return c.json({ error: 'Zone not found' }, 404);
@@ -376,6 +393,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_zones')
       .select('id')
       .where('slug', '=', c.req.param('slug'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!zone) return c.json({ error: 'Zone not found' }, 404);
@@ -398,7 +416,12 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
     await Promise.all(
       ids.map((id, index) =>
-        db.updateTable('zvd_pages').set({ sort_order: index }).where('id', '=', id).execute(),
+        db
+          .updateTable('zvd_pages')
+          .set({ sort_order: index })
+          .where('id', '=', id)
+          .where('tenant_id', '=', tenantId(c))
+          .execute(),
       ),
     );
 
@@ -418,6 +441,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .select('p.id')
       .where('z.slug', '=', c.req.param('slug'))
       .where('p.slug', '=', c.req.param('pageSlug'))
+      .where('z.tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!page) return c.json({ error: 'Page not found' }, 404);
@@ -455,6 +479,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .select('p.id')
       .where('z.slug', '=', c.req.param('slug'))
       .where('p.slug', '=', c.req.param('pageSlug'))
+      .where('z.tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!page) return c.json({ error: 'Page not found' }, 404);
@@ -470,6 +495,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
         col_span: data.col_span ?? 12,
         sort_order: data.sort_order ?? 0,
         config_override: JSON.stringify(data.config_override ?? {}),
+        tenant_id: tenantId(c),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -488,6 +514,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .select('p.id')
       .where('z.slug', '=', c.req.param('slug'))
       .where('p.slug', '=', c.req.param('pageSlug'))
+      .where('z.tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!page) return c.json({ error: 'Page not found' }, 404);
@@ -510,7 +537,12 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
     await Promise.all(
       ids.map((id, index) =>
-        db.updateTable('zvd_page_views').set({ sort_order: index }).where('id', '=', id).execute(),
+        db
+          .updateTable('zvd_page_views')
+          .set({ sort_order: index })
+          .where('id', '=', id)
+          .where('tenant_id', '=', tenantId(c))
+          .execute(),
       ),
     );
 
@@ -526,6 +558,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .selectAll()
       .where('slug', '=', c.req.param('slug'))
       .where('is_active', '=', true)
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!zone) return c.json({ error: 'Zone not found' }, 404);
@@ -567,6 +600,7 @@ export function zonesRoutes(db: Database, auth: any): Hono {
       .selectAll()
       .where('slug', '=', c.req.param('slug'))
       .where('is_active', '=', true)
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!zone) return c.json({ error: 'Zone not found' }, 404);
@@ -649,7 +683,15 @@ export function zonesRoutes(db: Database, auth: any): Hono {
         let records: any[] = [];
         try {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          let q = (db as any).selectFrom(tableName).selectAll().limit(pageSize);
+          let q = (db as any)
+            .selectFrom(tableName)
+            .selectAll()
+            // Scope collection records to the request tenant — the render path
+            // must never serve another tenant's business data. Collection tables
+            // (zvd_<collection>) carry tenant_id; if one somehow doesn't, the
+            // surrounding try/catch fails closed (records = []).
+            .where('tenant_id', '=', tenantId(c))
+            .limit(pageSize);
 
           if (vr.sort_field) q = q.orderBy(vr.sort_field, vr.sort_dir ?? 'desc');
           else q = q.orderBy('created_at', 'desc');
@@ -741,7 +783,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
     const limit = Math.min(Number(c.req.query('limit') ?? 50), 200);
     const offset = (page - 1) * limit;
 
-    let query = db.selectFrom('zvd_views').selectAll();
+    let query = db.selectFrom('zvd_views').selectAll().where('tenant_id', '=', tenantId(c));
     if (collection) query = query.where('collection', '=', collection);
 
     const [views, countRow] = await Promise.all([
@@ -749,6 +791,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
       db
         .selectFrom('zvd_views')
         .select((eb) => eb.fn.countAll().as('total'))
+        .where('tenant_id', '=', tenantId(c))
         .executeTakeFirst(),
     ]);
 
@@ -778,6 +821,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
         config: JSON.stringify(data.config ?? {}),
         is_public: data.is_public ?? false,
         created_by: user?.id ?? null,
+        tenant_id: tenantId(c),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -794,6 +838,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_views')
       .selectAll()
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!view) return c.json({ error: 'View not found' }, 404);
@@ -815,6 +860,7 @@ export function viewsRoutes(db: Database, auth: any): Hono {
       .updateTable('zvd_views')
       .set(update)
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .returningAll()
       .executeTakeFirst();
 
@@ -827,7 +873,11 @@ export function viewsRoutes(db: Database, auth: any): Hono {
     const denied = await requireAdmin(c);
     if (denied) return denied;
 
-    await db.deleteFrom('zvd_views').where('id', '=', c.req.param('id')).execute();
+    await db
+      .deleteFrom('zvd_views')
+      .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
+      .execute();
 
     return c.json({ success: true });
   });
