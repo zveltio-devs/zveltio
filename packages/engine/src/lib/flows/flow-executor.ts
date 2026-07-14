@@ -83,7 +83,19 @@ async function executeStep(
   flowTenantId: string = DEFAULT_TENANT_ID,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 ): Promise<{ output: any; logs?: string[] }> {
-  const cfg = step.config ?? {};
+  // The Bun SQL driver hands jsonb columns back as strings, so step.config read via
+  // `SELECT * FROM zv_flow_steps` can be a JSON string (see the pervasive
+  // `typeof x === 'string' ? JSON.parse(x)` guards elsewhere). Without parsing it,
+  // cfg.query / cfg.code / cfg.url / … are all undefined and every config-driven
+  // step silently no-ops (returns prevOutput).
+  let cfg = step.config ?? {};
+  if (typeof cfg === 'string') {
+    try {
+      cfg = JSON.parse(cfg);
+    } catch {
+      cfg = {};
+    }
+  }
 
   switch (step.type) {
     // ── query_db ──
