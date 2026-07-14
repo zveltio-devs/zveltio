@@ -8,6 +8,7 @@ import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
+import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
@@ -275,6 +276,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     let query = db
       .selectFrom('zv_revisions')
       .selectAll()
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset);

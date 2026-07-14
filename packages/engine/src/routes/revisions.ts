@@ -6,7 +6,7 @@ import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 import { dynamicUpdate } from '../db/dynamic.js';
 import { DDLManager } from '../lib/data/index.js';
-import { reqDb } from '../lib/route-db.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function revisionsRoutes(db: Database, auth: any): Hono {
@@ -39,7 +39,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
         u.email AS user_email
       FROM zv_revisions r
       LEFT JOIN "user" u ON u.id = r.user_id
-      WHERE 1=1
+      WHERE r.tenant_id = ${tenantId(c)}::uuid
         ${collection ? sql`AND r.collection = ${collection}` : sql``}
         ${record_id ? sql`AND r.record_id = ${record_id}` : sql``}
         ${user_id ? sql`AND r.user_id = ${user_id}` : sql``}
@@ -50,7 +50,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
 
     const total = await sql<{ count: string }>`
       SELECT COUNT(*)::int AS count FROM zv_revisions
-      WHERE 1=1
+      WHERE tenant_id = ${tenantId(c)}::uuid
         ${collection ? sql`AND collection = ${collection}` : sql``}
         ${record_id ? sql`AND record_id = ${record_id}` : sql``}
         ${user_id ? sql`AND user_id = ${user_id}` : sql``}
@@ -80,7 +80,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       SELECT r.*, u.name AS user_name, u.email AS user_email
       FROM zv_revisions r
       LEFT JOIN "user" u ON u.id = r.user_id
-      WHERE r.id = ${c.req.param('id')}
+      WHERE r.id = ${c.req.param('id')} AND r.tenant_id = ${tenantId(c)}::uuid
     `.execute(reqDb(c, db));
 
     const revision = rows.rows[0];
@@ -102,6 +102,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       .selectFrom('zv_revisions')
       .selectAll()
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!revision) return c.json({ error: 'Revision not found' }, 404);
@@ -146,6 +147,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
         data: JSON.stringify(reverted),
         delta: JSON.stringify({ _reverted_from: revision.id }),
         user_id: user.id,
+        tenant_id: tenantId(c),
       })
       .execute()
       .catch((err: Error) => {
@@ -179,6 +181,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       FROM zv_record_comments rc
       LEFT JOIN "user" u ON u.id = rc.user_id
       WHERE rc.collection = ${collection} AND rc.record_id = ${recordId}
+        AND rc.tenant_id = ${tenantId(c)}::uuid
       ORDER BY rc.created_at ASC
     `.execute(reqDb(c, db));
 
@@ -198,8 +201,8 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       // Try to insert — table may not exist in all deployments, non-fatal
       try {
         const row = await sql`
-          INSERT INTO zv_record_comments (collection, record_id, comment, user_id)
-          VALUES (${collection}, ${recordId}, ${comment}, ${user.id})
+          INSERT INTO zv_record_comments (collection, record_id, comment, user_id, tenant_id)
+          VALUES (${collection}, ${recordId}, ${comment}, ${user.id}, ${tenantId(c)}::uuid)
           RETURNING *
         `.execute(reqDb(c, db));
 
@@ -224,11 +227,13 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     // Replaced `OR TRUE` idiom (confusing, hard to audit) with explicit branch.
     // Admins can delete any comment; non-admins can only delete their own.
     if (isAdmin) {
-      await sql`DELETE FROM zv_record_comments WHERE id = ${commentId}`.execute(reqDb(c, db));
+      await sql`DELETE FROM zv_record_comments WHERE id = ${commentId} AND tenant_id = ${tenantId(c)}::uuid`.execute(
+        reqDb(c, db),
+      );
     } else {
       await sql`
         DELETE FROM zv_record_comments
-        WHERE id = ${commentId} AND user_id = ${user.id}
+        WHERE id = ${commentId} AND user_id = ${user.id} AND tenant_id = ${tenantId(c)}::uuid
       `.execute(reqDb(c, db));
     }
 
