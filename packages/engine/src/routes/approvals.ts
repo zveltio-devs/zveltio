@@ -86,6 +86,16 @@ export function approvalsRoutes(db: Database, auth: any) {
     if (user.role === 'god') return true;
     return checkPermission(user.id, 'approvals', 'manage').catch(() => false);
   }
+
+  // Tenant of the current request (always resolved — "always-one-tenant", so the
+  // default tenant in single-tenant installs). The approval tables have no RLS
+  // and these routes run on the raw pool `db`, so every query is scoped by this
+  // explicitly — otherwise one tenant could read/act on another's workflows and
+  // requests by id (cross-tenant IDOR).
+  const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
+  const tenantOf = (c: Context): string =>
+    (c.get('tenant') as { id?: string } | null)?.id ?? DEFAULT_TENANT;
+
   const app = new Hono();
 
   // ── Workflows ────────────────────────────────────────────────────────────
@@ -98,6 +108,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     const workflows = await db
       .selectFrom('zv_approval_workflows as w')
       .selectAll('w')
+      .where('w.tenant_id', '=', tenantOf(c))
       .orderBy('w.created_at desc')
       .execute();
 
@@ -129,6 +140,7 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     const data = c.req.valid('json');
 
+    const tenantId = tenantOf(c);
     const workflow = await db
       .insertInto('zv_approval_workflows')
       .values({
@@ -139,6 +151,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         trigger_value: data.trigger_value ?? null,
         is_active: data.is_active ?? true,
         created_by: user.id,
+        tenant_id: tenantId,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -156,6 +169,7 @@ export function approvalsRoutes(db: Database, auth: any) {
             approver_user_id: s.approver_user_id ?? null,
             deadline_hours: s.deadline_hours ?? null,
             is_required: s.is_required ?? true,
+            tenant_id: tenantId,
           })),
         )
         .execute();
@@ -199,10 +213,12 @@ export function approvalsRoutes(db: Database, auth: any) {
     if (data.trigger_value !== undefined) update.trigger_value = data.trigger_value;
     if (data.is_active !== undefined) update.is_active = data.is_active;
 
+    const tenantId = tenantOf(c);
     const workflow = await db
       .updateTable('zv_approval_workflows')
       .set(update)
       .where('id', '=', id)
+      .where('tenant_id', '=', tenantId)
       .returningAll()
       .executeTakeFirst();
 
@@ -210,7 +226,11 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     // Replace steps if provided
     if (data.steps !== undefined) {
-      await db.deleteFrom('zv_approval_steps').where('workflow_id', '=', id).execute();
+      await db
+        .deleteFrom('zv_approval_steps')
+        .where('workflow_id', '=', id)
+        .where('tenant_id', '=', tenantId)
+        .execute();
       if (data.steps.length) {
         await db
           .insertInto('zv_approval_steps')
@@ -223,6 +243,7 @@ export function approvalsRoutes(db: Database, auth: any) {
               approver_user_id: s.approver_user_id ?? null,
               deadline_hours: s.deadline_hours ?? null,
               is_required: s.is_required ?? true,
+              tenant_id: tenantId,
             })),
           )
           .execute();
@@ -246,7 +267,11 @@ export function approvalsRoutes(db: Database, auth: any) {
     if (!(await isAdmin(user))) return c.json({ error: 'Forbidden' }, 403);
 
     const { id } = c.req.param();
-    await db.deleteFrom('zv_approval_workflows').where('id', '=', id).execute();
+    await db
+      .deleteFrom('zv_approval_workflows')
+      .where('id', '=', id)
+      .where('tenant_id', '=', tenantOf(c))
+      .execute();
     await auditLog(db, {
       type: 'approval.workflow_changed',
       userId: user.id,
@@ -291,6 +316,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         'cs.approver_role as current_step_role',
         sql<string>`COALESCE(u.name, u.email)`.as('requester_name'),
       ])
+      .where('r.tenant_id', '=', tenantOf(c))
       .orderBy('r.requested_at desc')
       .limit(limit)
       .offset(offset);
@@ -332,6 +358,7 @@ export function approvalsRoutes(db: Database, auth: any) {
     const countResult = await db
       .selectFrom('zv_approval_requests as r')
       .select((eb) => eb.fn.count('r.id').as('total'))
+      .where('r.tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     return c.json({ requests, total: Number(countResult?.total ?? 0) });
@@ -346,12 +373,14 @@ export function approvalsRoutes(db: Database, auth: any) {
 
     const { workflow_id, collection, record_id, metadata } = c.req.valid('json');
 
+    const tenantId = tenantOf(c);
     // Load workflow + first step
     const workflow = await db
       .selectFrom('zv_approval_workflows')
       .selectAll()
       .where('id', '=', workflow_id)
       .where('is_active', '=', true)
+      .where('tenant_id', '=', tenantId)
       .executeTakeFirst();
 
     if (!workflow) return c.json({ error: 'Workflow not found or inactive' }, 404);
@@ -366,6 +395,7 @@ export function approvalsRoutes(db: Database, auth: any) {
       .where('workflow_id', '=', workflow_id)
       .where('record_id', '=', record_id)
       .where('status', '=', 'pending')
+      .where('tenant_id', '=', tenantId)
       .executeTakeFirst();
 
     if (existing) return c.json({ error: 'A pending request already exists for this record' }, 409);
@@ -375,6 +405,7 @@ export function approvalsRoutes(db: Database, auth: any) {
       .selectFrom('zv_approval_steps')
       .selectAll()
       .where('workflow_id', '=', workflow_id)
+      .where('tenant_id', '=', tenantId)
       .orderBy('step_order asc')
       .limit(1)
       .executeTakeFirst();
@@ -389,6 +420,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         status: 'pending',
         requested_by: user.id,
         metadata: JSON.stringify(metadata ?? {}),
+        tenant_id: tenantId,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -433,6 +465,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         sql<string>`COALESCE(u.name, u.email)`.as('requester_name'),
       ])
       .where('r.id', '=', id)
+      .where('r.tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!request) return c.json({ error: 'Request not found' }, 404);
@@ -463,6 +496,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         sql<string>`COALESCE(du.name, du.email)`.as('decider_name'),
       ])
       .where('s.workflow_id', '=', request.workflow_id)
+      .where('s.tenant_id', '=', tenantOf(c))
       .orderBy('s.step_order asc')
       .execute();
 
@@ -479,12 +513,14 @@ export function approvalsRoutes(db: Database, auth: any) {
     const admin = await isAdmin(user);
     const { id } = c.req.param();
     const { decision, comment } = c.req.valid('json');
+    const tenantId = tenantOf(c);
 
     const request = await db
       .selectFrom('zv_approval_requests as r')
       .selectAll()
       .where('r.id', '=', id)
       .where('r.status', '=', 'pending')
+      .where('r.tenant_id', '=', tenantId)
       .executeTakeFirst();
 
     if (!request) return c.json({ error: 'Request not found or not pending' }, 404);
@@ -494,6 +530,7 @@ export function approvalsRoutes(db: Database, auth: any) {
           .selectFrom('zv_approval_steps')
           .selectAll()
           .where('id', '=', request.current_step_id)
+          .where('tenant_id', '=', tenantId)
           .executeTakeFirst()
       : null;
 
@@ -519,6 +556,7 @@ export function approvalsRoutes(db: Database, auth: any) {
         decision,
         decided_by: user.id,
         comment: comment ?? null,
+        tenant_id: tenantId,
       })
       .execute();
 
@@ -547,6 +585,7 @@ export function approvalsRoutes(db: Database, auth: any) {
           .selectAll()
           .where('workflow_id', '=', currentStep.workflow_id)
           .where('step_order', '>', currentStep.step_order)
+          .where('tenant_id', '=', tenantId)
           .orderBy('step_order asc')
           .limit(1)
           .executeTakeFirst()
@@ -593,6 +632,7 @@ export function approvalsRoutes(db: Database, auth: any) {
       .select(['id', 'requested_by', 'status'])
       .where('id', '=', id)
       .where('status', '=', 'pending')
+      .where('tenant_id', '=', tenantOf(c))
       .executeTakeFirst();
 
     if (!request) return c.json({ error: 'Request not found or not pending' }, 404);
