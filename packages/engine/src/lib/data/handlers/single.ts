@@ -40,6 +40,7 @@ import {
   dynamicDb,
   isUuid,
 } from '../write-pipeline.js';
+import { tenantId } from '../../route-db.js';
 import { checkAccess } from '../auth.js';
 
 export async function getRecord(c: Context, db: Database): Promise<Response> {
@@ -66,6 +67,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
         FROM zv_revisions
         WHERE collection = ${collection}
           AND record_id = ${id}
+          AND tenant_id = ${tenantId(c)}::uuid
           AND created_at <= ${asOf.toISOString()}
         ORDER BY created_at DESC
         LIMIT 1
