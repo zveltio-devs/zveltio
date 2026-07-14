@@ -1167,6 +1167,7 @@ export interface ZvApprovalWorkflowsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
 }
 
 export interface ZvApprovalStepsTable {
@@ -1179,6 +1180,7 @@ export interface ZvApprovalStepsTable {
   deadline_hours: number | null;
   is_required: Generated<boolean>; // DEFAULT in migration
   created_at: Generated<Date>;
+  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
 }
 
 export interface ZvApprovalRequestsTable {
@@ -1192,6 +1194,7 @@ export interface ZvApprovalRequestsTable {
   requested_at: Generated<Date>;
   completed_at: Date | null;
   metadata: Generated<unknown>; // JSONB DEFAULT '{}'
+  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
 }
 
 export interface ZvApprovalDecisionsTable {
@@ -1202,6 +1205,7 @@ export interface ZvApprovalDecisionsTable {
   decided_by: string;
   comment: string | null;
   decided_at: Generated<Date>;
+  tenant_id: Generated<string>; // 011_approvals_tenant_isolation
 }
 
 export interface ZvContentDraftsTable {
