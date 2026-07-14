@@ -398,11 +398,13 @@ export interface ZvMediaTagsTable {
   name: string;
   color: string | null;
   created_at: Generated<Date>;
+  tenant_id: Generated<string>; // 012_media_tags_tenant_isolation
 }
 
 export interface ZvMediaFileTagsTable {
   file_id: string;
   tag_id: string;
+  tenant_id: Generated<string>; // 012_media_tags_tenant_isolation
 }
 
 export interface ZvMediaVersionsTable {

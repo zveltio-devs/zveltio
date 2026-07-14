@@ -619,6 +619,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const tags = await reqDb(c, db)
       .selectFrom('zv_media_tags')
       .selectAll()
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('name', 'asc')
       .execute();
     return c.json({ tags });
@@ -635,13 +636,19 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const data = c.req.valid('json');
-      const tag = {
-        id: generateId(21),
-        name: data.name,
-        color: data.color || null,
-      };
       try {
-        await reqDb(c, db).insertInto('zv_media_tags').values(tag).execute();
+        // id is a uuid column with a gen_random_uuid() default — let the DB
+        // generate it (the old code set a 21-char nanoid, which threw an
+        // "invalid input syntax for type uuid" on every create) and return the row.
+        const tag = await reqDb(c, db)
+          .insertInto('zv_media_tags')
+          .values({
+            name: data.name,
+            color: data.color || null,
+            tenant_id: tenantId(c),
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
         return c.json({ tag }, 201);
       } catch {
         return c.json({ error: 'Tag already exists' }, 400);
@@ -661,13 +668,22 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
-      await reqDb(c, db).updateTable('zv_media_tags').set(data).where('id', '=', id).execute();
+      await reqDb(c, db)
+        .updateTable('zv_media_tags')
+        .set(data)
+        .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
+        .execute();
       return c.json({ success: true });
     },
   );
 
   router.delete('/tags/:id', async (c) => {
-    await reqDb(c, db).deleteFrom('zv_media_tags').where('id', '=', c.req.param('id')).execute();
+    await reqDb(c, db)
+      .deleteFrom('zv_media_tags')
+      .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
+      .execute();
     return c.json({ success: true });
   });
 
@@ -680,7 +696,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       try {
         await reqDb(c, db)
           .insertInto('zv_media_file_tags')
-          .values({ file_id: fileId, tag_id })
+          .values({ file_id: fileId, tag_id, tenant_id: tenantId(c) })
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .onConflict((oc: any) => oc.doNothing())
           .execute();
@@ -696,6 +712,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       .deleteFrom('zv_media_file_tags')
       .where('file_id', '=', c.req.param('id'))
       .where('tag_id', '=', c.req.param('tagId'))
+      .where('tenant_id', '=', tenantId(c))
       .execute();
     return c.json({ success: true });
   });
