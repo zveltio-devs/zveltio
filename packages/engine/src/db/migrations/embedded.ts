@@ -18,6 +18,7 @@ import m006 from './sql/007_default_tenant.sql' with { type: 'text' };
 import m007 from './sql/008_casbin_domains.sql' with { type: 'text' };
 import m008 from './sql/009_tenant_role_policies.sql' with { type: 'text' };
 import m009 from './sql/010_media_tenant_isolation.sql' with { type: 'text' };
+import m010 from './sql/011_approvals_tenant_isolation.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -31,4 +32,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '008_casbin_domains.sql': m007,
   '009_tenant_role_policies.sql': m008,
   '010_media_tenant_isolation.sql': m009,
+  '011_approvals_tenant_isolation.sql': m010,
 };
