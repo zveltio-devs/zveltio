@@ -20,6 +20,7 @@ import m008 from './sql/009_tenant_role_policies.sql' with { type: 'text' };
 import m009 from './sql/010_media_tenant_isolation.sql' with { type: 'text' };
 import m010 from './sql/011_approvals_tenant_isolation.sql' with { type: 'text' };
 import m011 from './sql/012_media_tags_tenant_isolation.sql' with { type: 'text' };
+import m012 from './sql/013_dashboards_tenant_isolation.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -35,4 +36,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '010_media_tenant_isolation.sql': m009,
   '011_approvals_tenant_isolation.sql': m010,
   '012_media_tags_tenant_isolation.sql': m011,
+  '013_dashboards_tenant_isolation.sql': m012,
 };
