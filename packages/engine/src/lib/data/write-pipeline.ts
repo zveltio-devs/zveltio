@@ -26,6 +26,7 @@ import { broadcastDataEvent } from '../../routes/realtime.js';
 import { engineEvents } from '../runtime/index.js';
 import { triggerDataFlows } from '../../routes/flows.js';
 import { invalidateQueryCache } from './query-cache.js';
+import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields } from './shape.js';
 import type { CollectionDef } from './types.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
@@ -323,6 +324,10 @@ export async function afterWrite(
       data: JSON.stringify(data),
       ...(delta ? { delta: JSON.stringify(delta) } : {}),
       user_id: userId,
+      // Tag history with the writing tenant so the audit trail + time-travel
+      // (?as_of=) can't be read across tenants. afterWrite runs on the pool, not
+      // the request transaction, so it can't rely on the RLS GUC.
+      tenant_id: tenantId ?? DEFAULT_TENANT_ID,
     })
     .execute()
     .catch((err) => console.error('[afterWrite] revision log failed:', err));
