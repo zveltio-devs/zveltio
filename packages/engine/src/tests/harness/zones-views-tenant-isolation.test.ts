@@ -121,6 +121,15 @@ d('zones/views tenant isolation (in-process)', () => {
     expect(slugs).not.toContain(FOREIGN_ZONE_SLUG);
   });
 
+  it('permission resources do not expose another tenant’s zones', async () => {
+    const res = await app.request('/api/admin/resources', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const names = ((await res.json()) as { resources: { name: string; type: string }[] }).resources
+      .filter((r) => r.type === 'zone')
+      .map((r) => r.name);
+    expect(names).not.toContain(FOREIGN_ZONE_SLUG);
+  });
+
   it('cross-tenant: GET/PUT/DELETE another tenant’s zone → 404, untouched', async () => {
     expect(
       (await app.request(`/api/zones/${FOREIGN_ZONE_SLUG}`, { headers: { cookie } })).status,
