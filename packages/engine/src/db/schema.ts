@@ -461,6 +461,7 @@ export interface ZvImportLogsTable {
   errors: unknown; // JSONB
   options: unknown; // JSONB
   created_by: string | null;
+  tenant_id: Generated<string>;
   created_at: Generated<Date>;
   completed_at: Date | null;
 }
@@ -1261,6 +1262,7 @@ export interface ZvSavedQueriesTable {
   config: unknown; // JSONB
   is_shared: boolean;
   created_by: string | null;
+  tenant_id: Generated<string>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
