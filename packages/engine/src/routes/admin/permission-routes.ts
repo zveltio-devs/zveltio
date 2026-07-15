@@ -8,6 +8,7 @@ import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
+import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
@@ -33,7 +34,12 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
   app.get('/resources', async (c) => {
     const [collections, zones] = await Promise.all([
       DDLManager.getCollections(db),
-      db.selectFrom('zvd_zones').select(['slug', 'name']).orderBy('name', 'asc').execute(),
+      db
+        .selectFrom('zvd_zones')
+        .select(['slug', 'name'])
+        .where('tenant_id', '=', tenantId(c))
+        .orderBy('name', 'asc')
+        .execute(),
     ]);
     const resources = [
       ...collections.map((col) => ({

@@ -1111,6 +1111,7 @@ export interface ZvdPageViewsTable {
   col_span: number;
   sort_order: number;
   config_override: unknown; // JSONB
+  tenant_id: Generated<string>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
