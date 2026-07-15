@@ -19,6 +19,7 @@ import { dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
 import { getRlsFilters } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess } from '../../tenancy/index.js';
+import { tenantId } from '../../route-db.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../query-cache.js';
 import { virtualList } from '../../virtual-collection-adapter.js';
 import type { CollectionDef, JsonValue } from '../types.js';
@@ -68,6 +69,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           record_id, action, data
         FROM zv_revisions
         WHERE collection = ${collection}
+          AND tenant_id = ${tenantId(c)}::uuid
           AND created_at <= ${asOf.toISOString()}
         ORDER BY record_id, created_at DESC
       `.execute(effectiveDbTT);

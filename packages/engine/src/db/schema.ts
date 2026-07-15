@@ -661,6 +661,7 @@ export interface ZvRevisionsTable {
   data: unknown; // JSONB
   delta: unknown; // JSONB
   user_id: string | null;
+  tenant_id: Generated<string>;
   created_at: Generated<Date>;
 }
 
@@ -1476,6 +1477,7 @@ export interface ZvRecordCommentsTable {
   user_id: string | null;
   parent_id: string | null;
   is_resolved: boolean;
+  tenant_id: Generated<string>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
