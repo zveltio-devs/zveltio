@@ -30,8 +30,11 @@ const ENTRY = {
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]);
 const GZIP_MAGIC = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
-let originalFetch: typeof fetch;
-let originalSpawn: typeof Bun.spawn;
+// Capture the REAL fetch/spawn at load time (before any test stubs them), so
+// afterEach restores the genuine globals rather than perpetuating a stub that
+// another test file may have left behind (cross-file leakage → flaky failures).
+const originalFetch: typeof fetch = globalThis.fetch;
+const originalSpawn: typeof Bun.spawn = Bun.spawn;
 let destBase: string;
 let savedRequireSig: string | undefined;
 let savedRegistryKeys: string | undefined;
@@ -74,8 +77,9 @@ function stubDownloadResponse(
 }
 
 beforeEach(() => {
-  originalFetch = globalThis.fetch;
-  originalSpawn = Bun.spawn;
+  // Reset to the real fetch so a test that forgets to set its own doesn't pick
+  // up whatever another file left on the global. Individual tests override it.
+  globalThis.fetch = originalFetch;
   destBase = mkdtempSync(join(tmpdir(), 'zveltio-dl-'));
   savedRequireSig = process.env.REQUIRE_EXTENSION_SIGNATURES;
   savedRegistryKeys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
