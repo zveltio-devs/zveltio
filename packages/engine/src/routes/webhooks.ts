@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
+import { tenantId } from '../lib/route-db.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
 
@@ -73,6 +74,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     const webhooks = await db
       .selectFrom('zvd_webhooks')
       .selectAll()
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .execute();
     return c.json({ webhooks: webhooks.map(maskSecret) });
@@ -84,6 +86,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_webhooks')
       .selectAll()
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
     if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
     return c.json({ webhook: maskSecret(webhook) });
@@ -114,7 +117,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
     const webhook = await db
       .insertInto('zvd_webhooks')
-      .values({ ...data, secret: encryptedSecret, created_by: user.id })
+      .values({ ...data, secret: encryptedSecret, created_by: user.id, tenant_id: tenantId(c) })
       .returningAll()
       .executeTakeFirst();
 
@@ -148,6 +151,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .updateTable('zvd_webhooks')
       .set(toSet)
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .returningAll()
       .executeTakeFirst();
 
@@ -157,11 +161,16 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:id — Delete webhook
   app.delete('/:id', async (c) => {
-    const result = await db
+    // DELETE ... RETURNING so a missing/cross-tenant id yields `undefined`
+    // (→ 404) instead of a truthy DeleteResult. numDeletedRows is unreliable on
+    // the Bun SQL dialect, so gate on the returned row like the other handlers.
+    const deleted = await db
       .deleteFrom('zvd_webhooks')
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
+      .returning('id')
       .executeTakeFirst();
-    if (!result) return c.json({ error: 'Webhook not found' }, 404);
+    if (!deleted) return c.json({ error: 'Webhook not found' }, 404);
     return c.json({ success: true });
   });
 
@@ -172,6 +181,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_webhook_deliveries')
       .selectAll()
       .where('webhook_id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .limit(Math.min(parseInt(limit) || 50, 500))
       .execute();
@@ -186,6 +196,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .updateTable('zvd_webhooks')
       .set({ secret: encryptedNew, updated_at: new Date() })
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .returningAll()
       .executeTakeFirst();
     if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
@@ -198,6 +209,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .selectFrom('zvd_webhooks')
       .selectAll()
       .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
     if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
