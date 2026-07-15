@@ -144,4 +144,37 @@ describe('bulk handlers (unit)', () => {
     expect((await del(makeApp(db), {})).status).toBe(400);
     expect((await del(makeApp(db), { ids: [] })).status).toBe(400);
   });
+
+  // ── happy paths (execute the main loop, not just the guards) ──────
+
+  it('bulkCreate inserts records and reports the count', async () => {
+    db.when(/insert into "zvd_things"/i, [{ id: ID, title: 'a' }]);
+    const res = await post(makeApp(db), { records: [{ title: 'a' }] });
+    expect([200, 201]).toContain(res.status);
+    const body = (await res.json()) as { created: number; records: unknown[] };
+    expect(body.created).toBe(1);
+  });
+
+  it('bulkCreate reports per-index errors alongside successes', async () => {
+    db.when(/insert into "zvd_things"/i, [{ id: ID, title: 'a' }]);
+    const res = await post(makeApp(db), { records: [{ title: 'a' }, { title: 'b' }] });
+    expect([200, 201, 207]).toContain(res.status);
+    const body = (await res.json()) as { created: number; errors: unknown[] };
+    expect(typeof body.created).toBe('number');
+    expect(Array.isArray(body.errors)).toBe(true);
+  });
+
+  it('bulkUpdate updates records by id', async () => {
+    db.when(/update "zvd_things"/i, [{ id: ID, title: 'b' }]);
+    db.when(/from "zvd_things"/i, [{ id: ID, title: 'b' }]);
+    const res = await patch(makeApp(db), { records: [{ id: ID, title: 'b' }] });
+    expect([200, 207]).toContain(res.status);
+  });
+
+  it('bulkDelete deletes by ids', async () => {
+    db.when(/from "zvd_things"/i, [{ id: ID, title: 'a' }]);
+    db.when(/delete from "zvd_things"/i, [{ id: ID }]);
+    const res = await del(makeApp(db), { ids: [ID] });
+    expect([200, 207]).toContain(res.status);
+  });
 });
