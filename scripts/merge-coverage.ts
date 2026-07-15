@@ -24,21 +24,67 @@ interface FileCov {
   lines: Map<number, number>;
 }
 
+/**
+ * bun's lcov emits DA records for COMMENT and BLANK lines and reports them as
+ * hits=0 — e.g. load-phases.ts:258-274 is a `//` block sitting between lines
+ * that record 4 and 75 hits. A comment can never be "covered", so those records
+ * are pure denominator inflation: across src/ they account for ~1.6k comment +
+ * ~1.5k blank lines (59% of files affected). No standard coverage tool
+ * (istanbul/c8/gcov) instruments non-executable lines; we drop them here so the
+ * gated number reflects executable code only.
+ *
+ * Deliberately conservative — only lines that are empty, `//`, or inside a
+ * `/* *\/` block are dropped, so no executable line is ever filtered out.
+ */
+const nonExecCache = new Map<string, Set<number>>();
+
+function nonExecutableLines(srcFile: string): Set<number> {
+  const cached = nonExecCache.get(srcFile);
+  if (cached) return cached;
+  const out = new Set<number>();
+  // lcov SF paths are relative to packages/engine (plus some /tmp fixtures we skip)
+  const abs = join(ROOT, 'packages/engine', srcFile);
+  if (existsSync(abs)) {
+    const lines = readFileSync(abs, 'utf8').split('\n');
+    let inBlock = false;
+    lines.forEach((raw, i) => {
+      const t = raw.trim();
+      const n = i + 1;
+      if (inBlock) {
+        out.add(n);
+        if (t.includes('*/')) inBlock = false;
+        return;
+      }
+      if (!t) out.add(n);
+      else if (t.startsWith('//')) out.add(n);
+      else if (t.startsWith('/*')) {
+        out.add(n);
+        if (!t.includes('*/')) inBlock = true;
+      }
+    });
+  }
+  nonExecCache.set(srcFile, out);
+  return out;
+}
+
 function parse(lcovPath: string, into: Map<string, FileCov>): void {
   if (!existsSync(lcovPath)) throw new Error(`lcov not found: ${lcovPath}`);
   const text = readFileSync(lcovPath, 'utf8');
   let current: FileCov | null = null;
+  let skip: Set<number> = new Set();
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (line.startsWith('SF:')) {
       const file = line.slice(3).replace(/\\/g, '/');
       current = into.get(file) ?? { lines: new Map() };
       into.set(file, current);
+      skip = nonExecutableLines(file);
     } else if (line.startsWith('DA:') && current) {
       const [ln, hits] = line
         .slice(3)
         .split(',')
         .map((n) => Number(n));
+      if (skip.has(ln!)) continue; // comment / blank — not executable, not coverage
       const prev = current.lines.get(ln!) ?? 0;
       current.lines.set(ln!, Math.max(prev, hits ?? 0));
     } else if (line === 'end_of_record') {
