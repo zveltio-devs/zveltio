@@ -19,6 +19,16 @@ const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let catalogCache: ExtensionCatalogEntry[] | null = null;
 let catalogCacheExpiry = 0;
 
+/**
+ * Clear the in-process catalog cache. Test-only seam: the cache is a
+ * module-global singleton shared across every test file that imports this
+ * module, so tests must reset it to avoid cross-file order dependence.
+ */
+export function _resetCatalogCacheForTests(): void {
+  catalogCache = null;
+  catalogCacheExpiry = 0;
+}
+
 export async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
   if (catalogCache && Date.now() < catalogCacheExpiry) return catalogCache;
 
