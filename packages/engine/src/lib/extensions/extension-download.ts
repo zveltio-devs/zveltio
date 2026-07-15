@@ -29,10 +29,25 @@ export function _resetCatalogCacheForTests(): void {
   catalogCacheExpiry = 0;
 }
 
-export async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
+/**
+ * Merge the remote registry catalog with the local one baked into this binary.
+ *
+ * Remote failures are swallowed by design — listing extensions must keep working
+ * offline. Callers that make a SECURITY decision from the result (enable-time
+ * publisher-tier enforcement) must pass `requireRemote: true`: the local catalog
+ * marks its own entries `is_official: true`, so a sideloaded extension sharing a
+ * local entry's name would inherit first-party tier and be allowed to run inline
+ * whenever the registry is unreachable. With `requireRemote`, a remote failure
+ * throws instead, so the caller can fail closed. Reaching a cached catalog is
+ * fine — the cache is only populated from a successful remote fetch.
+ */
+export async function fetchRegistryCatalog(
+  opts: { requireRemote?: boolean } = {},
+): Promise<ExtensionCatalogEntry[]> {
   if (catalogCache && Date.now() < catalogCacheExpiry) return catalogCache;
 
   let remoteEntries: ExtensionCatalogEntry[] = [];
+  let remoteError: Error | null = null;
   try {
     const res = await fetch(`${REGISTRY_URL}/api/extensions/list`, {
       headers: { Accept: 'application/json' },
@@ -74,11 +89,15 @@ export async function fetchRegistryCatalog(): Promise<ExtensionCatalogEntry[]> {
           : undefined,
     }));
   } catch (err) {
+    remoteError = err as Error;
     console.warn(
       '[marketplace] Registry fetch failed, using local catalog:',
       (err as Error).message,
     );
   }
+
+  // Security callers opt out of the local-catalog fallback (see the doc above).
+  if (remoteError && opts.requireRemote) throw remoteError;
 
   // Always merge: remote entries win over local for the same name,
   // but local catalog fills in anything the registry doesn't list
