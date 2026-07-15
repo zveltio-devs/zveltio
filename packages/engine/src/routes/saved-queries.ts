@@ -18,7 +18,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
-import { reqDb } from '../lib/route-db.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -428,8 +428,8 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       }
 
       const result = await sql<{ id: string }>`
-        INSERT INTO zv_saved_queries (name, description, collection, config, is_shared, created_by)
-        VALUES (${data.name}, ${data.description || null}, ${data.collection}, ${JSON.stringify(data.config)}::jsonb, ${isShared}, ${user.id})
+        INSERT INTO zv_saved_queries (name, description, collection, config, is_shared, created_by, tenant_id)
+        VALUES (${data.name}, ${data.description || null}, ${data.collection}, ${JSON.stringify(data.config)}::jsonb, ${isShared}, ${user.id}, ${tenantId(c)}::uuid)
         RETURNING id
       `.execute(reqDb(c, db));
 
@@ -459,6 +459,8 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
           'created_at',
           'updated_at',
         ])
+        // is_shared sharing is scoped to the tenant/organization (not global).
+        .where('tenant_id', '=', tenantId(c))
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .where((eb: any) => eb.or([eb('created_by', '=', user.id), eb('is_shared', '=', true)]))
         .orderBy('created_at', 'desc');
@@ -490,7 +492,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       const result = await sql<any>`
         SELECT id, name, description, collection, config, is_shared, created_by, created_at, updated_at
         FROM zv_saved_queries
-        WHERE id = ${id} AND (created_by = ${user.id} OR is_shared = true)
+        WHERE id = ${id} AND tenant_id = ${tenantId(c)}::uuid AND (created_by = ${user.id} OR is_shared = true)
       `.execute(reqDb(c, db));
 
       if (result.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
@@ -509,7 +511,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
 
     try {
       const existing = await sql<{ created_by: string }>`
-        SELECT created_by FROM zv_saved_queries WHERE id = ${id}
+        SELECT created_by FROM zv_saved_queries WHERE id = ${id} AND tenant_id = ${tenantId(c)}::uuid
       `.execute(reqDb(c, db));
 
       if (existing.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
@@ -534,6 +536,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         .updateTable('zv_saved_queries')
         .set(updates)
         .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
         .execute();
       return c.json({ success: true });
     } catch (err) {
@@ -548,7 +551,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
 
     try {
       const existing = await sql<{ created_by: string }>`
-        SELECT created_by FROM zv_saved_queries WHERE id = ${id}
+        SELECT created_by FROM zv_saved_queries WHERE id = ${id} AND tenant_id = ${tenantId(c)}::uuid
       `.execute(reqDb(c, db));
 
       if (existing.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
@@ -558,7 +561,9 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         return c.json({ error: 'You can only delete your own queries' }, 403);
       }
 
-      await sql`DELETE FROM zv_saved_queries WHERE id = ${id}`.execute(reqDb(c, db));
+      await sql`DELETE FROM zv_saved_queries WHERE id = ${id} AND tenant_id = ${tenantId(c)}::uuid`.execute(
+        reqDb(c, db),
+      );
       return c.json({ success: true });
     } catch (err) {
       return c.json({ error: 'Failed to delete saved query' }, 500);
@@ -575,7 +580,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       const result = await sql<any>`
         SELECT collection, config, is_shared, created_by
         FROM zv_saved_queries
-        WHERE id = ${id} AND (created_by = ${user.id} OR is_shared = true)
+        WHERE id = ${id} AND tenant_id = ${tenantId(c)}::uuid AND (created_by = ${user.id} OR is_shared = true)
       `.execute(reqDb(c, db));
 
       if (result.rows.length === 0) return c.json({ error: 'Query not found' }, 404);

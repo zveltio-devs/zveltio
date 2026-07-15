@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
-import { reqDb } from '../lib/route-db.js';
+import { reqDb, tenantId } from '../lib/route-db.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -151,6 +151,7 @@ export function importRoutes(db: Database, auth: any) {
         'created_at',
         'completed_at',
       ])
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .limit(50);
 
@@ -242,6 +243,7 @@ export function importRoutes(db: Database, auth: any) {
         status: 'processing',
         options: JSON.stringify({ delimiter, skip_header: skipHeader }),
         created_by: user.id,
+        tenant_id: tenantId(c),
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } as any)
       .execute();
@@ -270,6 +272,7 @@ export function importRoutes(db: Database, auth: any) {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .set({ status: 'failed', completed_at: new Date() } as any)
         .where('id', '=', logId)
+        .where('tenant_id', '=', tenantId(c))
         .execute();
       return c.json(
         {
@@ -356,6 +359,7 @@ export function importRoutes(db: Database, auth: any) {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } as any)
       .where('id', '=', logId)
+      .where('tenant_id', '=', tenantId(c))
       .execute();
 
     return c.json({
