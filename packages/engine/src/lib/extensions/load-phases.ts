@@ -279,14 +279,18 @@ export async function enforcePublisherTier(
     return { ok: true, value: undefined };
   }
 
+  // `requireRemote` makes fetchRegistryCatalog throw instead of silently
+  // degrading to the local catalog — without it the fail-closed branch below is
+  // unreachable, since the fetch swallows every error of its own.
+  const requireCatalog = process.env.ZVELTIO_REQUIRE_CATALOG === '1';
   let catalog: ExtensionCatalogEntry[] | null = null;
   let catalogFetchFailed = false;
   try {
-    catalog = await fetchRegistryCatalog();
+    catalog = await fetchRegistryCatalog({ requireRemote: requireCatalog });
   } catch {
     catalogFetchFailed = true;
   }
-  if (catalogFetchFailed && process.env.ZVELTIO_REQUIRE_CATALOG === '1') {
+  if (catalogFetchFailed && requireCatalog) {
     const msg =
       `Extension "${extName}" cannot be enabled: catalog fetch ` +
       `failed and ZVELTIO_REQUIRE_CATALOG=1 forbids falling back ` +
