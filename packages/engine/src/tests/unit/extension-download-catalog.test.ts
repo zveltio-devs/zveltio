@@ -6,17 +6,23 @@
  * merges it over the built-in EXTENSION_CATALOG (remote wins per name, local
  * fills the rest), and caches a successful remote result for 5 min.
  *
- * Driven with a stubbed globalThis.fetch — no network. The module cache is
- * module-scoped with no reset seam, so the tests are ORDERED: the fallback
- * cases (which never populate the cache) run first, the success case (which
- * DOES cache) second-to-last, and the cache-hit assertion last.
+ * Driven with a stubbed globalThis.fetch — no network. The catalog cache is a
+ * module-global singleton SHARED across every test file that imports this
+ * module, so each test resets it (`_resetCatalogCacheForTests`) to stay
+ * independent of cross-file execution order (the previous "tests are ORDERED"
+ * contract flaked when another file populated the cache first).
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { EXTENSION_CATALOG } from '../../lib/extensions/extension-catalog.js';
-import { fetchRegistryCatalog } from '../../lib/extensions/extension-download.js';
+import {
+  fetchRegistryCatalog,
+  _resetCatalogCacheForTests,
+} from '../../lib/extensions/extension-download.js';
 
-let originalFetch: typeof fetch;
+// Capture the real fetch at load time (before any stub), so afterEach restores
+// it rather than perpetuating a stub another file may have left behind.
+const originalFetch: typeof fetch = globalThis.fetch;
 
 function stubFetchOk(extensions: unknown[]): void {
   globalThis.fetch = (async () =>
@@ -45,10 +51,11 @@ function stubFetchThrows(): void {
 }
 
 beforeEach(() => {
-  originalFetch = globalThis.fetch;
+  _resetCatalogCacheForTests(); // start every test with an empty cache
 });
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  _resetCatalogCacheForTests(); // don't leak a populated cache to other files
 });
 
 describe('fetchRegistryCatalog', () => {
@@ -113,8 +120,20 @@ describe('fetchRegistryCatalog', () => {
   });
 
   it('serves the cached result without re-fetching after a successful load', async () => {
-    // The previous test populated the 5-min cache. A fetch that would throw
-    // must NOT be reached — the cached catalog is returned.
+    // Self-contained: populate the cache with a successful load first…
+    stubFetchOk([
+      {
+        name: 'remote-tool',
+        display_name: 'Remote Tool',
+        category: 'crm',
+        version: '2.1.0',
+        developer_username: 'acme',
+        is_official: 1,
+        publisher_tier: 'verified',
+      },
+    ]);
+    await fetchRegistryCatalog();
+    // …then a fetch that would throw must NOT be reached — the cache is served.
     stubFetchThrows();
     const cat = await fetchRegistryCatalog();
     expect(cat.find((e) => e.name === 'remote-tool')).toBeDefined();
