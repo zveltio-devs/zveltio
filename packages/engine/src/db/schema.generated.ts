@@ -226,12 +226,12 @@ export interface ZvApprovalRequestsTable {
   requested_at: Generated<Date>;
   completed_at: Date | null;
   metadata: Generated<unknown>;
+  tenant_id: string | null;
   priority: Generated<'low' | 'normal' | 'high' | 'urgent'>;
   sla_due_at: Date | null;
   sla_breached: Generated<boolean>;
   reminder_sent_at: Date | null;
   rejection_reason: string | null;
-  tenant_id: string | null;
 }
 
 export interface ZvApprovalSlaAlertsTable {
@@ -254,12 +254,12 @@ export interface ZvApprovalStepsTable {
   deadline_hours: number | null;
   is_required: Generated<boolean>;
   created_at: Generated<Date>;
+  tenant_id: string | null;
   condition_field: string | null;
   condition_value: string | null;
   allow_parallel: Generated<boolean>;
   escalation_user_id: string | null;
   escalation_hours: number | null;
-  tenant_id: string | null;
 }
 
 export interface ZvApprovalTemplatesTable {
@@ -571,6 +571,7 @@ export interface ZvDashboardsTable {
   tags: Generated<string[]>;
   last_viewed_at: Date | null;
   view_count: Generated<number>;
+  tenant_id: string | null;
 }
 
 export interface ZvDdlJobsTable {
@@ -780,6 +781,7 @@ export interface ZvEdgeFunctionLogsTable {
   response_body: string | null;
   error: string | null;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvEdgeFunctionsTable {
@@ -797,6 +799,7 @@ export interface ZvEdgeFunctionsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvEfacturaDailyStatsTable {
@@ -994,6 +997,7 @@ export interface ZvFlowsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvFormSubmissionsTable {
@@ -1129,13 +1133,13 @@ export interface ZvImportLogsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   completed_at: Date | null;
+  tenant_id: string | null;
   format: Generated<'csv' | 'json' | 'ndjson'>;
   imported_rows: Generated<number>;
   failed_rows: Generated<number>;
   profile_id: string | null;
   on_duplicate: Generated<string>;
   dry_run: Generated<boolean>;
-  tenant_id: string | null;
 }
 
 export interface ZvInvitationsTable {
@@ -1441,10 +1445,10 @@ export interface ZvMediaFoldersTable {
   created_by: string | null;
   created_at: Generated<Date>;
   deleted_at: Generated<Date | null>;
+  tenant_id: string | null;
   description: string | null;
   cover_image_id: string | null;
   updated_at: Generated<Date>;
-  tenant_id: string | null;
 }
 
 export interface ZvMediaSharesTable {
@@ -1794,6 +1798,7 @@ export interface ZvRecordCommentsTable {
   is_resolved: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvRequestLogsTable {
@@ -1817,6 +1822,7 @@ export interface ZvRevisionsTable {
   delta: unknown | null;
   user_id: string | null;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvRoBudgetLinesTable {
@@ -2060,6 +2066,7 @@ export interface ZvSavedQueriesTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvSchemaBranchesTable {
@@ -3875,6 +3882,7 @@ export interface ZvdPageViewsTable {
   col_span: Generated<number>;
   sort_order: Generated<number>;
   config_override: Generated<unknown>;
+  tenant_id: string | null;
 }
 
 export interface ZvdPagesTable {
@@ -5129,6 +5137,7 @@ export interface ZvdWebhookDeliveriesTable {
   error: string | null;
   delivered_at: Date | null;
   created_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvdWebhookEventsTable {
@@ -5158,6 +5167,7 @@ export interface ZvdWebhooksTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvdZonesTable {
