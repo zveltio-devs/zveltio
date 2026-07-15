@@ -119,12 +119,19 @@ for (const manifestPath of findManifests(EXT_ROOT).sort()) {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const enableBody = (await enableRes.json().catch(() => ({}))) as any;
     if (!enableBody?.success) {
+      // H-13 made every non-2xx an RFC 9457 problem+json envelope, where the
+      // human-readable reason lives in `detail` — reading only error/message
+      // (the pre-H-13 shape) silently printed an empty note, which is exactly
+      // when the note matters. Keep the legacy keys as a fallback.
+      const reason = (enableBody?.detail ?? enableBody?.error ?? enableBody?.message ?? '')
+        .toString()
+        .slice(0, 120);
       rows.push({
         name,
         endpoint: primary.dataSource,
         status: enableRes.status,
         sev: 'SOFT',
-        note: `enable failed (env?): ${(enableBody?.error ?? enableBody?.message ?? '').toString().slice(0, 60)}`,
+        note: `enable failed (env/deps?): ${reason}`,
       });
       continue;
     }

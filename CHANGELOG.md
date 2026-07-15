@@ -4,7 +4,73 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
-Hardening Wave 9 (path to 3.0.0 stable — see `docs/HARDENING-9-PLAN.md`):
+## [3.0.0-beta.30] - 2026-07-15
+
+**The security release.** 29 tenant-isolation and authorization fixes, Hardening
+Wave 9 complete (H-01..H-16), and the release gate for 3.0.0 stable now passes on
+every technical criterion. Upgrading is strongly recommended for any multi-tenant
+or shared-hosting deployment.
+
+### Tenant isolation — cross-tenant IDOR (CRITICAL for multi-tenant installs)
+
+Engine core routes run on the raw pool and must scope by tenant explicitly (unlike
+extensions, whose `ctx.db` has been ALS-tenant-scoped since H-12). A route-by-route
+audit found the ones that didn't. Each fix adds explicit `tenant_id` scoping plus a
+harness regression proving a foreign tenant now gets a 404:
+
+- **fix(security)**: storage/media — `zv_media_files`/`zv_media_folders` were flat
+  global tables queried by id alone; any tenant could read or delete another's files.
+- **fix(security)**: approvals, flows (routes + executor), edge functions, webhooks
+  (routes + dispatcher), zones/pages/views (IDOR + render data leak), insights
+  dashboards (cross-tenant public leak), media tags, the audit trail (revisions +
+  time-travel), saved-queries and import logs, permission `/resources` zone list.
+
+Ruled clean by the same audit: translations and invitations (global by design),
+notifications and backups (already scoped).
+
+### Authorization consistency
+
+A systematic sweep comparing each authz control across sibling endpoints — if
+POST enforces it and PUT doesn't, that's a bug:
+
+- **fix(security)**: `PUT` (`replaceRecord`) skipped column-write permissions that
+  POST/PATCH enforce.
+- **fix(security)**: `bulkCreate`/`bulkUpdate` skipped column-write permissions;
+  `bulkUpdate`/`bulkDelete` skipped per-row entity-access.
+- **fix(security)**: time-travel reads (`?as_of=`) returned the `zv_revisions`
+  snapshot directly, skipping column- and entity-access.
+- **fix(security)**: virtual-collection reads and writes proxied the external record
+  verbatim, skipping column permissions in both directions.
+- **fix(security)**: `?expand=` relation hydration leaked hidden columns of the
+  *related* collection.
+
+### Other security fixes
+
+- **fix(extensions)**: `ZVELTIO_REQUIRE_CATALOG=1` was **dead code** — the
+  fail-closed branch could never fire, because `fetchRegistryCatalog()` swallowed
+  every error and always fell back to the local catalog. Local catalog entries are
+  stamped `is_official: true`, so with the registry unreachable a sideloaded
+  extension named after an official one inherited first-party tier and ran *inline*
+  instead of in worker isolation. `fetchRegistryCatalog({ requireRemote })` now
+  throws for security callers; listing stays offline-safe.
+- **fix(tenancy) CRITICAL**: `current_setting(guc, true)` returns `''` — not NULL —
+  for a set-but-blank GUC, so the RLS `tenant_id` DEFAULT crashed **every** insert
+  into an RLS table under an empty tenant context (`''::uuid`). Now `NULLIF`-guarded.
+  CI missed it because the harness DB never runs the boot reconciler; a real
+  production boot does.
+- **fix(edge)**: SSRF-safe fetch in the subprocess sandbox (untrusted mode handed
+  user code raw `fetch`).
+
+### Fixed — Edge Functions were 100% broken
+
+All three execution modes never once ran: the shared sandbox idiom passed `'eval'`
+as a parameter name, which is illegal under `'use strict'`, so every invocation
+threw. Fixed mode by mode (worker / file-based / subprocess), each with tests
+proving both execution *and* that lockdown still blocks process/Bun/eval/require/
+import/`.constructor`/SSRF. `runScript` separately emitted an `export default` the
+sandbox can't compile, which had silently broken `run_script` flow steps.
+
+### Hardening Wave 9 — complete (H-01..H-16)
 
 - **feat(security) H-12**: extension `ctx.db` is now **tenant-scoped** — it
   resolves the current request/job tenant transaction (FORCE-RLS isolated)
@@ -19,6 +85,46 @@ Hardening Wave 9 (path to 3.0.0 stable — see `docs/HARDENING-9-PLAN.md`):
   `{ "error": "…" }` shape. The SDK throws a typed `ZveltioApiError`; Studio reads
   `detail`/`code`/`traceId`. Legacy `{ error }` parsing is kept as a tolerant
   fallback during the beta. See `docs/MIGRATION-ALPHA-TO-BETA.md`.
+- **feat(release) H-16**: `scripts/release-gate.ts` codifies the stable-cut
+  criteria (ratchets, coverage, migration superset, CI green, soak, open P0s).
+- **feat(ops)**: deep per-subsystem health checks + degradation matrix.
+- **feat(testing)**: Phase C in-process app harness.
+
+### CI — master is fully green for the first time
+
+- **fix(test)**: bun's `mock.module` leaks across the shared module registry and
+  `mock.restore()` cannot undo it (ESM bindings resolve at load) — this was the
+  source of ~21 intermittent `downloadExtension`/catalog failures. Replaced with
+  injected dependencies; use `spyOn` in new tests, never `mock.module`.
+- **fix(test)**: made the `getAuth`-not-initialized test order-independent.
+- **fix(flows)**: parse jsonb `step.config` (the Bun SQL driver returns it as a
+  string).
+
+### Developer experience
+
+- **fix(scripts)**: the SDUI runtime probe reported enable failures with an empty
+  reason. H-13 moved errors to RFC 9457 `problem+json`, where the message lives in
+  `detail`, but the probe still read the pre-H-13 `error`/`message` keys — so its
+  diagnostics went blank exactly when they mattered. It now surfaces the real
+  reason (e.g. "Missing required extensions: finance/accounting").
+- **fix(repo)**: `packages/engine/extensions/` is now gitignored. It is the default
+  `EXTENSIONS_DIR` (`<cwd>/extensions`), so booting the engine from `packages/engine`
+  dropped downloaded bundles into the working tree, polluting `git status` and
+  failing `bun run lint` on their vendored dependencies.
+- **fix(test)**: removed an order-dependent assertion in `flow-executor-extra` that
+  relied on `lib/export-manager.js` being absent — another file `mock.module()`s that
+  specifier, and bun's shared mock registry leaks across files, so the outcome
+  depended on execution order. The same catch branch is covered order-independently
+  by `flow-executor-export-unavailable`.
+
+### Coverage measurement corrected
+
+- **fix(coverage)**: bun's lcov emits `DA:` records for `//` comment and blank
+  lines and scores them uncovered. They can never be covered, so they were pure
+  denominator inflation — 3,139 lines across 92 of 157 instrumented files.
+  `merge-coverage.ts` now excludes non-executable lines: **`lib` 88.8% → 96.7%
+  with hit counts untouched**. The 90% target was met by measuring correctly, not
+  by lowering the bar.
 
 ## [3.0.0-beta.29] - 2026-07-04
 
