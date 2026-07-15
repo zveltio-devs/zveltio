@@ -36,7 +36,14 @@ export function registerMarketplaceRoutes(
   app: Hono,
   db: Database,
   triggerReloadFn: (reason: string) => Promise<void>,
+  // Injectable registry client. Defaults to the real module functions; tests
+  // pass fakes here instead of mock.module (which leaks across bun test files).
+  deps: {
+    fetchRegistryCatalog: typeof fetchRegistryCatalog;
+    downloadExtension: typeof downloadExtension;
+  } = { fetchRegistryCatalog, downloadExtension },
 ): void {
+  const { fetchRegistryCatalog: fetchCatalog, downloadExtension: doDownload } = deps;
   // Admin-only guard
   async function requireAdmin(c: Context): Promise<boolean> {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -180,7 +187,7 @@ export function registerMarketplaceRoutes(
     const extBase = resolveExtensionsBase();
 
     const [catalog, rows, licenseRows] = await Promise.all([
-      fetchRegistryCatalog(),
+      fetchCatalog(),
       db
         .selectFrom('zv_extension_registry')
         .selectAll()
@@ -275,7 +282,7 @@ export function registerMarketplaceRoutes(
 
     const name = c.req.param('name');
     return withExtensionLock(db, name, async () => {
-      const catalog = await fetchRegistryCatalog();
+      const catalog = await fetchCatalog();
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
@@ -293,7 +300,7 @@ export function registerMarketplaceRoutes(
       let downloadError = '';
       if (!extensionFilesPresent(extDir)) {
         try {
-          await downloadExtension(entry, extBase, authToken);
+          await doDownload(entry, extBase, authToken);
           downloaded = true;
           invalidateFilesPresent(extDir); // disk changed — refresh listing cache
         } catch (err) {
@@ -356,7 +363,7 @@ export function registerMarketplaceRoutes(
     const name = c.req.param('name');
     return withExtensionLock(db, name, async () => {
       // Use live registry catalog (with local fallback) so extensions from apps.zveltio.com work
-      const catalog = await fetchRegistryCatalog();
+      const catalog = await fetchCatalog();
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
@@ -368,7 +375,7 @@ export function registerMarketplaceRoutes(
       if (!extensionFilesPresent(extDir)) {
         try {
           const authToken = await getLicenseKey(db, name);
-          await downloadExtension(entry, extBase, authToken);
+          await doDownload(entry, extBase, authToken);
           invalidateFilesPresent(extDir); // disk changed — refresh listing cache
         } catch (downloadErr) {
           const msg =
