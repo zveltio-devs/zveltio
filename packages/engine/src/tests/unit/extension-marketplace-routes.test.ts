@@ -53,11 +53,14 @@ const topoSortMock = mock(async (names: string[]) => names);
 const purgeMock = mock(async () => {});
 const triggerReloadMock = mock(async () => {});
 
-mock.module('../../lib/extensions/extension-download.js', () => ({
-  REGISTRY_URL: 'https://registry.test',
+// The registry client (fetchRegistryCatalog/downloadExtension) is injected into
+// registerMarketplaceRoutes via its `deps` param — NO mock.module, which leaks
+// across bun test files (one shared module registry) and flaked the catalog +
+// download tests depending on file load order.
+const marketplaceDeps = {
   fetchRegistryCatalog: fetchCatalogMock,
   downloadExtension: downloadMock,
-}));
+} as never;
 
 const { registerMarketplaceRoutes } = await import(
   '../../lib/extensions/extension-marketplace-routes.js'
@@ -98,7 +101,7 @@ function writeExtOnDisk(extBase: string, name: string, deps: string[] = []): voi
 function mountRoutes(db: CannedDb, extBase: string): Hono {
   process.env.EXTENSIONS_DIR = extBase;
   const app = new Hono();
-  registerMarketplaceRoutes(makeLoader(), app, asDb(db), triggerReloadMock);
+  registerMarketplaceRoutes(makeLoader(), app, asDb(db), triggerReloadMock, marketplaceDeps);
   return app;
 }
 
