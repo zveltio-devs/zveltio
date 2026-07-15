@@ -82,9 +82,9 @@ describe('fetchRegistryCatalog — requireRemote', () => {
     extensionDownload._resetCatalogCacheForTests();
     const spy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
     try {
-      await expect(
-        extensionDownload.fetchRegistryCatalog({ requireRemote: true }),
-      ).rejects.toThrow('network down');
+      await expect(extensionDownload.fetchRegistryCatalog({ requireRemote: true })).rejects.toThrow(
+        'network down',
+      );
     } finally {
       spy.mockRestore();
     }
