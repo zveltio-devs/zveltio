@@ -96,15 +96,16 @@ d('executeStep — flow-executor branches', () => {
     expect(String(output.error)).toContain('Invalid collection');
   });
 
-  it('export_collection reads rows then reports export unavailable without the extension', async () => {
-    const { output } = await executeStep(
-      db,
-      step('export_collection', { collection: COLLECTION, format: 'csv', limit: 10 }),
-      {},
-      {},
-    );
-    expect(output.exported).toBe(false);
-  });
+  // NOTE: there is deliberately no "export unavailable because the module is
+  // absent" case here. `lib/export-manager.js` ships as an optional extension and
+  // does not exist in the repo, so the executor's dynamic import throws — but
+  // flow-executor-export.test.ts mock.module()s that specifier at top level, and
+  // bun registers mocks in a SHARED registry that leaks across test files (the
+  // same class of bug as the downloadExtension flakes). Whether the module
+  // "exists" therefore depends on file execution order, which is not a property
+  // any assertion can rely on. The catch branch itself is covered
+  // order-independently by flow-executor-export-unavailable.test.ts, which mocks
+  // ExportManager.export to throw.
 
   it('query_db blocks dangerous SQL patterns', async () => {
     await expect(
