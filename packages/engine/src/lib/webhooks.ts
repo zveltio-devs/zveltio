@@ -3,6 +3,7 @@ import type { Database } from '../db/index.js';
 import { getCache } from './runtime/index.js';
 import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
 import { maybeDecrypt } from './data/index.js';
+import { DEFAULT_TENANT_ID } from './route-db.js';
 
 let _db: Database | null = null;
 
@@ -16,13 +17,21 @@ export const WebhookManager = {
     collection: string,
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     data: { id: string; [key: string]: any },
+    // Tenant of the write that fired this event (threaded from afterWrite —
+    // the dispatcher runs on the GLOBAL pool, not inside the request
+    // transaction, so it can't read `current_setting('zveltio.current_tenant')`).
+    // Without this filter a write in tenant A would fire tenant B's webhooks and
+    // POST A's record data to B's endpoint (cross-tenant data exfiltration).
+    tenantId?: string | null,
   ): Promise<void> {
     if (!_db) return;
+    const tenant = tenantId ?? DEFAULT_TENANT_ID;
     try {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const matchResult = await sql<any>`
         SELECT * FROM zvd_webhooks
         WHERE active = true
+          AND tenant_id = ${tenant}::uuid
           AND (events @> ARRAY[${event}]::text[] OR events @> ARRAY['*']::text[])
           AND (
             collections IS NULL
@@ -55,6 +64,7 @@ export const WebhookManager = {
               headers: JSON.stringify((wh.headers as Record<string, string>) || {}),
               attempt: 1,
               max_attempts: wh.retry_attempts ?? 3,
+              tenant_id: wh.tenant_id ?? tenant,
             })
             .returning('id')
             .executeTakeFirst();
