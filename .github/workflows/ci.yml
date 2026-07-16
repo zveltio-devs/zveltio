@@ -340,7 +340,7 @@ jobs:
         run: cd packages/engine && bun run test:harness:coverage
       - name: Merge unit + harness coverage and gate the honest combined number
         # Unions per-line hits from both lanes → the real all-of-lib/ figure,
-        # then ratchets it against refactoring/coverage-baseline.json (H-02/H-16).
+        # then ratchets it against quality-gates/coverage-baseline.json (H-02/H-16).
         run: |
           bun run scripts/merge-coverage.ts \
             packages/engine/coverage/lcov.info \
