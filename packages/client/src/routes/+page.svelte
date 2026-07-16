@@ -10,9 +10,12 @@ const theme = $derived(data?.theme ?? null);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const nav = $derived((data?.nav ?? []) as any[]);
 const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? 'Portal');
-// A published page-builder homepage (slug `home`) renders here; otherwise the
-// sign-in landing below is the fallback (ADR 0001).
+// `/` is the login landing by DEFAULT (ADR 0001). A published page-builder
+// homepage (slug `home`) is an optional override that takes over when present.
 const homepage = $derived(data?.homepage ?? null);
+// "Create Account" shows only when self-registration is enabled (server enforces
+// the same gate). Default off — app/intranet-first, signup is opt-in.
+const registrationEnabled = $derived(data?.registrationEnabled === true);
 </script>
 
 <svelte:head>
@@ -25,7 +28,8 @@ const homepage = $derived(data?.homepage ?? null);
 {#if homepage?.page}
   <BlockRenderer blocks={homepage.blocks} />
 {:else}
-<!-- No published homepage configured → sign-in landing as a fallback -->
+<!-- Default `/`: the login landing (app/intranet-first). A published page-builder
+     homepage would override this; none here, so login is the intended entry. -->
 <div class="min-h-screen flex items-center justify-center" style="background: var(--color-bg, #f9fafb)">
   <div class="text-center max-w-lg px-6">
     {#if theme?.logo_url}
@@ -52,11 +56,13 @@ const homepage = $derived(data?.homepage ?? null);
           style="background: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
           <LogIn size={18}/> Sign In
         </a>
-        <a href="/auth/signup"
-          class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium border transition-colors hover:bg-black/5"
-          style="color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
-          <UserPlus size={18}/> Create Account
-        </a>
+        {#if registrationEnabled}
+          <a href="/auth/signup"
+            class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium border transition-colors hover:bg-black/5"
+            style="color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
+            <UserPlus size={18}/> Create Account
+          </a>
+        {/if}
       </div>
     {/if}
 

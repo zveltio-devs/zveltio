@@ -10,7 +10,7 @@ import { rlsRoutes } from './rls.js';
 import { rpcRoutes } from './rpc.js';
 import { storageRoutes } from './storage.js';
 import { webhooksRoutes } from './webhooks.js';
-import { settingsRoutes } from './settings.js';
+import { isRegistrationEnabled, settingsRoutes } from './settings.js';
 import { adminRoutes, apiKeysRoutes } from './admin.js';
 import { wsRoutes } from './ws.js';
 import { relationsRoutes } from './relations.js';
@@ -127,6 +127,26 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // ── Rate limiting ─────────────────────────────────────────────────────────
   app.use('/api/auth/sign-in/*', authRateLimit);
   app.use('/api/auth/sign-up/*', authRateLimit);
+  // Self-registration gate — public sign-up is allowed only when
+  // `registration_enabled` is on (default OFF: Zveltio is app/intranet-first,
+  // not open-registration). Guards the PUBLIC HTTP sign-up only; admin
+  // invitations create users in-process (auth.api.signUpEmail, see routes/auth.ts)
+  // and the CLI create-god path both bypass this middleware.
+  app.on(['POST'], '/api/auth/sign-up/*', async (c, next) => {
+    if (!(await isRegistrationEnabled(db))) {
+      return c.json(
+        {
+          type: 'about:blank',
+          title: 'Forbidden',
+          status: 403,
+          code: 'registration_disabled',
+          detail: 'Self-registration is disabled on this instance.',
+        },
+        403,
+      );
+    }
+    return next();
+  });
   app.use('/api/auth/forgot-password', authRateLimit);
   // SSO extension login paths get the same auth rate limit (10/min/IP) —
   // without this LDAP / SAML callback endpoints are wide-open to
