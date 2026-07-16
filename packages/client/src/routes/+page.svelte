@@ -1,6 +1,7 @@
 <script lang="ts">
 import { useAuth } from '$stores/auth.svelte';
 import { LogIn, UserPlus } from '@lucide/svelte';
+import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
 
 let { data } = $props();
 
@@ -9,10 +10,22 @@ const theme = $derived(data?.theme ?? null);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 const nav = $derived((data?.nav ?? []) as any[]);
 const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? 'Portal');
+// A published page-builder homepage (slug `home`) renders here; otherwise the
+// sign-in landing below is the fallback (ADR 0001).
+const homepage = $derived(data?.homepage ?? null);
 </script>
 
-<!-- If there are portal pages, the homepage is rendered via [slug]/+page  -->
-<!-- This page only shows when no portal homepage is configured, as a fallback -->
+<svelte:head>
+  <title>{homepage?.page?.meta_title ?? homepage?.page?.title ?? appName}</title>
+  {#if homepage?.page?.meta_description}
+    <meta name="description" content={homepage.page.meta_description} />
+  {/if}
+</svelte:head>
+
+{#if homepage?.page}
+  <BlockRenderer blocks={homepage.blocks} />
+{:else}
+<!-- No published homepage configured → sign-in landing as a fallback -->
 <div class="min-h-screen flex items-center justify-center" style="background: var(--color-bg, #f9fafb)">
   <div class="text-center max-w-lg px-6">
     {#if theme?.logo_url}
@@ -60,3 +73,4 @@ const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? '
     {/if}
   </div>
 </div>
+{/if}
