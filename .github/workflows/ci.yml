@@ -223,6 +223,7 @@ jobs:
           NODE_ENV: test
           ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/extensions
           SLOW_QUERY_THRESHOLD_MS: '0'
+          ZVELTIO_REGISTRATION_ENABLED: '1'
         run: bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
       - name: Wait for engine to start
         run: |
@@ -282,6 +283,7 @@ jobs:
           NODE_ENV: test
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
           SLOW_QUERY_THRESHOLD_MS: '0'
+          ZVELTIO_REGISTRATION_ENABLED: '1'
         run: cd packages/engine && bun run test:integration
       - name: Show engine logs (always)
         if: always()
@@ -337,6 +339,7 @@ jobs:
           FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
           NODE_ENV: test
           SLOW_QUERY_THRESHOLD_MS: '0'
+          ZVELTIO_REGISTRATION_ENABLED: '1'
         run: cd packages/engine && bun run test:harness:coverage
       - name: Merge unit + harness coverage and gate the honest combined number
         # Unions per-line hits from both lanes → the real all-of-lib/ figure,
@@ -399,6 +402,9 @@ jobs:
           # Without this, perf-smoke would race the pg-boss worker poll
           # interval and time out on the very first collection-create.
           NODE_ENV: test
+          # perf-smoke creates its admin via the public sign-up endpoint, which
+          # is now gated by registration_enabled (default off) — enable it here.
+          ZVELTIO_REGISTRATION_ENABLED: '1'
         # Use the engine's own better-auth sign-up to create the admin so the
         # password hash format matches whatever the runtime expects.
         run: |
