@@ -179,9 +179,9 @@ chown -R zveltio:zveltio "${ZVELTIO_DIR}" 2>/dev/null || true
 # ── Run migrations ────────────────────────────────────────────────────────────
 info "Running migrations..."
 if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
-  sudo -u zveltio bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) ./zveltio migrate"
+  sudo -u zveltio bash -c "cd ${ZVELTIO_DIR} && set -a && . ./.env && set +a && ./zveltio migrate"
 else
-  sudo -u zveltio bash -c "cd ${ZVELTIO_DIR} && env \$(cat .env | xargs) bun engine/index.js migrate"
+  sudo -u zveltio bash -c "cd ${ZVELTIO_DIR} && set -a && . ./.env && set +a && bun engine/index.js migrate"
 fi
 success "Migrations complete"
 
