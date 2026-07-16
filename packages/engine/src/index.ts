@@ -208,6 +208,7 @@ COMMANDS
   migrate                            Run pending database migrations.
   create-god --email E --password P  Create a god-role user.
   status                             Show service status.
+  update                             How to update (points to update.sh).
   version                            Print version.
   help                               Show this message.
 
@@ -220,6 +221,26 @@ EXAMPLES
   sudo zveltio migrate
   sudo zveltio status
   sudo zveltio create-god --email me@example.com --password secret123
+`);
+  process.exit(0);
+}
+
+if (_cmd === 'update' || _cmd === 'upgrade') {
+  // The engine can't self-replace while running (it would have to swap its own
+  // binary + restart the service), so `update` is a script, not a subcommand.
+  // Users naturally type `zveltio update`; without this it fell through to
+  // `start` and died on EADDRINUSE. Point them at the real tool instead.
+  const v = await _zveltioVersion();
+  console.log(`zveltio ${v}
+
+"update" is not an engine subcommand — updates run through a script that swaps the
+binary + UI bundles and restarts the service, preserving your .env and data:
+
+  sudo bash /opt/zveltio/update.sh                      # latest
+  sudo ZVELTIO_VERSION=v3.0.0-beta.31 bash /opt/zveltio/update.sh   # a specific version
+
+If /opt/zveltio/update.sh is missing (older installs), fetch it first:
+  sudo curl -fsSL https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install/update.sh -o /opt/zveltio/update.sh
 `);
   process.exit(0);
 }
@@ -937,6 +958,16 @@ process.on('uncaughtException', (err: Error & { code?: string }) => {
   console.error('❌ uncaughtException:', err);
   process.exit(1);
 });
+
+// An argument that reached here is either `start` or unrecognized. An unknown
+// command must NOT silently boot the engine — that binds the port and confuses
+// operators (e.g. `zveltio update` used to fall through to start → EADDRINUSE).
+// Only `start` (or no command at all) proceeds to bootstrap. Guarded on
+// import.meta.main so tests that `import` this module are unaffected.
+if (import.meta.main && _cmd && _cmd !== 'start') {
+  console.error(`zveltio: unknown command "${_cmd}". Run "zveltio help" for usage.`);
+  process.exit(2);
+}
 
 // Only auto-boot when run as the entrypoint (`bun src/index.ts`, the compiled
 // binary). Guarding on import.meta.main lets tests `import` this module — for
