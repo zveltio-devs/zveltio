@@ -72,6 +72,34 @@ const READONLY_SETTINGS_KEYS = new Set([
   'marketplace_auth_token',
 ]);
 
+/**
+ * Whether public self-registration is allowed. Default FALSE — Zveltio is
+ * app/intranet-first, not open-registration; an operator opts in by setting
+ * `registration_enabled` = true. Read at request time so toggling takes effect
+ * without a restart. Guards the public HTTP sign-up (routes/index.ts); admin
+ * invitations create users in-process (auth.api.signUpEmail) and are unaffected,
+ * as is the CLI create-god path.
+ */
+export async function isRegistrationEnabled(db: Database): Promise<boolean> {
+  const row = await db
+    .selectFrom('zv_settings')
+    .select('value')
+    .where('key', '=', 'registration_enabled')
+    .executeTakeFirst()
+    .catch(() => null);
+  if (!row) return false;
+  const raw = (row as { value: unknown }).value;
+  let v: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      v = JSON.parse(raw);
+    } catch {
+      v = raw;
+    }
+  }
+  return v === true || v === 'true' || v === 1;
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function settingsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -124,6 +152,10 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         result[key] = raw;
       }
     }
+    // Always report registration_enabled with its true default (false), even
+    // when it isn't a stored is_public row, so the login UI shows/hides the
+    // "Create Account" action correctly and never disagrees with the server gate.
+    result.registration_enabled = await isRegistrationEnabled(db);
     return c.json(result);
   });
 

@@ -1,16 +1,38 @@
 # ADR 0001 — Frontend surfaces and the portable render contract
 
-- **Status:** Accepted
+- **Status:** Accepted (revised 2026-07-16 — see "Revision")
 - **Date:** 2026-07-16
 - **Deciders:** project owner + engineering
-- **Context tag:** beta.30 → 3.0.0 (implemented before the stable cut)
+- **Context tag:** beta.31
+
+## Revision (2026-07-16) — `/` is login by default; a public page is opt-in
+
+The first draft framed a **default public homepage** as the goal ("WordPress-like").
+That imported a wrong assumption: **Zveltio is not a CMS and is not public-first.**
+It is a slim, app/intranet-first Business OS that *can* be a public site if you add
+that — via the page-builder extension — but doesn't assume it.
+
+So the decision is narrower and cleaner:
+
+- **`/` is a login / sign-up landing by default.** That is the only universally
+  needed surface — every install has auth; not every install has a public site.
+- **A public page is opt-in.** Install page-builder and publish a `home` page and
+  it takes over `/`; otherwise login stays. Nothing about a public site is core,
+  bundled, or seeded by default.
+- **Self-registration is off by default** and gated by `registration_enabled`
+  (enforced server-side on the public sign-up; admin invitations are unaffected).
+  The landing shows "Create Account" only when it's on.
+
+Everything below still holds for the *opt-in* public case (the three-surface split,
+the page-builder render contract, server-side permission filtering). Only the
+positioning changed: public is a capability you add, not a default you get.
 
 ## Context
 
-On a fresh install, visiting the server root (`ip/`) redirects to `/admin/` and an
-anonymous visitor lands on the admin login screen. There is no public-facing
-surface — every SaaS-class product has public pages (marketing, docs, public
-forms, a customer/partner area), so Zveltio needs one too.
+On a fresh install, visiting the server root (`ip/`) redirected to `/admin/` and an
+anonymous visitor landed on the admin login screen. The public surface is optional
+(see Revision) — but the *reference host* that serves `/` (login by default, public
+when opted in) should be its own app, not bolted into the admin.
 
 The naïve fix is to add public routes inside the Studio (admin) app. That is
 possible — the studio already carries `(client)` and `(intranet)` route groups —
@@ -166,17 +188,20 @@ Note — the zones contract (authenticated portals) is the separate
 with `access_roles` / `auth_required` enforced server-side. Documented here only
 to keep the two systems distinct.
 
-## What ships now (Phase 1 — shipped in beta.31)
+## What ships now (beta.31)
 
-1. **Reference host rendering fixed.** `packages/client` renders the page-builder
-   contract via a block **registry** (`$lib/blocks/BlockRenderer.svelte`) —
-   heading/text/image/button/divider/html; unknown types placeholdered.
-2. **Root `/` renders the published homepage** (page-builder slug `home`); with
-   none published it falls back to the sign-in landing.
-3. **A default `home` page is seeded** (page-builder migration `003`, published,
-   idempotent) — the WordPress-like "it works" moment.
+1. **`/` is a login / sign-up landing by default** — the app entry, app/intranet-first.
+   "Create Account" appears only when `registration_enabled` is on; the server
+   enforces the same gate on public sign-up (default off).
+2. **Opt-in public page.** `packages/client` renders a page-builder page at `/`
+   *when one is published* (slug `home`), via a block **registry**
+   (`$lib/blocks/BlockRenderer.svelte`) — heading/text/image/button/divider/html;
+   unknown types placeholdered. No page-builder / no `home` → login stays.
+3. **page-builder is not installed by default.** Installing it (opt-in) brings a
+   seeded starter `home` page (migration `003`, published, idempotent) so *its*
+   first-run is a working example — but a bare install ships no public site.
 4. **The engine serves the web host at `/`** (Docker copies `client-dist`;
-   `install.sh` now extracts `client.tar.gz` for native installs); `/admin`
+   `install.sh`/`update.sh` extract `client.tar.gz` for native installs); `/admin`
    untouched.
 
 ## What is deferred (Phase 2 — not on Zveltio's roadmap; enabled for third parties)
