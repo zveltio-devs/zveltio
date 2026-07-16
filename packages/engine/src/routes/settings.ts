@@ -81,6 +81,11 @@ const READONLY_SETTINGS_KEYS = new Set([
  * as is the CLI create-god path.
  */
 export async function isRegistrationEnabled(db: Database): Promise<boolean> {
+  // Env override wins over the DB setting — lets an operator force self-signup
+  // on/off without DB access (12-factor), and lets test/CI enable it uniformly.
+  const env = process.env.ZVELTIO_REGISTRATION_ENABLED;
+  if (env != null && env !== '') return env === '1' || env.toLowerCase() === 'true';
+
   const row = await db
     .selectFrom('zv_settings')
     .select('value')
