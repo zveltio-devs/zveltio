@@ -65,7 +65,7 @@ function checkCoverage(): CheckResult {
     target: Record<string, number>;
     measured: Record<string, number>;
     gated: string[];
-  }>('refactoring/coverage-baseline.json');
+  }>('quality-gates/coverage-baseline.json');
   const below: string[] = [];
   for (const bucket of base.gated) {
     const target = base.target[bucket];
