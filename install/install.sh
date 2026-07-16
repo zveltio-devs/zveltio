@@ -708,6 +708,21 @@ UNIT
     warn "Studio UI not available for ${RESOLVED_VERSION} — /admin will show setup instructions."
   fi
 
+  # ── Public web host (compiled) ───────────────────────────────────────────────
+  # The client host serves the public site + authenticated non-admin portals at
+  # `/` (ADR 0001). Without it the engine falls back to redirecting `/` → /admin.
+  local CLIENT_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/client.tar.gz"
+  mkdir -p "${ZVELTIO_DIR}/client-dist"
+  if curl -fsSL --head "$CLIENT_URL" &>/dev/null; then
+    info "Downloading public web host..."
+    wget -q "$CLIENT_URL" -O /tmp/zveltio-client.tar.gz
+    tar -xzf /tmp/zveltio-client.tar.gz -C "${ZVELTIO_DIR}/client-dist"
+    rm /tmp/zveltio-client.tar.gz
+    success "Public web host extracted to ${ZVELTIO_DIR}/client-dist"
+  else
+    warn "Public web host not available for ${RESOLVED_VERSION} — / will redirect to /admin."
+  fi
+
   # ── Studio source (for extension rebuild-at-install) ─────────────────────────
   #
   # Tarball layout (alpha.84+):
@@ -791,6 +806,9 @@ ZVELTIO_EXTENSIONS=
 # Studio dist — the pre-built UI served at /admin (contains all bundled
 # extension pages). This is the source of truth for first-party extension UIs.
 STUDIO_DIST_PATH=${ZVELTIO_DIR}/studio-dist
+# Client dist — the pre-built public web host served at / (public pages +
+# authenticated non-admin portals). Absent → / redirects to /admin (ADR 0001).
+CLIENT_DIST_PATH=${ZVELTIO_DIR}/client-dist
 # Studio source dir — only used for OPT-IN in-process extension rebuild.
 STUDIO_SRC_DIR=${ZVELTIO_DIR}/studio-src
 # In-process Studio rebuild on enable/disable. OFF by default: bundled extension
