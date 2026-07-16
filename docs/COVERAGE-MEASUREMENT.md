@@ -11,7 +11,7 @@
 
 ## What the gate measures
 
-`refactoring/coverage-baseline.json` ratchets the `lib` bucket of the **honest
+`quality-gates/coverage-baseline.json` ratchets the `lib` bucket of the **honest
 combined** surface: the Unit Tests job's lcov UNIONed with the Handler Coverage
 (in-process harness) job's lcov (`scripts/merge-coverage.ts` → `coverage-gate.ts`).
 The union is per-line: a line counts as covered if **either** lane hit it; the
