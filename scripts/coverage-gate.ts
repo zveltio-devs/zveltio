@@ -4,7 +4,7 @@
  *
  * Parses an lcov report, computes line coverage per engine source subtree, and
  * fails if a GATED subtree drops more than `maxDropPct` below the committed
- * baseline (`refactoring/coverage-baseline.json`). Same philosophy as the
+ * baseline (`quality-gates/coverage-baseline.json`). Same philosophy as the
  * `any-ratchet`: the number can only go up (modulo a small tolerance for
  * nondeterministic line hits); erosion is a build failure.
  *
@@ -38,7 +38,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-const BASELINE_PATH = join(ROOT, 'refactoring', 'coverage-baseline.json');
+const BASELINE_PATH = join(ROOT, 'quality-gates', 'coverage-baseline.json');
 const DEFAULT_LCOV = join('packages', 'engine', 'coverage', 'lcov.info');
 
 /** Subtrees we gate. Everything else is measured-and-printed only. */

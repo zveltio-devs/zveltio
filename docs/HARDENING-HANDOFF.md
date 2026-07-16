@@ -18,8 +18,8 @@
 
 | ID | Title | Status |
 |----|-------|--------|
-| H-01 | biome `noExplicitAny: error` + suppression ratchet | ✅ DONE — `scripts/any-ratchet.ts` + `refactoring/any-baseline.json` (per-bucket), wired into CI Lint. Baseline currently **1690**. |
-| H-02 | Coverage measurement + CI ratchet | ✅ DONE — `scripts/coverage-gate.ts` + `refactoring/coverage-baseline.json`. Gates `lib/` line coverage; baseline **24%**, currently ~24.2%. |
+| H-01 | biome `noExplicitAny: error` + suppression ratchet | ✅ DONE — `scripts/any-ratchet.ts` + `quality-gates/any-baseline.json` (per-bucket), wired into CI Lint. Baseline currently **1690**. |
+| H-02 | Coverage measurement + CI ratchet | ✅ DONE — `scripts/coverage-gate.ts` + `quality-gates/coverage-baseline.json`. Gates `lib/` line coverage; baseline **24%**, currently ~24.2%. |
 | H-03 | Windows CI or WSL/Linux-only policy | ✅ DONE — soft docs policy (WSL is the test oracle; no Windows CI). |
 | H-04 | Split `extension-loader.ts` god file + de-any | ✅ DONE — 1773→<500 L across `lib/extensions/*`. |
 | H-05 | Split `data.ts` god file + de-any | ✅ DONE — 1734→63 L across `lib/data/*`. |
