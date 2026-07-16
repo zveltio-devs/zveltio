@@ -83,12 +83,17 @@ whoever I am"* and the server returns only what that caller may see (filtered by
 The render response is a stable, documented JSON shape (below). The web host is a
 **reference implementation** of a contract, not the only possible renderer:
 
-- Zveltio ships the SvelteKit reference host so a fresh install *just works*
-  (WordPress-like, zero config).
-- Because the contract is data, the **same** page/zone/view + block model can be
-  rendered by a Next.js / Nuxt / Astro host. `@zveltio/sdk-react` and
-  `@zveltio/sdk-vue` already exist as API SDKs; they grow a block-renderer layer
-  (Phase 2) so BYO-framework needs no fork.
+- **Zveltio ships and maintains exactly one host: the SvelteKit reference host**
+  (`packages/client`). It is the officially supported, batteries-included front
+  end — a fresh install *just works* (WordPress-like, zero config). This is the
+  only front end we build, test, and support.
+- Because the contract is plain data, a **third party** who wants a different
+  stack (Next.js / Nuxt / Astro / plain HTML) can implement it themselves against
+  the published contract and reuse the whole backend — page builder, permissions,
+  CMS — without forking. **We do not build or maintain those hosts**; we keep the
+  contract stable and documented so others *can*. `@zveltio/sdk-react` /
+  `@zveltio/sdk-vue` exist today as API SDKs; a community host would build on
+  those, but a block-renderer layer for them is explicitly *not* on our roadmap.
 
 This is the innovative middle path, and it is on-brand with the existing SDUI
 direction (extensions already describe their **admin** UI as data; this extends
@@ -161,32 +166,38 @@ Note — the zones contract (authenticated portals) is the separate
 with `access_roles` / `auth_required` enforced server-side. Documented here only
 to keep the two systems distinct.
 
-## What ships now (Phase 1 — this change, before the stable cut)
+## What ships now (Phase 1 — shipped in beta.31)
 
-1. **Reference host rendering fixed.** `packages/client` renders the real contract
-   (`views` + `definition.view_type` + `data.records`), via an extracted block
-   **registry** (`$lib/blocks/`) — the seed of the portable contract.
-2. **Root `/` renders the public homepage** of the public zone (falls back
-   gracefully when none is configured).
-3. **A default public zone is seeded** (`www`, active, `access_roles = {}` = public)
-   with a homepage (`is_homepage = true`, `auth_required = false`) and a welcome
-   hero — the WordPress-like "it works" moment.
-4. **The engine serves the web host at `/`** on a fresh install; `/admin` is
+1. **Reference host rendering fixed.** `packages/client` renders the page-builder
+   contract via a block **registry** (`$lib/blocks/BlockRenderer.svelte`) —
+   heading/text/image/button/divider/html; unknown types placeholdered.
+2. **Root `/` renders the published homepage** (page-builder slug `home`); with
+   none published it falls back to the sign-in landing.
+3. **A default `home` page is seeded** (page-builder migration `003`, published,
+   idempotent) — the WordPress-like "it works" moment.
+4. **The engine serves the web host at `/`** (Docker copies `client-dist`;
+   `install.sh` now extracts `client.tar.gz` for native installs); `/admin`
    untouched.
 
-## What is deferred (Phase 2 — post-stable, tracked)
+## What is deferred (Phase 2 — not on Zveltio's roadmap; enabled for third parties)
 
-- `@zveltio/sdk-react` / `@zveltio/sdk-vue` gain block-render components so a
-  Next/Nuxt host renders the same contract.
+Zveltio maintains only the SvelteKit host. These are things a **community /
+third-party** host could do against the published contract — we enable them by
+keeping the contract stable, we do not build them:
+
+- A non-Svelte host (Next/Nuxt/Astro/HTML) implementing the same block contract.
 - Extension-contributed blocks (`page-builder` `clientComponents`) unified into
-  the same registry the reference host uses.
-- A published "build your own host" guide + a JSON Schema for the contract.
+  one registry the reference host also uses.
+- A published "build your own host" guide + a JSON Schema for the contract (the
+  main artifact we *would* own, since it is documentation of our contract).
 
 ## Consequences
 
 - **Positive:** admin code never reaches anonymous visitors; public/app is a lean
   separate bundle; one renderer serves all permission contexts; BYO-framework
-  becomes a supported path, not a fork; fresh installs show a real homepage.
+  becomes an *enabled* path (a third party can build one against the contract —
+  we don't ship it) instead of requiring a fork; fresh installs show a real
+  homepage.
 - **Cost:** two frontend apps to build and ship (mitigated — the shared layer is
   `@zveltio/sdk` + `@zveltio/components` + the contract, not duplicated logic).
 - **Risk:** the portable contract is a commitment; changing it is a breaking
