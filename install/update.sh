@@ -142,6 +142,37 @@ if [[ "$BINARY_INSTALLED" == "false" ]]; then
   success "Engine built from source"
 fi
 
+# ── Refresh front-end bundles (Studio /admin + public web host /) ─────────────
+# The engine binary does not carry the UIs. Without this step /admin stays on the
+# old Studio build and the public web host at / (ADR 0001) is never installed —
+# so shipping a front-end change would silently not land on update. Docker mode
+# gets both from the image (compose pull), so this only applies to native.
+# .env is preserved; we only append the CLIENT_DIST_PATH pointer if it's missing.
+if [[ "$ZVELTIO_VERSION" != "main" ]]; then
+  for pair in "studio.tar.gz:studio-dist" "client.tar.gz:client-dist"; do
+    tarball="${pair%%:*}"; dest="${pair##*:}"
+    url="https://github.com/zveltio-devs/zveltio/releases/download/${ZVELTIO_VERSION}/${tarball}"
+    if curl -fsSL --head "$url" &>/dev/null; then
+      info "Updating ${dest}..."
+      wget -q "$url" -O "/tmp/${tarball}"
+      rm -rf "${ZVELTIO_DIR}/${dest}.new"; mkdir -p "${ZVELTIO_DIR}/${dest}.new"
+      tar -xzf "/tmp/${tarball}" -C "${ZVELTIO_DIR}/${dest}.new"
+      rm -rf "${ZVELTIO_DIR}/${dest}.old"
+      [[ -d "${ZVELTIO_DIR}/${dest}" ]] && mv "${ZVELTIO_DIR}/${dest}" "${ZVELTIO_DIR}/${dest}.old"
+      mv "${ZVELTIO_DIR}/${dest}.new" "${ZVELTIO_DIR}/${dest}"
+      rm -f "/tmp/${tarball}"
+      success "${dest} updated"
+    else
+      warn "${tarball} not available for ${ZVELTIO_VERSION} — skipping ${dest}"
+    fi
+  done
+  if [[ -f "${ZVELTIO_DIR}/.env" ]] && ! grep -q '^CLIENT_DIST_PATH=' "${ZVELTIO_DIR}/.env"; then
+    printf '\n# Public web host served at / (ADR 0001)\nCLIENT_DIST_PATH=%s/client-dist\n' \
+      "${ZVELTIO_DIR}" >> "${ZVELTIO_DIR}/.env"
+    info "Added CLIENT_DIST_PATH to .env"
+  fi
+fi
+
 # ── Fix permissions ───────────────────────────────────────────────────────────
 chown -R zveltio:zveltio "${ZVELTIO_DIR}" 2>/dev/null || true
 
