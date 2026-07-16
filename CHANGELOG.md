@@ -4,6 +4,40 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.31] - 2026-07-16
+
+### Public web host — a real front door at `/` (ADR 0001)
+
+A fresh install served the admin login at the root; there was no public,
+unauthenticated surface. Zveltio now renders a real public site at `/`
+(WordPress-like: `/` public, `/admin` admin), driven by the page-builder CMS.
+
+- **feat(web)**: the `@zveltio/client` host renders published CMS pages at `/`
+  and `/:slug` through a block registry (heading/text/image/button/divider/html —
+  the live Studio editor's vocabulary). Unknown block types degrade to a
+  placeholder, never a crash. The homepage is the page-builder page with slug
+  `home`; with none published, `/` falls back to a sign-in landing.
+- **fix(page-builder)**: the public read routes queried a dead `sections`-model
+  schema (`is_active`, `zv_page_sections`) — the live editor writes the `blocks`
+  JSONB model — so `GET /ext/content/page-builder/cms/*` was effectively broken.
+  Rewrote them against the blocks model: list published pages, and return one
+  published page plus its hydrated blocks. **No auth; `status = 'published'` only,
+  so drafts are never exposed publicly.**
+- **feat(page-builder)**: a seed migration publishes a default `home` page so a
+  fresh install shows a real homepage. Idempotent — never overwrites an authored
+  one.
+- **fix(install)**: `install.sh` now fetches and extracts `client.tar.gz` →
+  `client-dist` and sets `CLIENT_DIST_PATH`. Native installs were missing this
+  (Docker already copied it), which is why `/` fell back to redirecting to
+  `/admin`.
+- **docs**: `docs/adr/0001-frontend-surfaces-and-portable-render-contract.md`
+  records the decision — three frontend surfaces (admin / public+app / BYO), a
+  server-side-filtered render contract, a reference host that ships by default,
+  and the portable-contract path (React/Vue block renderers) as Phase 2.
+
+Permission filtering stays server-side: the host only ever receives content the
+caller may see. Verified end-to-end against a live engine.
+
 ## [3.0.0-beta.30] - 2026-07-15
 
 **The security release.** 29 tenant-isolation and authorization fixes, Hardening
