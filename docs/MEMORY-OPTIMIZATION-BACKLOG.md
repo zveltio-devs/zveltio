@@ -1,5 +1,11 @@
 # 🚀 Optimizări Complete Zveltio - Single Source of Truth
 
+> **Status:** backlog viu de reducere a memoriei/dimensiunii instalării, formulat inițial
+> în aprilie 2026. Mutat din `refactoring/` în `docs/` la beta.30 (2026-07-16) și
+> consolidat ca sursă unică (fostul `optimizari cod propuse.txt` era un subset).
+> **Itemii NU sunt verificați față de stadiul actual** — o parte poate fi deja făcută
+> prin slim-engine + registry-on-demand (beta.14). De reevaluat înainte de a le ataca.
+
 ## 📋 Lista Completă Optimizări pentru Reducerea Memoriei și Îmbunătățirea Performanței
 
 ### 🎯 Scop Final: 1.5-3GB RAM Requirement, 200-300 Pachete

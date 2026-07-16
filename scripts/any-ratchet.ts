@@ -6,7 +6,7 @@
  * `bun run lint` outright. That alone, though, invites a lazy workaround:
  * silence the error with a fresh `// biome-ignore` comment. This ratchet
  * closes that loophole. It counts the suppression comments per package bucket
- * and compares them to a committed baseline (`refactoring/any-baseline.json`):
+ * and compares them to a committed baseline (`quality-gates/any-baseline.json`):
  *
  *   - count went UP in any bucket  → fail (someone suppressed a new `any`)
  *   - count went DOWN              → pass, and nudge to lower the baseline
@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { bucketOf, enumerateTargets } from './lib/any-targets.ts';
 
 const ROOT = process.cwd();
-const BASELINE_PATH = join(ROOT, 'refactoring', 'any-baseline.json');
+const BASELINE_PATH = join(ROOT, 'quality-gates', 'any-baseline.json');
 const MARKER = /biome-ignore\s+lint\/suspicious\/noExplicitAny/g;
 
 type Baseline = {
