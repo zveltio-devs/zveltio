@@ -4,6 +4,83 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.32] - 2026-07-17
+
+**Product-completeness pass across the P1/P2 backlog** — plus a run of "it exists
+but does nothing" defects found underneath it. The recurring theme: a setting,
+dashboard, or safeguard that looked done but was never wired.
+
+### Security
+
+- **fix(security): per-IP rate-limiting never worked under Bun.** The connection-IP
+  fallback read Node-adapter shapes (`c.env.ip` / `c.env.incoming.socket`) that are
+  always `undefined` under `Bun.serve` (the peer is exposed via
+  `server.requestIP(req)`). Every anonymous non-proxied request therefore collapsed
+  onto a single `rl:<tier>:unknown` bucket — one abusive client could `429` every
+  other anonymous client (a login DoS on `/api/auth/*`). Now resolved correctly,
+  including Bun's `::ffff:` IPv4-mapped form.
+- **feat(security): adaptive rate-limit escalation + IP allow/deny lists.** Repeat
+  offenders get an escalating cooldown (1× → 2× → 4× the window, capped at 1h);
+  `RATE_LIMIT_DENYLIST` / `RATE_LIMIT_ALLOWLIST` accept IPv4/CIDR (deny → 403). The
+  escalation only runs for requests already over the limit, so it can't throttle
+  compliant traffic.
+- **feat(auth): self-registration is enforced and off by default.**
+  `registration_enabled` was a writable setting that **nothing enforced** — anyone
+  could `POST /api/auth/sign-up/email` regardless. A middleware now blocks the
+  public sign-up when it's off (admin invitations + CLI `create-god` bypass it);
+  a **Settings → Security** toggle sets it; `/api/settings/public` exposes it so
+  the login UI matches. **Behaviour change: signup is now closed by default.**
+
+### Public web host & auth (ADR 0001)
+
+- **feat(auth): `/` is a login/sign-up landing by default; a public page is opt-in.**
+  Reframes the beta.31 public-host work: Zveltio is app/intranet-first, not
+  public-first. Install page-builder and publish a `home` page and it takes over
+  `/`; otherwise login is the intended default. "Create Account" shows only when
+  registration is enabled.
+- **fix: `/ext/*` 404 guard** — an unmounted extension path returned the SPA
+  `index.html` (HTML for an API path) instead of a clean JSON 404.
+
+### Compliance
+
+- **feat(compliance): audit-log date range + CSV export.** `/api/admin/audit` gains
+  `from`/`to` (a bare `to` date covers the whole day), and
+  `GET /api/admin/audit/export` returns the filtered range as CSV, capped at 50k
+  rows with `X-Zveltio-Row-Count`/`Row-Limit` so a truncated review is never silent.
+
+### Observability
+
+- **feat(observability): the Grafana dashboards now get data.** The shipped
+  overview + webhooks dashboards queried metrics the engine never emitted
+  (`http_requests_total`, `cache_*_total`, `webhook_*`). Instrumented the request
+  middleware, query cache, and webhook delivery path; `/metrics` emits them plus
+  webhook queue/subscription gauges.
+
+### i18n & regional
+
+- **feat(i18n): tenant-aware date formatting.** `language` / `timezone` /
+  `date_format` were writable settings **nothing read** — every screen used the
+  viewer's browser locale. A central formatter now drives dates across the admin
+  (incl. every collection grid and every declarative extension page), with a
+  **Settings → General → Regional** UI to set them.
+
+### Install / update / CLI
+
+- **fix(install): updates are safe and complete.** Re-running `install.sh`
+  regenerated the encryption keys (data loss); now existing secrets are preserved.
+  `update.sh` only updated the binary — it now also refreshes `studio-dist` +
+  `client-dist` and loads `.env` robustly for the migrate step.
+- **fix(cli): `zveltio update` and unknown commands.** `update`/`upgrade` print how
+  to run `update.sh` instead of trying (and failing) to start a second engine;
+  unknown commands error instead of silently booting.
+
+### Docs
+
+- **docs: extension cookbook** (`docs/EXTENSION-COOKBOOK.md`) — 10 task-oriented
+  recipes, each modelled on a real shipped extension. Plus a `refactoring/` →
+  `quality-gates/` tidy and an accuracy pass over `TECHNICAL-GAPS.md` (several P1s
+  were already done; the inventory was stale).
+
 ## [3.0.0-beta.31] - 2026-07-16
 
 ### Public web host — a real front door at `/` (ADR 0001)
