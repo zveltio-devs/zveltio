@@ -195,8 +195,26 @@ they don't fail:
 
 ---
 
-### 2.2 Compliance reports auto-generation 🟠 P1
-**Gap.** Audit trail is the raw material; compliance officers need formatted reports. Currently: they query DB directly. Should: one-click reports.
+### 2.2 Compliance reports auto-generation 🟠 P1 → ✅ mostly DONE (beta.32)
+**Verified 2026-07-17.** The `compliance/gdpr` extension already covers most of the
+acceptance criteria: **SAR** (`/export-my-data`), **right-to-erasure**
+(`/delete-my-account`), **DPIA material** (`/processing-records`), plus
+`/access-requests`, `/consents`, `/breaches`, `/stats` and an SDUI page.
+
+**The one real hole was the access-log report** — `/api/admin/audit` filtered by
+user and event type but had **no date range and no export**, so "who accessed what
+between 1–31 March, exportable" meant paging 500-row JSON by hand. beta.32 adds
+`from`/`to` (a bare `to` date covers the whole day, which is what a reviewer means)
+and **`GET /api/admin/audit/export` → CSV** with the same filters, capped at 50k
+rows and reporting `X-Zveltio-Row-Count`/`Row-Limit` so a truncated review is never
+silent. Harness-tested, including the CSV escaping (a `Date` is `typeof 'object'`,
+so a naive JSON.stringify double-quotes every timestamp — that bug was caught and
+is now pinned).
+
+**Remaining.** Signed erasure certificates and a formatted (PDF-style) DPIA
+document are still open; the raw material for both exists.
+
+**Original gap (kept for history).** Audit trail is the raw material; compliance officers need formatted reports. Currently: they query DB directly. Should: one-click reports.
 
 **Acceptance criteria.**
 - GDPR DPIA report — data flow per collection, processing purpose, retention period, third parties.
@@ -210,8 +228,15 @@ they don't fail:
 
 ---
 
-### 2.3 Per-field encryption — extends to user-defined PII fields 🟠 P1
-**Gap.** Mail credentials + AI keys are encrypted (AES-256-GCM with separate KEKs). User-defined "encrypted" fields on collections — not yet first-class. PII columns (SSN, IBAN, etc.) need same treatment.
+### 2.3 Per-field encryption — user-defined PII fields 🟠 P1 → ✅ DONE (verified 2026-07-17)
+**Done — the doc below was stale.** User-defined `encrypted: true` collection
+fields ARE first-class: `lib/data/field-crypto.ts` encrypts on write
+(`write-pipeline.ts`) and decrypts on read (`shape.ts`), keyed by
+`FIELD_ENCRYPTION_KEY`, with 4 unit-test files covering it. It also **warns loudly
+at boot** if a collection declares `encrypted: true` while the key is unset —
+i.e. it refuses to silently store PII in plaintext.
+
+**Original gap (kept for history).** Mail credentials + AI keys are encrypted (AES-256-GCM with separate KEKs). User-defined "encrypted" fields on collections — not yet first-class. PII columns (SSN, IBAN, etc.) need same treatment.
 
 **Acceptance criteria.**
 - Collection field option: `encrypted: true`.
