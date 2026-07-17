@@ -35,6 +35,7 @@ let s = $state({
   smtp_from: '',
   smtp_secure: false,
   two_factor_enabled: false,
+  registration_enabled: false,
   session_expiry_hours: 24,
   api_rate_limit: 100,
 });
@@ -234,6 +235,13 @@ const TABS = [
  </label>
 
  {:else if tab === 'security'}
+ <label class="label cursor-pointer justify-start gap-3">
+ <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.registration_enabled} />
+ <div>
+ <p class="label-text font-medium">Allow public self-registration</p>
+ <p class="text-xs text-base-content/50">When off (default), the public sign-up endpoint is blocked and the login page hides "Create Account". Admin invitations always work.</p>
+ </div>
+ </label>
  <label class="label cursor-pointer justify-start gap-3">
  <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.two_factor_enabled} />
  <div>
