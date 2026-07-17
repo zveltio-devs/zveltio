@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 // The Data tab of the collections detail page: record browsing (search, sort,
 // selection, pagination), realtime live-sync, row delete, and bulk delete.
 // Extracted from collections/[name]/+page.svelte (H-07 studio split). It owns
@@ -331,7 +332,7 @@ let confirmState = $state<{
               </td>
             {/each}
             <td class="text-xs text-base-content/40 whitespace-nowrap">
-              {new Date(String(record.created_at)).toLocaleDateString()}
+              {fmtDate(record.created_at)}
             </td>
             <td>
               <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
