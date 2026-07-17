@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { usersApi } from '$lib/api.js';
@@ -176,7 +177,7 @@ async function deleteSelected() {
 
 function formatDate(d?: string) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString();
+  return fmtDate(d);
 }
 
 function formatRelative(dateStr?: string): string {

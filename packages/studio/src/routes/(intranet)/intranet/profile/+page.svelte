@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { auth } from '$lib/auth.svelte.js';
 import { api } from '$lib/api.js';
@@ -92,7 +93,7 @@ async function changePassword() {
         <p class="text-sm text-base-content/60 flex items-center gap-1.5"><Mail size={12} /> {auth.user?.email ?? '—'}</p>
         {#if auth.user?.createdAt}
           <p class="text-xs text-base-content/40 mt-1 flex items-center gap-1.5">
-            <Calendar size={11} /> Joined {new Date(auth.user.createdAt).toLocaleDateString()}
+            <Calendar size={11} /> Joined {fmtDate(auth.user.createdAt)}
           </p>
         {/if}
       </div>

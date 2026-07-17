@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { Zap, Plus, Trash2, Info, X, Check } from '@lucide/svelte';
@@ -235,7 +236,7 @@ function confirmDelete(fn: RpcFunction) {
                   />
                 </td>
                 <td class="text-xs text-base-content/40">
-                  {new Date(fn.created_at).toLocaleDateString()}
+                  {fmtDate(fn.created_at)}
                 </td>
                 <td class="text-right">
                   <button onclick={() => confirmDelete(fn)} class="btn btn-ghost btn-xs text-error">
