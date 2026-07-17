@@ -264,8 +264,35 @@ i.e. it refuses to silently store PII in plaintext.
 
 ---
 
-### 2.5 Rate limiting — adaptive + DDoS protection 🟠 P1
-**Gap.** Per-tier rate limiting (auth, AI, write, destructive). No adaptive throttling (slow down abusers without hard-cutoff), no IP reputation, no behavioral patterns.
+### 2.5 Rate limiting — adaptive + DDoS protection 🟠 P1 → ✅ mostly DONE (beta.32)
+**Done.**
+- **Adaptive escalation.** Exceeding a tier limit now records an offence
+  (10-minute memory) and escalates the cooldown 1× → 2× → 4× the window, capped at
+  1h, served via `Retry-After` and a short-circuit block key. A plain window let an
+  abuser retry the instant it rolled over; each successive burst now costs more.
+  *Not* a tarpit — deliberately: holding sockets open to slow an attacker DoSes us.
+- **IP allow/deny lists** — `RATE_LIMIT_DENYLIST` / `RATE_LIMIT_ALLOWLIST`
+  (comma-separated IPv4 or CIDR). Deny → 403 before any cache work; allow → skip
+  limits (monitoring, internal gateways).
+- **SECURITY FIX found while building this:** the connection-IP fallback had
+  **never worked under Bun**. The code read `c.env.ip` / `c.env.incoming.socket`
+  (Node-adapter shapes) but `Bun.serve` passes `{ server }` and exposes the peer
+  via `server.requestIP(req)` — so both were always `undefined` and **every
+  anonymous non-proxied request shared one `rl:<tier>:unknown` bucket**. One
+  abusive client could 429 every other anonymous client (a login DoS on
+  `/api/auth/*`) — exactly what the code's own comment said it prevented. Now
+  resolved properly, including unwrapping Bun's `::ffff:` IPv4-mapped form.
+
+**Design note.** The escalation only runs for requests **already over the limit**,
+so a bug in it cannot throttle compliant traffic. 17 unit tests pin the escalation
+curve (no overflow, hard cap) and the CIDR matcher — which caught a real sign-bit
+bug where any address ≥ 128.0.0.0 (i.e. most real IPs) parsed to a negative base
+and never matched.
+
+**Remaining.** Token-bucket rewrite (the sliding window is fine — a rewrite on this
+path is risk without a clear win), captcha gate on abuse, Cloudflare docs.
+
+**Original gap (kept for history).** Per-tier rate limiting (auth, AI, write, destructive). No adaptive throttling (slow down abusers without hard-cutoff), no IP reputation, no behavioral patterns.
 
 **Acceptance criteria.**
 - Token bucket per (user, IP, route group).
