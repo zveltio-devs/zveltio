@@ -3,6 +3,10 @@
 > **Audience**: developers building extensions for the Zveltio Business OS.
 >
 > **Companion documents**:
+> - [`EXTENSION-COOKBOOK.md`](EXTENSION-COOKBOOK.md) — **task-oriented recipes**
+>   ("how do I send an email on insert?", "how do I add an admin page without
+>   writing Svelte?"). Start here if you learn by doing; this guide is the
+>   reference behind it.
 > - [`EXTENSION-AUTHORING.md`](EXTENSION-AUTHORING.md) — contract reference (the
 >   *what*).
 > - [`REFACTORING-V1-PLAN.md`](REFACTORING-V1-PLAN.md) — platform roadmap (some

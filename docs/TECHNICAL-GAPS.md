@@ -382,8 +382,17 @@ normalized query text + suggest missing indexes (today it's per-occurrence).
 
 ---
 
-### 4.3 Extension cookbook 🟠 P1
-**Gap.** EXTENSION-DEVELOPER-GUIDE.md is reference-style. Lacks recipes ("How do I add a new field type?", "How do I send email on insert?", "How do I integrate Stripe?").
+### 4.3 Extension cookbook 🟠 P1 → ✅ DONE (beta.32)
+**Done.** [`docs/EXTENSION-COOKBOOK.md`](EXTENSION-COOKBOOK.md) — 10 task-oriented
+recipes, each modelled on a real shipped extension (crm, content/drafts,
+operations/traceability) rather than pseudocode: scaffold, extension anatomy, API
+routes, migrations + the tenant-RLS pattern (incl. the `NULLIF` uuid trap),
+record-change hooks (email on insert), cross-extension services, SDUI admin pages
+without Svelte, public routes, testing with the SDK mocks, and publishing. Plus a
+"common mistakes" table (stale bundle, empty SDUI table, adminDb leakage, kysely
+drift). Linked from the top of the developer guide.
+
+**Original gap (kept for history).** EXTENSION-DEVELOPER-GUIDE.md is reference-style. Lacks recipes ("How do I add a new field type?", "How do I send email on insert?", "How do I integrate Stripe?").
 
 **Acceptance criteria.**
 - `docs/EXTENSION-COOKBOOK.md` with 10-15 recipes covering common scenarios.
