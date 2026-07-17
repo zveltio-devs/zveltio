@@ -459,9 +459,26 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
   // ── Audit Log ─────────────────────────────────────────────────
 
-  // GET /audit — recent security/admin events from zv_audit_log
+  // Date-range parsing for the audit log (TECHNICAL-GAPS 2.2) — "who accessed
+  // what between X and Y" is where every access-log review starts. A bare date
+  // in `to` covers the whole day, which is what a reviewer means by "to Mar 31".
+  const parseFrom = (v?: string): Date | null => {
+    if (!v) return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const parseTo = (v?: string): Date | null => {
+    if (!v) return null;
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return null;
+    if (!v.includes('T')) d.setUTCHours(23, 59, 59, 999);
+    return d;
+  };
+
+  // GET /audit — security/admin events from zv_audit_log.
+  // Filters: user_id, event_type, from, to (ISO date or datetime).
   app.get('/audit', async (c) => {
-    const { limit = '50', page = '1', user_id, event_type } = c.req.query();
+    const { limit = '50', page = '1', user_id, event_type, from, to } = c.req.query();
     const parsedLimit = Math.min(parseInt(limit) || 50, 500);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
@@ -474,9 +491,65 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
     if (user_id) query = query.where('user_id', '=', user_id);
     if (event_type) query = query.where('event_type', '=', event_type);
+    const fromD = parseFrom(from);
+    if (fromD) query = query.where('created_at', '>=', fromD);
+    const toD = parseTo(to);
+    if (toD) query = query.where('created_at', '<=', toD);
 
     const entries = await query.execute();
     return c.json({ audit: entries });
+  });
+
+  // GET /audit/export — the same filtered range as CSV (TECHNICAL-GAPS 2.2).
+  // Compliance reviews need the whole range in a spreadsheet, not 500-row JSON
+  // pages. Capped so one request can't try to serialise an unbounded table.
+  const AUDIT_EXPORT_MAX = 50_000;
+  app.get('/audit/export', async (c) => {
+    const { user_id, event_type, from, to } = c.req.query();
+
+    let query = db
+      .selectFrom('zv_audit_log')
+      .selectAll()
+      .orderBy('created_at', 'desc')
+      .limit(AUDIT_EXPORT_MAX);
+    if (user_id) query = query.where('user_id', '=', user_id);
+    if (event_type) query = query.where('event_type', '=', event_type);
+    const fromD = parseFrom(from);
+    if (fromD) query = query.where('created_at', '>=', fromD);
+    const toD = parseTo(to);
+    if (toD) query = query.where('created_at', '<=', toD);
+    const rows = await query.execute();
+
+    const esc = (v: unknown): string => {
+      if (v == null) return '';
+      // Date must be handled before the object branch: JSON.stringify(date)
+      // returns an ALREADY-quoted string, which would then get re-quoted into
+      // """2026-…""" — valid CSV, but a garbled timestamp in every spreadsheet.
+      const s =
+        v instanceof Date
+          ? v.toISOString()
+          : typeof v === 'object'
+            ? JSON.stringify(v)
+            : String(v);
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+    const header = 'created_at,event_type,user_id,resource_type,resource_id,ip,metadata';
+    const body = rows
+      .map((r) =>
+        [r.created_at, r.event_type, r.user_id, r.resource_type, r.resource_id, r.ip, r.metadata]
+          .map(esc)
+          .join(','),
+      )
+      .join('\n');
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    return c.text(`${header}\n${body}\n`, 200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="audit-log-${stamp}.csv"`,
+      // Signals truncation rather than silently handing back a partial review.
+      'X-Zveltio-Row-Limit': String(AUDIT_EXPORT_MAX),
+      'X-Zveltio-Row-Count': String(rows.length),
+    });
   });
 
   // ── Dashboard Stats ────────────────────────────────────────────
