@@ -1,4 +1,9 @@
-import { getCache } from './runtime/index.js';
+import {
+  getCache,
+  webhookDeliveries,
+  webhookDeliveryDuration,
+  webhookRetries,
+} from './runtime/index.js';
 import { WebhookManager } from './webhooks.js';
 
 let _running = false;
@@ -71,9 +76,13 @@ export const webhookWorker = {
           return;
         }
 
+        const started = performance.now();
         const ok = await WebhookManager.deliver(payload);
+        webhookDeliveryDuration.observe({}, (performance.now() - started) / 1000);
+        webhookDeliveries.inc({ status: ok ? 'success' : 'failed' });
 
         if (!ok && payload.attempt < (payload.retryAttempts ?? 3)) {
+          webhookRetries.inc({});
           const retryPayload = { ...payload, attempt: payload.attempt + 1 };
           // Exponential backoff: 1s → 2s → 4s
           const delayMs = Math.pow(2, payload.attempt) * 1000;
