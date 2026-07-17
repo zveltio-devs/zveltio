@@ -586,8 +586,16 @@ drift). Linked from the top of the developer guide.
 
 ## 6. Internationalization
 
-### 6.1 Studio UI translations — major EU languages 🟠 P1
-**Gap.** Paraglide setup with en + ro. To reach EU market: at minimum de, fr, es, it, nl, pl, pt.
+### 6.1 Studio UI translations — major EU languages 🟠 P1 (4 of 9 shipped)
+**Status (verified 2026-07-17).** Not "en + ro" — the Studio ships **en, ro, fr, de**
+with **full parity: 1,871 keys each** (`packages/studio/messages/`). Paraglide
+compiles them; adding a locale is a settings entry + a message file.
+
+**Remaining: es, it, nl, pl, pt** — ~9,355 strings. This is a **translation-content
+task, not an engineering one**: the pipeline works, the strings need a translation
+budget or native reviewers. Machine-translating 9k UI strings unreviewed would ship
+five languages of bad copy — worse for an evaluator than English-only. Track it as
+content, not code.
 
 **Acceptance criteria.**
 - 7 additional locales added.
@@ -614,8 +622,23 @@ drift). Linked from the top of the developer guide.
 
 ---
 
-### 6.3 Per-tenant formatting (currency, date, number) 🟡 P2
-**Gap.** Studio displays numbers / dates in fixed format. Tenants in different regions need locale-aware display.
+### 6.3 Per-tenant formatting (currency, date, number) 🟡 P2 → ✅ DONE (beta.32)
+**Done.** `language` / `timezone` / `date_format` were writable settings that
+**nothing read and nothing could set** — every screen used bare
+`toLocaleDateString()`, i.e. the *viewer's browser* locale (a Romanian tenant on a
+US laptop saw US dates). Now:
+- `packages/studio/src/lib/stores/format.svelte.ts` — one reactive place that loads
+  the tenant's settings (public endpoint) and exposes `fmtDate` / `fmtDateTime` /
+  `fmtTime` / `fmtNumber`. Falls back to browser defaults; never breaks a screen.
+- **Settings → General → Regional** — UI for language / timezone / date format
+  (ISO / EU / US / locale-default).
+- Core screens migrated, including `CollectionDataTable` (every collection grid)
+  and `sdui/SchemaPage` (**every declarative extension page**) — high leverage.
+
+**Remaining.** Bespoke extension pages (pos, hr/time-tracking, geospatial/postgis,
+content/documents, storage/cloud) still format raw. They live in the
+**zveltio-extensions** repo and are synced into the Studio snapshot — editing them
+here would be overwritten by `sync-extensions`. Follow-up in that repo.
 
 **Acceptance criteria.**
 - Tenant setting: locale + currency.

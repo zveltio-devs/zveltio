@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 /**
  * SDUI SPIKE renderer. Interprets a PageSchema with trusted generic host
  * components — no per-extension code. Reuses ExtensionPageShell + ConfirmModal
@@ -301,7 +302,7 @@ function cellText(row: any, col: ColumnDef): string {
       .join(col.join.sep ?? ' ');
   const v = getPath(row, col.key);
   if (v == null || v === '') return '—';
-  if (col.type === 'date') return new Date(v).toLocaleDateString();
+  if (col.type === 'date') return fmtDate(v);
   if (col.type === 'currency') {
     const code = col.currency?.code ?? (col.currency?.codeKey ? row[col.currency.codeKey] : '');
     return `${Number(v).toLocaleString()} ${code ?? ''}`.trim();
