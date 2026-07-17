@@ -25,7 +25,8 @@ function sampleValue(lines: string[], prefix: string): number | null {
 
 describe('telemetry metric serialization', () => {
   it('a counter emits HELP/TYPE + labeled samples once incremented', () => {
-    const before = sampleValue(getDomainMetricsLines(), 'http_requests_total{method="GET",status="200"}') ?? 0;
+    const before =
+      sampleValue(getDomainMetricsLines(), 'http_requests_total{method="GET",status="200"}') ?? 0;
     httpRequests.inc({ method: 'GET', status: '200' });
     httpRequests.inc({ method: 'GET', status: '200' });
     httpRequests.inc({ method: 'POST', status: '404' });
@@ -34,15 +35,21 @@ describe('telemetry metric serialization', () => {
     expect(lines).toContain('# TYPE http_requests_total counter');
     // Labels serialise sorted + quoted, and the two increments landed.
     expect(sampleValue(lines, 'http_requests_total{method="GET",status="200"}')).toBe(before + 2);
-    expect(lines.some((l) => /^http_requests_total\{method="POST",status="404"\} \d+$/.test(l))).toBe(true);
+    expect(
+      lines.some((l) => /^http_requests_total\{method="POST",status="404"\} \d+$/.test(l)),
+    ).toBe(true);
   });
 
   it('webhook status labels round-trip', () => {
     webhookDeliveries.inc({ status: 'success' });
     webhookDeliveries.inc({ status: 'failed' });
     const lines = getDomainMetricsLines();
-    expect(lines.some((l) => /^webhook_deliveries_total\{status="success"\} \d+$/.test(l))).toBe(true);
-    expect(lines.some((l) => /^webhook_deliveries_total\{status="failed"\} \d+$/.test(l))).toBe(true);
+    expect(lines.some((l) => /^webhook_deliveries_total\{status="success"\} \d+$/.test(l))).toBe(
+      true,
+    );
+    expect(lines.some((l) => /^webhook_deliveries_total\{status="failed"\} \d+$/.test(l))).toBe(
+      true,
+    );
   });
 
   it('gaugeLine formats a valid gauge and drops non-finite values', () => {
