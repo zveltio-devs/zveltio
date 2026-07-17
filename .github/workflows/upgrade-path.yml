@@ -56,6 +56,9 @@ jobs:
       # Makes enqueueDDLJob synchronously await the job (ddl-queue.ts) so a
       # collection-create isn't racing the worker poll; upgrade-smoke also polls.
       NODE_ENV: test
+      # Seeds its admin via the public sign-up endpoint (gated by
+      # registration_enabled, default off) — enable it across both phases.
+      ZVELTIO_REGISTRATION_ENABLED: '1'
       UPGRADE_BASE_URL: http://localhost:3000
       UPGRADE_EMAIL: admin@example.com
       UPGRADE_PASSWORD: admin1234
