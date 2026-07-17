@@ -88,11 +88,58 @@ export const zoneAccessDenied = labeledCounter();
 /** View query duration histogram — labels: view_id, collection */
 export const viewQueryDuration = labeledHistogram();
 
+// ── Core HTTP + cache + webhook metrics (power the overview/webhooks dashboards)
+// These were queried by the shipped Grafana dashboards but never emitted, so the
+// dashboards read "No data". Instrumented at the request middleware, the query
+// cache, and the webhook delivery path.
+
+/** HTTP request counter — labels: method, status. */
+export const httpRequests = labeledCounter();
+
+/** HTTP request duration histogram (seconds) — label: method. */
+export const httpRequestDuration = labeledHistogram([
+  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5,
+]);
+
+/** Query-cache hit / miss counters (no labels). */
+export const cacheHits = labeledCounter();
+export const cacheMisses = labeledCounter();
+
+/** Webhook delivery counter — label: status (success|failed). */
+export const webhookDeliveries = labeledCounter();
+
+/** Webhook delivery duration histogram (seconds). */
+export const webhookDeliveryDuration = labeledHistogram([0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]);
+
+/** Webhook retry counter (no labels). */
+export const webhookRetries = labeledCounter();
+
 /**
- * Returns all zone/view Prometheus metric lines for inclusion in /metrics output.
+ * All application Prometheus metric lines for /metrics. Point-in-time gauges
+ * (db pool, webhook queue) are appended by the /metrics handler, which has the
+ * pool + db in scope.
  */
-export function getZoneMetricsLines(): string[] {
+export function getDomainMetricsLines(): string[] {
   return [
+    ...httpRequests.toPrometheusLines(
+      'http_requests_total',
+      'Total HTTP requests by method and status',
+    ),
+    ...httpRequestDuration.toPrometheusLines(
+      'http_request_duration_seconds',
+      'HTTP request duration in seconds',
+    ),
+    ...cacheHits.toPrometheusLines('cache_hits_total', 'Query-cache hits'),
+    ...cacheMisses.toPrometheusLines('cache_misses_total', 'Query-cache misses'),
+    ...webhookDeliveries.toPrometheusLines(
+      'webhook_deliveries_total',
+      'Webhook deliveries by status',
+    ),
+    ...webhookDeliveryDuration.toPrometheusLines(
+      'webhook_delivery_duration_seconds',
+      'Webhook delivery duration in seconds',
+    ),
+    ...webhookRetries.toPrometheusLines('webhook_retries_total', 'Webhook delivery retries'),
     ...zoneRenderRequests.toPrometheusLines(
       'zone_render_requests_total',
       'Total zone render requests by zone and page slug',
@@ -106,6 +153,20 @@ export function getZoneMetricsLines(): string[] {
       'View data query duration in milliseconds',
     ),
   ];
+}
+
+/** @deprecated use getDomainMetricsLines — kept for existing callers. */
+export function getZoneMetricsLines(): string[] {
+  return getDomainMetricsLines();
+}
+
+/**
+ * A single point-in-time gauge line for /metrics. Bounded helper so the handler
+ * doesn't hand-format Prometheus text.
+ */
+export function gaugeLine(name: string, help: string, value: number): string[] {
+  if (!Number.isFinite(value)) return [];
+  return [`# HELP ${name} ${help}`, `# TYPE ${name} gauge`, `${name} ${value}`];
 }
 
 const TRACER_NAME = 'zveltio-engine';
