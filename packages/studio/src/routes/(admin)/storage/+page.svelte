@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -222,7 +223,7 @@ function openPreview(file: MediaFile) {
  <p class="text-sm font-medium truncate" title={file.original_name}>{file.original_name}</p>
  <div class="flex justify-between text-xs text-base-content/50">
  <span>{fmt(file.size)}</span>
- <span>{new Date(file.created_at).toLocaleDateString()}</span>
+ <span>{fmtDate(file.created_at)}</span>
  </div>
  </div>
  <div class="flex gap-1">
