@@ -38,6 +38,10 @@ let s = $state({
   registration_enabled: false,
   session_expiry_hours: 24,
   api_rate_limit: 100,
+  // Regional — read by $lib/stores/format.svelte.ts for all date display.
+  language: '',
+  timezone: '',
+  date_format: '',
 });
 
 // Rate limiting — per-tier configs from zv_rate_limit_configs
@@ -171,6 +175,31 @@ const TABS = [
  <span class="label-text-alt text-base-content/50">Used in emails and webhooks</span>
  </label>
  <input id="setting-site-url" class="input font-mono" bind:value={s.site_url} placeholder="https://app.example.com" />
+ </div>
+ <div class="divider text-xs opacity-50">Regional</div>
+ <p class="text-xs text-base-content/50 -mt-2 mb-1">How dates are displayed across the admin. Leave blank to follow each viewer's browser.</p>
+ <div class="form-control">
+ <label class="label" for="setting-language">
+ <span class="label-text font-medium">Language / locale</span>
+ <span class="label-text-alt text-base-content/50">BCP-47, e.g. ro, de-AT</span>
+ </label>
+ <input id="setting-language" class="input font-mono w-48" bind:value={s.language} placeholder="ro" />
+ </div>
+ <div class="form-control">
+ <label class="label" for="setting-timezone">
+ <span class="label-text font-medium">Timezone</span>
+ <span class="label-text-alt text-base-content/50">IANA, e.g. Europe/Bucharest</span>
+ </label>
+ <input id="setting-timezone" class="input font-mono w-64" bind:value={s.timezone} placeholder="Europe/Bucharest" />
+ </div>
+ <div class="form-control">
+ <label class="label" for="setting-date-format"><span class="label-text font-medium">Date format</span></label>
+ <select id="setting-date-format" class="select w-48" bind:value={s.date_format}>
+ <option value="">Locale default</option>
+ <option value="iso">ISO — 2026-07-17</option>
+ <option value="eu">EU — 17/07/2026</option>
+ <option value="us">US — 07/17/2026</option>
+ </select>
  </div>
 
  {:else if tab === 'branding'}

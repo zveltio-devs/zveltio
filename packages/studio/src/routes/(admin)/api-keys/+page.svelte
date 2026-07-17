@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { Key, Trash2, Copy, Check, LoaderCircle, Plus } from '@lucide/svelte';
@@ -115,7 +116,7 @@ async function copyKey() {
 function formatExpiry(date: string | null): string {
   if (!date) return 'Never';
   const d = new Date(date);
-  return d < new Date() ? `Expired ${d.toLocaleDateString()}` : d.toLocaleDateString();
+  return d < new Date() ? `Expired ${fmtDate(d)}` : fmtDate(d);
 }
 
 function addScope() {
