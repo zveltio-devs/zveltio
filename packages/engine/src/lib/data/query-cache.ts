@@ -16,7 +16,7 @@
  * any write to that collection in that tenant.
  */
 
-import { getCache } from '../runtime/index.js';
+import { cacheHits, cacheMisses, getCache } from '../runtime/index.js';
 import { createHash } from 'crypto';
 
 const CACHE_TTL = parseInt(process.env.QUERY_CACHE_TTL_SECONDS ?? '10', 10);
@@ -47,9 +47,14 @@ export async function getQueryCache(key: string): Promise<any | null> {
   if (!cache || CACHE_TTL <= 0) return null;
   try {
     const val = await cache.get(key);
-    if (!val) return null;
+    if (!val) {
+      cacheMisses.inc({});
+      return null;
+    }
+    cacheHits.inc({});
     return JSON.parse(val);
   } catch {
+    cacheMisses.inc({});
     return null;
   }
 }
