@@ -648,6 +648,14 @@ rm studio.tar.gz</pre>
   // ── API 404 guard ─────────────────────────────────────────────────────────
   app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 
+  // ── Extension 404 guard ───────────────────────────────────────────────────
+  // A /ext/* path with no mounted extension (not installed/enabled) must return
+  // a JSON 404 — NOT fall through to the SPA catch-all below, which would serve
+  // index.html for an API path and mislead callers (e.g. the web host probing an
+  // optional page-builder homepage got HTML instead of a clean 404). Mounted
+  // extensions register earlier, so they still match first.
+  app.all('/ext/*', (c) => c.json({ error: 'Not found' }, 404));
+
   // ── Client SPA catch-all ──────────────────────────────────────────────────
   app.use('/*', async (c) => {
     const res = await serveStaticFile(CLIENT_DIST, c.req.path);
