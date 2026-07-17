@@ -48,6 +48,9 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
       METRICS_TOKEN: soak-metrics-token
       NODE_ENV: test
+      # The soak seeds its god admin via the public sign-up endpoint, now gated
+      # by registration_enabled (default off) — enable it for this run.
+      ZVELTIO_REGISTRATION_ENABLED: '1'
       SOAK_MINUTES: ${{ github.event.inputs.minutes || '60' }}
     steps:
       - uses: actions/checkout@v4
