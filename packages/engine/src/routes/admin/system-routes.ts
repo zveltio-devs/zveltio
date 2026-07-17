@@ -526,11 +526,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       // returns an ALREADY-quoted string, which would then get re-quoted into
       // """2026-…""" — valid CSV, but a garbled timestamp in every spreadsheet.
       const s =
-        v instanceof Date
-          ? v.toISOString()
-          : typeof v === 'object'
-            ? JSON.stringify(v)
-            : String(v);
+        v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
       return `"${s.replace(/"/g, '""')}"`;
     };
     const header = 'created_at,event_type,user_id,resource_type,resource_id,ip,metadata';
