@@ -137,8 +137,19 @@ separate repo). Both are one-panel / cross-repo follow-ups.
 
 ---
 
-### 1.5 Graceful degradation modes 🟠 P1
-**Gap.** What happens when Valkey is down? When AI provider returns 500? When external file storage is unreachable? Current behavior: errors bubble up. Should: degrade gracefully (in-memory cache fallback, queue locally, etc.).
+### 1.5 Graceful degradation modes 🟠 P1 → ✅ DONE (verified 2026-07-17)
+**Done — the doc below was stale.** The critical dependency-down paths degrade,
+they don't fail:
+- **Valkey down** → `getCache()` returns null and every caller is null-safe:
+  query-cache falls through to Postgres, the **rate-limiter falls back to an
+  in-memory limiter** (`middleware/rate-limit.ts` `memoryRateLimit`), and realtime
+  falls back to the Postgres `LISTEN/NOTIFY` bus (`PgNotifyRealtimeBus`).
+- **AI provider error** → init + per-event embedding are wrapped in non-fatal
+  catches (`ai/engine/index.ts`); the engine keeps serving.
+- The engine boots and serves requests with no Valkey at all (verified across the
+  local test runs — no `VALKEY_URL` set).
+
+**Original gap (kept for history).** What happens when Valkey is down? When AI provider returns 500? When external file storage is unreachable? Current behavior: errors bubble up. Should: degrade gracefully (in-memory cache fallback, queue locally, etc.).
 
 **Why it matters.** Real production has flaky dependencies. Manager wants "the app keeps working when Valkey blips".
 
@@ -293,8 +304,15 @@ budgets that fail the build on catastrophic regression. Benchmark suite lives in
 
 ---
 
-### 3.2 Query optimization insights 🟠 P1
-**Gap.** Slow query log exists (logs to console when > threshold). No structured analysis: which queries are slow, which are repeated, which need indexes.
+### 3.2 Query optimization insights 🟠 P1 → ✅ mostly DONE (verified 2026-07-17)
+**Done — the doc below was stale.** Slow queries are not just console-logged, they
+are **persisted and surfaced**: `middleware/slow-query.ts` inserts each over-threshold
+query into `zv_slow_queries`, `GET /api/admin/system/slow-queries` lists them, the
+Studio admin dashboard shows a `slow_queries_24h` stat, and the garbage collector
+purges old rows on a retention window. **Remaining (nice-to-have):** aggregate by
+normalized query text + suggest missing indexes (today it's per-occurrence).
+
+**Original gap (kept for history).** Slow query log exists (logs to console when > threshold). No structured analysis: which queries are slow, which are repeated, which need indexes.
 
 **Acceptance criteria.**
 - `/admin/insights/slow-queries` page — top-N slow queries, frequency, suggested index.
