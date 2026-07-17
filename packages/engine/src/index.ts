@@ -10,6 +10,7 @@ import 'reflect-metadata';
 
 import { Hono } from 'hono';
 import { logger } from 'hono/logger';
+import { sql } from 'kysely';
 import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
@@ -44,7 +45,13 @@ import {
 } from './lib/tenancy/index.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
-import { initTelemetry, getZoneMetricsLines } from './lib/runtime/index.js';
+import {
+  initTelemetry,
+  getDomainMetricsLines,
+  gaugeLine,
+  httpRequests,
+  httpRequestDuration,
+} from './lib/runtime/index.js';
 import { engineEvents } from './lib/runtime/index.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/runtime/index.js';
@@ -599,9 +606,24 @@ rm studio.tar.gz</pre>
 
   app.use('*', async (c, next) => {
     _totalRequestCount++;
-    await next();
+    // Skip self-monitoring endpoints so scrapes/health-checks don't inflate the
+    // app-traffic metrics the overview dashboard shows.
+    const p = c.req.path;
+    if (p === '/metrics' || p === '/health' || p === '/api/health/ready') {
+      await next();
+      return;
+    }
+    const start = performance.now();
+    const method = c.req.method;
+    try {
+      await next();
+    } finally {
+      const seconds = (performance.now() - start) / 1000;
+      httpRequests.inc({ method, status: String(c.res.status) });
+      httpRequestDuration.observe({ method }, seconds);
+    }
   });
-  app.get('/metrics', (c) => {
+  app.get('/metrics', async (c) => {
     const metricsToken = process.env.METRICS_TOKEN;
     if (metricsToken) {
       const provided =
@@ -638,8 +660,37 @@ rm studio.tar.gz</pre>
       '# HELP zveltio_memory_peak_rss_bytes Peak RSS in bytes',
       '# TYPE zveltio_memory_peak_rss_bytes gauge',
       `zveltio_memory_peak_rss_bytes ${memoryReport.peak.peakRSS}`,
-      ...getZoneMetricsLines(),
+      ...getDomainMetricsLines(),
     ];
+
+    // Point-in-time gauges the webhooks dashboard reads. Best-effort: a metrics
+    // scrape must never fail or block on the DB, so any error is swallowed.
+    try {
+      const db = _bootstrapCtx?.db;
+      if (db) {
+        const pending = await sql<{ n: string }>`
+          SELECT count(*)::text AS n FROM zvd_webhook_deliveries WHERE delivered_at IS NULL
+        `.execute(db);
+        const subs = await sql<{ n: string }>`
+          SELECT count(*)::text AS n FROM zvd_webhooks WHERE active = true
+        `.execute(db);
+        lines.push(
+          ...gaugeLine(
+            'webhook_queue_pending',
+            'Undelivered webhook deliveries',
+            Number(pending.rows[0]?.n ?? 0),
+          ),
+          ...gaugeLine(
+            'webhook_subscriptions_active',
+            'Active webhook subscriptions',
+            Number(subs.rows[0]?.n ?? 0),
+          ),
+        );
+      }
+    } catch {
+      /* metrics must not fail on a DB hiccup */
+    }
+
     return c.text(lines.join('\n') + '\n', 200, {
       'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
     });
