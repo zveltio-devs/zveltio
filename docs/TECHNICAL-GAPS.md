@@ -85,8 +85,22 @@ run in CI via the `perf-smoke` job (see 3.1).
 
 ---
 
-### 1.3 Observability dashboards — Grafana templates 🟠 P1
-**Gap.** OpenTelemetry tracing emits to OTLP collector. Prometheus metrics exposed at `/metrics`. But there's no out-of-the-box Grafana dashboard — operators are on their own to build.
+### 1.3 Observability dashboards — Grafana templates 🟠 P1 → ✅ mostly DONE (beta.32)
+**Done.** `grafana/dashboards/` ships 4 provisioned dashboards (overview, zones,
+webhooks, ai) + `grafana/provisioning/` (datasource + dashboard config) +
+`observability/docker-compose.yml` (Grafana + Prometheus). The dashboards were
+shipped earlier but queried metrics the engine never emitted (`http_requests_total`,
+`cache_*_total`, `webhook_*`) — so they read "No data". **beta.32 wired them:**
+`lib/runtime/telemetry.ts` now defines http/cache/webhook counters+histograms,
+instrumented at the request middleware, the query cache, and the webhook delivery
+path; `/metrics` emits them (+ webhook queue/subscription gauges). Verified live:
+overview + webhooks dashboards now get real data.
+
+**Remaining (small).** `database_connections_active` (Kysely hides the pg pool) and
+the **AI** dashboard's `ai_*` metrics (must be emitted by the `ai` extension, a
+separate repo). Both are one-panel / cross-repo follow-ups.
+
+**Original gap (kept for history).** OpenTelemetry tracing emits to OTLP collector. Prometheus metrics exposed at `/metrics`. But there's no out-of-the-box Grafana dashboard — operators are on their own to build.
 
 **Why it matters.** "It exposes metrics" vs "open Grafana and see your engine" is the difference between "works" and "production-ready".
 
