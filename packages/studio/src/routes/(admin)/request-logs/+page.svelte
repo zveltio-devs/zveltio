@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtTime } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { Activity } from '@lucide/svelte';
@@ -127,7 +128,7 @@ function applyFilters() {
         <tbody>
           {#each logs as log}
             <tr>
-              <td class="font-mono text-xs whitespace-nowrap">{new Date(log.created_at).toLocaleTimeString()}</td>
+              <td class="font-mono text-xs whitespace-nowrap">{fmtTime(log.created_at)}</td>
               <td><span class="badge badge-xs {methodColor(log.method)}">{log.method}</span></td>
               <td class="font-mono text-xs max-w-xs truncate" title={log.path}>{log.path}</td>
               <td><span class="badge badge-xs {statusColor(log.status)}">{log.status}</span></td>

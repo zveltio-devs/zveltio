@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fmtDate } from '$lib/stores/format.svelte.js';
 import { m } from '$lib/i18n.svelte.js';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
@@ -137,7 +138,7 @@ function statusBadge(s: string) {
                   </div>
                   <p class="text-xs text-base-content/60">{r.collection} / {r.record_id}</p>
                   <p class="text-xs text-base-content/40 mt-1">
-                    Requested by {r.requested_by_name || 'unknown'} · {new Date(r.requested_at).toLocaleDateString()}
+                    Requested by {r.requested_by_name || 'unknown'} · {fmtDate(r.requested_at)}
                   </p>
                 </div>
                 {#if r.status === 'pending'}

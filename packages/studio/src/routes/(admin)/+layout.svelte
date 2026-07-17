@@ -26,6 +26,7 @@ import { auth } from '$lib/auth.svelte.js';
 import { realtime } from '$lib/stores/realtime.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { initExtensions, extensions } from '$lib/extensions.svelte.js';
+import { initFormat } from '$lib/stores/format.svelte.js';
 // Extension Studio pages: declarative SDUI pages render via the generic
 // host (data, not code) and Tier-3 code pages are baked into this Studio's
 // route tree at release. There is no runtime bundle loader or rebuild.
@@ -92,6 +93,8 @@ onMount(async () => {
     goto(`${base}/login?${params.toString()}`);
     return;
   }
+  // Tenant date formatting — non-blocking; screens fall back to browser locale.
+  initFormat();
   await initExtensions();
 
   // Install the contribution API on window for any extension that
