@@ -94,6 +94,109 @@ function memoryRateLimit(key: string, windowMs: number, max: number): boolean {
   return entry.count <= max;
 }
 
+// ── Adaptive escalation + IP lists (TECHNICAL-GAPS 2.5) ──────────────────────
+//
+// SAFETY PROPERTY: everything below only runs for a request that has ALREADY
+// exceeded its tier limit (or is on an explicit IP list). Compliant traffic never
+// reaches the escalation path, so a bug here cannot throttle legitimate users —
+// worst case it mis-sizes a cooldown for someone already being 429'd.
+
+/** Offence memory: how long repeat offences keep escalating. */
+const PENALTY_WINDOW_MS = 10 * 60_000;
+/** Cap so a wrong/rotated identifier can never be locked out forever. */
+const MAX_BLOCK_SEC = 3600;
+
+/**
+ * Escalating cooldown for a repeat offender: 1×, 2×, 4×, 8× the tier window,
+ * capped. A plain fixed window lets an abuser retry the instant it rolls over;
+ * this makes each successive burst cost more, which is the "slow down abusers"
+ * ask — without tarpitting (holding sockets open would DoS *us*).
+ */
+export function escalationSeconds(offences: number, windowSec: number): number {
+  const n = Math.max(1, Math.floor(offences));
+  const factor = 2 ** Math.min(n - 1, 10); // clamp the exponent before it overflows
+  return Math.min(windowSec * factor, MAX_BLOCK_SEC);
+}
+
+type Cidr = { base: number; mask: number };
+
+/** Parse a comma-separated IPv4 / CIDR list. Invalid entries are dropped. */
+export function parseCidrList(raw: string | undefined): Cidr[] {
+  if (!raw) return [];
+  const out: Cidr[] = [];
+  for (const partRaw of raw.split(',')) {
+    const part = partRaw.trim();
+    if (!part) continue;
+    const [addr, bitsRaw] = part.split('/');
+    const bits = bitsRaw === undefined ? 32 : Number(bitsRaw);
+    if (!Number.isInteger(bits) || bits < 0 || bits > 32) continue;
+    const octets = (addr ?? '').split('.');
+    if (octets.length !== 4) continue;
+    let base = 0;
+    let ok = true;
+    for (const o of octets) {
+      const n = Number(o);
+      if (!Number.isInteger(n) || n < 0 || n > 255 || o === '') {
+        ok = false;
+        break;
+      }
+      base = (base << 8) | n;
+    }
+    if (!ok) continue;
+    const mask = bits === 0 ? 0 : (-1 << (32 - bits)) >>> 0;
+    // Mask FIRST, then unsign. `(base >>> 0) & mask` looks equivalent but is not:
+    // JS `&` coerces back to int32, so any address with the high bit set
+    // (≥ 128.0.0.0 — i.e. most real IPs) would store a NEGATIVE base and never
+    // match ipMatches(), which compares against an unsigned value.
+    out.push({ base: (base & mask) >>> 0, mask });
+  }
+  return out;
+}
+
+/** Is `ip` inside any of the parsed CIDRs? IPv6 is never matched (returns false). */
+export function ipMatches(ip: string, list: Cidr[]): boolean {
+  if (list.length === 0) return false;
+  const octets = ip.split('.');
+  if (octets.length !== 4) return false; // IPv6 / 'unknown' — no match, no crash
+  let v = 0;
+  for (const o of octets) {
+    const n = Number(o);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return false;
+    v = (v << 8) | n;
+  }
+  v = v >>> 0;
+  return list.some((c) => (v & c.mask) >>> 0 === c.base);
+}
+
+// Env lists are parsed once per process — they're deployment config, not per-request.
+let _allowList: Cidr[] | null = null;
+let _denyList: Cidr[] | null = null;
+function allowList(): Cidr[] {
+  if (_allowList === null) _allowList = parseCidrList(process.env.RATE_LIMIT_ALLOWLIST);
+  return _allowList;
+}
+function denyList(): Cidr[] {
+  if (_denyList === null) _denyList = parseCidrList(process.env.RATE_LIMIT_DENYLIST);
+  return _denyList;
+}
+/** Test seam — env lists are cached per process. */
+export function resetIpListsForTests(): void {
+  _allowList = null;
+  _denyList = null;
+}
+
+/**
+ * Normalise a peer address to a bare IPv4 when it is an IPv4-mapped IPv6
+ * (`::ffff:127.0.0.1`), which is what Bun reports for IPv4 clients. Without this
+ * the CIDR lists never match and every mapped client gets its own odd bucket key.
+ */
+export function normalizeIp(raw: string | undefined | null): string | undefined {
+  if (!raw) return undefined;
+  const s = raw.trim();
+  const m = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(s);
+  return m ? m[1] : s;
+}
+
 interface RateLimitConfig {
   windowMs: number;
   max: number;
@@ -128,6 +231,42 @@ function maybeWarnProxyMisconfig(c: Context): void {
   );
 }
 
+/**
+ * Client IP, honouring proxy headers ONLY behind TRUSTED_PROXY (otherwise any
+ * client could spoof its identity and dodge the limit). Extracted so the IP
+ * allow/deny lists can be consulted before any cache work.
+ */
+function resolveClientIp(c: Context): string {
+  maybeWarnProxyMisconfig(c);
+  const trustedProxy = process.env.TRUSTED_PROXY === 'true';
+  const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+  // Strict octets: a looser \d{1,3} would accept 999.999.999.999 and waste
+  // rate-limit slots on bogus identifiers.
+  const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+  const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
+  const forwardedIp =
+    trustedProxy &&
+    rawForwardedFor &&
+    (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
+      ? rawForwardedFor
+      : null;
+  const realIp = trustedProxy ? (c.req.header('x-real-ip') ?? null) : null;
+  // Last resort: the TCP peer. Without it, ALL unauthenticated non-proxied
+  // traffic collapses onto one `rl:<tier>:unknown` bucket — so a single abusive
+  // client can 429 every other anonymous client (a login DoS on /api/auth/*).
+  //
+  // Bun hands `{ server }` to fetch (see Bun.serve in index.ts) and exposes the
+  // peer via `server.requestIP(req)`. The previous `env.ip` / `env.incoming`
+  // reads are Node-adapter shapes and were ALWAYS undefined here, so this
+  // protection silently did nothing. Node shape kept as a fallback.
+  // biome-ignore lint/suspicious/noExplicitAny: hono env is adapter-specific
+  const env = c.env as any;
+  const connectionIp: string | undefined =
+    normalizeIp(env?.server?.requestIP?.(c.req.raw)?.address) ??
+    normalizeIp(env?.incoming?.socket?.remoteAddress);
+  return forwardedIp || realIp || connectionIp || 'unknown';
+}
+
 export function rateLimit(config: RateLimitConfig) {
   const { keyPrefix, message = 'Too Many Requests', db } = config;
 
@@ -151,6 +290,16 @@ export function rateLimit(config: RateLimitConfig) {
     // Skip rate limiting in test environment to allow integration tests to run
     if (process.env.NODE_ENV === 'test') return next();
 
+    // Operator IP lists (RATE_LIMIT_DENYLIST / RATE_LIMIT_ALLOWLIST, CIDR or bare
+    // IPv4, comma-separated). Deny wins — an explicitly blocked source shouldn't
+    // get to spend a cache round-trip. Allow exists for known-good infra
+    // (monitoring, an internal gateway) that would otherwise trip shared limits.
+    const listedIp = resolveClientIp(c);
+    if (ipMatches(listedIp, denyList())) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    if (ipMatches(listedIp, allowList())) return next();
+
     const cache = getCache();
 
     // Fallback in-memory when Redis is not available — fail CLOSED for safety
@@ -167,43 +316,23 @@ export function rateLimit(config: RateLimitConfig) {
 
     try {
       // Identifier: authenticated userId or client IP.
-      // x-forwarded-for is only trusted when behind a known proxy (TRUSTED_PROXY=true env var).
-      // Without this guard, any client can set the header to bypass per-IP rate limiting.
       const userId: string | undefined = session?.id;
-
-      maybeWarnProxyMisconfig(c);
-      const trustedProxy = process.env.TRUSTED_PROXY === 'true';
-      const rawForwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
-      // Validate the extracted IP as IPv4 or IPv6 before trusting it.
-      // Octet pattern is strict 0-255; a looser \d{1,3} would accept
-      // 999.999.999.999 and waste rate-limit slots on bogus identifiers.
-      const IPV4_RE =
-        /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
-      const IPV6_RE = /^[0-9a-f:]{2,39}$/i;
-      const forwardedIp =
-        trustedProxy &&
-        rawForwardedFor &&
-        (IPV4_RE.test(rawForwardedFor) || IPV6_RE.test(rawForwardedFor))
-          ? rawForwardedFor
-          : null;
-
-      // x-real-ip is also a proxy-injected header — only trust it behind a trusted proxy
-      const realIp = trustedProxy ? (c.req.header('x-real-ip') ?? null) : null;
-
-      // Last-resort fallback: actual TCP connection address, available via Hono's env
-      // depending on the adapter (Node.js: incoming.socket.remoteAddress, Bun: env.ip).
-      // Prevents all unauthenticated non-proxied traffic from sharing the same
-      // 'rl:api:unknown' rate-limit key, which would allow a single client to DoS others.
-      const connectionIp: string | undefined =
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        (c.env as any)?.incoming?.socket?.remoteAddress ?? (c.env as any)?.ip ?? undefined;
-
-      const ip = forwardedIp || realIp || connectionIp || 'unknown';
+      const ip = resolveClientIp(c);
       const identifier = userId ?? ip;
 
       const key = `rl:${keyPrefix}:${identifier}`;
+      const blockKey = `rl:block:${keyPrefix}:${identifier}`;
+      const penaltyKey = `rl:pen:${keyPrefix}:${identifier}`;
       const now = Date.now();
       const windowStart = now - windowMs;
+
+      // Already serving a cooldown? Short-circuit before touching the window —
+      // an abuser in penalty shouldn't cost us a pipeline per request.
+      const blockTtl = await cache.ttl(blockKey);
+      if (blockTtl > 0) {
+        c.header('Retry-After', String(blockTtl));
+        return c.json({ error: message }, 429);
+      }
 
       // Sliding window using a sorted set:
       // - ZREMRANGEBYSCORE removes entries outside the window
@@ -225,7 +354,20 @@ export function rateLimit(config: RateLimitConfig) {
       c.header('X-RateLimit-Reset', String(resetAt));
 
       if (count > max) {
-        c.header('Retry-After', String(windowSec));
+        // Over the limit → record the offence and escalate the cooldown. Repeat
+        // bursts cost progressively more; a first-time offender just waits out
+        // the normal window. Best-effort: if the penalty bookkeeping fails we
+        // still deny with the plain window rather than letting the request past.
+        let retryAfter = windowSec;
+        try {
+          const offences = await cache.incr(penaltyKey);
+          if (offences === 1) await cache.pexpire(penaltyKey, PENALTY_WINDOW_MS);
+          retryAfter = escalationSeconds(offences, windowSec);
+          if (offences > 1) await cache.set(blockKey, '1', 'EX', retryAfter);
+        } catch {
+          /* keep the plain window */
+        }
+        c.header('Retry-After', String(retryAfter));
         return c.json({ error: message }, 429);
       }
     } catch {
