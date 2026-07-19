@@ -566,10 +566,11 @@ async function submitForm() {
     } else if (editingId) {
       await api.patch(`${F.endpoint}/${editingId}`, jsonPayload());
     } else {
-      // biome-ignore lint/suspicious/noExplicitAny: response shape is per-extension
-      const created = (await api.post(F.endpoint, jsonPayload())) as any;
+      const created = (await api.post(F.endpoint, jsonPayload())) as Record<string, unknown>;
       if (F.reveal?.key) {
-        const v = F.reveal.key.split('.').reduce((a: any, k: string) => a?.[k], created);
+        const v = F.reveal.key
+          .split('.')
+          .reduce<unknown>((a, k) => (a as Record<string, unknown> | undefined)?.[k], created);
         if (typeof v === 'string' && v) revealValue = v;
       }
     }
