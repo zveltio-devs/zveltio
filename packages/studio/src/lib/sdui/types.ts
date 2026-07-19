@@ -163,6 +163,10 @@ export interface FormDef {
    * file field + the other fields). Omit for the default create/edit JSON call. */
   submit?: { kind: 'download' | 'upload' };
   /** Visual groupings; fields not in a section render first, ungrouped. */
+  /** After a successful CREATE, show this response field ONCE in a modal
+   * (secret minting — API tokens, SCIM bearer tokens). `key` is a dot-path
+   * into the POST response; `note` is an i18n key for the warning line. */
+  reveal?: { key: string; title?: string; note?: string };
   sections?: { title: string; fields: FieldDef[] }[];
   fields?: FieldDef[];
   /** ESCAPE HATCH 1: a repeatable line-item group (e.g. e-Transport goods). */

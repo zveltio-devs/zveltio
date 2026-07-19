@@ -115,6 +115,17 @@ let page = $state(1);
 let search = $state('');
 let filterValues = $state<Record<string, string>>({});
 
+// secret-reveal state (form.reveal): value shown exactly once after a create.
+let revealValue = $state<string | null>(null);
+let revealCopied = $state(false);
+async function copyReveal() {
+  if (revealValue) {
+    await navigator.clipboard.writeText(revealValue).catch(() => undefined);
+    revealCopied = true;
+    setTimeout(() => (revealCopied = false), 1500);
+  }
+}
+
 // form state
 let showForm = $state(false);
 let saving = $state(false);
@@ -555,7 +566,12 @@ async function submitForm() {
     } else if (editingId) {
       await api.patch(`${F.endpoint}/${editingId}`, jsonPayload());
     } else {
-      await api.post(F.endpoint, jsonPayload());
+      // biome-ignore lint/suspicious/noExplicitAny: response shape is per-extension
+      const created = (await api.post(F.endpoint, jsonPayload())) as any;
+      if (F.reveal?.key) {
+        const v = F.reveal.key.split('.').reduce((a: any, k: string) => a?.[k], created);
+        if (typeof v === 'string' && v) revealValue = v;
+      }
     }
     showForm = false;
     await load();
@@ -786,6 +802,24 @@ const shellTabs = $derived(
   <ConfirmModal open={confirmState.open} title={confirmState.title} message={confirmState.message}
     confirmLabel={confirmState.confirmLabel} confirmClass={confirmState.confirmClass}
     onconfirm={runConfirmAction} oncancel={cancelConfirm} />
+
+  {#if revealValue && active.form?.reveal}
+    <dialog class="modal modal-open">
+      <div class="modal-box max-w-xl">
+        <h3 class="font-bold text-lg">{t(active.form.reveal.title ?? 'ext.reveal.title')}</h3>
+        <p class="text-sm text-warning py-2">{t(active.form.reveal.note ?? 'ext.reveal.note')}</p>
+        <div class="flex items-center gap-2">
+          <code class="bg-base-200 rounded px-3 py-2 text-sm break-all flex-1 select-all">{revealValue}</code>
+          <button class="btn btn-sm btn-primary" onclick={copyReveal}>
+            {revealCopied ? t('ext.copied') : t('ext.reveal.copy')}
+          </button>
+        </div>
+        <div class="modal-action">
+          <button class="btn btn-sm" onclick={() => (revealValue = null)}>{t('common.close')}</button>
+        </div>
+      </div>
+    </dialog>
+  {/if}
 </ExtensionPageShell>
 
 {#if showForm && active.form}
