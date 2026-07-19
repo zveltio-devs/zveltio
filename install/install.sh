@@ -885,6 +885,35 @@ WRAPPER_EOF
     EXEC_START="/usr/local/bin/bun ${ZVELTIO_DIR}/index.js"
   fi
 
+  # ── External KMS hook (opt-in) ──────────────────────────────────────────────
+  # If the operator sets ZVELTIO_KEY_COMMAND in .env (e.g. a vault/aws-kms/sops
+  # CLI that prints KEY=VALUE lines), this ExecStartPre fetches the secrets into
+  # .env.kms right before every start — so FIELD_ENCRYPTION_KEY & friends can
+  # live in a KMS instead of on disk. Unset ⇒ complete no-op. Configured-but-
+  # failing ⇒ the service refuses to start (never boot with missing keys).
+  cat > "${ZVELTIO_DIR}/kms-fetch.sh" << 'KMSEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+# Read only the ZVELTIO_KEY_COMMAND line — we must not re-export the whole .env.
+CMD="$( (grep -E '^ZVELTIO_KEY_COMMAND=' "${DIR}/.env" 2>/dev/null || true) | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+if [[ -z "${CMD}" ]]; then
+  rm -f "${DIR}/.env.kms"
+  exit 0
+fi
+OUT="$(bash -c "${CMD}")" || { echo "[kms-fetch] ZVELTIO_KEY_COMMAND failed — refusing to start without keys" >&2; exit 1; }
+# Accept only KEY=VALUE lines; anything else means the command's output format
+# is wrong and booting with partial keys would be worse than not booting.
+if ! grep -qE '^[A-Z_][A-Z0-9_]*=' <<< "${OUT}"; then
+  echo "[kms-fetch] ZVELTIO_KEY_COMMAND produced no KEY=VALUE lines — refusing to start" >&2
+  exit 1
+fi
+umask 077
+grep -E '^[A-Z_][A-Z0-9_]*=' <<< "${OUT}" > "${DIR}/.env.kms"
+KMSEOF
+  chmod 750 "${ZVELTIO_DIR}/kms-fetch.sh"
+  chown "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/kms-fetch.sh"
+
   cat > /etc/systemd/system/zveltio.service << EOF
 [Unit]
 Description=Zveltio Business OS Engine
@@ -894,7 +923,9 @@ Wants=postgresql.service valkey.service seaweedfs.service
 [Service]
 User=${ZVELTIO_USER}
 WorkingDirectory=${ZVELTIO_DIR}
+ExecStartPre=${ZVELTIO_DIR}/kms-fetch.sh
 EnvironmentFile=${ZVELTIO_DIR}/.env
+EnvironmentFile=-${ZVELTIO_DIR}/.env.kms
 ExecStart=${EXEC_START}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Restart=always
