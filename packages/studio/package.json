@@ -16,13 +16,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "i18n:merge": "bun scripts/merge-extension-messages.ts",
-    "i18n:compile": "bun run i18n:merge && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
-    "i18n:split": "bun scripts/split-messages-to-extensions.ts",
-    "i18n:confirm-modal": "bun scripts/migrate-confirm-modal.ts && bun scripts/dedupe-imports.ts",
-    "ext:nav-group": "bun scripts/patch-manifest-nav-group.ts",
-    "i18n:ext-batch": "bun scripts/batch-extension-i18n.ts && bun scripts/fix-ext-h1-i18n.ts",
-    "i18n:ext-complete": "bun scripts/batch-extension-i18n.ts && bun scripts/complete-extension-i18n.ts && bun scripts/i18n-string-sweep.ts",
-    "i18n:100": "bun scripts/full-i18n-100.ts && bun scripts/fix-i18n-syntax.ts && bun scripts/i18n-pass-2.ts && bun scripts/i18n-mail-trace-finish.ts && bun scripts/i18n-next-batch.ts && bun scripts/i18n-batch-commerce.ts && bun scripts/i18n-batch-compliance-media.ts && bun scripts/i18n-batch-developer-compliance.ts && bun scripts/i18n-batch-ai-edge.ts && bun scripts/fix-broken-onclick.ts && bun scripts/wrap-extension-shell.ts && bun scripts/fix-shell-wrap.ts && bun scripts/i18n-final-sweep.ts && bun scripts/i18n-remaining-all.ts && bun scripts/i18n-pass3.ts && bun scripts/i18n-pass4.ts && bun scripts/complete-extension-i18n.ts && bun scripts/i18n-string-sweep.ts && bun run sync-ext && bun run i18n:compile"
+    "i18n:compile": "bun run i18n:merge && paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.18.0",
