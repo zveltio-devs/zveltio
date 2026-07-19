@@ -21,7 +21,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.29",
+      "version": "3.0.0-beta.32",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -36,7 +36,7 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.29",
+      "version": "3.0.0-beta.32",
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
@@ -50,6 +50,7 @@
         "@sveltejs/vite-plugin-svelte": "^6.2.4",
         "@tailwindcss/vite": "^4.1.0",
         "@types/leaflet": "^1.9.21",
+        "@types/node": "^22.10.0",
         "@types/qrcode": "^1.5.6",
         "daisyui": "^5.0.0",
         "svelte": "^5.49.2",
@@ -61,7 +62,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.29",
+      "version": "3.0.0-beta.32",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.6.23",
         "@better-auth/passkey": "^1.6.23",
@@ -95,7 +96,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.29",
+      "version": "3.0.0-beta.32",
       "dependencies": {
         "idb": "^8.0.0",
       },
@@ -119,7 +120,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.29",
+      "version": "3.0.0-beta.32",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -135,7 +136,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.29",
+      "version": "3.0.0-beta.32",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -149,7 +150,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.29",
+      "version": "3.0.0-beta.32",
       "dependencies": {
         "@inlang/paraglide-js": "^2.18.0",
         "@lucide/svelte": "^0.577.0",
