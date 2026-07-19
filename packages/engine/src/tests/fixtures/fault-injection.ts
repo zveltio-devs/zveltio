@@ -81,8 +81,7 @@ export async function spawnEngine(opts: {
   });
   const db = createDb(dbUrl);
   await sql`UPDATE "user" SET role = 'god' WHERE email = ${godEmail}`.execute(db);
-  // biome-ignore lint/suspicious/noExplicitAny: Kysely destroy is untyped on the alias
-  await (db as any).destroy?.();
+  await (db as { destroy?: () => Promise<void> }).destroy?.();
 
   const signin = await fetch(`${baseUrl}/api/auth/sign-in/email`, {
     method: 'POST',
