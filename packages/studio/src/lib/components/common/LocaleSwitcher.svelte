@@ -12,6 +12,11 @@ const labels: Record<string, () => string> = {
   ro: () => m['shell.localeRo'](),
   fr: () => m['shell.localeFr'](),
   de: () => m['shell.localeDe'](),
+  es: () => m['shell.localeEs'](),
+  it: () => m['shell.localeIt'](),
+  pl: () => m['shell.localePl'](),
+  nl: () => m['shell.localeNl'](),
+  hu: () => m['shell.localeHu'](),
 };
 </script>
 
