@@ -557,6 +557,16 @@ export interface ZvContentDraftsTable {
   tenant_id: string | null;
 }
 
+export interface ZvDashboardLayoutsTable {
+  id: Generated<string>;
+  scope: 'role' | 'user';
+  owner: string;
+  widgets: Generated<unknown>;
+  updated_by: string | null;
+  updated_at: Generated<Date>;
+  tenant_id: string | null;
+}
+
 export interface ZvDashboardsTable {
   id: Generated<string>;
   name: string;
@@ -1493,6 +1503,32 @@ export interface ZvMigrationsTable {
   down_sql: string | null;
 }
 
+export interface ZvMigratorConnectionsTable {
+  id: Generated<string>;
+  source: 'hubspot' | 'notion' | 'airtable';
+  name: string;
+  token_enc: string;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  tenant_id: string | null;
+}
+
+export interface ZvMigratorRunsTable {
+  id: Generated<string>;
+  connection_id: string | null;
+  source: string;
+  source_object: string;
+  target_collection: string;
+  status: Generated<'running' | 'completed' | 'failed'>;
+  total_rows: Generated<number>;
+  imported_rows: Generated<number>;
+  error: string | null;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  completed_at: Date | null;
+  tenant_id: string | null;
+}
+
 export interface ZvNotificationsTable {
   id: Generated<string>;
   user_id: string;
@@ -1530,6 +1566,15 @@ export interface ZvPageBlockTypesTable {
   default_props: Generated<unknown>;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
+  tenant_id: string | null;
+}
+
+export interface ZvPageMenusTable {
+  id: Generated<string>;
+  menu_key: string;
+  items: Generated<unknown>;
+  updated_by: string | null;
+  updated_at: Generated<Date>;
   tenant_id: string | null;
 }
 
@@ -2106,6 +2151,23 @@ export interface ZvSchemaVersionsTable {
   rolled_back_at: Date | null;
 }
 
+export interface ZvScimTokensTable {
+  id: Generated<string>;
+  name: string;
+  token_hash: string;
+  created_by: string | null;
+  created_at: Generated<Date>;
+  last_used_at: Date | null;
+}
+
+export interface ZvScimUsersTable {
+  user_id: Generated<string>;
+  external_id: string | null;
+  active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvSearchIndexesTable {
   id: Generated<string>;
   collection: string;
@@ -2473,10 +2535,10 @@ export interface ZvdAssetsTable {
   purchase_date: Date;
   purchase_cost: number;
   residual_value: Generated<number>;
-  useful_life_months: Generated<number>;
+  useful_life_years: Generated<number>;
   depreciation_method: Generated<'straight_line' | 'declining_balance' | 'none'>;
   accumulated_depreciation: Generated<number>;
-  current_book_value: number;
+  current_value: Generated<number>;
   location: string | null;
   serial_number: string | null;
   supplier: string | null;
@@ -2489,6 +2551,7 @@ export interface ZvdAssetsTable {
   updated_at: Generated<Date>;
   depreciation_account_id: string | null;
   accumulated_dep_account_id: string | null;
+  next_maintenance_date: Date | null;
   tenant_id: string | null;
 }
 
@@ -2511,8 +2574,10 @@ export interface ZvdBankAccountsTable {
   bank_name: string;
   iban: string | null;
   currency: Generated<string>;
-  current_balance: Generated<number>;
-  type: Generated<'checking' | 'savings' | 'credit' | 'cash'>;
+  balance: Generated<number>;
+  opening_balance: Generated<number>;
+  notes: string | null;
+  account_type: Generated<'checking' | 'savings' | 'credit' | 'cash'>;
   is_active: Generated<boolean>;
   color: Generated<string | null>;
   created_by: string;
@@ -2593,6 +2658,7 @@ export interface ZvdBankTransactionsTable {
   matched_invoice_id: string | null;
   matched_expense_id: string | null;
   auto_categorized: Generated<boolean>;
+  is_reconciled: Generated<boolean>;
   tenant_id: string | null;
 }
 
@@ -5232,6 +5298,7 @@ export interface DbSchema {
   zv_cloud_trash: ZvCloudTrashTable;
   zv_collection_publish_settings: ZvCollectionPublishSettingsTable;
   zv_content_drafts: ZvContentDraftsTable;
+  zv_dashboard_layouts: ZvDashboardLayoutsTable;
   zv_dashboards: ZvDashboardsTable;
   zv_ddl_jobs: ZvDdlJobsTable;
   zv_doc_templates: ZvDocTemplatesTable;
@@ -5295,9 +5362,12 @@ export interface DbSchema {
   zv_media_tags: ZvMediaTagsTable;
   zv_media_versions: ZvMediaVersionsTable;
   zv_migrations: ZvMigrationsTable;
+  zv_migrator_connections: ZvMigratorConnectionsTable;
+  zv_migrator_runs: ZvMigratorRunsTable;
   zv_notifications: ZvNotificationsTable;
   zv_page_ab_variants: ZvPageAbVariantsTable;
   zv_page_block_types: ZvPageBlockTypesTable;
+  zv_page_menus: ZvPageMenusTable;
   zv_page_metrics: ZvPageMetricsTable;
   zv_page_redirects: ZvPageRedirectsTable;
   zv_page_revisions: ZvPageRevisionsTable;
@@ -5336,6 +5406,8 @@ export interface DbSchema {
   zv_saved_queries: ZvSavedQueriesTable;
   zv_schema_branches: ZvSchemaBranchesTable;
   zv_schema_versions: ZvSchemaVersionsTable;
+  zv_scim_tokens: ZvScimTokensTable;
+  zv_scim_users: ZvScimUsersTable;
   zv_search_indexes: ZvSearchIndexesTable;
   zv_settings: ZvSettingsTable;
   zv_slow_queries: ZvSlowQueriesTable;
