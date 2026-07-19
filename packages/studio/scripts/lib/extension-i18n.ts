@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
-export const LOCALES = ['en', 'ro', 'fr', 'de'] as const;
+export const LOCALES = ['en', 'ro', 'fr', 'de', 'es', 'it', 'pl', 'nl', 'hu'] as const;
 export type Locale = (typeof LOCALES)[number];
 
 export const CORE_PREFIXES = new Set([
