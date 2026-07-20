@@ -103,6 +103,7 @@ function handleThemeToggle() {
 			class="btn btn-ghost btn-circle btn-sm"
 			onclick={handleThemeToggle}
 			title="Toggle theme"
+			aria-label="Toggle theme"
 		>
 			{#if currentTheme === 'light'}
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -122,6 +123,7 @@ function handleThemeToggle() {
 					tabindex="0"
 					class="btn btn-ghost btn-circle btn-sm"
 					title="Change position"
+					aria-label="Change navbar position"
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -139,7 +141,7 @@ function handleThemeToggle() {
 		<!-- User Menu -->
 		{#if user}
 			<div class="dropdown {isVertical ? 'dropdown-right' : 'dropdown-end'}">
-				<button tabindex="0" class="btn btn-ghost btn-circle avatar placeholder">
+				<button tabindex="0" class="btn btn-ghost btn-circle avatar placeholder" aria-label="User menu">
 					{#if user.avatar}
 						<div class="w-10 rounded-full">
 							<img src={user.avatar} alt={user.name} />

@@ -272,7 +272,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
             </span>
           </div>
 
-          <div class="border border-base-300 rounded-xl overflow-hidden">
+          <div class="border border-base-300 rounded-xl overflow-x-auto">
             <table class="table table-sm w-full">
               <thead class="bg-base-200">
                 <tr>
@@ -316,7 +316,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
             </span>
           </div>
 
-          <div class="border border-base-300 rounded-xl overflow-hidden">
+          <div class="border border-base-300 rounded-xl overflow-x-auto">
             <table class="table table-sm w-full">
               <thead class="bg-base-200">
                 <tr>
