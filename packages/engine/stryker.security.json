@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Mutation testing for the security-critical, PURE modules (entity/column authorization + rate-limit escalation/CIDR). Uses the command runner over `bun test` (the engine's runner isn't a Stryker plugin, but the command runner re-runs any test command per mutant). Scoped to fast, DB-free unit tests so a full run is a few minutes. Run: `bun run test:mutation` with the TEST_* env set (see CI).",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "bun test src/tests/unit/entity-access.test.ts src/tests/unit/column-permissions.test.ts src/tests/unit/rate-limit-adaptive.test.ts"
+  },
+  "mutate": ["src/lib/tenancy/entity-access.ts", "src/lib/tenancy/column-permissions.ts"],
+  "reporters": ["clear-text", "html", "json"],
+  "htmlReporter": { "fileName": "reports/mutation/security.html" },
+  "jsonReporter": { "fileName": "reports/mutation/security.json" },
+  "coverageAnalysis": "off",
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "thresholds": { "high": 80, "low": 60, "break": 50 }
+}
