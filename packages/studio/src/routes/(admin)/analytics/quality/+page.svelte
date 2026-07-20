@@ -22,11 +22,11 @@ async function loadAll() {
   try {
     const [s, c] = await Promise.all([
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ data: any[] }>('/ext/analytics/quality/scans'),
+      api.get<{ scans: any[] }>('/ext/analytics/quality/scans'),
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       api.get<{ collections: any[] }>('/api/collections').catch(() => ({ collections: [] })),
     ]);
-    scans = s.data ?? [];
+    scans = s.scans ?? [];
     collections = c.collections ?? [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
@@ -40,12 +40,16 @@ async function runScan() {
   if (!selectedCollection) return;
   scanning = true;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.post<{ issues: any[] }>('/ext/analytics/quality/scans', {
+    // The scan runs asynchronously server-side (202 + scan_id); give it a
+    // moment to complete, then surface its issues.
+    const r = await api.post<{ scan_id: string }>('/ext/analytics/quality/scan', {
       collection: selectedCollection,
+      scan_type: 'full',
     });
-    issues = r.issues ?? [];
+    await new Promise((res) => setTimeout(res, 2500));
+    if (r.scan_id) await viewIssues(r.scan_id);
     await loadAll();
+    toast.success('Scan complete');
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e?.message ?? 'Scan failed');
@@ -57,8 +61,8 @@ async function runScan() {
 async function viewIssues(scanId: string) {
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>(`/ext/analytics/quality/scans/${scanId}/issues`);
-    issues = r.data ?? [];
+    const r = await api.get<{ issues: any[] }>(`/ext/analytics/quality/scan/${scanId}/issues`);
+    issues = r.issues ?? [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
@@ -112,7 +116,7 @@ function severityBadge(s: string) {
                   <tr class="hover">
                     <td class="text-sm">{s.collection}</td>
                     <td class="text-xs text-base-content/50">{s.created_at?.slice(0, 16).replace('T', ' ')}</td>
-                    <td><span class="badge badge-sm">{s.issue_count ?? 0}</span></td>
+                    <td><span class="badge badge-sm">{s.issues_found ?? 0}</span></td>
                     <td><button class="btn btn-ghost btn-xs" onclick={() => viewIssues(s.id)}>{m['common.view']()}</button></td>
                   </tr>
                 {/each}
