@@ -35,9 +35,12 @@ const dict: Record<string, Partial<Record<Locale, string>>> = JSON.parse(
 function enFiles(): string[] {
   const out = [join(STUDIO, 'messages/core/en.json')];
   if (existsSync(EXT_ROOT)) {
-    const found = execSync(`find . -path "*/studio/messages/en.json" -not -path "*/node_modules/*"`, {
-      cwd: EXT_ROOT,
-    })
+    const found = execSync(
+      `find . -path "*/studio/messages/en.json" -not -path "*/node_modules/*"`,
+      {
+        cwd: EXT_ROOT,
+      },
+    )
       .toString()
       .trim()
       .split('\n')
@@ -82,7 +85,11 @@ console.log(`unique strings still falling back to English: ${stillEnglish.length
 if (process.argv.includes('--list-missing')) {
   writeFileSync(
     join(import.meta.dir, 'i18n-missing.json'),
-    JSON.stringify(stillEnglish.sort((a, b) => a.localeCompare(b)), null, 0),
+    JSON.stringify(
+      stillEnglish.sort((a, b) => a.localeCompare(b)),
+      null,
+      0,
+    ),
   );
   console.log('→ wrote scripts/i18n-missing.json');
 }

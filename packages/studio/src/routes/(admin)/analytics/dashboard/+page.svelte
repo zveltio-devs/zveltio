@@ -1,72 +1,84 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
-  import { Save, Eye, LoaderCircle } from '@lucide/svelte';
+import { m } from '$lib/i18n.svelte.js';
+import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { onMount } from 'svelte';
+import { api } from '$lib/api.js';
+import { toast } from '$lib/stores/toast.svelte.js';
+import { Save, Eye, LoaderCircle } from '@lucide/svelte';
 
-  // IT composes the default dashboard each role inherits. Users personalize on
-  // top of it in the client app; a user never sees a widget their role's
-  // permissions disallow, whatever is set here.
+// IT composes the default dashboard each role inherits. Users personalize on
+// top of it in the client app; a user never sees a widget their role's
+// permissions disallow, whatever is set here.
 
-  type WidgetMeta = { id: string; removable: boolean; permission: { resource: string; action: string } | null };
-  type Catalog = { catalog: WidgetMeta[]; roles: string[]; default: string[] };
-  type RoleLayout = { role: string; widgets: string[]; configured: boolean };
+type WidgetMeta = {
+  id: string;
+  removable: boolean;
+  permission: { resource: string; action: string } | null;
+};
+type Catalog = { catalog: WidgetMeta[]; roles: string[]; default: string[] };
+type RoleLayout = { role: string; widgets: string[]; configured: boolean };
 
-  const LABELS: Record<string, string> = {
-    welcome: 'Welcome', health: 'System health', people: 'People',
-    data: 'Data & records', activity: 'Recent activity', trust: 'Data protection',
-  };
+const LABELS: Record<string, string> = {
+  welcome: 'Welcome',
+  health: 'System health',
+  people: 'People',
+  data: 'Data & records',
+  activity: 'Recent activity',
+  trust: 'Data protection',
+};
 
-  let cat = $state<Catalog | null>(null);
-  let roles = $state<string[]>([]);
-  let selectedRole = $state('');
-  let draft = $state<Record<string, boolean>>({});
-  let configured = $state(false);
-  let loading = $state(true);
-  let saving = $state(false);
+let cat = $state<Catalog | null>(null);
+let roles = $state<string[]>([]);
+let selectedRole = $state('');
+let draft = $state<Record<string, boolean>>({});
+let configured = $state(false);
+let loading = $state(true);
+let saving = $state(false);
 
-  onMount(async () => {
-    try {
-      const c = await api.get<Catalog>('/ext/analytics/dashboard/admin/catalog');
-      cat = c;
-      roles = Array.from(new Set([...c.roles, 'god', 'admin', 'editor', 'viewer'])).sort();
-      if (roles.length) await selectRole(roles.includes('editor') ? 'editor' : roles[0]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to load');
-    } finally {
-      loading = false;
-    }
-  });
-
-  async function selectRole(role: string) {
-    selectedRole = role;
-    const layout = await api.get<RoleLayout>(`/ext/analytics/dashboard/admin/role/${encodeURIComponent(role)}`);
-    configured = layout.configured;
-    const shown = new Set(layout.widgets);
-    draft = Object.fromEntries((cat?.catalog ?? []).map((w) => [w.id, shown.has(w.id)]));
+onMount(async () => {
+  try {
+    const c = await api.get<Catalog>('/ext/analytics/dashboard/admin/catalog');
+    cat = c;
+    roles = Array.from(new Set([...c.roles, 'god', 'admin', 'editor', 'viewer'])).sort();
+    if (roles.length) await selectRole(roles.includes('editor') ? 'editor' : roles[0]);
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Failed to load');
+  } finally {
+    loading = false;
   }
+});
 
-  async function save() {
-    if (!cat) return;
-    saving = true;
-    try {
-      const widgets = cat.catalog.filter((w) => draft[w.id]).map((w) => w.id);
-      const res = await api.put<RoleLayout>(
-        `/ext/analytics/dashboard/admin/role/${encodeURIComponent(selectedRole)}`,
-        { widgets },
-      );
-      configured = res.configured;
-      toast.success('Saved');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Save failed');
-    } finally {
-      saving = false;
-    }
+async function selectRole(role: string) {
+  selectedRole = role;
+  const layout = await api.get<RoleLayout>(
+    `/ext/analytics/dashboard/admin/role/${encodeURIComponent(role)}`,
+  );
+  configured = layout.configured;
+  const shown = new Set(layout.widgets);
+  draft = Object.fromEntries((cat?.catalog ?? []).map((w) => [w.id, shown.has(w.id)]));
+}
+
+async function save() {
+  if (!cat) return;
+  saving = true;
+  try {
+    const widgets = cat.catalog.filter((w) => draft[w.id]).map((w) => w.id);
+    const res = await api.put<RoleLayout>(
+      `/ext/analytics/dashboard/admin/role/${encodeURIComponent(selectedRole)}`,
+      { widgets },
+    );
+    configured = res.configured;
+    toast.success('Saved');
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Save failed');
+  } finally {
+    saving = false;
   }
+}
 
-  const selectedWidgets = $derived(cat ? cat.catalog.filter((w) => draft[w.id]).map((w) => w.id) : []);
+const selectedWidgets = $derived(
+  cat ? cat.catalog.filter((w) => draft[w.id]).map((w) => w.id) : [],
+);
 </script>
 
 <ExtensionPageShell title={m['analytics.dashboard.title']()} subtitle={m['analytics.dashboard.subtitle']()}>
