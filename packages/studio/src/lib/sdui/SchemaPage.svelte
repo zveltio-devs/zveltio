@@ -136,7 +136,10 @@ let formData = $state<Record<string, any>>({});
 let relationOpts = $state<Record<string, { value: string; label: string }[]>>({});
 
 async function loadRelations(r: ResourceView) {
-  for (const f of allFields(r)) {
+  // Top-level/section fields plus repeatable line-item columns (so a line's
+  // relation column — e.g. an account picker — gets its dropdown options too).
+  const fields = [...allFields(r), ...(r.form?.repeatable?.columns ?? [])];
+  for (const f of fields) {
     if (f.type !== 'relation' || !f.relation || relationOpts[f.name]) continue;
     try {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -886,7 +889,16 @@ const shellTabs = $derived(
               {#each (formData[rep.name] ?? []) as _, i}
                 <tr>
                   {#each rep.columns as c}
-                    <td><input class="input input-xs {c.mono ? 'font-mono' : ''}" type={c.type ?? 'text'} bind:value={formData[rep.name][i][c.name]} /></td>
+                    <td>
+                      {#if c.type === 'relation'}
+                        <select class="select select-xs w-40" bind:value={formData[rep.name][i][c.name]}>
+                          <option value="">—</option>
+                          {#each relationOpts[c.name] ?? [] as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+                        </select>
+                      {:else}
+                        <input class="input input-xs {c.mono ? 'font-mono' : ''}" type={c.type ?? 'text'} bind:value={formData[rep.name][i][c.name]} />
+                      {/if}
+                    </td>
                   {/each}
                   <td>{#if (formData[rep.name]?.length ?? 0) > (rep.min ?? 0)}<button class="btn btn-ghost btn-xs text-error" onclick={() => removeRepeatRow(i)}>✕</button>{/if}</td>
                 </tr>
