@@ -19,6 +19,7 @@
     "format": "biome format --write src",
     "format:check": "biome format src",
     "test": "bun test",
+    "test:mutation": "stryker run stryker.security.json",
     "test:watch": "bun test --watch",
     "test:unit": "bun test src/tests/unit",
     "test:unit:coverage": "bun test src/tests/unit --coverage --coverage-reporter=lcov --coverage-dir=coverage",
@@ -50,6 +51,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
     "@types/nodemailer": "^6.4.17",
     "@zveltio/sdk": "workspace:*",
     "bun-types": "latest",

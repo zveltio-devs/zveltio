@@ -89,14 +89,29 @@ describe('EntityAccessRegistryImpl', () => {
   it('scope(extName) tags ownership and unregisters cleanly', async () => {
     const aScope = registry.scope('a');
     const bScope = registry.scope('b');
-    aScope.register({ table: 'zvd_x', check: () => 'deny' });
-    bScope.register({ table: 'zvd_x', check: () => 'allow' });
+    // Distinct tables per owner so the ownership + table filters are actually
+    // exercised (same table for both would mask a broken filter).
+    aScope.register({ table: 'zvd_a', check: () => 'deny' });
+    bScope.register({ table: 'zvd_b', check: () => 'allow' });
+
+    // count() total vs count(table) must differ.
     expect(registry.count()).toBe(2);
-    expect(aScope.list()).toEqual([{ table: 'zvd_x' }]);
+    expect(registry.count('zvd_a')).toBe(1);
+
+    // scope.list() returns ONLY this owner's tables.
+    expect(aScope.list()).toEqual([{ table: 'zvd_a' }]);
+    expect(bScope.list()).toEqual([{ table: 'zvd_b' }]);
+
+    // registry.list() returns owner+table for every entry.
+    expect(registry.list()).toEqual([
+      { owner: 'a', table: 'zvd_a' },
+      { owner: 'b', table: 'zvd_b' },
+    ]);
 
     aScope.unregisterAll();
     expect(registry.count()).toBe(1);
-    expect(await registry.isAllowed('zvd_x', {}, {}, 'view')).toBe(true);
+    expect(registry.list()).toEqual([{ owner: 'b', table: 'zvd_b' }]);
+    expect(await registry.isAllowed('zvd_a', {}, {}, 'view')).toBe(true);
   });
 
   it('clear() wipes everything (test helper)', () => {
