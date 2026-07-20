@@ -860,7 +860,7 @@ const shellTabs = $derived(
       {/snippet}
 
       {#if F.fields}
-        <div class="grid grid-cols-2 gap-3 mb-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           {#each F.fields as f}{@render fieldInput(f)}{/each}
         </div>
       {/if}
@@ -868,7 +868,7 @@ const shellTabs = $derived(
       {#each F.sections ?? [] as sec}
         <div class="card bg-base-200 p-3 mb-3">
           <p class="font-semibold text-sm mb-2">{t(sec.title)}</p>
-          <div class="grid grid-cols-2 gap-3">{#each sec.fields as f}{@render fieldInput(f)}{/each}</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">{#each sec.fields as f}{@render fieldInput(f)}{/each}</div>
         </div>
       {/each}
 
@@ -879,6 +879,7 @@ const shellTabs = $derived(
             <p class="font-semibold text-sm">{t(rep.label)}</p>
             <button class="btn btn-ghost btn-xs" onclick={addRepeatRow}>{t(rep.addLabel)}</button>
           </div>
+          <div class="overflow-x-auto">
           <table class="table table-xs">
             <thead><tr>{#each rep.columns as c}<th>{t(c.label)}</th>{/each}<th></th></tr></thead>
             <tbody>
@@ -892,6 +893,7 @@ const shellTabs = $derived(
               {/each}
             </tbody>
           </table>
+          </div>
         </div>
       {/if}
 
