@@ -421,7 +421,7 @@ function removeSort(i: number) {
       <div class="w-64 shrink-0 flex flex-col border-r border-base-200">
         <div class="p-3 border-b border-base-200 flex items-center justify-between">
           <span class="text-sm font-medium">Saved Queries</span>
-          <button class="btn btn-ghost btn-xs" onclick={newQuery}>+</button>
+          <button class="btn btn-ghost btn-xs" onclick={newQuery} aria-label="New query">+</button>
         </div>
         <div class="flex-1 overflow-y-auto">
           {#each filtered as q}
