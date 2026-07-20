@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-15",
+  "generated": "2026-07-20",
   "note": "Engine line coverage ratchet. Gated buckets may not drop more than maxDropPct below `measured`. Measured over the HONEST combined surface: the unit lcov UNIONed with the Phase C in-process harness lcov (scripts/merge-coverage.ts). See docs/HARDENING-9-PLAN.md H-02.",
   "targetNote": "target.lib=90 is the autonomous coverage campaign goal for the lib/ business-logic core. The gate measures the HONEST combined number: unit lcov UNIONed with the in-process harness lcov (scripts/merge-coverage.ts). Harness route suites (src/tests/harness/) plus focused unit tests climb toward 90%. External-service wiring (better-auth, S3, pg-boss, ioredis, Bun.SQL.subscribe, OTel SDK) + defensive catch-branches remain for integration/soak suites.\n\n2026-07-15: measured.lib jumped 88.8 -> 96.7 WITHOUT new tests. This is not inflation. merge-coverage.ts stopped counting non-executable lines: bun's lcov emits DA records for // comments and blank lines and scores them hits=0, which across src/ charged 1663 comment + 1476 blank lines (92 of 157 files) to the denominator. Hit counts were unaffected; only the denominator dropped. The number now means what it says -- percent of EXECUTABLE lib lines covered. target.lib stays 90: it is met with real headroom, and the 0.5pt ratchet is what guards erosion from here.",
   "source": "union of `bun test src/tests/unit --coverage` and `bun test src/tests/harness --coverage` lcovs via scripts/merge-coverage.ts (per-line DA hit union, non-executable lines excluded)",
@@ -7,12 +7,12 @@
   "target": {
     "lib": 90
   },
-  "routesNote": "2026-07-20: `routes` joined the RATCHET (gated) but deliberately has NO entry in `target`. Rationale: every authz bug in this project's history landed in routes/ -- the 9 fixed in the security audit, the tenant-isolation campaign, the storage IDOR -- yet the layer with the highest historical bug incidence was the one bucket nothing guarded, free to erode. Gating it pins routes at its current 59.7% via maxDropPct, which is the actual goal (stop erosion where bugs happen), and costs nothing today. It has no `target` on purpose: release-gate.ts skips buckets without one, so this does NOT introduce a new 3.0.0 blocker. Raising it to a real bar (65 was proposed) is an OWNER call, because that WOULD block the cut until routes coverage is written.",
+  "routesNote": "`routes` is gated on the RATCHET with deliberately NO `target` entry. Rationale: every authz bug in this project's history landed in routes/ -- the 9 fixed in the security audit, the tenant-isolation campaign, the storage IDOR -- so the ratchet stops erosion where bugs actually happen. 2026-07-20: measured routes raised 59.7 -> 62.7 by adding in-process harness suites for insights (panels/shares/subscriptions), zones (pages/views/render), and approvals (submit/decide/cancel) -- 44 tests, which also surfaced+fixed two real 500s (insights share ON CONFLICT without a target; zones duplicate-slug now 409 not 500). Remaining routes gap is dominated by external-service wiring (backup=pg_dump/gzip/fs, realtime/ws/electric pub-sub, storage/media = S3) that belongs in integration/soak, not the harness -- so a hard `target` of 90 on routes is NOT reachable here and would block the 3.0.0 cut. Setting any real routes bar stays an OWNER call; until then the ratchet pins the new 62.7 floor.",
   "gated": ["lib", "routes"],
   "measured": {
-    "lib": 96.7,
-    "other": 68.8,
-    "routes": 59.7,
-    "src-other": 51.8
+    "lib": 96.6,
+    "other": 68.3,
+    "routes": 62.7,
+    "src-other": 51.3
   }
 }
