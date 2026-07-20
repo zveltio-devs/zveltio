@@ -15,6 +15,6 @@ let {
 <div class="alert alert-{type}">
     <span>{message}</span>
     {#if dismissible}
-        <button class="btn btn-sm btn-ghost btn-circle" onclick={onDismiss}>✕</button>
+        <button class="btn btn-sm btn-ghost btn-circle" onclick={onDismiss} aria-label="Dismiss">✕</button>
     {/if}
 </div>

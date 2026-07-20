@@ -105,7 +105,7 @@ function makeShare(e: any) {
 async function createShare() {
   if (!selected) return;
   try {
-    const r = await api.post<{ share_url?: string; token?: string }>('/ext/storage/cloud/shares', {
+    const r = await api.post<{ share_url?: string; token?: string }>('/ext/storage/cloud/share', {
       file_id: selected.id,
       ...shareForm,
     });
