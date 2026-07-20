@@ -5,10 +5,7 @@
   "commandRunner": {
     "command": "bun test src/tests/unit/entity-access.test.ts src/tests/unit/column-permissions.test.ts src/tests/unit/rate-limit-adaptive.test.ts"
   },
-  "mutate": [
-    "src/lib/tenancy/entity-access.ts",
-    "src/lib/tenancy/column-permissions.ts"
-  ],
+  "mutate": ["src/lib/tenancy/entity-access.ts", "src/lib/tenancy/column-permissions.ts"],
   "reporters": ["clear-text", "html", "json"],
   "htmlReporter": { "fileName": "reports/mutation/security.html" },
   "jsonReporter": { "fileName": "reports/mutation/security.json" },
