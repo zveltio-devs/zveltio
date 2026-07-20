@@ -1,0 +1,36 @@
+# Blocăm folderele masive de dependințe și build
+node_modules/
+dist/
+build/
+packages/engine/src/studio-dist/
+packages/engine/src/studio-embed/
+.next/
+.turbo/
+.cache/
+
+# Fișiere de tip Lock (OBLIGATORIU pentru Claude)
+# Acestea conțin zeci de mii de linii de text pe care Claude le citește degeaba
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Logs și fișiere generate de audit (Excludem vinovații din trecut)
+logs/
+*.log
+memory/project_security_audit.md
+audit-inventory.json
+bench/results/
+
+# Fișiere de mediu și configurări locale
+.env
+.env.*
+.claude/
+.vscode/
+
+# Binare și fișiere temporare
+release/
+zveltio-linux
+*.exe
+*.so
+tmp/
+temp/
