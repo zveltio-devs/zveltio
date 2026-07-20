@@ -265,7 +265,7 @@ async function signOut() {
         </header>
       {/if}
 
-      <main id="admin-main" class="flex-1 overflow-y-auto p-6 relative" tabindex="-1">
+      <main id="admin-main" class="flex-1 overflow-y-auto p-4 lg:p-6 relative" tabindex="-1">
         {@render children()}
 
         <!-- Floating-assist slot — extensions can inject a fixed-position
