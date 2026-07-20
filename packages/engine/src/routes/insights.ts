@@ -363,7 +363,19 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
           permission: body.permission,
           created_by: user.id,
         })
-        .onConflict((oc) => oc.doUpdateSet({ permission: body.permission }))
+        // A share is EITHER user-scoped or role-scoped; each has its own unique
+        // constraint (dashboard_id + that column). Name the matching one — an
+        // untargeted ON CONFLICT is a Postgres error ("requires inference
+        // specification or constraint name"), which 500'd every re-share.
+        .onConflict((oc) =>
+          oc
+            .columns(
+              body.shared_with_user_id
+                ? ['dashboard_id', 'shared_with_user_id']
+                : ['dashboard_id', 'shared_with_role'],
+            )
+            .doUpdateSet({ permission: body.permission }),
+        )
         .returningAll()
         .executeTakeFirst();
 
