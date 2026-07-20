@@ -33,7 +33,7 @@ function close() {
 <dialog class="modal modal-open">
   <div class="modal-box {sizes[size] ?? sizes.md}">
     <h3 class="font-bold text-lg">{title}</h3>
-    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={close}>✕</button>
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={close} aria-label="Close dialog">✕</button>
     <div class="py-4">{@render children()}</div>
   </div>
   <button class="modal-backdrop" aria-label="Close modal" onclick={close}></button>
