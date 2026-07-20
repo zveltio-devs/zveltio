@@ -27,7 +27,7 @@ let customForm = $state({
   slug: '',
   title: '',
   body: '# New documentation page\n\nWrite content in Markdown.',
-  is_public: false,
+  is_published: false,
 });
 
 async function loadChangelog() {
@@ -47,8 +47,8 @@ async function loadCustom() {
   loading = true;
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/custom');
-    customDocs = r.data ?? [];
+    const r = await api.get<{ docs: any[] }>('/ext/developer/api-docs/custom-docs');
+    customDocs = r.docs ?? [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
@@ -60,8 +60,8 @@ async function loadTokens() {
   loading = true;
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/access-tokens');
-    tokens = r.data ?? [];
+    const r = await api.get<{ tokens: any[] }>('/ext/developer/api-docs/tokens');
+    tokens = r.tokens ?? [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
@@ -73,13 +73,13 @@ async function loadTokens() {
 async function createCustom() {
   saving = true;
   try {
-    await api.post('/ext/developer/api-docs/custom', customForm);
+    await api.post('/ext/developer/api-docs/custom-docs', customForm);
     showCustomForm = false;
     customForm = {
       slug: '',
       title: '',
       body: '# New documentation page\n\nWrite content in Markdown.',
-      is_public: false,
+      is_published: false,
     };
     await loadCustom();
     toast.success(m['ext.created']());
@@ -93,7 +93,9 @@ async function createCustom() {
 
 async function generateToken() {
   try {
-    await api.post('/ext/developer/api-docs/access-tokens', {});
+    await api.post('/ext/developer/api-docs/tokens', {
+      name: `Doc access ${new Date().toISOString().slice(0, 10)}`,
+    });
     await loadTokens();
     toast.success(m['developer.apiDocs.toast.tokenGenerated']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -106,7 +108,7 @@ async function revokeToken(id: string) {
 }
 async function revokeTokenConfirmed(id: string) {
   try {
-    await api.delete(`/ext/developer/api-docs/access-tokens/${id}`);
+    await api.delete(`/ext/developer/api-docs/tokens/${id}`);
     await loadTokens();
     toast.success(m['developer.apiDocs.toast.revoked']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -163,7 +165,7 @@ onMount(loadChangelog);
         <tbody>
           {#if customDocs.length === 0}<tr><td colspan="4" class="text-center py-6 text-base-content/50 text-sm">{m['developer.api-docs.ui.no_custom_doc_pages']()}</td></tr>
           {:else}{#each customDocs as d (d.id)}
-            <tr class="hover"><td class="font-mono text-xs">{d.slug}</td><td class="text-sm">{d.title}</td><td>{d.is_public ? '✓' : '—'}</td><td class="text-xs">{d.updated_at?.slice(0, 10)}</td></tr>
+            <tr class="hover"><td class="font-mono text-xs">{d.slug}</td><td class="text-sm">{d.title}</td><td>{d.is_published ? '✓' : '—'}</td><td class="text-xs">{d.updated_at?.slice(0, 10)}</td></tr>
           {/each}{/if}
         </tbody>
       </table>
@@ -201,7 +203,7 @@ onMount(loadChangelog);
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['content.page-builder.ui.slug']()}</span></label><input class="input input-sm font-mono" bind:value={customForm.slug} placeholder={m['developer.api-docs.ui.getting_started']()} /></div>
-          <div class="flex items-end pb-1"><label class="label cursor-pointer gap-2"><input type="checkbox" class="checkbox checkbox-sm" bind:checked={customForm.is_public} /><span class="label-text text-xs">{m['developer.api-docs.ui.public']()}</span></label></div>
+          <div class="flex items-end pb-1"><label class="label cursor-pointer gap-2"><input type="checkbox" class="checkbox checkbox-sm" bind:checked={customForm.is_published} /><span class="label-text text-xs">{m['developer.api-docs.ui.public']()}</span></label></div>
         </div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['developer.api-docs.ui.title']()}</span></label><input class="input input-sm" bind:value={customForm.title} /></div>
         <div class="form-control"><label class="label py-0"><span class="label-text text-xs">{m['developer.api-docs.ui.body_markdown']()}</span></label><textarea class="textarea textarea-sm font-mono text-xs" rows="14" bind:value={customForm.body}></textarea></div>

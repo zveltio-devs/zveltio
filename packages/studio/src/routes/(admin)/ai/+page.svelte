@@ -136,7 +136,11 @@ async function deleteChat(id: string) {
 async function saveProvider() {
   savingProvider = true;
   try {
-    await api.post('/ext/ai/admin/providers', providerForm);
+    // Providers are upserted with PUT /providers/:name — the name is the
+    // path, and empty optionals must be omitted (base_url is url-validated).
+    const { name, ...rest } = providerForm;
+    const body = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== '' && v !== null));
+    await api.put(`/ext/ai/providers/${encodeURIComponent(name)}`, body);
     await loadAll();
     showProviderForm = false;
     providerForm = {
@@ -200,7 +204,7 @@ async function generateSchema() {
   schemaResult = null;
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const res = await api.post<{ schema: any }>('/ext/ai/schema-gen', {
+    const res = await api.post<{ schema: any }>('/ext/ai/preview-schema', {
       description: schemaDescription.trim(),
     });
     schemaResult = res.schema;

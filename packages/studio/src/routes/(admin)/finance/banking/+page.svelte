@@ -33,9 +33,17 @@ async function loadAccounts() {
 
 async function loadTransactions() {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>('/ext/finance/banking/transactions?limit=100');
-    transactions = r.data ?? [];
+    if (!accounts.length) await loadAccounts();
+    const per = await Promise.all(
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      accounts.map((a: any) =>
+        api
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          .get<{ data: any[] }>(`/ext/finance/banking/accounts/${a.id}/transactions?limit=100`)
+          .catch(() => ({ data: [] })),
+      ),
+    );
+    transactions = per.flatMap((r) => r.data ?? []);
   } catch (e: unknown) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
   }
@@ -44,8 +52,21 @@ async function loadTransactions() {
 async function loadReconciliation() {
   try {
     const [u, inv] = await Promise.all([
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ data: any[] }>('/ext/finance/banking/transactions?reconciled=false&limit=100'),
+      (async () => {
+        if (!accounts.length) await loadAccounts();
+        const per = await Promise.all(
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+          accounts.map((a: any) =>
+            api
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+              .get<{ data: any[] }>(
+                `/ext/finance/banking/accounts/${a.id}/transactions?reconciled=false&limit=100`,
+              )
+              .catch(() => ({ data: [] })),
+          ),
+        );
+        return { data: per.flatMap((r) => r.data ?? []) };
+      })(),
       api
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
         .get<{ data: any[] }>('/ext/finance/invoicing/invoices?status=sent&limit=100')

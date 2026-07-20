@@ -20,6 +20,7 @@
 
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { svelteTesting } from '@testing-library/svelte/vite';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
@@ -29,6 +30,10 @@ export default defineConfig({
       // settings the production build uses, minus SSR-specific output.
       hot: false,
     }),
+    // Resolves Svelte to its client build (not the SSR one) and auto-cleans
+    // the DOM between tests. Without it, `render()` hits Svelte's server
+    // `mount()` stub and throws lifecycle_function_unavailable.
+    svelteTesting(),
   ],
   resolve: {
     alias: {

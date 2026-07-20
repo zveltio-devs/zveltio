@@ -54,8 +54,8 @@ async function loadCategories() {
 async function loadMessages(id: string) {
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>(`/ext/projects/helpdesk/tickets/${id}/messages`);
-    messages = r.data ?? [];
+    const r = await api.get<{ data: { messages: any[] } }>(`/ext/projects/helpdesk/tickets/${id}`);
+    messages = r.data?.messages ?? [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
@@ -100,7 +100,7 @@ async function reply() {
 
 async function resolve(id: string) {
   try {
-    await api.post(`/ext/projects/helpdesk/tickets/${id}/resolve`, {});
+    await api.patch(`/ext/projects/helpdesk/tickets/${id}`, { status: 'resolved' });
     await loadTickets();
     if (activeTicket?.id === id) activeTicket = null;
     toast.success(m['projects.helpdesk.toast.resolved']());

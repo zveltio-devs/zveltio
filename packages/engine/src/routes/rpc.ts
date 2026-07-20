@@ -88,20 +88,26 @@ export function rpcRoutes(db: Database, auth: any): Hono {
 
     // Build parameterized call: SELECT * FROM fn(arg1 := $1, arg2 := $2)
     // Using named-parameter syntax prevents positional mismatch.
+    //
+    // Interpolate the name the WHITELIST returned, never the request's — the
+    // two are equal today only because the lookup above is exact equality, so
+    // using the request value would silently become injection the moment
+    // anything could write a quote-bearing name into zvd_rpc_functions.
+    const safeFnName = `"${fn.function_name.replace(/"/g, '""')}"`;
     try {
       const keys = Object.keys(args);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       let result: any;
 
       if (keys.length === 0) {
-        result = await sql`SELECT * FROM ${sql.raw(`"${fnName}"`)}()`.execute(db);
+        result = await sql`SELECT * FROM ${sql.raw(safeFnName)}()`.execute(db);
       } else {
         // Build named params: fn(key1 := val1, key2 := val2)
         const paramParts = keys.map(
           (k, _i) => sql`${sql.raw(`"${k.replace(/[^a-zA-Z0-9_]/g, '')}" :=`)} ${args[k]}`,
         );
         result = await sql`
-          SELECT * FROM ${sql.raw(`"${fnName}"`)}(${sql.join(paramParts, sql`, `)})
+          SELECT * FROM ${sql.raw(safeFnName)}(${sql.join(paramParts, sql`, `)})
         `.execute(db);
       }
 
