@@ -7,7 +7,8 @@
   "target": {
     "lib": 90
   },
-  "gated": ["lib"],
+  "routesNote": "2026-07-20: `routes` joined the RATCHET (gated) but deliberately has NO entry in `target`. Rationale: every authz bug in this project's history landed in routes/ -- the 9 fixed in the security audit, the tenant-isolation campaign, the storage IDOR -- yet the layer with the highest historical bug incidence was the one bucket nothing guarded, free to erode. Gating it pins routes at its current 59.7% via maxDropPct, which is the actual goal (stop erosion where bugs happen), and costs nothing today. It has no `target` on purpose: release-gate.ts skips buckets without one, so this does NOT introduce a new 3.0.0 blocker. Raising it to a real bar (65 was proposed) is an OWNER call, because that WOULD block the cut until routes coverage is written.",
+  "gated": ["lib", "routes"],
   "measured": {
     "lib": 96.7,
     "other": 68.8,
