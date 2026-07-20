@@ -20,19 +20,26 @@ let closingFloat = $state(0);
 async function loadAll() {
   loading = true;
   try {
-    const [active, orders, reports] = await Promise.all([
+    const [open, closed] = await Promise.all([
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ data: any }>('/ext/operations/pos/sessions/active').catch(() => ({ data: null })),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ data: any[] }>('/ext/operations/pos/orders?limit=20'),
+      api.get<{ data: any[] }>('/ext/operations/pos/sessions?status=open&limit=1'),
       api
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .get<{ data: any[] }>('/ext/operations/pos/z-reports?limit=10')
+        .get<{ data: any[] }>('/ext/operations/pos/sessions?status=closed&limit=10')
         .catch(() => ({ data: [] })),
     ]);
-    activeSession = active.data;
-    recentOrders = orders.data ?? [];
-    zReports = reports.data ?? [];
+    activeSession = open.data?.[0] ?? null;
+    zReports = closed.data ?? [];
+    // Orders are scoped to a session; without an open one there are none.
+    if (activeSession) {
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+      const o = await api.get<{ data: any[] }>(
+        `/ext/operations/pos/sessions/${activeSession.id}/orders?limit=20`,
+      );
+      recentOrders = o.data ?? [];
+    } else {
+      recentOrders = [];
+    }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
@@ -130,7 +137,7 @@ function fmtMoney(n: number) {
               <tbody>
                 {#if zReports.length === 0}<tr><td colspan="3" class="text-center py-6 text-base-content/50 text-sm">{m['operations.pos.ui.no_reports']()}</td></tr>
                 {:else}{#each zReports as z (z.id)}
-                  <tr class="hover"><td class="text-xs">{new Date(z.created_at).toLocaleDateString()}</td><td class="text-right text-sm">{fmtMoney(Number(z.total_sales))}</td><td class="text-right text-sm">{z.order_count}</td></tr>
+                  <tr class="hover"><td class="text-xs">{new Date(z.closed_at).toLocaleDateString()}</td><td class="text-right text-sm">{fmtMoney(Number(z.total_sales))}</td><td class="text-right text-sm">{z.order_count}</td></tr>
                 {/each}{/if}
               </tbody>
             </table>

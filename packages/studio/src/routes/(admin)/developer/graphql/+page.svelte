@@ -38,8 +38,8 @@ async function loadLogs() {
   loading = true;
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>('/ext/developer/graphql/operations?limit=100');
-    logs = r.data ?? [];
+    const r = await api.get<{ logs: any[] }>('/ext/developer/graphql/logs?limit=100');
+    logs = r.logs ?? [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
