@@ -201,26 +201,41 @@ export function zonesRoutes(db: Database, auth: any): Hono {
 
     const data = c.req.valid('json');
 
-    const zone = await db
-      .insertInto('zvd_zones')
-      .values({
-        name: data.name,
-        slug: data.slug,
-        description: data.description ?? null,
-        is_active: data.is_active ?? false,
-        access_roles: data.access_roles ?? [],
-        base_path: data.base_path ?? `/${data.slug}`,
-        site_name: data.site_name ?? null,
-        site_logo_url: data.site_logo_url ?? null,
-        primary_color: data.primary_color ?? '#4F46E5',
-        secondary_color: data.secondary_color ?? null,
-        custom_css: data.custom_css ?? null,
-        nav_position: data.nav_position ?? 'sidebar',
-        show_breadcrumbs: data.show_breadcrumbs ?? true,
-        tenant_id: tenantId(c),
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    let zone: Awaited<ReturnType<typeof insertZone>>;
+    async function insertZone() {
+      return db
+        .insertInto('zvd_zones')
+        .values({
+          name: data.name,
+          slug: data.slug,
+          description: data.description ?? null,
+          is_active: data.is_active ?? false,
+          access_roles: data.access_roles ?? [],
+          base_path: data.base_path ?? `/${data.slug}`,
+          site_name: data.site_name ?? null,
+          site_logo_url: data.site_logo_url ?? null,
+          primary_color: data.primary_color ?? '#4F46E5',
+          secondary_color: data.secondary_color ?? null,
+          custom_css: data.custom_css ?? null,
+          nav_position: data.nav_position ?? 'sidebar',
+          show_breadcrumbs: data.show_breadcrumbs ?? true,
+          tenant_id: tenantId(c),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    }
+    try {
+      zone = await insertZone();
+    } catch (e) {
+      // A duplicate slug is a client error, not a server fault — the unique
+      // constraint would otherwise bubble up as an opaque 500. Bun's SQL driver
+      // puts the Postgres SQLSTATE in `errno` (23505 = unique_violation); its
+      // `code` is the generic ERR_POSTGRES_SERVER_ERROR.
+      if (String((e as { errno?: string | number }).errno) === '23505') {
+        return c.json({ error: `A zone with slug "${data.slug}" already exists` }, 409);
+      }
+      throw e;
+    }
 
     return c.json({ zone }, 201);
   });
