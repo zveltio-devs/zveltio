@@ -94,16 +94,28 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
 
     const data = c.req.valid('json');
 
-    const tenant = await db
-      .insertInto('zv_tenants')
-      .values({
-        slug: data.slug,
-        name: data.name,
-        plan: data.plan,
-        billing_email: data.billing_email || null,
-      })
-      .returningAll()
-      .executeTakeFirst();
+    const insertTenant = () =>
+      db
+        .insertInto('zv_tenants')
+        .values({
+          slug: data.slug,
+          name: data.name,
+          plan: data.plan,
+          billing_email: data.billing_email || null,
+        })
+        .returningAll()
+        .executeTakeFirst();
+    let tenant: Awaited<ReturnType<typeof insertTenant>>;
+    try {
+      tenant = await insertTenant();
+    } catch (e) {
+      // Duplicate slug is a client error — Bun's SQL driver reports the
+      // Postgres SQLSTATE in `errno` (23505 = unique_violation), not `code`.
+      if (String((e as { errno?: string | number }).errno) === '23505') {
+        return c.json({ error: `A tenant with slug "${data.slug}" already exists` }, 409);
+      }
+      throw e;
+    }
 
     if (!tenant) return c.json({ error: 'Failed to create tenant' }, 500);
 
