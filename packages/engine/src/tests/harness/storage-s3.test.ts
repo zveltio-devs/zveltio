@@ -1,8 +1,8 @@
 /**
  * Phase C — storage S3 object path: the real upload → object-in-bucket →
  * record → delete round-trip through aws4fetch. Exercises the routes/storage.ts
- * S3 branch that the DB-only tests can't reach. Gated on S3_ENDPOINT (a MinIO
- * service in CI; a local MinIO binary in dev) — skips cleanly without it.
+ * S3 branch that the DB-only tests can't reach. Gated on S3_ENDPOINT (a SeaweedFS
+ * service in CI; a local SeaweedFS binary in dev) — skips cleanly without it.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';

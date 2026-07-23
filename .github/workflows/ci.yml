@@ -332,24 +332,24 @@ jobs:
         with:
           name: unit-lcov
           path: packages/engine/coverage
-      - name: Start MinIO (S3 endpoint for storage/media upload coverage)
-        # Standalone binary rather than a service container: the minio/minio
-        # image needs a `server` command that GitHub service containers can't
-        # supply. Background process persists into the next step (same runner).
-        # The S3 round-trip harness tests skip cleanly if this ever fails, so a
-        # flaky MinIO can never break the job — it only affects S3 coverage.
+      - name: Start SeaweedFS (S3 endpoint — the same object store production runs)
+        # Standalone `weed` binary, pinned to the docker-compose image tag
+        # (chrislusf/seaweedfs:3.68). Background process persists into the next
+        # step (same runner). If SeaweedFS never comes up the bucket-create
+        # fails the step loudly, rather than the tests silently 502-ing.
         run: |
-          curl -sSL -o /tmp/minio https://dl.min.io/server/minio/release/linux-amd64/minio
-          chmod +x /tmp/minio
-          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
-            /tmp/minio server /tmp/minio-data --address :9000 >/tmp/minio.log 2>&1 &
-          for i in $(seq 1 30); do
-            curl -sf http://localhost:9000/minio/health/live && break; sleep 1;
+          curl -fsSL -o /tmp/weed.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/3.68/linux_amd64.tar.gz
+          tar xzf /tmp/weed.tar.gz -C /tmp && chmod +x /tmp/weed
+          cat > /tmp/s3-config.json <<'JSON'
+          {"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"zveltiotest","secretKey":"zveltiotestsecret"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}
+          JSON
+          /tmp/weed server -s3 -s3.config=/tmp/s3-config.json -ip=127.0.0.1 -dir=/tmp/seaweed-data >/tmp/seaweed.log 2>&1 &
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/ || true)
+            case "$code" in 200|403) break;; esac
+            sleep 1
           done
-          curl -sSL -o /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x /tmp/mc
-          /tmp/mc alias set local http://localhost:9000 minioadmin minioadmin
-          /tmp/mc mb --ignore-existing local/zveltio-test
+          echo "s3.bucket.create -name zveltio" | /tmp/weed shell -master=127.0.0.1:9333
       - name: Run in-process harness tests (with coverage)
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
@@ -358,12 +358,12 @@ jobs:
           NODE_ENV: test
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
-          S3_ENDPOINT: http://localhost:9000
-          S3_ACCESS_KEY: minioadmin
-          S3_SECRET_KEY: minioadmin
+          S3_ENDPOINT: http://127.0.0.1:8333
+          S3_ACCESS_KEY: zveltiotest
+          S3_SECRET_KEY: zveltiotestsecret
           S3_REGION: us-east-1
-          S3_BUCKET: zveltio-test
-          S3_PUBLIC_URL: http://localhost:9000/zveltio-test
+          S3_BUCKET: zveltio
+          S3_PUBLIC_URL: http://127.0.0.1:8333/zveltio
         run: cd packages/engine && bun run test:harness:coverage
       - name: Merge unit + harness coverage and gate the honest combined number
         # Unions per-line hits from both lanes → the real all-of-lib/ figure,
