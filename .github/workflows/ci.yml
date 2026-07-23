@@ -292,6 +292,9 @@ jobs:
   handler-coverage:
     name: Handler Coverage (in-process harness)
     runs-on: ubuntu-latest
+    # Safety net: no single step (e.g. an object-store setup) may hang the job
+    # for the default 6h. The whole job comfortably finishes in ~5 min.
+    timeout-minutes: 20
     # Phase C: mounts the REAL Hono app IN this process (src/testing/app-harness.ts)
     # and drives routes via app.request(), so route/handler/middleware code that
     # the out-of-process integration engine can't attribute becomes visible to
@@ -340,16 +343,20 @@ jobs:
         run: |
           curl -fsSL -o /tmp/weed.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/3.68/linux_amd64.tar.gz
           tar xzf /tmp/weed.tar.gz -C /tmp && chmod +x /tmp/weed
-          cat > /tmp/s3-config.json <<'JSON'
-          {"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"zveltiotest","secretKey":"zveltiotestsecret"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}
-          JSON
+          printf '%s' '{"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"zveltiotest","secretKey":"zveltiotestsecret"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}' > /tmp/s3-config.json
           /tmp/weed server -s3 -s3.config=/tmp/s3-config.json -ip=127.0.0.1 -dir=/tmp/seaweed-data >/tmp/seaweed.log 2>&1 &
           for i in $(seq 1 40); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/ || true)
             case "$code" in 200|403) break;; esac
             sleep 1
           done
-          echo "s3.bucket.create -name zveltio" | /tmp/weed shell -master=127.0.0.1:9333
+          # Create the bucket via the S3 API with `mc` — non-interactive and it
+          # EXITS. (`weed shell` reads stdin and hangs headless, which pinned the
+          # job at the 6h default timeout.) `timeout` is a further backstop.
+          curl -fsSL -o /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x /tmp/mc
+          timeout 30 /tmp/mc alias set sw http://127.0.0.1:8333 zveltiotest zveltiotestsecret
+          timeout 30 /tmp/mc mb --ignore-existing sw/zveltio
       - name: Run in-process harness tests (with coverage)
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
