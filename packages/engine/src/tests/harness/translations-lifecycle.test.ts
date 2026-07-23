@@ -34,13 +34,11 @@ d('translations lifecycle (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     if (keyId) {
-      await sql`DELETE FROM zv_translation_values WHERE key_id = ${keyId}`
-        .execute(db)
-        .catch(() => {});
-      await sql`DELETE FROM zv_translation_keys WHERE id = ${keyId}`.execute(db).catch(() => {});
+      await sql`DELETE FROM zvd_translations WHERE key_id = ${keyId}`.execute(db).catch(() => {});
+      await sql`DELETE FROM zvd_translation_keys WHERE id = ${keyId}`.execute(db).catch(() => {});
     }
-    await sql`DELETE FROM zv_locales WHERE code = ${LOCALE}`.execute(db).catch(() => {});
-    await sql`DELETE FROM zv_translation_glossary WHERE term = 'HarnessTerm'`
+    await sql`DELETE FROM zvd_locales WHERE code = ${LOCALE}`.execute(db).catch(() => {});
+    await sql`DELETE FROM zvd_translation_glossary WHERE term = 'HarnessTerm'`
       .execute(db)
       .catch(() => {});
   });
