@@ -308,7 +308,7 @@ export class DDLManager {
       // Multi-tenant: every row belongs to a tenant, defaulted from the request
       // GUC (or the default tenant). The boot/RLS-on-create reconciler then
       // FORCE-RLS's this table on tenant_id. See tenant-manager.applyTenantRLS.
-      "tenant_id UUID NOT NULL DEFAULT COALESCE(current_setting('zveltio.current_tenant', true)::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
+      "tenant_id UUID NOT NULL DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
     ];
 
     const indexes: string[] = [
@@ -783,7 +783,7 @@ export class DDLManager {
       // the request's tenant GUC (set by withTenantIsolation), falling back to
       // the default tenant so inserts outside a tenant transaction (CLI, jobs)
       // still succeed. RLS (applied by the boot reconciler) isolates by this.
-      "tenant_id UUID NOT NULL DEFAULT COALESCE(current_setting('zveltio.current_tenant', true)::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
+      "tenant_id UUID NOT NULL DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
     ];
 
     const userCols = schema.fields
