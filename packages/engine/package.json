@@ -30,7 +30,7 @@
   "dependencies": {
     "@better-auth/kysely-adapter": "1.6.23",
     "@better-auth/passkey": "^1.6.23",
-    "@hono/zod-validator": "^0.7.6",
+    "@hono/zod-validator": "^0.8.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
     "@opentelemetry/sdk-node": "^0.218.0",
@@ -39,7 +39,7 @@
     "better-auth": "1.6.23",
     "casbin": "^5.30.0",
     "expr-eval-fork": "^3.0.3",
-    "hono": "^4.12.28",
+    "hono": "^4.12.30",
     "imagescript": "^1.3.1",
     "ioredis": "^5.3.2",
     "kysely": "^0.29.0",
