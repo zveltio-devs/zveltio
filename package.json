@@ -44,7 +44,7 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.0"
   },
   "dependencies": {
-    "kysely": "^0.29.0"
+    "kysely": "^0.29.3"
   },
   "overrides": {
     "@opentelemetry/sdk-trace-base": "2.10.0",
