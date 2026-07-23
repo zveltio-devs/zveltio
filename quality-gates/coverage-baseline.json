@@ -7,12 +7,12 @@
   "target": {
     "lib": 90
   },
-  "routesNote": "`routes` is gated on the RATCHET with deliberately NO `target` entry. Rationale: every authz bug in this project's history landed in routes/ -- the 9 fixed in the security audit, the tenant-isolation campaign, the storage IDOR -- so the ratchet stops erosion where bugs actually happen. 2026-07-20: measured routes raised 59.7 -> 62.7 by adding in-process harness suites for insights (panels/shares/subscriptions), zones (pages/views/render), and approvals (submit/decide/cancel) -- 44 tests, which also surfaced+fixed two real 500s (insights share ON CONFLICT without a target; zones duplicate-slug now 409 not 500). Remaining routes gap is dominated by external-service wiring (backup=pg_dump/gzip/fs, realtime/ws/electric pub-sub, storage/media = S3) that belongs in integration/soak, not the harness -- so a hard `target` of 90 on routes is NOT reachable here and would block the 3.0.0 cut. Setting any real routes bar stays an OWNER call; until then the ratchet pins the new 62.7 floor.",
+  "routesNote": "`routes` is gated on the RATCHET with deliberately NO `target` entry. Rationale: every authz bug in this project's history landed in routes/ -- the 9 fixed in the security audit, the tenant-isolation campaign, the storage IDOR -- so the ratchet stops erosion where bugs actually happen. 2026-07-20: measured routes raised 59.7 -> 62.7 by adding in-process harness suites for insights (panels/shares/subscriptions), zones (pages/views/render), and approvals (submit/decide/cancel) -- 44 tests, which also surfaced+fixed two real 500s (insights share ON CONFLICT without a target; zones duplicate-slug now 409 not 500). Remaining routes gap is dominated by external-service wiring (backup=pg_dump/gzip/fs, realtime/ws/electric pub-sub, storage/media = S3) that belongs in integration/soak, not the harness -- so a hard `target` of 90 on routes is NOT reachable here and would block the 3.0.0 cut. Setting any real routes bar stays an OWNER call; until then the ratchet pins the floor. 2026-07-20 (second pass): raised further 62.7 -> 64.8 with harness suites for translations, tenants, users, permissions, import, revisions/comments -- 49 more tests, which surfaced+fixed a third duplicate-slug 500 (tenants POST now 409). Cumulative campaign 59.7 -> 64.8 (+5.1pt, 93 tests, 3 bugs).",
   "gated": ["lib", "routes"],
   "measured": {
     "lib": 96.6,
     "other": 68.3,
-    "routes": 62.7,
+    "routes": 64.8,
     "src-other": 51.3
   }
 }
