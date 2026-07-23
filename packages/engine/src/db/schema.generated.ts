@@ -5088,7 +5088,7 @@ export interface ZvdTranslationKeysTable {
   max_length: number | null;
   is_pluralized: Generated<boolean>;
   screenshot_url: string | null;
-  tenant_id: string | null;
+  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdTranslationMemoryTable {
@@ -5116,7 +5116,7 @@ export interface ZvdTranslationsTable {
   char_count: number | null;
   approved_by: string | null;
   approved_at: Date | null;
-  tenant_id: string | null;
+  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdValidationImportLogTable {
