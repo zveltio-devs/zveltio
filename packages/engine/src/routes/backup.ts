@@ -3,7 +3,8 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { createHash } from 'crypto';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isGodUser, getCurrentDomain } from '../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import type { Database } from '../db/index.js';
 
@@ -20,6 +21,14 @@ export function backupRoutes(db: Database, auth: any): Hono {
     c.set('user', session.user);
     if (!(await checkPermission(session.user.id, 'admin', '*'))) {
       return c.json({ error: 'Admin access required' }, 403);
+    }
+    // Backups are whole-instance operations: a pg_dump captures EVERY tenant's
+    // data and a PITR restore rewrites the entire instance. A per-tenant admin
+    // must not trigger those. In the default/root tenant (single-tenant
+    // deployments) admin:* is the instance owner, so this is a no-op there;
+    // outside it, require the top-level god role.
+    if (getCurrentDomain() !== DEFAULT_TENANT_ID && !(await isGodUser(session.user.id))) {
+      return c.json({ error: 'Instance-wide backups require the god role' }, 403);
     }
     await next();
   });
