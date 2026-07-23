@@ -335,29 +335,47 @@ jobs:
         with:
           name: unit-lcov
           path: packages/engine/coverage
-      - name: Start SeaweedFS (S3 endpoint — the same object store production runs)
+      - name: Start SeaweedFS (best-effort S3 endpoint — the object store production runs)
         # Standalone `weed` binary, pinned to the docker-compose image tag
-        # (chrislusf/seaweedfs:3.68). Background process persists into the next
-        # step (same runner). If SeaweedFS never comes up the bucket-create
-        # fails the step loudly, rather than the tests silently 502-ing.
+        # (chrislusf/seaweedfs:3.68). BEST-EFFORT by design: the S3 round-trip
+        # harness tests exercise storage/media upload when this is reachable, but
+        # if any part fails the step still succeeds and only exports S3_* on
+        # success — so the tests skip and the coverage gate is NEVER hostage to
+        # flaky external infra. The ratchet floor is the S3-free number.
         run: |
-          curl -fsSL -o /tmp/weed.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/3.68/linux_amd64.tar.gz
+          set +e
+          curl -fsSL -o /tmp/weed.tar.gz https://github.com/seaweedfs/seaweedfs/releases/download/3.68/linux_amd64.tar.gz \
+            || { echo '::warning::weed download failed — S3 tests will skip'; exit 0; }
           tar xzf /tmp/weed.tar.gz -C /tmp && chmod +x /tmp/weed
           printf '%s' '{"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"zveltiotest","secretKey":"zveltiotestsecret"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}' > /tmp/s3-config.json
-          /tmp/weed server -s3 -s3.config=/tmp/s3-config.json -ip=127.0.0.1 -dir=/tmp/seaweed-data >/tmp/seaweed.log 2>&1 &
-          for i in $(seq 1 40); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/ || true)
-            case "$code" in 200|403) break;; esac
+          /tmp/weed server -s3 -s3.config=/tmp/s3-config.json -ip=127.0.0.1 \
+            -dir=/tmp/seaweed-data -volume.max=5 -master.volumeSizeLimitMB=64 >/tmp/seaweed.log 2>&1 &
+          up=""
+          for i in $(seq 1 60); do
+            case "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/ 2>/dev/null)" in
+              200|403) up=1; break;;
+            esac
             sleep 1
           done
-          # Create the bucket via the S3 API with `mc` — non-interactive and it
-          # EXITS. (`weed shell` reads stdin and hangs headless, which pinned the
-          # job at the 6h default timeout.) `timeout` is a further backstop.
-          curl -fsSL -o /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc
+          if [ -z "$up" ]; then echo '::warning::SeaweedFS did not start — S3 tests will skip'; sed -n '1,40p' /tmp/seaweed.log; exit 0; fi
+          curl -fsSL -o /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc \
+            || { echo '::warning::mc download failed — S3 tests will skip'; exit 0; }
           chmod +x /tmp/mc
-          timeout 30 /tmp/mc alias set sw http://127.0.0.1:8333 zveltiotest zveltiotestsecret
-          timeout 30 /tmp/mc mb --ignore-existing sw/zveltio
+          /tmp/mc alias set sw http://127.0.0.1:8333 zveltiotest zveltiotestsecret \
+            || { echo '::warning::mc alias failed — S3 tests will skip'; exit 0; }
+          /tmp/mc mb --ignore-existing sw/zveltio \
+            || { echo '::warning::bucket create failed — S3 tests will skip'; exit 0; }
+          {
+            echo 'S3_ENDPOINT=http://127.0.0.1:8333'
+            echo 'S3_ACCESS_KEY=zveltiotest'
+            echo 'S3_SECRET_KEY=zveltiotestsecret'
+            echo 'S3_REGION=us-east-1'
+            echo 'S3_BUCKET=zveltio'
+            echo 'S3_PUBLIC_URL=http://127.0.0.1:8333/zveltio'
+          } >> "$GITHUB_ENV"
+          echo 'SeaweedFS ready — S3 round-trip tests will run'
       - name: Run in-process harness tests (with coverage)
+        # S3_* come from $GITHUB_ENV above, and only when SeaweedFS is up.
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
@@ -365,12 +383,6 @@ jobs:
           NODE_ENV: test
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
-          S3_ENDPOINT: http://127.0.0.1:8333
-          S3_ACCESS_KEY: zveltiotest
-          S3_SECRET_KEY: zveltiotestsecret
-          S3_REGION: us-east-1
-          S3_BUCKET: zveltio
-          S3_PUBLIC_URL: http://127.0.0.1:8333/zveltio
         run: cd packages/engine && bun run test:harness:coverage
       - name: Merge unit + harness coverage and gate the honest combined number
         # Unions per-line hits from both lanes → the real all-of-lib/ figure,
