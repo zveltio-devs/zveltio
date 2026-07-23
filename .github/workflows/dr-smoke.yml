@@ -141,7 +141,7 @@ jobs:
 
       - name: Save dump as artifact (for forensic on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dr-smoke-dump-${{ github.run_id }}
           path: /tmp/dr-smoke.dump
