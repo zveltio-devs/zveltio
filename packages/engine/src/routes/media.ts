@@ -324,7 +324,10 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Storage quota exceeded' }, 413);
     }
 
-    const fileId = generateId(21);
+    // zv_media_files.id is a UUID column — a 21-char nanoid (generateId(21))
+    // fails the insert with "invalid input syntax for type uuid", so every
+    // upload 500'd. Use a UUID, same as the folder-create path above.
+    const fileId = crypto.randomUUID();
     const rawFileExt = file.name.split('.').pop() ?? 'bin';
     const filename = `${fileId}.${rawFileExt}`;
     const buffer = Buffer.from(await file.arrayBuffer());
