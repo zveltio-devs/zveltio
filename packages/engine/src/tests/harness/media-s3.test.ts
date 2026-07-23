@@ -1,7 +1,7 @@
 /**
  * Phase C — media S3 object path: the real image upload → object-in-bucket →
  * record → delete round-trip through aws4fetch (routes/media.ts upload branch,
- * incl. the image-dimension extraction). Gated on S3_ENDPOINT (MinIO) — skips
+ * incl. the image-dimension extraction). Gated on S3_ENDPOINT (SeaweedFS) — skips
  * cleanly without it.
  */
 
