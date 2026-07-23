@@ -78,6 +78,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         'is_active',
         'created_at',
       ])
+      .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset)
@@ -144,6 +145,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
           created_by: user.id,
           is_active: true,
           request_count: 0,
+          tenant_id: tenantId(c),
         })
         .returningAll()
         .executeTakeFirst();
@@ -164,7 +166,12 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // DELETE /api-keys/:id — Revoke API key
   app.delete('/api-keys/:id', async (c) => {
     const keyId = c.req.param('id');
-    await db.updateTable('zv_api_keys').set({ is_active: false }).where('id', '=', keyId).execute();
+    await db
+      .updateTable('zv_api_keys')
+      .set({ is_active: false })
+      .where('id', '=', keyId)
+      .where('tenant_id', '=', tenantId(c))
+      .execute();
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
@@ -196,7 +203,12 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     async (c) => {
       const id = c.req.param('id');
       const data = c.req.valid('json');
-      await db.updateTable('zv_api_keys').set(data).where('id', '=', id).execute();
+      await db
+        .updateTable('zv_api_keys')
+        .set(data)
+        .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
+        .execute();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
       await auditLog(db, {
@@ -212,9 +224,13 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
   // GET /api-keys/:id/access-log — Access log for a specific API key
   app.get('/api-keys/:id/access-log', async (c) => {
+    // Transitive isolation: the access-log row has no tenant_id of its own (it is
+    // written by the auth guard before tenant resolution), so require the parent
+    // key to belong to the request tenant instead.
     const logs = await sql`
       SELECT * FROM zv_api_key_access_log
       WHERE api_key_id = ${c.req.param('id')}
+        AND api_key_id IN (SELECT id FROM zv_api_keys WHERE tenant_id = ${tenantId(c)})
       ORDER BY created_at DESC LIMIT 100
     `.execute(db);
     return c.json({ logs: logs.rows });
