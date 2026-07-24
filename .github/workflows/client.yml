@@ -1,0 +1,44 @@
+name: Client
+
+# The public client host had zero automated tests. This workflow runs its
+# vitest component suite (jsdom, no DB/engine) so a broken public renderer —
+# e.g. a regression in the CMS block sanitization — is caught in CI rather
+# than in production. Scoped via `paths` so engine-only PRs don't pay the cost.
+#
+# Only the test suite runs here (not `check`): the SvelteKit svelte-check pass
+# has pre-existing type gaps in the routes that are tracked separately.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    paths:
+      - 'packages/client/**'
+      - 'packages/sdk/**'
+      - 'bun.lock'
+      - 'package.json'
+      - '.github/workflows/client.yml'
+
+concurrency:
+  group: client-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    name: Client component tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build SDK
+        # The client imports from `@zveltio/sdk` (dist), so compile it first.
+        run: cd packages/sdk && bun run build
+
+      - name: Component tests
+        run: cd packages/client && bun run test
