@@ -327,6 +327,30 @@ export async function downloadExtension(
     );
   }
 
+  // Defense-in-depth against zip-slip / symlink escape: GNU tar/unzip already
+  // refuse `../` traversal, but a symlink inside the archive could point outside
+  // the extension dir and be followed by a later file read (the extension's code
+  // runs in-process). Reject any symlink in the staged tree before we adopt it.
+  const assertNoSymlinks = (dir: string): void => {
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name);
+      const st = fs.lstatSync(p); // lstat: do NOT follow — we want to detect links
+      if (st.isSymbolicLink()) {
+        try {
+          fs.rmSync(stageDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+        throw new Error(
+          `Refusing extension "${entry.name}": archive contains a symlink (${name}) — ` +
+            'possible path traversal.',
+        );
+      }
+      if (st.isDirectory()) assertNoSymlinks(p);
+    }
+  };
+  assertNoSymlinks(stageDir);
+
   // If the archive wrapped everything in a single top-level dir, unwrap it.
   // Allowed layouts:
   //   stage/engine/index.ts + stage/manifest.json   ← already flat

