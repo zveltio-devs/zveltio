@@ -133,15 +133,25 @@ export async function decryptField(value: string): Promise<string> {
 /** Encrypt a field value if the field definition has encrypted:true and FIELD_ENCRYPTION_KEY is set */
 export async function maybeEncrypt(value: unknown, isEncrypted: boolean): Promise<unknown> {
   if (!isEncrypted || value === null || value === undefined) return value;
-  if (!keyHex()) {
-    // Graceful degradation: store in plaintext rather than refusing the
-    // write, but log once so the operator notices that a sensitive field
-    // didn't actually get encrypted.
-    warnMissingKeyOnce();
-    return value;
-  }
   if (typeof value !== 'string') return value; // only encrypt strings
   if (isEncryptedValue(value)) return value; // already encrypted
+  if (!keyHex()) {
+    // Fail-CLOSED: the operator explicitly marked this field `encrypted: true`,
+    // so a plaintext string reaching here is data they told us is sensitive
+    // (PII / ANSVSA / SAF-T). Silently persisting it in the clear is a data
+    // downgrade, so refuse the write — the same posture as BETTER_AUTH_SECRET.
+    // An operator who genuinely wants the old degraded behavior must opt in.
+    if (process.env.ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS === '1') {
+      warnMissingKeyOnce();
+      return value;
+    }
+    throw new Error(
+      'FIELD_ENCRYPTION_KEY is not set but a field is marked `encrypted: true` — ' +
+        'refusing to write sensitive data in plaintext. Set FIELD_ENCRYPTION_KEY ' +
+        '(`openssl rand -hex 32`), or set ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS=1 ' +
+        'to explicitly allow plaintext storage.',
+    );
+  }
   return encryptField(value);
 }
 
