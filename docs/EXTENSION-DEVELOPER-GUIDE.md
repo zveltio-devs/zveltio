@@ -242,6 +242,7 @@ computes the SHA-256, and patches these blocks in place.
 | `author` | string | no | "Your Name <email>". |
 | `homepage` | string | no | URL. |
 | `permissions` | string[] | no | Declarative — `database`, `settings`, `network`, `filesystem`. Used in marketplace UI. |
+| `publicRoutes` | string[] | no | Routes reachable WITHOUT a session, relative to the `/ext/<name>` mount (e.g. `["/webhook/twilio", "/public/*"]`). Everything else is fail-closed (401 for anonymous). `*` matches across `/`. See §5 "Authentication". |
 | `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
 | `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. |
 | `contributes.engine` | bool | no | `false` for UI-only extensions. |
@@ -375,29 +376,63 @@ export function myFeatureRoutes(ctx: ExtensionContext) {
 }
 ```
 
-### Authentication
+### Authentication — the fail-closed `/ext/*` gate
 
-Every route handler receives `c.get('user')` with the authenticated user, or
-nothing if the route is public. Mark routes public explicitly:
+**Every route under `/ext/<your-extension>/*` requires an authenticated session
+by default.** The engine mounts a fail-closed gate
+(`middleware/extension-auth-gate.ts`) BEFORE your routes: an anonymous request to
+any route you have not explicitly declared public gets `401` before it ever
+reaches your handler. So a route you forget to guard is *safe by omission*, not
+*exposed by omission* — the inverse of the old model, where a missing check
+silently exposed the route (real holes shipped that way).
 
-```typescript
-router.get('/public-stats', { auth: false }, async (c) => { /* ... */ });
+Inside a handler you can read `c.get('user')` (the gate sets it after a
+successful session check).
+
+**To make a route public**, declare it in your `manifest.json` `publicRoutes`,
+relative to your mount. Only these bypass the gate:
+
+```jsonc
+{
+  "name": "sms",
+  "publicRoutes": [
+    "/webhook/twilio"     // exact route
+    // "/public/*"        // everything under /public/  (* matches across '/')
+    // "/cms", "/cms/*"   // the mount root AND everything below it
+  ]
+}
 ```
 
-By default, all routes require auth. For admin-only:
+A route that is public-*entry* but authorizes internally (e.g. a webhook that
+verifies an HMAC, or a GraphQL endpoint that allows some queries anonymously) is
+declared here too — the gate only enforces **authentication**, never
+authorization. Keep your HMAC / token check in the handler.
+
+> **Gotcha — the guard runs on the FULL path.** Inside a `subapp`-mounted
+> extension, `c.req.path` is the full `/ext/<name>/…`, NOT the mount-relative
+> path. A hand-rolled `if (c.req.path.startsWith('/public/'))` exemption will
+> never fire. Prefer declaring `publicRoutes` in the manifest; if you must check
+> in code, match the `/public/` segment anywhere (`c.req.path.includes('/public/')`).
+
+**Authorization** (who may do what) is still yours. Use
+[`permissionGate(ctx, '<name>')`](#) for route-level RBAC, and
+[`entityAccess`](#hook_entity_access) hooks for per-record checks:
 
 ```typescript
-router.use('*', async (c, next) => {
-  const user = c.get('user');
-  if (!user.roles.includes('admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
-  return next();
-});
+// after the gate has authenticated, enforce a role/permission:
+app.use('*', permissionGate(ctx, 'my-extension'));
 ```
 
-For fine-grained per-record authorization, use [`entityAccess`](#hook_entity_access)
-hooks instead of inline checks.
+**Escape hatches.** Routes mounted on the global app via
+`ctx.registerPublicRoute` (CDN links, user-deployed webhooks) live outside
+`/ext/*` and the gate — they are public by construction; guard them yourself. An
+operator can disable the gate entirely with `ZVELTIO_EXT_AUTH_GATE=0` (an
+availability valve — leave it on).
+
+**CI enforces this.** `scripts/probe-ext-auth.ts` boots a live engine and asserts
+every declared `publicRoutes` entry is actually reachable anonymously and that a
+non-declared path is `401`. A forgotten declaration or a regressed gate fails the
+`runtime-probe` job.
 
 ---
 

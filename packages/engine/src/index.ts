@@ -45,6 +45,7 @@ import {
 } from './lib/tenancy/index.js';
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
+import { extensionAuthGate } from './middleware/extension-auth-gate.js';
 import {
   initTelemetry,
   getDomainMetricsLines,
@@ -476,6 +477,13 @@ async function buildHonoApp(): Promise<Hono> {
   // to another tenant via X-Tenant-Slug. See docs/MULTI-TENANT-ENABLEMENT.md §3.
   app.use('/api/*', tenantMembershipMiddleware(auth, db));
   app.use('/ext/*', tenantMembershipMiddleware(auth, db));
+
+  // Fail-closed authentication for extension routes. `/ext/<name>/*` requires a
+  // valid session unless the extension's manifest declares the sub-path in
+  // `publicRoutes`. Registered BEFORE the extension subapps below so it wraps
+  // them. Inverts the old fail-open model where a forgotten in-extension guard
+  // meant silent anonymous exposure. See middleware/extension-auth-gate.ts.
+  app.use('/ext/*', extensionAuthGate(auth));
 
   // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db, auth });
