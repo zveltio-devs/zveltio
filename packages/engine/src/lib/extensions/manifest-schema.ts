@@ -42,6 +42,28 @@ export const ManifestSchema = z
       })
       .optional(),
     permissions: z.array(z.string()).default([]),
+    /**
+     * Routes that are intentionally reachable WITHOUT a session — declared
+     * relative to the extension's mount (`/ext/<name>`). Everything else under
+     * `/ext/<name>/*` is fail-closed: the engine's `extensionAuthGate`
+     * (middleware/extension-auth-gate.ts) rejects an anonymous request with 401
+     * before it ever reaches the handler. So an extension that forgets to guard
+     * a route is safe-by-omission (401) instead of exposed-by-omission.
+     *
+     * Patterns are matched against the sub-path after the mount. `*` matches any
+     * run of characters (across `/`), so:
+     *   "/webhook/twilio"  → exactly that one route
+     *   "/public/*"        → every path under /public/
+     *   "/cms/*"           → the public CMS renderer
+     * A route that is public-ENTRY but authorizes internally (e.g. a GraphQL
+     * endpoint that allows some queries anonymously) is declared here too — the
+     * gate only enforces authentication, never authorization.
+     *
+     * NOTE: only covers routes under `/ext/<name>`. Extensions that mount on the
+     * global app via `ctx.registerPublicRoute` (CDN links, user-deployed
+     * webhooks) sit outside this gate by design — see the developer guide.
+     */
+    publicRoutes: z.array(z.string()).default([]),
     contributes: z
       .object({
         engine: z.boolean().default(true),
