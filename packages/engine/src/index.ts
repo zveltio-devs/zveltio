@@ -637,6 +637,24 @@ rm studio.tar.gz</pre>
       const provided =
         c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.query('token');
       if (provided !== metricsToken) return c.json({ error: 'Unauthorized' }, 401);
+    } else if (process.env.METRICS_ALLOW_UNAUTHENTICATED !== '1') {
+      // Fail-CLOSED: with no METRICS_TOKEN configured, refuse rather than leak
+      // uptime / heap / request-count internals to any anonymous caller (an
+      // information-disclosure surface flagged in the 3.0.0 security review).
+      // Operators scraping over a trusted private network can opt back into
+      // unauthenticated exposure with METRICS_ALLOW_UNAUTHENTICATED=1.
+      return c.json(
+        {
+          type: 'about:blank',
+          title: 'Unauthorized',
+          status: 401,
+          code: 'metrics_auth_required',
+          detail:
+            'Metrics require a METRICS_TOKEN (Bearer or ?token=), or set ' +
+            'METRICS_ALLOW_UNAUTHENTICATED=1 to expose them unauthenticated.',
+        },
+        401,
+      );
     }
     const uptime = (Date.now() - _serverStartTime) / 1000;
     const memoryReport = getMemoryReport();
@@ -717,8 +735,38 @@ rm studio.tar.gz</pre>
 
   // ── Client SPA catch-all ──────────────────────────────────────────────────
   app.use('/*', async (c) => {
-    const res = await serveStaticFile(CLIENT_DIST, c.req.path);
-    if (res) return res;
+    // Security headers for the PUBLIC web host, mirroring the /admin studio
+    // hardening. The 3.0.0 security review flagged that /admin carried a strict
+    // CSP + anti-clickjacking headers while the public client at / carried
+    // none — leaving public pages open to framing and without a CSP. Use the
+    // same per-request nonce + strict-dynamic policy (proven against the
+    // SvelteKit studio, which the client is built the same way as).
+    const nonceBytes = new Uint8Array(16);
+    crypto.getRandomValues(nonceBytes);
+    const nonce = Buffer.from(nonceBytes).toString('base64');
+    const res = await serveStaticFile(CLIENT_DIST, c.req.path, nonce);
+    if (res) {
+      res.headers.set(
+        'Content-Security-Policy',
+        [
+          "default-src 'self'",
+          `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: blob: https:",
+          "font-src 'self' data:",
+          "connect-src 'self' ws: wss:",
+          "frame-ancestors 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "object-src 'none'",
+        ].join('; '),
+      );
+      res.headers.set('X-Content-Type-Options', 'nosniff');
+      res.headers.set('X-Frame-Options', 'DENY');
+      res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+      res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      return res;
+    }
     // No client app deployed at the root → send visitors to the Studio instead
     // of a bare 404 (an evaluator's first request on a fresh install is `/`).
     if (c.req.path === '/' || c.req.path === '') return c.redirect('/admin/');
