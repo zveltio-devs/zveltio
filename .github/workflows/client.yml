@@ -40,5 +40,11 @@ jobs:
         # The client imports from `@zveltio/sdk` (dist), so compile it first.
         run: cd packages/sdk && bun run build
 
+      - name: SvelteKit sync
+        # Generates .svelte-kit/tsconfig.json, which the client tsconfig
+        # extends. Without it esbuild fails to resolve a tsconfig when
+        # transforming tests/setup.ts (TSCONFIG_ERROR: Tsconfig not found).
+        run: cd packages/client && bunx svelte-kit sync
+
       - name: Component tests
         run: cd packages/client && bun run test
