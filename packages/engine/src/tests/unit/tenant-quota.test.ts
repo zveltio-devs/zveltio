@@ -84,4 +84,58 @@ describe('tenantQuota enforcement', () => {
     expect((await app.request('/api/x')).status).toBe(200);
     expect((await app.request('/api/x')).status).toBe(200);
   });
+
+  it('resolves the limit from the DB and caches it with the ioredis EX arity', async () => {
+    // No seeded limit → the middleware takes the DB path and then calls
+    // cache.set(key, val, 'EX', 300). This fake's set() ASSERTS that exact
+    // ioredis arity, so a signature regression (the class of bug that silently
+    // fails the quota open in the harness) fails this test instead.
+    let setArgs: unknown[] = [];
+    const store = new Map<string, string>();
+    const cache = {
+      async get(k: string) {
+        return store.has(k) ? store.get(k)! : null;
+      },
+      async set(k: string, v: string, ex?: unknown, ttl?: unknown) {
+        setArgs = [k, v, ex, ttl];
+        if (ex !== 'EX' || typeof ttl !== 'number') {
+          throw new Error(`cache.set called with wrong arity: ${JSON.stringify([ex, ttl])}`);
+        }
+        store.set(k, v);
+        return 'OK';
+      },
+      async incr(k: string) {
+        const n = (parseInt(store.get(k) ?? '0', 10) || 0) + 1;
+        store.set(k, String(n));
+        return n;
+      },
+      async expire() {
+        return 1;
+      },
+    } as unknown as Redis;
+
+    // Kysely stub for the single `select max_api_calls_day` lookup.
+    const db = {
+      selectFrom: () => ({
+        select: () => ({
+          where: () => ({ executeTakeFirst: async () => ({ max_api_calls_day: 3 }) }),
+        }),
+      }),
+    } as unknown as Database;
+
+    _setCacheForTests(cache);
+    const app = new Hono();
+    app.use('*', async (c, next) => {
+      c.set('tenant', { id: 't-db' } as never);
+      await next();
+    });
+    app.use('/api/*', tenantQuota(db));
+    app.get('/api/x', (c) => c.text('ok'));
+
+    const r = await app.request('/api/x');
+    expect(r.status).toBe(200);
+    expect(r.headers.get('X-Tenant-Quota-Limit')).toBe('3');
+    // The DB-resolved limit was cached via the ioredis-shaped set().
+    expect(setArgs).toEqual(['tq:limit:t-db', '3', 'EX', 300]);
+  });
 });
