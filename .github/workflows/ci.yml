@@ -220,6 +220,9 @@ jobs:
           BETTER_AUTH_URL: http://localhost:3099
           PORT: '3099'
           NODE_ENV: test
+          # Encrypted-field writes (e.g. webhook secrets) now fail-closed when
+          # unset; give the integration engine a real key so they encrypt.
+          FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
           ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/extensions
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
@@ -281,6 +284,7 @@ jobs:
           TEST_PORT: '3099'
           NODE_ENV: test
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+          FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
         run: cd packages/engine && bun run test:integration
