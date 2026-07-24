@@ -7,6 +7,7 @@ import {
   getUserRoles,
   getEnforcer,
   invalidateUserPermCache,
+  getCurrentDomain,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { escapeLike } from '../lib/data/index.js';
@@ -192,6 +193,7 @@ export function usersRoutes(db: Database, auth: any): Hono {
           token,
           expires_at: expiresAt,
           invited_by: adminUser.id,
+          tenant_id: getCurrentDomain(),
         })
         .execute();
 
