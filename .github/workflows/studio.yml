@@ -56,6 +56,13 @@ jobs:
       - name: Typecheck
         run: cd packages/studio && bun run typecheck
 
+      - name: Component tests
+        # Vitest + @testing-library/svelte component tests (sanitizer,
+        # shared UI, page-builder BlockPreview XSS guard). Previously these
+        # existed but ran nowhere in CI — a green build could ship a broken
+        # component. jsdom-based, no DB or engine needed.
+        run: cd packages/studio && bun run test
+
       - name: Build
         # `bun run build` for the studio runs:
         #   - prebuild: sync-extensions + i18n:merge + paraglide compile
