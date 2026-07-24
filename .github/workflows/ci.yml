@@ -124,18 +124,17 @@ jobs:
         # highs that remain are triaged + ignored by GHSA id — a NEW high (not on
         # this list) fails the build. Re-triage when deps move (drop an id once
         # its advisory clears upstream):
-        #   GHSA-fx2h-pf6j-xcff  vite server.fs.deny — dev tooling, not the prod runtime
-        #   GHSA-vmh5-mc38-953g  undici TLS-bypass via SOCKS5 — engine uses no SOCKS5 proxy
-        #   GHSA-vxpw-j846-p89q  undici WebSocket DoS — engine uses no undici WS client
-        #   GHSA-hm92-r4w5-c3mj  undici cross-origin via SOCKS5 — as above
-        # (expr-eval ignores dropped — migrated to expr-eval-fork@3, which
-        # patches both advisories; isSafeExpression() stays as defense-in-depth.)
+        #   GHSA-fx2h-pf6j-xcff  vite server.fs.deny — dev tooling, not the prod
+        #     runtime. Resolved for the app packages (client vite 7.3.6, studio
+        #     8.1.5); the only residual is vitest's bundled dev-server vite, which
+        #     has no clean non-breaking pin — still dev-only test tooling.
+        # (The three undici highs — GHSA-vmh5-mc38-953g / -vxpw-j846-p89q /
+        # -hm92-r4w5-c3mj — are now actually fixed: the root `undici` override pins
+        # 7.29.0, which patches all three, so their ignores were dropped. expr-eval
+        # migrated to expr-eval-fork@3; isSafeExpression() stays as defense-in-depth.)
         run: >-
           bun audit --audit-level=high
           --ignore=GHSA-fx2h-pf6j-xcff
-          --ignore=GHSA-vmh5-mc38-953g
-          --ignore=GHSA-vxpw-j846-p89q
-          --ignore=GHSA-hm92-r4w5-c3mj
 
   unit-tests:
     name: Unit Tests
