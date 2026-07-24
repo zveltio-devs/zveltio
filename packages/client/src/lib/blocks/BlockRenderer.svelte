@@ -7,9 +7,13 @@
 
   `html`/`text` render authored HTML with {@html}. That content is authored by
   admins through the page builder (a trusted, permissioned surface), the same
-  trust boundary as any CMS theme.
+  trust boundary as any CMS theme — but it is still sanitized with `safeHtml()`
+  (DOMPurify) before rendering, so a stored `<script>` can never execute in a
+  visitor's browser.
 -->
 <script lang="ts">
+import { safeHtml } from '$lib/sanitize';
+
 // biome-ignore lint/suspicious/noExplicitAny: contract blocks are untyped JSON
 let { blocks = [] as any[] } = $props();
 
@@ -35,7 +39,7 @@ const BTN: Record<string, string> = {
       </svelte:element>
     {:else if block.type === 'text'}
       <!-- authored HTML from the page builder -->
-      <div class="prose max-w-none">{@html c.html ?? ''}</div>
+      <div class="prose max-w-none">{@html safeHtml(c.html)}</div>
     {:else if block.type === 'image'}
       {#if c.src}
         <img src={c.src} alt={c.alt ?? ''} style={c.width ? `width:${c.width}` : undefined}
@@ -51,7 +55,7 @@ const BTN: Record<string, string> = {
       <hr class="border-base-300" />
     {:else if block.type === 'html'}
       <!-- authored raw HTML from the page builder -->
-      <div>{@html c.code ?? ''}</div>
+      <div>{@html safeHtml(c.code)}</div>
     {:else}
       <div class="rounded-lg border border-dashed border-base-300 p-4 text-sm opacity-50">
         Unsupported block: {block.type}
