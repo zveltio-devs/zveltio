@@ -5,6 +5,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, getEnforcer } from '../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
+import { getCurrentDomain } from '../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
@@ -80,6 +81,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         'is_active',
         'created_at',
       ])
+      .where('tenant_id', '=', getCurrentDomain())
       .orderBy('created_at', 'desc')
       .limit(parsedLimit)
       .offset(offset)
@@ -142,6 +144,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
           created_by: user.id,
           is_active: true,
           request_count: 0,
+          tenant_id: getCurrentDomain(),
         })
         .returningAll()
         .executeTakeFirst();
@@ -161,7 +164,12 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Revoke API key
   app.delete('/:id', async (c) => {
     const keyId = c.req.param('id');
-    await db.updateTable('zv_api_keys').set({ is_active: false }).where('id', '=', keyId).execute();
+    await db
+      .updateTable('zv_api_keys')
+      .set({ is_active: false })
+      .where('id', '=', keyId)
+      .where('tenant_id', '=', getCurrentDomain())
+      .execute();
     const user = c.get('user') as RequestUser;
     await auditLog(db, {
       type: 'api_key.revoked',
@@ -191,6 +199,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         .selectFrom('zv_api_keys')
         .select('id')
         .where('id', '=', id)
+        .where('tenant_id', '=', getCurrentDomain())
         .executeTakeFirst();
       if (!key) return c.json({ error: 'API key not found' }, 404);
 

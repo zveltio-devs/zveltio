@@ -153,6 +153,7 @@ export interface ZvApiKeysTable {
   casbin_subject: string | null;
   request_count: Generated<number>; // DEFAULT 0
   last_ip: string | null;
+  tenant_id: Generated<string>; // migration 021 — route-level tenant isolation
 }
 
 export interface ZvApiKeyAccessLogTable {
@@ -177,6 +178,7 @@ export interface ZvInvitationsTable {
   accepted_by: string | null;
   invited_by: string | null;
   created_at: Generated<Date>;
+  tenant_id: Generated<string>; // migration 021 — route-level tenant isolation
 }
 
 export interface ZvRolesTable {
