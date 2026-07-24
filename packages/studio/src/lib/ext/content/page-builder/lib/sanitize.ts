@@ -11,6 +11,21 @@
 
 import DOMPurify from 'dompurify';
 
+// Drop `style` values carrying an exfil/execution vector (url()/@import/etc.) —
+// DOMPurify keeps safe-scheme url() otherwise. Matches the engine's per-property
+// CSS validation. Registered once (hooks are global) in a DOM context.
+const DANGEROUS_STYLE = /url\(|expression\(|@import|javascript:|\/\*/i;
+let _styleHookAdded = false;
+function ensureStyleHook(): void {
+  if (_styleHookAdded || typeof window === 'undefined') return;
+  _styleHookAdded = true;
+  DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+    if (data.attrName === 'style' && DANGEROUS_STYLE.test(data.attrValue)) {
+      data.keepAttr = false;
+    }
+  });
+}
+
 const ALLOWED_TAGS = [
   'a',
   'b',
@@ -64,6 +79,7 @@ const ALLOWED_ATTRS = [
 export function safeHtml(html: unknown): string {
   if (typeof html !== 'string' || html.length === 0) return '';
   if (typeof window === 'undefined') return html.replace(/<[^>]*>/g, '');
+  ensureStyleHook();
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR: ALLOWED_ATTRS,
