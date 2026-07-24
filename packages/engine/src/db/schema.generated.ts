@@ -189,6 +189,7 @@ export interface ZvApiKeysTable {
   casbin_subject: Generated<string | null>;
   request_count: Generated<number>;
   last_ip: Generated<string | null>;
+  tenant_id: Generated<string>;
 }
 
 export interface ZvApprovalDecisionsTable {
@@ -1163,6 +1164,7 @@ export interface ZvInvitationsTable {
   accepted_by: string | null;
   invited_by: string | null;
   created_at: Generated<Date>;
+  tenant_id: Generated<string>;
 }
 
 export interface ZvLicenseAuditTable {
