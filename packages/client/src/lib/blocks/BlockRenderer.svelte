@@ -8,7 +8,7 @@
   `html`/`text` render authored HTML with {@html}. That content is authored by
   admins through the page builder (a trusted, permissioned surface), the same
   trust boundary as any CMS theme — but it is still sanitized with `safeHtml()`
-  (DOMPurify) before rendering, so a stored `<script>` can never execute in a
+  (DOMPurify) before rendering, so injected script markup can never execute in a
   visitor's browser.
 -->
 <script lang="ts">
