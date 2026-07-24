@@ -25,7 +25,11 @@ describe('BlockPreview sanitization', () => {
 
   it('richtext: keeps formatting but strips <script>', () => {
     const { container } = render(BlockPreview, {
-      props: { block: block('richtext', { content: '<p>hello <strong>bold</strong></p><script>alert(1)</script>' }) },
+      props: {
+        block: block('richtext', {
+          content: '<p>hello <strong>bold</strong></p><script>alert(1)</script>',
+        }),
+      },
     });
     expect(container.querySelector('strong')?.textContent).toBe('bold');
     expect(container.querySelector('script')).toBeNull();
