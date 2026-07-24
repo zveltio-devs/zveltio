@@ -217,6 +217,9 @@ interface LoadedExtension {
   /** Declared manifest permissions/capabilities (e.g. `db:admin`) — kept so a
    * hot-reload rebuilds the same capability-gated context (H-12). */
   permissions?: string[];
+  /** Manifest `publicRoutes` — re-registered with the `/ext/*` auth gate on a
+   * hot-reload so fail-closed enforcement survives a rebuild. */
+  publicRoutes?: string[];
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to
