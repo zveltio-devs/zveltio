@@ -28,6 +28,7 @@ import { clearExtensionHealthChecks, registerHealthCheck } from '../health-regis
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
+import { registerExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
 import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
@@ -262,6 +263,12 @@ export async function finalizeExtensionLoad(
     }
   }
 
+  // Register the extension's declared public routes with the `/ext/*` auth gate.
+  // Anything NOT listed here is fail-closed (401 for anonymous callers) — see
+  // middleware/extension-auth-gate.ts.
+  const publicRoutes = (manifest as { publicRoutes?: string[] } | null)?.publicRoutes ?? [];
+  registerExtensionPublicRoutes(extName, publicRoutes);
+
   loader.loaded.set(extName, {
     name: extName,
     cleanup:
@@ -269,6 +276,7 @@ export async function finalizeExtensionLoad(
     registeredRoutes: true,
     allowedTables,
     permissions: manifest?.permissions ?? [],
+    publicRoutes,
   });
   console.log(`🔌 Extension loaded: ${extName}`);
 
@@ -299,6 +307,9 @@ export async function reRegisterExtension(
   if (!extension || !loader.ctx) return;
 
   const loaded = loader.loaded.get(name);
+  // Re-assert the public-route allowlist on hot-reload (the registry is process
+  // -global, but this keeps it correct if the module map was rebuilt).
+  registerExtensionPublicRoutes(name, loaded?.publicRoutes ?? []);
   const restrictedCtx = buildRestrictedContext(
     loader.ctx,
     name,
