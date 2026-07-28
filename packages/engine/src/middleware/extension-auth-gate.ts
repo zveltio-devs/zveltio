@@ -23,16 +23,21 @@
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
-import type { RequestUser } from '../lib/data/types.js';
 
 /**
  * Minimal structural view of the better-auth instance this gate needs — just
  * `getSession`. Sibling middleware (tenant-membership) takes `auth: any`; a
  * narrow interface documents the actual dependency without importing the whole
- * better-auth type surface.
+ * better-auth type surface. The `user` shape mirrors `RequestUser` (lib/data)
+ * structurally so `c.set('user', …)` type-checks without a cross-subsystem
+ * deep import (enforced by scripts/import-boundaries.ts).
  */
 interface SessionResolver {
-  api: { getSession(args: { headers: Headers }): Promise<{ user?: RequestUser } | null> };
+  api: {
+    getSession(args: {
+      headers: Headers;
+    }): Promise<{ user?: { id: string; name: string; role: string; email?: string } } | null>;
+  };
 }
 
 /** Registered extension → its compiled public-route matchers. */
