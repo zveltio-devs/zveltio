@@ -9,6 +9,7 @@ import { permissionsRoutes } from './permissions.js';
 import { rlsRoutes } from './rls.js';
 import { rpcRoutes } from './rpc.js';
 import { storageRoutes } from './storage.js';
+import { filesRoutes } from './files.js';
 import { webhooksRoutes } from './webhooks.js';
 import { isRegistrationEnabled, settingsRoutes } from './settings.js';
 import { adminRoutes, apiKeysRoutes } from './admin.js';
@@ -225,6 +226,11 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // File storage (authenticated)
   app.route('/api/storage', storageRoutes(db, auth));
+
+  // Public file serving for the `local` storage driver (no-op for `s3`, whose
+  // URLs point at the object store directly). Public + self-guarding: signed
+  // URLs are HMAC-verified, unsigned access is public-by-unguessable-path.
+  app.route('/files', filesRoutes());
 
   // Webhooks (admin)
   app.route('/api/webhooks', webhooksRoutes(db, auth));
