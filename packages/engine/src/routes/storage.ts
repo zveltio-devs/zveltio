@@ -2,30 +2,10 @@ import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
-import { AwsClient } from 'aws4fetch';
+import { getStorage } from '../lib/storage/index.js';
 
-// Lazy aws4fetch client — replaces @aws-sdk/client-s3 + @aws-sdk/s3-request-presigner.
-// aws4fetch is a ~3KB fetch-based signer vs ~50MB for AWS SDK v3.
-let _aws: AwsClient | null = null;
-
-function getAws(): AwsClient | null {
-  if (!process.env.S3_ENDPOINT) return null;
-  if (!_aws) {
-    _aws = new AwsClient({
-      accessKeyId: process.env.S3_ACCESS_KEY || '',
-      secretAccessKey: process.env.S3_SECRET_KEY || '',
-      region: process.env.S3_REGION || 'us-east-1',
-      service: 's3',
-    });
-  }
-  return _aws;
-}
-
-function s3Url(key: string): string {
-  const endpoint = process.env.S3_ENDPOINT!.replace(/\/$/, '');
-  const bucket = process.env.S3_BUCKET || 'zveltio';
-  return `${endpoint}/${bucket}/${key}`;
-}
+// Object storage goes through the pluggable driver (lib/storage): `local`
+// filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
 
 // Extract image width/height from raw bytes — avoids pulling in `image-size`
 // or similar. Supports PNG (IHDR chunk), JPEG (SOF markers), GIF89a/GIF87a,
@@ -250,7 +230,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   app.post('/upload', writeRateLimit, async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
-    const client = getAws();
+    const storage = getStorage();
 
     const formData = await c.req.formData();
     const file = formData.get('file') as File | null;
@@ -345,19 +325,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     let url: string | undefined;
 
-    if (client) {
-      const res = await client.fetch(s3Url(storagePath), {
-        method: 'PUT',
-        body: safeBytes,
-        headers: {
-          'Content-Type': detectedMime,
-          'Content-Length': String(safeBytes.length),
-        },
-      });
-      if (!res.ok) {
-        return c.json({ error: `Storage upload failed: ${res.status}` }, 502);
+    if (storage.isConfigured()) {
+      try {
+        await storage.put(storagePath, safeBytes, { contentType: detectedMime });
+      } catch (err) {
+        return c.json({ error: `Storage upload failed: ${(err as Error).message}` }, 502);
       }
-      url = `${process.env.S3_PUBLIC_URL || process.env.S3_ENDPOINT}/${process.env.S3_BUCKET || 'zveltio'}/${storagePath}`;
+      url = storage.publicUrl(storagePath);
     }
 
     let width: number | undefined;
@@ -445,8 +419,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // GET /:id/signed-url — Get a temporary signed URL
   app.get('/:id/signed-url', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
-    const client = getAws();
-    if (!client) return c.json({ error: 'Storage not configured' }, 503);
+    const storage = getStorage();
+    if (!storage.isConfigured()) return c.json({ error: 'Storage not configured' }, 503);
     const signedDb = (c.get('tenantTrx') as Database | null) ?? db;
 
     const file = await signedDb
@@ -458,16 +432,12 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     if (!file) return c.json({ error: 'File not found' }, 404);
 
-    // Build presigned URL: aws4fetch puts the signature in query params via signQuery: true.
+    // Time-limited URL: S3 → aws4fetch presigned GET; local → HMAC-signed
+    // /files URL. Both honour the 1h expiry.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const target = new URL(s3Url((file as any).storage_path));
-    target.searchParams.set('X-Amz-Expires', '3600');
-    const signed = await client.sign(target, {
-      method: 'GET',
-      aws: { signQuery: true },
-    });
+    const signedUrl = await storage.signedUrl((file as any).storage_path, 3600);
 
-    return c.json({ url: signed.url, expires_in: 3600 });
+    return c.json({ url: signedUrl, expires_in: 3600 });
   });
 
   // GET /:id/transform — On-the-fly image resize/convert using imagescript (no native deps)
@@ -499,13 +469,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
 
     // Fetch source bytes
     let sourceBytes: Uint8Array;
-    const client = getAws();
+    const storage = getStorage();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    if (client && (file as any).storage_path) {
+    if (storage.isConfigured() && (file as any).storage_path) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const res = await client.fetch(s3Url((file as any).storage_path), { method: 'GET' });
-      if (!res.ok) return c.json({ error: 'Failed to fetch source file' }, 502);
-      sourceBytes = new Uint8Array(await res.arrayBuffer());
+      const obj = await storage.get((file as any).storage_path).catch(() => null);
+      if (!obj) return c.json({ error: 'Failed to fetch source file' }, 502);
+      sourceBytes = obj.bytes;
     } else {
       return c.json({ error: 'Storage not configured or file has no storage path' }, 503);
     }
@@ -558,7 +528,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const client = getAws();
+    const storage = getStorage();
     const file = await deleteDb
       .selectFrom('zv_media_files')
       .selectAll()
@@ -575,9 +545,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    if (client) {
+    if (storage.isConfigured()) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      await client.fetch(s3Url((file as any).storage_path), { method: 'DELETE' }).catch(() => {
+      await storage.delete((file as any).storage_path).catch(() => {
         /* non-fatal if file missing from storage */
       });
     }
