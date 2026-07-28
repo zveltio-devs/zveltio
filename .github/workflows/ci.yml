@@ -239,6 +239,10 @@ jobs:
           # engine opts into unauthenticated exposure so the health suite can
           # assert the Prometheus payload. Prod stays fail-closed.
           METRICS_ALLOW_UNAUTHENTICATED: '1'
+          # No S3_ENDPOINT here → the storage driver defaults to `local`; point it
+          # at a writable dir so the upload round-trip actually stores (the
+          # default /var/lib/zveltio/storage isn't writable on the runner).
+          STORAGE_LOCAL_DIR: /tmp/zveltio-int-storage
         run: bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
       - name: Wait for engine to start
         run: |
