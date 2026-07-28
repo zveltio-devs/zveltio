@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { AwsClient } from 'aws4fetch';
+import { getStorage } from '../lib/storage/index.js';
 import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/data/index.js';
 import { generateId } from '../lib/utils.js';
@@ -11,27 +11,8 @@ import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
-// Lazy aws4fetch client — initialized on first use so startup is not blocked
-// when S3_ENDPOINT is not configured.
-let _aws: AwsClient | null = null;
-function getAws(): AwsClient | null {
-  if (!process.env.S3_ENDPOINT) return null;
-  if (!_aws) {
-    _aws = new AwsClient({
-      accessKeyId: process.env.S3_ACCESS_KEY || '',
-      secretAccessKey: process.env.S3_SECRET_KEY || '',
-      region: process.env.S3_REGION || 'us-east-1',
-      service: 's3',
-    });
-  }
-  return _aws;
-}
-
-function s3Url(key: string): string {
-  const endpoint = (process.env.S3_ENDPOINT || '').replace(/\/$/, '');
-  const bucket = process.env.S3_BUCKET || 'zveltio';
-  return `${endpoint}/${bucket}/${key}`;
-}
+// Object storage goes through the pluggable driver (lib/storage): `local`
+// filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function mediaRoutes(db: Database, auth: any): Hono {
@@ -481,18 +462,11 @@ export function mediaRoutes(db: Database, auth: any): Hono {
             .toBuffer();
 
           const thumbnailKey = `thumbnails/${fileId}.webp`;
-          const awsClient = getAws();
-          if (awsClient) {
-            await awsClient.fetch(s3Url(thumbnailKey), {
-              method: 'PUT',
-              body: thumbnailBuffer,
-              headers: {
-                'Content-Type': 'image/webp',
-                'Content-Length': String(thumbnailBuffer.length),
-              },
-            });
+          const thumbStore = getStorage();
+          if (thumbStore.isConfigured()) {
+            await thumbStore.put(thumbnailKey, thumbnailBuffer, { contentType: 'image/webp' });
+            thumbnailUrl = thumbStore.publicUrl(thumbnailKey);
           }
-          thumbnailUrl = `${process.env.S3_PUBLIC_URL}/${thumbnailKey}`;
         }
       } catch (error) {
         console.warn('Image processing skipped:', error);
@@ -500,22 +474,16 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     }
 
     const key = `media/${filename}`;
-    const awsClient = getAws();
-    if (awsClient) {
-      const uploadRes = await awsClient.fetch(s3Url(key), {
-        method: 'PUT',
-        body: buffer,
-        headers: {
-          'Content-Type': file.type,
-          'Content-Length': String(buffer.length),
-        },
-      });
-      if (!uploadRes.ok) {
-        return c.json({ error: `Storage upload failed: ${uploadRes.status}` }, 502);
+    const storage = getStorage();
+    if (storage.isConfigured()) {
+      try {
+        await storage.put(key, buffer, { contentType: file.type });
+      } catch (err) {
+        return c.json({ error: `Storage upload failed: ${(err as Error).message}` }, 502);
       }
     }
 
-    const url = `${process.env.S3_PUBLIC_URL}/${key}`;
+    const url = storage.publicUrl(key);
 
     const fileRecord = {
       id: fileId,
