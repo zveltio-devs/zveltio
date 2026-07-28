@@ -79,7 +79,9 @@ const manifests: ManifestLite[] = findManifests(EXT_ROOT)
       return null;
     }
   })
-  .filter((m): m is ManifestLite => !!m && Array.isArray(m.publicRoutes) && m.publicRoutes.length > 0);
+  .filter(
+    (m): m is ManifestLite => !!m && Array.isArray(m.publicRoutes) && m.publicRoutes.length > 0,
+  );
 
 if (manifests.length === 0) {
   console.log('ℹ️  No extensions declare publicRoutes — nothing to probe.');
