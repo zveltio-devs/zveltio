@@ -132,9 +132,18 @@ jobs:
         # -hm92-r4w5-c3mj — are now actually fixed: the root `undici` override pins
         # 7.29.0, which patches all three, so their ignores were dropped. expr-eval
         # migrated to expr-eval-fork@3; isSafeExpression() stays as defense-in-depth.)
+        #   GHSA-mh99-v99m-4gvg  brace-expansion DoS — pulled in transitively by
+        #     glob/minimatch in the BUILD/TEST toolchain (not the Bun prod
+        #     runtime). Unbounded-expansion OOM needs attacker-controlled brace
+        #     patterns, which never reach a shipped path.
+        #   GHSA-r28c-9q8g-f849  PostCSS source-map path traversal — build-time CSS
+        #     tooling (svelte/vite), reads only local .map files during a trusted
+        #     build; not in the runtime request path.
         run: >-
           bun audit --audit-level=high
           --ignore=GHSA-fx2h-pf6j-xcff
+          --ignore=GHSA-mh99-v99m-4gvg
+          --ignore=GHSA-r28c-9q8g-f849
 
   unit-tests:
     name: Unit Tests
@@ -226,6 +235,10 @@ jobs:
           ZVELTIO_EXTENSIONS_PATH: ${{ github.workspace }}/extensions
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
+          # /metrics is fail-closed (401) without a token by default; this test
+          # engine opts into unauthenticated exposure so the health suite can
+          # assert the Prometheus payload. Prod stays fail-closed.
+          METRICS_ALLOW_UNAUTHENTICATED: '1'
         run: bun packages/engine/src/index.ts > /tmp/engine.log 2>&1 &
       - name: Wait for engine to start
         run: |
