@@ -110,8 +110,27 @@ if (inputs.length < 1) {
   process.exit(1);
 }
 
+/**
+ * Only the engine's OWN source counts. Coverage lcov also instruments the built
+ * artifacts of other workspace packages that the engine imports (e.g.
+ * `../sdk/dist/*` — the SDK's compiled output, which has its own test suite in
+ * the sdk package) and anything under node_modules. Those are dependencies, not
+ * the engine's testable surface, so counting their (mostly uncovered) dist
+ * bundles here just deflates the number with code this repo's engine tests were
+ * never meant to exercise. Keep engine `src/` (including hard-to-unit-test files
+ * like index.ts — that's honestly the engine's own code).
+ */
+function isEngineSource(file: string): boolean {
+  const norm = file.replace(/\\/g, '/');
+  if (norm.includes('/node_modules/') || norm.includes('/dist/')) return false;
+  return norm.startsWith('src/') || norm.includes('/src/');
+}
+
 const merged = new Map<string, FileCov>();
 for (const p of inputs) parse(p, merged);
+for (const file of [...merged.keys()]) {
+  if (!isEngineSource(file)) merged.delete(file);
+}
 
 // Per-bucket tallies + serialize the merged lcov.
 const buckets: Record<string, { lf: number; lh: number; files: number }> = {};
