@@ -12,8 +12,7 @@
  */
 
 import { Hono } from 'hono';
-import { getStorage } from '../lib/storage/index.js';
-import { LocalDriver, verifySignedKey } from '../lib/storage/local-driver.js';
+import { getStorage, LocalDriver, verifySignedKey } from '../lib/storage/index.js';
 
 export function filesRoutes(): Hono {
   const app = new Hono();
