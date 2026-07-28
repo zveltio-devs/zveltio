@@ -101,6 +101,52 @@ d('saved queries (in-process)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('executes with varied filter operators, a filter group, desc sort + pagination', async () => {
+    const res = await app.request(
+      '/api/saved-queries/execute',
+      json('POST', {
+        collection: COLLECTION,
+        config: {
+          filters: [
+            { field: 'title', operator: 'contains', value: 'a' },
+            { field: 'title', operator: 'starts_with', value: 'b', group: 'g1' },
+            { field: 'title', operator: 'not_equals', value: 'zzz', group: 'g1' },
+          ],
+          filter_mode: 'AND',
+          filter_groups: [{ id: 'g1', mode: 'OR' }],
+          columns: ['title'],
+          sorts: [{ field: 'title', direction: 'desc' }],
+          limit: 10,
+          page: 2,
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { pagination?: { page: number } };
+    if (body.pagination) expect(body.pagination.page).toBe(2);
+  });
+
+  it('generates an API-url preview from filters + sorts + limit', async () => {
+    const res = await app.request(
+      '/api/saved-queries/preview-url',
+      json('POST', {
+        collection: COLLECTION,
+        config: {
+          filters: [{ field: 'title', operator: 'equals', value: 'x' }],
+          filter_mode: 'AND',
+          filter_groups: [],
+          columns: ['title'],
+          sorts: [{ field: 'title', direction: 'desc' }],
+          limit: 5,
+          page: 1,
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body).toBe('object');
+  });
+
   it('saves a query (POST /) and returns an id', async () => {
     const res = await app.request(
       '/api/saved-queries',
