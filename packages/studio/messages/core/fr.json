@@ -42,7 +42,6 @@
   "auth.saml.title": "SAML SSO",
   "auth.saml.toast.saved": "SAML configuration saved.",
   "auth.saml.ui.acs_callback_url": "ACS (Callback) URL",
-  "auth.saml.ui.begin_certificate_10_10_end_certificate": "-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----",
   "auth.saml.ui.email_attribute": "Attribut e-mail",
   "auth.saml.ui.https_your_idp_com_sso_saml": "https://your-idp.com/sso/saml",
   "auth.saml.ui.idp_certificate_pem": "Certificat IDP (PEM)",
