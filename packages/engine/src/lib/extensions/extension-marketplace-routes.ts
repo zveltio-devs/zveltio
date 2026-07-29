@@ -708,13 +708,24 @@ export function registerMarketplaceRoutes(
   // of that, keeping the public paths (/api/marketplace/<name>/<action>)
   // unchanged and working at any nesting depth. DELETE/GET keep their own
   // routes (different method, no collision).
+  // c.req.path keeps `%2F` encoded (Hono preserves segment boundaries); the old
+  // `:name` param decoded it, and downstream traversal guards rely on the decoded
+  // form — so decode the parsed name here to preserve behaviour byte-for-byte.
+  const decodeName = (s: string): string => {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  };
   app.post('/api/marketplace/*', (c) => {
     const rest = c.req.path.slice('/api/marketplace/'.length);
     if (rest === 'enable-all') return enableAllExtensions(c);
-    if (rest.startsWith('license/')) return setLicense(c, rest.slice('license/'.length));
+    if (rest.startsWith('license/'))
+      return setLicense(c, decodeName(rest.slice('license/'.length)));
     const i = rest.lastIndexOf('/');
     if (i <= 0) return c.json({ error: 'Not found' }, 404);
-    const name = rest.slice(0, i);
+    const name = decodeName(rest.slice(0, i));
     switch (rest.slice(i + 1)) {
       case 'install':
         return installExtension(c, name);
@@ -732,6 +743,6 @@ export function registerMarketplaceRoutes(
     const rest = c.req.path.slice('/api/marketplace/'.length);
     const i = rest.lastIndexOf('/');
     if (i <= 0 || rest.slice(i + 1) !== 'config') return c.json({ error: 'Not found' }, 404);
-    return configExtension(c, rest.slice(0, i));
+    return configExtension(c, decodeName(rest.slice(0, i)));
   });
 }
