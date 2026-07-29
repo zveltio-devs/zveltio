@@ -94,7 +94,9 @@ d('storage local-driver round-trip (in-process)', () => {
   });
 
   it('GET /files/<key> rejects an unsatisfiable range with 416', async () => {
-    const res = await app.request(`/files/${storagePath}`, { headers: { range: 'bytes=999-1000' } });
+    const res = await app.request(`/files/${storagePath}`, {
+      headers: { range: 'bytes=999-1000' },
+    });
     expect(res.status).toBe(416);
     expect(res.headers.get('content-range')).toBe('bytes */15');
   });
