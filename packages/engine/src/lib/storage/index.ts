@@ -9,6 +9,7 @@
  * single-node install stores files on local disk with zero external dependency.
  */
 
+import { _registerStorageOnChange, storageConfig } from './config.js';
 import type { StorageDriver } from './driver.js';
 import { LocalDriver } from './local-driver.js';
 import { S3Driver } from './s3-driver.js';
@@ -16,22 +17,27 @@ import { S3Driver } from './s3-driver.js';
 export type { StorageDriver, StorageObject, PutOptions } from './driver.js';
 export { LocalDriver, safeLocalPath, verifySignedKey, signKey, localRoot } from './local-driver.js';
 export { S3Driver } from './s3-driver.js';
+export {
+  storageConfig,
+  setStorageOverlay,
+  type StorageConfig,
+  type S3Settings,
+} from './config.js';
 
 let _driver: StorageDriver | null = null;
 
-function selectKind(): 's3' | 'local' {
-  const explicit = process.env.STORAGE_DRIVER?.toLowerCase();
-  if (explicit === 's3' || explicit === 'local') return explicit;
-  return process.env.S3_ENDPOINT ? 's3' : 'local';
-}
-
-/** The process-wide storage driver (cached). */
+/** The process-wide storage driver (cached; dropped when config changes). */
 export function getStorage(): StorageDriver {
-  if (!_driver) _driver = selectKind() === 's3' ? new S3Driver() : new LocalDriver();
+  if (!_driver) _driver = storageConfig().driver === 's3' ? new S3Driver() : new LocalDriver();
   return _driver;
 }
 
-/** Test seam — reset the cached driver (e.g. after changing env in a test). */
+// A settings change (setStorageOverlay) must rebuild the driver.
+_registerStorageOnChange(() => {
+  _driver = null;
+});
+
+/** Test seam — reset the cached driver. */
 export function _resetStorageForTests(): void {
   _driver = null;
 }
