@@ -15,6 +15,7 @@ import { invalidateRateLimitCache } from '../middleware/rate-limit.js';
 import { registerSystemRoutes } from './admin/system-routes.js';
 import { registerPermissionRoutes } from './admin/permission-routes.js';
 import { registerConfigRoutes } from './admin/config-routes.js';
+import { registerStorageAdminRoutes } from './admin/storage-routes.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
@@ -38,6 +39,7 @@ export function adminRoutes(db: Database, auth: any): Hono {
   registerSystemRoutes(app, db);
   registerPermissionRoutes(app, db);
   registerConfigRoutes(app, db);
+  registerStorageAdminRoutes(app, db);
   return app;
 }
 
