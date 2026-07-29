@@ -152,6 +152,26 @@ export function problemOnError(err: Error, c: Context): Response {
     });
   }
 
+  // Postgres 22P02 (invalid_text_representation) — a malformed value reached the
+  // query, almost always a bad path/query param cast to uuid/int/enum. That is a
+  // client error, not a server fault, so render 400 instead of a scary 500. Core
+  // data routes catch this earlier; this covers extension routes that query the
+  // DB directly with an unvalidated `:id`. SQLSTATE is in `code` for node-pg,
+  // but Bun.SQL puts a generic string in `code` (ERR_POSTGRES_SERVER_ERROR) and
+  // the real SQLSTATE in `errno` — so check both.
+  const e = err as { code?: string; errno?: string | number };
+  if (e.code === '22P02' || String(e.errno) === '22P02') {
+    return toResponse({
+      type: 'about:blank',
+      title: statusTitle(400),
+      status: 400,
+      code: 'invalid_parameter',
+      detail: 'A request parameter has an invalid format.',
+      instance,
+      traceId,
+    });
+  }
+
   // Unknown error — never leak internals; log server-side, return generic 500.
   console.error(
     `[problem] unhandled error on ${c.req.method} ${instance} (trace ${traceId}):`,
