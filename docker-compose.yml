@@ -121,8 +121,14 @@ services:
     networks:
       - zveltio_internal
 
-  # ── SeaweedFS (S3-compatible object storage) ────────────────────────────────────
+  # ── SeaweedFS (S3-compatible object storage) — OPT-IN ───────────────────────────
+  # OFF by default: the engine ships with the zero-dependency `local` storage
+  # driver, so a plain `docker compose up` needs no object store. Operators who
+  # want S3-backed storage at scale bring this up with:
+  #   STORAGE_DRIVER=s3 docker compose --profile storage up
+  # (and set S3_ACCESS_KEY / S3_SECRET_KEY in .env to match seaweedfs/s3-config.json).
   storage:
+    profiles: ['storage']
     # Pin to specific version — avoid silent breaking changes on docker compose pull
     image: chrislusf/seaweedfs:3.68
     container_name: zveltio-storage
@@ -234,12 +240,19 @@ services:
       # Valkey/Redis
       VALKEY_URL: 'redis://:${VALKEY_PASSWORD}@cache:6379'
 
-      # S3 / SeaweedFS
-      S3_ENDPOINT: 'http://storage:8333'
+      # Object storage. Default `local` → files live on the mounted volume below,
+      # no external store needed. Set STORAGE_DRIVER=s3 (+ the `storage` profile
+      # and S3 creds) to use SeaweedFS/any S3-compatible store instead.
+      STORAGE_DRIVER: '${STORAGE_DRIVER:-local}'
+      STORAGE_LOCAL_DIR: /data/storage
+      # S3 settings — only consulted when STORAGE_DRIVER=s3. Endpoint defaults to
+      # the opt-in `storage` service; creds are optional here and required only
+      # in s3 mode (must match seaweedfs/s3-config.json).
+      S3_ENDPOINT: '${S3_ENDPOINT:-http://storage:8333}'
       S3_REGION: 'us-east-1'
-      S3_ACCESS_KEY: '${S3_ACCESS_KEY:?ERROR: S3_ACCESS_KEY must be set}'
-      S3_SECRET_KEY: '${S3_SECRET_KEY:?ERROR: S3_SECRET_KEY must be set}'
-      S3_BUCKET: 'zveltio'
+      S3_ACCESS_KEY: '${S3_ACCESS_KEY:-}'
+      S3_SECRET_KEY: '${S3_SECRET_KEY:-}'
+      S3_BUCKET: '${S3_BUCKET:-zveltio}'
       S3_PUBLIC_URL: '${S3_PUBLIC_URL:-http://localhost:8333}'
 
       # Extensions (comma-separated)
@@ -251,6 +264,9 @@ services:
 
     volumes:
       - ./extensions:/app/extensions:ro
+      # Local storage driver persists uploads here (default driver). Ignored
+      # when STORAGE_DRIVER=s3.
+      - engine_storage:/data/storage
     networks:
       - zveltio_internal
 
@@ -264,6 +280,7 @@ networks:
 volumes:
   postgres_data:
   valkey_data:
+  engine_storage:
   seaweedfs_data:
   prometheus_data:
   grafana_data:
