@@ -11278,5 +11278,525 @@
     "nl": "Geef de inlogwaarde op",
     "pl": "Podaj wartość logowania",
     "hu": "Add meg a bejelentkezési értéket"
+  },
+  "(no subject)": {
+    "fr": "(sans objet)",
+    "de": "(kein Betreff)"
+  },
+  "(run a query to see output)": {
+    "fr": "(exécutez une requête pour voir le résultat)",
+    "de": "(Abfrage ausführen, um die Ausgabe zu sehen)"
+  },
+  "+ Another": {
+    "fr": "+ Un autre",
+    "de": "+ Weitere"
+  },
+  "+ New Contact": {
+    "fr": "+ Nouveau contact",
+    "de": "+ Neuer Kontakt"
+  },
+  "+ New Organization": {
+    "fr": "+ Nouvelle organisation",
+    "de": "+ Neue Organisation"
+  },
+  "+ New Transaction": {
+    "fr": "+ Nouvelle transaction",
+    "de": "+ Neue Transaktion"
+  },
+  "Add an IMAP/SMTP account to get started.": {
+    "fr": "Ajoutez un compte IMAP/SMTP pour commencer.",
+    "de": "Fügen Sie ein IMAP/SMTP-Konto hinzu, um zu beginnen."
+  },
+  "Add one here →": {
+    "fr": "Ajoutez-en un ici →",
+    "de": "Hier eines hinzufügen →"
+  },
+  "Allergens:": {
+    "fr": "Allergènes :",
+    "de": "Allergene:"
+  },
+  "Ask in natural language — get SQL + results.": {
+    "fr": "Posez une question en langage naturel — obtenez le SQL et les résultats.",
+    "de": "Fragen Sie in natürlicher Sprache — erhalten Sie SQL und Ergebnisse."
+  },
+  "Attempt #": {
+    "fr": "Tentative n°",
+    "de": "Versuch Nr."
+  },
+  "Base URL": {
+    "fr": "URL de base",
+    "de": "Basis-URL"
+  },
+  "Base URL *": {
+    "fr": "URL de base *",
+    "de": "Basis-URL *"
+  },
+  "Bearer token": {
+    "fr": "Jeton Bearer",
+    "de": "Bearer-Token"
+  },
+  "Body (Markdown)": {
+    "fr": "Corps (Markdown)",
+    "de": "Text (Markdown)"
+  },
+  "Body or template is required": {
+    "fr": "Le corps ou le modèle est obligatoire",
+    "de": "Text oder Vorlage ist erforderlich"
+  },
+  "Changelog, custom pages, and access tokens": {
+    "fr": "Journal des modifications, pages personnalisées et jetons d'accès",
+    "de": "Änderungsprotokoll, benutzerdefinierte Seiten und Zugriffstoken"
+  },
+  "Chat with your data, generate schemas, run SQL queries, and search semantically.": {
+    "fr": "Discutez avec vos données, générez des schémas, exécutez des requêtes SQL et effectuez des recherches sémantiques.",
+    "de": "Chatten Sie mit Ihren Daten, generieren Sie Schemas, führen Sie SQL-Abfragen aus und suchen Sie semantisch."
+  },
+  "Code (e.g. 4111)": {
+    "fr": "Code (ex. 4111)",
+    "de": "Code (z. B. 4111)"
+  },
+  "Code (e.g. ro, en, de)": {
+    "fr": "Code (ex. ro, en, de)",
+    "de": "Code (z. B. ro, en, de)"
+  },
+  "Code:": {
+    "fr": "Code :",
+    "de": "Code:"
+  },
+  "Collection and index name are required": {
+    "fr": "Le nom de la collection et de l'index sont obligatoires",
+    "de": "Sammlungs- und Indexname sind erforderlich"
+  },
+  "Config (JSON)": {
+    "fr": "Configuration (JSON)",
+    "de": "Konfiguration (JSON)"
+  },
+  "Confirm triggering a REAL recall ({scope})?": {
+    "fr": "Confirmer le déclenchement d'un rappel RÉEL ({scope}) ?",
+    "de": "Auslösen eines ECHTEN Rückrufs ({scope}) bestätigen?"
+  },
+  "Connect to an external PostgreSQL database, scan its schema, and surface tables as virtual collections in Zveltio.": {
+    "fr": "Connectez-vous à une base de données PostgreSQL externe, analysez son schéma et exposez ses tables en tant que collections virtuelles dans Zveltio.",
+    "de": "Verbinden Sie sich mit einer externen PostgreSQL-Datenbank, scannen Sie ihr Schema und stellen Sie Tabellen als virtuelle Sammlungen in Zveltio bereit."
+  },
+  "Coordinates (GeoJSON polygon array)": {
+    "fr": "Coordonnées (tableau de polygones GeoJSON)",
+    "de": "Koordinaten (GeoJSON-Polygon-Array)"
+  },
+  "Create your first checklist to get started.": {
+    "fr": "Créez votre première liste de contrôle pour commencer.",
+    "de": "Erstellen Sie Ihre erste Checkliste, um zu beginnen."
+  },
+  "Credit (RON)": {
+    "fr": "Crédit (RON)",
+    "de": "Haben (RON)"
+  },
+  "Debit (RON)": {
+    "fr": "Débit (RON)",
+    "de": "Soll (RON)"
+  },
+  "Delete form \"{name}\"? This will also delete all submissions.": {
+    "fr": "Supprimer le formulaire « {name} » ? Cela supprimera également toutes les soumissions.",
+    "de": "Formular „{name}“ löschen? Dadurch werden auch alle Einsendungen gelöscht."
+  },
+  "Describe your data model in plain language — AI generates the collection schema ready to apply.": {
+    "fr": "Décrivez votre modèle de données en langage clair — l'IA génère le schéma de collection prêt à appliquer.",
+    "de": "Beschreiben Sie Ihr Datenmodell in einfacher Sprache — die KI generiert das anwendungsbereite Sammlungsschema."
+  },
+  "Describe your data model — AI generates the schema.": {
+    "fr": "Décrivez votre modèle de données — l'IA génère le schéma.",
+    "de": "Beschreiben Sie Ihr Datenmodell — die KI generiert das Schema."
+  },
+  "Directory authentication settings": {
+    "fr": "Paramètres d'authentification de l'annuaire",
+    "de": "Einstellungen für die Verzeichnisauthentifizierung"
+  },
+  "Disc %": {
+    "fr": "Remise %",
+    "de": "Rabatt %"
+  },
+  "Doc #": {
+    "fr": "Doc n°",
+    "de": "Dok.-Nr."
+  },
+  "Document #": {
+    "fr": "Document n°",
+    "de": "Dokument-Nr."
+  },
+  "Drag a CSV / JSON / NDJSON file, or click to browse": {
+    "fr": "Glissez un fichier CSV / JSON / NDJSON, ou cliquez pour parcourir",
+    "de": "CSV-/JSON-/NDJSON-Datei ziehen oder zum Durchsuchen klicken"
+  },
+  "Enter a collection and query in the sidebar to search records semantically.": {
+    "fr": "Saisissez une collection et une requête dans la barre latérale pour rechercher des enregistrements de façon sémantique.",
+    "de": "Geben Sie eine Sammlung und Abfrage in der Seitenleiste ein, um Datensätze semantisch zu suchen."
+  },
+  "Export collection data as JSON, CSV or NDJSON with filtering support": {
+    "fr": "Exportez les données de collection au format JSON, CSV ou NDJSON avec prise en charge du filtrage",
+    "de": "Exportieren Sie Sammlungsdaten als JSON, CSV oder NDJSON mit Filterunterstützung"
+  },
+  "Extra headers (JSON)": {
+    "fr": "En-têtes supplémentaires (JSON)",
+    "de": "Zusätzliche Header (JSON)"
+  },
+  "Failed to update form: ": {
+    "fr": "Échec de la mise à jour du formulaire : ",
+    "de": "Formular konnte nicht aktualisiert werden: "
+  },
+  "Failed: ": {
+    "fr": "Échec : ",
+    "de": "Fehlgeschlagen: "
+  },
+  "Field-level validation with AI assistance": {
+    "fr": "Validation au niveau des champs avec l'assistance de l'IA",
+    "de": "Validierung auf Feldebene mit KI-Unterstützung"
+  },
+  "Fill in": {
+    "fr": "Remplir",
+    "de": "Ausfüllen"
+  },
+  "Filter (Zveltio query, optional)": {
+    "fr": "Filtre (requête Zveltio, facultatif)",
+    "de": "Filter (Zveltio-Abfrage, optional)"
+  },
+  "Find Records Near a Point": {
+    "fr": "Trouver des enregistrements près d'un point",
+    "de": "Datensätze in der Nähe eines Punkts finden"
+  },
+  "Find records where status is pending from the last 7 days": {
+    "fr": "Trouver les enregistrements dont le statut est en attente au cours des 7 derniers jours",
+    "de": "Datensätze finden, deren Status in den letzten 7 Tagen ausstehend ist"
+  },
+  "Full-height mail client": {
+    "fr": "Client de messagerie pleine hauteur",
+    "de": "E-Mail-Client in voller Höhe"
+  },
+  "Generate a schema for an e-commerce product catalog": {
+    "fr": "Générer un schéma pour un catalogue de produits e-commerce",
+    "de": "Ein Schema für einen E-Commerce-Produktkatalog generieren"
+  },
+  "Generate, sign and share documents from templates": {
+    "fr": "Générez, signez et partagez des documents à partir de modèles",
+    "de": "Dokumente aus Vorlagen generieren, signieren und teilen"
+  },
+  "Generate:": {
+    "fr": "Générer :",
+    "de": "Generieren:"
+  },
+  "HTTP method": {
+    "fr": "Méthode HTTP",
+    "de": "HTTP-Methode"
+  },
+  "IDP Certificate (PEM)": {
+    "fr": "Certificat IDP (PEM)",
+    "de": "IDP-Zertifikat (PEM)"
+  },
+  "IDP Entry Point URL *": {
+    "fr": "URL du point d'entrée IDP *",
+    "de": "IDP-Einstiegspunkt-URL *"
+  },
+  "IDP Issuer / Entity ID": {
+    "fr": "Émetteur IDP / ID d'entité",
+    "de": "IDP-Aussteller / Entitäts-ID"
+  },
+  "IMAP (Incoming)": {
+    "fr": "IMAP (entrant)",
+    "de": "IMAP (eingehend)"
+  },
+  "Import collection data from CSV or JSON files with column mapping and background processing": {
+    "fr": "Importez des données de collection depuis des fichiers CSV ou JSON avec mappage des colonnes et traitement en arrière-plan",
+    "de": "Importieren Sie Sammlungsdaten aus CSV- oder JSON-Dateien mit Spaltenzuordnung und Hintergrundverarbeitung"
+  },
+  "Include patterns (comma-separated)": {
+    "fr": "Modèles à inclure (séparés par des virgules)",
+    "de": "Einschlussmuster (kommagetrennt)"
+  },
+  "Initial status: quarantine. Release the lot after verification.": {
+    "fr": "Statut initial : quarantaine. Libérez le lot après vérification.",
+    "de": "Anfangsstatus: Quarantäne. Charge nach Prüfung freigeben."
+  },
+  "Initial:": {
+    "fr": "Initial :",
+    "de": "Initial:"
+  },
+  "Inline PDF viewer for Studio asset manager, client apps, and page builder blocks.": {
+    "fr": "Visionneuse PDF intégrée pour le gestionnaire d'actifs Studio, les applications client et les blocs du générateur de pages.",
+    "de": "Integrierter PDF-Viewer für den Studio-Asset-Manager, Client-Apps und Seitengenerator-Blöcke."
+  },
+  "Inspect tables, schemas, and sample rows": {
+    "fr": "Inspectez les tables, schémas et lignes d'exemple",
+    "de": "Tabellen, Schemas und Beispielzeilen untersuchen"
+  },
+  "Internationalization: manage locales, translation keys and per-locale string values": {
+    "fr": "Internationalisation : gérez les langues, les clés de traduction et les valeurs de chaîne par langue",
+    "de": "Internationalisierung: Verwalten Sie Sprachen, Übersetzungsschlüssel und sprachspezifische Zeichenkettenwerte"
+  },
+  "Invoice / note no. (optional)": {
+    "fr": "N° de facture / note (facultatif)",
+    "de": "Rechnungs-/Notiznummer (optional)"
+  },
+  "Invoice:": {
+    "fr": "Facture :",
+    "de": "Rechnung:"
+  },
+  "LDAP URL *": {
+    "fr": "URL LDAP *",
+    "de": "LDAP-URL *"
+  },
+  "LDAP configuration saved.": {
+    "fr": "Configuration LDAP enregistrée.",
+    "de": "LDAP-Konfiguration gespeichert."
+  },
+  "Map (requires PostGIS)": {
+    "fr": "Carte (nécessite PostGIS)",
+    "de": "Karte (erfordert PostGIS)"
+  },
+  "Mounted at /api/fn/": {
+    "fr": "Monté sur /api/fn/",
+    "de": "Eingebunden unter /api/fn/"
+  },
+  "My Folder": {
+    "fr": "Mon dossier",
+    "de": "Mein Ordner"
+  },
+  "My Function": {
+    "fr": "Ma fonction",
+    "de": "Meine Funktion"
+  },
+  "Name (e.g. November 2026)": {
+    "fr": "Nom (ex. novembre 2026)",
+    "de": "Name (z. B. November 2026)"
+  },
+  "Name:": {
+    "fr": "Nom :",
+    "de": "Name:"
+  },
+  "No contacts yet. They're collected automatically when you send emails.": {
+    "fr": "Aucun contact pour l'instant. Ils sont collectés automatiquement lorsque vous envoyez des e-mails.",
+    "de": "Noch keine Kontakte. Sie werden automatisch erfasst, wenn Sie E-Mails senden."
+  },
+  "No forms yet. Use the Forms API to create embeddable forms.": {
+    "fr": "Aucun formulaire pour l'instant. Utilisez l'API Forms pour créer des formulaires intégrables.",
+    "de": "Noch keine Formulare. Verwenden Sie die Forms-API, um einbettbare Formulare zu erstellen."
+  },
+  "No incoming webhook endpoints.": {
+    "fr": "Aucun point de terminaison webhook entrant.",
+    "de": "Keine eingehenden Webhook-Endpunkte."
+  },
+  "No profiles. Create one to scan an external DB.": {
+    "fr": "Aucun profil. Créez-en un pour analyser une base externe.",
+    "de": "Keine Profile. Erstellen Sie eines, um eine externe DB zu scannen."
+  },
+  "No tokens. Generate one for read-only doc access.": {
+    "fr": "Aucun jeton. Générez-en un pour un accès en lecture seule aux documents.",
+    "de": "Keine Token. Generieren Sie eines für schreibgeschützten Dokumentzugriff."
+  },
+  "Opening float:": {
+    "fr": "Fonds de caisse initial :",
+    "de": "Anfangsbestand:"
+  },
+  "Order #": {
+    "fr": "Commande n°",
+    "de": "Bestellung Nr."
+  },
+  "Pay date": {
+    "fr": "Date de paiement",
+    "de": "Zahlungsdatum"
+  },
+  "Pending drafts across all collections. Publish promotes the draft to the live record.": {
+    "fr": "Brouillons en attente dans toutes les collections. Publier promeut le brouillon vers l'enregistrement en direct.",
+    "de": "Ausstehende Entwürfe in allen Sammlungen. Veröffentlichen übernimmt den Entwurf in den Live-Datensatz."
+  },
+  "Playground, operation logs, and field policies": {
+    "fr": "Playground, journaux d'opérations et politiques de champ",
+    "de": "Playground, Vorgangsprotokolle und Feldrichtlinien"
+  },
+  "Point Clustering (DBSCAN)": {
+    "fr": "Regroupement de points (DBSCAN)",
+    "de": "Punkt-Clustering (DBSCAN)"
+  },
+  "Production date:": {
+    "fr": "Date de production :",
+    "de": "Produktionsdatum:"
+  },
+  "Providers, chat, search, SQL, and schema tools": {
+    "fr": "Fournisseurs, chat, recherche, SQL et outils de schéma",
+    "de": "Anbieter, Chat, Suche, SQL und Schema-Werkzeuge"
+  },
+  "Raw JSON": {
+    "fr": "JSON brut",
+    "de": "Rohes JSON"
+  },
+  "Recall reason *": {
+    "fr": "Motif du rappel *",
+    "de": "Rückrufgrund *"
+  },
+  "Recall type": {
+    "fr": "Type de rappel",
+    "de": "Rückrufart"
+  },
+  "Receipt URL (optional)": {
+    "fr": "URL du reçu (facultatif)",
+    "de": "Beleg-URL (optional)"
+  },
+  "Recent orders": {
+    "fr": "Commandes récentes",
+    "de": "Aktuelle Bestellungen"
+  },
+  "Reception date:": {
+    "fr": "Date de réception :",
+    "de": "Empfangsdatum:"
+  },
+  "Returns clusters with centroid coordinates and point counts.": {
+    "fr": "Renvoie des groupes avec les coordonnées du centroïde et le nombre de points.",
+    "de": "Gibt Cluster mit Schwerpunktkoordinaten und Punktanzahl zurück."
+  },
+  "Row:": {
+    "fr": "Ligne :",
+    "de": "Zeile:"
+  },
+  "Search semantically in collections with AI Search enabled.": {
+    "fr": "Recherchez de façon sémantique dans les collections où AI Search est activé.",
+    "de": "Suchen Sie semantisch in Sammlungen mit aktivierter KI-Suche."
+  },
+  "Select a mail account first to manage filters.": {
+    "fr": "Sélectionnez d'abord un compte de messagerie pour gérer les filtres.",
+    "de": "Wählen Sie zuerst ein E-Mail-Konto aus, um Filter zu verwalten."
+  },
+  "Select a period to view payroll entries.": {
+    "fr": "Sélectionnez une période pour afficher les entrées de paie.",
+    "de": "Wählen Sie einen Zeitraum, um Lohnbuchungen anzuzeigen."
+  },
+  "Select a ticket to view the conversation.": {
+    "fr": "Sélectionnez un ticket pour afficher la conversation.",
+    "de": "Wählen Sie ein Ticket, um die Konversation anzuzeigen."
+  },
+  "Seller (Issuer)": {
+    "fr": "Vendeur (émetteur)",
+    "de": "Verkäufer (Aussteller)"
+  },
+  "Service Provider Info": {
+    "fr": "Informations sur le fournisseur de services",
+    "de": "Dienstanbieter-Informationen"
+  },
+  "Storage Writes": {
+    "fr": "Écritures de stockage",
+    "de": "Speicherschreibvorgänge"
+  },
+  "Supplier lot:": {
+    "fr": "Lot fournisseur :",
+    "de": "Lieferantencharge:"
+  },
+  "Sync failed: ": {
+    "fr": "Échec de la synchronisation : ",
+    "de": "Synchronisierung fehlgeschlagen: "
+  },
+  "This will mark all affected lots as \"recalled\" and create an official file.": {
+    "fr": "Cela marquera tous les lots concernés comme « rappelés » et créera un dossier officiel.",
+    "de": "Dadurch werden alle betroffenen Chargen als „zurückgerufen“ markiert und eine offizielle Akte erstellt."
+  },
+  "To number": {
+    "fr": "Numéro de destination",
+    "de": "Zielnummer"
+  },
+  "To:": {
+    "fr": "À :",
+    "de": "An:"
+  },
+  "From:": {
+    "fr": "De :",
+    "de": "Von:"
+  },
+  "Type a message… (Enter to send, Shift+Enter for newline)": {
+    "fr": "Saisissez un message… (Entrée pour envoyer, Maj+Entrée pour un saut de ligne)",
+    "de": "Nachricht eingeben… (Enter zum Senden, Umschalt+Enter für neue Zeile)"
+  },
+  "Type a question in plain language — AI generates and runs the SQL read-only query.": {
+    "fr": "Saisissez une question en langage clair — l'IA génère et exécute la requête SQL en lecture seule.",
+    "de": "Geben Sie eine Frage in einfacher Sprache ein — die KI generiert und führt die schreibgeschützte SQL-Abfrage aus."
+  },
+  "Type:": {
+    "fr": "Type :",
+    "de": "Typ:"
+  },
+  "Upsert on field (optional, e.g. email)": {
+    "fr": "Upsert sur le champ (facultatif, ex. email)",
+    "de": "Upsert für Feld (optional, z. B. E-Mail)"
+  },
+  "Usage This Period": {
+    "fr": "Utilisation cette période",
+    "de": "Nutzung in diesem Zeitraum"
+  },
+  "Use POST /ext/geospatial/postgis/cluster — returns clusters with centroid and counts.": {
+    "fr": "Utilisez POST /ext/geospatial/postgis/cluster — renvoie des groupes avec centroïde et nombres.",
+    "de": "Verwenden Sie POST /ext/geospatial/postgis/cluster — gibt Cluster mit Schwerpunkt und Anzahl zurück."
+  },
+  "Use SSL/TLS": {
+    "fr": "Utiliser SSL/TLS",
+    "de": "SSL/TLS verwenden"
+  },
+  "Use the API endpoint": {
+    "fr": "Utiliser le point de terminaison API",
+    "de": "API-Endpunkt verwenden"
+  },
+  "Username Attr": {
+    "fr": "Attribut de nom d'utilisateur",
+    "de": "Benutzername-Attribut"
+  },
+  "View OpenAPI spec →": {
+    "fr": "Voir la spécification OpenAPI →",
+    "de": "OpenAPI-Spezifikation anzeigen →"
+  },
+  "Warehouses, SKUs, stock movements, reorder alerts and barcode support": {
+    "fr": "Entrepôts, SKU, mouvements de stock, alertes de réapprovisionnement et prise en charge des codes-barres",
+    "de": "Lager, SKUs, Bestandsbewegungen, Nachbestellwarnungen und Barcode-Unterstützung"
+  },
+  "What are the most active collections this week?": {
+    "fr": "Quelles sont les collections les plus actives cette semaine ?",
+    "de": "Welche Sammlungen sind diese Woche am aktivsten?"
+  },
+  "Write and deploy serverless functions that run inside the Zveltio engine": {
+    "fr": "Écrivez et déployez des fonctions serverless qui s'exécutent dans le moteur Zveltio",
+    "de": "Schreiben und implementieren Sie serverlose Funktionen, die in der Zveltio-Engine laufen"
+  },
+  "XML generated! Use Download for the file.": {
+    "fr": "XML généré ! Utilisez Télécharger pour le fichier.",
+    "de": "XML generiert! Verwenden Sie Herunterladen für die Datei."
+  },
+  "Zone:": {
+    "fr": "Zone :",
+    "de": "Zone:"
+  },
+  "— Custom message —": {
+    "fr": "— Message personnalisé —",
+    "de": "— Benutzerdefinierte Nachricht —"
+  },
+  "— None —": {
+    "fr": "— Aucun —",
+    "de": "— Keine —"
+  },
+  "— Select —": {
+    "fr": "— Sélectionner —",
+    "de": "— Auswählen —"
+  },
+  "— Select collection —": {
+    "fr": "— Sélectionner une collection —",
+    "de": "— Sammlung auswählen —"
+  },
+  "— Select project —": {
+    "fr": "— Sélectionner un projet —",
+    "de": "— Projekt auswählen —"
+  },
+  "← Back": {
+    "fr": "← Retour",
+    "de": "← Zurück"
+  },
+  "error (block)": {
+    "fr": "erreur (bloquer)",
+    "de": "Fehler (blockieren)"
+  },
+  "warning (allow)": {
+    "fr": "avertissement (autoriser)",
+    "de": "Warnung (zulassen)"
   }
 }
