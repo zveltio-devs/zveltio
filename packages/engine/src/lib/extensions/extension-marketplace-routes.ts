@@ -64,10 +64,9 @@ export function registerMarketplaceRoutes(
   // Keys are stored per-extension in zv_settings as ext_license:<name>.
 
   // POST /api/marketplace/license/:name — store (and optionally verify) a license key
-  app.post('/api/marketplace/license/:name{.+}', async (c) => {
+  const setLicense = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
 
-    const name = c.req.param('name');
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const key = body?.license_key as string | undefined;
     if (!key?.trim()) return c.json({ error: 'license_key is required' }, 400);
@@ -92,13 +91,13 @@ export function registerMarketplaceRoutes(
       .execute();
 
     return c.json({ ok: true });
-  });
+  };
 
   // DELETE /api/marketplace/license/:name — remove a stored license key
   app.delete('/api/marketplace/license/:name{.+}', async (c) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized' }, 401);
 
-    const name = c.req.param('name');
+    const name = c.req.param('name') ?? '';
     await db
       .deleteFrom('zv_settings')
       .where('key', '=', `ext_license:${name}`)
@@ -276,11 +275,10 @@ export function registerMarketplaceRoutes(
     return c.json({ extensions });
   });
 
-  // POST /api/marketplace/:name/install
-  app.post('/api/marketplace/:name{.+}/install', async (c) => {
+  // POST /api/marketplace/:name/install (registered via the dispatcher below)
+  const installExtension = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-    const name = c.req.param('name');
     return withExtensionLock(db, name, async () => {
       const catalog = await fetchCatalog();
       const entry = catalog.find((e) => e.name === name);
@@ -354,13 +352,12 @@ export function registerMarketplaceRoutes(
         message: `Extension "${name}" installed successfully. Enable it to activate.`,
       });
     });
-  });
+  };
 
-  // POST /api/marketplace/:name/enable
-  app.post('/api/marketplace/:name{.+}/enable', async (c) => {
+  // POST /api/marketplace/:name/enable (registered via the dispatcher below)
+  const enableExtension = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-    const name = c.req.param('name');
     return withExtensionLock(db, name, async () => {
       // Use live registry catalog (with local fallback) so extensions from apps.zveltio.com work
       const catalog = await fetchCatalog();
@@ -479,7 +476,7 @@ export function registerMarketplaceRoutes(
         nowActive ? 200 : 422,
       );
     });
-  });
+  };
 
   // POST /api/marketplace/enable-all
   // Single-pass "enable everything installed" in dependency order, with one
@@ -487,7 +484,7 @@ export function registerMarketplaceRoutes(
   // it doesn't leave dependency-ordered extensions disabled. A failure keeps
   // the extension is_enabled=true (it self-heals on the next boot) and records
   // last_load_error — never flips it off.
-  app.post('/api/marketplace/enable-all', async (c) => {
+  const enableAllExtensions = async (c: Context) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
     const installed = await db
@@ -544,13 +541,12 @@ export function registerMarketplaceRoutes(
       failed: failed.length,
       results,
     });
-  });
+  };
 
   // POST /api/marketplace/:name/disable
-  app.post('/api/marketplace/:name{.+}/disable', async (c) => {
+  const disableExtension = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-    const name = c.req.param('name');
     return withExtensionLock(db, name, async () => {
       await db
         .insertInto('zv_extension_registry')
@@ -586,13 +582,12 @@ export function registerMarketplaceRoutes(
         message: `Extension ${name} disabled. Refresh to remove its pages.`,
       });
     });
-  });
+  };
 
-  // PUT /api/marketplace/:name/config
-  app.put('/api/marketplace/:name{.+}/config', async (c) => {
+  // PUT /api/marketplace/:name/config (registered via the dispatcher below)
+  const configExtension = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-    const name = c.req.param('name');
     const config = await c.req.json();
 
     await db
@@ -611,7 +606,7 @@ export function registerMarketplaceRoutes(
       .execute();
 
     return c.json({ success: true });
-  });
+  };
 
   // POST /api/marketplace/:name/uninstall[?purgeData=true]
   //
@@ -621,10 +616,9 @@ export function registerMarketplaceRoutes(
   //
   // Purge (purgeData=true): run DOWN migrations in reverse, delete migration
   // rows, remove files from disk, delete the registry row. Fully destructive.
-  app.post('/api/marketplace/:name{.+}/uninstall', async (c) => {
+  const uninstallExtension = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
-    const name = c.req.param('name');
     const purgeData = c.req.query('purgeData') === 'true';
 
     return withExtensionLock(db, name, async () => {
@@ -704,5 +698,40 @@ export function registerMarketplaceRoutes(
         message: `Extension ${name} uninstalled and purged.`,
       });
     });
+  };
+
+  // ── POST/PUT dispatcher ──────────────────────────────────────────────────
+  // Hono's RegExpRouter can't match `/api/marketplace/:name{.+}/<suffix>` when
+  // the name spans 3+ path segments (e.g. `compliance/ro/saft`) AND there are
+  // sibling routes under the same prefix — the multi-segment param collides and
+  // the request 404s. A single wildcard route with manual parsing sidesteps all
+  // of that, keeping the public paths (/api/marketplace/<name>/<action>)
+  // unchanged and working at any nesting depth. DELETE/GET keep their own
+  // routes (different method, no collision).
+  app.post('/api/marketplace/*', (c) => {
+    const rest = c.req.path.slice('/api/marketplace/'.length);
+    if (rest === 'enable-all') return enableAllExtensions(c);
+    if (rest.startsWith('license/')) return setLicense(c, rest.slice('license/'.length));
+    const i = rest.lastIndexOf('/');
+    if (i <= 0) return c.json({ error: 'Not found' }, 404);
+    const name = rest.slice(0, i);
+    switch (rest.slice(i + 1)) {
+      case 'install':
+        return installExtension(c, name);
+      case 'enable':
+        return enableExtension(c, name);
+      case 'disable':
+        return disableExtension(c, name);
+      case 'uninstall':
+        return uninstallExtension(c, name);
+      default:
+        return c.json({ error: 'Unknown marketplace action' }, 404);
+    }
+  });
+  app.put('/api/marketplace/*', (c) => {
+    const rest = c.req.path.slice('/api/marketplace/'.length);
+    const i = rest.lastIndexOf('/');
+    if (i <= 0 || rest.slice(i + 1) !== 'config') return c.json({ error: 'Not found' }, 404);
+    return configExtension(c, rest.slice(0, i));
   });
 }
