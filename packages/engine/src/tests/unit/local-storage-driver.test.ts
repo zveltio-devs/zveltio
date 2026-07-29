@@ -76,7 +76,11 @@ describe('LocalDriver', () => {
     expect(verifySignedKey('uploads/a.txt', exp, sig)).toBe(true);
     // tampered key / sig / expiry all fail
     expect(verifySignedKey('uploads/OTHER.txt', exp, sig)).toBe(false);
-    expect(verifySignedKey('uploads/a.txt', exp, `${sig.slice(0, -1)}0`)).toBe(false);
+    // Flip the last hex nibble to a guaranteed-different value. (A literal
+    // "…0" tamper is a no-op ~6% of the time — when the HMAC already ends in
+    // '0' — which made this test flaky across runs with different secrets.)
+    const tampered = sig.slice(0, -1) + (sig.slice(-1) === '0' ? '1' : '0');
+    expect(verifySignedKey('uploads/a.txt', exp, tampered)).toBe(false);
     expect(
       verifySignedKey(
         'uploads/a.txt',
