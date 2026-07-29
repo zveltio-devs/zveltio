@@ -154,6 +154,8 @@ const TABS = [
  <t.icon size={16} />{t.label}
  </button>
  {/each}
+ <!-- Storage config lives on its own route (its own driver/probe state). -->
+ <a class="tab gap-2" href="/admin/settings/storage">Storage</a>
  <!-- S3-03: settings.tabs slot — extensions contribute custom tab buttons here.
       Contributions are rendered after the core tabs. -->
  <Slot name="settings.tabs" ctx={{ user: auth.user, activeTab: tab }} />
