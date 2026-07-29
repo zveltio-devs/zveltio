@@ -69,6 +69,41 @@ d('storage local-driver round-trip (in-process)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('GET /files/<key> advertises Accept-Ranges on the full response', async () => {
+    const res = await app.request(`/files/${storagePath}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('accept-ranges')).toBe('bytes');
+  });
+
+  it('GET /files/<key> serves a byte range as 206 Partial Content', async () => {
+    // 'local-bytes-123' → bytes 0-4 = 'local'
+    const res = await app.request(`/files/${storagePath}`, { headers: { range: 'bytes=0-4' } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get('content-range')).toBe('bytes 0-4/15');
+    expect(res.headers.get('content-length')).toBe('5');
+    expect(await res.text()).toBe('local');
+  });
+
+  it('GET /files/<key> honours an open-ended and a suffix range', async () => {
+    const open = await app.request(`/files/${storagePath}`, { headers: { range: 'bytes=6-' } });
+    expect(open.status).toBe(206);
+    expect(await open.text()).toBe('bytes-123'); // bytes 6..end
+    const suffix = await app.request(`/files/${storagePath}`, { headers: { range: 'bytes=-3' } });
+    expect(suffix.status).toBe(206);
+    expect(await suffix.text()).toBe('123'); // last 3 bytes
+  });
+
+  it('GET /files/<key> rejects an unsatisfiable range with 416', async () => {
+    const res = await app.request(`/files/${storagePath}`, { headers: { range: 'bytes=999-1000' } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get('content-range')).toBe('bytes */15');
+  });
+
+  it('GET /files/<key>.meta is never served (internal sidecar)', async () => {
+    const res = await app.request(`/files/${storagePath}.meta`);
+    expect(res.status).toBe(404);
+  });
+
   it('GET /:id/signed-url yields an HMAC URL that /files accepts', async () => {
     const res = await app.request(`/api/storage/${fileId}/signed-url`, { headers: { cookie } });
     expect(res.status).toBe(200);
