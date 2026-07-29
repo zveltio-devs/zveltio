@@ -9,24 +9,24 @@
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { checkPermission } from '../../lib/tenancy/index.js';
-import { setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
-import { probeLocal, probeS3 } from '../../lib/storage/probe.js';
+import { probeLocal, probeS3, setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
 
 const SETTINGS_KEY = 'storage_config';
 
-// biome-ignore lint/suspicious/noExplicitAny: request-shaped input
-function normalizeOverlay(body: any) {
-  const s3 = body?.s3 ?? {};
+function normalizeOverlay(body: unknown) {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const s3 = (b.s3 ?? {}) as Record<string, unknown>;
+  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
   return {
-    driver: typeof body?.driver === 'string' ? body.driver : undefined,
-    localDir: typeof body?.localDir === 'string' ? body.localDir : undefined,
+    driver: str(b.driver),
+    localDir: str(b.localDir),
     s3: {
-      endpoint: typeof s3.endpoint === 'string' ? s3.endpoint : undefined,
-      accessKey: typeof s3.accessKey === 'string' ? s3.accessKey : undefined,
-      secretKey: typeof s3.secretKey === 'string' ? s3.secretKey : undefined,
-      region: typeof s3.region === 'string' ? s3.region : undefined,
-      bucket: typeof s3.bucket === 'string' ? s3.bucket : undefined,
-      publicUrl: typeof s3.publicUrl === 'string' ? s3.publicUrl : undefined,
+      endpoint: str(s3.endpoint),
+      accessKey: str(s3.accessKey),
+      secretKey: str(s3.secretKey),
+      region: str(s3.region),
+      bucket: str(s3.bucket),
+      publicUrl: str(s3.publicUrl),
     },
   };
 }
@@ -52,8 +52,7 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
 
   // PUT /api/admin/storage/config — persist + apply the overlay (admin only).
   app.put('/storage/config', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: session user
-    const user = c.get('user') as any;
+    const user = c.get('user');
     if (!(await checkPermission(user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
 
     const overlay = normalizeOverlay(await c.req.json().catch(() => ({})));
@@ -65,8 +64,7 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
         is_public: false,
         updated_at: new Date(),
       })
-      // biome-ignore lint/suspicious/noExplicitAny: kysely onConflict
-      .onConflict((oc: any) =>
+      .onConflict((oc) =>
         oc.column('key').doUpdateSet({ value: JSON.stringify(overlay), updated_at: new Date() }),
       )
       .execute();
@@ -76,8 +74,7 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
 
   // POST /api/admin/storage/test — probe the GIVEN (or current) config.
   app.post('/storage/test', async (c) => {
-    // biome-ignore lint/suspicious/noExplicitAny: session user
-    const user = c.get('user') as any;
+    const user = c.get('user');
     if (!(await checkPermission(user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
 
     const body = normalizeOverlay(await c.req.json().catch(() => ({})));
