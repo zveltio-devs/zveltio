@@ -236,7 +236,12 @@ BETTER_AUTH_URL=http://localhost:${ZVELTIO_PORT}
 # Cache
 VALKEY_PASSWORD=${VALKEY_PASSWORD}
 
-# Storage (SeaweedFS)
+# Object storage. Default: local filesystem under the install dir (no external
+# store). To use SeaweedFS/S3 instead, set STORAGE_DRIVER=s3 and re-run the
+# installer (or set S3_ENDPOINT below); the S3_* values are ignored in local mode.
+STORAGE_DRIVER=${STORAGE_DRIVER:-local}
+STORAGE_LOCAL_DIR=${ZVELTIO_DIR}/storage
+# S3 (SeaweedFS/AWS/…): only consulted when STORAGE_DRIVER=s3.
 S3_ACCESS_KEY=${S3_ACCESS_KEY}
 S3_SECRET_KEY=${S3_SECRET_KEY}
 S3_PUBLIC_URL=http://localhost:8333
@@ -564,7 +569,8 @@ UNIT
   fi
   success "Valkey running (maxmemory=${VALKEY_MAX_MEM}MB)"
 
-  # ── SeaweedFS ────────────────────────────────────────────────────────────────
+  # ── SeaweedFS (opt-in; the default is the zero-dependency local driver) ──────
+  if [[ "${STORAGE_DRIVER:-local}" == "s3" ]]; then
   header "Installing SeaweedFS"
 
   if ! command -v weed &>/dev/null; then
@@ -623,6 +629,9 @@ UNIT
   systemctl enable seaweedfs
   systemctl start seaweedfs
   success "SeaweedFS running"
+  else
+    info "Object storage: local driver (files under ${ZVELTIO_DIR}/storage). SeaweedFS skipped — set STORAGE_DRIVER=s3 to enable it."
+  fi
 
   # ── Bun ──────────────────────────────────────────────────────────────────────
   header "Installing Bun"
@@ -806,6 +815,12 @@ BETTER_AUTH_URL=http://localhost:${ZVELTIO_PORT}
 
 VALKEY_URL=redis://:${VALKEY_PASSWORD}@127.0.0.1:6379
 
+# Object storage. Default: local filesystem under the install dir (zero external
+# deps). STORAGE_DRIVER=local wins over the S3_* block below, which is only
+# consulted when STORAGE_DRIVER=s3 (SeaweedFS/AWS/R2/…).
+STORAGE_DRIVER=${STORAGE_DRIVER:-local}
+STORAGE_LOCAL_DIR=${ZVELTIO_DIR}/storage
+
 S3_ENDPOINT=http://127.0.0.1:8333
 S3_REGION=us-east-1
 S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -876,6 +891,9 @@ WRAPPER_EOF
   # ── systemd service ───────────────────────────────────────────────────────────
   id -u "${ZVELTIO_USER}" &>/dev/null || \
     useradd -r -s /bin/false -d "${ZVELTIO_DIR}" "${ZVELTIO_USER}"
+  # Local storage driver root (default STORAGE_LOCAL_DIR). Owned by the service
+  # user so uploads succeed without root; harmless when STORAGE_DRIVER=s3.
+  mkdir -p "${ZVELTIO_DIR}/storage"
   chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}"
 
   local EXEC_START

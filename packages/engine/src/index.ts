@@ -847,6 +847,10 @@ async function bootstrap() {
   // endpoint set from the Studio takes effect at boot.
   const { loadStorageSettings } = await import('./routes/admin/storage-routes.js');
   await loadStorageSettings(db);
+  // Warn loudly if the local storage dir isn't writable (else the first upload
+  // 502s silently). Runs after the overlay is applied so it checks the real dir.
+  const { checkStorageAtBoot } = await import('./lib/storage/index.js');
+  await checkStorageAtBoot();
 
   // 4. Field Type Registry — core types
   registerCoreFieldTypes(fieldTypeRegistry);
