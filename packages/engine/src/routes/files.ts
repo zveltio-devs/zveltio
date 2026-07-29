@@ -9,10 +9,50 @@
  *     public-bucket URLs the engine already emits, or
  *   - HMAC-signed (`?exp=…&sig=…`) for the private/time-limited case, verified
  *     here (the local equivalent of an S3 presigned GET).
+ *
+ * Serves HTTP Range requests (`Range: bytes=…`) with `206 Partial Content` +
+ * `Accept-Ranges: bytes`, so audio/video can seek and large downloads resume —
+ * the S3 driver gets this for free from the object store. Bytes are streamed
+ * from disk via `Bun.file` (no full read into memory), so serving a 5-second
+ * seek into a 2 GB video reads only the requested slice.
  */
 
+import { stat } from 'node:fs/promises';
 import { Hono } from 'hono';
-import { getStorage, LocalDriver, verifySignedKey } from '../lib/storage/index.js';
+import { getStorage, LocalDriver, safeLocalPath, verifySignedKey } from '../lib/storage/index.js';
+
+/** Read the persisted content-type from the `<file>.meta` sidecar. */
+async function contentTypeOf(full: string): Promise<string> {
+  const meta = Bun.file(`${full}.meta`);
+  if (await meta.exists()) return (await meta.text()).trim() || 'application/octet-stream';
+  return 'application/octet-stream';
+}
+
+/**
+ * Parse a single-range `Range` header against `size`. Returns the inclusive
+ * `[start, end]`, `null` when there is no Range header, or `'invalid'` when the
+ * range is unsatisfiable (→ 416). Only the common single-range form is handled;
+ * multi-range (`bytes=0-1,5-6`) falls back to the full body.
+ */
+function parseRange(header: string | undefined, size: number): [number, number] | null | 'invalid' {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (m[1] === '' && m[2] === '')) return 'invalid';
+  let start: number;
+  let end: number;
+  if (m[1] === '') {
+    // suffix range: the last N bytes
+    const n = Number(m[2]);
+    if (n <= 0) return 'invalid';
+    start = Math.max(0, size - n);
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return 'invalid';
+  return [start, end];
+}
 
 export function filesRoutes(): Hono {
   const app = new Hono();
@@ -26,6 +66,11 @@ export function filesRoutes(): Hono {
     // Strip the leading "/files/" to recover the object key.
     const key = decodeURIComponent(c.req.path.replace(/^\/files\//, ''));
     if (!key || key.includes('..')) return c.json({ error: 'Not found' }, 404);
+    // Never serve the internal sidecars/temp files the driver writes alongside
+    // objects (`.meta` = content-type, `.tmp-…` = in-flight atomic writes).
+    if (key.endsWith('.meta') || /\.tmp-[0-9a-f]+$/.test(key)) {
+      return c.json({ error: 'Not found' }, 404);
+    }
 
     // If a signature is present it MUST be valid + unexpired. A request with no
     // signature is treated as public-by-path (same posture as an S3 public URL).
@@ -37,16 +82,49 @@ export function filesRoutes(): Hono {
       }
     }
 
-    const obj = await storage.get(key).catch(() => null);
-    if (!obj) return c.json({ error: 'Not found' }, 404);
+    let full: string;
+    try {
+      full = safeLocalPath(key);
+    } catch {
+      return c.json({ error: 'Not found' }, 404);
+    }
+    const st = await stat(full).catch(() => null);
+    if (!st || !st.isFile()) return c.json({ error: 'Not found' }, 404);
 
-    return new Response(obj.bytes as unknown as BodyInit, {
-      headers: {
-        'Content-Type': obj.contentType,
-        'Content-Length': String(obj.size),
-        'Cache-Control': 'private, max-age=3600',
-        'X-Content-Type-Options': 'nosniff',
-      },
+    const size = st.size;
+    const contentType = await contentTypeOf(full);
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Cache-Control': 'private, max-age=3600',
+      'X-Content-Type-Options': 'nosniff',
+      'Accept-Ranges': 'bytes',
+    };
+
+    const range = parseRange(c.req.header('range'), size);
+    if (range === 'invalid') {
+      return new Response(null, {
+        status: 416,
+        headers: { ...headers, 'Content-Range': `bytes */${size}` },
+      });
+    }
+
+    if (range) {
+      const [start, end] = range;
+      // Bun.file(...).slice() is a lazy, disk-backed Blob — only the requested
+      // bytes are read when the Response body streams.
+      const chunk = Bun.file(full).slice(start, end + 1);
+      return new Response(chunk, {
+        status: 206,
+        headers: {
+          ...headers,
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Content-Length': String(end - start + 1),
+        },
+      });
+    }
+
+    return new Response(Bun.file(full), {
+      headers: { ...headers, 'Content-Length': String(size) },
     });
   });
 
