@@ -50,7 +50,8 @@ function parseRange(header: string | undefined, size: number): [number, number] 
     start = Number(m[1]);
     end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
   }
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return 'invalid';
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size)
+    return 'invalid';
   return [start, end];
 }
 
