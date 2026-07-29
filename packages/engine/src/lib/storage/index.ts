@@ -42,3 +42,30 @@ _registerStorageOnChange(() => {
 export function _resetStorageForTests(): void {
   _driver = null;
 }
+
+/**
+ * Boot-time storage sanity check. For the `local` driver, probe that the
+ * configured directory is writable and warn LOUDLY if not — otherwise the first
+ * upload fails with a silent 502 long after boot. For `s3` we just log the
+ * endpoint (a network probe would block startup; the admin "Test connection"
+ * covers reachability). Non-fatal by design.
+ */
+export async function checkStorageAtBoot(): Promise<void> {
+  const cfg = storageConfig();
+  if (cfg.driver === 's3') {
+    console.log(`📦 Storage: s3 driver → ${cfg.s3.endpoint || '(no endpoint!)'}`);
+    return;
+  }
+  const { probeLocal } = await import('./probe.js');
+  const res = await probeLocal(cfg.localDir);
+  if (res.ok) {
+    console.log(`📦 Storage: local driver → ${cfg.localDir}`);
+  } else {
+    console.warn(
+      `⚠️  Storage: local driver directory is NOT writable — uploads will fail (502).\n` +
+        `    ${res.detail}\n` +
+        `    Fix: create it and grant the service user write access, or set ` +
+        `STORAGE_LOCAL_DIR to a writable path (or STORAGE_DRIVER=s3).`,
+    );
+  }
+}

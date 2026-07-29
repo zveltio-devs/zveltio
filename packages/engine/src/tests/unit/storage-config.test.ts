@@ -17,7 +17,8 @@ describe('storageConfig', () => {
     for (const k of ['STORAGE_DRIVER', 'S3_ENDPOINT', 'STORAGE_LOCAL_DIR']) delete process.env[k];
     const c = storageConfig();
     expect(c.driver).toBe('local');
-    expect(c.localDir).toBe('/var/lib/zveltio/storage');
+    // Install-relative default (writable without root), not an absolute /var/lib.
+    expect(c.localDir).toBe(`${process.cwd()}/storage`);
   });
 
   it('auto-selects s3 when S3_ENDPOINT is set', () => {
