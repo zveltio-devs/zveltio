@@ -305,6 +305,11 @@ VALKEY_PORT=6379
 VALKEY_URL=redis://localhost:6379
 
 # ── Storage ────────────────────────────────────────────────────
+# Default: local filesystem driver (engine_storage volume, mounted at
+# /data/storage in the container). Set STORAGE_DRIVER=s3 to use the SeaweedFS
+# container / any S3 endpoint via the S3_* block below instead.
+STORAGE_DRIVER=local
+STORAGE_LOCAL_DIR=/data/storage
 S3_PORT=8333
 S3_ENDPOINT=http://localhost:8333
 S3_ACCESS_KEY=zveltio

@@ -12,6 +12,8 @@
  * driver).
  */
 
+import { join } from 'node:path';
+
 export interface S3Settings {
   endpoint: string;
   accessKey: string;
@@ -44,7 +46,16 @@ export function setStorageOverlay(
   _onChange?.();
 }
 
-const DEFAULT_LOCAL_DIR = '/var/lib/zveltio/storage';
+/**
+ * Default local storage directory. Install-relative (`<cwd>/storage`) rather
+ * than an absolute `/var/lib/...` the running user often can't create: the
+ * systemd service runs from the install dir (WorkingDirectory=/opt/zveltio) and
+ * owns it, so `/opt/zveltio/storage` is writable without root. Docker/helm set
+ * STORAGE_LOCAL_DIR explicitly and override this.
+ */
+function defaultLocalDir(): string {
+  return join(process.cwd(), 'storage');
+}
 
 /** The effective, merged storage configuration. */
 export function storageConfig(): StorageConfig {
@@ -65,7 +76,7 @@ export function storageConfig(): StorageConfig {
 
   return {
     driver,
-    localDir: o.localDir || env.STORAGE_LOCAL_DIR || DEFAULT_LOCAL_DIR,
+    localDir: o.localDir || env.STORAGE_LOCAL_DIR || defaultLocalDir(),
     s3,
   };
 }
