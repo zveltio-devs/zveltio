@@ -6,32 +6,31 @@
  */
 
 import { AwsClient } from 'aws4fetch';
+import { storageConfig } from './config.js';
 import type { PutOptions, StorageDriver, StorageObject } from './driver.js';
 
 export class S3Driver implements StorageDriver {
   readonly kind = 's3' as const;
-  private _aws: AwsClient | null = null;
 
   isConfigured(): boolean {
-    return Boolean(process.env.S3_ENDPOINT);
+    return Boolean(storageConfig().s3.endpoint);
   }
 
+  // Built per-call from the resolved config (cheap) so a settings change is
+  // picked up without recreating the driver.
   private client(): AwsClient {
-    if (!this._aws) {
-      this._aws = new AwsClient({
-        accessKeyId: process.env.S3_ACCESS_KEY || '',
-        secretAccessKey: process.env.S3_SECRET_KEY || '',
-        region: process.env.S3_REGION || 'us-east-1',
-        service: 's3',
-      });
-    }
-    return this._aws;
+    const { accessKey, secretKey, region } = storageConfig().s3;
+    return new AwsClient({
+      accessKeyId: accessKey,
+      secretAccessKey: secretKey,
+      region: region || 'us-east-1',
+      service: 's3',
+    });
   }
 
   private url(key: string): string {
-    const endpoint = (process.env.S3_ENDPOINT || '').replace(/\/$/, '');
-    const bucket = process.env.S3_BUCKET || 'zveltio';
-    return `${endpoint}/${bucket}/${key}`;
+    const { endpoint, bucket } = storageConfig().s3;
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`;
   }
 
   async put(key: string, bytes: Uint8Array, opts?: PutOptions): Promise<void> {
@@ -67,10 +66,10 @@ export class S3Driver implements StorageDriver {
   }
 
   publicUrl(key: string): string {
-    const base = (process.env.S3_PUBLIC_URL || process.env.S3_ENDPOINT || '').replace(/\/$/, '');
-    // S3_PUBLIC_URL may already include the bucket; S3_ENDPOINT does not.
-    if (process.env.S3_PUBLIC_URL) return `${base}/${key}`;
-    return `${base}/${process.env.S3_BUCKET || 'zveltio'}/${key}`;
+    const { endpoint, bucket, publicUrl } = storageConfig().s3;
+    // publicUrl may already include the bucket; endpoint does not.
+    if (publicUrl) return `${publicUrl.replace(/\/$/, '')}/${key}`;
+    return `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`;
   }
 
   async signedUrl(key: string, expiresInSec: number): Promise<string> {
