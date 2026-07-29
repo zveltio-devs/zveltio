@@ -58,6 +58,18 @@ spec:
               value: {{ .Values.engine.config.migrationsAuto | quote }}
             - name: REQUIRE_EXTENSION_SIGNATURES
               value: {{ .Values.engine.config.requireExtensionSignatures | quote }}
+            # Object storage: `local` (default, on the persistence PVC) unless a
+            # driver is set explicitly or an S3 endpoint is configured.
+            - name: STORAGE_DRIVER
+              {{- if .Values.engine.config.storage.driver }}
+              value: {{ .Values.engine.config.storage.driver | quote }}
+              {{- else if .Values.engine.config.s3.endpoint }}
+              value: "s3"
+              {{- else }}
+              value: "local"
+              {{- end }}
+            - name: STORAGE_LOCAL_DIR
+              value: {{ .Values.engine.config.storage.localDir | default "/data/storage" | quote }}
             {{- range $k, $v := .Values.engine.config.extra }}
             - name: {{ $k }}
               value: {{ $v | quote }}
