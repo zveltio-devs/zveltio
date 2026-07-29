@@ -14,12 +14,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
+import { storageConfig } from './config.js';
 import type { PutOptions, StorageDriver, StorageObject } from './driver.js';
 
-const DEFAULT_ROOT = '/var/lib/zveltio/storage';
-
 export function localRoot(): string {
-  return resolve(process.env.STORAGE_LOCAL_DIR || DEFAULT_ROOT);
+  return resolve(storageConfig().localDir);
 }
 
 /** Resolve `key` under the root, rejecting traversal (`..`, absolute escapes). */

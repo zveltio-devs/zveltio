@@ -843,6 +843,11 @@ async function bootstrap() {
   const { checkFieldEncryptionAtBoot } = await import('./lib/data/index.js');
   await checkFieldEncryptionAtBoot(db);
 
+  // Layer admin-saved storage config (zv_settings) over env, so a driver/S3
+  // endpoint set from the Studio takes effect at boot.
+  const { loadStorageSettings } = await import('./routes/admin/storage-routes.js');
+  await loadStorageSettings(db);
+
   // 4. Field Type Registry — core types
   registerCoreFieldTypes(fieldTypeRegistry);
   console.log(`✅ Field types registered: ${fieldTypeRegistry.list().join(', ')}`);
