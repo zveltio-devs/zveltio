@@ -24,7 +24,9 @@ describe('Pagination', () => {
   });
 
   it('disables « on the first page and » on the last', () => {
-    const first = render(Pagination, { props: { total: 50, page: 1, limit: 10, onchange: vi.fn() } });
+    const first = render(Pagination, {
+      props: { total: 50, page: 1, limit: 10, onchange: vi.fn() },
+    });
     expect(screen.getByRole('button', { name: '«' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '»' })).not.toBeDisabled();
     cleanup();
