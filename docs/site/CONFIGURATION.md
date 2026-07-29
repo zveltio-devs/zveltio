@@ -96,27 +96,46 @@ SITE_URL=https://yourapp.com
 
 ---
 
-## Storage (S3/MinIO)
+## Storage
+
+Zveltio ships two storage drivers. **`local` is the default** — a zero-dependency
+filesystem driver, so a single-node self-hosted install needs no object store at
+all. Switch to **`s3`** (SeaweedFS / AWS S3 / Cloudflare R2 / any S3-compatible
+endpoint) when you want shared/off-host storage or horizontal scaling.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `S3_ENDPOINT` | — | S3-compatible endpoint URL |
+| `STORAGE_DRIVER` | auto | `local` or `s3`. Unset → `s3` when `S3_ENDPOINT` is set, else `local`. |
+| `STORAGE_LOCAL_DIR` | `<cwd>/storage` | local driver: where uploaded files live (writable + persistent). Installers set this explicitly. |
+| `S3_ENDPOINT` | — | s3 driver: S3-compatible endpoint URL (also auto-selects s3 when set) |
 | `S3_ACCESS_KEY` | — | Access key ID |
 | `S3_SECRET_KEY` | — | Secret access key |
 | `S3_BUCKET` | `zveltio` | Bucket name |
-| `S3_REGION` | `us-east-1` | Region (set to any value for MinIO) |
+| `S3_REGION` | `us-east-1` | Region (any value for non-AWS) |
 | `S3_PUBLIC_URL` | — | Public base URL for file downloads |
 | `BACKUP_DIR` | `/tmp/zveltio-backups` | Local directory for backup files |
 
-### MinIO example
+### local driver (default)
 
 ```env
-S3_ENDPOINT=http://minio:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
+STORAGE_DRIVER=local
+STORAGE_LOCAL_DIR=/opt/zveltio/storage   # or leave unset for <cwd>/storage
+```
+
+At boot the engine probes this directory and warns loudly if it is not writable
+(uploads would otherwise fail with a 502). Grant the service user write access,
+point `STORAGE_LOCAL_DIR` at a writable path, or switch to `s3`.
+
+### SeaweedFS / S3-compatible example
+
+```env
+STORAGE_DRIVER=s3
+S3_ENDPOINT=http://seaweedfs:8333
+S3_ACCESS_KEY=zveltio
+S3_SECRET_KEY=change-me
 S3_BUCKET=zveltio
 S3_REGION=us-east-1
-S3_PUBLIC_URL=http://localhost:9000/zveltio
+S3_PUBLIC_URL=http://localhost:8333/zveltio
 ```
 
 ### AWS S3 example
