@@ -23,6 +23,7 @@ export {
   type StorageConfig,
   type S3Settings,
 } from './config.js';
+export { probeS3, probeLocal, type ProbeResult } from './probe.js';
 
 let _driver: StorageDriver | null = null;
 
