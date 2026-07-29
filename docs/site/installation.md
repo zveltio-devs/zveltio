@@ -26,7 +26,7 @@ The smart installer auto-detects your environment: uses **Bun native** mode if B
 The installer:
 
 - Generates secure credentials automatically (`.env`)
-- Starts PostgreSQL, Valkey, SeaweedFS via Docker
+- Starts PostgreSQL and Valkey (files use the built-in **local storage driver** by default; SeaweedFS is opt-in — see below)
 - Runs database migrations
 - Creates the first admin account interactively
 - Starts the engine
@@ -57,8 +57,13 @@ Services started:
 | PostgreSQL 18   | pgvector/pgvector:pg18         | —    |
 | PgDog (pooler)  | ghcr.io/pgdogdev/pgdog         | —    |
 | Valkey          | valkey/valkey:8-alpine         | —    |
-| SeaweedFS       | chrislusf/seaweedfs:3.68       | 8333 |
+| SeaweedFS       | chrislusf/seaweedfs:3.68       | 8333 (opt-in — `--profile storage`, `STORAGE_DRIVER=s3`) |
 | Engine + Studio | ghcr.io/zveltio/zveltio-engine | 3000 |
+
+> **Storage:** By default the engine stores uploaded files on local disk (the
+> `engine_storage` volume) — no object store required. To use SeaweedFS or any
+> S3-compatible service instead, start it with `docker compose --profile storage up -d`
+> and set `STORAGE_DRIVER=s3` in `.env`.
 
 ### Infrastructure Only (run engine natively)
 
