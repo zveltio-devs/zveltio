@@ -81,15 +81,21 @@ engine:
     # Strongly recommended when engine.replicaCount > 2.
     valkeyUrl: ""
 
-    # Optional S3-compatible storage for uploads (via aws4fetch). When
-    # unset, the engine writes to the local filesystem under
-    # `/data/uploads`.
+    # Object storage. Default driver is `local` (files on the persistence PVC
+    # under storage.localDir) — zero external dependency. Set an s3.endpoint
+    # below (e.g. your own SeaweedFS or AWS S3) to switch to the `s3` driver, or
+    # force it with storage.driver.
+    storage:
+      driver: "" # "" → auto: `s3` if s3.endpoint is set, else `local`
+      localDir: /data/storage
+    # S3-compatible storage (SeaweedFS/AWS/R2/…). Only used in `s3` mode.
     s3:
       endpoint: ""
       bucket: ""
       region: ""
       accessKeyId: ""
       secretAccessKey: ""
+      publicUrl: "" # optional CDN/base URL for public objects
 
     # ── Auth ────────────────────────────────────────────────────────────────
     betterAuthSecret: "" # 32+ random chars — generate with `openssl rand -hex 32`
