@@ -35,11 +35,15 @@ header "Zveltio — Update"
 # ── Resolve target version ────────────────────────────────────────────────────
 if [[ "$ZVELTIO_VERSION" == "latest" ]]; then
   info "Checking latest release..."
-  ZVELTIO_VERSION=$(curl -fsSL https://api.github.com/repos/zveltio-devs/zveltio/releases/latest \
-    | grep '"tag_name"' | cut -d'"' -f4 || echo "")
+  # The /releases/latest endpoint EXCLUDES prereleases. Zveltio currently ships
+  # only beta/rc tags, so /releases/latest returns nothing and we would wrongly
+  # fall through to a source build of a branch that may not exist. Use the full
+  # releases list (newest first, prereleases included) and take the top tag.
+  ZVELTIO_VERSION=$(curl -fsSL "https://api.github.com/repos/zveltio-devs/zveltio/releases?per_page=1" \
+    | grep '"tag_name"' | head -1 | cut -d'"' -f4 || echo "")
   if [[ -z "$ZVELTIO_VERSION" ]]; then
-    warn "No release found — will build from main branch"
-    ZVELTIO_VERSION="main"
+    warn "No release found — will build from the default branch"
+    ZVELTIO_VERSION="master"
   fi
   info "Target version: ${ZVELTIO_VERSION}"
 fi
@@ -110,7 +114,7 @@ info "Backed up to ${BACKUP_DIR}"
 # ── Download or build ─────────────────────────────────────────────────────────
 BINARY_INSTALLED=false
 
-if [[ "$ZVELTIO_VERSION" != "main" ]]; then
+if [[ "$ZVELTIO_VERSION" != "master" ]]; then
   BINARY_URL="https://github.com/zveltio-devs/zveltio/releases/download/${ZVELTIO_VERSION}/zveltio-linux-$(uname -m | sed 's/x86_64/x64/; s/aarch64/arm64/')"
   if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
     info "Downloading binary ${ZVELTIO_VERSION}..."
@@ -125,7 +129,7 @@ fi
 if [[ "$BINARY_INSTALLED" == "false" ]]; then
   info "Building from source (branch: ${ZVELTIO_VERSION})..."
   BRANCH="$ZVELTIO_VERSION"
-  [[ -z "$BRANCH" || "$BRANCH" == "latest" ]] && BRANCH="main"
+  [[ -z "$BRANCH" || "$BRANCH" == "latest" ]] && BRANCH="master"
 
   git clone --depth=1 --branch "$BRANCH" \
     https://github.com/zveltio-devs/zveltio.git /tmp/zveltio-update
@@ -148,7 +152,7 @@ fi
 # so shipping a front-end change would silently not land on update. Docker mode
 # gets both from the image (compose pull), so this only applies to native.
 # .env is preserved; we only append the CLIENT_DIST_PATH pointer if it's missing.
-if [[ "$ZVELTIO_VERSION" != "main" ]]; then
+if [[ "$ZVELTIO_VERSION" != "master" ]]; then
   for pair in "studio.tar.gz:studio-dist" "client.tar.gz:client-dist"; do
     tarball="${pair%%:*}"; dest="${pair##*:}"
     url="https://github.com/zveltio-devs/zveltio/releases/download/${ZVELTIO_VERSION}/${tarball}"
