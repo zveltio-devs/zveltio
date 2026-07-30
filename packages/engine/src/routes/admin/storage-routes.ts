@@ -9,7 +9,7 @@
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { requireInstanceAdmin } from '../../lib/tenancy/index.js';
-import { decryptField, encryptField, isEncryptedValue } from '../../lib/data/field-crypto.js';
+import { decryptField, encryptField, isEncryptedValue } from '../../lib/data/index.js';
 import { probeLocal, probeS3, setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
 
 const SETTINGS_KEY = 'storage_config';
