@@ -119,3 +119,40 @@ export function validatePublicUrl(rawUrl: string): void {
     throw new Error(`Network access to internal/private address blocked: ${rawUrl}`);
   }
 }
+
+// Cloud instance-metadata + link-local endpoints. These are NEVER a legitimate
+// object-storage endpoint, but ARE the highest-value SSRF target (IMDS hands out
+// cloud credentials). Blocked for storage endpoints — while ordinary private
+// ranges (localhost, 10/8, 192.168/16) stay allowed, since a self-hosted
+// SeaweedFS/MinIO legitimately lives there.
+const METADATA_PATTERNS: RegExp[] = [
+  /^169\.254\.\d+\.\d+$/, // IPv4 link-local (AWS/GCP/Azure IMDS 169.254.169.254)
+  /^fe[89ab][0-9a-f]:/, // IPv6 link-local
+  /^fd00:ec2:/, // AWS IMDSv6 (fd00:ec2::254)
+  /(^|\.)metadata\.google\.internal$/,
+  /(^|\.)metadata\.azure\.com$/,
+];
+
+/**
+ * SSRF guard for admin-supplied object-storage endpoints (the "Test connection"
+ * probe). Unlike {@link validatePublicUrl} it does NOT block private ranges —
+ * self-hosted S3 (SeaweedFS/MinIO) legitimately runs on localhost/10.x — but it
+ * DOES block cloud-metadata/link-local hosts so a probe can't be pointed at IMDS
+ * to exfiltrate instance credentials. Throws on a blocked host.
+ */
+export function validateStorageEndpoint(rawUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid storage endpoint URL: "${rawUrl}"`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Storage endpoint must be http/https (got "${parsed.protocol}")`);
+  }
+  const bare = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const normalized = normalizeHost(bare);
+  if (METADATA_PATTERNS.some((re) => re.test(bare) || re.test(normalized))) {
+    throw new Error(`Storage endpoint may not target a cloud-metadata address: ${rawUrl}`);
+  }
+}

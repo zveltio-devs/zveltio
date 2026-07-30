@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
@@ -11,7 +11,7 @@ import { reqDb, tenantId } from '../lib/route-db.js';
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
+  if (!(await requireInstanceAdmin(session.user.id))) return null;
   return session.user;
 }
 

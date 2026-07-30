@@ -43,6 +43,9 @@ d('storage local-driver round-trip (in-process)', () => {
       'file',
       new File([new TextEncoder().encode('local-bytes-123')], 'note.txt', { type: 'text/plain' }),
     );
+    // Public upload → served over /files/* without a signature (the display-asset
+    // path the range/serving assertions below exercise).
+    fd.append('public', 'true');
     const res = await app.request('/api/storage/upload', {
       method: 'POST',
       headers: { cookie },
@@ -53,7 +56,8 @@ d('storage local-driver round-trip (in-process)', () => {
     fileId = body.file.id;
     storagePath = body.file.storage_path;
     expect(fileId).toBeTruthy();
-    // url now points at the engine's /files route (local driver), not undefined.
+    // Public upload lands under the public namespace and gets a bare /files URL.
+    expect(storagePath.startsWith('public/')).toBe(true);
     expect(body.file.url).toContain('/files/');
   });
 
@@ -64,8 +68,8 @@ d('storage local-driver round-trip (in-process)', () => {
     expect(res.headers.get('content-type')).toContain('text/plain');
   });
 
-  it('GET /files/<key> 404s an unknown object', async () => {
-    const res = await app.request('/files/uploads/2026/does-not-exist.txt');
+  it('GET /files/<key> 404s an unknown object (public namespace)', async () => {
+    const res = await app.request('/files/media/does-not-exist.txt');
     expect(res.status).toBe(404);
   });
 
@@ -128,5 +132,59 @@ d('storage local-driver round-trip (in-process)', () => {
     expect(res.status).toBe(200);
     const gone = await app.request(`/files/${storagePath}`);
     expect(gone.status).toBe(404);
+  });
+});
+
+d('storage local-driver — private files require a signature (in-process)', () => {
+  let app: Hono;
+  let db: Database;
+  let cookie: string;
+  let privatePath = '';
+  let signedRel = '';
+
+  beforeAll(async () => {
+    process.env.STORAGE_LOCAL_DIR = TMP;
+    delete process.env.STORAGE_DRIVER;
+    ({ app, db } = await getTestApp());
+    cookie = await createGodSession(app, db);
+    const fd = new FormData();
+    fd.append(
+      'file',
+      new File([new TextEncoder().encode('secret-hr-doc')], 'contract.txt', { type: 'text/plain' }),
+    );
+    // No `public` flag → private by default.
+    const res = await app.request('/api/storage/upload', {
+      method: 'POST',
+      headers: { cookie },
+      body: fd,
+    });
+    const body = (await res.json()) as { file: { storage_path: string; url?: string } };
+    privatePath = body.file.storage_path;
+    // A private upload lands OUTSIDE the public namespace and returns a signed URL.
+    signedRel = (body.file.url ?? '').replace(/^https?:\/\/[^/]+/, '');
+  });
+
+  it('private upload is not under the public namespace and returns a signed URL', () => {
+    expect(privatePath.startsWith('public/')).toBe(false);
+    expect(privatePath.startsWith('media/')).toBe(false);
+    expect(signedRel).toContain('sig=');
+    expect(signedRel).toContain('exp=');
+  });
+
+  it('serving a private key WITHOUT a signature is 403 (P0: no bare-path access)', async () => {
+    const res = await app.request(`/files/${privatePath}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('stripping ?exp&sig from the signed link is 403 (expiry cannot be bypassed)', async () => {
+    const bare = signedRel.split('?')[0];
+    const res = await app.request(bare);
+    expect(res.status).toBe(403);
+  });
+
+  it('the signed link itself serves the bytes (200)', async () => {
+    const res = await app.request(signedRel);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('secret-hr-doc');
   });
 });

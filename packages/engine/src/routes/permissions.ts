@@ -15,6 +15,7 @@ import {
   getEnforcer,
   getUserRoles,
   invalidateUserPermCache,
+  requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
@@ -22,7 +23,7 @@ import { auditLog } from '../lib/audit.js';
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
+  if (!(await requireInstanceAdmin(session.user.id))) return null;
   return session.user;
 }
 

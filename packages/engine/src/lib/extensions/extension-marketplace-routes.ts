@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
-import { checkPermission } from '../tenancy/index.js';
+import { checkPermission, requireInstanceAdmin } from '../tenancy/index.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,
@@ -48,7 +48,7 @@ export function registerMarketplaceRoutes(
   async function requireAdmin(c: Context): Promise<boolean> {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return false;
-    const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+    const isAdmin = await requireInstanceAdmin(session.user.id);
     return isAdmin;
   }
 
