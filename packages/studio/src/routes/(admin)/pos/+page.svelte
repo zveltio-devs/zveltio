@@ -1,83 +1,56 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { ScanLine, Play, Square, Receipt, LoaderCircle } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+      import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { ScanLine, Play, Square, Receipt, LoaderCircle } from '@lucide/svelte';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let activeSession = $state<any>(null);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let recentOrders = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let zReports = $state<any[]>([]);
-let loading = $state(true);
-let openingFloat = $state(0);
-let closingFloat = $state(0);
+  let activeSession = $state<any>(null);
+  let recentOrders = $state<any[]>([]);
+  let zReports = $state<any[]>([]);
+  let loading = $state(true);
+  let openingFloat = $state(0);
+  let closingFloat = $state(0);
 
-async function loadAll() {
-  loading = true;
-  try {
-    const [open, closed] = await Promise.all([
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ data: any[] }>('/ext/operations/pos/sessions?status=open&limit=1'),
-      api
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .get<{ data: any[] }>('/ext/operations/pos/sessions?status=closed&limit=10')
-        .catch(() => ({ data: [] })),
-    ]);
-    activeSession = open.data?.[0] ?? null;
-    zReports = closed.data ?? [];
-    // Orders are scoped to a session; without an open one there are none.
-    if (activeSession) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      const o = await api.get<{ data: any[] }>(
-        `/ext/operations/pos/sessions/${activeSession.id}/orders?limit=20`,
-      );
-      recentOrders = o.data ?? [];
-    } else {
-      recentOrders = [];
-    }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-  } finally {
-    loading = false;
+  async function loadAll() {
+    loading = true;
+    try {
+      const [open, closed] = await Promise.all([
+        api.get<{ data: any[] }>('/ext/operations/pos/sessions?status=open&limit=1'),
+        api.get<{ data: any[] }>('/ext/operations/pos/sessions?status=closed&limit=10').catch(() => ({ data: [] })),
+      ]);
+      activeSession = open.data?.[0] ?? null;
+      zReports = closed.data ?? [];
+      // Orders are scoped to a session; without an open one there are none.
+      recentOrders = activeSession
+        ? (await api.get<{ data: any[] }>(`/ext/operations/pos/sessions/${activeSession.id}/orders?limit=20`)).data ?? []
+        : [];
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
+    finally { loading = false; }
   }
-}
 
-async function openSession() {
-  try {
-    await api.post('/ext/operations/pos/sessions/open', { opening_float: openingFloat });
-    await loadAll();
-    toast.success(m['operations.pos.toast.sessionOpened']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function openSession() {
+    try {
+      await api.post('/ext/operations/pos/sessions/open', { opening_float: openingFloat });
+      await loadAll();
+      toast.success(m['operations.pos.toast.sessionOpened']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
-}
 
-async function closeSession() {
-  if (!activeSession) return;
-  try {
-    await api.post(`/ext/operations/pos/sessions/${activeSession.id}/close`, {
-      closing_float: closingFloat,
-    });
-    await loadAll();
-    toast.success(m['operations.pos.toast.sessionClosed']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function closeSession() {
+    if (!activeSession) return;
+    try {
+      await api.post(`/ext/operations/pos/sessions/${activeSession.id}/close`, { closing_float: closingFloat });
+      await loadAll();
+      toast.success(m['operations.pos.toast.sessionClosed']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
-}
 
-onMount(loadAll);
+  onMount(loadAll);
 
-function fmtMoney(n: number) {
-  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n);
-}
+  function fmtMoney(n: number) { return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'RON' }).format(n); }
 </script>
 
 <ExtensionPageShell title={m['operations.pos.title']()} subtitle={m['operations.pos.subtitle']()}>

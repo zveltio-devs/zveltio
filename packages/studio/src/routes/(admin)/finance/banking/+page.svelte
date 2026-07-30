@@ -1,116 +1,104 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { Landmark, Plus, X, ArrowLeftRight, FileSpreadsheet, LoaderCircle } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+  import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { Landmark, Plus, X, ArrowLeftRight, FileSpreadsheet, LoaderCircle } from '@lucide/svelte';
 
-let tab = $state<'accounts' | 'transactions' | 'reconciliation'>('accounts');
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let accounts = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let transactions = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let unreconciled = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let openInvoices = $state<any[]>([]);
-let loading = $state(true);
-let showForm = $state(false);
-let saving = $state(false);
-let form = $state({ name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 });
+  let tab = $state<'accounts' | 'transactions' | 'reconciliation'>('accounts');
+  let accounts = $state<any[]>([]);
+  let transactions = $state<any[]>([]);
+  let unreconciled = $state<any[]>([]);
+  let openInvoices = $state<any[]>([]);
+  let loading = $state(true);
+  let showForm = $state(false);
+  let saving = $state(false);
+  let form = $state({ name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 });
 
-async function loadAccounts() {
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>('/ext/finance/banking/accounts');
-    accounts = r.data ?? [];
-  } catch (e: unknown) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function loadAccounts() {
+    try {
+      const r = await api.get<{ data: any[] }>('/ext/finance/banking/accounts');
+      accounts = r.data ?? [];
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    }
   }
-}
 
-async function loadTransactions() {
-  try {
-    if (!accounts.length) await loadAccounts();
-    const per = await Promise.all(
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      accounts.map((a: any) =>
-        api
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          .get<{ data: any[] }>(`/ext/finance/banking/accounts/${a.id}/transactions?limit=100`)
-          .catch(() => ({ data: [] })),
-      ),
-    );
-    transactions = per.flatMap((r) => r.data ?? []);
-  } catch (e: unknown) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function loadTransactions() {
+    try {
+      if (!accounts.length) await loadAccounts();
+      const per = await Promise.all(
+        accounts.map((a) =>
+          api
+            .get<{ data: any[] }>(`/ext/finance/banking/accounts/${a.id}/transactions?limit=100`)
+            .catch(() => ({ data: [] })),
+        ),
+      );
+      transactions = per.flatMap((r) => r.data ?? []);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    }
   }
-}
 
-async function loadReconciliation() {
-  try {
-    const [u, inv] = await Promise.all([
-      (async () => {
-        if (!accounts.length) await loadAccounts();
-        const per = await Promise.all(
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-          accounts.map((a: any) =>
-            api
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .get<{ data: any[] }>(
-                `/ext/finance/banking/accounts/${a.id}/transactions?reconciled=false&limit=100`,
-              )
-              .catch(() => ({ data: [] })),
-          ),
-        );
-        return { data: per.flatMap((r) => r.data ?? []) };
-      })(),
-      api
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        .get<{ data: any[] }>('/ext/finance/invoicing/invoices?status=sent&limit=100')
-        .catch(() => ({ data: [] })),
-    ]);
-    unreconciled = u.data ?? [];
-    openInvoices = inv.data ?? [];
-  } catch (e: unknown) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function loadReconciliation() {
+    try {
+      const [u, inv] = await Promise.all([
+        (async () => {
+          if (!accounts.length) await loadAccounts();
+          const per = await Promise.all(
+            accounts.map((a) =>
+              api
+                .get<{ data: any[] }>(
+                  `/ext/finance/banking/accounts/${a.id}/transactions?reconciled=false&limit=100`,
+                )
+                .catch(() => ({ data: [] })),
+            ),
+          );
+          return { data: per.flatMap((r) => r.data ?? []) };
+        })(),
+        api.get<{ data: any[] }>('/ext/finance/invoicing/invoices?status=sent&limit=100').catch(() => ({ data: [] })),
+      ]);
+      unreconciled = u.data ?? [];
+      openInvoices = inv.data ?? [];
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    }
   }
-}
 
-async function loadTab() {
-  loading = true;
-  if (tab === 'accounts') await loadAccounts();
-  else if (tab === 'transactions') await loadTransactions();
-  else await loadReconciliation();
-  loading = false;
-}
-
-async function createAccount() {
-  saving = true;
-  try {
-    await api.post('/ext/finance/banking/accounts', form);
-    showForm = false;
-    form = { name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 };
-    await loadAccounts();
-    toast.success(m['ext.created']());
-  } catch (e: unknown) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-  } finally {
-    saving = false;
+  async function loadTab() {
+    loading = true;
+    if (tab === 'accounts') await loadAccounts();
+    else if (tab === 'transactions') await loadTransactions();
+    else await loadReconciliation();
+    loading = false;
   }
-}
 
-$effect(() => {
-  tab;
-  loadTab();
-});
-onMount(() => loadAccounts());
+  async function createAccount() {
+    saving = true;
+    try {
+      await api.post('/ext/finance/banking/accounts', form);
+      showForm = false;
+      form = { name: '', bank_name: '', iban: '', currency: 'RON', opening_balance: 0 };
+      await loadAccounts();
+      toast.success(m['ext.created']());
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+    } finally {
+      saving = false;
+    }
+  }
 
-function fmt(n: number, c = 'RON') {
-  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: c }).format(n);
-}
+  $effect(() => {
+    tab;
+    loadTab();
+  });
+  onMount(() => loadAccounts());
+
+  function fmt(n: number, c = 'RON') {
+    return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: c }).format(n);
+  }
 </script>
 
 <ExtensionPageShell title={m['finance.banking.title']()} subtitle={m['finance.banking.subtitle']()}>
@@ -195,6 +183,7 @@ function fmt(n: number, c = 'RON') {
             <div class="card bg-base-200 border border-base-300">
               <div class="card-body p-0">
                 <div class="p-3 font-medium text-sm border-b border-base-300">{m['finance.banking.section.unreconciled']()}</div>
+                <div class="overflow-x-auto">
                 <table class="table table-sm">
                   <thead>
                     <tr>
@@ -217,11 +206,13 @@ function fmt(n: number, c = 'RON') {
                     {/if}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
             <div class="card bg-base-200 border border-base-300">
               <div class="card-body p-0">
                 <div class="p-3 font-medium text-sm border-b border-base-300">{m['finance.banking.section.openInvoices']()}</div>
+                <div class="overflow-x-auto">
                 <table class="table table-sm">
                   <thead>
                     <tr>
@@ -244,6 +235,7 @@ function fmt(n: number, c = 'RON') {
                     {/if}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           </div>
