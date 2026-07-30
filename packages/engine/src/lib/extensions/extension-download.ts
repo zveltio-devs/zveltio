@@ -128,11 +128,11 @@ export async function fetchRegistryCatalog(
  * Fetch `<download_url>.sig` and verify the archive's Ed25519 signature.
  *
  * Behaviour controlled by env:
- *   - `REQUIRE_EXTENSION_SIGNATURES=true`  → missing or invalid signature
+ *   - default (unset or anything but "false") → a missing OR invalid signature
  *     throws (SignatureMissingError / SignatureInvalidError).
- *   - default (unset or "false")           → missing signature logs a warning
- *     and proceeds; an INVALID signature still throws (we never accept a
- *     present-but-broken signature, regardless of the gate).
+ *   - `REQUIRE_EXTENSION_SIGNATURES=false`    → a missing signature logs a
+ *     warning and proceeds. An INVALID signature still throws either way — a
+ *     present-but-broken signature is never accepted.
  */
 async function verifyArchiveSignature(
   extensionName: string,
@@ -140,7 +140,16 @@ async function verifyArchiveSignature(
   headers: Record<string, string>,
   archive: Uint8Array,
 ): Promise<void> {
-  const required = process.env.REQUIRE_EXTENSION_SIGNATURES === 'true';
+  // Signatures are REQUIRED by default as of beta.37. The flag stays as an
+  // escape hatch (`REQUIRE_EXTENSION_SIGNATURES=false`) for a private mirror
+  // that does not sign yet; the supported way to trust another signer is
+  // REGISTRY_PUBLIC_KEYS_JSON, not turning verification off.
+  //
+  // Enabling this was gated on the registry actually producing signatures, and
+  // as of 2026-07-30 it does: all 57 official extensions serve a .sig at the URL
+  // the engine fetches, and those signatures verify against the BUILTIN_KEYS
+  // entry for registry-prod-2026 using this file's own verifySignature.
+  const required = process.env.REQUIRE_EXTENSION_SIGNATURES !== 'false';
   const sigUrl = `${downloadUrl}.sig`;
 
   let sigBody: unknown = null;
@@ -166,7 +175,7 @@ async function verifyArchiveSignature(
   if (sigBody === null) {
     if (required) throw new SignatureMissingError(extensionName);
     console.warn(
-      `[signature] ${extensionName}: no signature.sig found — install proceeded because REQUIRE_EXTENSION_SIGNATURES is not set`,
+      `[signature] ${extensionName}: no signature.sig found — install proceeded because REQUIRE_EXTENSION_SIGNATURES=false`,
     );
     return;
   }

@@ -1,13 +1,20 @@
 # Extension Archive Signatures — status & go-public transition
 
-**Status (2026-07-24): built but intentionally NOT enforced by default.**
-Missing signatures are accepted (warn-only); *invalid* signatures are always
-rejected. This is the correct posture **today** because the registry does not
-yet emit `.sig` files for the official-extension sync path. Flipping enforcement
-on now would break every official-extension install.
+**Status (2026-07-30): ENFORCED by default.** A missing or invalid signature
+fails the install. `REQUIRE_EXTENSION_SIGNATURES=false` remains as an escape
+hatch for a private mirror that does not sign yet — to trust an *additional*
+signer, add its key to `REGISTRY_PUBLIC_KEYS_JSON` rather than disabling
+verification.
 
-This document is the checklist to flip it when the third-party marketplace opens.
-Do **not** enable `REQUIRE_EXTENSION_SIGNATURES=true` before completing it.
+All four checklist steps below are done. Verified against the live registry on
+2026-07-30: **57 of 57 official extensions serve a `.sig`** at the URL the engine
+fetches, and a sample of six verify against the `registry-prod-2026` entry in
+`BUILTIN_KEYS` using the engine's own `verifySignature` — which also confirms
+gap 3, that the Worker's private key matches the compiled public half.
+
+The history below is kept because it explains *why* the flip had to be last: for
+most of the project's life the official sync path did not sign at all, so
+enforcing signatures would have blocked every install rather than securing one.
 
 ---
 
@@ -49,17 +56,15 @@ Registry side (`zveltio-devs/zveltio-registry`) — **partially wired**:
 
 ## The exact remaining gaps
 
-> **Status 2026-07-30.** Gaps 1 and 2 are **closed in code** — registry commit
-> `348e9e2` on branch `security/close-signing-gaps`. `/upload-package` now signs
-> and stores `${key}.sig`, and `serveExtensionPackage` serves it at
-> `<download_url>.sig` for both the by-id and by-name forms, with tests. They are
-> **not yet live**: the Worker has to be deployed and every official extension
-> re-synced before any `.sig` exists in R2. Gap 3 is operational and untouched.
+> **All three gaps are CLOSED as of 2026-07-30.** Gaps 1 and 2 were fixed in the
+> registry (`/upload-package` signs and stores `${key}.sig`;
+> `serveExtensionPackage` serves it at `<download_url>.sig` for both lookup
+> forms). The Worker was deployed and the official extensions re-synced, so the
+> signatures now exist in R2. Gap 3 is confirmed by verification rather than
+> inspection: live signatures validate against the compiled public key.
 >
-> Until deploy + re-sync + the clean-install check in step 3 below have all run,
-> **do not flip `REQUIRE_EXTENSION_SIGNATURES`** — with no `.sig` published yet
-> it would block every install rather than secure one. That is the whole reason
-> the flip is step 4 and not step 1.
+> The steps below are retained as the runbook for a key rotation or a second
+> registry, where the same ordering applies.
 
 There are **three**, and two live in the registry repo (a Cloudflare Worker), not
 in `zveltio` or `zveltio-extensions`:
