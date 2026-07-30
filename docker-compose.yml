@@ -126,7 +126,30 @@ services:
   # driver, so a plain `docker compose up` needs no object store. Operators who
   # want S3-backed storage at scale bring this up with:
   #   STORAGE_DRIVER=s3 docker compose --profile storage up
-  # (and set S3_ACCESS_KEY / S3_SECRET_KEY in .env to match seaweedfs/s3-config.json).
+  # (S3_ACCESS_KEY / S3_SECRET_KEY from .env are the credentials — storage-init
+  # below renders them into the filer's identity file, so there is nothing to
+  # keep in sync by hand.)
+
+  # Renders SeaweedFS's S3 identity file from .env at startup.
+  # This used to be a committed seaweedfs/s3-config.json holding the literal
+  # strings "$S3_ACCESS_KEY"/"$S3_SECRET_KEY" — but SeaweedFS does not expand
+  # environment variables inside its JSON config, so those were taken as the
+  # actual credentials. S3 auth therefore never matched the engine's real keys,
+  # and the documented way out was to paste live secrets into a tracked file.
+  # Generating it here fixes both halves.
+  storage-init:
+    profiles: ['storage']
+    image: alpine:3.20
+    container_name: zveltio-storage-init
+    environment:
+      S3_CONFIG_JSON: '{"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"${S3_ACCESS_KEY:?ERROR: S3_ACCESS_KEY must be set in .env}","secretKey":"${S3_SECRET_KEY:?ERROR: S3_SECRET_KEY must be set in .env}"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}'
+    command: ['sh', '-c', 'printf %s "$$S3_CONFIG_JSON" > /etc/seaweedfs/s3-config.json']
+    volumes:
+      - seaweedfs_config:/etc/seaweedfs
+    restart: 'no'
+    networks:
+      - zveltio_internal
+
   storage:
     profiles: ['storage']
     # Pin to specific version — avoid silent breaking changes on docker compose pull
@@ -148,7 +171,10 @@ services:
       -s3.config=/etc/seaweedfs/s3-config.json
     volumes:
       - seaweedfs_data:/data
-      - ./seaweedfs/s3-config.json:/etc/seaweedfs/s3-config.json:ro
+      - seaweedfs_config:/etc/seaweedfs:ro
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:8333/']
       interval: 10s
@@ -282,6 +308,7 @@ volumes:
   valkey_data:
   engine_storage:
   seaweedfs_data:
+  seaweedfs_config:
   prometheus_data:
   grafana_data:
   pgdog_config:

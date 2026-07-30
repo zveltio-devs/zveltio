@@ -158,24 +158,26 @@ export function buildRestrictedContext(
 
 /**
  * Mount an extension's routes according to its `mountStrategy` / worker
- * isolation. Shared by first-load and hot-reload. Worker isolation only applies
- * on first load (`manifest` present); hot-reload passes `manifest = null` so it
- * never takes the worker branch.
+ * isolation. Shared by first-load and hot-reload.
+ *
+ * `isolation` is resolved from the manifest on first load and from the
+ * persisted `loaded` record on hot-reload. It used to be derived from the
+ * manifest alone, and hot-reload passed `manifest = null` — so an extension the
+ * publisher-tier gate had deliberately confined to a worker came back inline in
+ * the main thread on the next enable/disable, running untrusted third-party
+ * code with the engine's own privileges.
  */
 async function registerExtensionRoutes(
   extension: ZveltioExtension,
   restrictedCtx: ExtensionContext,
   app: Hono,
   extName: string,
-  extDir: string,
-  manifest: ExtensionManifest | null,
+  isolation: { entry: string; extDir: string } | null,
 ): Promise<void> {
   const mountStrategy = extension.mountStrategy ?? 'global';
-  const workerIsolation =
-    manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
-  if (workerIsolation) {
+  if (isolation) {
     const host = _getWorkerHost(app);
-    await host.start(extName, extDir, manifest!.engine!.entry);
+    await host.start(extName, isolation.extDir, isolation.entry);
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();
     await extension.register(subApp, restrictedCtx);
@@ -235,7 +237,15 @@ export async function finalizeExtensionLoad(
   // thread above. Worker is responsible only for serving routes.
   let routeRegistrationDeferred = false;
   try {
-    await registerExtensionRoutes(extension, restrictedCtx, app, extName, extDir, manifest);
+    await registerExtensionRoutes(
+      extension,
+      restrictedCtx,
+      app,
+      extName,
+      manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
+        ? { entry: manifest.engine.entry, extDir }
+        : null,
+    );
   } catch (regErr: unknown) {
     if ((regErr as Error)?.message?.includes('matcher is already built')) {
       routeRegistrationDeferred = true;
@@ -277,6 +287,10 @@ export async function finalizeExtensionLoad(
     allowedTables,
     permissions: manifest?.permissions ?? [],
     publicRoutes,
+    workerIsolation:
+      manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
+        ? { entry: manifest.engine.entry, extDir }
+        : undefined,
   });
   console.log(`🔌 Extension loaded: ${extName}`);
 
@@ -320,7 +334,16 @@ export async function reRegisterExtension(
   );
 
   try {
-    await registerExtensionRoutes(extension, restrictedCtx, app, name, '', null);
+    // Carry the first-load isolation decision across the reload, so a
+    // worker-confined extension is restarted in its worker rather than
+    // quietly re-registered inline.
+    await registerExtensionRoutes(
+      extension,
+      restrictedCtx,
+      app,
+      name,
+      loaded?.workerIsolation ?? null,
+    );
 
     // Re-register schedules on hot-reload. unregisterAll is idempotent and
     // we want the new definitions to win.

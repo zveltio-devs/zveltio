@@ -8,7 +8,7 @@
 import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, getRlsFilters, applyRlsFilters } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -230,31 +230,54 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       }
     }
 
+    // RLS conditions depend on the caller and the collection, not the row, so
+    // resolve each collection once per push instead of per operation — a batch
+    // commonly touches the same few collections many times.
+    const rlsCache = new Map<string, Awaited<ReturnType<typeof getRlsFilters>>>();
+    // The session user, shaped for getRlsFilters. `role` is defaulted where the
+    // session is read at the top of this route, so it is always present.
+    const syncUser = () => c.get('user') as { id: string; email?: string; role: string };
+    const syncRlsFilters = async (coll: string) => {
+      const hit = rlsCache.get(coll);
+      if (hit) return hit;
+      const filters = await getRlsFilters(coll, syncUser(), c.get('authType') ?? 'session');
+      rlsCache.set(coll, filters);
+      return filters;
+    };
+
     // Update and delete remain sequential
     for (const op of nonCreateOps) {
       const { collection, recordId, operation, payload } = op;
       try {
         switch (operation) {
           case 'update': {
-            await effectiveDb
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .updateTable(collection as any)
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .set({ ...payload, updated_by: (c.get('user') as any).id } as any)
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .where('id' as any, '=', recordId)
-              .execute();
+            // RLS conditions go into the WHERE, so a row the caller may not see
+            // is not matched and the update is a no-op. The sync push path wrote
+            // by id with no row-level check at all, which made it a way around
+            // the policies the /api/data handlers enforce.
+            await applyRlsFilters(
+              effectiveDb
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .updateTable(collection as any)
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .set({ ...payload, updated_by: syncUser().id } as any)
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .where('id' as any, '=', recordId),
+              await syncRlsFilters(collection),
+            ).execute();
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });
             break;
           }
 
           case 'delete': {
-            await effectiveDb
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .deleteFrom(collection as any)
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .where('id' as any, '=', recordId)
-              .execute();
+            await applyRlsFilters(
+              effectiveDb
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .deleteFrom(collection as any)
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .where('id' as any, '=', recordId),
+              await syncRlsFilters(collection),
+            ).execute();
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });
             break;
           }

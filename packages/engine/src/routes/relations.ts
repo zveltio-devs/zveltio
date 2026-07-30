@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+// requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema DDL — foreign keys and junction tables are shared structure, not tenant data.
+// The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
+// and admitted any delegated tenant admin.
+import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
 
@@ -10,7 +13,7 @@ import { dynamicDropColumn } from '../db/dynamic.js';
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
+  if (!(await requireInstanceAdmin(session.user.id))) return null;
   return session.user;
 }
 

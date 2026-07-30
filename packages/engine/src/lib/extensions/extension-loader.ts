@@ -220,6 +220,16 @@ interface LoadedExtension {
   /** Manifest `publicRoutes` — re-registered with the `/ext/*` auth gate on a
    * hot-reload so fail-closed enforcement survives a rebuild. */
   publicRoutes?: string[];
+  /**
+   * Set when the manifest requires worker isolation. Persisted for the same
+   * reason as `permissions` above: hot-reload used to pass `manifest = null`, so
+   * the worker branch was never taken and a community extension — which
+   * `enforcePublisherTier` puts in a worker precisely *because* it is untrusted
+   * — silently came back inline in the main thread, with the engine's
+   * privileges. Any enable/disable triggers a re-register, so this was not a
+   * rare path.
+   */
+  workerIsolation?: { entry: string; extDir: string };
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to

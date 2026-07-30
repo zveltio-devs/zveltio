@@ -156,8 +156,11 @@ function collectRoutes(app: Hono): RouteDescriptor[] {
 
 async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): Promise<void> {
   try {
-    // Worker has no env access by default — the host passes only
-    // what's necessary. Set NODE_ENV so frameworks don't assume dev.
+    // Convenience only — NOT the boundary. This assignment is reachable through
+    // `globalThis.process`, but `await import('node:process')` bypasses it
+    // entirely, so on its own it kept nothing out. The real restriction is the
+    // `env` option the host passes to the Worker constructor, which is what
+    // actually stops the extension seeing DATABASE_URL and the engine secrets.
     if (msg.env.NODE_ENV) {
       (globalThis as { process?: { env?: Record<string, string> } }).process = {
         env: { NODE_ENV: msg.env.NODE_ENV },
