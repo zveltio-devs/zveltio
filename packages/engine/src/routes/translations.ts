@@ -3,7 +3,10 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+// requireInstanceAdmin, not checkPermission(uid,'admin','*'): translations are global by design, not per-tenant.
+// The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
+// and admitted any delegated tenant admin.
+import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 
 // In-memory i18n cache: locale → key → value
 const i18nCache = new Map<string, Map<string, string>>();
@@ -19,7 +22,7 @@ function invalidateCache() {
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
+  if (!(await requireInstanceAdmin(session.user.id))) return null;
   return session.user;
 }
 

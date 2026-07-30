@@ -29,6 +29,8 @@ import {
   getColumnAccess,
   filterWritableFields,
   entityAccessRegistry,
+  getRlsFilters,
+  applyRlsFilters,
 } from '../../tenancy/index.js';
 
 export async function bulkCreate(c: Context, db: Database): Promise<Response> {
@@ -143,6 +145,9 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
+  // Resolved once for the whole batch — the conditions depend on the caller,
+  // not the row.
+  const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
   // Column-level write permission — mirror single patchRecord.
   const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
   const updated: DynamicRecord[] = [];
@@ -170,11 +175,13 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         continue;
       }
 
-      const beforeRow = await dynamicDb(trx)
-        .selectFrom(tableName)
-        .selectAll()
-        .where('id', '=', id)
-        .executeTakeFirst();
+      // RLS conditions on the row we load, so a row the caller cannot see is
+      // reported as not found rather than updated. bulk.ts applied no RLS at
+      // all, which made it the easy way around the single-record path.
+      const beforeRow = await applyRlsFilters(
+        dynamicDb(trx).selectFrom(tableName).selectAll().where('id', '=', id),
+        rlsFilters,
+      ).executeTakeFirst();
       if (!beforeRow) {
         errors.push({ index: i, id, errors: ['Record not found'] });
         continue;
@@ -257,11 +264,12 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
 
-  const existing = await dynamicDb(effectiveDb)
-    .selectFrom(tableName)
-    .selectAll()
-    .where('id', 'in', body.ids)
-    .execute();
+  // Same RLS conditions as the single delete path — rows the caller cannot see
+  // never enter the delete set.
+  const existing = await applyRlsFilters(
+    dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', 'in', body.ids),
+    await getRlsFilters(collection, user, c.get('authType')),
+  ).execute();
 
   // Per-row pre-delete hook. Aborted IDs drop out of the delete set and
   // are reported back as per-row errors (so the caller can distinguish
