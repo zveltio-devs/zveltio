@@ -160,36 +160,36 @@ executes:
 
 ## Extension isolation — what it does and does not guarantee
 
-**Community-tier extensions are review-gated and signed. They are not yet fully
-isolated, and the documentation must not imply otherwise.**
+Community-tier extensions are **review-gated, signed, and worker-isolated**.
 
 `enforcePublisherTier` requires community (untrusted, third-party) extensions to
-declare `isolation: worker`, and their request handling then runs in a worker
-whose SQL is table-restricted, whose queries run on a reserved connection under a
-statement timeout, and whose environment carries a single variable so engine
-credentials are not reachable from it.
+declare `isolation: worker`. Their code is then **never imported into the engine
+process** — the loader builds a metadata-only descriptor from the manifest and
+the filesystem, and the worker imports the bundle itself. From there:
 
-The gap is at load time. `enforcePublisherTier` runs in `lib/extensions/load.ts`
-*before* the module is imported, but it does not prevent that import: the
-extension's entry module is `await import(...)`-ed in the engine process, so its
-**top-level code executes once, in-process, with engine privileges, before any
-worker exists**. Everything the worker boundary does afterwards is real, and none
-of it undoes that first execution.
+- SQL crosses an IPC bridge that restricts it to user-data tables (`zvd_*`) and
+  the extension's own `zv_<ext>_*` namespace, runs on a reserved connection (so a
+  second statement after a semicolon is rejected by the server) and is capped by
+  a statement timeout.
+- The worker starts with a single environment variable, so `DATABASE_URL`,
+  `BETTER_AUTH_SECRET` and `FIELD_ENCRYPTION_KEY` are not reachable — including
+  via `import('node:process')`, which bypasses the in-worker `process` stub.
+- The isolation decision survives a hot-reload: a re-register restarts the
+  worker rather than quietly re-registering the extension in the main thread.
 
-So the accurate description of the current trust model is:
+What it costs, and what it still does not give:
 
-- **Review + Ed25519 signature** — the primary control. An archive that is not
-  signed by a trusted key does not install (verification is on by default).
-- **Worker confinement** — defence in depth over the above, covering the
-  extension's *runtime* request handling.
-- **Not** a boundary that contains hostile code. An extension that is malicious
-  at import time is not stopped by it.
-
-Closing this means not importing worker-isolated extensions in the main thread at
-all, and sourcing their metadata from the manifest or the worker instead. It is
-tracked as the next P0; full isolation is a 3.0.x property, not a 3.0.0 one.
-Release notes and marketing copy must not claim isolation as a security property
-until it lands.
+- A worker-isolated extension **cannot contribute engine-side field types, cron
+  schedules or a cleanup hook.** All three require running its code in the engine
+  process, which is the thing being avoided. First-party extensions run inline
+  and keep them.
+- The worker is a Bun thread, not a subprocess: there is no per-extension RSS
+  accounting or OOM kill, and no OS-level restriction on what the thread can
+  reach through `node:fs` or the network beyond the SSRF filter. Treat the
+  publisher tier and signature as the controls that decide *whether* code runs,
+  and the worker as what constrains it once it does.
+- The SQL bridge runs on the engine pool rather than inside the caller's tenant
+  transaction, so it is not RLS-scoped. The table policy above is what limits it.
 
 The subprocess-per-invocation runner is the **default** for edge functions
 (`EDGE_SANDBOX_MODE=worker` opts back into the faster in-process one). The
