@@ -127,8 +127,31 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.use('/ext/*', demoModeMiddleware());
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
-  app.use('/api/auth/sign-in/*', authRateLimit);
-  app.use('/api/auth/sign-up/*', authRateLimit);
+  //
+  // Default-ON for every auth endpoint, with a short exemption list, rather than
+  // naming the sensitive ones. Enumerating them left real holes: the limit was
+  // mounted on `/api/auth/forgot-password` while better-auth's endpoint is
+  // `/forget-password`, so password-reset email bombing was never limited at
+  // all — and nothing covered `/reset-password`, `/magic-link/verify` or
+  // `/two-factor/verify-totp`, where the secret is a six-digit code. With a
+  // deny-by-default list, a new endpoint arrives limited instead of arriving
+  // open.
+  //
+  // The exemptions are the reads the UI polls; rate-limiting those would break
+  // the app rather than protect it.
+  const AUTH_RATE_LIMIT_EXEMPT = new Set([
+    '/api/auth/get-session',
+    '/api/auth/list-sessions',
+    '/api/auth/sign-out',
+    '/api/auth/token',
+    '/api/auth/jwks',
+    '/api/auth/ok',
+    '/api/auth/error',
+  ]);
+  app.use('/api/auth/*', async (c, next) => {
+    if (AUTH_RATE_LIMIT_EXEMPT.has(c.req.path)) return next();
+    return authRateLimit(c, next);
+  });
   // Self-registration gate — public sign-up is allowed only when
   // `registration_enabled` is on (default OFF: Zveltio is app/intranet-first,
   // not open-registration). Guards the PUBLIC HTTP sign-up only; admin
@@ -149,7 +172,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     }
     return next();
   });
-  app.use('/api/auth/forgot-password', authRateLimit);
   // SSO extension login paths get the same auth rate limit (10/min/IP) —
   // without this LDAP / SAML callback endpoints are wide-open to
   // credential-stuffing and brute-force. Mounted with `app.use` so it

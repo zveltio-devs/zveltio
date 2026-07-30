@@ -99,7 +99,14 @@ for (const extRoot of EXT_ROOTS) {
     if (existsSync(srcDir)) {
       const libDest = join(LIB_EXT, extName);
       mkdirSync(libDest, { recursive: true });
-      cpSync(srcDir, libDest, { recursive: true });
+      // Skip the extension's own tests. They belong to the extensions repo and
+      // run under `bun test` there; copied into the Studio tree they get picked
+      // up by vitest, which cannot resolve `bun:test`, and by `tsc`, which fails
+      // on the same import — a green extension suite turning the Studio red.
+      cpSync(srcDir, libDest, {
+        recursive: true,
+        filter: (src) => !/\.(test|spec)\.(ts|js|svelte)$/.test(src),
+      });
     }
 
     console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);

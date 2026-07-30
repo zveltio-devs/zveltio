@@ -16,7 +16,9 @@ metadata:
 type: Opaque
 stringData:
   POSTGRES_USER: {{ .Values.postgresql.auth.username | quote }}
-  POSTGRES_PASSWORD: {{ .Values.postgresql.auth.password | quote }}
+  # A shipped default of "changeme" is a credential, not a placeholder: it is
+  # what a hurried install actually runs with.
+  POSTGRES_PASSWORD: {{ required "postgresql.auth.password is required — generate with: openssl rand -hex 24" .Values.postgresql.auth.password | quote }}
   POSTGRES_DB: {{ .Values.postgresql.auth.database | quote }}
 ---
 apiVersion: v1

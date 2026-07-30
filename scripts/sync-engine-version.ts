@@ -58,3 +58,22 @@ for (const { label, path } of targets) {
 }
 
 console.log(`\n${updated} of ${targets.length} package.json files updated to ${newVersion}.`);
+
+// The Helm chart's appVersion is what `helm install` resolves the image tag from
+// when the operator does not pin one. Left to drift it had reached
+// 1.0.0-alpha.80 while the engine was on 3.0.0-beta.x, so a default install
+// silently deployed a months-old image. It is a release artefact like the
+// package.json versions, so it is synced here rather than by hand.
+const chartPath = join(root, 'charts/zveltio/Chart.yaml');
+try {
+  const chart = readFileSync(chartPath, 'utf-8');
+  const next = chart.replace(/^appVersion:\s*.*$/m, `appVersion: "${newVersion}"`);
+  if (next !== chart) {
+    writeFileSync(chartPath, next, 'utf-8');
+    console.log(`✅ helm chart: appVersion bumped to ${newVersion}`);
+  } else {
+    console.log(`ℹ️  helm chart: already at ${newVersion} — no change.`);
+  }
+} catch (err) {
+  console.warn(`⚠️  helm chart: could not sync appVersion — ${(err as Error).message}`);
+}

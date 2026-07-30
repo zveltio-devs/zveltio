@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Block, BlockStyle } from '../../lib/builder-types.js';
-  import { safeHtml } from '../../lib/sanitize.js';
+  import { safeHtml, safeCssColor, safeCssNumber, safeIframeSrc } from '../../lib/sanitize.js';
 
   let { block }: { block: Block } = $props();
 
@@ -28,11 +28,11 @@
   {#if block.type === 'hero'}
     <div
       class="relative flex flex-col items-center justify-center px-8 py-16 text-center min-h-[180px]"
-      style="background-color:{p.bg_color ?? '#1e293b'}; color:{p.text_color ?? '#fff'}"
+      style="background-color:{safeCssColor(p.bg_color, '#1e293b')}; color:{safeCssColor(p.text_color, '#fff')}"
     >
       {#if p.image_url}
         <img src={p.image_url} alt="" class="absolute inset-0 w-full h-full object-cover pointer-events-none select-none" />
-        <div class="absolute inset-0" style="background:rgba(0,0,0,{(p.overlay_opacity ?? 40)/100})"></div>
+        <div class="absolute inset-0" style="background:rgba(0,0,0,{safeCssNumber(p.overlay_opacity, 40, 0, 100) / 100})"></div>
       {/if}
       <div class="relative z-10 space-y-2">
         <h1 class="text-3xl font-bold leading-tight">{p.title ?? 'Hero Title'}</h1>
@@ -86,13 +86,13 @@
     </div>
 
   {:else if block.type === 'spacer'}
-    <div style="height:{p.height ?? 48}px" class="w-full flex items-center justify-center">
+    <div style="height:{safeCssNumber(p.height, 48, 0, 2000)}px" class="w-full flex items-center justify-center">
       <span class="text-[10px] text-base-content/20 font-mono">{p.height ?? 48}px</span>
     </div>
 
   {:else if block.type === 'divider'}
     <div class="px-4 py-3">
-      <hr style="border-color:{p.color ?? '#e5e7eb'};border-top-width:{p.thickness ?? 1}px;border-style:{p.line_style ?? 'solid'}" />
+      <hr style="border-color:{safeCssColor(p.color, '#e5e7eb')};border-top-width:{safeCssNumber(p.thickness, 1, 0, 50)}px;border-style:{['solid','dashed','dotted','double'].includes(p.line_style) ? p.line_style : 'solid'}" />
     </div>
 
   {:else if block.type === 'image'}
@@ -115,7 +115,7 @@
     <div class="w-full aspect-video bg-base-300 rounded flex items-center justify-center">
       {#if p.url}
         {@const embedUrl = p.url.includes('youtu') ? p.url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') : p.url}
-        <iframe src={embedUrl} title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
+        <iframe src={safeIframeSrc(embedUrl)} title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
       {:else}
         <div class="flex flex-col items-center gap-2 text-base-content/30">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
