@@ -113,8 +113,14 @@ describe('WorkerExtensionHost — IPC message routing', () => {
 
   it('executes db:query via the host pool and posts db:ok', async () => {
     const bunSql = await import('../../db/bun-sql-dialect.js');
+    // The bridge runs on a RESERVED connection: pool.unsafe() speaks the
+    // simple-query protocol and would accept `…; DROP TABLE "user"` in one
+    // message, so the mock has to expose reserve() like the real pool does.
     const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
-      unsafe: async (sql: string, params?: unknown[]) => [{ sql, n: params?.length ?? 0 }],
+      reserve: async () => ({
+        unsafe: async (sql: string, params?: unknown[]) => [{ sql, n: params?.length ?? 0 }],
+        release: () => undefined,
+      }),
     } as never);
 
     const host = new WorkerExtensionHost(new Hono());
@@ -202,9 +208,15 @@ describe('WorkerExtensionHost — IPC message routing', () => {
   it('posts db:err when the pool query throws', async () => {
     const bunSql = await import('../../db/bun-sql-dialect.js');
     const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
-      unsafe: async () => {
-        throw new Error('query exploded');
-      },
+      reserve: async () => ({
+        unsafe: async (sql: string) => {
+          // The guard issues SET statement_timeout first; only the extension's
+          // own statement should surface the failure under test.
+          if (sql.startsWith('SET ')) return [];
+          throw new Error('query exploded');
+        },
+        release: () => undefined,
+      }),
     } as never);
 
     const host = new WorkerExtensionHost(new Hono());
