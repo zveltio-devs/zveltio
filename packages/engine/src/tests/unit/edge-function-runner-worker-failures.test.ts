@@ -2,14 +2,26 @@
  * edge-function-runner.ts — worker hard timeout + onerror paths.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type EdgeRequest, runEdgeFunction } from '../../lib/edge-function-runner.js';
 
 const REQ: EdgeRequest = { method: 'GET', headers: {}, query: {}, body: null, path: '/' };
 const OriginalWorker = globalThis.Worker;
+let savedMode: string | undefined;
+
+beforeEach(() => {
+  // These cases are about the in-process worker path specifically. The runner
+  // now defaults to `subprocess` — a process boundary is the only thing that
+  // actually contains untrusted code — so the worker branch has to be selected
+  // explicitly or none of this is exercised.
+  savedMode = process.env.EDGE_SANDBOX_MODE;
+  process.env.EDGE_SANDBOX_MODE = 'worker';
+});
 
 afterEach(() => {
   globalThis.Worker = OriginalWorker;
+  if (savedMode === undefined) delete process.env.EDGE_SANDBOX_MODE;
+  else process.env.EDGE_SANDBOX_MODE = savedMode;
 });
 
 describe('runEdgeFunction — worker failure paths', () => {

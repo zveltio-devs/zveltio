@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import { enqueueDDLJob } from '../lib/data/index.js';
@@ -134,7 +134,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', session.user);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) {
+    if (!(await requireInstanceAdmin(session.user.id))) {
       return c.json({ error: 'Admin access required' }, 403);
     }
     await next();

@@ -5,7 +5,7 @@ import { getStorage } from '../lib/storage/index.js';
 import type { Database } from '../db/index.js';
 import { escapeLike } from '../lib/data/index.js';
 import { generateId } from '../lib/utils.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { isTenantAdmin } from '../lib/tenancy/index.js';
 // @ts-ignore — cloud/trash is an optional extension
 import { moveToTrash } from '../lib/cloud/trash.js';
 import { scheduleFileIndexing } from '../lib/cloud/document-indexer.js';
@@ -90,7 +90,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       if (!folder) return c.json({ error: 'Folder not found' }, 404);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
-      if (folder.created_by !== user.id && !(await checkPermission(user.id, 'admin', '*'))) {
+      if (folder.created_by !== user.id && !(await isTenantAdmin(user.id))) {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
@@ -536,7 +536,7 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       if (!file) return c.json({ error: 'File not found' }, 404);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user' as never) as any;
-      if (file.created_by !== user.id && !(await checkPermission(user.id, 'admin', '*'))) {
+      if (file.created_by !== user.id && !(await isTenantAdmin(user.id))) {
         return c.json({ error: 'Forbidden' }, 403);
       }
 

@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { createHash } from 'crypto';
-import { checkPermission, isGodUser, getCurrentDomain } from '../lib/tenancy/index.js';
+import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import type { Database } from '../db/index.js';
@@ -19,7 +19,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
     c.set('user', session.user);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) {
+    if (!(await requireInstanceAdmin(session.user.id))) {
       return c.json({ error: 'Admin access required' }, 403);
     }
     // Backups are whole-instance operations: a pg_dump captures EVERY tenant's

@@ -47,7 +47,7 @@ The engine ships with everything every business application needs. Activate plug
 | **File storage** | S3-compatible (SeaweedFS bundled, or BYO AWS/MinIO/R2). |
 | **AI providers** | OpenAI, Anthropic, Ollama, Azure. Semantic search via pgvector, text-to-SQL, schema generation from natural language. |
 | **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
-| **Edge functions** | TypeScript runtime for custom serverless logic, authored by instance admins. Globals are locked down and network access is SSRF-filtered, but this is a guard-rail against mistakes, not a boundary against a hostile author — dynamic `import()` is resolved by the module loader and cannot be intercepted from inside. Run with `EDGE_SANDBOX_MODE=subprocess` for process-level separation. |
+| **Edge functions** | TypeScript runtime for custom serverless logic, authored by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. `EDGE_SANDBOX_MODE=worker` opts into the faster in-process runner, where the globals lockdown is a guard-rail against mistakes rather than a boundary — dynamic `import()` resolves through the module loader and cannot be intercepted from inside. |
 | **Automation flows** | Visual trigger → step builder with DLQ retry and idempotency. |
 | **Webhooks** | HMAC-signed outbound webhooks on data changes. |
 | **Multi-tenancy** | Isolated tenants with environment branching. |
