@@ -49,6 +49,11 @@ const MAX_CODE_BYTES = 1024 * 1024;
 const SUBPROCESS_BOOTSTRAP = String.raw`
 'use strict';
 
+// Static ESM import — evaluated at module load, BEFORE lockdownGlobals() runs
+// and before any user code exists, so the sandbox's own DNS check keeps working
+// even though 'require'/'process' are blocked for the untrusted body below.
+import { lookup as _dnsLookup } from 'node:dns/promises';
+
 const BLOCKED = ['Bun','process','require','module','exports','__dirname','__filename','Worker','importScripts','eval','Function'];
 
 function buildThrower(name) {
@@ -138,6 +143,34 @@ function _validateUrl(rawUrl) {
   if (_isBlockedHost(parsed.hostname.toLowerCase())) {
     throw new Error('[sandbox] Network access to internal/private address blocked: ' + rawUrl);
   }
+  return parsed;
+}
+function _isIpLiteral(host) {
+  if (host.indexOf(':') !== -1) return true;
+  return /^\d+\.\d+\.\d+\.\d+$/.test(_normalizeHost(host));
+}
+// DNS-aware guard — mirrors assertPublicUrl in url-validator.ts. The literal
+// blocklist alone never inspected what a HOSTNAME resolves to, so untrusted
+// edge code could reach cloud metadata through an attacker-owned name.
+// Unresolvable hosts are allowed through: fetch cannot reach them either.
+async function _assertUrl(rawUrl) {
+  const parsed = _validateUrl(rawUrl);
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (_isIpLiteral(host)) return;
+  let addrs;
+  try {
+    addrs = await _dnsLookup(host, { all: true });
+  } catch (_) {
+    return;
+  }
+  for (const a of addrs) {
+    if (_isBlockedHost(a.address)) {
+      throw new Error(
+        '[sandbox] Network access to internal/private address blocked: ' +
+          rawUrl + ' resolves to ' + a.address,
+      );
+    }
+  }
 }
 
 (async () => {
@@ -188,7 +221,7 @@ function _validateUrl(rawUrl) {
       if (typeof input === 'string') _url = input;
       else if (input && typeof input === 'object' && input.url) _url = input.url;
       else _url = String(input);
-      _validateUrl(_url);
+      await _assertUrl(_url);
       if (_hops > 5) throw new Error('[sandbox] Too many redirects.');
       const _res = await _fetch(input, Object.assign({}, init || {}, { redirect: 'manual' }));
       if (_res.status >= 300 && _res.status < 400) {
