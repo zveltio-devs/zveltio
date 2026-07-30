@@ -9,7 +9,11 @@ import type { Database } from '../db/index.js';
 // ('*','*','*'), so any delegated tenant admin matched it — and the member
 // routes take the tenant id from the URL without checking it is the caller's,
 // so a tenant admin could make themselves owner of any other tenant.
-import { getEnforcer, invalidateUserPermCache, requireInstanceAdmin } from '../lib/tenancy/index.js';
+import {
+  getEnforcer,
+  invalidateUserPermCache,
+  requireInstanceAdmin,
+} from '../lib/tenancy/index.js';
 import {
   provisionTenantSchema,
   provisionEnvironment,

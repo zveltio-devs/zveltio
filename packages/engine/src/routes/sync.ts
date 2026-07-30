@@ -234,12 +234,13 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // resolve each collection once per push instead of per operation — a batch
     // commonly touches the same few collections many times.
     const rlsCache = new Map<string, Awaited<ReturnType<typeof getRlsFilters>>>();
+    // The session user, shaped for getRlsFilters. `role` is defaulted where the
+    // session is read at the top of this route, so it is always present.
+    const syncUser = () => c.get('user') as { id: string; email?: string; role: string };
     const syncRlsFilters = async (coll: string) => {
       const hit = rlsCache.get(coll);
       if (hit) return hit;
-      // biome-ignore lint/suspicious/noExplicitAny: session user shape — role defaulted above
-      const u = c.get('user') as any;
-      const filters = await getRlsFilters(coll, u, c.get('authType') ?? 'session');
+      const filters = await getRlsFilters(coll, syncUser(), c.get('authType') ?? 'session');
       rlsCache.set(coll, filters);
       return filters;
     };
@@ -254,29 +255,29 @@ export function syncRoutes(db: Database, _auth: any): Hono {
             // is not matched and the update is a no-op. The sync push path wrote
             // by id with no row-level check at all, which made it a way around
             // the policies the /api/data handlers enforce.
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            let upd: any = effectiveDb
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .updateTable(collection as any)
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .set({ ...payload, updated_by: (c.get('user') as any).id } as any)
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .where('id' as any, '=', recordId);
-            upd = applyRlsFilters(upd, await syncRlsFilters(collection));
-            await upd.execute();
+            await applyRlsFilters(
+              effectiveDb
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .updateTable(collection as any)
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .set({ ...payload, updated_by: syncUser().id } as any)
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .where('id' as any, '=', recordId),
+              await syncRlsFilters(collection),
+            ).execute();
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });
             break;
           }
 
           case 'delete': {
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-            let del: any = effectiveDb
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .deleteFrom(collection as any)
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-              .where('id' as any, '=', recordId);
-            del = applyRlsFilters(del, await syncRlsFilters(collection));
-            await del.execute();
+            await applyRlsFilters(
+              effectiveDb
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .deleteFrom(collection as any)
+                // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+                .where('id' as any, '=', recordId),
+              await syncRlsFilters(collection),
+            ).execute();
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });
             break;
           }

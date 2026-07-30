@@ -18,7 +18,7 @@ describe('renderSqlDefault — column DEFAULT escaping', () => {
   });
 
   it('neutralises a statement-terminating payload', () => {
-    const out = renderSqlDefault("x'); DROP TABLE \"user\"; --");
+    const out = renderSqlDefault('x\'); DROP TABLE "user"; --');
     // Every quote is doubled, so the payload stays inside one literal.
     expect(out.startsWith("'")).toBe(true);
     expect(out.endsWith("'")).toBe(true);
@@ -93,7 +93,7 @@ describe('ghost-ddl allow-list — anchored at both ends', () => {
     'ADD COLUMN x int; DROP TABLE "user"; --',
     'DROP COLUMN fax; DELETE FROM "user"',
     'ADD COLUMN x TEXT DEFAULT \'a\'; GRANT ALL ON "user" TO PUBLIC; --',
-    "ALTER COLUMN x TYPE TEXT; COPY (SELECT * FROM \"user\") TO '/tmp/x'",
+    'ALTER COLUMN x TYPE TEXT; COPY (SELECT * FROM "user") TO \'/tmp/x\'',
     'RENAME COLUMN a TO b; ALTER TABLE "user" OWNER TO attacker',
     'ADD COLUMN x TEXT -- comment',
     'DROP TABLE "user"',
