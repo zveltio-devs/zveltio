@@ -41,8 +41,21 @@ engine:
 
   podSecurityContext:
     runAsNonRoot: true
-    runAsUser: 1000
-    fsGroup: 1000
+    # runAsUser / fsGroup are intentionally UNSET.
+    #
+    # They used to be pinned to 1000, which no image ever used: the Dockerfile
+    # creates its user with `adduser -S`, so Alpine assigns a system uid (1000 is
+    # already taken there, and pinning it fails the build). The pod therefore ran
+    # as a uid that owned none of the image's files, and PVC contents written by
+    # an earlier revision were not writable.
+    #
+    # Leaving them unset runs the container as the image's own USER, which is a
+    # non-root system account — `runAsNonRoot: true` still enforces that. If you
+    # mount a PVC and your storage class needs an explicit group, set fsGroup to
+    # match the image user rather than guessing 1000.
+    #
+    # runAsUser: 10001
+    # fsGroup: 10001
 
   securityContext:
     allowPrivilegeEscalation: false

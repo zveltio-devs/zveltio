@@ -589,3 +589,25 @@ describe('WorkerExtensionHost — heartbeat hang detection', () => {
     await host.stopAll();
   });
 });
+
+describe('getWorkerHost — app rebinding across a hot-reload', () => {
+  it('retargets the singleton at the freshly built app', async () => {
+    const { getWorkerHost, _resetWorkerHostForTests } = await import(
+      '../../lib/worker-extension-host.js'
+    );
+    _resetWorkerHostForTests();
+
+    const first = new Hono();
+    const host = getWorkerHost(first);
+
+    // A hot-reload builds a new app and re-registers everything onto it. The
+    // singleton used to ignore this argument and keep the original, so a
+    // worker's proxy routes were mounted on the discarded app — whose router
+    // had already served requests — and Hono threw "matcher is already built".
+    const second = new Hono();
+    expect(getWorkerHost(second)).toBe(host);
+    expect((host as unknown as { app: Hono }).app).toBe(second);
+
+    _resetWorkerHostForTests();
+  });
+});

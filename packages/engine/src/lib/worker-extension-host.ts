@@ -55,7 +55,14 @@ let _instance: WorkerExtensionHost | null = null;
  * Hono app. Subsequent calls return the same instance.
  */
 export function getWorkerHost(app: Hono): WorkerExtensionHost {
-  if (!_instance) _instance = new WorkerExtensionHost(app);
+  if (!_instance) {
+    _instance = new WorkerExtensionHost(app);
+  } else {
+    // Rebind rather than ignore the argument. Hot-reload passes the freshly
+    // built app here; keeping the original meant proxy routes were mounted on
+    // an app that had already been replaced.
+    _instance.rebindApp(app);
+  }
   return _instance;
 }
 
@@ -144,7 +151,21 @@ export class WorkerExtensionHost {
   private readonly workers = new Map<string, ManagedWorker>();
   private respawnBackoff = new Map<string, number>();
 
-  constructor(private readonly app: Hono) {}
+  constructor(private app: Hono) {}
+
+  /**
+   * Point the host at the CURRENT Hono app.
+   *
+   * A hot-reload builds a fresh app and re-registers every extension onto it,
+   * but the host is a singleton that captured the app it was constructed with.
+   * Mounting a worker's proxy routes then targeted the discarded app — whose
+   * router had already served requests — and Hono threw "Can not add a route
+   * since the matcher is already built", so the extension's routes never
+   * appeared and /ext/<name>/* returned 404.
+   */
+  rebindApp(app: Hono): void {
+    this.app = app;
+  }
 
   /**
    * Spawn a worker for the extension at `extDir` and mount its routes
