@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
 import { DDLManager, CollectionSchema, FieldSchema } from '../lib/data/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+// requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema DDL — collections are shared across tenants and isolated by RLS, so creating or altering one is an instance-level operation.
+// The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
+// and admitted any delegated tenant admin.
+import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { enqueueDDLJob, getDDLJob } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import {
@@ -46,7 +49,7 @@ const SYSTEM_FIELDS = new Set([
 async function requireAdmin(c: any, auth: any): Promise<any> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  const hasAdmin = await checkPermission(session.user.id, 'admin', '*');
+  const hasAdmin = await requireInstanceAdmin(session.user.id);
   if (!hasAdmin) return null;
   return session.user;
 }

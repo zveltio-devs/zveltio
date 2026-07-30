@@ -142,6 +142,32 @@ export async function getRlsFilters(
   return result;
 }
 
+/**
+ * Apply RLS filter conditions to a query builder.
+ *
+ * Extracted so the WRITE paths can reuse exactly what the read paths do. The
+ * policies configured under `/api/admin/rls` were only ever applied when
+ * fetching rows, so a rule like "a user sees only their own records" held for
+ * GET and vanished for PATCH/PUT/DELETE — any member could modify or delete
+ * another user's row by naming its id. Writes now run the same conditions on the
+ * row they load first, so an invisible row is simply not found.
+ *
+ * Typed loosely on purpose: these queries are built over runtime-resolved table
+ * names via `dynamicDb`, which has no static schema to check the field against.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: dynamic table query builder — no static schema
+export function applyRlsFilters<Q extends { where(f: any, op: any, v: any): Q }>(
+  query: Q,
+  filters: Array<{ field: string; condition: FilterCondition }>,
+): Q {
+  let out = query;
+  for (const { field, condition } of filters) {
+    if (condition.op === 'eq') out = out.where(field, '=', condition.value);
+    else if (condition.op === 'neq') out = out.where(field, '!=', condition.value);
+  }
+  return out;
+}
+
 // ─── Admin CRUD helpers ────────────────────────────────────────────────────────
 
 export async function listRlsPolicies(): Promise<RlsPolicy[]> {
