@@ -46,6 +46,7 @@ import type {
   InitResponse,
 } from './worker-extension-protocol.js';
 import { serviceRegistry } from './service-registry.js';
+import { assertWorkerSqlAllowed } from './extensions/worker-sql-policy.js';
 
 let _instance: WorkerExtensionHost | null = null;
 
@@ -410,7 +411,7 @@ export class WorkerExtensionHost {
     msg: Extract<WorkerToHostMessage, { type: 'db:query' }>,
   ): Promise<void> {
     try {
-      const rows = await runRawWithParams(msg.sql, msg.params);
+      const rows = await runRawWithParams(managed.name, msg.sql, msg.params);
       this.post(managed, { type: 'db:ok', id: msg.id, rows });
     } catch (err) {
       this.post(managed, { type: 'db:err', id: msg.id, error: (err as Error).message });
@@ -628,16 +629,51 @@ const invokeWaiters = new Map<
   (msg: Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>) => void
 >();
 
+/** Wall-clock ceiling for a single extension query, in seconds. */
+const WORKER_QUERY_TIMEOUT_S = 10;
+
 /**
- * Execute `sql` with `params` against the engine's database, returning
- * the rows. Uses the Bun.SQL pool exposed by BunSqlDialect.
+ * Execute `sql` with `params` on behalf of a worker extension.
+ *
+ * This used to be `pool.unsafe(sql)` with nothing in front of it, which handed
+ * every worker-isolated extension unrestricted SQL as the database owner — the
+ * opposite of the intent, since `enforcePublisherTier` sends *untrusted*
+ * community extensions down this path specifically because the worker is meant
+ * to be the boundary. Three things now stand between the message and the
+ * database:
+ *
+ *  - the table policy, which refuses references to engine `zv_*` tables the
+ *    extension does not own (sessions, API keys, tenants, Casbin policies);
+ *  - a reserved connection, which Bun drives through the extended-query
+ *    protocol. `pool.unsafe()` uses the simple-query protocol and accepts
+ *    several statements per command, so `…; DROP TABLE "user"` was previously a
+ *    single message away. On a reserved connection the server rejects it;
+ *  - a statement_timeout, so one extension cannot pin a connection forever.
+ *
+ * Still open, and deliberately not papered over here: the query runs on the
+ * engine's pool rather than the caller's tenant transaction, so it is not
+ * RLS-scoped. Closing that means threading tenant context through the worker
+ * IPC, which is a larger change than this guard.
  */
-async function runRawWithParams(sql: string, params: unknown[]): Promise<unknown[]> {
+async function runRawWithParams(
+  extName: string,
+  sql: string,
+  params: unknown[],
+): Promise<unknown[]> {
+  assertWorkerSqlAllowed(extName, sql);
+
   const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
   const pool = getActiveBunPool();
   if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
-  if (params.length > 0) {
-    return (await pool.unsafe(sql, params)) as unknown[];
+
+  const reserved = await pool.reserve();
+  try {
+    await reserved.unsafe(`SET statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
+    return (await reserved.unsafe(sql, params.length > 0 ? params : undefined)) as unknown[];
+  } finally {
+    // Reset before returning the connection to the pool — the setting is
+    // per-session, so leaking it would silently cap unrelated engine queries.
+    await reserved.unsafe('SET statement_timeout = DEFAULT').catch(() => undefined);
+    reserved.release();
   }
-  return (await pool.unsafe(sql)) as unknown[];
 }
