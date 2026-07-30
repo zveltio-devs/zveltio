@@ -1,7 +1,7 @@
 import { sql } from 'kysely';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
-import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
+import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
 
 // ─── Relation type sets ───────────────────────────────────────────────────────
 /** FK column lives in the SOURCE table (the collection being modified). */
@@ -798,9 +798,12 @@ export class DDLManager {
         if (def?.db.virtual) return null;
         const colType = def?.db.columnType ?? 'TEXT';
         const nullable = f.required ? 'NOT NULL' : 'NULL';
+        // Same escaping rule as getColumnDDL — no field type ships a db default
+        // today, so this branch is currently unreachable, but leaving a raw
+        // interpolation here would re-open the hole the moment one does.
         const defaultVal =
           def?.db.defaultValue !== undefined && def?.db.defaultValue !== null
-            ? ` DEFAULT ${def.db.defaultValue}`
+            ? ` DEFAULT ${renderSqlDefault(def.db.defaultValue)}`
             : '';
         return `  "${f.name}" ${colType} ${nullable}${defaultVal}`;
       })
