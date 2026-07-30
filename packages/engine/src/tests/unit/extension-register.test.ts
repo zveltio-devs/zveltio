@@ -149,8 +149,14 @@ describe('finalizeExtensionLoad', () => {
   it('delegates to WorkerExtensionHost when isolation=worker', async () => {
     process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
     const startMock = mock(async () => {});
+    // stop() is called before start() on every mount, so a worker-isolated
+    // extension can be re-registered on hot-reload — start() refuses to spawn a
+    // second worker for the same name, and without the stop the throw left the
+    // extension's routes unmounted entirely.
+    const stopMock = mock(async () => {});
     const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
       start: startMock,
+      stop: stopMock,
     } as never);
     try {
       const app = new Hono();
@@ -239,5 +245,84 @@ describe('reRegisterExtension', () => {
     const res = await app.request('/ext/reload-ext/v');
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('v2');
+  });
+});
+
+describe('reRegisterExtension — worker isolation across a hot-reload', () => {
+  it('restarts the worker instead of trying to start a second one', async () => {
+    // Two regressions meet here, so both directions are pinned.
+    //
+    // Originally reRegisterExtension passed `manifest = null`, so the worker
+    // branch was never taken and a community extension — which the publisher
+    // tier confines to a worker precisely because it is untrusted — came back
+    // INLINE in the main thread on every enable/disable.
+    //
+    // Persisting the isolation decision fixed that and introduced the opposite
+    // failure: start() refuses to spawn a second worker for the same name, the
+    // throw aborted re-registration, and the extension's routes were never
+    // mounted — /ext/<name>/* returned 404 after any enable. The release smoke
+    // test caught it. stop() before start() is what makes the reload a restart.
+    const calls: string[] = [];
+    const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      start: mock(async () => {
+        calls.push('start');
+      }),
+      stop: mock(async () => {
+        calls.push('stop');
+      }),
+    } as never);
+
+    try {
+      const app = new Hono();
+      const loader = fakeLoader();
+      const extension: ZveltioExtension = {
+        name: 'worker-ext',
+        category: 'custom',
+        async register() {
+          calls.push('inline-register');
+        },
+      };
+      loader.modules.set('worker-ext', extension);
+      loader.loaded.set('worker-ext', {
+        name: 'worker-ext',
+        registeredRoutes: true,
+        workerIsolation: { entry: 'index.js', extDir: '/tmp/worker-ext' },
+      } as never);
+
+      await reRegisterExtension(loader, 'worker-ext', app);
+
+      expect(calls).toEqual(['stop', 'start']);
+      // The whole point: it must NOT fall back to registering in-process.
+      expect(calls).not.toContain('inline-register');
+    } finally {
+      hostSpy.mockRestore();
+    }
+  });
+
+  it('registers inline when the extension was never worker-isolated', async () => {
+    const calls: string[] = [];
+    const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      start: mock(async () => calls.push('start')),
+      stop: mock(async () => calls.push('stop')),
+    } as never);
+    try {
+      const app = new Hono();
+      const loader = fakeLoader();
+      const extension: ZveltioExtension = {
+        name: 'plain-ext',
+        category: 'custom',
+        async register() {
+          calls.push('inline-register');
+        },
+      };
+      loader.modules.set('plain-ext', extension);
+      loader.loaded.set('plain-ext', { name: 'plain-ext', registeredRoutes: true } as never);
+
+      await reRegisterExtension(loader, 'plain-ext', app);
+
+      expect(calls).toEqual(['inline-register']);
+    } finally {
+      hostSpy.mockRestore();
+    }
   });
 });

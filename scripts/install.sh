@@ -401,18 +401,32 @@ if [[ "$MODE" == "native" ]]; then
   fi
 
   echo -n "  Downloading binary (${BINARY_NAME})..."
-  curl -fsSL "${RELEASE_URL}/${BINARY_NAME}" -o zveltio-engine 2>/dev/null
-  chmod +x zveltio-engine
+  curl -fsSL "${RELEASE_URL}/${BINARY_NAME}" -o zveltio-engine.download 2>/dev/null
   echo -e " ${GREEN}✓${NC}"
 
+  # Verify BEFORE chmod +x, and fail closed.
+  #
+  # The check used to be wrapped in `if curl ...; then` with a second
+  # `if [[ -n "$EXPECTED" ]]`, so a failed download of checksums.sha256 — or a
+  # file without an entry for this binary — silently skipped verification and
+  # the binary ran anyway. That hands the decision to whoever can make one
+  # request fail, which is the same party the checksum defends against. The
+  # binary was also made executable before any of it happened.
   CHECKSUMS_URL="${RELEASE_URL}/checksums.sha256"
-  if curl -fsSL "$CHECKSUMS_URL" -o checksums.sha256 2>/dev/null; then
-    EXPECTED=$(grep -F "  ${BINARY_NAME}" checksums.sha256 | head -1 | cut -d' ' -f1)
-    if [[ -n "$EXPECTED" ]]; then
-      verify_checksum "zveltio-engine" "$EXPECTED"
-      ok "Checksum verified"
-    fi
+  if ! curl -fsSL "$CHECKSUMS_URL" -o checksums.sha256 2>/dev/null; then
+    rm -f zveltio-engine.download
+    error "Could not download checksums.sha256 — refusing to install an unverified binary."
   fi
+  EXPECTED=$(grep -F "  ${BINARY_NAME}" checksums.sha256 | head -1 | cut -d' ' -f1)
+  if [[ -z "$EXPECTED" ]]; then
+    rm -f zveltio-engine.download checksums.sha256
+    error "checksums.sha256 has no entry for ${BINARY_NAME} — refusing to install an unverified binary."
+  fi
+  verify_checksum "zveltio-engine.download" "$EXPECTED"
+  rm -f checksums.sha256
+  mv zveltio-engine.download zveltio-engine
+  chmod +x zveltio-engine
+  ok "Checksum verified" 
 
   if [[ -w "/usr/local/bin" ]]; then
     ln -sf "$(pwd)/zveltio-engine" /usr/local/bin/zveltio

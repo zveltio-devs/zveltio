@@ -449,9 +449,24 @@ async function buildHonoApp(): Promise<Hono> {
   app.onError(problemOnError);
   app.use('/api/*', problemNormalizer());
   app.use('/ext/*', problemNormalizer());
+  // Upload and import legitimately carry bodies larger than the 10 MB default,
+  // so they used to be exempted from the limit entirely — which is not the same
+  // thing. Both handlers call `c.req.formData()`, which buffers the whole body,
+  // and only then compare `file.size` against their own maximum. A single
+  // multi-gigabyte request was therefore read into memory in full before
+  // anything looked at its size, and one request could take the process down.
+  //
+  // They get a HIGHER ceiling instead of none, sized a little above what each
+  // handler will accept so the in-handler check still produces the friendly
+  // error for merely-too-large files, while an absurd body is cut off at the
+  // socket.
+  const UPLOAD_MAX =
+    (parseInt(process.env.MAX_UPLOAD_BYTES ?? '') || 50 * 1024 * 1024) + 5 * 1024 * 1024;
+  const IMPORT_MAX = 100 * 1024 * 1024 + 5 * 1024 * 1024;
   app.use('/api/*', async (c, next) => {
     const path = c.req.path;
-    if (path === '/api/storage/upload' || path.startsWith('/api/import')) return next();
+    if (path === '/api/storage/upload') return bodyLimit({ maxSize: UPLOAD_MAX })(c, next);
+    if (path.startsWith('/api/import')) return bodyLimit({ maxSize: IMPORT_MAX })(c, next);
     return bodyLimit({ maxSize: 10 * 1024 * 1024 })(c, next);
   });
   app.use(
