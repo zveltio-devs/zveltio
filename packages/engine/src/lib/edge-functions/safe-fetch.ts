@@ -4,8 +4,8 @@
  * Validation is delegated to the shared url-validator module.
  */
 
-import { validatePublicUrl } from '../security/index.js';
-export { validatePublicUrl };
+import { assertPublicUrl, validatePublicUrl } from '../security/index.js';
+export { validatePublicUrl, assertPublicUrl };
 
 export async function safeFetch(
   input: string | URL | Request,
@@ -15,7 +15,9 @@ export async function safeFetch(
   const url =
     typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 
-  validatePublicUrl(url);
+  // DNS-aware: also rejects hostnames that RESOLVE into private space, which a
+  // literal-text blocklist cannot see.
+  await assertPublicUrl(url);
 
   if (_hops > 5) throw new Error('[safeFetch] Too many redirects.');
 
