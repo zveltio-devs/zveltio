@@ -8,7 +8,19 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getUserRoles, listAllRoles } from '../lib/tenancy/index.js';
+// requireInstanceAdmin for anything that stores or runs SQL: panels and saved
+// queries execute raw text against the global pool, outside the caller's tenant
+// transaction, and the auth tables (user/session/zv_api_keys) carry no RLS. The
+// old checkPermission(uid,'admin','*') admitted any tenant_admin, whose Casbin
+// policy is ('*','*','*'), turning a delegated role into a read of every
+// tenant's data. checkPermission is kept below for canReadDashboard's share
+// fallback, which is a tenant-scoped read and correct as-is.
+import {
+  checkPermission,
+  getUserRoles,
+  listAllRoles,
+  requireInstanceAdmin,
+} from '../lib/tenancy/index.js';
 
 /**
  * Resolve whether `userId` can read a dashboard. Order matters — admin
@@ -47,7 +59,13 @@ async function canReadDashboard(
     if (roleShare) return true;
   }
 
-  return checkPermission(userId, 'admin', '*');
+  // Blanket override is instance-admin only. Reading a dashboard is not a
+  // passive act here: POST /panels/:id/execute runs the panel's stored SQL on
+  // the global pool, so "admin can see every dashboard" would hand any
+  // tenant_admin the output of queries written by someone else, against tables
+  // that carry no RLS. Owner, public and explicit shares above still apply, so
+  // legitimate tenant-scoped access is unaffected.
+  return requireInstanceAdmin(userId);
 }
 
 // Multi-statement injection guard for stored panel/saved SQL — the
@@ -125,7 +143,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   // ── GET /stats ───────────────────────────────────────────────────────────────
   app.get('/stats', async (c) => {
     const user = c.get('user');
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await requireInstanceAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
     const [dashRow, panelRow, topPanels, avgRow] = await Promise.all([
@@ -268,7 +286,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     if (!dash) return c.json({ error: 'Not found' }, 404);
 
     if (dash.created_by !== user.id) {
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -291,7 +309,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     if (!dash) return c.json({ error: 'Not found' }, 404);
 
     if (dash.created_by !== user.id) {
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -333,7 +351,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (!dash) return c.json({ error: 'Not found' }, 404);
 
       if (dash.created_by !== user.id) {
-        const isAdmin = await checkPermission(user.id, 'admin', '*');
+        const isAdmin = await requireInstanceAdmin(user.id);
         if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
       }
 
@@ -398,7 +416,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     if (!dash) return c.json({ error: 'Dashboard not found' }, 404);
 
     if (dash.created_by !== user.id) {
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -433,7 +451,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     ),
     async (c) => {
       const user = c.get('user');
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
       const dashboardId = c.req.param('id');
@@ -482,7 +500,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     ),
     async (c) => {
       const user = c.get('user');
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
       const id = c.req.param('id');
@@ -511,7 +529,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
   // ── DELETE /panels/:id ───────────────────────────────────────────────────────
   app.delete('/panels/:id', async (c) => {
     const user = c.get('user');
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await requireInstanceAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
     const deleted = await db
@@ -669,7 +687,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     ),
     async (c) => {
       const user = c.get('user');
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
       const { query } = c.req.valid('json');
@@ -724,7 +742,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       const user = c.get('user');
       // Stored SQL is read back on /execute; require admin so a low-priv
       // user can't park a `SELECT * FROM account` query and call it back.
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
       const body = c.req.valid('json');
@@ -773,7 +791,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
       if (!existing) return c.json({ error: 'Saved query not found' }, 404);
 
       if (existing.created_by !== user.id) {
-        const isAdmin = await checkPermission(user.id, 'admin', '*');
+        const isAdmin = await requireInstanceAdmin(user.id);
         if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
       }
 
@@ -809,7 +827,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     if (!existing) return c.json({ error: 'Saved query not found' }, 404);
 
     if (existing.created_by !== user.id) {
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -834,7 +852,7 @@ export function insightsRoutes(db: Database, auth: any): Hono<InsightsEnv> {
     // the id of someone else's private saved query would be enough to run
     // it (IDOR) and read its rows.
     if (!savedQuery.is_public && savedQuery.created_by !== user.id) {
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await requireInstanceAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
     }
 
