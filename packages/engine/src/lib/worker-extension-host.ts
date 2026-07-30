@@ -46,7 +46,7 @@ import type {
   InitResponse,
 } from './worker-extension-protocol.js';
 import { serviceRegistry } from './service-registry.js';
-import { assertWorkerSqlAllowed } from './extensions/worker-sql-policy.js';
+import { assertWorkerSqlAllowed } from './extensions/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
 

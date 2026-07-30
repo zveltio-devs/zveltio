@@ -9,6 +9,7 @@ export * from './extension-download.js';
 export * from './extension-errors.js';
 export * from './extension-license.js';
 export * from './extension-loader.js';
+export * from './worker-sql-policy.js';
 export * from './extension-marketplace-routes.js';
 export * from './extension-paths.js';
 export * from './extension-registry.js';

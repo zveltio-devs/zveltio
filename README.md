@@ -105,7 +105,7 @@ Zveltio extensions are **plugins**, not forks. Two types ship together:
 
 ### Engine extensions
 - TypeScript modules that mount Hono routes at `/ext/<name>/`, declare migrations, hook pre/post-write triggers, alter queries, gate entity access, run cron jobs.
-- Ed25519 signing is implemented and invalid signatures are always rejected, but signature verification is **not yet required by default** — the registry does not sign the first-party publish path yet. See `docs/EXTENSION-SIGNATURES.md` for the remaining steps before it can be enforced.
+- Signed with Ed25519 at publish time and **verified at install**: a missing or invalid signature fails the install. Set `REQUIRE_EXTENSION_SIGNATURES=false` only for a private mirror that does not sign; to trust an additional signer, add its key to `REGISTRY_PUBLIC_KEYS_JSON` instead.
 - Untrusted (community-tier) extensions run in a worker, not inline: the host restricts their SQL to user-data tables and their own `zv_<ext>_*` namespace, on a reserved connection with a statement timeout, and the worker is started with a minimal environment so engine credentials are not visible to it.
 - The capability policy (`db.read` / `db.write` / `fetch.https` / …) is currently enforced for the WASM host only; JS extensions are governed by the worker/table restrictions above rather than per-capability grants.
 - Optional WASM runtime for strict isolation (Rust / TinyGo / AssemblyScript).
