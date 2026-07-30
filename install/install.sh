@@ -707,12 +707,50 @@ UNIT
   [[ "$USE_BASELINE" == "true" ]] && BINARY_NAME="zveltio-linux-${ARCH_SLUG}-baseline"
 
   local BINARY_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/${BINARY_NAME}"
+  local CHECKSUMS_URL="https://github.com/zveltio-devs/zveltio/releases/download/${RESOLVED_VERSION}/checksums.sha256"
   info "Downloading binary from ${BINARY_URL}"
   if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
-    wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio"
+    wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio.download"
+
+    # Verify BEFORE making it executable, and fail closed.
+    #
+    # This script runs as root and the binary it fetches becomes the engine, so
+    # an unverified download is a root-level supply-chain hole — anything able to
+    # answer for the release host (a proxy, a poisoned mirror, a hijacked CDN
+    # edge) chooses what runs. Every release publishes checksums.sha256; the
+    # binary used to be chmod +x'd without ever consulting it.
+    #
+    # A missing or unreadable checksums file ABORTS. Treating it as "skip
+    # verification" would hand the decision to whoever can make that one request
+    # fail, which is exactly the party we are defending against.
+    if ! wget -q "$CHECKSUMS_URL" -O "${ZVELTIO_DIR}/checksums.sha256"; then
+      rm -f "${ZVELTIO_DIR}/zveltio.download"
+      error "Could not download checksums.sha256 for ${RESOLVED_VERSION}."
+      error "Refusing to install an unverified binary."
+      exit 1
+    fi
+    local EXPECTED ACTUAL
+    EXPECTED=$(grep -F "  ${BINARY_NAME}" "${ZVELTIO_DIR}/checksums.sha256" | head -1 | cut -d' ' -f1)
+    if [[ -z "$EXPECTED" ]]; then
+      rm -f "${ZVELTIO_DIR}/zveltio.download" "${ZVELTIO_DIR}/checksums.sha256"
+      error "checksums.sha256 has no entry for ${BINARY_NAME}."
+      error "Refusing to install an unverified binary."
+      exit 1
+    fi
+    ACTUAL=$(sha256sum "${ZVELTIO_DIR}/zveltio.download" | cut -d' ' -f1)
+    if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+      rm -f "${ZVELTIO_DIR}/zveltio.download" "${ZVELTIO_DIR}/checksums.sha256"
+      error "Checksum mismatch for ${BINARY_NAME}!"
+      error "  expected: ${EXPECTED}"
+      error "  got:      ${ACTUAL}"
+      exit 1
+    fi
+    rm -f "${ZVELTIO_DIR}/checksums.sha256"
+
+    mv "${ZVELTIO_DIR}/zveltio.download" "${ZVELTIO_DIR}/zveltio"
     chmod +x "${ZVELTIO_DIR}/zveltio"
     BINARY_INSTALLED=true
-    success "Downloaded binary ${RESOLVED_VERSION} (${BINARY_NAME})"
+    success "Downloaded binary ${RESOLVED_VERSION} (${BINARY_NAME}), checksum verified"
   fi
 
   if [[ "$BINARY_INSTALLED" == "false" ]]; then
