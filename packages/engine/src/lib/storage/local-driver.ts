@@ -21,6 +21,20 @@ export function localRoot(): string {
   return resolve(storageConfig().localDir);
 }
 
+/**
+ * Whether a key may be served over `/files/*` WITHOUT a signature. Files are
+ * private by default (a valid HMAC signature is required); only explicitly
+ * public namespaces are open. `media/` holds display assets (images shown in the
+ * Studio + on the public web host); `public/` is the general public opt-in. Any
+ * other key (e.g. `uploads/…` business files, HR docs, contracts) must present a
+ * valid, unexpired signature — so a signed link can't be stripped to bare path
+ * for permanent unauthenticated access.
+ */
+export function isPublicKey(key: string): boolean {
+  const k = key.replace(/^\/+/, '');
+  return k.startsWith('public/') || k.startsWith('media/');
+}
+
 /** Resolve `key` under the root, rejecting traversal (`..`, absolute escapes). */
 export function safeLocalPath(key: string): string {
   const root = localRoot();
