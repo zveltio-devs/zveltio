@@ -10,7 +10,7 @@
  *   - Security prefix injected into user code to shadow dangerous identifiers
  */
 
-import { validatePublicUrl } from '../security/index.js';
+import { assertPublicUrl } from '../security/index.js';
 
 interface WorkerPayload {
   code: string;
@@ -54,7 +54,7 @@ const safeFetch = async (
   // ULA/IPv4-mapped forms the old prefix list missed (an edge function could
   // reach http://[::1] or IPv6-mapped cloud metadata otherwise).
   try {
-    validatePublicUrl(url);
+    await assertPublicUrl(url);
   } catch (e) {
     throw new Error(
       `[Zveltio Sandbox] Network access blocked: ${(e as Error).message}. ` +
