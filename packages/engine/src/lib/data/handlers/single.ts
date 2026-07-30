@@ -20,7 +20,7 @@ import { queryAlterRegistry } from '../query-alter.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters } from '../../tenancy/index.js';
+import { getRlsFilters, applyRlsFilters } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../../tenancy/index.js';
 import {
   virtualGetOne,
@@ -304,7 +304,10 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // Pre-update hooks need the current row for the `before` field. Read it
   // once — if the record doesn't exist (or extension query alters hide it)
   // we short-circuit before invoking any hooks.
+  // Same authorisation probe as patchRecord: RLS conditions on the before-row,
+  // so a row the caller cannot see cannot be replaced either.
   let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
+  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, c.get('authType')));
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const beforeRow = await beforeQuery.executeTakeFirst();
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -401,7 +404,12 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   const effectiveDb = getDb(c, db);
   const toUpdate = { ...allowedPatch, updated_by: user.id };
 
+  // The before-row fetch doubles as the authorisation probe: run the caller's
+  // RLS conditions on it, so a row they are not allowed to see is simply not
+  // found and the UPDATE never happens. Without this the policies applied to
+  // reads only, and any member could patch another user's record by id.
   let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
+  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, c.get('authType')));
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const beforeRow = await beforeQuery.executeTakeFirst();
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -478,6 +486,10 @@ export async function deleteRecord(c: Context, db: Database): Promise<Response> 
   // Fetch existing for revision log, then delete atomically. Apply query
   // alters so a row hidden by an extension filter cannot be deleted by ID.
   let existingQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
+  existingQuery = applyRlsFilters(
+    existingQuery,
+    await getRlsFilters(collection, user, c.get('authType')),
+  );
   existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
   const existing = await existingQuery.executeTakeFirst();
 

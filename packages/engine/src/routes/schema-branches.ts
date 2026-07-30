@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { User } from 'better-auth';
-import { checkPermission } from '../lib/tenancy/index.js';
+// requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema branching runs Ghost DDL on the shared structure.
+// The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
+// and admitted any delegated tenant admin.
+import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
 import { DDLManager } from '../lib/data/index.js';
@@ -18,7 +21,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       if (!session) return c.json({ error: 'Unauthorized' }, 401);
       c.set('user', session.user);
-      const hasAdmin = await checkPermission(session.user.id, 'admin', '*');
+      const hasAdmin = await requireInstanceAdmin(session.user.id);
       if (!hasAdmin) return c.json({ error: 'Admin access required' }, 403);
       await next();
     })
