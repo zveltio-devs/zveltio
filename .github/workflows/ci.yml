@@ -98,6 +98,15 @@ jobs:
         # internal files instead of going through the barrel index
         # (docs/HARDENING-9-PLAN.md H-08). Import from lib/<subsystem> instead.
         run: bun run scripts/import-boundaries.ts
+      - name: Admin gate check
+        # Bans the bare `checkPermission(uid,'admin','*')` in route modules. It
+        # reads as an instance-wide gate but a delegated tenant_admin passes it,
+        # which is how a tenant admin could reach role changes and take over the
+        # instance. Sweeping it to requireInstanceAdmin everywhere is equally
+        # wrong — most sites are tenant-scoped and that would lock tenant admins
+        # out of their own tenant. Each site must pick requireInstanceAdmin or
+        # isTenantAdmin explicitly.
+        run: bun run scripts/admin-gate-check.ts
       - name: Format check
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.
