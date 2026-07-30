@@ -260,10 +260,16 @@ async function executeQueryConfig(
   const exists = await DDLManager.tableExists(db, collection);
   if (!exists) throw new Error('Collection not found');
 
-  const isSystem = tableName.startsWith('zv_') && !tableName.startsWith('zvd_');
-  if (isSystem) {
-    const hasAdmin = await checkPermission(userId, 'admin', 'read');
-    if (!hasAdmin) throw new Error('System tables require admin access');
+  // Authorise the collection itself, the same way the /api/data path does.
+  //
+  // There was no such check before — only a "system table" branch that could
+  // never fire: getTableName always returns `zvd_<name>`, and 'zvd_x' does not
+  // startWith('zv_') (the third character is 'd', not '_'). So the guard was
+  // dead code, and any authenticated user could POST a query config naming any
+  // collection with an arbitrary `columns` list and read every row of it —
+  // bypassing Casbin entirely.
+  if (!(await checkPermission(userId, collection, 'read'))) {
+    throw new Error('Forbidden');
   }
 
   const offset = (config.page - 1) * config.limit;
