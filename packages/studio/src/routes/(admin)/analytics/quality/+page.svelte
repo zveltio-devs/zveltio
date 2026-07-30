@@ -1,83 +1,59 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { ScanSearch, Play, AlertTriangle, LoaderCircle } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+      import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { ScanSearch, Play, AlertTriangle, LoaderCircle } from '@lucide/svelte';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let scans = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let issues = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let collections = $state<any[]>([]);
-let selectedCollection = $state('');
-let scanning = $state(false);
-let loading = $state(true);
+  let scans = $state<any[]>([]);
+  let issues = $state<any[]>([]);
+  let collections = $state<any[]>([]);
+  let selectedCollection = $state('');
+  let scanning = $state(false);
+  let loading = $state(true);
 
-async function loadAll() {
-  loading = true;
-  try {
-    const [s, c] = await Promise.all([
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ scans: any[] }>('/ext/analytics/quality/scans'),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ collections: any[] }>('/api/collections').catch(() => ({ collections: [] })),
-    ]);
-    scans = s.scans ?? [];
-    collections = c.collections ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-  } finally {
-    loading = false;
+  async function loadAll() {
+    loading = true;
+    try {
+      const [s, c] = await Promise.all([
+        api.get<{ scans: any[] }>('/ext/analytics/quality/scans'),
+        api.get<{ collections: any[] }>('/api/collections').catch(() => ({ collections: [] })),
+      ]);
+      scans = s.scans ?? [];
+      collections = c.collections ?? [];
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
+    finally { loading = false; }
   }
-}
 
-async function runScan() {
-  if (!selectedCollection) return;
-  scanning = true;
-  try {
-    // The scan runs asynchronously server-side (202 + scan_id); give it a
-    // moment to complete, then surface its issues.
-    const r = await api.post<{ scan_id: string }>('/ext/analytics/quality/scan', {
-      collection: selectedCollection,
-      scan_type: 'full',
-    });
-    await new Promise((res) => setTimeout(res, 2500));
-    if (r.scan_id) await viewIssues(r.scan_id);
-    await loadAll();
-    toast.success('Scan complete');
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e?.message ?? 'Scan failed');
-  } finally {
-    scanning = false;
+  async function runScan() {
+    if (!selectedCollection) return;
+    scanning = true;
+    try {
+      // The scan runs asynchronously server-side (202 + scan_id); give it a
+      // moment to complete, then surface its issues.
+      const r = await api.post<{ scan_id: string }>('/ext/analytics/quality/scan', { collection: selectedCollection, scan_type: 'full' });
+      await new Promise((res) => setTimeout(res, 2500));
+      if (r.scan_id) await viewIssues(r.scan_id);
+      await loadAll();
+      toast.success('Scan complete');
+    } catch (e: any) { toast.error(e?.message ?? 'Scan failed'); }
+    finally { scanning = false; }
   }
-}
 
-async function viewIssues(scanId: string) {
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ issues: any[] }>(`/ext/analytics/quality/scan/${scanId}/issues`);
-    issues = r.issues ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function viewIssues(scanId: string) {
+    try {
+      const r = await api.get<{ issues: any[] }>(`/ext/analytics/quality/scan/${scanId}/issues`);
+      issues = r.issues ?? [];
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
-}
 
-onMount(loadAll);
+  onMount(loadAll);
 
-function severityBadge(s: string) {
-  return (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    ({ critical: 'badge-error', high: 'badge-warning', info: 'badge-info' } as any)[s] ??
-    'badge-ghost'
-  );
-}
+  function severityBadge(s: string) {
+    return ({ critical: 'badge-error', high: 'badge-warning', info: 'badge-info' } as any)[s] ?? 'badge-ghost';
+  }
 </script>
 
 <ExtensionPageShell title={m['analytics.quality.title']()} subtitle={m['analytics.quality.subtitle']()}>
@@ -106,6 +82,7 @@ function severityBadge(s: string) {
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body p-0">
           <div class="p-3 font-medium text-sm border-b border-base-300">{m['analytics.quality.tab.history']()}</div>
+          <div class="overflow-x-auto">
           <table class="table table-sm">
             <thead><tr><th>{m['common.col.collection']()}</th><th>{m['common.col.date']()}</th><th>{m['analytics.quality.tab.issues']()}</th><th></th></tr></thead>
             <tbody>
@@ -123,12 +100,14 @@ function severityBadge(s: string) {
               {/if}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
       <div class="card bg-base-200 border border-base-300">
         <div class="card-body p-0">
           <div class="p-3 font-medium text-sm border-b border-base-300 flex items-center gap-2"><AlertTriangle size={14} /> {m['analytics.quality.tab.issues']()}</div>
+          <div class="overflow-x-auto">
           <table class="table table-sm">
             <thead><tr><th>{m['analytics.quality.col.severity']()}</th><th>{m['common.col.type']()}</th><th>{m['common.col.field']()}</th><th>{m['common.col.description']()}</th></tr></thead>
             <tbody>
@@ -146,6 +125,7 @@ function severityBadge(s: string) {
               {/if}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </div>

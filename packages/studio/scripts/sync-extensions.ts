@@ -61,6 +61,8 @@ function findExtensions(base: string, prefix = ''): string[] {
 }
 
 let synced = 0;
+/** Destination slugs written this run — verified against biome ignores below. */
+const syncedSlugs: string[] = [];
 
 for (const extRoot of EXT_ROOTS) {
   const extensions = findExtensions(extRoot);
@@ -101,27 +103,52 @@ for (const extRoot of EXT_ROOTS) {
     }
 
     console.log(`[sync-ext] ✓  ${extName} → ${slug}/`);
+    syncedSlugs.push(slug);
     synced++;
   }
 }
 
-// Format the freshly-copied files. Extension sources in zveltio-extensions
-// aren't necessarily biome-formatted, so a raw copy leaves the tracked
-// route/lib snapshot dirty after every build (and drifting from what CI's
-// format:check expects). Formatting here makes `sync-ext` idempotent: the
-// committed snapshot == what a re-sync produces == biome-clean. Skipped when
-// nothing synced (e.g. release runner with no extensions sibling — it serves
-// the committed snapshot untouched).
+/**
+ * Everything written above is GENERATED — a verbatim copy of code authored in
+ * zveltio-extensions. It used to be biome-formatted here so the committed
+ * snapshot would match a re-sync, but that only ever papered over the real
+ * issue: the tree was also being linted and hand-edited as if it were source
+ * (the H-01 any-ratchet wrote 576 suppression comments into it), so a re-sync
+ * silently reverted those edits and left the repo dirty and lint-failing.
+ *
+ * It is now excluded from biome entirely via `files.includes` negations, the
+ * same way studio-dist and the other generated trees are. That makes the raw
+ * copy the committed state, so sync is idempotent by construction with no
+ * formatting pass and no suppressions to strip.
+ *
+ * The one way that can rot is a NEW extension page landing on a slug nobody
+ * added to the ignore list. Check it here and fail loudly — a silent miss means
+ * a permanently dirty working tree and a red lint job for whoever hits it next.
+ */
 if (synced > 0) {
+  const biomePath = join(STUDIO_ROOT, '../../biome.json');
   try {
-    const proc = Bun.spawn(
-      ['bunx', 'biome', 'format', '--write', 'src/routes/(admin)', 'src/lib/ext'],
-      { cwd: STUDIO_ROOT, stdout: 'inherit', stderr: 'inherit' },
+    const biome = JSON.parse(await Bun.file(biomePath).text()) as {
+      files?: { includes?: string[] };
+    };
+    const ignored = new Set(
+      (biome.files?.includes ?? []).filter((p) => p.startsWith('!packages/studio/')),
     );
-    const code = await proc.exited;
-    if (code !== 0) console.warn(`[sync-ext] biome format exited ${code}`);
+    const missing = syncedSlugs.filter(
+      (slug) => !ignored.has(`!packages/studio/src/routes/(admin)/${slug}/**`),
+    );
+    if (missing.length > 0) {
+      console.error(
+        `\n[sync-ext] ${missing.length} synced route(s) are not excluded from biome.\n` +
+          'These are generated files; linting them makes every build dirty.\n' +
+          'Add to biome.json "files.includes" AND scripts/lib/any-targets.ts EXCLUDE:\n' +
+          missing.map((s) => `  "!packages/studio/src/routes/(admin)/${s}/**"`).join('\n') +
+          '\n',
+      );
+      process.exit(1);
+    }
   } catch (e) {
-    console.warn('[sync-ext] biome format skipped:', (e as Error).message);
+    console.warn('[sync-ext] could not verify biome ignores:', (e as Error).message);
   }
 }
 

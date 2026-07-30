@@ -1,144 +1,81 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { ENGINE_URL } from '$lib/config.js';
-import {
-  Cloud,
-  Folder,
-  FileText,
-  Upload,
-  Trash2,
-  Share2,
-  ChevronRight,
-  ArrowLeft,
-  X,
-  LoaderCircle,
-} from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+  import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { ENGINE_URL } from '$lib/config.js';
+  import { Cloud, Folder, FileText, Upload, Trash2, Share2, ChevronRight, ArrowLeft, X, LoaderCircle } from '@lucide/svelte';
 
-const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-let path = $state('/');
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let entries = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let selected = $state<any | null>(null);
-let dragOver = $state(false);
-let uploading = $state(false);
+  let path = $state('/');
+  let entries = $state<any[]>([]);
+  let selected = $state<any | null>(null);
+  let dragOver = $state(false);
+  let uploading = $state(false);
 
-let showShareDialog = $state(false);
-let shareUrl = $state('');
-let shareForm = $state({ expires_in_hours: 24, password: '' });
+  let showShareDialog = $state(false);
+  let shareUrl = $state('');
+  let shareForm = $state({ expires_in_hours: 24, password: '' });
 
-async function load() {
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data?: any[]; entries?: any[] }>(
-      `/ext/storage/cloud/files?path=${encodeURIComponent(path)}`,
-    );
-    entries = r.data ?? r.entries ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+  async function load() {
+    try {
+      const r = await api.get<{ data?: any[]; entries?: any[] }>(`/ext/storage/cloud/files?path=${encodeURIComponent(path)}`);
+      entries = r.data ?? r.entries ?? [];
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
   }
-}
 
-function navigate(p: string) {
-  path = p;
-  selected = null;
-}
-function up() {
-  const parts = path.split('/').filter(Boolean);
-  parts.pop();
-  navigate('/' + parts.join('/'));
-}
+  function navigate(p: string) { path = p; selected = null; }
+  function up() { const parts = path.split('/').filter(Boolean); parts.pop(); navigate('/' + parts.join('/')); }
 
-async function uploadFiles(files: FileList | null) {
-  if (!files?.length) return;
-  uploading = true;
-  try {
-    for (const f of Array.from(files)) {
-      const fd = new FormData();
-      fd.append('file', f);
-      fd.append('path', path);
-      const r = await api.fetch(`/ext/storage/cloud/upload`, { method: 'POST', body: fd });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Upload failed');
-    }
-    await load();
-    toast.success(m['storage.cloud.toast.uploaded']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e?.message ?? 'Upload failed');
-  } finally {
-    uploading = false;
+  async function uploadFiles(files: FileList | null) {
+    if (!files?.length) return;
+    uploading = true;
+    try {
+      for (const f of Array.from(files)) {
+        const fd = new FormData();
+        fd.append('file', f);
+        fd.append('path', path);
+        const r = await api.fetch(`/ext/storage/cloud/upload`, { method: 'POST', body: fd });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Upload failed');
+      }
+      await load();
+      toast.success(m['storage.cloud.toast.uploaded']());
+    } catch (e: any) { toast.error(e?.message ?? 'Upload failed'); }
+    finally { uploading = false; }
   }
-}
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function deleteEntry(e: any) {
-  askConfirm(m['ext.confirm.deleteNamed']({ name: e.name }), () => deleteEntryConfirmed(e));
-}
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-async function deleteEntryConfirmed(e: any) {
-  try {
-    await api.delete(`/ext/storage/cloud/files/${encodeURIComponent(e.id ?? e.path)}`);
-    await load();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (err: any) {
-    toast.error(err?.message ?? 'Error');
+  async function deleteEntry(e: any) {
+        askConfirm(m['ext.confirm.deleteNamed']({ name: e.name }), () => deleteEntryConfirmed(e));
   }
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function makeShare(e: any) {
-  selected = e;
-  shareForm = { expires_in_hours: 24, password: '' };
-  shareUrl = '';
-  showShareDialog = true;
-}
-
-async function createShare() {
-  if (!selected) return;
-  try {
-    const r = await api.post<{ share_url?: string; token?: string }>('/ext/storage/cloud/share', {
-      file_id: selected.id,
-      ...shareForm,
-    });
-    shareUrl = r.share_url ?? `${ENGINE_URL}/share/${r.token}`;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function deleteEntryConfirmed(e: any) {
+    try {
+      await api.delete(`/ext/storage/cloud/files/${encodeURIComponent(e.id ?? e.path)}`);
+      await load();
+    } catch (err: any) { toast.error(err?.message ?? 'Error'); }
   }
-}
 
-$effect(() => {
-  path;
-  load();
-});
-onMount(load);
 
-function fmtBytes(n: number) {
-  if (!n) return '—';
-  const u = ['B', 'KB', 'MB', 'GB'];
-  let i = 0;
-  while (n > 1024 && i < u.length - 1) {
-    n /= 1024;
-    i++;
+  function makeShare(e: any) { selected = e; shareForm = { expires_in_hours: 24, password: '' }; shareUrl = ''; showShareDialog = true; }
+
+  async function createShare() {
+    if (!selected) return;
+    try {
+      const r = await api.post<{ share_url?: string; token?: string }>('/ext/storage/cloud/share', { file_id: selected.id, ...shareForm });
+      shareUrl = r.share_url ?? `${ENGINE_URL}/share/${r.token}`;
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
-  return `${n.toFixed(1)} ${u[i]}`;
-}
-function pathParts(p: string) {
-  return p.split('/').filter(Boolean);
-}
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function isFolder(e: any) {
-  return e.is_folder ?? e.type === 'folder';
-}
+
+  $effect(() => { path; load(); });
+  onMount(load);
+
+  function fmtBytes(n: number) { if (!n) return '—'; const u = ['B', 'KB', 'MB', 'GB']; let i = 0; while (n > 1024 && i < u.length - 1) { n /= 1024; i++; } return `${n.toFixed(1)} ${u[i]}`; }
+  function pathParts(p: string) { return p.split('/').filter(Boolean); }
+  function isFolder(e: any) { return e.is_folder ?? e.type === 'folder'; }
 </script>
 
 <ExtensionPageShell title={m['storage.cloud.title']()} subtitle={m['storage.cloud.subtitle']()}>
