@@ -158,10 +158,42 @@ executes:
   the validated address.
 - Soft limits: 64 MB heap watchdog, default 5s wall-clock.
 
-Worker isolation is process-thread level. For UNTRUSTED multi-tenant
-arbitrary code, opt into the **subprocess-per-invocation** runner by
-setting `EDGE_SANDBOX_MODE=subprocess`. The engine then spawns a fresh
-Bun process per invocation (`Bun.spawn`) with:
+## Extension isolation — what it does and does not guarantee
+
+**Community-tier extensions are review-gated and signed. They are not yet fully
+isolated, and the documentation must not imply otherwise.**
+
+`enforcePublisherTier` requires community (untrusted, third-party) extensions to
+declare `isolation: worker`, and their request handling then runs in a worker
+whose SQL is table-restricted, whose queries run on a reserved connection under a
+statement timeout, and whose environment carries a single variable so engine
+credentials are not reachable from it.
+
+The gap is at load time. `enforcePublisherTier` runs in `lib/extensions/load.ts`
+*before* the module is imported, but it does not prevent that import: the
+extension's entry module is `await import(...)`-ed in the engine process, so its
+**top-level code executes once, in-process, with engine privileges, before any
+worker exists**. Everything the worker boundary does afterwards is real, and none
+of it undoes that first execution.
+
+So the accurate description of the current trust model is:
+
+- **Review + Ed25519 signature** — the primary control. An archive that is not
+  signed by a trusted key does not install (verification is on by default).
+- **Worker confinement** — defence in depth over the above, covering the
+  extension's *runtime* request handling.
+- **Not** a boundary that contains hostile code. An extension that is malicious
+  at import time is not stopped by it.
+
+Closing this means not importing worker-isolated extensions in the main thread at
+all, and sourcing their metadata from the manifest or the worker instead. It is
+tracked as the next P0; full isolation is a 3.0.x property, not a 3.0.0 one.
+Release notes and marketing copy must not claim isolation as a security property
+until it lands.
+
+The subprocess-per-invocation runner is the **default** for edge functions
+(`EDGE_SANDBOX_MODE=worker` opts back into the faster in-process one). The
+engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
 
 - a minimal env (only `PATH` + `TMPDIR` — no `DATABASE_URL`,
   `BETTER_AUTH_SECRET`, or `FIELD_ENCRYPTION_KEY` leaks into the child);

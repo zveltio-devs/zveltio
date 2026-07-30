@@ -77,13 +77,31 @@ Worker isolation (`isolation: 'worker'`) gives:
 
 - Crash isolation: a panic in the extension doesn't take the engine
   down. Auto-respawn with exponential backoff.
-- Credential separation: the worker never sees `DATABASE_URL`. SQL
-  is proxied through the host pool so RLS, audit, and tenant scoping
-  all stay enforceable.
+- Credential separation: the worker is started with a minimal
+  environment (`NODE_ENV` only), so `DATABASE_URL`,
+  `BETTER_AUTH_SECRET` and `FIELD_ENCRYPTION_KEY` are not reachable
+  from it — including via `import('node:process')`, which bypasses
+  the in-worker `process` stub.
+- SQL is proxied through the host, which restricts it to user-data
+  tables (`zvd_*`) and the extension's own `zv_<ext>_*` namespace,
+  runs it on a reserved connection (so a second statement after a
+  semicolon is rejected by the server) and caps it with a
+  statement timeout.
 - Hang detection: 30s ping / 60s pong timeout terminates a stuck
   handler and respawns the worker.
 
 What worker isolation does NOT give:
+
+- **Containment of a hostile extension.** The entry module is imported
+  in the ENGINE process before its worker is spawned, so top-level code
+  runs once, in-process, with engine privileges. Everything below is
+  real and none of it undoes that. Community-tier extensions are
+  therefore *review-gated and signed* first, and worker-confined second
+  — do not describe them as isolated. Tracked as the next P0; see
+  `docs/SECURITY.md`.
+- **Tenant-scoped SQL.** The host runs a worker's query on the engine
+  pool, not inside the caller's tenant transaction, so it is not
+  RLS-scoped. The table policy above is what limits it today.
 
 - Per-extension RSS metrics or OOM kill (Bun.Worker is a thread,
   not a subprocess — RSS is per-process).
