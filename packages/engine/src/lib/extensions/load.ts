@@ -17,7 +17,7 @@
  * method — zero behaviour change.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'path';
 import { pathToFileURL } from 'node:url';
 import type { Hono } from 'hono';
@@ -148,6 +148,44 @@ export async function loadExtensionFromDir(
       };
       // Keep a reference so reloads + unloads can call shutdown().
       (extension as ZveltioExtension & { __wasmHandle?: unknown }).__wasmHandle = wasm;
+    } else if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
+      // Worker-isolated path — deliberately does NOT import the entry module.
+      //
+      // `enforcePublisherTier` above sends community (untrusted, third-party)
+      // extensions down this branch precisely because the worker is meant to be
+      // the boundary. Importing the module here would run its TOP-LEVEL code in
+      // the engine process, with engine privileges, before any worker exists —
+      // so a hostile extension never has to reach a route handler to win, and
+      // everything the worker enforces afterwards is irrelevant to it.
+      //
+      // The worker imports the bundle itself. The engine only needs enough
+      // metadata to run migrations and mount the proxy, and that comes from the
+      // manifest and the filesystem instead.
+      //
+      // The cost is that a worker-isolated extension cannot contribute
+      // engine-side field types, cron schedules or a cleanup hook: all three
+      // require running its code in this process, which is the thing being
+      // avoided. First-party extensions run inline and keep them.
+      const migrationDir = join(extDir, 'engine', 'migrations');
+      const migrationFiles = existsSync(migrationDir)
+        ? readdirSync(migrationDir)
+            .filter((f) => f.endsWith('.sql'))
+            // Same lexicographic order the hand-written getMigrations() lists
+            // use (001_, 002_, …) — the runner applies them in array order.
+            .sort()
+            .map((f) => join(migrationDir, f))
+        : [];
+
+      extension = {
+        name: extName,
+        category: extCategory,
+        mountStrategy: 'global',
+        getMigrations: () => migrationFiles,
+        // Never called: registerExtensionRoutes takes the worker branch for
+        // this extension and hands routing to the host. Present because the
+        // loader's shape check requires it.
+        async register() {},
+      };
     } else {
       // Import and register extension.
       //
