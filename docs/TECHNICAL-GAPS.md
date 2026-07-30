@@ -28,8 +28,14 @@ kept current. Verified state of every P0:
 | 7.3 Reference case studies | ⬜ **NON-CODE** | Requires real reference customers. |
 | 7.4 Paid support tiers | ⬜ **NON-CODE** | Website + business-ops decision (pricing, SLAs). |
 
-**Net:** the *engineering* P0 surface is closed. What remains is **go-to-market**
-(deploy the demo, community, case studies, support tiers) — not core platform code.
+**Net (updated 2026-07-30, 3.0.0-beta.40):** one engineering P0 is OPEN again.
+
+| P0 | Status | Evidence |
+| --- | --- | --- |
+| Extension load-time isolation | 🔴 **OPEN** | `lib/extensions/load.ts` runs `enforcePublisherTier` at :184 but imports the entry module at :214, **in the engine process** — so a community extension's top-level code executes once with engine privileges before its worker exists. The worker boundary (table-restricted SQL, minimal env, reserved connection) is real but only covers request handling. Until this lands, community extensions are *review-gated + signed*, NOT isolated, and no release note may claim otherwise. See `docs/SECURITY.md` § Extension isolation. |
+
+Everything else on the engineering P0 surface is closed; the rest is
+**go-to-market** (deploy the demo, community, case studies, support tiers).
 Section bodies below are kept for history; trust this table where they disagree.
 
 ---
