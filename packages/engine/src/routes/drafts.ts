@@ -16,7 +16,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 
 const PublishSettingsSchema = z.object({
   drafts_enabled: z.boolean().optional(),
@@ -124,7 +124,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
     const user = c.get('user');
     const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const collection = c.req.param('collection');
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const body = c.req.valid('json');
@@ -342,7 +342,7 @@ export function draftsRoutes(db: Database, _auth: any): Hono {
 
     if (!draft) return c.json({ error: 'Draft not found' }, 404);
 
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     if (draft.created_by !== user.id && !isAdmin) return c.json({ error: 'Forbidden' }, 403);
 
     await effectiveDb.deleteFrom('zv_content_drafts').where('id', '=', id).execute();

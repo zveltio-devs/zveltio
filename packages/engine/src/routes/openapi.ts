@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { ENGINE_VERSION } from '../version.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { isTenantAdmin } from '../lib/tenancy/index.js';
 
 export function openApiRoutes(): Hono {
   const app = new Hono();
@@ -20,7 +20,7 @@ export function openApiRoutes(): Hono {
     if (inProd && !publicOverride) {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       if (!session) return c.json({ error: 'Unauthorized' }, 401);
-      const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+      const isAdmin = await isTenantAdmin(session.user.id);
       if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
     }
     const spec = buildSpec();

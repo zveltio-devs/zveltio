@@ -39,7 +39,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { zoneRenderRequests, zoneAccessDenied, viewQueryDuration } from '../lib/runtime/index.js';
 
@@ -146,7 +146,7 @@ const PageViewAddSchema = z.object({
 async function requireAdmin(c: any): Promise<Response | null> {
   const user = c.get('user');
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const allowed = await checkPermission(user.id, 'admin', '*').catch(() => false);
+  const allowed = await isTenantAdmin(user.id).catch(() => false);
   if (!allowed) return c.json({ error: 'Forbidden' }, 403);
   return null;
 }

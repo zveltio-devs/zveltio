@@ -367,6 +367,28 @@ export async function requireInstanceAdmin(userId: string): Promise<boolean> {
 }
 
 /**
+ * Admin gate for TENANT-SCOPED resources — media, drafts, documents, revisions,
+ * saved queries and the like, where "admin" should mean "administers the tenant
+ * this request belongs to".
+ *
+ * A delegated `tenant_admin` passes, and that is the intended behaviour: the row
+ * is already confined to their tenant by RLS, so letting them override a
+ * per-record ownership check inside it is what an administrator is for.
+ *
+ * This is exactly what `checkPermission(uid, 'admin', '*')` already did. The
+ * point of the named helper is that the bare call meant two different things at
+ * different call sites — an instance-wide gate at some, a tenant-scoped override
+ * at others — and nothing distinguished them. That ambiguity is why a whole
+ * class of routes was gated by a check that a tenant admin passes, and why the
+ * obvious "sweep them all to requireInstanceAdmin" fix would have broken
+ * multi-tenancy instead. Every call site now has to say which one it means, and
+ * scripts/admin-gate-check.ts fails the build if the bare form comes back.
+ */
+export async function isTenantAdmin(userId: string): Promise<boolean> {
+  return checkPermission(userId, 'admin', '*');
+}
+
+/**
  * HMAC helpers for the roles cache.
  *
  * Threat model: an attacker with Redis write access could inject a crafted

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 
 // Per-connection permission cache (lives only for the WS session duration).
@@ -91,7 +91,7 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
   app.get('/api/ws/stats', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(session.user.id);
     if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
 
     const activeUsers = [...new Set([...connections.values()].map((c) => c.userId))];
