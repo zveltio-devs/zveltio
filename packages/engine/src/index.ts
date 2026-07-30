@@ -46,6 +46,7 @@ import {
 import { tenantMiddleware } from './middleware/tenant.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { extensionAuthGate } from './middleware/extension-auth-gate.js';
+import { extRateLimit } from './middleware/rate-limit.js';
 import {
   initTelemetry,
   getDomainMetricsLines,
@@ -484,6 +485,9 @@ async function buildHonoApp(): Promise<Hono> {
   // them. Inverts the old fail-open model where a forgotten in-extension guard
   // meant silent anonymous exposure. See middleware/extension-auth-gate.ts.
   app.use('/ext/*', extensionAuthGate(auth));
+  // Throttle extension traffic (per user / per IP) so a compromised or abusive
+  // client can't hammer extension routes. Generous cap — SDUI bursts are fine.
+  app.use('/ext/*', extRateLimit);
 
   // ── Core routes ───────────────────────────────────────────────────────────
   await registerCoreRoutes(app, { db, auth });

@@ -15,7 +15,14 @@ import { LocalDriver } from './local-driver.js';
 import { S3Driver } from './s3-driver.js';
 
 export type { StorageDriver, StorageObject, PutOptions } from './driver.js';
-export { LocalDriver, safeLocalPath, verifySignedKey, signKey, localRoot } from './local-driver.js';
+export {
+  LocalDriver,
+  safeLocalPath,
+  verifySignedKey,
+  signKey,
+  localRoot,
+  isPublicKey,
+} from './local-driver.js';
 export { S3Driver } from './s3-driver.js';
 export {
   storageConfig,

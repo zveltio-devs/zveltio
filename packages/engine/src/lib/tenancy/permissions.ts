@@ -4,6 +4,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { getCurrentDomain } from './tenant-context.js';
+import { DEFAULT_TENANT_ID } from './tenant-manager.js';
 
 // Cache TTLs
 const PERMISSION_CACHE_TTL = 60; // seconds
@@ -345,6 +346,24 @@ export async function checkPermission(
   }
 
   return result;
+}
+
+/**
+ * Instance-level admin gate for whole-instance power tools (raw SQL, code
+ * deploy, role grants, RLS/DDL, extension install, global settings).
+ *
+ * `checkPermission(uid, 'admin', '*')` alone is NOT sufficient here: the
+ * `tenant_owner`/`tenant_admin` Casbin policies grant `('*','*','*')` inside a
+ * tenant's domain, so `obj='admin'` matches and a delegated tenant admin would
+ * pass — then reach a global-pool SQL editor and `UPDATE "user" SET role='god'`.
+ * Require the admin grant AND that it comes from the ROOT tenant domain (the
+ * single-tenant default, where admin == instance owner) OR the god role. In
+ * single-tenant deployments the domain is always the root, so this is a no-op.
+ */
+export async function requireInstanceAdmin(userId: string): Promise<boolean> {
+  if (await isGodUser(userId)) return true;
+  if (getCurrentDomain() !== DEFAULT_TENANT_ID) return false;
+  return checkPermission(userId, 'admin', '*');
 }
 
 /**

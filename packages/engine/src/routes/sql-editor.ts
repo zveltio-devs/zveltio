@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
 const SqlSchema = z.object({
@@ -35,7 +35,7 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
   router.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) {
+    if (!(await requireInstanceAdmin(session.user.id))) {
       return c.json({ error: 'Admin access required' }, 403);
     }
     c.set('user', session.user);
