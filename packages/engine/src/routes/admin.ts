@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getEnforcer } from '../lib/tenancy/index.js';
+import { checkPermission, getEnforcer, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
@@ -21,7 +21,7 @@ import { registerStorageAdminRoutes } from './admin/storage-routes.js';
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
+  if (!(await requireInstanceAdmin(session.user.id))) return null;
   return session.user;
 }
 
@@ -57,7 +57,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     const user = await (async () => {
       const session = await auth.api.getSession({ headers: c.req.raw.headers });
       if (!session) return null;
-      if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
+      if (!(await requireInstanceAdmin(session.user.id))) return null;
       return session.user;
     })();
     if (!user) return c.json({ error: 'Unauthorized' }, 401);

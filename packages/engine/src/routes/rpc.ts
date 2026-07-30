@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { getUserRoles } from '../lib/tenancy/index.js';
 
 const ROLE_RANK: Record<string, number> = {
@@ -123,8 +123,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*')))
-      return c.json({ error: 'Forbidden' }, 403);
+    if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const rows = await sql`
       SELECT id, function_name, description, required_role, is_enabled, created_at
@@ -136,8 +135,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.post('/', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*')))
-      return c.json({ error: 'Forbidden' }, 403);
+    if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const body = await c.req.json().catch(() => null);
     if (!body?.function_name || !FUNC_NAME_RE.test(body.function_name)) {
@@ -155,8 +153,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.patch('/:id', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*')))
-      return c.json({ error: 'Forbidden' }, 403);
+    if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: 'Body required' }, 400);
@@ -177,8 +174,7 @@ export function rpcRoutes(db: Database, auth: any): Hono {
   app.delete('/:id', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*')))
-      return c.json({ error: 'Forbidden' }, 403);
+    if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     await sql`DELETE FROM zvd_rpc_functions WHERE id = ${c.req.param('id')}`.execute(db);
     return c.json({ success: true });

@@ -19,7 +19,13 @@
 
 import { stat } from 'node:fs/promises';
 import { Hono } from 'hono';
-import { getStorage, LocalDriver, safeLocalPath, verifySignedKey } from '../lib/storage/index.js';
+import {
+  getStorage,
+  isPublicKey,
+  LocalDriver,
+  safeLocalPath,
+  verifySignedKey,
+} from '../lib/storage/index.js';
 
 /** Read the persisted content-type from the `<file>.meta` sidecar. */
 async function contentTypeOf(full: string): Promise<string> {
@@ -73,14 +79,20 @@ export function filesRoutes(): Hono {
       return c.json({ error: 'Not found' }, 404);
     }
 
-    // If a signature is present it MUST be valid + unexpired. A request with no
-    // signature is treated as public-by-path (same posture as an S3 public URL).
+    // Private by default: only keys in an explicit public namespace (media/,
+    // public/) are served without a signature. Every other key REQUIRES a valid,
+    // unexpired HMAC signature — stripping `?exp&sig` from a private link now
+    // yields 403, not permanent unauthenticated access.
     const sig = c.req.query('sig');
     const exp = c.req.query('exp');
-    if (sig || exp) {
-      if (!sig || !exp || !verifySignedKey(key, Number(exp), sig)) {
-        return c.json({ error: 'Invalid or expired signature' }, 403);
+    const sigValid = Boolean(sig && exp && verifySignedKey(key, Number(exp), sig));
+    if (!isPublicKey(key)) {
+      if (!sigValid) {
+        return c.json({ error: 'A valid, unexpired signature is required' }, 403);
       }
+    } else if ((sig || exp) && !sigValid) {
+      // Public key but a signature was supplied — reject if it's tampered/expired.
+      return c.json({ error: 'Invalid or expired signature' }, 403);
     }
 
     let full: string;
