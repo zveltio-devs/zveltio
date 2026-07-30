@@ -1,174 +1,123 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { Plus, X, Trash2, LoaderCircle, Play, Square, Clock, FolderOpen } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+        import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { Plus, X, Trash2, LoaderCircle, Play, Square, Clock, FolderOpen } from '@lucide/svelte';
 
-const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-type Project = {
-  id: string;
-  name: string;
-  client_name: string | null;
-  hourly_rate: number | null;
-  currency: string;
-  is_billable: boolean;
-  status: string;
-  entry_count: number;
-  total_minutes: number;
-  billable_amount: number;
-};
-type Entry = {
-  id: string;
-  project_id: string;
-  description: string | null;
-  started_at: string;
-  ended_at: string | null;
-  minutes: number | null;
-  is_billable: boolean;
-  is_invoiced: boolean;
-};
-type Timer = {
-  id: string;
-  project_id: string;
-  started_at: string;
-  description: string | null;
-} | null;
+  type Project = {
+    id: string; name: string; client_name: string | null; hourly_rate: number | null;
+    currency: string; is_billable: boolean; status: string;
+    entry_count: number; total_minutes: number; billable_amount: number;
+  };
+  type Entry = {
+    id: string; project_id: string; description: string | null;
+    started_at: string; ended_at: string | null; minutes: number | null;
+    is_billable: boolean; is_invoiced: boolean;
+  };
+  type Timer = { id: string; project_id: string; started_at: string; description: string | null } | null;
 
-let tab = $state<'projects' | 'entries'>('projects');
-let projects = $state<Project[]>([]);
-let entries = $state<Entry[]>([]);
-let timer = $state<Timer>(null);
-let loading = $state(false);
-let showModal = $state(false);
-let saving = $state(false);
-let deleting = $state<string | null>(null);
+  let tab = $state<'projects' | 'entries'>('projects');
+  let projects = $state<Project[]>([]);
+  let entries = $state<Entry[]>([]);
+  let timer = $state<Timer>(null);
+  let loading = $state(false);
+  let showModal = $state(false);
+  let saving = $state(false);
+  let deleting = $state<string | null>(null);
 
-let projectForm = $state({
-  name: '',
-  client_name: '',
-  hourly_rate: '',
-  currency: 'RON',
-  is_billable: true,
-});
-let timerForm = $state({ project_id: '', description: '' });
+  let projectForm = $state({ name: '', client_name: '', hourly_rate: '', currency: 'RON', is_billable: true });
+  let timerForm = $state({ project_id: '', description: '' });
 
-onMount(async () => {
-  await Promise.all([loadProjects(), loadTimer()]);
-  await loadEntries();
-});
-
-async function loadProjects() {
-  const r = await api
-    .get<{ data: Project[] }>('/ext/hr/time-tracking/projects')
-    .catch(() => ({ data: [] }));
-  projects = r.data ?? [];
-}
-async function loadEntries() {
-  loading = true;
-  try {
-    const r = await api.get<{ data: Entry[] }>('/ext/hr/time-tracking/entries');
-    entries = r.data ?? [];
-  } catch {
-    /* ignore */
-  } finally {
-    loading = false;
-  }
-}
-async function loadTimer() {
-  const r = await api
-    .get<{ timer: Timer }>('/ext/hr/time-tracking/timer')
-    .catch(() => ({ timer: null }));
-  timer = r.timer;
-}
-
-async function createProject() {
-  saving = true;
-  try {
-    const r = await api.post<{ data: Project }>('/ext/hr/time-tracking/projects', {
-      ...projectForm,
-      hourly_rate: projectForm.hourly_rate ? parseFloat(projectForm.hourly_rate) : null,
-    });
-    projects = [r.data, ...projects];
-    projectForm = {
-      name: '',
-      client_name: '',
-      hourly_rate: '',
-      currency: 'RON',
-      is_billable: true,
-    };
-    showModal = false;
-    toast.success(m['ext.created']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-  } finally {
-    saving = false;
-  }
-}
-
-async function startTimer() {
-  if (!timerForm.project_id) return;
-  saving = true;
-  try {
-    const r = await api.post<{ timer: Timer }>('/ext/hr/time-tracking/timer/start', timerForm);
-    timer = r.timer;
-    timerForm = { project_id: '', description: '' };
-    showModal = false;
-    toast.success(m['hr.timeTracking.toast.started']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-  } finally {
-    saving = false;
-  }
-}
-
-async function stopTimer() {
-  saving = true;
-  try {
-    await api.post('/ext/hr/time-tracking/timer/stop', {});
-    timer = null;
+  onMount(async () => {
+    await Promise.all([loadProjects(), loadTimer()]);
     await loadEntries();
-    toast.success(m['hr.timeTracking.toast.stopped']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-  } finally {
-    saving = false;
+  });
+
+  async function loadProjects() {
+    const r = await api.get<{ data: Project[] }>('/ext/hr/time-tracking/projects').catch(() => ({ data: [] }));
+    projects = r.data ?? [];
   }
-}
-
-async function deleteEntry(id: string) {
-  askConfirm(m['hr.timeTracking.confirmDelete'](), () => deleteEntryConfirmed(id));
-}
-async function deleteEntryConfirmed(id: string) {
-  deleting = id;
-  try {
-    await api.delete(`/ext/hr/time-tracking/entries/${id}`);
-    entries = entries.filter((e) => e.id !== id);
-    toast.success(m['ext.deleted']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-  } finally {
-    deleting = null;
+  async function loadEntries() {
+    loading = true;
+    try {
+      const r = await api.get<{ data: Entry[] }>('/ext/hr/time-tracking/entries');
+      entries = r.data ?? [];
+    } catch { /* ignore */ }
+    finally { loading = false; }
   }
-}
+  async function loadTimer() {
+    const r = await api.get<{ timer: Timer }>('/ext/hr/time-tracking/timer').catch(() => ({ timer: null }));
+    timer = r.timer;
+  }
 
-function fmtMinutes(minutes: number | null) {
-  if (minutes == null) return '—';
-  const h = Math.floor(minutes / 60);
-  const min = minutes % 60;
-  return h > 0 ? `${h}h ${min}m` : `${min}m`;
-}
+  async function createProject() {
+    saving = true;
+    try {
+      const r = await api.post<{ data: Project }>('/ext/hr/time-tracking/projects', {
+        ...projectForm,
+        hourly_rate: projectForm.hourly_rate ? parseFloat(projectForm.hourly_rate) : null,
+      });
+      projects = [r.data, ...projects];
+      projectForm = { name: '', client_name: '', hourly_rate: '', currency: 'RON', is_billable: true };
+      showModal = false;
+      toast.success(m['ext.created']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+    finally { saving = false; }
+  }
 
-const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
+  async function startTimer() {
+    if (!timerForm.project_id) return;
+    saving = true;
+    try {
+      const r = await api.post<{ timer: Timer }>('/ext/hr/time-tracking/timer/start', timerForm);
+      timer = r.timer;
+      timerForm = { project_id: '', description: '' };
+      showModal = false;
+      toast.success(m['hr.timeTracking.toast.started']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+    finally { saving = false; }
+  }
+
+  async function stopTimer() {
+    saving = true;
+    try {
+      await api.post('/ext/hr/time-tracking/timer/stop', {});
+      timer = null;
+      await loadEntries();
+      toast.success(m['hr.timeTracking.toast.stopped']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+    finally { saving = false; }
+  }
+
+  async function deleteEntry(id: string) {
+        askConfirm(m['hr.timeTracking.confirmDelete'](), () => deleteEntryConfirmed(id));
+  }
+  async function deleteEntryConfirmed(id: string) {
+    deleting = id;
+    try {
+      await api.delete(`/ext/hr/time-tracking/entries/${id}`);
+      entries = entries.filter(e => e.id !== id);
+      toast.success(m['ext.deleted']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+    finally { deleting = null; }
+  }
+
+
+  function fmtMinutes(minutes: number | null) {
+    if (minutes == null) return '—';
+    const h = Math.floor(minutes / 60);
+    const min = minutes % 60;
+    return h > 0 ? `${h}h ${min}m` : `${min}m`;
+  }
+
+  const projectName = (id: string) => projects.find(p => p.id === id)?.name ?? id;
 </script>
 
 <ExtensionPageShell title={m['hr.time-tracking.title']()} subtitle={m['hr.time-tracking.subtitle']()}>

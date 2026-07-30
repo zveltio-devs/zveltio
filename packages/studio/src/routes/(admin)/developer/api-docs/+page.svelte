@@ -1,128 +1,77 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { ENGINE_URL } from '$lib/config.js';
-import { BookOpen, Plus, X, FileCode, Key, LoaderCircle } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
+        import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { ENGINE_URL } from '$lib/config.js';
+  import { BookOpen, Plus, X, FileCode, Key, LoaderCircle } from '@lucide/svelte';
 
-const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-let tab = $state<'changelog' | 'custom' | 'tokens'>('changelog');
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let changelogs = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let customDocs = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let tokens = $state<any[]>([]);
-let loading = $state(false);
+  let tab = $state<'changelog' | 'custom' | 'tokens'>('changelog');
+  let changelogs = $state<any[]>([]);
+  let customDocs = $state<any[]>([]);
+  let tokens = $state<any[]>([]);
+  let loading = $state(false);
 
-let showCustomForm = $state(false);
-let saving = $state(false);
-let customForm = $state({
-  slug: '',
-  title: '',
-  body: '# New documentation page\n\nWrite content in Markdown.',
-  is_published: false,
-});
+  let showCustomForm = $state(false);
+  let saving = $state(false);
+  let customForm = $state({ slug: '', title: '', body: '# New documentation page\n\nWrite content in Markdown.', is_published: false });
 
-async function loadChangelog() {
-  loading = true;
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/changelogs');
-    changelogs = r.data ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-  } finally {
-    loading = false;
+  async function loadChangelog() {
+    loading = true;
+    try { const r = await api.get<{ data: any[] }>('/ext/developer/api-docs/changelogs'); changelogs = r.data ?? []; }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
+    finally { loading = false; }
   }
-}
-async function loadCustom() {
-  loading = true;
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ docs: any[] }>('/ext/developer/api-docs/custom-docs');
-    customDocs = r.docs ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-  } finally {
-    loading = false;
+  async function loadCustom() {
+    loading = true;
+    try { const r = await api.get<{ docs: any[] }>('/ext/developer/api-docs/custom-docs'); customDocs = r.docs ?? []; }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
+    finally { loading = false; }
   }
-}
-async function loadTokens() {
-  loading = true;
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ tokens: any[] }>('/ext/developer/api-docs/tokens');
-    tokens = r.tokens ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-  } finally {
-    loading = false;
+  async function loadTokens() {
+    loading = true;
+    try { const r = await api.get<{ tokens: any[] }>('/ext/developer/api-docs/tokens'); tokens = r.tokens ?? []; }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.loadFailed']()); }
+    finally { loading = false; }
   }
-}
 
-async function createCustom() {
-  saving = true;
-  try {
-    await api.post('/ext/developer/api-docs/custom-docs', customForm);
-    showCustomForm = false;
-    customForm = {
-      slug: '',
-      title: '',
-      body: '# New documentation page\n\nWrite content in Markdown.',
-      is_published: false,
-    };
-    await loadCustom();
-    toast.success(m['ext.created']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
-  } finally {
-    saving = false;
+  async function createCustom() {
+    saving = true;
+    try {
+      await api.post('/ext/developer/api-docs/custom-docs', customForm);
+      showCustomForm = false;
+      customForm = { slug: '', title: '', body: '# New documentation page\n\nWrite content in Markdown.', is_published: false };
+      await loadCustom();
+      toast.success(m['ext.created']());
+    } catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+    finally { saving = false; }
   }
-}
 
-async function generateToken() {
-  try {
-    await api.post('/ext/developer/api-docs/tokens', {
-      name: `Doc access ${new Date().toISOString().slice(0, 10)}`,
-    });
-    await loadTokens();
-    toast.success(m['developer.apiDocs.toast.tokenGenerated']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function generateToken() {
+    try { await api.post('/ext/developer/api-docs/tokens', { name: `Doc access ${new Date().toISOString().slice(0, 10)}` }); await loadTokens(); toast.success(m['developer.apiDocs.toast.tokenGenerated']()); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
   }
-}
-async function revokeToken(id: string) {
-  askConfirm(m['developer.apiDocs.confirmRevoke'](), () => revokeTokenConfirmed(id));
-}
-async function revokeTokenConfirmed(id: string) {
-  try {
-    await api.delete(`/ext/developer/api-docs/tokens/${id}`);
-    await loadTokens();
-    toast.success(m['developer.apiDocs.toast.revoked']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e instanceof Error ? e.message : m['ext.saveFailed']());
+  async function revokeToken(id: string) {
+        askConfirm(m['developer.apiDocs.confirmRevoke'](), () => revokeTokenConfirmed(id));
   }
-}
+  async function revokeTokenConfirmed(id: string) {
+    try { await api.delete(`/ext/developer/api-docs/tokens/${id}`); await loadTokens(); toast.success(m['developer.apiDocs.toast.revoked']()); }
+    catch (e: any) { toast.error(e instanceof Error ? e.message : m['ext.saveFailed']()); }
+  }
 
-$effect(() => {
-  if (tab === 'changelog') loadChangelog();
-  else if (tab === 'custom') loadCustom();
-  else loadTokens();
-});
-onMount(loadChangelog);
+
+  $effect(() => {
+    if (tab === 'changelog') loadChangelog();
+    else if (tab === 'custom') loadCustom();
+    else loadTokens();
+  });
+  onMount(loadChangelog);
 </script>
 
 <ExtensionPageShell title={m['developer.api-docs.title']()} subtitle={m['developer.api-docs.subtitle']()}>

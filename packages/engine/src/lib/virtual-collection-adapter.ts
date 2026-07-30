@@ -52,7 +52,12 @@ export interface VirtualListResult {
   total: number;
 }
 
-import { validatePublicUrl } from './security/index.js';
+// safeFetch, not bare fetch + a one-off validatePublicUrl on the base URL: the
+// old shape validated `source_url` and then fetched a DIFFERENT string (base +
+// endpoint path) with fetch's default redirect-following, so a validated host
+// could 302 the request straight to 169.254.169.254. safeFetch validates the
+// exact URL it dials and re-validates every redirect hop.
+import { safeFetch } from './edge-functions/safe-fetch.js';
 
 function buildAuthHeaders(config: VirtualConfig): Record<string, string> {
   if (config.auth_type === 'bearer' && config.auth_value) {
@@ -206,7 +211,6 @@ export async function virtualList(
   config: VirtualConfig,
   query: VirtualQuery,
 ): Promise<VirtualListResult> {
-  validatePublicUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
 
   // Build URL with translated query
@@ -215,7 +219,7 @@ export async function virtualList(
   const qs = translateQuery(config, query);
   const url = `${baseUrl}${listPath}${qs ? `?${qs}` : ''}`;
 
-  const response = await fetch(url, { headers });
+  const response = await safeFetch(url, { headers });
   if (!response.ok) {
     throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
   }
@@ -231,13 +235,12 @@ export async function virtualList(
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function virtualGetOne(config: VirtualConfig, id: string): Promise<any | null> {
-  validatePublicUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
   const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
   const url = `${baseUrl}${getPath}`;
 
-  const response = await fetch(url, { headers });
+  const response = await safeFetch(url, { headers });
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);
@@ -249,14 +252,13 @@ export async function virtualGetOne(config: VirtualConfig, id: string): Promise<
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function virtualCreate(config: VirtualConfig, body: any): Promise<any> {
-  validatePublicUrl(config.source_url);
   const headers = {
     'Content-Type': 'application/json',
     ...buildAuthHeaders(config),
   };
   const externalBody = mapToExternal(body, config.field_mapping);
 
-  const response = await fetch(config.source_url, {
+  const response = await safeFetch(config.source_url, {
     method: 'POST',
     headers,
     body: JSON.stringify(externalBody),
@@ -271,7 +273,6 @@ export async function virtualCreate(config: VirtualConfig, body: any): Promise<a
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export async function virtualUpdate(config: VirtualConfig, id: string, body: any): Promise<any> {
-  validatePublicUrl(config.source_url);
   const headers = {
     'Content-Type': 'application/json',
     ...buildAuthHeaders(config),
@@ -281,7 +282,7 @@ export async function virtualUpdate(config: VirtualConfig, id: string, body: any
   const url = `${baseUrl}${getPath}`;
   const externalBody = mapToExternal(body, config.field_mapping);
 
-  const response = await fetch(url, {
+  const response = await safeFetch(url, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(externalBody),
@@ -295,13 +296,12 @@ export async function virtualUpdate(config: VirtualConfig, id: string, body: any
 }
 
 export async function virtualDelete(config: VirtualConfig, id: string): Promise<void> {
-  validatePublicUrl(config.source_url);
   const headers = { Accept: 'application/json', ...buildAuthHeaders(config) };
   const baseUrl = config.source_url.replace(/\/$/, '');
   const getPath = (config.get_endpoint ?? '/:id').replace(':id', encodeURIComponent(id));
   const url = `${baseUrl}${getPath}`;
 
-  const response = await fetch(url, { method: 'DELETE', headers });
+  const response = await safeFetch(url, { method: 'DELETE', headers });
   if (response.status === 404 || response.status === 204) return;
   if (!response.ok) {
     throw new Error(`Virtual source returned ${response.status}: ${await response.text()}`);

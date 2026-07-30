@@ -124,26 +124,35 @@ jobs:
         # highs that remain are triaged + ignored by GHSA id — a NEW high (not on
         # this list) fails the build. Re-triage when deps move (drop an id once
         # its advisory clears upstream):
-        #   GHSA-fx2h-pf6j-xcff  vite server.fs.deny — dev tooling, not the prod
-        #     runtime. Resolved for the app packages (client vite 7.3.6, studio
-        #     8.1.5); the only residual is vitest's bundled dev-server vite, which
-        #     has no clean non-breaking pin — still dev-only test tooling.
         # (The three undici highs — GHSA-vmh5-mc38-953g / -vxpw-j846-p89q /
         # -hm92-r4w5-c3mj — are now actually fixed: the root `undici` override pins
         # 7.29.0, which patches all three, so their ignores were dropped. expr-eval
         # migrated to expr-eval-fork@3; isSafeExpression() stays as defense-in-depth.)
-        #   GHSA-mh99-v99m-4gvg  brace-expansion DoS — pulled in transitively by
-        #     glob/minimatch in the BUILD/TEST toolchain (not the Bun prod
-        #     runtime). Unbounded-expansion OOM needs attacker-controlled brace
-        #     patterns, which never reach a shipped path.
-        #   GHSA-r28c-9q8g-f849  PostCSS source-map path traversal — build-time CSS
-        #     tooling (svelte/vite), reads only local .map files during a trusted
-        #     build; not in the runtime request path.
+        #
+        # Dropped 2026-07-30, both now genuinely fixed rather than ignored:
+        #   GHSA-fx2h-pf6j-xcff  vite  — the residual vulnerable copy was vitest's
+        #     bundled 8.0.14. A root `vite` override at 8.1.5 collapses every copy
+        #     onto the patched one; studio + client tests and builds verified green.
+        #   GHSA-r28c-9q8g-f849  PostCSS — root override at 8.5.25.
+        #
+        #   GHSA-mh99-v99m-4gvg  brace-expansion DoS — THE ONLY REMAINING IGNORE.
+        #     Read the reasoning before extending it; the previous version of this
+        #     comment claimed the package was build/test-only, which was false:
+        #     casbin (runtime authz) → minimatch → brace-expansion put it squarely
+        #     in the shipped tree. That runtime path is now PATCHED — casbin 5.51.1
+        #     → minimatch 10.2.6 → brace-expansion 5.0.8 (the advisory covers
+        #     <=5.0.7). What still trips the audit is the 2.x line, reached only
+        #     through archiver → glob/readdir-glob → minimatch 5.x/9.x, which are
+        #     build/test tooling. That line CANNOT be patched: the advisory's fix
+        #     is 5.0.8 and no 2.x backport exists, while minimatch 5/9 require
+        #     `^2.x` and would break on a forced 5.x (v5 exports a named `expand`;
+        #     minimatch 5 does `const expand = require('brace-expansion')` and
+        #     would call an object). Exploiting it needs attacker-controlled brace
+        #     patterns; in the runtime path the patterns are admin-authored Casbin
+        #     policies, and in the build path they are our own globs.
         run: >-
           bun audit --audit-level=high
-          --ignore=GHSA-fx2h-pf6j-xcff
           --ignore=GHSA-mh99-v99m-4gvg
-          --ignore=GHSA-r28c-9q8g-f849
 
   unit-tests:
     name: Unit Tests

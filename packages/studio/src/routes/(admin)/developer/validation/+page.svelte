@@ -1,140 +1,90 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { ShieldCheck, Plus, X, Sparkles, LoaderCircle } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { ShieldCheck, Plus, X, Sparkles, LoaderCircle } from '@lucide/svelte';
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 let rules = $state<any[]>([]);
-const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let collections = $state<any[]>([]);
-let selectedCollection = $state('');
-let loading = $state(false);
+  let collections = $state<any[]>([]);
+  let selectedCollection = $state('');
+  let loading = $state(false);
 
-let showForm = $state(false);
-let saving = $state(false);
-let aiGenerating = $state(false);
-let form = $state({
-  collection: '',
-  field_name: '',
-  field_type: 'text',
-  rule_type: 'required',
-  description: '',
-  config: '{}',
-  severity: 'error' as 'error' | 'warning',
-});
-let aiPrompt = $state('');
+  let showForm = $state(false);
+  let saving = $state(false);
+  let aiGenerating = $state(false);
+  let form = $state({
+    collection: '',
+    field_name: '',
+    field_type: 'text',
+    rule_type: 'required',
+    description: '',
+    config: '{}',
+    severity: 'error' as 'error' | 'warning',
+  });
+  let aiPrompt = $state('');
 
-async function loadRules() {
-  loading = true;
-  try {
-    const params = new URLSearchParams();
-    if (selectedCollection) params.set('collection', selectedCollection);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ data: any[] }>(`/ext/developer/validation/rules?${params}`);
-    rules = r.data ?? [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e?.message ?? m['ext.loadFailed']());
-  } finally {
-    loading = false;
-  }
-}
-async function loadCollections() {
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.get<{ collections?: any[]; data?: any[] }>('/api/collections');
-    collections = r.collections ?? r.data ?? [];
-  } catch {
-    collections = [];
-  }
-}
-
-async function createRule() {
-  saving = true;
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    let cfg: any = {};
+  async function loadRules() {
+    loading = true;
     try {
-      cfg = JSON.parse(form.config);
-    } catch {
-      throw new Error(m['developer.validation.error.invalidJson']());
-    }
-    await api.post('/ext/developer/validation/rules', { ...form, config: cfg });
-    showForm = false;
-    form = {
-      collection: '',
-      field_name: '',
-      field_type: 'text',
-      rule_type: 'required',
-      description: '',
-      config: '{}',
-      severity: 'error',
-    };
-    aiPrompt = '';
-    await loadRules();
-    toast.success(m['developer.validation.toast.created']());
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e?.message ?? m['ext.saveFailed']());
-  } finally {
-    saving = false;
+      const params = new URLSearchParams();
+      if (selectedCollection) params.set('collection', selectedCollection);
+      const r = await api.get<{ data: any[] }>(`/ext/developer/validation/rules?${params}`);
+      rules = r.data ?? [];
+    } catch (e: any) { toast.error(e?.message ?? m['ext.loadFailed']()); }
+    finally { loading = false; }
   }
-}
-
-async function aiGenerate() {
-  if (!aiPrompt.trim() || !form.field_name) return;
-  aiGenerating = true;
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    const r = await api.post<any>('/ext/developer/validation/ai-generate', {
-      field_name: form.field_name,
-      field_type: form.field_type,
-      description: aiPrompt,
-    });
-    const ai = r.data ?? r;
-    form.rule_type = ai.rule_type ?? form.rule_type;
-    form.description = ai.description ?? aiPrompt;
-    form.config = JSON.stringify(ai.config ?? {}, null, 2);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e?.message ?? m['developer.validation.error.aiFailed']());
-  } finally {
-    aiGenerating = false;
+  async function loadCollections() {
+    try { const r = await api.get<{ collections?: any[]; data?: any[] }>('/api/collections'); collections = r.collections ?? r.data ?? []; }
+    catch { collections = []; }
   }
-}
 
-async function deleteRule(id: string) {
-  askConfirm(m['developer.validation.confirmDelete'](), () => deleteRuleConfirmed(id));
-}
-async function deleteRuleConfirmed(id: string) {
-  try {
-    await api.delete(`/ext/developer/validation/rules/${id}`);
-    await loadRules();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(e?.message ?? m['ext.saveFailed']());
+  async function createRule() {
+    saving = true;
+    try {
+      let cfg: any = {};
+      try { cfg = JSON.parse(form.config); } catch { throw new Error(m['developer.validation.error.invalidJson']()); }
+      await api.post('/ext/developer/validation/rules', { ...form, config: cfg });
+      showForm = false;
+      form = { collection: '', field_name: '', field_type: 'text', rule_type: 'required', description: '', config: '{}', severity: 'error' };
+      aiPrompt = '';
+      await loadRules();
+      toast.success(m['developer.validation.toast.created']());
+    } catch (e: any) { toast.error(e?.message ?? m['ext.saveFailed']()); }
+    finally { saving = false; }
   }
-}
 
-$effect(() => {
-  selectedCollection;
-  loadRules();
-});
-onMount(() => {
-  loadCollections();
-  loadRules();
-});
+  async function aiGenerate() {
+    if (!aiPrompt.trim() || !form.field_name) return;
+    aiGenerating = true;
+    try {
+      const r = await api.post<any>('/ext/developer/validation/ai-generate', { field_name: form.field_name, field_type: form.field_type, description: aiPrompt });
+      const ai = r.data ?? r;
+      form.rule_type = ai.rule_type ?? form.rule_type;
+      form.description = ai.description ?? aiPrompt;
+      form.config = JSON.stringify(ai.config ?? {}, null, 2);
+    } catch (e: any) { toast.error(e?.message ?? m['developer.validation.error.aiFailed']()); }
+    finally { aiGenerating = false; }
+  }
 
-function severityBadge(s: string) {
-  return s === 'error' ? 'badge-error' : 'badge-warning';
-}
+  async function deleteRule(id: string) {
+        askConfirm(m['developer.validation.confirmDelete'](), () => deleteRuleConfirmed(id));
+  }
+  async function deleteRuleConfirmed(id: string) {
+    try { await api.delete(`/ext/developer/validation/rules/${id}`); await loadRules(); }
+    catch (e: any) { toast.error(e?.message ?? m['ext.saveFailed']()); }
+  }
+
+
+  $effect(() => { selectedCollection; loadRules(); });
+  onMount(() => { loadCollections(); loadRules(); });
+
+  function severityBadge(s: string) { return s === 'error' ? 'badge-error' : 'badge-warning'; }
 </script>
 
 <ExtensionPageShell title={m['developer.validation.title']()} subtitle={m['developer.validation.subtitle']()}>

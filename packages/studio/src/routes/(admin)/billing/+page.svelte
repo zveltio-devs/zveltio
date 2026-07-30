@@ -1,70 +1,55 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { CreditCard, BarChart2, LoaderCircle } from '@lucide/svelte';
+  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
+  import { toast } from '$lib/stores/toast.svelte.js';
+  import { CreditCard, BarChart2, LoaderCircle } from '@lucide/svelte';
 
-let tab = $state<'billing' | 'usage'>('billing');
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let plans = $state<any[]>([]);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let subscriptions = $state<any[]>([]);
-let usageSummary = $state<Record<string, number>>({});
-let loading = $state(true);
+  let tab = $state<'billing' | 'usage'>('billing');
+  let plans = $state<any[]>([]);
+  let subscriptions = $state<any[]>([]);
+  let usageSummary = $state<Record<string, number>>({});
+  let loading = $state(true);
 
-const currentSub = $derived(subscriptions[0] ?? null);
-const currentPlan = $derived(
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  currentSub ? (plans.find((p: any) => p.id === currentSub.plan_id) ?? null) : null,
-);
+  const currentSub = $derived(subscriptions[0] ?? null);
+  const currentPlan = $derived(currentSub ? plans.find((p: any) => p.id === currentSub.plan_id) ?? null : null);
 
-const USAGE_METRICS = $derived([
-  { key: 'api_call', label: m['billing.metric.apiCalls'](), limitKey: 'api_calls' },
-  { key: 'storage_write', label: m['billing.metric.storageWrites'](), limitKey: 'storage_mb' },
-  { key: 'record_created', label: m['billing.metric.recordsCreated'](), limitKey: 'records' },
-]);
+  const USAGE_METRICS = $derived([
+    { key: 'api_call', label: m['billing.metric.apiCalls'](), limitKey: 'api_calls' },
+    { key: 'storage_write', label: m['billing.metric.storageWrites'](), limitKey: 'storage_mb' },
+    { key: 'record_created', label: m['billing.metric.recordsCreated'](), limitKey: 'records' },
+  ]);
 
-function usagePct(used: number, limit: number): number {
-  if (!limit) return 0;
-  return Math.min(100, Math.round((used / limit) * 100));
-}
-
-onMount(async () => {
-  try {
-    const [plansRes, subsRes, usageRes] = await Promise.all([
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ plans: any[] }>('/ext/billing/plans'),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ subscriptions: any[] }>('/ext/billing/subscriptions'),
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-      api.get<{ usage: any[] }>('/ext/billing/usage'),
-    ]);
-    plans = plansRes.plans ?? [];
-    subscriptions = subsRes.subscriptions ?? [];
-    const agg: Record<string, number> = {};
-    for (const row of usageRes.usage ?? []) {
-      agg[row.event_type] = (agg[row.event_type] ?? 0) + Number(row.total);
-    }
-    usageSummary = agg;
-  } catch (e: unknown) {
-    toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
-  } finally {
-    loading = false;
+  function usagePct(used: number, limit: number): number {
+    if (!limit) return 0;
+    return Math.min(100, Math.round((used / limit) * 100));
   }
-});
 
-function statusBadge(s: string) {
-  return (
-    (
-      { active: 'badge-success', past_due: 'badge-warning', canceled: 'badge-error' } as Record<
-        string,
-        string
-      >
-    )[s] ?? 'badge-ghost'
-  );
-}
+  onMount(async () => {
+    try {
+      const [plansRes, subsRes, usageRes] = await Promise.all([
+        api.get<{ plans: any[] }>('/ext/billing/plans'),
+        api.get<{ subscriptions: any[] }>('/ext/billing/subscriptions'),
+        api.get<{ usage: any[] }>('/ext/billing/usage'),
+      ]);
+      plans = plansRes.plans ?? [];
+      subscriptions = subsRes.subscriptions ?? [];
+      const agg: Record<string, number> = {};
+      for (const row of usageRes.usage ?? []) {
+        agg[row.event_type] = (agg[row.event_type] ?? 0) + Number(row.total);
+      }
+      usageSummary = agg;
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : m['ext.loadFailed']());
+    } finally {
+      loading = false;
+    }
+  });
+
+  function statusBadge(s: string) {
+    return ({ active: 'badge-success', past_due: 'badge-warning', canceled: 'badge-error' } as Record<string, string>)[s] ?? 'badge-ghost';
+  }
 </script>
 
 <ExtensionPageShell title={m['billing.title']()} subtitle={m['billing.subtitle']()}>

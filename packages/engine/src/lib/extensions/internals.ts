@@ -30,7 +30,8 @@ import { moveToTrash } from '../cloud/trash.js';
 import { extractTextFromFile, scheduleFileIndexing } from '../cloud/document-indexer.js';
 import { checkQueryDepth, DataLoaderRegistry } from '../graphql-dataloader.js';
 import { enqueueDDLJob } from '../data/index.js';
-import { validatePublicUrl } from '../edge-functions/safe-fetch.js';
+import { assertPublicUrl, validatePublicUrl } from '../edge-functions/safe-fetch.js';
+import { assertNonMetadataUrl } from '../security/index.js';
 import { createBetterAuthSession } from '../security/index.js';
 import { decryptField, encryptField, isEncryptedValue } from '../data/index.js';
 import { sendNotification } from '../notifications.js';
@@ -112,7 +113,31 @@ export interface ExtensionInternals {
   DataLoaderRegistry: typeof DataLoaderRegistry;
   checkQueryDepth: (query: string, maxDepth?: number) => string | null;
   enqueueDDLJob: typeof enqueueDDLJob;
-  validatePublicUrl: (url: string) => Promise<URL>;
+  /**
+   * Synchronous literal-host SSRF check. Throws on a blocked URL, returns
+   * nothing. Declared `Promise<URL>` here for a long time, which was simply
+   * wrong — the function is sync and returns void. It matters: an author who
+   * believed the signature and wrote `await ctx.validatePublicUrl(u)` in an
+   * async guard would still be validating, but one who branched on the
+   * resolved value got `undefined`. Callers in a sync context (e.g. a zod
+   * superRefine) depend on it staying synchronous.
+   */
+  validatePublicUrl: (url: string) => void;
+  /**
+   * DNS-aware SSRF check — everything validatePublicUrl does, plus rejecting
+   * hostnames that RESOLVE into private space. Prefer this whenever the call
+   * site can await; it is the only variant that stops an attacker-controlled
+   * name pointing at cloud metadata. MUST be awaited.
+   */
+  assertPublicUrl: (url: string) => Promise<void>;
+  /**
+   * SSRF guard for an admin-configured endpoint that is ALLOWED to be
+   * self-hosted (local Ollama, internal Meilisearch, on-prem object storage).
+   * Permits private ranges but rejects cloud-metadata hosts. Use this — NOT
+   * validatePublicUrl/assertPublicUrl — for provider "base URL" settings, or
+   * you will break every localhost deployment. Synchronous; throws when blocked.
+   */
+  assertNonMetadataUrl: (url: string, label?: string) => void;
   extractTextFromFile: (
     buffer: ArrayBuffer | Buffer | Uint8Array,
     mimeType: string,
@@ -149,7 +174,9 @@ export function buildExtensionInternals(): ExtensionInternals {
     DataLoaderRegistry,
     checkQueryDepth,
     enqueueDDLJob,
-    validatePublicUrl: validatePublicUrl as ExtensionInternals['validatePublicUrl'],
+    validatePublicUrl,
+    assertPublicUrl,
+    assertNonMetadataUrl,
     extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],
     createBetterAuthSession,
