@@ -7,8 +7,8 @@
  *      sibling JSON file with the shape of `ExtensionSignature`.
  *   2. Engine downloads the archive, then attempts to fetch the sibling
  *      signature file.
- *   3. If `REQUIRE_EXTENSION_SIGNATURES=true` and no signature is found,
- *      install fails with `SignatureMissingError`.
+ *   3. If no signature is found, install fails with `SignatureMissingError`
+ *      unless `REQUIRE_EXTENSION_SIGNATURES=false` is set explicitly.
  *   4. If a signature is found, the engine verifies:
  *        a. sha256(archive) matches `bundleSha256`,
  *        b. Ed25519(publicKey, signature, bundleSha256) is valid,

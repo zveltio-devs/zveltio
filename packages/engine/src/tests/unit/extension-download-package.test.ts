@@ -83,7 +83,12 @@ beforeEach(() => {
   destBase = mkdtempSync(join(tmpdir(), 'zveltio-dl-'));
   savedRequireSig = process.env.REQUIRE_EXTENSION_SIGNATURES;
   savedRegistryKeys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
-  delete process.env.REQUIRE_EXTENSION_SIGNATURES;
+  // Most cases here exercise download/extraction mechanics, not signature
+  // policy, so opt out explicitly. Signatures are REQUIRED by default now;
+  // leaving the variable unset would make every one of them fail on a missing
+  // .sig for reasons unrelated to what they assert. The enforcement default
+  // itself is covered below and in signature-required-default.test.ts.
+  process.env.REQUIRE_EXTENSION_SIGNATURES = 'false';
 
   Bun.spawn = ((cmd: string[], opts?: { cwd?: string }) => {
     if (cmd[0] === 'unzip') {
@@ -154,6 +159,16 @@ describe('downloadExtension', () => {
 
   it('throws SignatureMissingError when signatures are required but absent', async () => {
     process.env.REQUIRE_EXTENSION_SIGNATURES = 'true';
+    stubDownloadResponse(ZIP_MAGIC);
+    await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureMissingError);
+  });
+
+  it('refuses an unsigned archive by DEFAULT, with the variable unset', async () => {
+    // The gate used to read `=== 'true'`, so an operator who never set the
+    // variable — nearly everyone — installed with no signature check at all.
+    // The beforeEach above opts out for the mechanics cases; this one restores
+    // the shipped default to pin it.
+    delete process.env.REQUIRE_EXTENSION_SIGNATURES;
     stubDownloadResponse(ZIP_MAGIC);
     await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureMissingError);
   });
@@ -257,7 +272,7 @@ describe('downloadExtension', () => {
     await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureInvalidError);
   });
 
-  it('warns and proceeds when signature fetch returns a server error', async () => {
+  it('with enforcement opted out, warns and proceeds when signature fetch 5xxs', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -287,7 +302,7 @@ describe('downloadExtension', () => {
     }
   });
 
-  it('warns when signature fetch throws and proceeds without a signature', async () => {
+  it('with enforcement opted out, warns and proceeds when signature fetch throws', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       globalThis.fetch = (async (input: RequestInfo | URL) => {
