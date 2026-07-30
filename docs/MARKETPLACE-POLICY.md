@@ -92,13 +92,16 @@ Worker isolation (`isolation: 'worker'`) gives:
 
 What worker isolation does NOT give:
 
-- **Containment of a hostile extension.** The entry module is imported
-  in the ENGINE process before its worker is spawned, so top-level code
-  runs once, in-process, with engine privileges. Everything below is
-  real and none of it undoes that. Community-tier extensions are
-  therefore *review-gated and signed* first, and worker-confined second
-  — do not describe them as isolated. Tracked as the next P0; see
-  `docs/SECURITY.md`.
+- **Engine-side field types, cron schedules or a cleanup hook.** All
+  three require running the extension's code in the engine process,
+  which worker isolation exists to avoid — the entry module is not
+  imported there at all. First-party extensions run inline and keep
+  them.
+- **OS-level confinement.** The worker is a Bun thread, not a
+  subprocess: no per-extension RSS accounting or OOM kill, and no
+  kernel-level restriction on `node:fs` or the network beyond the SSRF
+  filter. Publisher tier and signature decide *whether* code runs; the
+  worker constrains it once it does.
 - **Tenant-scoped SQL.** The host runs a worker's query on the engine
   pool, not inside the caller's tenant transaction, so it is not
   RLS-scoped. The table policy above is what limits it today.
