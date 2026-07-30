@@ -20,21 +20,21 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Atlas computes the diff against the base ref. Need full
           # history for that.
           fetch-depth: 0
 
       - name: Setup Atlas
-        uses: ariga/setup-atlas@v0
+        uses: ariga/setup-atlas@2f3c785c89a15e1c0d07bcae3900fb5feb969eea # v0
         with:
           # Pin the version so an Atlas release that changes analyzer
           # behavior doesn't surprise us mid-PR. Bump deliberately.
           version: v0.30.0
 
       - name: Lint migrations against base branch
-        uses: ariga/atlas-action/migrate/lint@v1
+        uses: ariga/atlas-action/migrate/lint@bd4788aca759a66eeda1ff9561d2dcb675a7c182 # v1
         with:
           dir: 'file://packages/engine/src/db/migrations/sql'
           # Use the dev database from atlas.hcl so we get the same

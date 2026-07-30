@@ -177,6 +177,15 @@ async function registerExtensionRoutes(
   const mountStrategy = extension.mountStrategy ?? 'global';
   if (isolation) {
     const host = _getWorkerHost(app);
+    // Stop first: this runs on hot-reload as well as first load, and `start`
+    // refuses to spawn a second worker for the same extension. Carrying the
+    // isolation decision across a reload without this turned a silent downgrade
+    // to inline into a hard failure — the throw aborted re-registration, so the
+    // extension's routes were never mounted and every /ext/<name>/* request
+    // 404'd after an enable or disable. `stop` is a no-op when nothing is
+    // running, so first load is unaffected. The proxy routes are re-mounted by
+    // the new worker, and the old ones are unmounted by stop().
+    await host.stop(extName);
     await host.start(extName, isolation.extDir, isolation.entry);
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();

@@ -220,7 +220,7 @@ postgresql:
     tag: "18-alpine"
   auth:
     username: zveltio
-    password: "changeme"
+    password: "" # REQUIRED — no default; `helm install` fails until you set it
     database: zveltio
   persistence:
     enabled: true
@@ -252,3 +252,27 @@ migrationJob:
   enabled: false
   backoffLimit: 3
   ttlSecondsAfterFinished: 300
+
+# ── Network policy ────────────────────────────────────────────────────────────
+# Default-deny for the engine pods, allowing only the traffic they need. Enabled
+# by default: with no policy at all, a compromised neighbour can reach the engine
+# and the engine can reach the whole cluster, which turns an SSRF into lateral
+# movement. Set enabled=false if your CNI does not enforce NetworkPolicy — there
+# they are silently ignored, which looks like protection without being any.
+networkPolicy:
+  enabled: true
+  # Who may reach the engine's HTTP port. Defaults to any namespace (i.e. the
+  # ingress controller wherever it runs); narrow it to your ingress namespace in
+  # production.
+  ingressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: ingress-nginx
+  # Extra egress rules — e.g. an external Postgres, SMTP, or an object store.
+  extraEgress: []
+  #  - to:
+  #      - ipBlock:
+  #          cidr: 10.0.0.0/8
+  #    ports:
+  #      - protocol: TCP
+  #        port: 5432
