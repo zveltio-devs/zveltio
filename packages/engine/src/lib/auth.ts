@@ -437,6 +437,19 @@ export async function initAuth(db: Database) {
       ...(process.env.SMTP_HOST
         ? [
             magicLink({
+              // Magic link signs people IN; it does not create accounts.
+              //
+              // Without this the plugin creates a user whenever the address is
+              // unknown, which walked straight past the self-registration gate:
+              // that gate is mounted on `/api/auth/sign-up/*`, and this is a
+              // sign-in route. So on any instance with SMTP configured — and
+              // with `registration_enabled` at its default of OFF — anyone could
+              // type an unknown address, receive a link, and end up with an
+              // account and a session.
+              //
+              // Operators who want open registration turn it on, and the sign-up
+              // route provides it under the gate that exists for the purpose.
+              disableSignUp: true,
               sendMagicLink: async ({ email, url }) => {
                 await sendEmail(
                   email,
