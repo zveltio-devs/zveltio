@@ -11,6 +11,9 @@
 
 import { describe, expect, it } from 'bun:test';
 import { renderSqlDefault } from '../../lib/data/field-type-registry.js';
+// The real matcher, not a copy of it — a duplicated regex would agree with
+// whatever the source says, including when the source is wrong.
+import { isAllowedGhostDdl } from '../../lib/data/ghost-ddl.js';
 
 describe('renderSqlDefault — column DEFAULT escaping', () => {
   it('doubles embedded quotes instead of ending the literal', () => {
@@ -52,24 +55,6 @@ describe('renderSqlDefault — column DEFAULT escaping', () => {
   });
 });
 
-/**
- * The ghost allow-list is a private const inside createGhost, so it is
- * re-declared here. Keeping the assertions next to the fix documents the exact
- * shape that must stay rejected; the regex itself is duplicated deliberately
- * rather than exported, since exporting it would invite reuse elsewhere.
- */
-const IDENT = String.raw`(?:"[a-zA-Z_][a-zA-Z0-9_]*"|[a-zA-Z_][a-zA-Z0-9_]*)`;
-const TYPE_TAIL = String.raw`(?:[a-zA-Z0-9_ ,()\[\]]*)`;
-const ALLOWED_DDL_RE = new RegExp(
-  String.raw`^(?:` +
-    String.raw`ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?${IDENT}\s+${TYPE_TAIL}` +
-    String.raw`|DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?${IDENT}` +
-    String.raw`|ALTER\s+COLUMN\s+${IDENT}\s+${TYPE_TAIL}` +
-    String.raw`|RENAME\s+COLUMN\s+${IDENT}\s+TO\s+${IDENT}` +
-    String.raw`)$`,
-  'i',
-);
-
 describe('ghost-ddl allow-list — anchored at both ends', () => {
   const accepted = [
     'ADD COLUMN phone TEXT',
@@ -81,11 +66,19 @@ describe('ghost-ddl allow-list — anchored at both ends', () => {
     'ALTER COLUMN phone TYPE TEXT',
     'RENAME COLUMN phone TO mobile',
     'ADD COLUMN "quoted_ident" TEXT',
+    // Real migrations from the harness suite — these were rejected by an
+    // over-tight first version of this regex, which is a reminder that a guard
+    // that blocks legitimate DDL is a broken guard, not a strict one.
+    "ADD COLUMN extra TEXT NOT NULL DEFAULT ''",
+    "ADD COLUMN tag TEXT NOT NULL DEFAULT 'migrated'",
+    "ALTER COLUMN note SET DEFAULT 'ghost-default'",
+    "ADD COLUMN alpha TEXT NOT NULL DEFAULT 'a'",
+    "ADD COLUMN created TIMESTAMPTZ DEFAULT 'epoch'::timestamptz",
   ];
 
   for (const ddl of accepted) {
     it(`accepts legitimate: ${ddl}`, () => {
-      expect(ALLOWED_DDL_RE.test(ddl)).toBe(true);
+      expect(isAllowedGhostDdl(ddl)).toBe(true);
     });
   }
 
@@ -97,11 +90,15 @@ describe('ghost-ddl allow-list — anchored at both ends', () => {
     'RENAME COLUMN a TO b; ALTER TABLE "user" OWNER TO attacker',
     'ADD COLUMN x TEXT -- comment',
     'DROP TABLE "user"',
+    // A closed empty literal followed by a second statement: the `;` sits
+    // outside any literal, so the tail cannot absorb it.
+    "ADD COLUMN x TEXT DEFAULT ''; DROP TABLE \"user\"; --'",
+    'ALTER COLUMN n SET DEFAULT \'a\'; TRUNCATE "user"',
   ];
 
   for (const ddl of rejected) {
     it(`rejects injection: ${ddl.slice(0, 42)}…`, () => {
-      expect(ALLOWED_DDL_RE.test(ddl)).toBe(false);
+      expect(isAllowedGhostDdl(ddl)).toBe(false);
     });
   }
 });
