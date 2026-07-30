@@ -16,7 +16,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
@@ -372,7 +372,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         const tableName = DDLManager.getTableName(data.collection);
         const isSystem = tableName.startsWith('zv_') && !tableName.startsWith('zvd_');
         if (isSystem) {
-          const hasAdmin = await checkPermission(user.id, 'admin', '*');
+          const hasAdmin = await isTenantAdmin(user.id);
           if (!hasAdmin)
             return c.json({ error: 'Query Builder only works on user-defined collections' }, 403);
         }
@@ -429,7 +429,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
 
       let isShared = data.is_shared;
       if (isShared) {
-        const hasAdmin = await checkPermission(user.id, 'admin', '*');
+        const hasAdmin = await isTenantAdmin(user.id);
         if (!hasAdmin) isShared = false;
       }
 
@@ -525,7 +525,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         return c.json({ error: 'You can only edit your own queries' }, 403);
 
       if (data.is_shared) {
-        const hasAdmin = await checkPermission(user.id, 'admin', '*');
+        const hasAdmin = await isTenantAdmin(user.id);
         if (!hasAdmin) return c.json({ error: 'Only admins can make queries shared' }, 403);
       }
 
@@ -562,7 +562,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
 
       if (existing.rows.length === 0) return c.json({ error: 'Query not found' }, 404);
 
-      const hasAdmin = await checkPermission(user.id, 'admin', '*');
+      const hasAdmin = await isTenantAdmin(user.id);
       if (existing.rows[0].created_by !== user.id && !hasAdmin) {
         return c.json({ error: 'You can only delete your own queries' }, 403);
       }

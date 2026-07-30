@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { renderTemplate, generatePDF, getNextDocumentNumber } from '../lib/doc-generator.js';
 import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
@@ -65,7 +65,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   app.post('/templates', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user');
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const body = await c.req.json();
@@ -92,7 +92,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   app.patch('/templates/:id', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user');
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const id = c.req.param('id');
@@ -147,7 +147,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   app.delete('/templates/:id', async (c) => {
     const tdb = reqDb(c, db);
     const user = c.get('user');
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const id = c.req.param('id');
@@ -242,7 +242,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
   app.get('/generated', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     const templateId = c.req.query('template_id');
     const sourceCollection = c.req.query('source_collection');
     const sourceRecordId = c.req.query('source_record_id');
@@ -280,7 +280,7 @@ export function documentsRoutes(db: Database, _auth: any): Hono {
     const tdb = reqDb(c, db);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     const id = c.req.param('id');
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01

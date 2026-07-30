@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { getCache } from '../lib/runtime/index.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
@@ -249,7 +249,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // allowed for admins, since otherwise it would expose data from every
     // collection in the system to any authenticated user.
     if (rawCollections.length === 0) {
-      const isAdmin = await checkPermission(userId, 'admin', '*').catch(() => false);
+      const isAdmin = await isTenantAdmin(userId).catch(() => false);
       if (!isAdmin) {
         return c.json(
           {
@@ -509,7 +509,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
-    const isAdmin = await checkPermission(session.user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(session.user.id);
     if (!isAdmin) return c.json({ error: 'Admin access required' }, 403);
 
     const body = await c.req.json().catch(() => null);
