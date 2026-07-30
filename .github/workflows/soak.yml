@@ -53,8 +53,8 @@ jobs:
       ZVELTIO_REGISTRATION_ENABLED: '1'
       SOAK_MINUTES: ${{ github.event.inputs.minutes || '60' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: { bun-version: 'latest' }
       - run: bun install --frozen-lockfile
       - run: cd packages/sdk && bun run build
@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload RSS/latency timeseries
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: soak-timeseries
           path: bench/results/soak-timeseries.json
