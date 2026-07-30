@@ -1,3 +1,4 @@
+import { sandboxWorkerEnv } from './sandbox-env.js';
 /// <reference types="bun-types" />
 
 /**
@@ -50,9 +51,13 @@ export async function runFunction(
     body,
   };
 
+  // Minimal environment — see the note in edge-function-runner.ts. The globals
+  // lockdown cannot reach the module loader, so `import('node:process')` returns
+  // the real env unless the Worker is given a different one.
   const worker = new Worker(new URL('./worker-runner.ts', import.meta.url), {
     type: 'module',
-  });
+    env: sandboxWorkerEnv(),
+  } as WorkerOptions);
 
   const start = Date.now();
 

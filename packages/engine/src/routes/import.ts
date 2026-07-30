@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import { DDLManager } from '../lib/data/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ export function importRoutes(db: Database, auth: any) {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
 
     let query = tdb
       .selectFrom('zv_import_logs')

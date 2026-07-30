@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { sendPushToUsers } from '../lib/push-notifications.js';
 import { reqDb } from '../lib/route-db.js';
 
@@ -280,7 +280,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
       const tdb = reqDb(c, db);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       const user = c.get('user') as any;
-      const isAdmin = await checkPermission(user.id, 'admin', '*');
+      const isAdmin = await isTenantAdmin(user.id);
       if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
 
       const { user_id, title, message, type, action_url } = c.req.valid('json');
