@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 
 // Security: only these keys can be written via the API.
 // Internal/system keys that affect engine security are listed in READONLY_SETTINGS_KEYS.
@@ -168,7 +168,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) {
+    if (!(await requireInstanceAdmin(session.user.id))) {
       return c.json({ error: 'Admin access required' }, 403);
     }
     await next();

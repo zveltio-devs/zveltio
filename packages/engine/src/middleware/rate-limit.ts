@@ -420,3 +420,19 @@ export const destructiveRateLimit = rateLimit({
   keyPrefix: 'destructive',
   message: 'Too Many Destructive Requests — DELETE operations are limited to 10 per minute',
 });
+
+// Extension traffic (SDUI panels, extension APIs). Generous so a dashboard's
+// burst of panel loads never trips it, but still caps automated abuse.
+export const extRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 600,
+  keyPrefix: 'ext',
+});
+
+// Public file serving. Higher still — a media player issues many Range requests
+// per file — while a stripped/guessing scan of /files/* is throttled per IP.
+export const filesRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 1200,
+  keyPrefix: 'files',
+});
