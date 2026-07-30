@@ -307,7 +307,10 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // Same authorisation probe as patchRecord: RLS conditions on the before-row,
   // so a row the caller cannot see cannot be replaced either.
   let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
-  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, c.get('authType')));
+  beforeQuery = applyRlsFilters(
+    beforeQuery,
+    await getRlsFilters(collection, user, c.get('authType')),
+  );
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const beforeRow = await beforeQuery.executeTakeFirst();
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
@@ -409,7 +412,10 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   // found and the UPDATE never happens. Without this the policies applied to
   // reads only, and any member could patch another user's record by id.
   let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
-  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, c.get('authType')));
+  beforeQuery = applyRlsFilters(
+    beforeQuery,
+    await getRlsFilters(collection, user, c.get('authType')),
+  );
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const beforeRow = await beforeQuery.executeTakeFirst();
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);

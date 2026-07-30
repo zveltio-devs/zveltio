@@ -155,17 +155,19 @@ export async function getRlsFilters(
  * Typed loosely on purpose: these queries are built over runtime-resolved table
  * names via `dynamicDb`, which has no static schema to check the field against.
  */
-// biome-ignore lint/suspicious/noExplicitAny: dynamic table query builder — no static schema
-export function applyRlsFilters<Q extends { where(f: any, op: any, v: any): Q }>(
+/** The only shape this needs from a query builder. */
+type WhereChain = { where(field: string, op: string, value: unknown): WhereChain };
+
+export function applyRlsFilters<Q>(
   query: Q,
   filters: Array<{ field: string; condition: FilterCondition }>,
 ): Q {
-  let out = query;
+  let out = query as unknown as WhereChain;
   for (const { field, condition } of filters) {
     if (condition.op === 'eq') out = out.where(field, '=', condition.value);
     else if (condition.op === 'neq') out = out.where(field, '!=', condition.value);
   }
-  return out;
+  return out as unknown as Q;
 }
 
 // ─── Admin CRUD helpers ────────────────────────────────────────────────────────

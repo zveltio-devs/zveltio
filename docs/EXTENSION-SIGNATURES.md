@@ -49,6 +49,18 @@ Registry side (`zveltio-devs/zveltio-registry`) — **partially wired**:
 
 ## The exact remaining gaps
 
+> **Status 2026-07-30.** Gaps 1 and 2 are **closed in code** — registry commit
+> `348e9e2` on branch `security/close-signing-gaps`. `/upload-package` now signs
+> and stores `${key}.sig`, and `serveExtensionPackage` serves it at
+> `<download_url>.sig` for both the by-id and by-name forms, with tests. They are
+> **not yet live**: the Worker has to be deployed and every official extension
+> re-synced before any `.sig` exists in R2. Gap 3 is operational and untouched.
+>
+> Until deploy + re-sync + the clean-install check in step 3 below have all run,
+> **do not flip `REQUIRE_EXTENSION_SIGNATURES`** — with no `.sig` published yet
+> it would block every install rather than secure one. That is the whole reason
+> the flip is step 4 and not step 1.
+
 There are **three**, and two live in the registry repo (a Cloudflare Worker), not
 in `zveltio` or `zveltio-extensions`:
 
