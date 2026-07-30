@@ -42,12 +42,12 @@ The engine ships with everything every business application needs. Activate plug
 | Capability | Details |
 |---|---|
 | **Dynamic Collections** | Schemaless tables created at runtime. No code-side migrations for routine schema changes. |
-| **Auth + RBAC + RLS** | Better-Auth (sessions, OAuth, 2FA, passkeys) + Casbin role policies + Postgres row-level security. |
+| **Auth + RBAC + RLS** | Better-Auth (sessions, OAuth, 2FA, passkeys) + Casbin role policies + Postgres row-level security. Tenant isolation is enforced in the database (FORCE RLS keyed on a per-transaction GUC); the per-user row rules configured under `/api/admin/rls` are applied by the engine on **read** paths — they do not currently constrain updates or deletes. |
 | **Real-time** | WebSocket + Postgres LISTEN/NOTIFY. Live updates without polling. |
 | **File storage** | S3-compatible (SeaweedFS bundled, or BYO AWS/MinIO/R2). |
 | **AI providers** | OpenAI, Anthropic, Ollama, Azure. Semantic search via pgvector, text-to-SQL, schema generation from natural language. |
 | **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
-| **Edge functions** | Sandboxed TypeScript runtime for custom serverless logic. |
+| **Edge functions** | TypeScript runtime for custom serverless logic, authored by instance admins. Globals are locked down and network access is SSRF-filtered, but this is a guard-rail against mistakes, not a boundary against a hostile author — dynamic `import()` is resolved by the module loader and cannot be intercepted from inside. Run with `EDGE_SANDBOX_MODE=subprocess` for process-level separation. |
 | **Automation flows** | Visual trigger → step builder with DLQ retry and idempotency. |
 | **Webhooks** | HMAC-signed outbound webhooks on data changes. |
 | **Multi-tenancy** | Isolated tenants with environment branching. |
@@ -105,8 +105,9 @@ Zveltio extensions are **plugins**, not forks. Two types ship together:
 
 ### Engine extensions
 - TypeScript modules that mount Hono routes at `/ext/<name>/`, declare migrations, hook pre/post-write triggers, alter queries, gate entity access, run cron jobs.
-- Signed with Ed25519 at publish time, verified at install.
-- Capability-policy sandboxed — explicit `db.read` / `db.write` / `fetch.https` / `crypto.subtle` / `env.read` grants. Denials logged.
+- Ed25519 signing is implemented and invalid signatures are always rejected, but signature verification is **not yet required by default** — the registry does not sign the first-party publish path yet. See `docs/EXTENSION-SIGNATURES.md` for the remaining steps before it can be enforced.
+- Untrusted (community-tier) extensions run in a worker, not inline: the host restricts their SQL to user-data tables and their own `zv_<ext>_*` namespace, on a reserved connection with a statement timeout, and the worker is started with a minimal environment so engine credentials are not visible to it.
+- The capability policy (`db.read` / `db.write` / `fetch.https` / …) is currently enforced for the WASM host only; JS extensions are governed by the worker/table restrictions above rather than per-capability grants.
 - Optional WASM runtime for strict isolation (Rust / TinyGo / AssemblyScript).
 
 ### Studio extensions
@@ -309,7 +310,7 @@ Honest about where we are: **3.0.0-beta.32** as of the latest release.
 - `ZveltioExtension` SDK interface + `@zveltio/sdk/extension` types
 - `@zveltio/sdk/build` plugin config (custom build pipelines)
 - Marketplace publish flow + review queue endpoints
-- Worker isolation contract (no DB credentials in worker, ping/pong heartbeat, crash respawn)
+- Worker isolation contract (minimal worker environment, table-restricted SQL bridge, ping/pong heartbeat, crash respawn)
 
 **What may still move in beta.x:**
 - Engine internal helpers not exported via SDK
