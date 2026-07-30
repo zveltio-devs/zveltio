@@ -15,10 +15,12 @@
  *      additional registries (private marketplaces, internal mirrors) without
  *      rebuilding the binary.
  *
- * Today's `BUILTIN_KEYS` is empty: signing is opt-in via the
- * `REQUIRE_EXTENSION_SIGNATURES` env var. Once the registry starts producing
- * signature.json files, the registry's pubkey will land here and the env
- * flag will default to true.
+ * `BUILTIN_KEYS` carries the production registry key, and verification is
+ * REQUIRED by default — `REQUIRE_EXTENSION_SIGNATURES=false` is the opt-OUT, for
+ * a private mirror that does not sign yet. (This paragraph used to say the
+ * opposite: that the key set was empty and signing opt-in. That was true until
+ * the registry began signing the official publish path; leaving it in place
+ * would have had the next reader believe an unsigned archive still installs.)
  */
 
 export interface RegistryKey {
