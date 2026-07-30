@@ -65,8 +65,8 @@ LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 
 RUN apk add --no-cache curl tzdata && \
-    addgroup -S -g 1000 zveltio && \
-    adduser -S -u 1000 zveltio -G zveltio
+    addgroup -S zveltio && \
+    adduser -S zveltio -G zveltio
 
 COPY --from=engine-builder /zveltio /usr/local/bin/zveltio
 RUN chmod +x /usr/local/bin/zveltio
