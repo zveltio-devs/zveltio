@@ -8,10 +8,28 @@
 
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { checkPermission } from '../../lib/tenancy/index.js';
+import { requireInstanceAdmin } from '../../lib/tenancy/index.js';
+import { decryptField, encryptField, isEncryptedValue } from '../../lib/data/field-crypto.js';
 import { probeLocal, probeS3, setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
 
 const SETTINGS_KEY = 'storage_config';
+
+type Overlay = ReturnType<typeof normalizeOverlay>;
+
+/** Encrypt the S3 secret before it is persisted (AES-256-GCM, `enc1:` — the same
+ * at-rest treatment as mail/AI provider keys). Idempotent + no-op when empty. */
+async function withEncryptedSecret(o: Overlay): Promise<Overlay> {
+  const sk = o.s3.secretKey;
+  if (!sk || isEncryptedValue(sk)) return o;
+  return { ...o, s3: { ...o.s3, secretKey: await encryptField(sk) } };
+}
+
+/** Decrypt the persisted S3 secret back to plaintext for the in-memory driver. */
+async function withDecryptedSecret(o: Overlay): Promise<Overlay> {
+  const sk = o.s3?.secretKey;
+  if (!sk || !isEncryptedValue(sk)) return o;
+  return { ...o, s3: { ...o.s3, secretKey: await decryptField(sk) } };
+}
 
 function normalizeOverlay(body: unknown) {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -53,21 +71,18 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
   // PUT /api/admin/storage/config — persist + apply the overlay (admin only).
   app.put('/storage/config', async (c) => {
     const user = c.get('user');
-    if (!(await checkPermission(user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
+    if (!(await requireInstanceAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const overlay = normalizeOverlay(await c.req.json().catch(() => ({})));
+    const persisted = JSON.stringify(await withEncryptedSecret(overlay));
     await db
       .insertInto('zv_settings')
-      .values({
-        key: SETTINGS_KEY,
-        value: JSON.stringify(overlay),
-        is_public: false,
-        updated_at: new Date(),
-      })
+      .values({ key: SETTINGS_KEY, value: persisted, is_public: false, updated_at: new Date() })
       .onConflict((oc) =>
-        oc.column('key').doUpdateSet({ value: JSON.stringify(overlay), updated_at: new Date() }),
+        oc.column('key').doUpdateSet({ value: persisted, updated_at: new Date() }),
       )
       .execute();
+    // The in-memory overlay keeps the plaintext secret so the driver can auth.
     setStorageOverlay(overlay);
     return c.json({ ok: true, driver: storageConfig().driver });
   });
@@ -75,7 +90,7 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
   // POST /api/admin/storage/test — probe the GIVEN (or current) config.
   app.post('/storage/test', async (c) => {
     const user = c.get('user');
-    if (!(await checkPermission(user.id, 'admin', '*'))) return c.json({ error: 'Forbidden' }, 403);
+    if (!(await requireInstanceAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const body = normalizeOverlay(await c.req.json().catch(() => ({})));
     const cur = storageConfig();
@@ -112,7 +127,9 @@ export async function loadStorageSettings(db: Database): Promise<void> {
     if (!row) return;
     const raw = (row as { value: unknown }).value;
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (parsed && typeof parsed === 'object') setStorageOverlay(parsed);
+    if (parsed && typeof parsed === 'object') {
+      setStorageOverlay(await withDecryptedSecret(parsed as Overlay));
+    }
   } catch (err) {
     console.warn('[storage] failed to load storage_config from settings:', (err as Error).message);
   }

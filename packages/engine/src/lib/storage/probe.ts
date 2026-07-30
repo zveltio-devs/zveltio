@@ -7,6 +7,7 @@
 import { AwsClient } from 'aws4fetch';
 import { mkdir, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { validateStorageEndpoint } from '../security/index.js';
 import type { S3Settings } from './config.js';
 
 export interface ProbeResult {
@@ -17,6 +18,14 @@ export interface ProbeResult {
 /** Round-trip a tiny object through an S3-compatible endpoint. */
 export async function probeS3(s3: S3Settings): Promise<ProbeResult> {
   if (!s3.endpoint) return { ok: false, detail: 'S3 endpoint is empty' };
+  // SSRF guard: refuse to probe a cloud-metadata/link-local endpoint (IMDS), which
+  // is never a real S3 target but would leak instance credentials. Private ranges
+  // stay allowed for self-hosted SeaweedFS/MinIO.
+  try {
+    validateStorageEndpoint(s3.endpoint);
+  } catch (err) {
+    return { ok: false, detail: (err as Error).message };
+  }
   const client = new AwsClient({
     accessKeyId: s3.accessKey,
     secretAccessKey: s3.secretKey,

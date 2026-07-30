@@ -53,6 +53,7 @@ import {
   aiRateLimit,
   writeRateLimit,
   destructiveRateLimit,
+  filesRateLimit,
   initRateLimitDb,
 } from '../middleware/rate-limit.js';
 import { tenantQuota } from '../middleware/tenant-quota.js';
@@ -230,6 +231,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Public file serving for the `local` storage driver (no-op for `s3`, whose
   // URLs point at the object store directly). Public + self-guarding: signed
   // URLs are HMAC-verified, unsigned access is public-by-unguessable-path.
+  // Throttle public file serving per IP (a stripped/guessing scan of /files/* is
+  // capped; a media player's Range bursts stay well under the limit).
+  app.use('/files/*', filesRateLimit);
   app.route('/files', filesRoutes());
 
   // Webhooks (admin)

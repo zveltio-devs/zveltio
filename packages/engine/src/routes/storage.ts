@@ -249,6 +249,10 @@ export function storageRoutes(db: Database, auth: any): Hono {
     }
 
     const folderId = formData.get('folder_id') as string | null;
+    // Files are private by default (served only via a signed, expiring URL). Pass
+    // `public=true` to store under the public namespace and get a bare public URL
+    // (e.g. a company logo shown on the site). Business documents stay private.
+    const isPublicUpload = formData.get('public') === 'true';
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
@@ -321,7 +325,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!detectedMime) detectedMime = detectMimeFromMagic(buffer, rawExt) ?? file.type;
 
     const filename = `${crypto.randomUUID()}.${rawExt}`;
-    const storagePath = `uploads/${new Date().getFullYear()}/${filename}`;
+    const storagePath = `${isPublicUpload ? 'public/' : ''}uploads/${new Date().getFullYear()}/${filename}`;
 
     let url: string | undefined;
 
@@ -331,7 +335,12 @@ export function storageRoutes(db: Database, auth: any): Hono {
       } catch (err) {
         return c.json({ error: `Storage upload failed: ${(err as Error).message}` }, 502);
       }
-      url = storage.publicUrl(storagePath);
+      // Public uploads get a bare URL; private ones a signed, expiring one. The
+      // stored `storage_path` is the source of truth — callers refresh access via
+      // GET /api/storage/:id/signed-url when a private link expires.
+      url = isPublicUpload
+        ? storage.publicUrl(storagePath)
+        : await storage.signedUrl(storagePath, 24 * 3600);
     }
 
     let width: number | undefined;

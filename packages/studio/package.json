@@ -23,7 +23,7 @@
     "@lucide/svelte": "^0.577.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@sveltejs/adapter-static": "^3.0.0",
-    "@sveltejs/kit": "^2.5.0",
+    "@sveltejs/kit": "2.70.2",
     "@tiptap/core": "^2.11.0",
     "@tiptap/extension-image": "^2.11.0",
     "@tiptap/extension-link": "^2.27.2",
