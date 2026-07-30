@@ -33,6 +33,40 @@ export interface GhostMigration {
   triggerName: string;
 }
 
+/**
+ * Whether a single ALTER TABLE fragment is safe to interpolate.
+ *
+ * Anchored at BOTH ends. Matching only the prefix validated the verb and then
+ * passed whatever followed into sql.raw — and the pool speaks Postgres'
+ * simple-query protocol, which accepts several commands at once, so
+ * `ADD COLUMN x int; DROP TABLE "user"; --` was accepted and executed in full.
+ *
+ * The tail has to allow string literals, because real migrations carry them
+ * (`TEXT NOT NULL DEFAULT ''`, `SET DEFAULT 'migrated'`). A literal is matched
+ * as one atom with `''` as the escape, so a quote is never left dangling to open
+ * injected code, `;` stays outside the unquoted character class, and `-` is
+ * excluded from it so `--` cannot start a comment.
+ *
+ * Exported so the tests exercise this exact matcher: the first version of this
+ * guard was too strict and rejected legitimate migrations, and a test carrying
+ * its own copy of the regex would have agreed with it.
+ */
+export function isAllowedGhostDdl(statement: string): boolean {
+  const IDENT = String.raw`(?:"[a-zA-Z_][a-zA-Z0-9_]*"|[a-zA-Z_][a-zA-Z0-9_]*)`;
+  const STRING_LIT = String.raw`'(?:[^']|'')*'`;
+  const TYPE_TAIL = String.raw`(?:[a-zA-Z0-9_ ,()\[\].:]|${STRING_LIT})*`;
+  const ALLOWED_DDL_RE = new RegExp(
+    String.raw`^(?:` +
+      String.raw`ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?${IDENT}\s+${TYPE_TAIL}` +
+      String.raw`|DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?${IDENT}` +
+      String.raw`|ALTER\s+COLUMN\s+${IDENT}\s+${TYPE_TAIL}` +
+      String.raw`|RENAME\s+COLUMN\s+${IDENT}\s+TO\s+${IDENT}` +
+      String.raw`)$`,
+    'i',
+  );
+  return ALLOWED_DDL_RE.test(statement.trim());
+}
+
 export class GhostDDL {
   /**
    * STEP 1: Creates ghost table identical to original + applies DDL changes on it.
@@ -51,33 +85,10 @@ export class GhostDDL {
     // 1. Create ghost table with same structure (including indexes, constraints)
     await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
 
-    // 2. Apply DDL changes on ghost — strict validation to prevent SQL injection
-    // NOTE: the optional IF EXISTS must not consume the separator whitespace —
-    // `DROP\s+COLUMN\s+(IF\s+EXISTS\s+)?` ate the single space before the column
-    // name, so a plain `DROP COLUMN fax` was rejected while `DROP COLUMN  fax`
-    // (two spaces) passed. Keep the group's whitespace INSIDE the optional part.
-    // The regex is anchored at BOTH ends. Matching only the prefix (`/^(...)\s+/`)
-    // validated the verb and then interpolated whatever followed straight into
-    // sql.raw — and because the pool runs statements through Postgres' simple-query
-    // protocol, which accepts several commands at once, `ADD COLUMN x int;
-    // DROP TABLE "user"; --` passed the check and executed all of it. The tail is
-    // now constrained to an identifier, an optional type/qualifier built from a
-    // safe character class, and nothing else: no semicolons, no quotes, no comment
-    // markers.
-    const IDENT = String.raw`(?:"[a-zA-Z_][a-zA-Z0-9_]*"|[a-zA-Z_][a-zA-Z0-9_]*)`;
-    const TYPE_TAIL = String.raw`(?:[a-zA-Z0-9_ ,()\[\]]*)`;
-    const ALLOWED_DDL_RE = new RegExp(
-      String.raw`^(?:` +
-        String.raw`ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?${IDENT}\s+${TYPE_TAIL}` +
-        String.raw`|DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?${IDENT}` +
-        String.raw`|ALTER\s+COLUMN\s+${IDENT}\s+${TYPE_TAIL}` +
-        String.raw`|RENAME\s+COLUMN\s+${IDENT}\s+TO\s+${IDENT}` +
-        String.raw`)$`,
-      'i',
-    );
+    // 2. Apply DDL changes on ghost — see isAllowedGhostDdl.
     for (const ddl of ddlStatements) {
       const trimmed = ddl.trim();
-      if (!ALLOWED_DDL_RE.test(trimmed)) {
+      if (!isAllowedGhostDdl(trimmed)) {
         throw new Error(
           `Unsafe DDL statement rejected: "${ddl}". ` +
             `Only ADD COLUMN, DROP COLUMN, ALTER COLUMN, RENAME COLUMN are allowed.`,
