@@ -99,6 +99,46 @@ export interface FieldConfig {
   encrypted?: boolean;
 }
 
+/**
+ * The bare SQL expressions a column DEFAULT may contain. Anything not on this
+ * list is emitted as a quoted literal, never as SQL.
+ */
+const SQL_DEFAULT_EXPRESSIONS: ReadonlySet<string> = new Set([
+  'now()',
+  'current_timestamp',
+  'current_date',
+  'current_time',
+  'gen_random_uuid()',
+  'uuid_generate_v4()',
+  'null',
+  'true',
+  'false',
+]);
+
+/**
+ * Render a column default for inclusion in DDL.
+ *
+ * A DEFAULT clause cannot be parameterised, so the value is interpolated — which
+ * makes this the one place a caller-supplied string reaches raw SQL. It used to
+ * be wrapped in `'${value}'` with no escaping, and any string beginning `gen_`
+ * or `NOW` skipped quoting entirely, so both a quote and a crafted prefix
+ * injected arbitrary SQL. That matters more than a normal DDL path: the route
+ * that creates fields is reachable by a tenant admin, who is deliberately NOT
+ * given the SQL editor, and Bun's simple-query protocol accepts multiple
+ * statements per command.
+ *
+ * Numbers and booleans render as themselves; a known SQL expression renders
+ * verbatim; everything else becomes a string literal with quotes doubled.
+ */
+export function renderSqlDefault(value: unknown): string {
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  const raw = String(value);
+  if (SQL_DEFAULT_EXPRESSIONS.has(raw.trim().toLowerCase())) return raw;
+
+  return `'${raw.replace(/'/g, "''")}'`;
+}
+
 export class FieldTypeRegistry {
   private types = new Map<string, FieldTypeDefinition>();
 
@@ -136,13 +176,7 @@ export class FieldTypeRegistry {
     // Default value — field-specific overrides type default
     const defaultVal = field.defaultValue ?? typeDef.db.defaultValue;
     if (defaultVal !== undefined && defaultVal !== null) {
-      const val =
-        typeof defaultVal === 'string' &&
-        !defaultVal.startsWith('gen_') &&
-        !defaultVal.startsWith('NOW')
-          ? `'${defaultVal}'`
-          : String(defaultVal);
-      parts.push(`DEFAULT ${val}`);
+      parts.push(`DEFAULT ${renderSqlDefault(defaultVal)}`);
     }
 
     return parts.join(' ');

@@ -3,7 +3,17 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getEnforcer, invalidateUserPermCache } from '../lib/tenancy/index.js';
+// requireInstanceAdmin, not checkPermission: every route here is instance-level
+// administration (create/suspend tenants, move members between them). The old
+// gate asked for ('tenants','manage'), but the tenant_admin policy is
+// ('*','*','*'), so any delegated tenant admin matched it — and the member
+// routes take the tenant id from the URL without checking it is the caller's,
+// so a tenant admin could make themselves owner of any other tenant.
+import {
+  getEnforcer,
+  invalidateUserPermCache,
+  requireInstanceAdmin,
+} from '../lib/tenancy/index.js';
 import {
   provisionTenantSchema,
   provisionEnvironment,
@@ -63,7 +73,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   router.get('/', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -88,7 +98,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   router.post('/', zValidator('json', CreateTenantSchema), async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -152,7 +162,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -192,7 +202,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -212,7 +222,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
-    const isSuperAdmin = await checkPermission(user.id, 'tenants', 'manage');
+    const isSuperAdmin = await requireInstanceAdmin(user.id);
 
     if (!isSuperAdmin) {
       const membership = await db
@@ -232,7 +242,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   router.post('/:id/enable-rls/:collection', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -253,7 +263,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
     const id = c.req.param('id');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -283,7 +293,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   router.get('/:id/members', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
     const members = await db
@@ -300,7 +310,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   router.post('/:id/members', zValidator('json', MemberSchema), async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
     const tenantId = c.req.param('id');
@@ -341,7 +351,7 @@ export function tenantsRoutes(db: Database, auth: any): Hono {
   router.delete('/:id/members/:userId', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = (c as any).get('user');
-    if (!(await checkPermission(user.id, 'tenants', 'manage'))) {
+    if (!(await requireInstanceAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
     const tenantId = c.req.param('id');

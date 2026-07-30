@@ -83,11 +83,14 @@ services:
     image: valkey/valkey:8-alpine
     container_name: zveltio-valkey
     restart: unless-stopped
-    command: valkey-server --save 60 1 --loglevel warning
+    # Password-protected even though this instance is only reachable on the
+    # internal compose network — a compromised sibling container should not
+    # inherit read/write on sessions and rate-limit state.
+    command: valkey-server --requirepass \${VALKEY_PASSWORD} --save 60 1 --loglevel warning
     volumes:
       - valkey_data:/data
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "valkey-cli", "-a", "\${VALKEY_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -116,15 +119,38 @@ services:
     networks:
       - zveltio
 
+  # Renders the SeaweedFS S3 identity file from the environment. It cannot be
+  # shipped as a static file with \${VARS} inside: SeaweedFS does not expand
+  # environment variables in its JSON config, so a placeholder file grants
+  # access to nobody and operators "fix" it by pasting real keys into a
+  # versioned file. Compose expands the values below into S3_CONFIG_JSON; the
+  # doubled \$\$ keeps the shell from touching it.
+  seaweedfs-init:
+    image: alpine:3.20
+    container_name: zveltio-seaweedfs-init
+    environment:
+      S3_CONFIG_JSON: '{"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"\${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}","secretKey":"\${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}'
+    command: ["sh", "-c", "printf '%s' \"\$\$S3_CONFIG_JSON\" > /config/s3-config.json"]
+    volumes:
+      - seaweedfs_config:/config
+
   seaweedfs-filer:
     image: chrislusf/seaweedfs:3.68
     container_name: zveltio-seaweedfs-filer
     restart: unless-stopped
-    command: filer -master=seaweedfs-master:9333 -s3
+    # -s3.config is what turns on authentication. Without it the filer serves
+    # anonymous read/write/delete on the S3 port — which was published on
+    # 0.0.0.0. Bound to loopback for the same reason as Valkey above.
+    command: filer -master=seaweedfs-master:9333 -s3 -s3.config=/config/s3-config.json
     ports:
-      - "\${S3_PORT:-8333}:8333"
+      - "127.0.0.1:\${S3_PORT:-8333}:8333"
+    volumes:
+      - seaweedfs_config:/config:ro
     depends_on:
-      - seaweedfs-volume
+      seaweedfs-volume:
+        condition: service_started
+      seaweedfs-init:
+        condition: service_completed_successfully
     networks:
       - zveltio
 
@@ -136,7 +162,7 @@ services:
       - "\${PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgres://\${POSTGRES_USER:-zveltio}:\${POSTGRES_PASSWORD}@pgdog:6432/\${POSTGRES_DB:-zveltio}
-      VALKEY_URL: redis://valkey:6379
+      VALKEY_URL: redis://:\${VALKEY_PASSWORD}@valkey:6379
       S3_ENDPOINT: http://seaweedfs-filer:8333
       S3_ACCESS_KEY: \${S3_ACCESS_KEY:-zveltio}
       S3_SECRET_KEY: \${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
@@ -173,6 +199,7 @@ volumes:
   valkey_data:
   seaweedfs_master:
   seaweedfs_volume:
+  seaweedfs_config:
   pgdog_config:
 
 networks:
@@ -202,8 +229,11 @@ services:
       POSTGRES_DB: \${POSTGRES_DB:-zveltio}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Loopback only. infra mode runs the engine natively on this host, so the
+    # port has to be published — but publishing it on 0.0.0.0 put the database
+    # itself on the public internet, protected by nothing but the password.
     ports:
-      - "\${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:\${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \${POSTGRES_USER:-zveltio}"]
       interval: 10s
@@ -214,13 +244,18 @@ services:
     image: valkey/valkey:8-alpine
     container_name: zveltio-valkey
     restart: unless-stopped
-    command: valkey-server --save 60 1 --loglevel warning
+    # --requirepass is mandatory, and the port binds to loopback only. Without
+    # both, a native install published an unauthenticated Valkey on 0.0.0.0 —
+    # anyone who could reach the host could read sessions and rate-limit state.
+    # The engine runs on the host in native mode, so the port must stay
+    # published; 127.0.0.1 keeps it reachable there and nowhere else.
+    command: valkey-server --requirepass \${VALKEY_PASSWORD} --save 60 1 --loglevel warning
     volumes:
       - valkey_data:/data
     ports:
-      - "\${VALKEY_PORT:-6379}:6379"
+      - "127.0.0.1:\${VALKEY_PORT:-6379}:6379"
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "valkey-cli", "-a", "\${VALKEY_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -243,21 +278,45 @@ services:
     depends_on:
       - seaweedfs-master
 
+  # Renders the SeaweedFS S3 identity file from the environment. It cannot be
+  # shipped as a static file with \${VARS} inside: SeaweedFS does not expand
+  # environment variables in its JSON config, so a placeholder file grants
+  # access to nobody and operators "fix" it by pasting real keys into a
+  # versioned file. Compose expands the values below into S3_CONFIG_JSON; the
+  # doubled \$\$ keeps the shell from touching it.
+  seaweedfs-init:
+    image: alpine:3.20
+    container_name: zveltio-seaweedfs-init
+    environment:
+      S3_CONFIG_JSON: '{"identities":[{"name":"zveltio-engine","credentials":[{"accessKey":"\${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}","secretKey":"\${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}"}],"actions":["Read:zveltio","Write:zveltio","List:zveltio","Tagging:zveltio","Admin:zveltio"]}]}'
+    command: ["sh", "-c", "printf '%s' \"\$\$S3_CONFIG_JSON\" > /config/s3-config.json"]
+    volumes:
+      - seaweedfs_config:/config
+
   seaweedfs-filer:
     image: chrislusf/seaweedfs:3.68
     container_name: zveltio-seaweedfs-filer
     restart: unless-stopped
-    command: filer -master=seaweedfs-master:9333 -s3
+    # -s3.config is what turns on authentication. Without it the filer serves
+    # anonymous read/write/delete on the S3 port — which was published on
+    # 0.0.0.0. Bound to loopback for the same reason as Valkey above.
+    command: filer -master=seaweedfs-master:9333 -s3 -s3.config=/config/s3-config.json
     ports:
-      - "\${S3_PORT:-8333}:8333"
+      - "127.0.0.1:\${S3_PORT:-8333}:8333"
+    volumes:
+      - seaweedfs_config:/config:ro
     depends_on:
-      - seaweedfs-volume
+      seaweedfs-volume:
+        condition: service_started
+      seaweedfs-init:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
   valkey_data:
   seaweedfs_master:
   seaweedfs_volume:
+  seaweedfs_config:
 EOF
 
 # ── docker-compose.engine.yml (Engine Only) ───────────────────

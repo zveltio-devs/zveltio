@@ -56,16 +56,34 @@ export class GhostDDL {
     // `DROP\s+COLUMN\s+(IF\s+EXISTS\s+)?` ate the single space before the column
     // name, so a plain `DROP COLUMN fax` was rejected while `DROP COLUMN  fax`
     // (two spaces) passed. Keep the group's whitespace INSIDE the optional part.
-    const ALLOWED_DDL_RE =
-      /^(ADD\s+COLUMN|DROP\s+COLUMN(\s+IF\s+EXISTS)?|ALTER\s+COLUMN|RENAME\s+COLUMN)\s+/i;
+    // The regex is anchored at BOTH ends. Matching only the prefix (`/^(...)\s+/`)
+    // validated the verb and then interpolated whatever followed straight into
+    // sql.raw — and because the pool runs statements through Postgres' simple-query
+    // protocol, which accepts several commands at once, `ADD COLUMN x int;
+    // DROP TABLE "user"; --` passed the check and executed all of it. The tail is
+    // now constrained to an identifier, an optional type/qualifier built from a
+    // safe character class, and nothing else: no semicolons, no quotes, no comment
+    // markers.
+    const IDENT = String.raw`(?:"[a-zA-Z_][a-zA-Z0-9_]*"|[a-zA-Z_][a-zA-Z0-9_]*)`;
+    const TYPE_TAIL = String.raw`(?:[a-zA-Z0-9_ ,()\[\]]*)`;
+    const ALLOWED_DDL_RE = new RegExp(
+      String.raw`^(?:` +
+        String.raw`ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?${IDENT}\s+${TYPE_TAIL}` +
+        String.raw`|DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?${IDENT}` +
+        String.raw`|ALTER\s+COLUMN\s+${IDENT}\s+${TYPE_TAIL}` +
+        String.raw`|RENAME\s+COLUMN\s+${IDENT}\s+TO\s+${IDENT}` +
+        String.raw`)$`,
+      'i',
+    );
     for (const ddl of ddlStatements) {
-      if (!ALLOWED_DDL_RE.test(ddl.trim())) {
+      const trimmed = ddl.trim();
+      if (!ALLOWED_DDL_RE.test(trimmed)) {
         throw new Error(
           `Unsafe DDL statement rejected: "${ddl}". ` +
             `Only ADD COLUMN, DROP COLUMN, ALTER COLUMN, RENAME COLUMN are allowed.`,
         );
       }
-      await sql.raw(`ALTER TABLE "${ghost}" ${ddl}`).execute(db);
+      await sql.raw(`ALTER TABLE "${ghost}" ${trimmed}`).execute(db);
     }
 
     // 3. Changelog table — captures all mutations during batch copy
