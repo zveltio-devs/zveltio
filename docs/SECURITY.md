@@ -148,7 +148,14 @@ executes:
   `(()=>{}).constructor("return Bun")()` escape vector.
 - `fetch` is replaced with `safeFetch` which blocks loopback /
   metadata-service / RFC1918 destinations (SSRF defence) and refuses
-  non-http(s) schemes.
+  non-http(s) schemes. The block list is applied to the literal host in
+  every IP encoding (hex / octal / decimal / IPv4-mapped IPv6) **and to
+  every address the hostname RESOLVES to** — otherwise an attacker-owned
+  name with an A record pointing at `169.254.169.254` reaches cloud
+  metadata untouched. Redirects are followed manually so each hop is
+  re-validated. Residual: DNS rebinding between our resolve and fetch's
+  connect is not closed, as `fetch` gives no way to pin the connection to
+  the validated address.
 - Soft limits: 64 MB heap watchdog, default 5s wall-clock.
 
 Worker isolation is process-thread level. For UNTRUSTED multi-tenant

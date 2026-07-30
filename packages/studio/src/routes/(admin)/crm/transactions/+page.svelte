@@ -1,64 +1,23 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+  import { m } from '$lib/i18n.svelte.js';
+  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+  import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
 
-const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
+  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let transactions = $state<any[]>([]);
-let total = $state(0);
-let page = $state(1);
-let filterType = $state('');
-let filterStatus = $state('');
-let loading = $state(false);
-let showModal = $state(false);
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-let editingTx = $state<any>(null);
+  let transactions = $state<any[]>([]);
+  let total = $state(0);
+  let page = $state(1);
+  let filterType = $state('');
+  let filterStatus = $state('');
+  let loading = $state(false);
+  let showModal = $state(false);
+  let editingTx = $state<any>(null);
 
-let form = $state({
-  type: 'invoice',
-  status: 'draft',
-  number: '',
-  currency: 'RON',
-  amount: 0,
-  tax_amount: 0,
-  total_amount: 0,
-  due_date: '',
-  notes: '',
-});
-
-const TYPES = ['invoice', 'payment', 'credit_note', 'expense', 'transfer', 'other'];
-const STATUSES = ['draft', 'pending', 'completed', 'cancelled', 'refunded'];
-
-const STATUS_BADGE: Record<string, string> = {
-  draft: 'badge-ghost',
-  pending: 'badge-warning',
-  completed: 'badge-success',
-  cancelled: 'badge-error',
-  refunded: 'badge-info',
-};
-
-async function loadTransactions() {
-  loading = true;
-  try {
-    const params = new URLSearchParams({ page: String(page), limit: '20' });
-    if (filterType) params.set('type', filterType);
-    if (filterStatus) params.set('status', filterStatus);
-    const res = await api.get(`/transactions?${params}`);
-    transactions = res.data;
-    total = res.meta.total;
-  } finally {
-    loading = false;
-  }
-}
-
-function openCreate() {
-  editingTx = null;
-  form = {
+  let form = $state({
     type: 'invoice',
     status: 'draft',
     number: '',
@@ -68,58 +27,80 @@ function openCreate() {
     total_amount: 0,
     due_date: '',
     notes: '',
-  };
-  showModal = true;
-}
+  });
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-function openEdit(tx: any) {
-  editingTx = tx;
-  form = {
-    type: tx.type,
-    status: tx.status,
-    number: tx.number ?? '',
-    currency: tx.currency ?? 'RON',
-    amount: tx.amount ?? 0,
-    tax_amount: tx.tax_amount ?? 0,
-    total_amount: tx.total_amount ?? 0,
-    due_date: tx.due_date ?? '',
-    notes: tx.notes ?? '',
-  };
-  showModal = true;
-}
+  const TYPES = ['invoice', 'payment', 'credit_note', 'expense', 'transfer', 'other'];
+  const STATUSES = ['draft', 'pending', 'completed', 'cancelled', 'refunded'];
 
-async function save() {
-  const payload = {
-    ...form,
-    amount: Number(form.amount),
-    tax_amount: Number(form.tax_amount),
-    total_amount: Number(form.total_amount),
+  const STATUS_BADGE: Record<string, string> = {
+    draft: 'badge-ghost',
+    pending: 'badge-warning',
+    completed: 'badge-success',
+    cancelled: 'badge-error',
+    refunded: 'badge-info',
   };
-  if (editingTx) {
-    await api.patch(`/transactions/${editingTx.id}`, payload);
-  } else {
-    await api.post('/transactions', payload);
+
+  async function loadTransactions() {
+    loading = true;
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '20' });
+      if (filterType) params.set('type', filterType);
+      if (filterStatus) params.set('status', filterStatus);
+      const res = await api.get(`/transactions?${params}`);
+      transactions = res.data;
+      total = res.meta.total;
+    } finally {
+      loading = false;
+    }
   }
-  showModal = false;
-  await loadTransactions();
-}
 
-async function deleteTx(id: string) {
-  askConfirm(m['crm.transactions.confirmDelete'](), () => deleteTxConfirmed(id));
-}
-async function deleteTxConfirmed(id: string) {
-  await api.delete(`/transactions/${id}`);
-  await loadTransactions();
-}
+  function openCreate() {
+    editingTx = null;
+    form = { type: 'invoice', status: 'draft', number: '', currency: 'RON', amount: 0, tax_amount: 0, total_amount: 0, due_date: '', notes: '' };
+    showModal = true;
+  }
 
-function formatCurrency(amount: number, currency: string) {
-  return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: currency || 'RON' }).format(
-    amount,
-  );
-}
+  function openEdit(tx: any) {
+    editingTx = tx;
+    form = {
+      type: tx.type,
+      status: tx.status,
+      number: tx.number ?? '',
+      currency: tx.currency ?? 'RON',
+      amount: tx.amount ?? 0,
+      tax_amount: tx.tax_amount ?? 0,
+      total_amount: tx.total_amount ?? 0,
+      due_date: tx.due_date ?? '',
+      notes: tx.notes ?? '',
+    };
+    showModal = true;
+  }
 
-onMount(loadTransactions);
+  async function save() {
+    const payload = { ...form, amount: Number(form.amount), tax_amount: Number(form.tax_amount), total_amount: Number(form.total_amount) };
+    if (editingTx) {
+      await api.patch(`/transactions/${editingTx.id}`, payload);
+    } else {
+      await api.post('/transactions', payload);
+    }
+    showModal = false;
+    await loadTransactions();
+  }
+
+  async function deleteTx(id: string) {
+        askConfirm(m['crm.transactions.confirmDelete'](), () => deleteTxConfirmed(id));
+  }
+  async function deleteTxConfirmed(id: string) {
+    await api.delete(`/transactions/${id}`);
+    await loadTransactions();
+  }
+
+
+  function formatCurrency(amount: number, currency: string) {
+    return new Intl.NumberFormat('ro-RO', { style: 'currency', currency: currency || 'RON' }).format(amount);
+  }
+
+  onMount(loadTransactions);
 </script>
 
 <ExtensionPageShell title={m['crm.transactions.title']()} subtitle={m['crm.transactions.count']({ count: total })}>

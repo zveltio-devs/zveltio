@@ -253,8 +253,29 @@ export interface ExtensionInternals {
   /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   enqueueDDLJob: (...args: any[]) => Promise<unknown>;
-  /** Validate that a URL targets a public, non-internal address (SSRF safety). */
-  validatePublicUrl: (url: string) => Promise<URL>;
+  /**
+   * Validate that a URL targets a public, non-internal address (SSRF safety).
+   * Synchronous — throws on a blocked URL and returns nothing. Safe to call from
+   * a sync context such as a zod `superRefine`. This checks only the literal
+   * host text; prefer {@link assertPublicUrl} wherever you can await.
+   */
+  validatePublicUrl: (url: string) => void;
+  /**
+   * DNS-aware SSRF check: everything `validatePublicUrl` does, plus rejecting
+   * hostnames that RESOLVE into private space (an attacker-owned name with an A
+   * record pointing at cloud metadata). MUST be awaited.
+   */
+  assertPublicUrl: (url: string) => Promise<void>;
+  /**
+   * SSRF guard for an admin-configured endpoint that is ALLOWED to be
+   * self-hosted (local Ollama on `http://localhost:11434`, an internal
+   * Meilisearch, on-prem object storage). Permits private ranges but rejects
+   * cloud-metadata hosts such as 169.254.169.254. Use this — NOT
+   * `validatePublicUrl` / `assertPublicUrl` — for provider "base URL" settings,
+   * otherwise every self-hosted deployment breaks. Synchronous; throws when
+   * the URL is blocked.
+   */
+  assertNonMetadataUrl: (url: string, label?: string) => void;
   /** Extract plain text from an uploaded file (PDF/DOCX/etc.) for AI indexing. */
   extractTextFromFile: (
     buffer: ArrayBuffer | Buffer | Uint8Array,
