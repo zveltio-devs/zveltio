@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { isTenantAdmin } from '../lib/tenancy/index.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
 
@@ -548,7 +548,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'File not found' }, 404);
 
     // I5: use checkPermission() instead of user.role — Better-Auth may not populate role on session
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     if ((file as any).created_by !== user.id && !isAdmin) {
       return c.json({ error: 'Forbidden' }, 403);

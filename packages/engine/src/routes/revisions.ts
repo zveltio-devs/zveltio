@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { dynamicUpdate } from '../db/dynamic.js';
 import { DDLManager } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
@@ -24,7 +24,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
-    if (!(await checkPermission(user.id, 'admin', '*'))) {
+    if (!(await isTenantAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -72,7 +72,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
   app.get('/:id', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
-    if (!(await checkPermission(user.id, 'admin', '*'))) {
+    if (!(await isTenantAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -93,7 +93,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
   app.post('/:id/revert', async (c) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
-    if (!(await checkPermission(user.id, 'admin', '*'))) {
+    if (!(await isTenantAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -166,10 +166,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const { collection, recordId } = c.req.param();
 
-    if (
-      !(await checkPermission(user.id, collection, 'read')) &&
-      !(await checkPermission(user.id, 'admin', '*'))
-    ) {
+    if (!(await checkPermission(user.id, collection, 'read')) && !(await isTenantAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -222,7 +219,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const user = c.get('user') as any;
     const commentId = c.req.param('commentId');
-    const isAdmin = await checkPermission(user.id, 'admin', '*');
+    const isAdmin = await isTenantAdmin(user.id);
 
     // Replaced `OR TRUE` idiom (confusing, hard to audit) with explicit branch.
     // Admins can delete any comment; non-admins can only delete their own.

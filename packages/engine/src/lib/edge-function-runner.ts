@@ -1,3 +1,5 @@
+import { sandboxWorkerEnv } from './edge-functions/sandbox-env.js';
+
 export interface EdgeRequest {
   method: string;
   headers: Record<string, string>;
@@ -132,14 +134,25 @@ export async function runEdgeFunction(
   const start = Date.now();
 
   // Sandbox mode:
-  //   - 'worker' (default): in-process Bun Worker. ~1ms startup, suitable
-  //     for ADMIN-authored edge functions (single tenant or trusted code).
-  //   - 'subprocess': new Bun process per invocation. ~30ms startup but
-  //     OS-level isolation — REQUIRED if you let untrusted/end-users author
-  //     edge functions in a multi-tenant setup.
+  //   - 'subprocess' (default): new Bun process per invocation, ~30ms startup,
+  //     minimal environment (PATH + TMPDIR only) so engine credentials are not
+  //     visible to the child.
+  //   - 'worker': in-process Bun Worker, ~1ms startup. Faster, but only a
+  //     boundary against mistakes — see the note on the module loader below.
   //
-  // Operators flip this per deployment by setting `EDGE_SANDBOX_MODE=subprocess`.
-  const mode = process.env.EDGE_SANDBOX_MODE === 'subprocess' ? 'subprocess' : 'worker';
+  // Subprocess is the DEFAULT. The worker mode's lockdown shadows dangerous
+  // globals, which cannot stop `await import('node:fs')` — the module loader is
+  // not reachable through globalThis, so the escape is not a bug to patch but a
+  // property of running untrusted code in-process. Demonstrated by execution:
+  // shadowing `process` as a parameter still leaves `import('node:process')`
+  // returning the real module and the real environment.
+  //
+  // A separate process is a boundary the JS lockdown can never be. It costs
+  // ~30ms of startup per invocation instead of ~1ms; that is the right trade for
+  // code that executes arbitrary TypeScript. `EDGE_SANDBOX_MODE=worker` opts back
+  // into the in-process runner where latency matters more than isolation and the
+  // author is trusted.
+  const mode = process.env.EDGE_SANDBOX_MODE === 'worker' ? 'worker' : 'subprocess';
   if (mode === 'subprocess') {
     const { runEdgeFunctionInSubprocess } = await import('./edge-functions/subprocess-runner.js');
     return runEdgeFunctionInSubprocess(code, request, envVars, timeoutMs);
@@ -164,7 +177,14 @@ export async function runEdgeFunction(
   return new Promise((resolve) => {
     const id = crypto.randomUUID();
     const dataUrl = `data:application/javascript;base64,${btoa(unescape(encodeURIComponent(WORKER_BOOTSTRAP)))}`;
-    const worker = new Worker(dataUrl);
+    // Minimal environment, for the same reason the extension worker has one: a
+    // Worker inherits the parent's env, and the sandbox's `process` stub lives
+    // on globalThis where `await import('node:process')` simply walks around it.
+    // Without this, DATABASE_URL, BETTER_AUTH_SECRET and FIELD_ENCRYPTION_KEY
+    // were one import away from arbitrary edge-function code.
+    const worker = new Worker(dataUrl, {
+      env: sandboxWorkerEnv(),
+    } as WorkerOptions);
 
     // Hard kill after timeoutMs + 2s — catches cases where the Worker itself hangs
     const hardKill = setTimeout(() => {
