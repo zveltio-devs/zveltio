@@ -3,11 +3,11 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import {
-  checkPermission,
   getUserRoles,
   getEnforcer,
   invalidateUserPermCache,
   getCurrentDomain,
+  requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { escapeLike } from '../lib/data/index.js';
@@ -16,8 +16,14 @@ import { escapeLike } from '../lib/data/index.js';
 async function requireAdmin(c: any, auth: any): Promise<any | null> {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
-  const hasAdmin = await checkPermission(session.user.id, 'admin', '*');
-  if (!hasAdmin) return null;
+  // requireInstanceAdmin, NOT checkPermission(uid,'admin','*'): the tenant_admin
+  // policy is ('*','*','*'), so obj='admin' matches and any delegated tenant
+  // admin passed the weak check. From here they could PATCH their own row to
+  // role='admin', which addRoleForUser grants in domain '*' — and the domain
+  // matcher treats '*' as matching every domain, including the root tenant. That
+  // is a complete escalation from tenant admin to instance owner: SQL editor,
+  // Casbin policies, API keys, and deleting the god account.
+  if (!(await requireInstanceAdmin(session.user.id))) return null;
   return session.user;
 }
 
