@@ -43,6 +43,17 @@ const EXCLUDE: RegExp[] = [
   /^packages\/engine\/src\/db\/migrations\/embedded\.ts$/,
   /^packages\/engine\/src\/db\/migrations\/sql\//,
   /^packages\/engine\/src\/lib\/worker-extension-runtime-source\.generated\.ts$/,
+  // Studio's synced extension tree. These files are NOT authored here — they
+  // are copied verbatim from zveltio-extensions by studio/scripts/sync-extensions.ts,
+  // so they are generated output in exactly the same sense as studio-dist above.
+  // Ratcheting them was a category error: `bun run build` with the extensions
+  // sibling present rewrites the tree from source, which strips any suppression
+  // added on this side, leaving the snapshot dirty and lint-failing. Enforcement
+  // for this code belongs in the zveltio-extensions repo, where it is written.
+  // Keep in sync with the matching negations in biome.json files.includes —
+  // sync-extensions.ts fails loudly if it ever writes a path not covered there.
+  /^packages\/studio\/src\/lib\/ext\//,
+  /^packages\/studio\/src\/routes\/\(admin\)\/(ai|analytics\/dashboard|analytics\/quality|billing|byod|checklists|compliance\/ro\/efactura|compliance\/ro\/procurement|content\/documents|crm|developer\/api-docs|developer\/database|developer\/edge-functions|developer\/graphql|developer\/validation|developer\/views|finance\/banking|forms|geospatial\/postgis|hr\/time-tracking|i18n|mail|media|page-builder|pos|projects\/helpdesk|projects\/management|search|sms|storage\/cloud|traceability)\//,
   // --- tests overrides (noExplicitAny → off) ---
   /\.test\.ts$/,
   /\.spec\.ts$/,

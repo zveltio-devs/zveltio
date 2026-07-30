@@ -1,12 +1,10 @@
 <script lang="ts">
 let {
-  items = [],
-  onRowClick = null,
+    items = [],
+    onRowClick = null
 }: {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  items: any[];
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  onRowClick?: ((item: any) => void) | null;
+    items: any[];
+    onRowClick?: ((item: any) => void) | null;
 } = $props();
 </script>
 
