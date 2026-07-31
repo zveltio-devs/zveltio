@@ -60,16 +60,32 @@ describe('applyRlsFilters', () => {
     expect(q.calls.map((c) => c.field)).toEqual(['owner_id', 'tenant', 'status']);
   });
 
-  it('ignores operators it cannot express, rather than dropping the query', () => {
-    // An unsupported op must not silently widen access by throwing the whole
-    // filter set away — the other conditions still have to be applied.
+  it('refuses the query on an operator it cannot express', () => {
+    // This used to drop the unsupported condition and run the rest, reasoning
+    // that "an unsupported op must not silently widen access by throwing the
+    // whole filter set away". The goal was right and the implementation
+    // achieved the opposite: dropping the condition IS the silent widening —
+    // the rows that condition existed to hide came back.
+    //
+    // It was not hypothetical. `routes/rls.ts` accepts eq | neq | in | not_in,
+    // while applyRlsFilters implemented only the first two, so every `in` and
+    // `not_in` policy an administrator saved was stored, listed as enabled, and
+    // inert.
+    //
+    // Refusing the query serves the original intent properly: no rows are
+    // returned at all, so nothing the policy meant to hide escapes. An operator
+    // can act on an error; they cannot act on a leak they cannot see. All four
+    // route-accepted operators are implemented, so this path is now only
+    // reachable by editing the table directly or adding a fifth operator — in
+    // which case failing loudly is exactly what should happen.
     const q = makeQuery();
-    applyRlsFilters(q, [
-      // biome-ignore lint/suspicious/noExplicitAny: deliberately exercising an unmapped op
-      { field: 'weird', condition: { op: 'contains' as any, value: 'x' } },
-      { field: 'owner_id', condition: { op: 'eq', value: 'user-1' } },
-    ]);
-    expect(q.calls).toEqual([{ field: 'owner_id', op: '=', value: 'user-1' }]);
+    expect(() =>
+      applyRlsFilters(q, [
+        // biome-ignore lint/suspicious/noExplicitAny: deliberately exercising an unmapped op
+        { field: 'weird', condition: { op: 'contains' as any, value: 'x' } },
+        { field: 'owner_id', condition: { op: 'eq', value: 'user-1' } },
+      ]),
+    ).toThrow(/cannot apply/i);
   });
 
   it('preserves the value type it was given', () => {
