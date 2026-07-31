@@ -15,6 +15,30 @@ import { reqDb, tenantId } from '../lib/route-db.js';
 // filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+/**
+ * May this user delete this file?
+ *
+ * The media router requires only a session, and `moveToTrash` filters by id,
+ * `deleted_at` and tenant — no owner check anywhere. So any authenticated user
+ * could trash any file in their tenant by naming its id.
+ *
+ * Owner or tenant admin. Deliberately not "anyone who can read it": reading a
+ * shared file and destroying it are different acts.
+ */
+async function mayDeleteFile(rdb: Database, fileId: string, userId: string): Promise<boolean> {
+  const row = await rdb
+    .selectFrom('zv_media_files')
+    .select(['created_by'])
+    .where('id', '=', fileId)
+    .executeTakeFirst()
+    .catch(() => undefined);
+  // Absent file: let moveToTrash produce the not-found path rather than
+  // reporting "forbidden", which would confirm the id exists elsewhere.
+  if (!row) return true;
+  if (row.created_by === userId) return true;
+  return isTenantAdmin(userId).catch(() => false);
+}
+
 export function mediaRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
@@ -556,6 +580,9 @@ export function mediaRoutes(db: Database, auth: any): Hono {
     const id = c.req.param('id');
 
     try {
+      if (!(await mayDeleteFile(reqDb(c, db), id, user.id))) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
       await moveToTrash(reqDb(c, db), id, user.id, tenantId(c));
       return c.json({ success: true });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -573,12 +600,20 @@ export function mediaRoutes(db: Database, auth: any): Hono {
       const user = c.get('user' as never) as any;
       const { ids } = c.req.valid('json');
 
+      // Same ownership rule as the single delete. Without it the batch route
+      // was the easier way to do exactly what the single one now refuses.
       const results = await Promise.allSettled(
-        ids.map((id) => moveToTrash(reqDb(c, db), id, user.id, tenantId(c))),
+        ids.map(async (id) => {
+          if (!(await mayDeleteFile(reqDb(c, db), id, user.id))) {
+            throw new Error('forbidden');
+          }
+          return moveToTrash(reqDb(c, db), id, user.id, tenantId(c));
+        }),
       );
       const moved = results.filter((r) => r.status === 'fulfilled').length;
+      const refused = results.length - moved;
 
-      return c.json({ success: true, deleted: moved });
+      return c.json({ success: true, deleted: moved, refused });
     },
   );
 

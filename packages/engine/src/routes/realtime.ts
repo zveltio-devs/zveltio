@@ -523,6 +523,12 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
   app.get('/connections', async (c) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);
+    // The comment above said "Admin" and the code checked only for a session,
+    // so any member could enumerate every connected userId on the instance.
+    // `/api/ws/stats` next door already gates the same information this way.
+    if (!(await isTenantAdmin(session.user.id).catch(() => false))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
 
     return c.json({
       connections: connections.size,
