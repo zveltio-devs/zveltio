@@ -5,7 +5,7 @@ import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
 import { executeFlow } from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
-import { isTenantAdmin } from '../lib/tenancy/index.js';
+import { isTenantAdmin, requireInstanceAdmin } from '../lib/tenancy/index.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -97,6 +97,51 @@ async function replaceSteps(db: Database, flowId: string, steps: StepInput[]): P
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+
+/**
+ * Step types that hand the author raw execution against the engine's own
+ * database or runtime. These are INSTANCE-admin only.
+ *
+ * `query_db` runs arbitrary SQL. It is read-only (SET TRANSACTION READ ONLY,
+ * enforced by Postgres) and tenant-scoped for collection data — but the tenant
+ * GUC only governs `zvd_*` rows. Better-Auth's `session` table has no RLS, so a
+ * TENANT admin could author `SELECT token FROM "session"` and read every live
+ * session on the instance, including god sessions. Read-only does not help: the
+ * attack is a read.
+ *
+ * `run_script` is the same argument one level up.
+ *
+ * The durable fix is a dedicated Postgres role with no SELECT on the auth
+ * tables, so the database enforces this the way it enforces read-only. Until
+ * that exists, authorship is the boundary: a tenant admin cannot write these
+ * steps, so cannot reach the tables.
+ */
+const INSTANCE_ADMIN_STEP_TYPES = new Set(['query_db', 'run_script']);
+
+/**
+ * Reject a flow body whose steps reach past the tenant boundary unless the
+ * caller is an instance admin.
+ *
+ * Checked at CREATE and UPDATE rather than only at run: execution is also
+ * reached by schedules and record hooks, which carry no caller, so the moment
+ * to decide is when the step is written.
+ */
+async function assertStepTypesAllowed(
+  userId: string,
+  steps: Array<{ type: string }> | undefined,
+): Promise<string | null> {
+  const dangerous = (steps ?? [])
+    .map((s) => s.type)
+    .filter((t) => INSTANCE_ADMIN_STEP_TYPES.has(t));
+  if (dangerous.length === 0) return null;
+  if (await requireInstanceAdmin(userId)) return null;
+  return (
+    `Step type(s) ${[...new Set(dangerous)].join(', ')} require instance-admin rights: ` +
+    `they execute raw SQL or code against the engine's database, which is not ` +
+    `confined to your tenant.`
+  );
+}
+
 export function flowsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
@@ -184,6 +229,9 @@ export function flowsRoutes(db: Database, auth: any): Hono {
       const body = c.req.valid('json');
       const user = c.get('user') as { id: string };
 
+      const stepDenial = await assertStepTypesAllowed(user.id, body.steps);
+      if (stepDenial) return c.json({ error: stepDenial }, 403);
+
       // Validate each step's config before persisting anything.
       for (const step of body.steps) {
         const v = validateStepConfig(step.type, step.config);
@@ -249,6 +297,10 @@ export function flowsRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const body = c.req.valid('json');
       const flowId = c.req.param('id');
+      const patchUser = c.get('user') as { id: string };
+
+      const stepDenial = await assertStepTypesAllowed(patchUser.id, body.steps);
+      if (stepDenial) return c.json({ error: stepDenial }, 403);
 
       const updates: Record<string, unknown> = { updated_at: new Date() };
       if (body.name !== undefined) updates.name = body.name;
