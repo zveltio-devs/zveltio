@@ -4,6 +4,88 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.42] - 2026-07-31
+
+**The extension trust chain, made real — plus four defects found while building
+it.** The theme is the same one that runs through beta.32: a control that
+existed, was configurable, was documented, and reached no branch.
+
+### Extension trust chain
+
+- **feat(extensions): a capability contract that is actually enforced.** The
+  previous policy (`hasCapability`) had exactly one production call site — inside
+  the WASM host — so for a JavaScript extension no denial was ever reachable. It
+  was documented and dead. Every `ctx.internals` member carrying real authority is
+  now mapped to a named capability the manifest must declare, enforced HOST-side
+  in `buildRestrictedContext`. A policy consulted inside the restricted code is
+  not a policy. `createBetterAuthSession` — which mints a session for any user —
+  was reached by six extensions and gated by nothing.
+
+- **feat(extensions): capability consent.** The manifest asks; an administrator
+  decides. Enforcing what an extension DECLARES is worth nothing on the path that
+  matters: ship v1 declaring nothing, ship v2 declaring `db:admin`, and an update
+  grants cross-tenant database access on the extension's own say-so. The
+  effective set is now `granted ∩ declared`, recorded at install. A widening
+  request runs WITHOUT the addition and surfaces an Approve prompt rather than
+  refusing to load — a security posture that ships as downtime gets switched off.
+
+- **feat(extensions): `ctx.config` replaces `process.env`.** In-process, the
+  environment is the *engine's*: `DATABASE_URL`, `BETTER_AUTH_SECRET`,
+  `FIELD_ENCRYPTION_KEY`. Reading it also routed around the capability gate. This
+  was a correctness bug too — storage settings have an admin-editable overlay, so
+  object storage configured from the Studio never reached the two extensions
+  reading `S3_*`, which kept file metadata and silently discarded the bytes.
+
+- **feat(security): a host keyring.** The three extensions doing their own
+  AES-GCM/HMAC stop holding key material. Their ciphertext is already on disk in
+  installs we do not control, so the host reproduces each envelope byte-for-byte
+  rather than migrating anyone; the tests reproduce the old implementations
+  verbatim and assert the host reads what they wrote.
+
+- **feat(revocations): a way to say "stop running this".** Signing proves
+  provenance, not that we still stand behind an artifact. A backdoored version
+  keeps verifying happily on every install that already has the files. Adds the
+  registry list and engine checks at install AND enable. An unreachable registry
+  fails OPEN — air-gapped installs are supported, and a control that bricks them
+  gets disabled permanently — but a list already fetched keeps enforcing.
+
+- **feat(extensions): digest pinning.** The declared-hash and signature checks
+  both compare against what the registry serves TODAY, so a version re-published
+  with different content passes both. A published version's bytes must never
+  change.
+
+### Security fixes
+
+- **fix(flows): `query_db` was not read-only.** The guard was a prefix check plus
+  a denylist whose every pattern required a leading `;`, so a data-modifying CTE
+  (`WITH x AS (DELETE … RETURNING *) SELECT * FROM x`) walked straight through and
+  deleted the table. `SET TRANSACTION READ ONLY` now makes Postgres enforce it.
+
+- **fix(export): CSV cells executed as spreadsheet formulas.** Quoting survives
+  the CSV grammar and does nothing about what Excel does next: a cell starting
+  `=`, `+`, `-` or `@` is evaluated on open. Ordinary data, written through the
+  ordinary API, ran in the exporting administrator's spreadsheet — including in
+  the audit-log export. One `csvCell` now serves every producer, and `hr/payroll`
+  had no escaping at all.
+
+- **fix(ws): WebSocket upgrades accepted any origin.** The same-origin policy does
+  not apply to WS handshakes and browsers attach cookies anyway, so any page the
+  victim visited could open a fully authenticated socket — the session check
+  passed precisely because the browser sent the real cookie.
+
+- **fix(import): encrypted fields were written in plaintext.** Import writes
+  straight to the table rather than through the write pipeline, so it never called
+  `maybeEncrypt`. The same value was encrypted by API and clear by CSV, with
+  nothing above the storage layer looking wrong — and import is the bulk path.
+
+### Tooling
+
+- **CI gate: no ambient authority.** Extensions may not read `process.env` or
+  import an authority-bearing `node:*` module. The allowlist is empty. Pure
+  `node:*` modules pass — rewriting a working constant-time compare to satisfy a
+  grep would trade real risk for tidiness.
+
+
 ## [3.0.0-beta.32] - 2026-07-17
 
 **Product-completeness pass across the P1/P2 backlog** — plus a run of "it exists
