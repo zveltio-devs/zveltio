@@ -67,6 +67,9 @@ function interpolateTemplate(template: string, context: Record<string, any>): st
 
 // ── Step executor ─────────────────────────────────────────────────────────────
 
+/** Warn once per process, not once per flow run. */
+let _warnedNoFlowRole = false;
+
 async function executeStep(
   db: Database,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -147,6 +150,31 @@ async function executeStep(
         // checks above cannot see. Must run before the tenant GUC: once a
         // statement has executed, SET TRANSACTION is no longer permitted.
         await sql.raw('SET TRANSACTION READ ONLY').execute(trx);
+
+        // Drop to a role with SELECT on `zvd_*` collection tables and nothing
+        // else. Read-only stops writes; it does not stop reads, and the tenant
+        // GUC only governs `zvd_*` rows — so `SELECT token FROM "session"`
+        // returned every live session on the instance. Authorship is gated to
+        // instance admins (routes/flows.ts), but that contains the escalation
+        // rather than removing the capability. This removes it: Postgres
+        // refuses regardless of who wrote the query or how it is shaped.
+        //
+        // Best-effort: a managed Postgres that could not CREATE ROLE leaves the
+        // role absent (see migration 024). Falling back to the authorship gate
+        // is the honest degradation — refusing to run every report because a
+        // hardening layer is unavailable would get the whole step disabled.
+        try {
+          await sql.raw('SET LOCAL ROLE zveltio_flow_reader').execute(trx);
+        } catch {
+          if (!_warnedNoFlowRole) {
+            _warnedNoFlowRole = true;
+            console.warn(
+              '[flows] zveltio_flow_reader role is unavailable — query_db runs with the ' +
+                'connection role, protected only by the instance-admin gate on authorship. ' +
+                'See migration 024_flow_reader_role.sql.',
+            );
+          }
+        }
         await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(trx);
         await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
         return sql.raw(cfg.query as string).execute(trx);
