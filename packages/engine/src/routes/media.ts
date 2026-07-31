@@ -14,7 +14,6 @@ import { reqDb, tenantId } from '../lib/route-db.js';
 // Object storage goes through the pluggable driver (lib/storage): `local`
 // filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 /**
  * May this user delete this file?
  *
@@ -39,6 +38,7 @@ async function mayDeleteFile(rdb: Database, fileId: string, userId: string): Pro
   return isTenantAdmin(userId).catch(() => false);
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function mediaRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
