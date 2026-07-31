@@ -36,6 +36,25 @@ function toConcurrentIndex(indexSQL: string): string {
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
+/**
+ * Let flow `query_db` steps read a newly created collection.
+ *
+ * The flow reader role holds an ALLOWLIST of `zvd_*` tables (migration 024), so
+ * a collection created after that migration is invisible to flows until it is
+ * granted here. Fail-closed in the useful direction: forgetting this breaks a
+ * report visibly, where a denylist would silently expose the next system table.
+ *
+ * Best-effort — the role is absent on a Postgres where it could not be created,
+ * and a missing hardening layer must not fail a collection create.
+ */
+async function grantFlowReaderSelect(db: Database, tableName: string): Promise<void> {
+  try {
+    await sql.raw(`GRANT SELECT ON ${tableName} TO zveltio_flow_reader`).execute(db);
+  } catch {
+    /* role absent (see migration 024) — query_db falls back to the authorship gate */
+  }
+}
+
 export const FieldSchema = z.object({
   name: z
     .string()
@@ -352,6 +371,7 @@ export class DDLManager {
     }
 
     await sql.raw(`CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`).execute(db);
+    await grantFlowReaderSelect(db, tableName);
 
     for (const indexSQL of indexes) {
       await sql.raw(indexSQL).execute(db);
