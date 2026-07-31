@@ -286,6 +286,35 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       );
     }
 
+    // `?channel=` used to be forwarded to Redis unchecked, while `?collection=`
+    // went through Casbin above. Since a bare channel is prefixed with
+    // `zveltio:`, `?channel=data:zvd_salaries` produced exactly the channel the
+    // collection gate exists to protect — the same subscription, one query
+    // parameter to the left.
+    //
+    // A `data:<collection>` channel now needs read on that collection, like any
+    // other way of asking for it. Anything else is an internal or
+    // extension-owned channel whose contents this route cannot reason about, so
+    // it requires instance admin: fail closed on the unknown rather than
+    // enumerate what happens to be sensitive today.
+    const allowedExtraChannels: string[] = [];
+    for (const ch of extraChannels) {
+      const dataMatch = /^zveltio:data:([a-zA-Z0-9_]+)(?::[a-zA-Z0-9_]+)?$/.exec(ch);
+      if (dataMatch) {
+        if (await checkPermission(userId, dataMatch[1], 'read').catch(() => false)) {
+          allowedExtraChannels.push(ch);
+        } else {
+          denied.push(ch);
+        }
+        continue;
+      }
+      if (await isTenantAdmin(userId).catch(() => false)) {
+        allowedExtraChannels.push(ch);
+      } else {
+        denied.push(ch);
+      }
+    }
+
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const tenantId = (c.get('tenant') as any)?.id ?? null;
     return streamSSE(c, async (stream) => {
@@ -307,7 +336,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
             collections.length > 0
               ? collections.map((col) => `zveltio:data:${col}`)
               : [CHANNELS.DATA_CHANGES];
-          const channels = [...dataChannels, ...extraChannels];
+          const channels = [...dataChannels, ...allowedExtraChannels];
 
           await subscriber.subscribe(...channels);
 
@@ -335,7 +364,7 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
           userId,
           collections,
           denied,
-          channels: extraChannels,
+          channels: allowedExtraChannels,
           record_id: recordId ?? null,
           filters,
           timestamp: new Date().toISOString(),
