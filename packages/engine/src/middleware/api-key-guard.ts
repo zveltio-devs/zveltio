@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
 import { hashApiKey } from '../lib/security/index.js';
+import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 
 /**
  * Middleware for Protected API:
@@ -28,6 +29,31 @@ export function apiKeyGuard(db: Database) {
     if (!apiKey) return c.json({ error: 'Invalid API key' }, 401);
     if (apiKey.expires_at && new Date(apiKey.expires_at) < new Date()) {
       return c.json({ error: 'API key expired' }, 401);
+    }
+
+    // The key must belong to the tenant the request is acting in. Without this
+    // the lookup was hash-only: a key issued in tenant A, sent with
+    // `X-Tenant-Slug: tenant-b`, authenticated and then operated on tenant B's
+    // data. Migration 021 added `tenant_id` precisely so this comparison could
+    // exist — it scoped the MANAGEMENT routes and left the AUTH path, which is
+    // the one that decides what a request may touch.
+    //
+    // Keys in the root tenant are treated as instance-scoped and may act
+    // anywhere. That is deliberate on two counts: migration 021 backfilled every
+    // pre-existing key to root, so a strict match would refuse working keys on
+    // upgrade; and a root-tenant key is already an instance-level credential, so
+    // the rule costs nothing it was protecting. The reported attack — a key from
+    // one ordinary tenant reaching another — is refused.
+    const requestTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
+    const keyTenantId = (apiKey as { tenant_id?: string | null }).tenant_id ?? null;
+    if (
+      keyTenantId &&
+      keyTenantId !== DEFAULT_TENANT_ID &&
+      requestTenantId &&
+      keyTenantId !== requestTenantId
+    ) {
+      logAccess(db, apiKey.id, 'unknown', c.req.method, c.req.path, 403).catch(() => {});
+      return c.json({ error: 'API key does not belong to this tenant' }, 403);
     }
 
     // 2. IP Whitelisting
