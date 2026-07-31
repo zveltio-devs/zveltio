@@ -620,6 +620,14 @@ export interface ZvExtensionRegistryTable {
    * consent tracking (grandfathered to whatever the manifest declares).
    */
   granted_capabilities: unknown; // JSONB: string[] | null
+  /**
+   * SHA-256 of the archive this extension was installed from, with the version
+   * it belonged to. Re-downloading the same `installed_version` must produce
+   * the same digest — the registry's own declared hash and signature only prove
+   * what it is serving today, not that a published version stayed unchanged.
+   */
+  installed_sha256: string | null;
+  installed_version: string | null;
 }
 
 export interface ZvEdgeFunctionsTable {

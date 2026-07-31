@@ -198,11 +198,26 @@ async function verifyArchiveSignature(
  * directory matching the extension slug (or anything else), we flatten it so
  * `engine/`, `studio/`, `manifest.json` land directly inside `EXTENSIONS_DIR/<name>/`.
  */
+/**
+ * Result of a successful download.
+ *
+ * `archiveSha256` is returned so the caller can PIN it. The checks inside this
+ * function prove the bytes match what the registry is serving right now and
+ * that the registry signed them — neither notices a registry that serves
+ * DIFFERENT bytes for a version you already installed, because it would sign
+ * and declare those honestly too.
+ */
+export interface DownloadResult {
+  archiveSha256: string;
+}
+
 export async function downloadExtension(
   entry: ExtensionCatalogEntry,
   destBase: string,
   licenseKey?: string,
-): Promise<void> {
+  /** Digest recorded at the last install of THIS version, if any. */
+  pinnedSha256?: string | null,
+): Promise<DownloadResult> {
   const downloadUrl =
     entry.download_url ??
     `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(entry.name)}/download`;
@@ -255,10 +270,26 @@ export async function downloadExtension(
   // the X-Archive-Sha256 response header. If the bytes in `buf` don't
   // hash to the declared value, the package was tampered with in
   // transit (R2 corruption, MITM, proxy mutation). Refuse to extract.
+  const { createHash } = await import('node:crypto');
+  const actualArchiveSha = createHash('sha256').update(buf).digest('hex');
+
+  // Pinning: the same version must always be the same bytes. The declared-hash
+  // and signature checks below both compare against what the registry says
+  // TODAY, so a registry that re-publishes different content under an existing
+  // version passes them — it declares and signs the new bytes honestly. Only a
+  // record of what was actually installed catches that.
+  if (pinnedSha256 && pinnedSha256 !== actualArchiveSha) {
+    throw new Error(
+      `Extension "${entry.name}" version ${entry.version} does not match what was ` +
+        `installed: pinned ${pinnedSha256.slice(0, 12)}… but the registry now serves ` +
+        `${actualArchiveSha.slice(0, 12)}…. A published version's contents must never ` +
+        `change. Refusing to install. If this is an intentional re-publish, the ` +
+        `publisher must issue a new version.`,
+    );
+  }
+
   const declaredArchiveSha = res.headers.get('x-archive-sha256');
   if (declaredArchiveSha) {
-    const { createHash } = await import('node:crypto');
-    const actualArchiveSha = createHash('sha256').update(buf).digest('hex');
     if (actualArchiveSha !== declaredArchiveSha.toLowerCase()) {
       throw new Error(
         `Extension "${entry.name}" archive SHA-256 mismatch: ` +
@@ -389,4 +420,5 @@ export async function downloadExtension(
   }
 
   console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
+  return { archiveSha256: actualArchiveSha };
 }
