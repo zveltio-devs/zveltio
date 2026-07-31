@@ -34,7 +34,13 @@ services:
     profiles: [ai-ollama, ai]
     restart: unless-stopped
     ports:
-      - '${OLLAMA_PORT:-11434}:11434'
+      # Loopback only. Ollama has no authentication of any kind, so publishing
+      # on 0.0.0.0 put a model-execution endpoint on every interface of the
+      # host — reachable from the LAN, and from the internet on a machine with a
+      # public IP. The engine reaches it by service name over the compose
+      # network and never needs the published port; this keeps it available for
+      # local debugging without exposing it.
+      - '127.0.0.1:${OLLAMA_PORT:-11434}:11434'
     environment:
       # Comma-separated list of models to pull on first start
       OLLAMA_MODELS: '${OLLAMA_MODELS:-llama3.2}'
@@ -70,7 +76,8 @@ services:
     profiles: [ai-deepseek, ai]
     restart: unless-stopped
     ports:
-      - '${DEEPSEEK_PORT:-11435}:11434'
+      # Loopback only — same reasoning as Ollama above.
+      - '127.0.0.1:${DEEPSEEK_PORT:-11435}:11434'
     environment:
       # Recommended models:
       #   deepseek-r1:7b   — ~4.7 GB,  runs on 8 GB RAM (CPU-only OK)
