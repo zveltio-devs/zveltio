@@ -59,7 +59,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // ── Time Travel: reconstruct state at a given point in time ────
   if (query.as_of) {
     const asOf = new Date(query.as_of);
-    if (isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
+    if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
 
     // Get the latest revision per record_id up to as_of
     // P0: use effectiveDb (tenant-isolated transaction) to prevent cross-tenant reads

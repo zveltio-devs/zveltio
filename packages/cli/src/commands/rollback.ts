@@ -32,13 +32,13 @@ export const rollbackCommand = new Command('rollback')
 
     if (opts.to !== undefined) {
       targetVersion = parseInt(opts.to);
-      if (isNaN(targetVersion)) {
+      if (Number.isNaN(targetVersion)) {
         console.error('❌ --to must be a valid integer');
         process.exit(1);
       }
     } else {
       const steps = parseInt(opts.steps);
-      if (isNaN(steps) || steps < 1) {
+      if (Number.isNaN(steps) || steps < 1) {
         console.error('❌ --steps must be a positive integer');
         process.exit(1);
       }

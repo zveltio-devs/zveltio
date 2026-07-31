@@ -58,7 +58,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   // ── Time Travel: single record at a given point in time ────────
   if (asOfRaw) {
     const asOf = new Date(asOfRaw);
-    if (isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
+    if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
 
     // P0: use effectiveDb for tenant isolation in time-travel queries
     const effectiveDbTTSingle = getDb(c, db);
