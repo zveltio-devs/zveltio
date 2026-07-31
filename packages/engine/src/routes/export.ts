@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono';
+import { recordsToCsv } from '../lib/security/index.js';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission } from '../lib/tenancy/index.js';
@@ -15,27 +16,6 @@ import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-function flattenValue(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
-}
-
-function recordsToCsv(records: Record<string, unknown>[]): string {
-  if (records.length === 0) return '';
-  const keys = Object.keys(records[0]);
-  const header = keys.map((k) => `"${k.replace(/"/g, '""')}"`).join(',');
-  const rows = records.map((r) =>
-    keys
-      .map((k) => {
-        const v = flattenValue(r[k]);
-        return `"${v.replace(/"/g, '""')}"`;
-      })
-      .join(','),
-  );
-  return [header, ...rows].join('\r\n');
-}
 
 // Validate collection name (must be user-defined: zvd_ prefix or simple identifier)
 const SAFE_TABLE = /^[a-zA-Z0-9_]{1,100}$/;

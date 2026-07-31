@@ -36,10 +36,12 @@ import { createBetterAuthSession } from '../security/index.js';
 import { encryptField } from '../data/index.js';
 import type { Keyring } from '../security/index.js';
 import {
+  csvCell,
   decryptWithKeyring,
   encryptWithKeyring,
   hmacAuthSecret,
   isKeyringValue,
+  recordsToCsv,
 } from '../security/index.js';
 import { sendNotification } from '../notifications.js';
 
@@ -173,6 +175,15 @@ export interface ExtensionInternals {
    * surface for auth/scim's stored bearer-token hashes — not a general MAC.
    */
   deriveTokenHash: (raw: string) => Promise<string>;
+  /**
+   * Quoted, formula-safe CSV cell. Ungated: a pure string function with no
+   * authority. Exposed because every extension that exports CSV was writing its
+   * own escaping, and quoting alone does not stop a spreadsheet executing a
+   * cell that starts with `=`.
+   */
+  csvCell: (value: unknown) => string;
+  /** Rows → CSV document, using `csvCell` for every cell. */
+  recordsToCsv: (records: Record<string, unknown>[]) => string;
 }
 
 /**
@@ -216,5 +227,7 @@ export function buildExtensionInternals(): ExtensionInternals {
       return decryptWithKeyring(value, opts?.keyring ?? 'field');
     },
     deriveTokenHash: hmacAuthSecret,
+    csvCell,
+    recordsToCsv,
   };
 }

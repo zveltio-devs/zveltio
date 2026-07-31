@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
+import { csvCell } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -536,15 +537,11 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     if (toD) query = query.where('created_at', '<=', toD);
     const rows = await query.execute();
 
-    const esc = (v: unknown): string => {
-      if (v == null) return '';
-      // Date must be handled before the object branch: JSON.stringify(date)
-      // returns an ALREADY-quoted string, which would then get re-quoted into
-      // """2026-…""" — valid CSV, but a garbled timestamp in every spreadsheet.
-      const s =
-        v instanceof Date ? v.toISOString() : typeof v === 'object' ? JSON.stringify(v) : String(v);
-      return `"${s.replace(/"/g, '""')}"`;
-    };
+    // csvCell also neutralises leading =,+,-,@ so an audit row someone planted
+    // (a crafted user-agent or resource id) does not execute in the reviewer's
+    // spreadsheet. An audit export is read by exactly the person you would most
+    // want to attack.
+    const esc = csvCell;
     const header = 'created_at,event_type,user_id,resource_type,resource_id,ip,metadata';
     const body = rows
       .map((r) =>
