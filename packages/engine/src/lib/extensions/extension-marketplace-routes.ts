@@ -29,6 +29,9 @@ import {
 } from './extension-license.js';
 import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
 import { DownMissingError } from './extension-errors.js';
+import { auditLog } from '../audit.js';
+import { parseGranted, recordConsent, resolveCapabilities } from './consent.js';
+import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 export function registerMarketplaceRoutes(
@@ -238,6 +241,18 @@ export function registerMarketplaceRoutes(
       }
     };
 
+    /** What a manifest asks for. Only a request until consent is recorded. */
+    const readDeclared = (name: string): string[] => {
+      try {
+        const m = JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8'));
+        return ((m.permissions ?? []) as unknown[]).filter(
+          (x: unknown): x is string => typeof x === 'string',
+        );
+      } catch {
+        return [];
+      }
+    };
+
     const extensions = catalog.map((entry) => {
       const dbEntry = dbMap.get(entry.name);
       const runtimeActive = self.isActive(entry.name);
@@ -269,6 +284,20 @@ export function registerMarketplaceRoutes(
         // red badge + reason for an enabled-but-not-running extension.
         last_load_error: dbEntry?.last_load_error ?? self.lastLoadError.get(entry.name) ?? null,
         last_load_at: dbEntry?.last_load_at ?? null,
+        // Capability consent. `pending_capabilities` non-empty means the
+        // extension asks for more than was approved and is running WITHOUT the
+        // difference — the UI shows an Approve prompt naming each one.
+        ...(() => {
+          const declared = readDeclared(entry.name);
+          const granted = parseGranted(dbEntry?.granted_capabilities);
+          const r = resolveCapabilities(declared, granted);
+          return {
+            declared_capabilities: declared,
+            granted_capabilities: granted,
+            pending_capabilities: r.pending,
+            capabilities_grandfathered: r.grandfathered,
+          };
+        })(),
       };
     });
 
@@ -276,6 +305,22 @@ export function registerMarketplaceRoutes(
   });
 
   // POST /api/marketplace/:name/install (registered via the dispatcher below)
+  /**
+   * The digest recorded when this extension was last installed, but only when
+   * the version has not moved. A new version legitimately carries new bytes;
+   * the same version must not.
+   */
+  const pinFor = async (name: string, version: string): Promise<string | null> => {
+    const row = await db
+      .selectFrom('zv_extension_registry')
+      .select(['installed_sha256', 'installed_version'])
+      .where('name', '=', name)
+      .executeTakeFirst()
+      .catch(() => undefined);
+    if (!row?.installed_sha256) return null;
+    return row.installed_version === version ? row.installed_sha256 : null;
+  };
+
   const installExtension = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
@@ -283,6 +328,23 @@ export function registerMarketplaceRoutes(
       const catalog = await fetchCatalog();
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+
+      // A signature proves the artifact came from the registry; it says nothing
+      // about whether the registry still stands behind it. Check before any
+      // files are fetched — installing and then refusing to enable leaves the
+      // bytes on disk for the next person to enable by hand.
+      const verdict = await checkRevoked(name, entry.version);
+      if (verdict.revoked && verdict.entry) {
+        const msg = revocationMessage(name, entry.version, verdict.entry);
+        console.error(`[marketplace] refusing install: ${msg}`);
+        return c.json({ success: false, error: msg, message: msg, revoked: true }, 451);
+      }
+      if (verdict.unknown && revocationCheckRequired()) {
+        const msg =
+          `Cannot verify whether "${name}" has been revoked — the registry is unreachable ` +
+          `and ZVELTIO_REQUIRE_REVOCATION_CHECK is set. Restore registry access or unset it.`;
+        return c.json({ success: false, error: msg, message: msg }, 503);
+      }
 
       // Determine where extension files should live
       const extBase = resolveExtensionsBase();
@@ -296,9 +358,16 @@ export function registerMarketplaceRoutes(
       const authToken = await getLicenseKey(db, name);
       let downloaded = false;
       let downloadError = '';
+      let downloadedSha: string | null = null;
       if (!extensionFilesPresent(extDir)) {
         try {
-          await doDownload(entry, extBase, authToken);
+          const result = await doDownload(
+            entry,
+            extBase,
+            authToken,
+            await pinFor(name, entry.version),
+          );
+          downloadedSha = result?.archiveSha256 ?? null;
           downloaded = true;
           invalidateFilesPresent(extDir); // disk changed — refresh listing cache
         } catch (err) {
@@ -337,18 +406,46 @@ export function registerMarketplaceRoutes(
           is_enabled: false,
           installed_at: new Date(),
           tenant_id: tenantId,
+          // Pin what we actually installed. Only set on a real download —
+          // files already on disk (air-gapped / EXTENSIONS_DIR) were never
+          // fetched, so there is no digest to attest to and inventing one
+          // would pin whatever happened to be there.
+          ...(downloadedSha
+            ? { installed_sha256: downloadedSha, installed_version: entry.version }
+            : {}),
         })
         .onConflict((oc) =>
-          oc
-            .column('name')
-            .doUpdateSet({ is_installed: true, installed_at: new Date(), tenant_id: tenantId }),
+          oc.column('name').doUpdateSet({
+            is_installed: true,
+            installed_at: new Date(),
+            tenant_id: tenantId,
+            ...(downloadedSha
+              ? { installed_sha256: downloadedSha, installed_version: entry.version }
+              : {}),
+          }),
         )
         .execute();
+
+      // Installing IS the consent: the admin was shown what the extension asks
+      // for and chose to install it. Record the set so a later version that
+      // asks for more has to come back and ask again.
+      const declaredAtInstall = (() => {
+        try {
+          const m = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+          return ((m.permissions ?? []) as unknown[]).filter(
+            (x: unknown): x is string => typeof x === 'string',
+          );
+        } catch {
+          return [] as string[];
+        }
+      })();
+      await recordConsent(db, entry.name, declaredAtInstall).catch(() => undefined);
 
       return c.json({
         success: true,
         downloaded,
         files_on_disk: true,
+        granted_capabilities: declaredAtInstall,
         message: `Extension "${name}" installed successfully. Enable it to activate.`,
       });
     });
@@ -364,6 +461,25 @@ export function registerMarketplaceRoutes(
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
+      // Checked again here, not only at install: an extension installed last
+      // month is revoked today, and enable is the moment its code starts
+      // running. Anything already on disk reaches this path.
+      const verdict = await checkRevoked(name, entry.version);
+      if (verdict.revoked && verdict.entry) {
+        const msg = revocationMessage(name, entry.version, verdict.entry);
+        console.error(`[marketplace] refusing enable: ${msg}`);
+        return c.json(
+          { success: false, hot_loaded: false, error: msg, message: msg, revoked: true },
+          451,
+        );
+      }
+      if (verdict.unknown && revocationCheckRequired()) {
+        const msg =
+          `Cannot verify whether "${name}" has been revoked — the registry is unreachable ` +
+          `and ZVELTIO_REQUIRE_REVOCATION_CHECK is set.`;
+        return c.json({ success: false, hot_loaded: false, error: msg, message: msg }, 503);
+      }
+
       // If extension files are not on disk yet, try to download them now before
       // marking it enabled in the DB. This covers the case where Install succeeded
       // via registry but files were not present, or the user clicked Enable directly.
@@ -372,7 +488,7 @@ export function registerMarketplaceRoutes(
       if (!extensionFilesPresent(extDir)) {
         try {
           const authToken = await getLicenseKey(db, name);
-          await doDownload(entry, extBase, authToken);
+          await doDownload(entry, extBase, authToken, await pinFor(name, entry.version));
           invalidateFilesPresent(extDir); // disk changed — refresh listing cache
         } catch (downloadErr) {
           const msg =
@@ -700,6 +816,85 @@ export function registerMarketplaceRoutes(
     });
   };
 
+  /**
+   * POST /api/marketplace/:name/approve-capabilities
+   *
+   * Grant what the extension currently declares. This is the other half of the
+   * capability contract: the manifest asks, an administrator decides. Without
+   * it an update is a silent privilege grant — ship v1 declaring nothing, ship
+   * v2 declaring `db:admin`, and the extension has cross-tenant database access
+   * because it said so.
+   *
+   * The request must name the exact capabilities being approved. Approving
+   * "whatever it asks for right now" would let a version that lands between the
+   * admin reading the prompt and clicking the button be approved unseen — the
+   * click has to mean the specific set the admin was shown.
+   */
+  const approveCapabilities = async (c: Context, name: string) => {
+    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+    const extBase = resolveExtensionsBase();
+    const extDir = join(extBase, name);
+    if (!isPathInsideBase(extBase, extDir)) return c.json({ error: 'Invalid extension name' }, 400);
+
+    let declared: string[];
+    try {
+      const m = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+      declared = ((m.permissions ?? []) as unknown[]).filter(
+        (x: unknown): x is string => typeof x === 'string',
+      );
+    } catch {
+      return c.json({ error: `No manifest on disk for "${name}"` }, 404);
+    }
+
+    const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+    const approve = body?.capabilities;
+    if (!Array.isArray(approve) || approve.some((x) => typeof x !== 'string')) {
+      return c.json(
+        {
+          error:
+            'Body must be { capabilities: string[] } naming exactly what you are approving. ' +
+            'Approving whatever the manifest happens to ask for at this instant would let ' +
+            'a version that lands mid-decision be approved unseen.',
+          declared_capabilities: declared,
+        },
+        400,
+      );
+    }
+
+    // Refuse to grant anything the manifest does not currently ask for: the
+    // record must describe this artifact, not a superset someone typed.
+    const notDeclared = (approve as string[]).filter((x) => !declared.includes(x));
+    if (notDeclared.length > 0) {
+      return c.json(
+        {
+          error: `Not declared by "${name}": ${notDeclared.join(', ')}`,
+          declared_capabilities: declared,
+        },
+        409,
+      );
+    }
+
+    await recordConsent(db, name, approve as string[]);
+    const granted = [...new Set(approve as string[])].sort();
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    await auditLog(db, {
+      type: 'extension.capabilities.approved',
+      userId: session?.user?.id ?? undefined,
+      resourceId: name,
+      resourceType: 'extension',
+      metadata: { granted, declared },
+    }).catch(() => undefined);
+
+    return c.json({
+      success: true,
+      granted_capabilities: granted,
+      message:
+        `Approved for "${name}". Reload or re-enable the extension for the new ` +
+        `capabilities to take effect.`,
+    });
+  };
+
   // ── POST/PUT dispatcher ──────────────────────────────────────────────────
   // Hono's RegExpRouter can't match `/api/marketplace/:name{.+}/<suffix>` when
   // the name spans 3+ path segments (e.g. `compliance/ro/saft`) AND there are
@@ -735,6 +930,8 @@ export function registerMarketplaceRoutes(
         return disableExtension(c, name);
       case 'uninstall':
         return uninstallExtension(c, name);
+      case 'approve-capabilities':
+        return approveCapabilities(c, name);
       default:
         return c.json({ error: 'Unknown marketplace action' }, 404);
     }

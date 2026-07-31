@@ -14,6 +14,7 @@
 
 import { join } from 'path';
 import { z } from 'zod';
+import { CAPABILITIES, isKnownCapability } from './capabilities.js';
 
 export const ManifestSchema = z
   .object({
@@ -41,7 +42,39 @@ export const ManifestSchema = z
         postgres_extensions: z.array(z.string()).optional(),
       })
       .optional(),
-    permissions: z.array(z.string()).default([]),
+    /**
+     * Declared capabilities — the contract in lib/extensions/capabilities.ts.
+     *
+     * Validated rather than free-form, because a typo used to be indistinguishable
+     * from a deliberate declaration: the field accepted any string and only
+     * `db:admin` was ever read, so `"db-admin"` or `"secrets "` would silently
+     * grant nothing and fail at runtime somewhere unrelated. An unknown value now
+     * fails the manifest.
+     *
+     * These are what the administrator is shown at install time, and what review
+     * actually reviews — auditing a permission set scales, auditing code does not.
+     */
+    permissions: z
+      .array(z.string())
+      .default([])
+      .superRefine((perms, ctx) => {
+        for (const p of perms) {
+          if (!isKnownCapability(p)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                `Unknown capability "${p}". Known: ${CAPABILITIES.join(', ')}, ` +
+                `or net:<host> (e.g. net:api.stripe.com).`,
+            });
+          }
+        }
+      }),
+    /**
+     * Optional pin on the capability contract version. An extension built
+     * against a contract this engine no longer speaks refuses to load rather
+     * than losing a capability silently.
+     */
+    capabilityContract: z.number().int().positive().optional(),
     /**
      * Routes that are intentionally reachable WITHOUT a session — declared
      * relative to the extension's mount (`/ext/<name>`). Everything else under
