@@ -96,8 +96,6 @@ async function replaceSteps(db: Database, flowId: string, steps: StepInput[]): P
   });
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-
 /**
  * Step types that hand the author raw execution against the engine's own
  * database or runtime. These are INSTANCE-admin only.
@@ -142,6 +140,7 @@ async function assertStepTypesAllowed(
   );
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
 export function flowsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
