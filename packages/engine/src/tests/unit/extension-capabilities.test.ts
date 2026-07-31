@@ -107,16 +107,26 @@ describe('capability vocabulary', () => {
   it('still accepts the legacy labels the catalogue already declares', () => {
     // 55 manifests declare `database`. Rejecting it would fail every one of
     // them on load for no security gain — it grants nothing either way.
-    for (const legacy of ['database', 'storage', 'settings', 'network']) {
+    for (const legacy of ['database', 'settings', 'network']) {
       expect(isKnownCapability(legacy)).toBe(true);
       expect(isLegacyLabel(legacy)).toBe(true);
     }
   });
 
   it('grants nothing for a legacy label', () => {
-    const g = gateInternals('ai', fakeInternals(), ['database', 'storage', 'network']);
+    const g = gateInternals('ai', fakeInternals(), ['database', 'settings', 'network']);
     expect(() => g.decryptSecret()).toThrow(CapabilityDeniedError);
     expect(() => g.enqueueDDLJob()).toThrow(CapabilityDeniedError);
+  });
+
+  it('promoted `storage` out of the legacy labels into a real capability', () => {
+    // It now gates ctx.config.objectStorage, which carries S3 credentials. The
+    // only two manifests that declared it are exactly the two extensions that
+    // talk to S3, so the label gained a meaning with no manifest churn — see
+    // extension-config.test.ts for the gating itself.
+    expect(isKnownCapability('storage')).toBe(true);
+    expect(isLegacyLabel('storage')).toBe(false);
+    expect(CAPABILITIES).toContain('storage');
   });
 
   it('has a contract version to pin against', () => {

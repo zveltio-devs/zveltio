@@ -11,7 +11,7 @@
  */
 
 import type { Context } from 'hono';
-import type { ServiceRegistry } from '@zveltio/sdk/extension';
+import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { dynamicInsert } from '../../db/dynamic.js';
 import type { EventBus } from '../runtime/index.js';
@@ -46,6 +46,10 @@ export interface ExtensionContext {
    * transaction (RLS-isolated), or the global pool outside a tenant context.
    * Safe for normal data access — no longer the cross-tenant global handle. */
   db: Database;
+  /** Host-resolved configuration (`ctx.config`) — what an extension may read
+   * instead of `process.env`. Built per extension, since `objectStorage` is
+   * gated by the `storage` capability. */
+  config?: ExtensionConfig;
   /** Explicit CROSS-TENANT handle. Present only when the manifest declares the
    * `db:admin` permission; otherwise any use throws. For legitimately global
    * operations only (e.g. platform-wide reporting). */
