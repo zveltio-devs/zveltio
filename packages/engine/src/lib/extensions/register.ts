@@ -34,6 +34,7 @@ import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext } from './internals.js';
 import { gateInternals } from './capabilities.js';
+import { buildExtensionConfig } from './config.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 /**
@@ -100,6 +101,9 @@ export function buildRestrictedContext(
     // (boot/CLI). So an extension can no longer read or write across tenants by
     // reaching for `ctx.db` instead of `reqDb(c)` — the last multi-tenant hole.
     db: createRestrictedDb(() => getCurrentTenantTrx() ?? ctx.db, extName, allowedTables),
+    // Configuration resolved host-side, so extensions stop reading the engine's
+    // whole environment (and stop missing the admin's Studio storage settings).
+    config: buildExtensionConfig(capabilities),
     // Explicit, capability-gated cross-tenant handle (the global pool). Present
     // only when the manifest declares the `db:admin` permission — otherwise any
     // use throws, so the escape hatch is visible at review + install time.
