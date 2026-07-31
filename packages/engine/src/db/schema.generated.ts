@@ -942,6 +942,9 @@ export interface ZvExtensionRegistryTable {
   tenant_id: string | null;
   last_load_error: string | null;
   last_load_at: Date | null;
+  granted_capabilities: unknown | null;
+  installed_sha256: string | null;
+  installed_version: string | null;
 }
 
 export interface ZvExtensionScheduleRunsTable {
