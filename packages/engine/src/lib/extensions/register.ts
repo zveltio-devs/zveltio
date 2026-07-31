@@ -33,6 +33,7 @@ import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext } from './internals.js';
+import { gateInternals } from './capabilities.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 /**
@@ -152,7 +153,12 @@ export function buildRestrictedContext(
         );
       }
     },
-    internals: ctx.internals,
+    // Capability-gated: each guarded internals member throws unless the
+    // manifest declared it. Enforcement sits here, on the HOST side of the
+    // boundary — the previous capability policy died because its only live
+    // call site was inside the WASM host, so no denial was ever reachable for
+    // a JS extension.
+    internals: gateInternals(extName, ctx.internals, capabilities),
   };
 }
 
