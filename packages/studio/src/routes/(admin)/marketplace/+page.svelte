@@ -277,9 +277,8 @@ async function approveCapabilities(ext: Extension) {
     });
     toast.success(`Approved ${pending.join(', ')} for ${ext.displayName}. Restart to apply.`);
     await loadCatalog();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-  } catch (e: any) {
-    toast.error(`Approval failed: ${e.message}`);
+  } catch (e) {
+    toast.error(`Approval failed: ${(e as Error).message}`);
   } finally {
     processingId = null;
   }

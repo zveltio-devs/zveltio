@@ -31,6 +31,7 @@ import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
 import { DownMissingError } from './extension-errors.js';
 import { auditLog } from '../audit.js';
 import { parseGranted, recordConsent, resolveCapabilities } from './consent.js';
+import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 export function registerMarketplaceRoutes(
@@ -312,6 +313,23 @@ export function registerMarketplaceRoutes(
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
 
+      // A signature proves the artifact came from the registry; it says nothing
+      // about whether the registry still stands behind it. Check before any
+      // files are fetched — installing and then refusing to enable leaves the
+      // bytes on disk for the next person to enable by hand.
+      const verdict = await checkRevoked(name, entry.version);
+      if (verdict.revoked && verdict.entry) {
+        const msg = revocationMessage(name, entry.version, verdict.entry);
+        console.error(`[marketplace] refusing install: ${msg}`);
+        return c.json({ success: false, error: msg, message: msg, revoked: true }, 451);
+      }
+      if (verdict.unknown && revocationCheckRequired()) {
+        const msg =
+          `Cannot verify whether "${name}" has been revoked — the registry is unreachable ` +
+          `and ZVELTIO_REQUIRE_REVOCATION_CHECK is set. Restore registry access or unset it.`;
+        return c.json({ success: false, error: msg, message: msg }, 503);
+      }
+
       // Determine where extension files should live
       const extBase = resolveExtensionsBase();
       const extDir = join(extBase, name);
@@ -407,6 +425,25 @@ export function registerMarketplaceRoutes(
       const catalog = await fetchCatalog();
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+
+      // Checked again here, not only at install: an extension installed last
+      // month is revoked today, and enable is the moment its code starts
+      // running. Anything already on disk reaches this path.
+      const verdict = await checkRevoked(name, entry.version);
+      if (verdict.revoked && verdict.entry) {
+        const msg = revocationMessage(name, entry.version, verdict.entry);
+        console.error(`[marketplace] refusing enable: ${msg}`);
+        return c.json(
+          { success: false, hot_loaded: false, error: msg, message: msg, revoked: true },
+          451,
+        );
+      }
+      if (verdict.unknown && revocationCheckRequired()) {
+        const msg =
+          `Cannot verify whether "${name}" has been revoked — the registry is unreachable ` +
+          `and ZVELTIO_REQUIRE_REVOCATION_CHECK is set.`;
+        return c.json({ success: false, hot_loaded: false, error: msg, message: msg }, 503);
+      }
 
       // If extension files are not on disk yet, try to download them now before
       // marking it enabled in the DB. This covers the case where Install succeeded
