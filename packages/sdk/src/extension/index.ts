@@ -42,6 +42,55 @@ export interface FieldTypeRegistryAPI {
 }
 
 /**
+ * Object storage settings, handed to extensions that declare the `storage`
+ * capability. `undefined` on `ExtensionConfig` means the instance has no object
+ * storage configured — degrade (keep metadata, skip the bytes), don't throw.
+ *
+ * Resolved from the same source the engine uses, which includes the admin's
+ * Studio settings. Reading `S3_*` from the environment instead misses that
+ * overlay entirely and sees an unconfigured instance.
+ */
+export interface ObjectStorageConfig {
+  /** Endpoint origin, no trailing slash. */
+  readonly endpoint: string;
+  readonly region: string;
+  readonly bucket: string;
+  /** Public base URL for reads, when the deployment serves one. */
+  readonly publicUrl?: string;
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+}
+
+/**
+ * The configuration an extension may read — `ctx.config`.
+ *
+ * Use this instead of `process.env`. An in-process extension reading the
+ * environment gets the whole ENGINE environment (database credentials, the auth
+ * secret, the field-encryption key), which is both more than any extension
+ * needs and a way around the capability gate on `ctx.internals`.
+ *
+ * Values are live: read them when you need them rather than caching at module
+ * scope, because an administrator can change storage settings at runtime.
+ */
+export interface ExtensionConfig {
+  readonly env: 'production' | 'development' | 'test';
+  readonly isProduction: boolean;
+  /** The engine's public base URL, when the deployment sets one. */
+  readonly publicUrl?: string;
+  /**
+   * Whether the instance has a field-encryption key configured. A boolean by
+   * design — to encrypt something use `ctx.internals.encryptSecret`, which is
+   * gated by the `secrets` capability. Extensions do not hold key material.
+   */
+  readonly encryptionConfigured: boolean;
+  readonly crossDomainAuth: boolean;
+  /** Permits plaintext LDAP binds. Development only. */
+  readonly allowInsecureLdap: boolean;
+  /** Present only with the `storage` capability, and only when configured. */
+  readonly objectStorage?: ObjectStorageConfig;
+}
+
+/**
  * Context injected into every extension's `register()` call.
  *
  * The `DB` generic threads the extension's codegen'd database schema
@@ -65,6 +114,14 @@ export interface ExtensionContext<DB = any> {
    * is safe by default. For explicit CROSS-tenant access, see `ctx.adminDb`.
    */
   db: Kysely<DB>;
+  /**
+   * Configuration this extension may read. Use it instead of `process.env` —
+   * see `ExtensionConfig`.
+   *
+   * Typed optional so partial/bootstrap contexts type-check; always present on
+   * the context the engine hands a loaded extension.
+   */
+  config?: ExtensionConfig;
   /**
    * Explicit CROSS-TENANT database handle (the global pool). Present ONLY when
    * the manifest declares the `db:admin` permission — otherwise any query throws.

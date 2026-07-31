@@ -241,7 +241,7 @@ computes the SHA-256, and patches these blocks in place.
 | `package` | string | yes | npm package name (if publishing client/). |
 | `author` | string | no | "Your Name <email>". |
 | `homepage` | string | no | URL. |
-| `permissions` | string[] | no | Declarative — `database`, `settings`, `network`, `filesystem`. Used in marketplace UI. |
+| `permissions` | string[] | no | **Enforced capabilities.** See §Capabilities below. Validated at load — an unknown value fails the manifest. |
 | `publicRoutes` | string[] | no | Routes reachable WITHOUT a session, relative to the `/ext/<name>` mount (e.g. `["/webhook/twilio", "/public/*"]`). Everything else is fail-closed (401 for anonymous). `*` matches across `/`. See §5 "Authentication". |
 | `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
 | `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. |
@@ -266,6 +266,47 @@ computes the SHA-256, and patches these blocks in place.
 | `integrity.engineSha256` | hex64 | yes (v2) | SHA-256 of `engine/index.js`. Filled by pack; engine refuses to load a bundle whose bytes don't match. |
 | `integrity.archiveSha256` | hex64 | no | SHA-256 of the `.zvext` archive. Optional; the registry computes and stores this on upload. Engine verifies it against the `X-Archive-Sha256` response header at install time. |
 | `signature` | object | no | Filled by `zveltio extension publish`. Do not edit by hand. |
+
+### Capabilities
+
+`permissions` is the capability list. Anything an extension can do that the host
+has to mediate is named, declared, and enforced — in the engine, when it builds
+your `ctx`, not inside your own code.
+
+| Capability | Grants |
+| --- | --- |
+| `db:admin` | `ctx.adminDb` — the cross-tenant database handle. |
+| `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
+| `secrets` | `encryptSecret` / `decryptSecret`. |
+| `auth:session` | `createBetterAuthSession` — mint a session for any user. |
+| `notifications` | `sendNotification`. |
+| `files` | `extractTextFromFile`, `moveToTrash`, `scheduleFileIndexing`. |
+| `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |
+| `edge-functions` | `runEdgeFunction`. |
+| `introspection` | `introspectSchema`, `extensionRegistry`, `runQualityScan`. |
+| `storage` | `ctx.config.objectStorage` — S3 settings **and credentials**. |
+| `cron` | Register cron schedules. |
+| `field-types` | Contribute engine-side field types. |
+| `net:<host>` | One outbound destination, e.g. `net:api.stripe.com`. |
+
+`database`, `settings` and `network` are accepted for backwards compatibility
+and grant nothing. Prefer `net:<host>` over `network`: it makes the egress list
+reviewable instead of a blanket claim.
+
+Using an undeclared capability throws at the call site, naming what to add.
+
+**Configuration.** Read `ctx.config`, not `process.env`. In-process, the
+environment is the *engine's* — database credentials, the auth secret, the
+field-encryption key — and reading it goes around this contract entirely. CI
+rejects `process.env` and the authority-bearing `node:*` modules in extension
+code.
+
+**Consent.** The manifest *asks*; an administrator *decides*. What was approved
+is recorded at install, and a later version that declares more runs **without**
+the additions until an admin approves them
+(`POST /api/marketplace/<name>/approve-capabilities`). Widening your manifest is
+not a way to widen your access. Installs predating consent tracking keep running
+with what they declare.
 
 ---
 
