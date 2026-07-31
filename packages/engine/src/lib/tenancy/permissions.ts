@@ -243,6 +243,64 @@ function _decodeGodCache(userId: string, raw: string): boolean | null {
  * Cached for performance. Fail-closed: returns false if DB is unavailable.
  * Cache values are HMAC-signed to prevent Valkey-injection privilege escalation.
  */
+/**
+ * The role to evaluate this request as — read from the database, not the
+ * session.
+ *
+ * `session.user.role` is always undefined: `role` is not declared in
+ * better-auth's `additionalFields`. `lib/data/auth.ts` already says the field
+ * is unreliable and routes authorization through `checkPermission()` for that
+ * reason — but every column-permission and expand call site kept reading it,
+ * falling back to `'public'`. So a rule written for a NAMED role matched
+ * nobody (the column it should have hidden stayed visible), while an
+ * administrator missed getColumnAccess's admin short-circuit and could be
+ * blinded by a `public` rule. Both directions wrong, from one undefined field.
+ *
+ * An explicitly-set role wins: the API-key pseudo-user carries `role:
+ * 'api_key'`, which is constructed rather than read from a session and must not
+ * be overwritten by a lookup that would find nothing.
+ *
+ * Cached like `isGodUser`, HMAC-signed so a writable cache cannot promote a
+ * member, and fails to `'public'` — the least-privileged role — when the
+ * database is unreachable.
+ */
+export async function resolveUserRole(user: { id?: string; role?: string }): Promise<string> {
+  if (user.role) return user.role;
+  const userId = user.id;
+  if (!userId || userId.startsWith('apikey:')) return 'public';
+
+  const cache = getCache();
+  const cacheKey = `urole:${userId}`;
+  if (cache) {
+    try {
+      const raw = await cache.get(cacheKey);
+      if (raw !== null) {
+        const decoded = _decodeRolesCache(userId, raw);
+        if (decoded !== null && decoded.length === 1) return decoded[0]!;
+      }
+    } catch {
+      /* cache unavailable */
+    }
+  }
+
+  try {
+    const result = await sql<{ role: string }>`
+      SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
+    `.execute(_db);
+    const role = result.rows[0]?.role || 'public';
+    if (cache) {
+      try {
+        await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(userId, [role]));
+      } catch {
+        /* cache unavailable */
+      }
+    }
+    return role;
+  } catch {
+    return 'public'; // fail closed — least privilege when the DB is down
+  }
+}
+
 export async function isGodUser(userId: string): Promise<boolean> {
   const cache = getCache();
   const cacheKey = `god:${userId}`;
@@ -526,7 +584,16 @@ export async function invalidateUserPermCache(userId: string): Promise<void> {
     // would leave god cache live for up to GOD_CACHE_TTL (300s) even though
     // permissions were invalidated. The god cache TTL mismatches PERMISSION_CACHE_TTL
     // (60s), so both must be cleared together on any permission change.
-    const allKeys = [...permKeys, `roles:${userId}`, `god:${userId}`, `user:perm-keys:${userId}`];
+    // urole:{userId} too — it caches the DB role that column permissions and
+    // expand are evaluated against, so a demotion that left it live would keep
+    // the old role's column visibility for the full TTL.
+    const allKeys = [
+      ...permKeys,
+      `roles:${userId}`,
+      `god:${userId}`,
+      `urole:${userId}`,
+      `user:perm-keys:${userId}`,
+    ];
     if (allKeys.length > 0) await cache.del(...allKeys);
   } catch {
     /* cache unavailable */

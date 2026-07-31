@@ -164,16 +164,15 @@ d('data list RLS in/not_in (in-process)', () => {
     // [name, email, emailVerified, image, createdAt, updatedAt,
     // twoFactorEnabled, id] and nothing else. `user.role` is always undefined.
     //
-    // The same undefined feeds `getColumnAccess(db, collection, user.role ??
-    // 'public')` at four sites in handlers/list.ts, so EVERY authenticated user
-    // is evaluated as the `public` role for column permissions — which is not
-    // reliably the conservative direction, since a deployment may grant public
-    // more than it grants a named role.
+    // The column-permission side of the same defect IS fixed: those sites now
+    // call `resolveUserRole()`, which reads the role from the database the way
+    // `checkPermission` already does. This one is deliberately left alone,
+    // because switching it on WIDENS access — a god currently sees fewer rows
+    // than intended, which is the safe direction to be wrong in.
     //
-    // Asserted as-is deliberately. Whoever adds `role` to additionalFields will
-    // see this test fail and be pointed straight at the 20 call sites that
-    // change meaning at the same moment. Encoding the INTENDED behaviour here
-    // instead would have hidden the bug behind a red test nobody could explain.
+    // Asserted as-is so the change is a decision rather than an accident.
+    // Whoever makes gods bypass RLS will see this test fail and be pointed at
+    // exactly what they are turning on.
     await setPolicy('in', 'static:red');
     expect(await titlesFor(godCookie)).toEqual(['alpha']);
   });

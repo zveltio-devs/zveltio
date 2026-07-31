@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
-import { getUserRoles } from '../lib/tenancy/index.js';
+import { getUserRoles, resolveUserRole } from '../lib/tenancy/index.js';
 
 const ROLE_RANK: Record<string, number> = {
   god: 100,
@@ -73,7 +73,12 @@ export function rpcRoutes(db: Database, auth: any): Hono {
 
     // Check role
     const user = session.user;
-    const hasAccess = await userHasRole(user.id, fn.required_role, user.role ?? 'member');
+    // The real role, not `user.role ?? 'member'` — `session.user.role` is
+    // always undefined (not declared in better-auth's additionalFields), so
+    // every caller was ranked as `member` and the `god` short-circuit below
+    // never fired. The Casbin fallback covered it, but ranking a god as a
+    // member is the wrong input to a rank comparison.
+    const hasAccess = await userHasRole(user.id, fn.required_role, await resolveUserRole(user));
     if (!hasAccess) return c.json({ error: 'Forbidden' }, 403);
 
     // Parse args — optional JSON body
