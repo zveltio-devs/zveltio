@@ -136,7 +136,20 @@ export async function getRlsFilters(
     if (value === null) continue; // can't resolve value — skip (fail-open for this policy)
 
     const op = (policy.filter_op as FilterCondition['op']) || 'eq';
-    result.push({ field: policy.filter_field, condition: { op, value } });
+    // `in`/`not_in` need a list, and resolveValue only ever produces a scalar.
+    // A `static:` source is the one place a list can be expressed, so it is
+    // comma-split here — for those operators only, so an `eq` policy whose
+    // value legitimately contains a comma is untouched. The user_* sources are
+    // single values, where a one-element list means the same as `eq`.
+    const isListOp = op === 'in' || op === 'not_in';
+    const condValue =
+      isListOp && policy.filter_value_source.startsWith('static:')
+        ? String(value)
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+        : value;
+    result.push({ field: policy.filter_field, condition: { op, value: condValue } });
   }
 
   return result;
@@ -164,8 +177,24 @@ export function applyRlsFilters<Q>(
 ): Q {
   let out = query as unknown as WhereChain;
   for (const { field, condition } of filters) {
+    const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
     if (condition.op === 'eq') out = out.where(field, '=', condition.value);
     else if (condition.op === 'neq') out = out.where(field, '!=', condition.value);
+    else if (condition.op === 'in') out = out.where(field, 'in', asList(condition.value));
+    else if (condition.op === 'not_in') out = out.where(field, 'not in', asList(condition.value));
+    else {
+      // Fail CLOSED. `in` and `not_in` were accepted by the policy route
+      // (routes/rls.ts validates against a four-value enum) and silently
+      // dropped here, so a policy an administrator saved, saw listed as
+      // enabled, and believed was hiding rows did nothing at all. A security
+      // filter that cannot be applied must not let the rows through — an
+      // operator can act on an error, not on a leak they cannot see.
+      throw new Error(
+        `RLS policy on "${field}" uses operator "${condition.op}", which this engine ` +
+          `cannot apply. Refusing the query rather than returning rows the policy was ` +
+          `meant to hide. Fix or disable the policy.`,
+      );
+    }
   }
   return out as unknown as Q;
 }
