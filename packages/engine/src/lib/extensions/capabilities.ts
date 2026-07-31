@@ -68,6 +68,12 @@ export const CAPABILITIES = [
   'edge-functions',
   /** Inspect the database schema / extension registry. */
   'introspection',
+  /**
+   * Read object-storage settings and credentials via `ctx.config.objectStorage`.
+   * Declared by the two extensions that talk to S3 directly; everything else
+   * goes through the engine's storage routes and needs nothing.
+   */
+  'storage',
   /** Register cron schedules. */
   'cron',
   /** Contribute engine-side field types (code-backed). First-party only. */
@@ -87,9 +93,14 @@ const CAPABILITY_SET: ReadonlySet<string> = new Set(CAPABILITIES);
  * whether or not it is declared. `network` is the one worth replacing — with
  * `net:<host>`, which review can actually read as an egress list.
  *
+ * `storage` used to be here too. It now gates `ctx.config.objectStorage`, which
+ * carries S3 credentials — and the only two manifests that declared it are
+ * exactly the two extensions that talk to S3, so the label acquired a meaning
+ * without a single manifest changing.
+ *
  * @deprecated Declare a capability from CAPABILITIES instead.
  */
-const LEGACY_LABELS: ReadonlySet<string> = new Set(['database', 'storage', 'settings', 'network']);
+const LEGACY_LABELS: ReadonlySet<string> = new Set(['database', 'settings', 'network']);
 
 /** Whether `value` is a legacy no-op label rather than an enforced capability. */
 export function isLegacyLabel(value: string): boolean {
