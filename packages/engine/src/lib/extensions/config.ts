@@ -24,7 +24,7 @@
  */
 
 import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extension';
-import { storageConfig } from '../storage/config.js';
+import { storageConfig } from '../storage/index.js';
 
 function flag(name: string): boolean {
   const v = process.env[name];

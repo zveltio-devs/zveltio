@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { buildExtensionConfig } from '../../lib/extensions/config.js';
-import { setStorageOverlay } from '../../lib/storage/config.js';
+import { setStorageOverlay } from '../../lib/storage/index.js';
 
 const ENV_KEYS = [
   'NODE_ENV',
