@@ -613,6 +613,21 @@ export interface ZvExtensionRegistryTable {
    * /api/extensions. null = loaded clean. */
   last_load_error: string | null;
   last_load_at: Date | null;
+  /**
+   * Capabilities an administrator consented to, as a JSON array of strings.
+   * The manifest DECLARES; this records what was GRANTED, so an update cannot
+   * widen an extension's power on its own say-so. null = install predating
+   * consent tracking (grandfathered to whatever the manifest declares).
+   */
+  granted_capabilities: unknown; // JSONB: string[] | null
+  /**
+   * SHA-256 of the archive this extension was installed from, with the version
+   * it belonged to. Re-downloading the same `installed_version` must produce
+   * the same digest — the registry's own declared hash and signature only prove
+   * what it is serving today, not that a published version stayed unchanged.
+   */
+  installed_sha256: string | null;
+  installed_version: string | null;
 }
 
 export interface ZvEdgeFunctionsTable {

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { auth } from '../lib/auth.js';
+import { checkWsOrigin } from '../lib/security/index.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 
@@ -62,6 +63,16 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     const server = (c.env as any)?.server;
     if (!server) return c.text('WebSocket not supported in this environment', 500);
+
+    // Cross-site WebSocket hijacking: the same-origin policy does not apply to
+    // WS handshakes and the browser attaches cookies anyway, so the session
+    // check below passes for a socket opened by ANY page the victim visits.
+    // Origin is the only thing that separates the real app from an attacker's.
+    const originVerdict = checkWsOrigin(c.req.header('origin'), c.req.header('host'));
+    if (!originVerdict.allowed) {
+      console.warn(`[ws] refused upgrade: ${originVerdict.reason}`);
+      return c.json({ error: 'Forbidden origin' }, 403);
+    }
 
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) return c.json({ error: 'Unauthorized' }, 401);

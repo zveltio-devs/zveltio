@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import type { Database } from '../db/index.js';
-import { DDLManager } from '../lib/data/index.js';
+import { DDLManager, maybeEncrypt } from '../lib/data/index.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
@@ -309,7 +309,15 @@ export function importRoutes(db: Database, auth: any) {
 
         for (const [key, rawVal] of Object.entries(raw)) {
           if (!validCols.has(key)) continue; // ignore unknown columns silently
-          record[key] = coerce(String(rawVal ?? ''), fieldMap[key]);
+          const coerced = coerce(String(rawVal ?? ''), fieldMap[key]);
+          // Import writes straight to the table rather than through the write
+          // pipeline, so it has to apply field encryption itself. Without this a
+          // column marked `encrypted: true` was stored in PLAINTEXT when the
+          // rows arrived by CSV and encrypted when the same rows arrived by API
+          // — the field still reads as encrypted everywhere in the UI, and only
+          // the bytes on disk differ. Importing is the bulk path, so it is the
+          // one most likely to carry the sensitive column.
+          record[key] = fieldMap[key]?.encrypted ? await maybeEncrypt(coerced, true) : coerced;
         }
 
         // Must have at least one schema field
