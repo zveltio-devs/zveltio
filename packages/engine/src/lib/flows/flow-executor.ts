@@ -102,7 +102,8 @@ async function executeStep(
     case 'query_db': {
       if (!cfg.query) return { output: prevOutput };
 
-      // Security: only SELECT/WITH statements permitted — blocks DML/DDL injection.
+      // Shape check first — it produces the message an author can act on. It is
+      // NOT what makes this read-only; see SET TRANSACTION READ ONLY below.
       const trimmed = (cfg.query as string).trim().toUpperCase();
       if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('WITH')) {
         throw new Error(
@@ -111,7 +112,14 @@ async function executeStep(
         );
       }
 
-      // Block dangerous SQL patterns even inside SELECT
+      // Defence in depth against obvious abuse. A denylist cannot be the
+      // boundary — every pattern below requires a leading `;`, so a
+      // data-modifying CTE walked straight through:
+      //
+      //   WITH x AS (DELETE FROM zvd_customers RETURNING *) SELECT * FROM x
+      //
+      // starts with WITH, matches nothing here, and deletes the table. Postgres
+      // enforces the actual guarantee now; this list only catches noise early.
       const DANGEROUS_PATTERNS = [
         /;\s*(DROP|DELETE|UPDATE|INSERT|CREATE|ALTER|TRUNCATE|GRANT|REVOKE)/i,
         /pg_sleep/i,
@@ -134,6 +142,11 @@ async function executeStep(
       // MUST live in the same transaction as the user query, otherwise a
       // cartesian join can monopolise a pool connection indefinitely.
       const result = await db.transaction().execute(async (trx: Database) => {
+        // THE read-only guarantee. Postgres refuses any write in this
+        // transaction — including from a data-modifying CTE, which the string
+        // checks above cannot see. Must run before the tenant GUC: once a
+        // statement has executed, SET TRANSACTION is no longer permitted.
+        await sql.raw('SET TRANSACTION READ ONLY').execute(trx);
         await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(trx);
         await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
         return sql.raw(cfg.query as string).execute(trx);
