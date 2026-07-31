@@ -305,6 +305,22 @@ export function registerMarketplaceRoutes(
   });
 
   // POST /api/marketplace/:name/install (registered via the dispatcher below)
+  /**
+   * The digest recorded when this extension was last installed, but only when
+   * the version has not moved. A new version legitimately carries new bytes;
+   * the same version must not.
+   */
+  const pinFor = async (name: string, version: string): Promise<string | null> => {
+    const row = await db
+      .selectFrom('zv_extension_registry')
+      .select(['installed_sha256', 'installed_version'])
+      .where('name', '=', name)
+      .executeTakeFirst()
+      .catch(() => undefined);
+    if (!row?.installed_sha256) return null;
+    return row.installed_version === version ? row.installed_sha256 : null;
+  };
+
   const installExtension = async (c: Context, name: string) => {
     if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
 
@@ -342,9 +358,16 @@ export function registerMarketplaceRoutes(
       const authToken = await getLicenseKey(db, name);
       let downloaded = false;
       let downloadError = '';
+      let downloadedSha: string | null = null;
       if (!extensionFilesPresent(extDir)) {
         try {
-          await doDownload(entry, extBase, authToken);
+          const result = await doDownload(
+            entry,
+            extBase,
+            authToken,
+            await pinFor(name, entry.version),
+          );
+          downloadedSha = result?.archiveSha256 ?? null;
           downloaded = true;
           invalidateFilesPresent(extDir); // disk changed — refresh listing cache
         } catch (err) {
@@ -383,11 +406,23 @@ export function registerMarketplaceRoutes(
           is_enabled: false,
           installed_at: new Date(),
           tenant_id: tenantId,
+          // Pin what we actually installed. Only set on a real download —
+          // files already on disk (air-gapped / EXTENSIONS_DIR) were never
+          // fetched, so there is no digest to attest to and inventing one
+          // would pin whatever happened to be there.
+          ...(downloadedSha
+            ? { installed_sha256: downloadedSha, installed_version: entry.version }
+            : {}),
         })
         .onConflict((oc) =>
-          oc
-            .column('name')
-            .doUpdateSet({ is_installed: true, installed_at: new Date(), tenant_id: tenantId }),
+          oc.column('name').doUpdateSet({
+            is_installed: true,
+            installed_at: new Date(),
+            tenant_id: tenantId,
+            ...(downloadedSha
+              ? { installed_sha256: downloadedSha, installed_version: entry.version }
+              : {}),
+          }),
         )
         .execute();
 
@@ -453,7 +488,7 @@ export function registerMarketplaceRoutes(
       if (!extensionFilesPresent(extDir)) {
         try {
           const authToken = await getLicenseKey(db, name);
-          await doDownload(entry, extBase, authToken);
+          await doDownload(entry, extBase, authToken, await pinFor(name, entry.version));
           invalidateFilesPresent(extDir); // disk changed — refresh listing cache
         } catch (downloadErr) {
           const msg =
