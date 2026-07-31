@@ -12,7 +12,7 @@ import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ZvApiKeyRow } from '../../db/schema.js';
 import { DDLManager } from './ddl-manager.js';
-import { checkPermission } from '../tenancy/index.js';
+import { checkPermission, DEFAULT_TENANT_ID } from '../tenancy/index.js';
 import { hashApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
 
@@ -31,7 +31,15 @@ export async function authenticate(
   const rawKey = c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
 
   if (rawKey?.startsWith('zvk_')) {
-    const apiKey = await validateApiKey(db, rawKey);
+    // Defensive: a context without `get` (partial mocks, any future caller
+    // that builds one by hand) must not throw here. A hardening check that
+    // crashes the authentication path is worse than the gap it closes — it
+    // fails every request instead of the wrong ones.
+    const requestTenantId =
+      typeof c.get === 'function'
+        ? ((c.get('tenant') as { id?: string } | null)?.id ?? null)
+        : null;
+    const apiKey = await validateApiKey(db, rawKey, requestTenantId);
     if (apiKey) {
       return {
         user: {
@@ -49,7 +57,11 @@ export async function authenticate(
   return null;
 }
 
-async function validateApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow | null> {
+async function validateApiKey(
+  db: Database,
+  rawKey: string,
+  requestTenantId: string | null,
+): Promise<ZvApiKeyRow | null> {
   const hash = await hashApiKey(rawKey);
   const apiKey = await db
     .selectFrom('zv_api_keys')
@@ -60,6 +72,31 @@ async function validateApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow
 
   if (!apiKey) return null;
   if (apiKey.expires_at && new Date(apiKey.expires_at) < new Date()) return null;
+
+  // The key must belong to the tenant this request is acting in. The lookup
+  // above is hash-only, so a key issued in tenant A, sent with
+  // `X-Tenant-Slug: tenant-b`, authenticated and then read and wrote tenant B's
+  // data. Migration 021 added `tenant_id` exactly so this comparison could
+  // exist; it scoped the MANAGEMENT routes and left the AUTH path — the one
+  // that decides what a request may touch.
+  //
+  // Root-tenant keys act anywhere, deliberately. Migration 021 backfilled every
+  // pre-existing key to root, so a strict match would refuse working keys on
+  // upgrade, and a root-tenant key is already an instance-level credential. The
+  // reported attack — one ordinary tenant's key reaching another — is refused.
+  const keyTenantId = (apiKey as { tenant_id?: string | null }).tenant_id ?? null;
+  if (
+    keyTenantId &&
+    keyTenantId !== DEFAULT_TENANT_ID &&
+    requestTenantId &&
+    keyTenantId !== requestTenantId
+  ) {
+    console.warn(
+      `[api-key] refused: key ${apiKey.id} belongs to tenant ${keyTenantId} but the ` +
+        `request is acting in ${requestTenantId}`,
+    );
+    return null;
+  }
 
   // Update last_used_at — fire-and-forget; non-blocking on hot path
   db.updateTable('zv_api_keys')
