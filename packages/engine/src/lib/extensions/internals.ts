@@ -33,7 +33,14 @@ import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
 import { createBetterAuthSession } from '../security/index.js';
-import { decryptField, encryptField, isEncryptedValue } from '../data/index.js';
+import { encryptField } from '../data/index.js';
+import type { Keyring } from '../security/index.js';
+import {
+  decryptWithKeyring,
+  encryptWithKeyring,
+  hmacAuthSecret,
+  isKeyringValue,
+} from '../security/index.js';
 import { sendNotification } from '../notifications.js';
 
 /**
@@ -152,8 +159,20 @@ export interface ExtensionInternals {
   // it loose without `any`; the real (stricter) fn is cast in buildExtensionInternals.
   sendNotification: (db: unknown, input: unknown) => Promise<void>;
   createBetterAuthSession: typeof createBetterAuthSession;
-  encryptSecret: (plaintext: string) => Promise<string>;
-  decryptSecret: (value: string) => Promise<string>;
+  /**
+   * Encrypt with a host-held key. `keyring` selects WHICH key: 'field' (the
+   * default, FIELD_ENCRYPTION_KEY) or 'mail' (MAIL_ENCRYPTION_KEY), so an
+   * extension never has to hold key material to get blast-radius separation.
+   */
+  encryptSecret: (plaintext: string, opts?: { keyring?: Keyring }) => Promise<string>;
+  /** Decrypt a value produced by `encryptSecret`, or by the per-extension
+   * crypto that predated it — the envelope selects the key. */
+  decryptSecret: (value: string, opts?: { keyring?: Keyring }) => Promise<string>;
+  /**
+   * HMAC-SHA256 under the instance auth secret, hex encoded. A compatibility
+   * surface for auth/scim's stored bearer-token hashes — not a general MAC.
+   */
+  deriveTokenHash: (raw: string) => Promise<string>;
 }
 
 /**
@@ -184,13 +203,18 @@ export function buildExtensionInternals(): ExtensionInternals {
     extractTextFromFile: extractTextFromFile as ExtensionInternals['extractTextFromFile'],
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],
     createBetterAuthSession,
-    encryptSecret: async (plaintext: string) => {
-      if (isEncryptedValue(plaintext)) return plaintext;
-      return encryptField(plaintext);
+    encryptSecret: async (plaintext: string, opts?: { keyring?: Keyring }) => {
+      const keyring = opts?.keyring ?? 'field';
+      // Already-encrypted input is returned untouched so a caller that
+      // re-saves a record does not double-wrap what it read.
+      if (isKeyringValue(plaintext)) return plaintext;
+      if (keyring === 'field') return encryptField(plaintext);
+      return encryptWithKeyring(plaintext, keyring);
     },
-    decryptSecret: async (value: string) => {
-      if (!isEncryptedValue(value)) return value;
-      return decryptField(value);
+    decryptSecret: async (value: string, opts?: { keyring?: Keyring }) => {
+      if (!isKeyringValue(value)) return value;
+      return decryptWithKeyring(value, opts?.keyring ?? 'field');
     },
+    deriveTokenHash: hmacAuthSecret,
   };
 }

@@ -165,6 +165,9 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   // Secrets — 26 call sites across the catalogue, previously ungated
   encryptSecret: 'secrets',
   decryptSecret: 'secrets',
+  // HMAC under the instance auth secret. Gated with the other key-material
+  // helpers: the extension that needs it used to hold BETTER_AUTH_SECRET itself.
+  deriveTokenHash: 'secrets',
   // Identity — "log anyone in"
   createBetterAuthSession: 'auth:session',
   // Messaging

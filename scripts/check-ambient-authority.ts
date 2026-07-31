@@ -33,19 +33,23 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 /**
- * Files that still read key material directly, with the reason each is not
- * simply converted. All three derive keys for data ALREADY AT REST, so moving
- * them changes ciphertext/HMAC inputs and needs a compatibility path rather
- * than a rename. Tracked, not forgotten — this list should only ever shrink.
+ * Extension files exempt from the rule, with the reason each is exempt.
+ *
+ * Empty, and that is the interesting part. Three files used to be here —
+ * auth/scim, communications/mail and integrations/migrators each read a key out
+ * of the environment and did their own AES-GCM or HMAC. They were not exempt
+ * because reading keys was acceptable; they were exempt because their
+ * ciphertext is already on disk in installs we do not control, so converting
+ * them naively would have been data loss dressed up as a refactor.
+ *
+ * They were closed by giving the HOST the formats instead: `lib/security/keyring.ts`
+ * reproduces each envelope byte-for-byte under the same key, so the extensions
+ * delegate and every value already stored keeps decrypting.
+ *
+ * Add an entry only for something that genuinely cannot be moved, with the
+ * reason written out. This list should only ever shrink.
  */
-const ALLOWLIST: Record<string, string> = {
-  'auth/scim/engine/routes.ts':
-    'HMACs SCIM bearer tokens with BETTER_AUTH_SECRET; changing the input invalidates every issued token.',
-  'communications/mail/engine/lib/crypto.ts':
-    'AES-256-GCM for stored IMAP/SMTP passwords under MAIL_ENCRYPTION_KEY; its own ciphertext format.',
-  'integrations/migrators/engine/routes.ts':
-    'AES-256-GCM for stored migrator tokens under FIELD_ENCRYPTION_KEY; `enc1:` format predates ctx.internals.encryptSecret (`enc:v1:`).',
-};
+const ALLOWLIST: Record<string, string> = {};
 
 /**
  * `node:*` modules that hand an extension authority the host is supposed to
@@ -159,8 +163,10 @@ const findings = scan(root);
 if (findings.length === 0) {
   const allowed = Object.keys(ALLOWLIST).length;
   console.log(
-    `✅ ambient-authority: no extension reads process.env or imports an authority-bearing node:* module ` +
-      `(${allowed} tracked exception${allowed === 1 ? '' : 's'}).`,
+    `✅ ambient-authority: no extension reads process.env or imports an authority-bearing node:* module` +
+      (allowed === 0
+        ? ', with no exceptions.'
+        : ` (${allowed} tracked exception${allowed === 1 ? '' : 's'}).`),
   );
   process.exit(0);
 }
