@@ -8,7 +8,13 @@
 import { Hono } from 'hono';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
-import { checkPermission, getRlsFilters, applyRlsFilters } from '../lib/tenancy/index.js';
+import {
+  applyRlsFilters,
+  checkPermission,
+  getColumnAccess,
+  getRlsFilters,
+  resolveUserRole,
+} from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -20,8 +26,13 @@ export function syncRoutes(db: Database, _auth: any): Hono {
   app.use('*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session?.user) return c.json({ error: 'Unauthorized' }, 401);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-    c.set('user', { ...session.user, role: (session.user as any).role ?? 'user' });
+    // The REAL role, resolved from the database. `session.user.role` is always
+    // undefined (not declared in better-auth's additionalFields), and this line
+    // used to fabricate `'user'` — a role name that exists nowhere else in the
+    // system, so every column permission and RLS role match silently missed.
+    // Three routes invented three different defaults for the same absent field:
+    // `'public'` in the data handlers, `'member'` in rpc, `'user'` here.
+    c.set('user', { ...session.user, role: await resolveUserRole(session.user) });
     await next();
   });
 
@@ -359,7 +370,21 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       if (!canRead) continue; // silently skip collections the user has no access to
 
       try {
-        const updated = await pullDb
+        // Row-level security. The push path applies it (see syncRlsFilters
+        // above); pull selected every changed row with none, so an offline
+        // client synced exactly the rows a policy hides — and kept them on the
+        // device. `checkPermission` above is collection-level and cannot see
+        // rows.
+        const pullRls = await getRlsFilters(
+          // The SHORT name: policies are stored against the logical collection,
+          // not the physical `zvd_` table.
+          collectionShortName,
+          c.get('user') as { id: string; email?: string; role: string },
+          c.get('authType') ?? 'session',
+        );
+        // Column permissions likewise: `selectAll()` shipped forbidden columns.
+        const pullColAccess = await getColumnAccess(db, collectionShortName, user.role);
+        const pullQuery = pullDb
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .selectFrom(collection as any)
           .selectAll()
@@ -367,12 +392,13 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           .where('updated_at' as any, '>', sinceDate)
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           .orderBy('updated_at' as any, 'asc')
-          .limit(PULL_LIMIT_PER_COLLECTION)
-          .execute();
+          .limit(PULL_LIMIT_PER_COLLECTION);
+        const updated = await applyRlsFilters(pullQuery, pullRls).execute();
 
         for (const record of updated) {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
           const r = record as any;
+          for (const hiddenCol of pullColAccess.hidden) delete r[hiddenCol];
           changes.push({
             collection,
             id: r.id,
