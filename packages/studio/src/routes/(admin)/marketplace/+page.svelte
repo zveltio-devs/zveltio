@@ -21,6 +21,8 @@ import {
   Key,
   Circle,
   Hammer,
+  ShieldAlert,
+  ShieldCheck,
 } from '@lucide/svelte';
 import { api as marketplaceApi } from '$lib/api.js';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
@@ -73,6 +75,17 @@ interface Extension {
   dependencies?: string[];
   /** Subset of `dependencies` that are not yet enabled — blocks Install/Enable. */
   missing_dependencies?: string[];
+  /** Capabilities the manifest asks for. */
+  declared_capabilities?: string[];
+  /** Capabilities an admin approved. null = install predating consent tracking. */
+  granted_capabilities?: string[] | null;
+  /**
+   * Declared but never approved. Non-empty means this version asks for MORE
+   * than was agreed to and is running WITHOUT the difference — the admin has a
+   * decision to make. This is the whole point of recording consent: an update
+   * must not be able to widen an extension's power on its own say-so.
+   */
+  pending_capabilities?: string[];
 }
 
 // ── License key modal state ────────────────────────────────────────────────
@@ -241,6 +254,32 @@ async function install(ext: Extension) {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     toast.error(`Install failed: ${e.message}`);
+  } finally {
+    processingId = null;
+  }
+}
+
+/**
+ * Grant exactly the capabilities the admin was shown.
+ *
+ * Sends the explicit list rather than "approve whatever it asks for", so a
+ * version landing between rendering this card and the click cannot be approved
+ * unseen — the server refuses anything the manifest does not currently declare.
+ */
+async function approveCapabilities(ext: Extension) {
+  const pending = ext.pending_capabilities ?? [];
+  if (pending.length === 0) return;
+  processingId = ext.name;
+  try {
+    await api(`/api/marketplace/${encodeURIComponent(ext.name)}/approve-capabilities`, {
+      method: 'POST',
+      body: JSON.stringify({ capabilities: ext.declared_capabilities ?? [] }),
+    });
+    toast.success(`Approved ${pending.join(', ')} for ${ext.displayName}. Restart to apply.`);
+    await loadCatalog();
+    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
+  } catch (e: any) {
+    toast.error(`Approval failed: ${e.message}`);
   } finally {
     processingId = null;
   }
@@ -543,6 +582,32 @@ onMount(loadCatalog);
                     </div>
                   {:else}
                     <div class="mb-4"></div>
+                  {/if}
+
+                  <!-- Pending capability request. Shown whenever this version
+                       asks for more than was approved: it is running WITHOUT
+                       these, so an admin who never sees this never finds out
+                       why a feature silently does nothing. -->
+                  {#if (ext.pending_capabilities ?? []).length > 0}
+                    <div class="alert alert-warning py-2 px-3 mb-3 text-xs items-start">
+                      <ShieldAlert size={14} class="mt-0.5 shrink-0" />
+                      <div class="min-w-0">
+                        <p class="font-semibold">Requests new permissions</p>
+                        <p class="opacity-80 mb-2">
+                          This version asks for
+                          {#each ext.pending_capabilities ?? [] as cap, i}<code
+                            class="font-mono">{cap}</code>{#if i < (ext.pending_capabilities ?? []).length - 1}, {/if}{/each},
+                          which you have not approved. It is running without them.
+                        </p>
+                        <button
+                          class="btn btn-warning btn-xs gap-1"
+                          disabled={isProcessing}
+                          onclick={() => approveCapabilities(ext)}
+                        >
+                          <ShieldCheck size={12} /> Approve
+                        </button>
+                      </div>
+                    </div>
                   {/if}
 
                   <!-- Actions -->
