@@ -20,6 +20,9 @@ export type AuditEventType =
   | 'extension.loaded'
   | 'extension.load_failed'
   | 'extension.unloaded'
+  /** An administrator granted an extension the capabilities its manifest
+   * declares. The one place a privilege widening is a deliberate act. */
+  | 'extension.capabilities.approved'
   | 'sql.executed'
   | 'sql.failed'
   | 'backup.created'

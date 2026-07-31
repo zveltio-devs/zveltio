@@ -125,12 +125,25 @@ export class CapabilityDeniedError extends Error {
     readonly extName: string,
     readonly capability: Capability,
     readonly member: string,
+    /**
+     * True when the manifest DOES declare the capability but no administrator
+     * approved it. The two cases need different messages: one is fixed by the
+     * extension author editing a manifest, the other by an administrator
+     * clicking approve. Telling an operator to "add it to manifest.json" when
+     * it is already there sends them to the wrong place entirely.
+     */
+    readonly awaitingApproval = false,
   ) {
     super(
-      `Extension "${extName}" used ctx.internals.${member} without declaring the ` +
-        `"${capability}" capability. Add it to "permissions" in manifest.json. ` +
-        `Capabilities are shown to the administrator at install time, so an ` +
-        `extension that needs more power has to ask for it visibly.`,
+      awaitingApproval
+        ? `Extension "${extName}" used ctx.internals.${member}, which needs the ` +
+            `"${capability}" capability. Its manifest declares it, but no administrator ` +
+            `has approved it — the extension is running without it. Approve with ` +
+            `POST /api/marketplace/${extName}/approve-capabilities, then reload the extension.`
+        : `Extension "${extName}" used ctx.internals.${member} without declaring the ` +
+            `"${capability}" capability. Add it to "permissions" in manifest.json. ` +
+            `Capabilities are shown to the administrator at install time, so an ` +
+            `extension that needs more power has to ask for it visibly.`,
     );
     this.name = 'CapabilityDeniedError';
   }
@@ -182,6 +195,11 @@ export function gateInternals<T extends object>(
   extName: string,
   internals: T,
   capabilities: readonly string[],
+  /**
+   * Capabilities the manifest declares but no administrator approved. Used only
+   * to phrase the denial correctly — they are NOT granted.
+   */
+  pending: readonly string[] = [],
 ): T {
   // `ctx.internals` is optional on the context type and absent in some callers
   // (test stubs, and any path that builds a context before internals exist).
@@ -190,6 +208,7 @@ export function gateInternals<T extends object>(
   if (internals === null || typeof internals !== 'object') return internals;
 
   const granted = new Set(capabilities);
+  const awaiting = new Set(pending);
 
   return new Proxy(internals, {
     get(target, prop, receiver) {
@@ -198,6 +217,7 @@ export function gateInternals<T extends object>(
 
       const required = INTERNALS_CAPABILITY[prop];
       if (!required || granted.has(required)) return value;
+      const unapproved = awaiting.has(required);
 
       // Throw at CALL time, not at property access: extensions destructure
       // (`const { decryptSecret } = ctx.internals`) at module scope, and
@@ -205,10 +225,10 @@ export function gateInternals<T extends object>(
       // near the offending call.
       if (typeof value === 'function') {
         return () => {
-          throw new CapabilityDeniedError(extName, required, prop);
+          throw new CapabilityDeniedError(extName, required, prop, unapproved);
         };
       }
-      throw new CapabilityDeniedError(extName, required, prop);
+      throw new CapabilityDeniedError(extName, required, prop, unapproved);
     },
   });
 }

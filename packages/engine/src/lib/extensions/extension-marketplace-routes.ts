@@ -29,6 +29,8 @@ import {
 } from './extension-license.js';
 import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
 import { DownMissingError } from './extension-errors.js';
+import { auditLog } from '../audit.js';
+import { parseGranted, recordConsent, resolveCapabilities } from './consent.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 export function registerMarketplaceRoutes(
@@ -238,6 +240,18 @@ export function registerMarketplaceRoutes(
       }
     };
 
+    /** What a manifest asks for. Only a request until consent is recorded. */
+    const readDeclared = (name: string): string[] => {
+      try {
+        const m = JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8'));
+        return ((m.permissions ?? []) as unknown[]).filter(
+          (x: unknown): x is string => typeof x === 'string',
+        );
+      } catch {
+        return [];
+      }
+    };
+
     const extensions = catalog.map((entry) => {
       const dbEntry = dbMap.get(entry.name);
       const runtimeActive = self.isActive(entry.name);
@@ -269,6 +283,20 @@ export function registerMarketplaceRoutes(
         // red badge + reason for an enabled-but-not-running extension.
         last_load_error: dbEntry?.last_load_error ?? self.lastLoadError.get(entry.name) ?? null,
         last_load_at: dbEntry?.last_load_at ?? null,
+        // Capability consent. `pending_capabilities` non-empty means the
+        // extension asks for more than was approved and is running WITHOUT the
+        // difference — the UI shows an Approve prompt naming each one.
+        ...(() => {
+          const declared = readDeclared(entry.name);
+          const granted = parseGranted(dbEntry?.granted_capabilities);
+          const r = resolveCapabilities(declared, granted);
+          return {
+            declared_capabilities: declared,
+            granted_capabilities: granted,
+            pending_capabilities: r.pending,
+            capabilities_grandfathered: r.grandfathered,
+          };
+        })(),
       };
     });
 
@@ -345,10 +373,26 @@ export function registerMarketplaceRoutes(
         )
         .execute();
 
+      // Installing IS the consent: the admin was shown what the extension asks
+      // for and chose to install it. Record the set so a later version that
+      // asks for more has to come back and ask again.
+      const declaredAtInstall = (() => {
+        try {
+          const m = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+          return ((m.permissions ?? []) as unknown[]).filter(
+            (x: unknown): x is string => typeof x === 'string',
+          );
+        } catch {
+          return [] as string[];
+        }
+      })();
+      await recordConsent(db, entry.name, declaredAtInstall).catch(() => undefined);
+
       return c.json({
         success: true,
         downloaded,
         files_on_disk: true,
+        granted_capabilities: declaredAtInstall,
         message: `Extension "${name}" installed successfully. Enable it to activate.`,
       });
     });
@@ -700,6 +744,85 @@ export function registerMarketplaceRoutes(
     });
   };
 
+  /**
+   * POST /api/marketplace/:name/approve-capabilities
+   *
+   * Grant what the extension currently declares. This is the other half of the
+   * capability contract: the manifest asks, an administrator decides. Without
+   * it an update is a silent privilege grant — ship v1 declaring nothing, ship
+   * v2 declaring `db:admin`, and the extension has cross-tenant database access
+   * because it said so.
+   *
+   * The request must name the exact capabilities being approved. Approving
+   * "whatever it asks for right now" would let a version that lands between the
+   * admin reading the prompt and clicking the button be approved unseen — the
+   * click has to mean the specific set the admin was shown.
+   */
+  const approveCapabilities = async (c: Context, name: string) => {
+    if (!(await requireAdmin(c))) return c.json({ error: 'Unauthorized or admin required' }, 401);
+
+    const extBase = resolveExtensionsBase();
+    const extDir = join(extBase, name);
+    if (!isPathInsideBase(extBase, extDir)) return c.json({ error: 'Invalid extension name' }, 400);
+
+    let declared: string[];
+    try {
+      const m = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+      declared = ((m.permissions ?? []) as unknown[]).filter(
+        (x: unknown): x is string => typeof x === 'string',
+      );
+    } catch {
+      return c.json({ error: `No manifest on disk for "${name}"` }, 404);
+    }
+
+    const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+    const approve = body?.capabilities;
+    if (!Array.isArray(approve) || approve.some((x) => typeof x !== 'string')) {
+      return c.json(
+        {
+          error:
+            'Body must be { capabilities: string[] } naming exactly what you are approving. ' +
+            'Approving whatever the manifest happens to ask for at this instant would let ' +
+            'a version that lands mid-decision be approved unseen.',
+          declared_capabilities: declared,
+        },
+        400,
+      );
+    }
+
+    // Refuse to grant anything the manifest does not currently ask for: the
+    // record must describe this artifact, not a superset someone typed.
+    const notDeclared = (approve as string[]).filter((x) => !declared.includes(x));
+    if (notDeclared.length > 0) {
+      return c.json(
+        {
+          error: `Not declared by "${name}": ${notDeclared.join(', ')}`,
+          declared_capabilities: declared,
+        },
+        409,
+      );
+    }
+
+    await recordConsent(db, name, approve as string[]);
+    const granted = [...new Set(approve as string[])].sort();
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    await auditLog(db, {
+      type: 'extension.capabilities.approved',
+      userId: session?.user?.id ?? undefined,
+      resourceId: name,
+      resourceType: 'extension',
+      metadata: { granted, declared },
+    }).catch(() => undefined);
+
+    return c.json({
+      success: true,
+      granted_capabilities: granted,
+      message:
+        `Approved for "${name}". Reload or re-enable the extension for the new ` +
+        `capabilities to take effect.`,
+    });
+  };
+
   // ── POST/PUT dispatcher ──────────────────────────────────────────────────
   // Hono's RegExpRouter can't match `/api/marketplace/:name{.+}/<suffix>` when
   // the name spans 3+ path segments (e.g. `compliance/ro/saft`) AND there are
@@ -735,6 +858,8 @@ export function registerMarketplaceRoutes(
         return disableExtension(c, name);
       case 'uninstall':
         return uninstallExtension(c, name);
+      case 'approve-capabilities':
+        return approveCapabilities(c, name);
       default:
         return c.json({ error: 'Unknown marketplace action' }, 404);
     }
