@@ -8,6 +8,7 @@
  */
 
 import type { Database } from '../../db/index.js';
+import { nextCronRun } from './cron.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from '../runtime/index.js';
 import { extensionRegistry } from '../extensions/index.js';
@@ -205,6 +206,32 @@ export const flowScheduler = {
 
     // Advance next_run_at — see ai_task path above for why we don't
     // swallow this failure silently.
+    // A cron expression means what it says. This used to read only
+    // `interval_seconds` and fall back to 60s, so a flow scheduled `0 3 * * *`
+    // ran 1440 times a day instead of once — and with an `ai_decision` step,
+    // at a per-call cost.
+    const cronExpr = flow.trigger_config?.cron as string | undefined;
+    let nextRunAt: Date | null = null;
+    if (cronExpr) {
+      nextRunAt = nextCronRun(cronExpr, new Date());
+      if (!nextRunAt) {
+        // Unparseable, or a date that never occurs (`0 0 30 2 *`). Deactivate
+        // rather than fall back to a default interval: running an unknown
+        // schedule every minute is the failure this replaces, and an operator
+        // can see a stopped flow.
+        console.error(
+          `[FlowScheduler] flow "${flow.name}" (${flow.id}) has an unusable cron ` +
+            `expression "${cronExpr}" — deactivating instead of guessing a schedule.`,
+        );
+        await _db
+          ?.updateTable('zv_flows')
+          .set({ is_active: false, last_run_at: new Date() })
+          .where('id', '=', flow.id)
+          .execute()
+          .catch(() => undefined);
+        return;
+      }
+    }
     const intervalMs =
       ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
       DEFAULT_CRON_INTERVAL_MS;
@@ -213,7 +240,7 @@ export const flowScheduler = {
       .updateTable('zv_flows')
       .set({
         last_run_at: new Date(),
-        next_run_at: new Date(Date.now() + intervalMs),
+        next_run_at: nextRunAt ?? new Date(Date.now() + intervalMs),
       })
       .where('id', '=', flow.id)
       .execute()
