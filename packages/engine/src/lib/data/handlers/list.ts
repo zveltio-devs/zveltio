@@ -18,7 +18,7 @@ import { queryAlterRegistry } from '../query-alter.js';
 import { dynamicSelect } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
 import { getRlsFilters } from '../../tenancy/index.js';
-import { getColumnAccess, applyColumnAccess } from '../../tenancy/index.js';
+import { getColumnAccess, applyColumnAccess, resolveUserRole } from '../../tenancy/index.js';
 import { tenantId } from '../../route-db.js';
 import { buildQueryCacheKey, getQueryCache, setQueryCache } from '../query-cache.js';
 import { virtualList } from '../../virtual-collection-adapter.js';
@@ -83,7 +83,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     const offset = (query.page - 1) * query.limit;
     // Time travel MUST hide columns the role can't read, same as the live list
     // path below — otherwise `?as_of=` leaks columns hidden by column permissions.
-    const colAccessTT = await getColumnAccess(db, collection, user.role ?? 'public');
+    const colAccessTT = await getColumnAccess(db, collection, await resolveUserRole(user));
     const page = records
       .slice(offset, offset + query.limit)
       .map((r) => applyColumnAccess(r, colAccessTT));
@@ -130,7 +130,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
         search: query.search,
       });
       // Column permissions apply to virtual collections too.
-      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
       return c.json({
         records: data.map((r: Record<string, unknown>) => applyColumnAccess(r, vColAccess)),
         pagination: {
@@ -250,14 +250,14 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     });
   }
 
-  const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
   const serialized = (
     await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
   ).map((r) => applyColumnAccess(r, colAccess));
 
   // ── Expand m2o relations on demand (?expand=customer_id,author_id) ──
   const expandPlan = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
-  await applyExpand(effectiveDb, serialized, expandPlan, user.role ?? 'public');
+  await applyExpand(effectiveDb, serialized, expandPlan, await resolveUserRole(user));
 
   // ── ETag + Cache-Control ───────────────────────────────────────
   const etag = `"${await computeEtag(serialized)}"`;

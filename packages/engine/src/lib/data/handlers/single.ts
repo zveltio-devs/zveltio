@@ -20,7 +20,7 @@ import { queryAlterRegistry } from '../query-alter.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters, applyRlsFilters } from '../../tenancy/index.js';
+import { getRlsFilters, applyRlsFilters, resolveUserRole } from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../../tenancy/index.js';
 import {
   virtualGetOne,
@@ -88,7 +88,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     if (!(await entityAccessRegistry.isAllowed(ttTable, data, user, 'view'))) {
       return c.json({ error: 'Record not found' }, 404);
     }
-    const ttColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+    const ttColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
     return c.json({
       record: applyColumnAccess(data as Record<string, unknown>, ttColAccess),
       time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at },
@@ -103,7 +103,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
       if (!record) return c.json({ error: 'Record not found' }, 404);
       // Column permissions apply to virtual collections too — hide columns the
       // role can't read instead of proxying them through verbatim.
-      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
       return c.json({ record: applyColumnAccess(record, vColAccess) });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
@@ -140,7 +140,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     return c.json({ error: 'Record not found' }, 404);
   }
 
-  const colAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
   const serializedRecord = applyColumnAccess(
     await serializeRecord(record, collectionDef),
     colAccess,
@@ -149,7 +149,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   // Expand m2o relations on demand
   const singleExpand = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
   if (singleExpand.length > 0) {
-    await applyExpand(effectiveDb, [serializedRecord], singleExpand, user.role ?? 'public');
+    await applyExpand(effectiveDb, [serializedRecord], singleExpand, await resolveUserRole(user));
   }
 
   // ETag + Cache-Control for single record
@@ -180,7 +180,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
     try {
       const body = await c.req.json();
       // Column-level write permission applies to virtual writes too.
-      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -201,7 +201,7 @@ export async function createRecord(c: Context, db: Database): Promise<Response> 
   const { errors, processed } = await processInput(body, collectionDef);
   if (errors.length > 0) return c.json({ errors }, 422);
 
-  const colAccessCreate = await getColumnAccess(db, collection, user.role ?? 'public');
+  const colAccessCreate = await getColumnAccess(db, collection, await resolveUserRole(user));
   const { data: allowedData, blocked: blockedCreate } = filterWritableFields(
     processed,
     colAccessCreate,
@@ -267,7 +267,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   if (virtualConfigPut) {
     try {
       const body = await c.req.json();
-      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -292,7 +292,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // Without this, PUT was an escalation hole: a role denied write access to a
   // column could still overwrite it via replace, since POST and PATCH block it
   // but PUT did not.
-  const colAccessPut = await getColumnAccess(db, collection, user.role ?? 'public');
+  const colAccessPut = await getColumnAccess(db, collection, await resolveUserRole(user));
   const { data: allowedPut, blocked: blockedPut } = filterWritableFields(processed, colAccessPut);
   if (blockedPut.length > 0) {
     return c.json({ error: `Fields are read-only for your role: ${blockedPut.join(', ')}` }, 403);
@@ -374,7 +374,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   if (virtualConfigPatch) {
     try {
       const body = await c.req.json();
-      const vColAccess = await getColumnAccess(db, collection, user.role ?? 'public');
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -395,7 +395,7 @@ export async function patchRecord(c: Context, db: Database): Promise<Response> {
   const { errors, processed } = await processInput(body, collectionDef, true);
   if (errors.length > 0) return c.json({ errors }, 422);
 
-  const colAccessPatch = await getColumnAccess(db, collection, user.role ?? 'public');
+  const colAccessPatch = await getColumnAccess(db, collection, await resolveUserRole(user));
   const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(
     processed,
     colAccessPatch,
