@@ -111,6 +111,51 @@ mkdir -p "$BACKUP_DIR"
 [[ -d "${ZVELTIO_DIR}/engine" ]]  && cp -r "${ZVELTIO_DIR}/engine" "${BACKUP_DIR}/"
 info "Backed up to ${BACKUP_DIR}"
 
+# ── Checksum verification ─────────────────────────────────────────────────────
+# Every release publishes `checksums.sha256` (release.yml "Generate checksums"),
+# and this script downloaded binaries and tarballs over the network without ever
+# looking at it. TLS proves who served the bytes, not that they are the bytes the
+# release was built from — a compromised or substituted asset installed silently,
+# as root, and then ran as the engine.
+#
+# The checksum file is fetched once per run. If it cannot be fetched the update
+# STOPS rather than proceeding unverified: an update is a deliberate act an
+# operator can retry, and "carry on without checking" is how a verification step
+# becomes decorative.
+CHECKSUMS_FILE=""
+fetch_checksums() {
+  [[ -n "$CHECKSUMS_FILE" ]] && return 0
+  local url="https://github.com/zveltio-devs/zveltio/releases/download/${ZVELTIO_VERSION}/checksums.sha256"
+  CHECKSUMS_FILE="$(mktemp)"
+  if ! wget -q "$url" -O "$CHECKSUMS_FILE"; then
+    rm -f "$CHECKSUMS_FILE"; CHECKSUMS_FILE=""
+    error "Could not download checksums.sha256 for ${ZVELTIO_VERSION}. Refusing to install unverified files."
+    exit 1
+  fi
+}
+
+# verify_download <file> <asset-name-as-published>
+verify_download() {
+  local file="$1" asset="$2"
+  fetch_checksums
+  local expected
+  expected="$(awk -v a="$asset" '$2 == a || $2 == "*"a {print $1}' "$CHECKSUMS_FILE" | head -1)"
+  if [[ -z "$expected" ]]; then
+    error "No checksum published for ${asset} in ${ZVELTIO_VERSION}. Refusing to install it."
+    rm -f "$file"; exit 1
+  fi
+  local actual
+  actual="$(sha256sum "$file" | awk '{print $1}')"
+  if [[ "$actual" != "$expected" ]]; then
+    error "Checksum mismatch for ${asset}."
+    error "  expected ${expected}"
+    error "  got      ${actual}"
+    error "The downloaded file is not what this release published. Not installing it."
+    rm -f "$file"; exit 1
+  fi
+  info "Verified ${asset}"
+}
+
 # ── Download or build ─────────────────────────────────────────────────────────
 BINARY_INSTALLED=false
 
@@ -119,6 +164,7 @@ if [[ "$ZVELTIO_VERSION" != "master" ]]; then
   if curl -fsSL --head "$BINARY_URL" &>/dev/null; then
     info "Downloading binary ${ZVELTIO_VERSION}..."
     wget -q "$BINARY_URL" -O "${ZVELTIO_DIR}/zveltio.new"
+    verify_download "${ZVELTIO_DIR}/zveltio.new" "$(basename "$BINARY_URL")"
     mv "${ZVELTIO_DIR}/zveltio.new" "${ZVELTIO_DIR}/zveltio"
     chmod +x "${ZVELTIO_DIR}/zveltio"
     BINARY_INSTALLED=true
@@ -159,6 +205,7 @@ if [[ "$ZVELTIO_VERSION" != "master" ]]; then
     if curl -fsSL --head "$url" &>/dev/null; then
       info "Updating ${dest}..."
       wget -q "$url" -O "/tmp/${tarball}"
+      verify_download "/tmp/${tarball}" "${tarball}"
       rm -rf "${ZVELTIO_DIR}/${dest}.new"; mkdir -p "${ZVELTIO_DIR}/${dest}.new"
       tar -xzf "/tmp/${tarball}" -C "${ZVELTIO_DIR}/${dest}.new"
       rm -rf "${ZVELTIO_DIR}/${dest}.old"
