@@ -11,7 +11,13 @@ import { Hono } from 'hono';
 import { recordsToCsv } from '../lib/security/index.js';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission } from '../lib/tenancy/index.js';
+import {
+  applyRlsFilters,
+  checkPermission,
+  getColumnAccess,
+  getRlsFilters,
+  resolveUserRole,
+} from '../lib/tenancy/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { reqDb } from '../lib/route-db.js';
 
@@ -94,9 +100,15 @@ export function exportRoutes(db: Database, auth: any) {
     const schemaCols = fields.map((f: any) => f.name).filter((n: string) => SAFE_TABLE.test(n));
     const allCols = [...new Set([...systemCols, ...schemaCols])];
 
-    const selectCols = requestedFields
+    const requested = requestedFields
       ? allCols.filter((c) => requestedFields.includes(c))
       : allCols;
+
+    // Column permissions. Export checked read on the COLLECTION and then
+    // selected every column, so a role forbidden a column in the data API
+    // could read it by exporting — the same data, a different route.
+    const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user));
+    const selectCols = requested.filter((c) => !colAccess.hidden.has(c));
 
     if (selectCols.length === 0) return c.json({ error: 'No valid fields selected' }, 400);
 
@@ -105,14 +117,18 @@ export function exportRoutes(db: Database, auth: any) {
     // table regardless of the logical collection name passed in the URL.
     const tableName = DDLManager.getTableName(collection);
     const colList = selectCols.map((c) => sql.id(c));
-    const records = await tdb
+    // Row-level security. Export applied none: a user could export every row
+    // the policy hides. RLS is the read boundary, and a boundary that only one
+    // route honours is not a boundary.
+    const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
+    const baseQuery = tdb
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .selectFrom(tableName as any)
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       .select(colList as any)
       .orderBy('created_at asc')
-      .limit(limit)
-      .execute();
+      .limit(limit);
+    const records = await applyRlsFilters(baseQuery, rlsFilters).execute();
 
     const filename = `${collection}_${new Date().toISOString().split('T')[0]}`;
 
