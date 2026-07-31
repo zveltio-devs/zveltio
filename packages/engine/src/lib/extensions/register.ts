@@ -35,6 +35,7 @@ import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import { buildExtensionConfig } from './config.js';
+import { readGranted, resolveCapabilities } from './consent.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 /**
@@ -88,6 +89,8 @@ export function buildRestrictedContext(
   allowedTables: Set<string> | undefined,
   logPublicRoute: boolean,
   capabilities: readonly string[] = [],
+  /** Declared-but-unapproved capabilities — for the denial message only. */
+  pendingCapabilities: readonly string[] = [],
 ): ExtensionContext {
   const hasAdminDb = capabilities.includes('db:admin');
   // Drop any health checks this extension registered on a previous load so a
@@ -162,7 +165,7 @@ export function buildRestrictedContext(
     // boundary — the previous capability policy died because its only live
     // call site was inside the WASM host, so no denial was ever reachable for
     // a JS extension.
-    internals: gateInternals(extName, ctx.internals, capabilities),
+    internals: gateInternals(extName, ctx.internals, capabilities, pendingCapabilities),
   };
 }
 
@@ -227,6 +230,21 @@ export async function finalizeExtensionLoad(
   manifest: ExtensionManifest | null,
   allowedTables: Set<string>,
 ): Promise<void> {
+  // What the manifest DECLARES is only a request. What an administrator
+  // consented to is what the gate enforces — otherwise an extension widens its
+  // own power by shipping a new manifest, and the contract means nothing on the
+  // one path that matters (update). See consent.ts.
+  const declared = manifest?.permissions ?? [];
+  const granted = await readGranted(ctx.db, extName).catch(() => null);
+  const { effective, pending, grandfathered } = resolveCapabilities(declared, granted);
+  if (pending.length > 0) {
+    console.warn(
+      `🔒 Extension "${extName}" requests capabilities that were never approved: ` +
+        `${pending.join(', ')}. It is running WITHOUT them — approve at ` +
+        `POST /api/marketplace/${extName}/capabilities/approve to grant.`,
+    );
+  }
+
   // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables.
   // Also inject the full public API (checkPermission, auth, DDLManager…) and
   // ctx.internals.* so extensions never have to relative-import engine modules.
@@ -236,7 +254,8 @@ export async function finalizeExtensionLoad(
     app,
     allowedTables,
     true,
-    manifest?.permissions ?? [],
+    effective,
+    pending,
   );
 
   // Register routes — if the live app's Hono matcher is already built (happens
@@ -304,7 +323,12 @@ export async function finalizeExtensionLoad(
       typeof extension.cleanup === 'function' ? extension.cleanup.bind(extension) : undefined,
     registeredRoutes: true,
     allowedTables,
-    permissions: manifest?.permissions ?? [],
+    // The EFFECTIVE set, so a hot-reload re-asserts consent rather than
+    // quietly re-reading the manifest and granting what it asks for.
+    permissions: effective,
+    declaredCapabilities: [...declared],
+    pendingCapabilities: pending,
+    capabilitiesGrandfathered: grandfathered,
     publicRoutes,
     workerIsolation:
       manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
@@ -350,6 +374,7 @@ export async function reRegisterExtension(
     loaded?.allowedTables,
     false,
     loaded?.permissions ?? [],
+    loaded?.pendingCapabilities ?? [],
   );
 
   try {

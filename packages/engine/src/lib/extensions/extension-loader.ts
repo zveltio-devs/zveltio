@@ -214,9 +214,18 @@ interface LoadedExtension {
   registeredRoutes: boolean;
   /** Tables allowed by migration scan + explicit grants. */
   allowedTables?: Set<string>;
-  /** Declared manifest permissions/capabilities (e.g. `db:admin`) — kept so a
-   * hot-reload rebuilds the same capability-gated context (H-12). */
+  /** EFFECTIVE capabilities (granted ∩ declared) — kept so a hot-reload
+   * rebuilds the same capability-gated context (H-12) and re-asserts consent
+   * instead of re-reading whatever the manifest now asks for. */
   permissions?: string[];
+  /** What the manifest asks for, before consent is applied. */
+  declaredCapabilities?: string[];
+  /** Declared but never approved. Non-empty means an admin has a decision to
+   * make; the extension is running without these. */
+  pendingCapabilities?: string[];
+  /** True when no consent was ever recorded (install predating the column), so
+   * the declared set is honoured as-is. */
+  capabilitiesGrandfathered?: boolean;
   /** Manifest `publicRoutes` — re-registered with the `/ext/*` auth gate on a
    * hot-reload so fail-closed enforcement survives a rebuild. */
   publicRoutes?: string[];
