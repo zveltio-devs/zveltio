@@ -35,13 +35,16 @@ export async function runGarbageCollector(db: Database): Promise<void> {
 
     for (const { table_name } of tablesResult.rows) {
       try {
-        const result = await sql`
+        // RETURNING, not `numAffectedRows` — the latter is absent on this
+        // dialect, so every purge logged and totalled zero however much it
+        // actually deleted.
+        const result = await sql<{ ok: number }>`
           DELETE FROM ${sql.id(schema, table_name)}
           WHERE "_deletedAt" < NOW() - INTERVAL '30 days'
+          RETURNING 1 AS ok
         `.execute(db);
 
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        const deleted = Number((result as any).numAffectedRows ?? 0);
+        const deleted = result.rows.length;
         if (deleted > 0) {
           console.log(`[GC] ${schema}.${table_name}: ${deleted} rows deleted`);
           totalDeleted += deleted;
