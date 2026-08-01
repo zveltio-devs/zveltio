@@ -300,7 +300,7 @@ function formatRelative(dateStr: string): string {
 
 {#if showDetailModal && selectedRequest}
  {@const req = selectedRequest}
- <dialog class="modal modal-open">
+ <dialog open aria-modal="true" class="modal modal-open">
  <div class="modal-box max-w-2xl">
  <div class="flex items-center justify-between mb-4">
  <h3 class="font-bold text-lg">Approval Request Details</h3>

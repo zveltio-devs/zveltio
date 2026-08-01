@@ -394,7 +394,7 @@ function fmt(d: string | null) {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-4">Create Schema Branch</h3>
       <div class="space-y-3">
@@ -421,7 +421,7 @@ function fmt(d: string | null) {
 
 <!-- Diff Modal -->
 {#if showDiffModal && selectedBranch}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-2xl">
       <h3 class="font-bold text-lg mb-4">Diff: {selectedBranch.name}</h3>
       {#if loadingDiff}
@@ -467,7 +467,7 @@ function fmt(d: string | null) {
 
 <!-- Review Modal -->
 {#if showReviewModal && reviewBranch}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-lg">
       <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
         <MessageSquare size={18} /> Review: {reviewBranch.name}
@@ -535,7 +535,7 @@ function fmt(d: string | null) {
 
 <!-- Merge Modal -->
 {#if showMergeModal && selectedBranch}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-4">Merge: {selectedBranch.name}</h3>
       {#if !mergeResult}
@@ -587,7 +587,7 @@ function fmt(d: string | null) {
 
 <!-- Preview Token Modal -->
 {#if previewToken}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-1 flex items-center gap-2"><Globe size={18} /> Preview Active</h3>
       <p class="text-sm opacity-70 mb-3">Use this token to query the isolated branch schema.</p>
@@ -604,7 +604,7 @@ function fmt(d: string | null) {
 
 <!-- Close Branch Confirmation -->
 {#if deleteTarget}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-2">Close Branch</h3>
       <p class="text-sm opacity-70">Close "{deleteTarget.name}"? The branch schema and all its data will be deleted.</p>

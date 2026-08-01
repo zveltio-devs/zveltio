@@ -808,7 +808,7 @@ const shellTabs = $derived(
     onconfirm={runConfirmAction} oncancel={cancelConfirm} />
 
   {#if revealValue && active.form?.reveal}
-    <dialog class="modal modal-open">
+    <dialog open aria-modal="true" class="modal modal-open">
       <div class="modal-box max-w-xl">
         <h3 class="font-bold text-lg">{t(active.form.reveal.title ?? 'ext.reveal.title')}</h3>
         <p class="text-sm text-warning py-2">{t(active.form.reveal.note ?? 'ext.reveal.note')}</p>
@@ -828,7 +828,7 @@ const shellTabs = $derived(
 
 {#if showForm && active.form}
   {@const F = active.form}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box w-11/12 max-w-3xl">
       <h3 class="font-bold text-lg mb-4">{editingId ? t('common.edit') : t(schema.newLabel)}</h3>
 

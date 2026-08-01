@@ -299,7 +299,7 @@ async function toggleActive(fn: any) {
 </div>
 
 {#if showCreateModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-4">New Edge Function</h3>
       <div class="space-y-3">

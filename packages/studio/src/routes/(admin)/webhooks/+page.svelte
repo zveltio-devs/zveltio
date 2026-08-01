@@ -258,7 +258,7 @@ async function testWebhook(id: string) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }} />
 
 {#if showModal}
- <dialog class="modal modal-open">
+ <dialog open aria-modal="true" class="modal modal-open">
  <div class="modal-box w-11/12 max-w-2xl">
  <h3 class="font-bold text-lg mb-4">{editTarget ? 'Edit Webhook' : 'New Webhook'}</h3>
  <div class="space-y-4">
