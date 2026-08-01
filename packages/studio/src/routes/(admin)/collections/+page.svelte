@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 import { collectionsApi } from '$lib/api.js';
@@ -325,8 +326,8 @@ function clearTemplate() {
 </script>
 
 <CrudListPage
-  title="Collections"
-  subtitle="Define and manage your data models"
+  title={m['nav.collections']()}
+  subtitle={m['collections.subtitle']()}
   count={collections.length}
   {loading}
   search={search}
@@ -346,12 +347,12 @@ function clearTemplate() {
 >
   {#snippet headerExtras()}
     {#if selectedCount > 0}
-      <div role="region" aria-label="Bulk actions" class="card bg-primary/5 border border-primary/30">
+      <div role="region" aria-label={m['common.bulkActions']()} class="card bg-primary/5 border border-primary/30">
         <div class="card-body p-3 flex flex-row items-center gap-3">
-          <span class="text-sm"><strong>{selectedCount}</strong> selected</span>
-          <button class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label="Clear selection">Clear</button>
+          <span class="text-sm"><strong>{selectedCount}</strong> {m['common.selected']()}</span>
+          <button class="btn btn-ghost btn-sm" onclick={clearColSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
           <div class="grow"></div>
-          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label="Delete selected collections">
+          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelectedCollections} aria-label={m['collections.deleteSelected']()}>
             <Trash2 size={14} /> Delete {selectedCount}
           </button>
         </div>
@@ -365,11 +366,11 @@ function clearTemplate() {
             checked={allSelectable}
             indeterminate={someSelected}
             onchange={toggleSelectAll}
-            aria-label="Select all collections (excluding system)"
+            aria-label={m['collections.selectAll']()}
           />
           Select all
         </label>
-        <a href="{base}/collections/erd" class="btn btn-ghost btn-xs gap-1.5" aria-label="View schema as diagram">
+        <a href="{base}/collections/erd" class="btn btn-ghost btn-xs gap-1.5" aria-label={m['collections.viewDiagram']()}>
           <GitFork size={13} /> Schema diagram
         </a>
       </div>
@@ -389,7 +390,7 @@ function clearTemplate() {
                     class="checkbox checkbox-xs shrink-0"
                     checked={selectedNames.has(col.name)}
                     onchange={() => toggleSelectCol(col.name)}
-                    aria-label="Select {col.display_name || col.name}"
+                    aria-label={m['collections.selectItem']({ name: col.display_name || col.name })}
                   />
                 {/if}
                 <div class="p-1.5 rounded-lg bg-primary/10 shrink-0">
@@ -401,18 +402,18 @@ function clearTemplate() {
                 </div>
               </div>
               <div class="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs" title="Open collection" aria-label="Open {col.display_name || col.name}">
+                <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs" title={m['collections.openCollection']()} aria-label={m['collections.openItem']({ name: col.display_name || col.name })}>
                   <Settings size={13} />
                 </a>
-                <a href="{base}/permissions?collection={col.name}" class="btn btn-ghost btn-xs" title="Permissions for this collection" aria-label="Permissions for {col.display_name || col.name}">
+                <a href="{base}/permissions?collection={col.name}" class="btn btn-ghost btn-xs" title={m['dashboard.collectionPerms']()} aria-label={m['collections.permsItem']({ name: col.display_name || col.name })}>
                   <Shield size={13} />
                 </a>
                 {#if !col.is_system}
                   <button
                     onclick={() => deleteCollection(col.name)}
                     class="btn btn-ghost btn-xs text-error"
-                    title="Delete collection"
-                    aria-label="Delete {col.display_name || col.name}"
+                    title={m['collections.deleteCollection']()}
+                    aria-label={m['collections.deleteItem']({ name: col.display_name || col.name })}
                   >
                     <Trash2 size={13} />
                   </button>
@@ -443,11 +444,11 @@ function clearTemplate() {
 {#if showCreateModal}
   <dialog class="modal modal-open">
     <div class="modal-box w-11/12 max-w-2xl">
-      <h3 class="font-bold text-lg mb-5">New Collection</h3>
+      <h3 class="font-bold text-lg mb-5">{m['dashboard.newCollection']()}</h3>
 
       <!-- Template picker -->
       <div class="mb-5">
-        <p class="text-sm font-medium mb-2">Start from a template</p>
+        <p class="text-sm font-medium mb-2">{m['collections.fromTemplate']()}</p>
         <div class="grid grid-cols-3 gap-2">
           {#each TEMPLATES as tmpl}
             <button
@@ -470,23 +471,23 @@ function clearTemplate() {
                      : 'border-base-300 hover:border-primary/40'}"
             onclick={clearTemplate}
           >
-            <div class="font-medium text-xs">Blank</div>
-            <div class="text-base-content/40 text-[10px] mt-0.5">Start empty</div>
+            <div class="font-medium text-xs">{m['collections.blank']()}</div>
+            <div class="text-base-content/40 text-[10px] mt-0.5">{m['collections.startEmpty']()}</div>
           </button>
         </div>
       </div>
 
       <div class="form-control mb-4">
         <label class="label" for="col-name">
-          <span class="label-text font-medium">Collection name</span>
-          <span class="label-text-alt text-base-content/40">lowercase, letters, digits, underscores</span>
+          <span class="label-text font-medium">{m['collections.name']()}</span>
+          <span class="label-text-alt text-base-content/40">{m['collections.nameHint']()}</span>
         </label>
         <input
           id="col-name"
           type="text"
           bind:value={newCollectionName}
           oninput={() => { nameError = validateName(newCollectionName.trim()); }}
-          placeholder="e.g. products"
+          placeholder={m['collections.namePlaceholder']()}
           class="input {nameError ? 'input-error' : ''}"
           pattern="[a-z][a-z0-9_]*"
           autocomplete="off"
@@ -498,7 +499,7 @@ function clearTemplate() {
 
       <div class="space-y-2 mb-5">
         <div class="flex items-center justify-between">
-          <span class="text-sm font-medium">Fields</span>
+          <span class="text-sm font-medium">{m['common.fields']()}</span>
           <button class="btn btn-ghost btn-xs" onclick={addField}>
             <Plus size={13} /> Add field
           </button>
@@ -516,7 +517,7 @@ function clearTemplate() {
                 pattern="[a-z][a-z0-9_]*"
               />
               {#if isReserved}
-                <p class="text-error text-[10px] mt-0.5">System field — added automatically, remove it</p>
+                <p class="text-error text-[10px] mt-0.5">{m['collections.systemField']()}</p>
               {/if}
             </div>
             <select class="select select-sm min-w-40" bind:value={field.type}>
@@ -543,7 +544,7 @@ function clearTemplate() {
             {#if RELATION_NEEDS_TARGET.has(field.type)}
               <div class="w-full">
                 <select class="select select-sm w-full" bind:value={field.related_collection}>
-                  <option value="">Target collection… *</option>
+                  <option value="">{m['collections.targetCollection']()}</option>
                   {#each allCollections as c}
                     <option value={c.name}>{c.display_name || c.name}</option>
                   {/each}
@@ -555,7 +556,7 @@ function clearTemplate() {
                 <textarea
                   class="textarea textarea-sm w-full font-mono"
                   rows="2"
-                  placeholder="active, pending, archived (comma or newline separated)"
+                  placeholder={m['collections.enumPlaceholder']()}
                   bind:value={field.enum_values_raw}
                 ></textarea>
               </div>
@@ -565,14 +566,14 @@ function clearTemplate() {
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={createCollection} disabled={creating || !!nameError}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
           Create Collection
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => { showCreateModal = false; nameError = ''; }}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => { showCreateModal = false; nameError = ''; }}></button>
   </dialog>
 {/if}
 
