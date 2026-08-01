@@ -223,7 +223,7 @@ function formatRelative(dateStr: string): string {
 
 <!-- Create modal -->
 {#if showCreateModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box w-11/12 max-w-lg">
       <h3 class="font-bold text-lg mb-4">{m['apiKeys.create']()}</h3>
       <div class="space-y-4">
@@ -301,7 +301,7 @@ function formatRelative(dateStr: string): string {
 
 <!-- Newly created key display -->
 {#if newlyCreatedKey}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-2">{m['apiKeys.created']()}</h3>
       <p class="text-sm text-base-content/70 mb-4">{m['apiKeys.copyNow']()}</p>

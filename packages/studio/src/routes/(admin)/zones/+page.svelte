@@ -204,7 +204,7 @@ async function deleteZone(slug: string, name: string) {
 
 <!-- Create Modal -->
 {#if showModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-4">New Zone</h3>
 

@@ -345,7 +345,7 @@ function confirmDelete(user: any) {
 <svelte:window onkeydown={(e) => { if (e.key === 'Escape') showInviteModal = false; }} />
 
 {#if showInviteModal}
- <dialog class="modal modal-open">
+ <dialog open aria-modal="true" class="modal modal-open">
  <div class="modal-box max-w-md">
  <h3 class="font-bold text-lg mb-4">{m['dashboard.inviteUser']()}</h3>
 

@@ -209,7 +209,7 @@
 </ExtensionPageShell>
 
 {#if showOrderModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box w-11/12 max-w-3xl">
       <h3 class="font-bold text-lg mb-4">{m['compliance.ro.procurement.ui.comanda_noua_de_achizitie']()}</h3>
       <div class="grid grid-cols-2 gap-3 mb-4">
@@ -271,7 +271,7 @@
 {/if}
 
 {#if showSupplierModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
       <h3 class="font-bold text-lg mb-4">{m['compliance.ro.procurement.ui.furnizor_nou']()}</h3>
       <div class="space-y-3">
