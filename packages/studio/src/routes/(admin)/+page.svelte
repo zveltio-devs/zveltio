@@ -11,6 +11,7 @@
  *   - No broken stats (the previous `slow_queries_24h` always-zero card).
  */
 import { onMount } from 'svelte';
+import { m } from '$lib/i18n.svelte.js';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
 import { api } from '$lib/api.js';
@@ -355,7 +356,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
     <button
       class="btn btn-ghost btn-sm gap-2"
       onclick={refresh}
-      aria-label="Refresh dashboard data"
+      aria-label={m['dashboard.refreshData']()}
     >
       <RefreshCw size={14} />
       Refresh
@@ -368,7 +369,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
       <AlertCircle size={18} />
       <div class="flex-1">
         <h3 class="font-semibold">Database status: {system.database.status}</h3>
-        <p class="text-xs opacity-80">Some features may be unavailable. Check engine logs for details.</p>
+        <p class="text-xs opacity-80">{m['dashboard.degraded']()}</p>
       </div>
     </div>
   {/if}
@@ -408,7 +409,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.collections}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">Collections</p>
+            <p class="text-xs text-base-content/55 mt-0.5">{m['nav.collections']()}</p>
           </div>
           <div class="text-primary">
             <Sparkline data={collectionsSeries} height={26} width={200} color="currentColor" />
@@ -433,7 +434,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.total_records.toLocaleString()}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">Total Records</p>
+            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.totalRecords']()}</p>
           </div>
           <div class="text-secondary">
             <Sparkline data={recordsSeries} height={26} width={200} color="currentColor" />
@@ -457,7 +458,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.api_calls_today.toLocaleString()}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">API Calls Today</p>
+            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.apiCallsToday']()}</p>
           </div>
           <div class="text-accent">
             <Sparkline data={apiCallsSeries} height={26} width={200} color="currentColor" />
@@ -481,7 +482,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
           </div>
           <div>
             <p class="display-lg text-base-content">{stats.active_webhooks}</p>
-            <p class="text-xs text-base-content/55 mt-0.5">Active Webhooks</p>
+            <p class="text-xs text-base-content/55 mt-0.5">{m['dashboard.activeWebhooks']()}</p>
           </div>
           <div class="text-info">
             <Sparkline data={webhooksSeries} height={26} width={200} color="currentColor" />
@@ -494,9 +495,9 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
   <div class="grid lg:grid-cols-12 gap-4">
     <!-- Left column — activity + collections -->
     <div class="lg:col-span-7 space-y-4">
-      <SectionCard title="Recent Activity">
+      <SectionCard title={m['dashboard.recentActivity']()}>
         {#snippet action()}
-          <a href="{base}/audit" class="btn btn-ghost btn-xs gap-1">View all <ExternalLink size={10} /></a>
+          <a href="{base}/audit" class="btn btn-ghost btn-xs gap-1">{m['common.viewAll']()} <ExternalLink size={10} /></a>
         {/snippet}
         {#if activityLoading}
           <LoadingSkeleton type="list" rows={5} />
@@ -504,7 +505,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
           <EmptyState
             illustration="spark"
             illustrationColor="text-info"
-            title="A quiet moment"
+            title={m['dashboard.quietMoment']()}
             description="Audit events appear here as admins make changes — try creating a collection or inviting a user to see this fill up."
           />
         {:else}
@@ -512,10 +513,10 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
             <table class="table table-xs w-full">
               <thead>
                 <tr>
-                  <th>Event</th>
-                  <th>User</th>
-                  <th>Resource</th>
-                  <th class="text-right">Time</th>
+                  <th>{m['common.col.event']()}</th>
+                  <th>{m['common.col.user']()}</th>
+                  <th>{m['common.col.resource']()}</th>
+                  <th class="text-right">{m['common.col.time']()}</th>
                 </tr>
               </thead>
               <tbody>
@@ -544,9 +545,9 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
         {/if}
       </SectionCard>
 
-      <SectionCard title="Collections Overview">
+      <SectionCard title={m['dashboard.collectionsOverview']()}>
         {#snippet action()}
-          <a href="{base}/collections" class="btn btn-ghost btn-xs gap-1">Manage <ExternalLink size={10} /></a>
+          <a href="{base}/collections" class="btn btn-ghost btn-xs gap-1">{m['common.manage']()} <ExternalLink size={10} /></a>
         {/snippet}
         {#if collectionsLoading}
           <LoadingSkeleton type="table" rows={4} cols={3} />
@@ -554,7 +555,7 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
           <EmptyState
             illustration="table"
             illustrationColor="text-primary"
-            title="No collections yet"
+            title={m['dashboard.noCollections']()}
             description="Collections are the schema-less tables that hold your data."
             actionLabel="Create your first collection"
             actionHref="{base}/collections"
@@ -564,9 +565,9 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
             <table class="table table-sm w-full">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th class="text-right">Records</th>
-                  <th class="text-right">Actions</th>
+                  <th>{m['common.col.name']()}</th>
+                  <th class="text-right">{m['common.col.records']()}</th>
+                  <th class="text-right">{m['common.actions']()}</th>
                 </tr>
               </thead>
               <tbody>
@@ -584,8 +585,8 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
                     <td class="text-right font-mono text-sm">{col.record_count.toLocaleString()}</td>
                     <td class="text-right">
                       <div class="flex gap-1 justify-end">
-                        <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs">Open</a>
-                        <a href="{base}/permissions?collection={col.name}" class="btn btn-ghost btn-xs gap-1" title="Permissions for this collection">
+                        <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs">{m['common.open']()}</a>
+                        <a href="{base}/permissions?collection={col.name}" class="btn btn-ghost btn-xs gap-1" title={m['dashboard.collectionPerms']()}>
                           <Shield size={11} />
                         </a>
                       </div>
@@ -602,10 +603,10 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
     <!-- Right column — next steps + quick actions + system -->
     <div class="lg:col-span-5 space-y-4">
       <!-- Next Steps — always visible, adaptive -->
-      <SectionCard title="Next Steps">
+      <SectionCard title={m['dashboard.nextSteps']()}>
         {#snippet action()}
           {#if pendingSteps.length === 0}
-            <span class="text-xs text-success flex items-center gap-1"><Sparkles size={12} /> All set</span>
+            <span class="text-xs text-success flex items-center gap-1"><Sparkles size={12} /> {m['dashboard.allSet']()}</span>
           {:else}
             <span class="text-xs text-base-content/50">{pendingSteps.length} pending</span>
           {/if}
@@ -638,49 +639,49 @@ function trend(series: number[]): { pct: number; dir: 'up' | 'down' | 'flat' } {
         </ul>
       </SectionCard>
 
-      <SectionCard title="Quick Actions">
+      <SectionCard title={m['dashboard.quickActions']()}>
         <div class="grid grid-cols-2 gap-2">
-          <a href="{base}/collections" class="btn btn-outline btn-sm justify-start gap-2"><Database size={13} /> New Collection</a>
-          <a href="{base}/users" class="btn btn-outline btn-sm justify-start gap-2"><UserPlus size={13} /> Invite User</a>
-          <a href="{base}/api-keys" class="btn btn-outline btn-sm justify-start gap-2"><Key size={13} /> API Keys</a>
-          <a href="{base}/flows" class="btn btn-outline btn-sm justify-start gap-2"><Workflow size={13} /> New Flow</a>
-          <a href="{base}/zones" class="btn btn-outline btn-sm justify-start gap-2"><LayoutGrid size={13} /> Zones</a>
+          <a href="{base}/collections" class="btn btn-outline btn-sm justify-start gap-2"><Database size={13} /> {m['dashboard.newCollection']()}</a>
+          <a href="{base}/users" class="btn btn-outline btn-sm justify-start gap-2"><UserPlus size={13} /> {m['dashboard.inviteUser']()}</a>
+          <a href="{base}/api-keys" class="btn btn-outline btn-sm justify-start gap-2"><Key size={13} /> {m['nav.apiKeys']()}</a>
+          <a href="{base}/flows" class="btn btn-outline btn-sm justify-start gap-2"><Workflow size={13} /> {m['dashboard.newFlow']()}</a>
+          <a href="{base}/zones" class="btn btn-outline btn-sm justify-start gap-2"><LayoutGrid size={13} /> {m['nav.zones']()}</a>
           {#if extensions.isActive('ai')}
-            <a href="{base}/ai" class="btn btn-outline btn-sm justify-start gap-2"><Bot size={13} /> AI Studio</a>
+            <a href="{base}/ai" class="btn btn-outline btn-sm justify-start gap-2"><Bot size={13} /> {m['common.aiStudio']()}</a>
           {/if}
         </div>
       </SectionCard>
 
-      <SectionCard title="System Status">
+      <SectionCard title={m['dashboard.systemStatus']()}>
         {#if systemLoading}
           <LoadingSkeleton type="text" rows={3} />
         {:else if !system}
-          <p class="text-error text-sm">Could not load system status</p>
+          <p class="text-error text-sm">{m['dashboard.statusUnavailable']()}</p>
         {:else}
           {@const DbIcon = statusIcon(system.database.status)}
           {@const CacheIcon = statusIcon(system.cache.status)}
           <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">Database</span>
+              <span class="text-base-content/60">{m['dashboard.database']()}</span>
               <span class="flex items-center gap-1 {statusColor(system.database.status)}">
                 <DbIcon size={14} />
                 {system.database.status}
               </span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">Cache</span>
+              <span class="text-base-content/60">{m['dashboard.cache']()}</span>
               <span class="flex items-center gap-1 {statusColor(system.cache.status)}">
                 <CacheIcon size={14} />
                 {system.cache.status}
               </span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-base-content/60">Uptime</span>
+              <span class="text-base-content/60">{m['dashboard.uptime']()}</span>
               <span class="text-base-content font-mono">{formatUptime(system.uptime)}</span>
             </div>
             {#if system.database.tables}
               <div class="flex items-center justify-between">
-                <span class="text-base-content/60">DB Tables</span>
+                <span class="text-base-content/60">{m['dashboard.dbTables']()}</span>
                 <span class="text-base-content font-mono">{system.database.tables}</span>
               </div>
             {/if}

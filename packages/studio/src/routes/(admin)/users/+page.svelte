@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
@@ -215,8 +216,8 @@ function confirmDelete(user: any) {
 </script>
 
 <CrudListPage
-  title="Users"
-  subtitle="Manage team members and access"
+  title={m['nav.users']()}
+  subtitle={m['users.subtitle']()}
   count={users.length}
   {loading}
   search={search}
@@ -237,14 +238,14 @@ function confirmDelete(user: any) {
 >
   {#snippet headerExtras()}
     {#if selectedCount > 0}
-      <div role="region" aria-label="Bulk actions" class="card bg-primary/5 border border-primary/30">
+      <div role="region" aria-label={m['common.bulkActions']()} class="card bg-primary/5 border border-primary/30">
         <div class="card-body p-3 flex flex-row items-center gap-3">
           <span class="text-sm">
             <strong>{selectedCount}</strong> selected
           </span>
-          <button class="btn btn-ghost btn-sm" onclick={clearSelection} aria-label="Clear selection">Clear</button>
+          <button class="btn btn-ghost btn-sm" onclick={clearSelection} aria-label={m['common.clearSelection']()}>{m['common.clear']()}</button>
           <div class="grow"></div>
-          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelected} aria-label="Delete selected users">
+          <button class="btn btn-error btn-sm gap-2" onclick={deleteSelected} aria-label={m['users.deleteSelected']()}>
             <Trash2 size={14} /> Delete {selectedCount}
           </button>
         </div>
@@ -265,10 +266,10 @@ function confirmDelete(user: any) {
                  checked={allOnPageSelected}
                  indeterminate={someOnPageSelected}
                  onchange={toggleSelectAllOnPage}
-                 aria-label="Select all users on this page"
+                 aria-label={m['users.selectAll']()}
                />
              </th>
-             <th>User</th><th>Role</th><th>Joined</th><th>Last active</th><th class="text-right">Actions</th>
+             <th>{m['common.col.user']()}</th><th>{m['common.col.role']()}</th><th>{m['users.joined']()}</th><th>{m['users.lastActive']()}</th><th class="text-right">{m['common.actions']()}</th>
            </tr>
          </thead>
          <tbody>
@@ -280,7 +281,7 @@ function confirmDelete(user: any) {
                    class="checkbox checkbox-xs"
                    checked={selectedIds.has(user.id)}
                    onchange={() => toggleSelect(user.id)}
-                   aria-label="Select {user.email}"
+                   aria-label={m['users.selectItem']({ email: user.email })}
                  />
                </td>
                <td>
@@ -313,16 +314,16 @@ function confirmDelete(user: any) {
                    <a
                      href="{base}/permissions?user={user.id}"
                      class="btn btn-ghost btn-xs"
-                     title="Permissions for {user.email}"
-                     aria-label="Manage permissions for {user.email}"
+                     title={m['users.permsItem']({ email: user.email })}
+                     aria-label={m['users.managePermsItem']({ email: user.email })}
                    >
                      <Shield size={13} />
                    </a>
                    <button
                      class="btn btn-ghost btn-xs text-error"
                      onclick={() => confirmDelete(user)}
-                     title="Remove user"
-                     aria-label="Remove {user.email}"
+                     title={m['users.remove']()}
+                     aria-label={m['users.removeItem']({ email: user.email })}
                    >
                      <Trash2 size={13} />
                    </button>
@@ -346,7 +347,7 @@ function confirmDelete(user: any) {
 {#if showInviteModal}
  <dialog class="modal modal-open">
  <div class="modal-box max-w-md">
- <h3 class="font-bold text-lg mb-4">Invite User</h3>
+ <h3 class="font-bold text-lg mb-4">{m['dashboard.inviteUser']()}</h3>
 
  <SchemaForm
    bind:this={inviteFormRef}
@@ -357,14 +358,14 @@ function confirmDelete(user: any) {
  />
 
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showInviteModal = false)}>Cancel</button>
+ <button class="btn btn-ghost" onclick={() => (showInviteModal = false)}>{m['common.cancel']()}</button>
  <button class="btn btn-primary" onclick={inviteUser} disabled={inviting}>
  {#if inviting}<span class="loading loading-spinner loading-sm"></span>{/if}
  Send Invite
  </button>
  </div>
  </div>
- <button class="modal-backdrop" aria-label="Close" onclick={() => (showInviteModal = false)}></button>
+ <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showInviteModal = false)}></button>
  </dialog>
 {/if}
 
