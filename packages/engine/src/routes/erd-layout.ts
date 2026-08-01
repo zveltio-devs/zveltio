@@ -99,8 +99,11 @@ export function erdLayoutRoutes(db: Database, auth: any): Hono {
     const r = await db
       .deleteFrom('zv_erd_layouts')
       .where('user_id', '=', user.id)
-      .executeTakeFirst();
-    return c.json({ success: true, deleted: Number(r?.numDeletedRows ?? 0) });
+      .returning('user_id')
+      .execute();
+    // Counted from RETURNING: `numDeletedRows` is 0n on this dialect whether or
+    // not anything was deleted, so this always reported 0.
+    return c.json({ success: true, deleted: r.length });
   });
 
   return app;
