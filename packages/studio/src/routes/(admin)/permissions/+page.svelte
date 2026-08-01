@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
