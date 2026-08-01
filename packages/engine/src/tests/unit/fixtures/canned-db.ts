@@ -35,7 +35,10 @@ interface CannedHandler {
   match: RegExp;
   rows?: RowsProvider;
   error?: Error;
-  /** Override numAffectedRows (defaults to rows.length) — for INSERT…SELECT-style statements. */
+  /**
+   * How many rows the statement affects, modelled the way the real driver
+   * surfaces it: as RETURNING rows. See `whenAffected`.
+   */
   affected?: number | ((q: ExecutedQuery) => number);
 }
 
@@ -56,9 +59,16 @@ export class CannedDb {
           const h = self.handlers[i]!;
           if (h.match.test(q.sql)) {
             if (h.error) throw h.error;
-            const rows = typeof h.rows === 'function' ? h.rows(q) : (h.rows ?? []);
+            const explicit = typeof h.rows === 'function' ? h.rows(q) : h.rows;
             const affected = typeof h.affected === 'function' ? h.affected(q) : h.affected;
-            return { rows: rows as R[], numAffectedRows: BigInt(affected ?? rows.length) };
+            // `affected` is materialised as RETURNING rows, not as a count.
+            const rows =
+              explicit ??
+              (affected === undefined ? [] : Array.from({ length: affected }, () => ({})));
+            // ALWAYS 0n — the Bun SQL dialect never reports affected rows, and a
+            // fixture that invented the number is why four call sites shipped
+            // relying on it. The mock has to be as unhelpful as production.
+            return { rows: rows as R[], numAffectedRows: 0n };
           }
         }
         return { rows: [], numAffectedRows: 0n };
@@ -96,9 +106,16 @@ export class CannedDb {
     return this;
   }
 
-  /** Like when(), but with an explicit numAffectedRows (INSERT…SELECT etc. return no rows). */
+  /**
+   * Like when(), but expressing "this statement affected N rows".
+   *
+   * Materialised as N RETURNING rows, because that is the only way the real
+   * dialect can convey a count. This used to set `numAffectedRows` instead —
+   * a number production never produces — so tests confirmed behaviour that
+   * could not happen, and the ghost-DDL backfill shipped copying two batches.
+   */
   whenAffected(match: RegExp, affected: number | ((q: ExecutedQuery) => number)): this {
-    this.handlers.push({ match, rows: [], affected });
+    this.handlers.push({ match, affected });
     return this;
   }
 

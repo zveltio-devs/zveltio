@@ -176,29 +176,36 @@ export class GhostDDL {
     while (true) {
       let batchRows: number;
 
+      // Count from RETURNING, never from `numAffectedRows`. The Bun SQL
+      // dialect does not populate it for raw `sql` executes at all, so the
+      // first branch fell back to `?? BATCH_SIZE` (kept looping) and the second
+      // to `?? 0` (broke immediately). The backfill therefore copied exactly
+      // TWO batches and reported success — on a table larger than 20,000 rows
+      // the ghost table was swapped in incomplete, losing every row beyond
+      // that. Data loss with a green log line.
       if (lastId === null) {
         // First iteration — without cursor
-        const result = await sql`
+        const result = await sql<{ id: string }>`
           INSERT INTO ${sql.id(migration.ghostTable)}
           SELECT * FROM ${sql.id(migration.originalTable)}
           ORDER BY id
           LIMIT ${BATCH_SIZE}
           ON CONFLICT (id) DO NOTHING
+          RETURNING id
         `.execute(db);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        batchRows = Number((result as any).numAffectedRows ?? BATCH_SIZE);
+        batchRows = result.rows.length;
       } else {
         // Subsequent iterations — cursor-based
-        const result = await sql`
+        const result = await sql<{ id: string }>`
           INSERT INTO ${sql.id(migration.ghostTable)}
           SELECT * FROM ${sql.id(migration.originalTable)}
           WHERE id > ${lastId}
           ORDER BY id
           LIMIT ${BATCH_SIZE}
           ON CONFLICT (id) DO NOTHING
+          RETURNING id
         `.execute(db);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
-        batchRows = Number((result as any).numAffectedRows ?? 0);
+        batchRows = result.rows.length;
       }
 
       copied += batchRows;

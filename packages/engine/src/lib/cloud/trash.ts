@@ -21,9 +21,13 @@ export async function moveToTrash(
     .where('id', '=', fileId)
     .where('deleted_at', 'is', null);
   if (tenantId) q = q.where('tenant_id', '=', tenantId);
-  const result = await q.executeTakeFirst();
+  // Gate on the RETURNED ROW, never on `numUpdatedRows`. The Bun SQL dialect
+  // reports it as 0n even when the write succeeded, so this threw "not found"
+  // on every successful delete — the file WAS trashed and the caller was told
+  // it failed. routes/webhooks.ts already documents the same trap.
+  const deleted = await q.returning('id').executeTakeFirst();
 
-  if (!result || result.numUpdatedRows === BigInt(0)) {
+  if (!deleted) {
     throw new Error('File not found or already deleted');
   }
 }
