@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import {
   BarChart2,
@@ -237,13 +238,13 @@ function statValue(p: Panel): string {
 </script>
 
 <div class="space-y-0">
-<PageHeader title="Insights" subtitle="Query analytics and performance metrics" />
+<PageHeader title={m['nav.insights']()} subtitle={m['insights.subtitle']()} />
 <div class="flex h-[calc(100vh-10rem)] gap-0 -mx-4">
   <!-- Sidebar: dashboard list -->
   <div class="w-56 border-r border-base-300 bg-base-200 flex flex-col shrink-0">
     <div class="p-3 border-b border-base-300 flex items-center justify-between">
-      <span class="font-semibold text-sm">Dashboards</span>
-      <button class="btn btn-xs btn-ghost" onclick={() => (showNewDash = true)} title="New dashboard">
+      <span class="font-semibold text-sm">{m['insights.dashboards']()}</span>
+      <button class="btn btn-xs btn-ghost" onclick={() => (showNewDash = true)} title={m['insights.newDashboard']()}>
         <Plus size={14} />
       </button>
     </div>
@@ -251,7 +252,7 @@ function statValue(p: Panel): string {
     {#if loadingDashboards}
       <div class="flex justify-center p-4"><span class="loading loading-spinner loading-sm"></span></div>
     {:else if dashboards.length === 0}
-      <div class="p-4 text-center text-xs text-base-content/40">No dashboards</div>
+      <div class="p-4 text-center text-xs text-base-content/40">{m['insights.noDashboards']()}</div>
     {:else}
       <div class="flex-1 overflow-y-auto">
         {#each dashboards as d}
@@ -287,7 +288,7 @@ function statValue(p: Panel): string {
           {/if}
         </div>
         <div class="flex gap-2">
-          <button class="btn btn-sm btn-ghost gap-1" onclick={() => selectDashboard(activeDashboard!)} title="Refresh all">
+          <button class="btn btn-sm btn-ghost gap-1" onclick={() => selectDashboard(activeDashboard!)} title={m['insights.refreshAll']()}>
             <RefreshCw size={14} />
           </button>
           <button class="btn btn-sm btn-primary gap-1" onclick={() => (showNewPanel = true)}>
@@ -306,8 +307,8 @@ function statValue(p: Panel): string {
         {:else if panels.length === 0}
           <div class="flex flex-col items-center justify-center h-64 text-center">
             <Grid size={40} class="text-base-content/20 mb-3" />
-            <p class="text-base-content/50 mb-3">No panels yet</p>
-            <button class="btn btn-primary btn-sm" onclick={() => (showNewPanel = true)}>Add first panel</button>
+            <p class="text-base-content/50 mb-3">{m['insights.noPanels']()}</p>
+            <button class="btn btn-primary btn-sm" onclick={() => (showNewPanel = true)}>{m['insights.addFirstPanel']()}</button>
           </div>
         {:else}
           <div class="grid grid-cols-12 gap-4">
@@ -320,7 +321,7 @@ function statValue(p: Panel): string {
                     <span class="font-medium text-sm">{p.name}</span>
                     <div class="flex gap-1">
                       <span class="badge badge-ghost badge-xs">{p.type}</span>
-                      <button class="btn btn-xs btn-ghost" onclick={() => runPanel(p)} title="Refresh">
+                      <button class="btn btn-xs btn-ghost" onclick={() => runPanel(p)} title={m['common.refresh']()}>
                         {#if res?.loading}<span class="loading loading-spinner loading-xs"></span>{:else}<RefreshCw size={12} />{/if}
                       </button>
                       <button class="btn btn-xs btn-ghost btn-error" onclick={() => deletePanel(p.id)}>
@@ -360,7 +361,7 @@ function statValue(p: Panel): string {
                       </div>
                       <p class="text-xs text-base-content/30">{res.data.length} rows</p>
                     {:else}
-                      <p class="text-xs text-base-content/40 py-3 text-center">No data</p>
+                      <p class="text-xs text-base-content/40 py-3 text-center">{m['insights.noData']()}</p>
                     {/if}
                   {/if}
 
@@ -380,10 +381,10 @@ function statValue(p: Panel): string {
       <div class="flex-1 flex flex-col items-center justify-center text-center gap-4">
         <BarChart2 size={48} class="text-base-content/20" />
         <div>
-          <p class="font-semibold">No dashboard selected</p>
-          <p class="text-sm text-base-content/50">Create a dashboard to get started</p>
+          <p class="font-semibold">{m['insights.noneSelected']()}</p>
+          <p class="text-sm text-base-content/50">{m['insights.createToStart']()}</p>
         </div>
-        <button class="btn btn-primary btn-sm" onclick={() => (showNewDash = true)}>Create dashboard</button>
+        <button class="btn btn-primary btn-sm" onclick={() => (showNewDash = true)}>{m['insights.createDashboard']()}</button>
       </div>
     {/if}
   </div>
@@ -394,29 +395,29 @@ function statValue(p: Panel): string {
 {#if showNewDash}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-md">
-      <h3 class="font-bold text-lg mb-4">New Dashboard</h3>
+      <h3 class="font-bold text-lg mb-4">{m['insights.newDashboard']()}</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label py-0" for="dash-name"><span class="label-text text-xs">Name *</span></label>
-          <input id="dash-name" class="input input-sm" type="text" placeholder="e.g. Sales Overview" bind:value={newDashName} />
+          <label class="label py-0" for="dash-name"><span class="label-text text-xs">{m['common.nameRequired']()}</span></label>
+          <input id="dash-name" class="input input-sm" type="text" placeholder={m['insights.dashboardNamePlaceholder']()} bind:value={newDashName} />
         </div>
         <div class="form-control">
-          <label class="label py-0" for="dash-desc"><span class="label-text text-xs">Description</span></label>
-          <input id="dash-desc" class="input input-sm" type="text" placeholder="Optional" bind:value={newDashDescription} />
+          <label class="label py-0" for="dash-desc"><span class="label-text text-xs">{m['common.col.description']()}</span></label>
+          <input id="dash-desc" class="input input-sm" type="text" placeholder={m['common.optional']()} bind:value={newDashDescription} />
         </div>
         <div class="form-control">
-          <label class="label py-0" for="dash-icon"><span class="label-text text-xs">Icon</span></label>
+          <label class="label py-0" for="dash-icon"><span class="label-text text-xs">{m['insights.icon']()}</span></label>
           <select id="dash-icon" class="select select-sm" bind:value={newDashIcon}>
             {#each DASH_ICONS as icon}<option value={icon}>{icon}</option>{/each}
           </select>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showNewDash = false)}>Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick={createDashboard} disabled={!newDashName}>Create</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => (showNewDash = false)}>{m['common.cancel']()}</button>
+        <button class="btn btn-primary btn-sm" onclick={createDashboard} disabled={!newDashName}>{m['common.create']()}</button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showNewDash = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showNewDash = false)}></button>
   </dialog>
 {/if}
 
@@ -424,41 +425,41 @@ function statValue(p: Panel): string {
 {#if showNewPanel}
   <dialog class="modal modal-open">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-4">Add Panel</h3>
+      <h3 class="font-bold text-lg mb-4">{m['insights.addPanel']()}</h3>
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-0" for="panel-name"><span class="label-text text-xs">Name *</span></label>
-            <input id="panel-name" class="input input-sm" type="text" placeholder="e.g. Orders by month" bind:value={newPanelName} />
+            <label class="label py-0" for="panel-name"><span class="label-text text-xs">{m['common.nameRequired']()}</span></label>
+            <input id="panel-name" class="input input-sm" type="text" placeholder={m['insights.panelNamePlaceholder']()} bind:value={newPanelName} />
           </div>
           <div class="form-control">
-            <label class="label py-0" for="panel-type"><span class="label-text text-xs">Type</span></label>
+            <label class="label py-0" for="panel-type"><span class="label-text text-xs">{m['common.col.type']()}</span></label>
             <select id="panel-type" class="select select-sm" bind:value={newPanelType}>
               {#each PANEL_TYPES as t}<option value={t}>{t}</option>{/each}
             </select>
           </div>
         </div>
         <div class="form-control">
-          <label class="label py-0" for="panel-query"><span class="label-text text-xs">SQL Query * (SELECT only)</span></label>
+          <label class="label py-0" for="panel-query"><span class="label-text text-xs">{m['insights.sqlQuery']()}</span></label>
           <textarea id="panel-query" class="textarea textarea-sm font-mono text-xs" rows="5" placeholder="SELECT COUNT(*) as total FROM zvd_orders" bind:value={newPanelQuery}></textarea>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="label py-0" for="panel-width"><span class="label-text text-xs">Width (cols/12)</span></label>
+            <label class="label py-0" for="panel-width"><span class="label-text text-xs">{m['insights.width']()}</span></label>
             <input id="panel-width" class="input input-sm" type="number" min="1" max="12" bind:value={newPanelWidth} />
           </div>
           <div class="form-control">
-            <label class="label py-0" for="panel-height"><span class="label-text text-xs">Height (rows)</span></label>
+            <label class="label py-0" for="panel-height"><span class="label-text text-xs">{m['insights.height']()}</span></label>
             <input id="panel-height" class="input input-sm" type="number" min="1" max="20" bind:value={newPanelHeight} />
           </div>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (showNewPanel = false)}>Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick={addPanel} disabled={!newPanelName || !newPanelQuery}>Add Panel</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => (showNewPanel = false)}>{m['common.cancel']()}</button>
+        <button class="btn btn-primary btn-sm" onclick={addPanel} disabled={!newPanelName || !newPanelQuery}>{m['insights.addPanel']()}</button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showNewPanel = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showNewPanel = false)}></button>
   </dialog>
 {/if}
 
@@ -499,7 +500,7 @@ function statValue(p: Panel): string {
             </table>
             <p class="text-xs text-base-content/40 mt-1">{adHocResult.data.length} rows</p>
           {:else}
-            <p class="text-xs text-base-content/50">Query returned no rows.</p>
+            <p class="text-xs text-base-content/50">{m['insights.noRows']()}</p>
           {/if}
         </div>
       {/if}

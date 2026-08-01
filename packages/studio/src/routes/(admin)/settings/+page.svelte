@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api, settingsApi } from '$lib/api.js';
 import {
@@ -134,7 +135,7 @@ const TABS = [
 </script>
 
 <div class="space-y-6">
- <PageHeader title="Settings" subtitle="Configure your Zveltio instance">
+ <PageHeader title={m['nav.settings']()} subtitle={m['settings.subtitle']()}>
   {#if tab !== 'rate_limiting'}
   <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={save} disabled={saving || loading}>
   {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
@@ -155,7 +156,7 @@ const TABS = [
  </button>
  {/each}
  <!-- Storage config lives on its own route (its own driver/probe state). -->
- <a class="tab gap-2" href="/admin/settings/storage">Storage</a>
+ <a class="tab gap-2" href="/admin/settings/storage">{m['nav.storage']()}</a>
  <!-- S3-03: settings.tabs slot — extensions contribute custom tab buttons here.
       Contributions are rendered after the core tabs. -->
  <Slot name="settings.tabs" ctx={{ user: auth.user, activeTab: tab }} />
@@ -168,36 +169,36 @@ const TABS = [
  <div class="card-body space-y-4">
  {#if tab === 'general'}
  <div class="form-control">
- <label class="label" for="setting-app-name"><span class="label-text font-medium">Application Name</span></label>
+ <label class="label" for="setting-app-name"><span class="label-text font-medium">{m['settings.appName']()}</span></label>
  <input id="setting-app-name" class="input" bind:value={s.app_name} placeholder="Zveltio" />
  </div>
  <div class="form-control">
  <label class="label" for="setting-site-url">
- <span class="label-text font-medium">Site URL</span>
- <span class="label-text-alt text-base-content/50">Used in emails and webhooks</span>
+ <span class="label-text font-medium">{m['settings.siteUrl']()}</span>
+ <span class="label-text-alt text-base-content/50">{m['settings.siteUrlHint']()}</span>
  </label>
  <input id="setting-site-url" class="input font-mono" bind:value={s.site_url} placeholder="https://app.example.com" />
  </div>
- <div class="divider text-xs opacity-50">Regional</div>
- <p class="text-xs text-base-content/50 -mt-2 mb-1">How dates are displayed across the admin. Leave blank to follow each viewer's browser.</p>
+ <div class="divider text-xs opacity-50">{m['settings.regional']()}</div>
+ <p class="text-xs text-base-content/50 -mt-2 mb-1">{m['settings.dateFormatHint']()}</p>
  <div class="form-control">
  <label class="label" for="setting-language">
- <span class="label-text font-medium">Language / locale</span>
- <span class="label-text-alt text-base-content/50">BCP-47, e.g. ro, de-AT</span>
+ <span class="label-text font-medium">{m['settings.locale']()}</span>
+ <span class="label-text-alt text-base-content/50">{m['settings.localeHint']()}</span>
  </label>
  <input id="setting-language" class="input font-mono w-48" bind:value={s.language} placeholder="ro" />
  </div>
  <div class="form-control">
  <label class="label" for="setting-timezone">
- <span class="label-text font-medium">Timezone</span>
- <span class="label-text-alt text-base-content/50">IANA, e.g. Europe/Bucharest</span>
+ <span class="label-text font-medium">{m['settings.timezone']()}</span>
+ <span class="label-text-alt text-base-content/50">{m['settings.timezoneHint']()}</span>
  </label>
  <input id="setting-timezone" class="input font-mono w-64" bind:value={s.timezone} placeholder="Europe/Bucharest" />
  </div>
  <div class="form-control">
- <label class="label" for="setting-date-format"><span class="label-text font-medium">Date format</span></label>
+ <label class="label" for="setting-date-format"><span class="label-text font-medium">{m['settings.dateFormat']()}</span></label>
  <select id="setting-date-format" class="select w-48" bind:value={s.date_format}>
- <option value="">Locale default</option>
+ <option value="">{m['settings.localeDefault']()}</option>
  <option value="iso">ISO — 2026-07-17</option>
  <option value="eu">EU — 17/07/2026</option>
  <option value="us">US — 07/17/2026</option>
@@ -206,43 +207,43 @@ const TABS = [
 
  {:else if tab === 'branding'}
  <div class="form-control">
- <label class="label" for="setting-logo-url"><span class="label-text font-medium">Logo URL</span></label>
+ <label class="label" for="setting-logo-url"><span class="label-text font-medium">{m['settings.logoUrl']()}</span></label>
  <input id="setting-logo-url" class="input font-mono" bind:value={s.logo_url} placeholder="https://example.com/logo.svg" />
  {#if s.logo_url}
  <div class="mt-2 p-3 bg-base-300 rounded-lg inline-flex">
- <img src={s.logo_url} alt="Logo preview" class="h-12 object-contain" />
+ <img src={s.logo_url} alt={m['settings.logoPreview']()} class="h-12 object-contain" />
  </div>
  {/if}
  </div>
  <div class="form-control">
- <label class="label" for="setting-primary-color-text"><span class="label-text font-medium">Primary Color</span></label>
+ <label class="label" for="setting-primary-color-text"><span class="label-text font-medium">{m['settings.primaryColor']()}</span></label>
  <div class="flex gap-3 items-center">
- <input type="color" class="w-12 h-10 rounded cursor-pointer border border-base-300 bg-transparent" bind:value={s.primary_color} aria-label="Primary color picker" />
+ <input type="color" class="w-12 h-10 rounded cursor-pointer border border-base-300 bg-transparent" bind:value={s.primary_color} aria-label={m['settings.primaryColorPicker']()} />
  <input id="setting-primary-color-text" class="input font-mono flex-1" bind:value={s.primary_color} placeholder="#4F46E5" />
  </div>
  </div>
 
  {:else if tab === 'smtp'}
  <div class="alert alert-info text-sm py-2">
- <span>Configure SMTP to enable email notifications, invitations, and password resets.</span>
+ <span>{m['settings.smtpHint']()}</span>
  </div>
  <div class="grid grid-cols-2 gap-4">
  <div class="form-control">
- <label class="label" for="setting-smtp-host"><span class="label-text font-medium">Host</span></label>
+ <label class="label" for="setting-smtp-host"><span class="label-text font-medium">{m['common.col.host']()}</span></label>
  <input id="setting-smtp-host" class="input font-mono" bind:value={s.smtp_host} placeholder="smtp.gmail.com" />
  </div>
  <div class="form-control">
- <label class="label" for="setting-smtp-port"><span class="label-text font-medium">Port</span></label>
+ <label class="label" for="setting-smtp-port"><span class="label-text font-medium">{m['common.col.port']()}</span></label>
  <input id="setting-smtp-port" type="number" class="input" bind:value={s.smtp_port} placeholder="587" />
  </div>
  </div>
  <div class="grid grid-cols-2 gap-4">
  <div class="form-control">
- <label class="label" for="setting-smtp-user"><span class="label-text font-medium">Username</span></label>
+ <label class="label" for="setting-smtp-user"><span class="label-text font-medium">{m['common.col.username']()}</span></label>
  <input id="setting-smtp-user" class="input font-mono" bind:value={s.smtp_user} placeholder="user@example.com" />
  </div>
  <div class="form-control">
- <label class="label" for="setting-smtp-pass"><span class="label-text font-medium">Password</span></label>
+ <label class="label" for="setting-smtp-pass"><span class="label-text font-medium">{m['auth.password']()}</span></label>
  <div class="relative">
  {#if showSmtpPass}
  <input id="setting-smtp-pass" class="input w-full pr-10 font-mono" bind:value={s.smtp_pass} />
@@ -257,35 +258,35 @@ const TABS = [
  </div>
  </div>
  <div class="form-control">
- <label class="label" for="setting-smtp-from"><span class="label-text font-medium">From Address</span></label>
+ <label class="label" for="setting-smtp-from"><span class="label-text font-medium">{m['settings.fromAddress']()}</span></label>
  <input id="setting-smtp-from" class="input font-mono" bind:value={s.smtp_from} placeholder="noreply@example.com" />
  </div>
  <label class="label cursor-pointer justify-start gap-3">
  <input type="checkbox" class="toggle toggle-sm" bind:checked={s.smtp_secure} />
- <span class="label-text">Use TLS/SSL</span>
+ <span class="label-text">{m['settings.useTls']()}</span>
  </label>
 
  {:else if tab === 'security'}
  <label class="label cursor-pointer justify-start gap-3">
  <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.registration_enabled} />
  <div>
- <p class="label-text font-medium">Allow public self-registration</p>
- <p class="text-xs text-base-content/50">When off (default), the public sign-up endpoint is blocked and the login page hides "Create Account". Admin invitations always work.</p>
+ <p class="label-text font-medium">{m['settings.allowSignup']()}</p>
+ <p class="text-xs text-base-content/50">{m['settings.signupHint']()}</p>
  </div>
  </label>
  <label class="label cursor-pointer justify-start gap-3">
  <input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={s.two_factor_enabled} />
  <div>
- <p class="label-text font-medium">Enable Two-Factor Authentication</p>
- <p class="text-xs text-base-content/50">Users can optionally enable 2FA for their accounts</p>
+ <p class="label-text font-medium">{m['settings.enable2fa']()}</p>
+ <p class="text-xs text-base-content/50">{m['settings.enable2faHint']()}</p>
  </div>
  </label>
  <div class="form-control">
- <label class="label" for="setting-session-expiry"><span class="label-text font-medium">Session Expiry (hours)</span></label>
+ <label class="label" for="setting-session-expiry"><span class="label-text font-medium">{m['settings.sessionExpiry']()}</span></label>
  <input id="setting-session-expiry" type="number" class="input w-36" bind:value={s.session_expiry_hours} min="1" max="8760" />
  </div>
  <div class="form-control">
- <label class="label" for="setting-rate-limit"><span class="label-text font-medium">API Rate Limit (requests/minute)</span></label>
+ <label class="label" for="setting-rate-limit"><span class="label-text font-medium">{m['settings.rateLimit']()}</span></label>
  <input id="setting-rate-limit" type="number" class="input w-36" bind:value={s.api_rate_limit} min="1" max="10000" />
  </div>
 
@@ -295,16 +296,16 @@ const TABS = [
  </p>
 
  {#if rlTiers.length === 0}
- <p class="text-sm text-base-content/40 text-center py-8">No rate limit configs found — run migrations first.</p>
+ <p class="text-sm text-base-content/40 text-center py-8">{m['settings.noRateLimits']()}</p>
  {:else}
  <div class="overflow-x-auto">
  <table class="table table-sm">
  <thead>
  <tr>
- <th>Tier</th>
- <th>Window</th>
- <th>Max requests</th>
- <th>Active</th>
+ <th>{m['settings.tier']()}</th>
+ <th>{m['settings.window']()}</th>
+ <th>{m['settings.maxRequests']()}</th>
+ <th>{m['common.col.active']()}</th>
  <th></th>
  </tr>
  </thead>
