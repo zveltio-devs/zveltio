@@ -33,6 +33,14 @@ const TRANSLATED = [
   'src/routes/(admin)/api-keys/+page.svelte',
   'src/routes/(admin)/audit/+page.svelte',
   'src/routes/(admin)/mail/+page.svelte',
+  // tranche 2
+  'src/routes/(admin)/settings/+page.svelte',
+  'src/routes/(admin)/permissions/+page.svelte',
+  'src/routes/(admin)/flows/+page.svelte',
+  'src/routes/(admin)/tenants/+page.svelte',
+  'src/routes/(admin)/insights/+page.svelte',
+  'src/routes/(admin)/import/+page.svelte',
+  'src/routes/(admin)/export/+page.svelte',
 ];
 
 /**
@@ -65,6 +73,20 @@ const ALLOWED = new Set([
   'DB',
 ]);
 
+/**
+ * Whole strings that are identifiers or code rather than prose.
+ *
+ * Role names are keys in Casbin — translating `god → admin` would describe a
+ * rule that does not exist. SQL and IANA timezones are the same in every
+ * locale, and a sample query is read as code.
+ */
+const ALLOWED_EXACT: RegExp[] = [
+  /^(god|admin|member|employee|manager|client|prod)( → (\*|[a-z]+))?$/,
+  /^SELECT /i,
+  /^[A-Za-z]+\/[A-Za-z_]+$/, // IANA timezone, e.g. Europe/Bucharest
+  /^(Staging|My Company)$/, // sample values inside placeholders
+];
+
 interface Finding {
   file: string;
   line: number;
@@ -76,6 +98,7 @@ function looksTranslatable(raw: string): boolean {
   const t = raw.trim();
   if (t.length < 3) return false;
   if (ALLOWED.has(t)) return false;
+  if (ALLOWED_EXACT.some((re) => re.test(t))) return false;
   // Needs at least one lowercase run — screaming tokens are usually constants.
   if (!/[a-z]{2}/.test(t)) return false;
   // Skip anything that is plainly code or a path.
@@ -94,8 +117,12 @@ for (const rel of TRANSLATED) {
     process.exit(1);
   }
 
-  // Strip the <script> block: only markup is user-visible text.
-  const markup = src.replace(/<script[\s\S]*?<\/script>/g, '');
+  // Blank the <script> block rather than deleting it: only markup is
+  // user-visible text, but removing the lines shifts every number after it and
+  // a gate that points at the wrong line is worse than no line at all.
+  const markup = src.replace(/<script[\s\S]*?<\/script>/g, (block) =>
+    '\n'.repeat((block.match(/\n/g) ?? []).length),
+  );
   markup.split('\n').forEach((line, i) => {
     for (const m of line.matchAll(/>([^<>{}\n]+)</g)) {
       if (looksTranslatable(m[1]!)) {

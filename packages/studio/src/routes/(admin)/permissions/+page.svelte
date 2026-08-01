@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -212,7 +213,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 </script>
 
 <div class="space-y-6">
-  <PageHeader title="Permissions" subtitle="Role-based access control">
+  <PageHeader title={m['nav.permissions']()} subtitle={m['permissions.subtitle']()}>
     {#if tab === 'matrix'}
     <button class="btn {saved ? 'btn-success' : 'btn-primary'} btn-sm" onclick={saveMatrix} disabled={saving}>
       {#if saving}<LoaderCircle size={16} class="animate-spin" />{:else}<Save size={16} />{/if}
@@ -222,9 +223,9 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
   </PageHeader>
 
   <div class="tabs tabs-bordered">
-    <button class="tab {tab === 'matrix' ? 'tab-active' : ''}" onclick={() => (tab = 'matrix')}>Permission Matrix</button>
+    <button class="tab {tab === 'matrix' ? 'tab-active' : ''}" onclick={() => (tab = 'matrix')}>{m['permissions.matrix']()}</button>
     <button class="tab {tab === 'roles' ? 'tab-active' : ''}" onclick={() => (tab = 'roles')}>Roles ({roles.length})</button>
-    <button class="tab {tab === 'hierarchy' ? 'tab-active' : ''}" onclick={() => (tab = 'hierarchy')}>Role Hierarchy</button>
+    <button class="tab {tab === 'hierarchy' ? 'tab-active' : ''}" onclick={() => (tab = 'hierarchy')}>{m['permissions.hierarchy']()}</button>
   </div>
 
   {#if loading}
@@ -234,7 +235,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
     {#if roles.length === 0}
       <div class="alert alert-info">
         <Shield size={20} />
-        <span>Create at least one role to configure permissions.</span>
+        <span>{m['permissions.needRole']()}</span>
       </div>
     {:else}
 
@@ -258,7 +259,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
           <SearchBar
             value={matrixFilter}
             onchange={(v) => (matrixFilter = v)}
-            placeholder="Filter resources by name..."
+            placeholder={m['permissions.filterResources']()}
           />
         {/if}
 
@@ -276,11 +277,11 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
             <table class="table table-sm w-full">
               <thead class="bg-base-200">
                 <tr>
-                  <th class="w-1/3">Collection</th>
-                  <th class="text-center text-info">View</th>
-                  <th class="text-center text-success">Create</th>
-                  <th class="text-center text-warning">Update</th>
-                  <th class="text-center text-error">Delete</th>
+                  <th class="w-1/3">{m['common.col.collection']()}</th>
+                  <th class="text-center text-info">{m['common.view']()}</th>
+                  <th class="text-center text-success">{m['common.create']()}</th>
+                  <th class="text-center text-warning">{m['common.op.update']()}</th>
+                  <th class="text-center text-error">{m['common.delete']()}</th>
                 </tr>
               </thead>
               <tbody>
@@ -292,7 +293,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                     <input
                       type="checkbox"
                       class="checkbox checkbox-sm checkbox-primary"
-                      aria-label="{action} {res.display_name}"
+                      aria-label={m['permissions.actionOnResource']({ action, resource: res.display_name })}
                       checked={has(selectedRole.id, res.name, action)}
                       onchange={() => toggle(selectedRole.id, res.name, action)}
                     />
@@ -320,9 +321,9 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
             <table class="table table-sm w-full">
               <thead class="bg-base-200">
                 <tr>
-                  <th class="w-1/3">Zone</th>
-                  <th class="text-center text-info">Read</th>
-                  <th class="text-center text-warning">Write</th>
+                  <th class="w-1/3">{m['permissions.zone']()}</th>
+                  <th class="text-center text-info">{m['permissions.read']()}</th>
+                  <th class="text-center text-warning">{m['permissions.write']()}</th>
                 </tr>
               </thead>
               <tbody>
@@ -334,7 +335,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                     <input
                       type="checkbox"
                       class="checkbox checkbox-sm checkbox-primary"
-                      aria-label="{action} {res.display_name}"
+                      aria-label={m['permissions.actionOnResource']({ action, resource: res.display_name })}
                       checked={has(selectedRole.id, res.name, action)}
                       onchange={() => toggle(selectedRole.id, res.name, action)}
                     />
@@ -363,10 +364,10 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
     <div class="space-y-4">
       <div class="card bg-base-200">
         <div class="card-body p-4">
-          <h3 class="font-semibold mb-3">Create Role</h3>
+          <h3 class="font-semibold mb-3">{m['permissions.createRole']()}</h3>
           <div class="flex gap-2">
-            <input class="input input-sm flex-1" bind:value={newRoleName} placeholder="Role name (e.g. editor)" />
-            <input class="input input-sm flex-1" bind:value={newRoleDesc} placeholder="Description (optional)" />
+            <input class="input input-sm flex-1" bind:value={newRoleName} placeholder={m['permissions.rolePlaceholder']()} />
+            <input class="input input-sm flex-1" bind:value={newRoleDesc} placeholder={m['permissions.descPlaceholder']()} />
             <button class="btn btn-primary btn-sm" onclick={createRole} disabled={!newRoleName.trim() || creatingRole}>
               {#if creatingRole}<LoaderCircle size={14} class="animate-spin" />{:else}<Plus size={14} />{/if}
               Create
@@ -376,7 +377,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
       </div>
 
       {#if roles.length === 0}
-        <p class="text-center text-base-content/40 py-8 text-sm">No custom roles yet.</p>
+        <p class="text-center text-base-content/40 py-8 text-sm">{m['permissions.noRoles']()}</p>
       {:else}
         <div class="space-y-2">
           {#each roles as role}
@@ -404,7 +405,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
       <div class="alert alert-info text-sm">
         <GitBranch size={16} class="shrink-0" />
         <div>
-          <p class="font-semibold">Casbin Role Inheritance</p>
+          <p class="font-semibold">{m['permissions.casbinInheritance']()}</p>
           <p class="text-xs mt-0.5 opacity-80">
             When role A inherits role B, every permission granted to B is automatically available to A.
             Example: <code class="bg-base-100/50 px-1 rounded">manager → employee</code> means managers get all employee permissions plus their own.
@@ -414,15 +415,15 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
 
       <div class="card bg-base-200">
         <div class="card-body p-4">
-          <h3 class="font-semibold mb-3">Add Inheritance Rule</h3>
+          <h3 class="font-semibold mb-3">{m['permissions.addInheritance']()}</h3>
           <div class="flex items-center gap-3 flex-wrap">
             <select class="select select-sm flex-1 min-w-32" bind:value={hierChild}>
-              <option value="">Child role (inheritor)</option>
+              <option value="">{m['permissions.childRole']()}</option>
               {#each roleNames as r}<option value={r}>{r}</option>{/each}
             </select>
             <ArrowRight size={16} class="text-base-content/40 shrink-0" />
             <select class="select select-sm flex-1 min-w-32" bind:value={hierParent}>
-              <option value="">Parent role (inherited)</option>
+              <option value="">{m['permissions.parentRole']()}</option>
               {#each roleNames as r}<option value={r}>{r}</option>{/each}
             </select>
             <button
@@ -434,7 +435,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
               Add
             </button>
           </div>
-          <p class="text-xs text-base-content/40 mt-2">Reads as: <em>"[Child] inherits all permissions from [Parent]"</em></p>
+          <p class="text-xs text-base-content/40 mt-2">{m['permissions.readsAs']()} <em>{m['permissions.inheritExplain']()}</em></p>
         </div>
       </div>
 
@@ -445,8 +446,8 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
         {#if hierarchy.length === 0}
           <div class="text-center py-10 text-base-content/35">
             <GitBranch size={32} class="mx-auto mb-2 opacity-40" />
-            <p class="text-sm">No inheritance rules defined yet.</p>
-            <p class="text-xs mt-1">Built-in: <code>admin → *</code>, <code>god → admin</code></p>
+            <p class="text-sm">{m['permissions.noInheritance']()}</p>
+            <p class="text-xs mt-1">{m['permissions.builtIn']()} <code>admin → *</code>, <code>god → admin</code></p>
           </div>
         {:else}
           <div class="space-y-2">
@@ -457,12 +458,12 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                   <span class="badge badge-outline badge-sm font-mono">{edge.child}</span>
                   <ChevronRight size={14} class="text-base-content/30 shrink-0" />
                   <span class="badge badge-primary badge-sm font-mono">{edge.parent}</span>
-                  <span class="text-xs text-base-content/40 ml-1">inherits</span>
+                  <span class="text-xs text-base-content/40 ml-1">{m['permissions.inherits']()}</span>
                 </div>
                 <button
                   class="btn btn-ghost btn-xs text-error shrink-0"
                   onclick={() => removeInheritance(edge.child, edge.parent)}
-                  title="Remove inheritance"
+                  title={m['permissions.removeInheritance']()}
                 ><Trash2 size={13} /></button>
               </div>
             </div>
@@ -472,14 +473,14 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
       </div>
 
       <div class="text-xs text-base-content/40 border border-base-300 rounded-lg p-3">
-        <p class="font-semibold mb-1">Built-in roles (always active, not editable here):</p>
+        <p class="font-semibold mb-1">{m['permissions.builtInRoles']()}</p>
         <ul class="space-y-0.5 ml-2">
-          <li>• <code>god</code> — superadmin, bypasses all permission checks</li>
-          <li>• <code>admin</code> — full access to everything</li>
-          <li>• <code>member</code> — read access to all collections</li>
-          <li>• <code>employee</code> — read/write on intranet zone</li>
-          <li>• <code>manager</code> — inherits from employee</li>
-          <li>• <code>client</code> — read/write on portal zone</li>
+          <li>• <code>god</code> {m['permissions.roleGod']()}</li>
+          <li>• <code>admin</code> {m['permissions.roleAdmin']()}</li>
+          <li>• <code>member</code> {m['permissions.roleMember']()}</li>
+          <li>• <code>employee</code> {m['permissions.roleEmployee']()}</li>
+          <li>• <code>manager</code> {m['permissions.roleManager']()}</li>
+          <li>• <code>client</code> {m['permissions.roleClient']()}</li>
         </ul>
       </div>
 

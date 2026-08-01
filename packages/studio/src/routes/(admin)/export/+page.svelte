@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api, collectionsApi } from '$lib/api.js';
 import { Download, LoaderCircle, Database } from '@lucide/svelte';
@@ -52,15 +53,15 @@ async function doExport() {
 </script>
 
 <div class="space-y-6">
- <PageHeader title="Export Data" subtitle="Download collection data in various formats" />
+ <PageHeader title={m['export.title']()} subtitle={m['export.subtitle']()} />
 
  <div class="max-w-lg">
  <div class="card bg-base-200">
  <div class="card-body space-y-5">
  <div class="form-control">
- <label class="label" for="export-collection"><span class="label-text font-medium">Collection *</span></label>
+ <label class="label" for="export-collection"><span class="label-text font-medium">{m['common.collectionRequired']()}</span></label>
  <select id="export-collection" class="select" bind:value={selectedCollection}>
- <option value="">— Select collection —</option>
+ <option value="">{m['common.selectCollection']()}</option>
  {#each collections as col}
  <option value={col.name}>{col.display_name || col.name}</option>
  {/each}
@@ -68,7 +69,7 @@ async function doExport() {
  </div>
 
  <div class="form-control">
- <p class="label"><span class="label-text font-medium">Format</span></p>
+ <p class="label"><span class="label-text font-medium">{m['common.format']()}</span></p>
  <div class="flex gap-3">
  {#each [['json', 'JSON'], ['csv', 'CSV'], ['ndjson', 'NDJSON']] as [val, label]}
  <label class="flex items-center gap-2 cursor-pointer">
@@ -87,8 +88,8 @@ async function doExport() {
 
  <div class="form-control">
  <div class="label">
- <span class="label-text font-medium">Row limit</span>
- <span class="label-text-alt text-base-content/50">max 10,000</span>
+ <span class="label-text font-medium">{m['export.rowLimit']()}</span>
+ <span class="label-text-alt text-base-content/50">{m['export.maxRows']()}</span>
  </div>
  <input type="number" class="input" bind:value={limit}
  min="1" max="10000" step="100" />
@@ -115,19 +116,19 @@ async function doExport() {
  <div class="divider"></div>
 
  <div class="prose prose-sm max-w-none">
- <h3 class="text-base font-semibold">Format Notes</h3>
+ <h3 class="text-base font-semibold">{m['export.formatNotes']()}</h3>
  <div class="grid gap-4 sm:grid-cols-3">
  <div class="card bg-base-200 p-4">
  <p class="font-medium text-sm mb-1">JSON</p>
- <p class="text-xs text-base-content/60">Full records array. Best for importing back into Zveltio or processing with JavaScript.</p>
+ <p class="text-xs text-base-content/60">{m['export.jsonNote']()}</p>
  </div>
  <div class="card bg-base-200 p-4">
  <p class="font-medium text-sm mb-1">CSV</p>
- <p class="text-xs text-base-content/60">Spreadsheet-compatible. Nested objects are serialized as JSON strings.</p>
+ <p class="text-xs text-base-content/60">{m['export.csvNote']()}</p>
  </div>
  <div class="card bg-base-200 p-4">
  <p class="font-medium text-sm mb-1">NDJSON</p>
- <p class="text-xs text-base-content/60">Newline-delimited JSON. Ideal for streaming pipelines and large datasets.</p>
+ <p class="text-xs text-base-content/60">{m['export.ndjsonNote']()}</p>
  </div>
  </div>
  </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -193,8 +194,8 @@ function formatRelative(dateStr?: string): string {
 </script>
 
 <CrudListPage
-  title="Flows"
-  subtitle="Automate actions with trigger → step pipelines"
+  title={m['nav.flows']()}
+  subtitle={m['flows.subtitle']()}
   count={total || undefined}
   {loading}
   actionLabel="New Flow"
@@ -210,7 +211,7 @@ function formatRelative(dateStr?: string): string {
 >
   {#snippet headerExtras()}
     <div class="flex justify-end">
-      <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading} aria-label="Refresh flows">
+      <button class="btn btn-ghost btn-sm" onclick={loadFlows} disabled={loading} aria-label={m['flows.refresh']()}>
         <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
         Refresh
       </button>
@@ -241,7 +242,7 @@ function formatRelative(dateStr?: string): string {
  <button
  class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100"
  onclick={() => runFlow(flow.id)}
- title="Run now"
+ title={m['flows.runNow']()}
  >
  <Play size={13} />
  </button>
@@ -290,33 +291,33 @@ function formatRelative(dateStr?: string): string {
 {#if showModal}
  <div class="modal modal-open">
  <div class="modal-box max-w-md">
- <h3 class="font-bold text-lg mb-4">New Flow</h3>
+ <h3 class="font-bold text-lg mb-4">{m['dashboard.newFlow']()}</h3>
  <div class="space-y-4">
  <div class="form-control">
- <label class="label" for="flow-name"><span class="label-text font-medium">Name *</span></label>
- <input id="flow-name" class="input" bind:value={name} placeholder="e.g. Send welcome email" />
+ <label class="label" for="flow-name"><span class="label-text font-medium">{m['common.nameRequired']()}</span></label>
+ <input id="flow-name" class="input" bind:value={name} placeholder={m['flows.namePlaceholder']()} />
  </div>
 
  <div class="form-control">
- <label class="label" for="flow-description"><span class="label-text font-medium">Description</span></label>
- <input id="flow-description" class="input" bind:value={description} placeholder="Optional" />
+ <label class="label" for="flow-description"><span class="label-text font-medium">{m['common.col.description']()}</span></label>
+ <input id="flow-description" class="input" bind:value={description} placeholder={m['common.optional']()} />
  </div>
 
  <div class="form-control">
- <label class="label" for="flow-trigger"><span class="label-text font-medium">Trigger</span></label>
+ <label class="label" for="flow-trigger"><span class="label-text font-medium">{m['flows.trigger']()}</span></label>
  <select id="flow-trigger" class="select" bind:value={triggerType}>
- <option value="manual">Manual</option>
- <option value="on_create">On Create</option>
- <option value="on_update">On Update</option>
- <option value="on_delete">On Delete</option>
- <option value="cron">Schedule (Cron)</option>
- <option value="webhook">Webhook</option>
+ <option value="manual">{m['flows.manual']()}</option>
+ <option value="on_create">{m['flows.onCreate']()}</option>
+ <option value="on_update">{m['flows.onUpdate']()}</option>
+ <option value="on_delete">{m['flows.onDelete']()}</option>
+ <option value="cron">{m['flows.schedule']()}</option>
+ <option value="webhook">{m['flows.webhook']()}</option>
  </select>
  </div>
 
  {#if ['on_create', 'on_update', 'on_delete'].includes(triggerType)}
  <div class="form-control">
- <label class="label" for="flow-trigger-collection"><span class="label-text text-xs">Collection (optional)</span></label>
+ <label class="label" for="flow-trigger-collection"><span class="label-text text-xs">{m['flows.collectionOptional']()}</span></label>
  <input
  id="flow-trigger-collection"
  class="input input-sm"
@@ -327,8 +328,8 @@ function formatRelative(dateStr?: string): string {
  {:else if triggerType === 'cron'}
  <div class="form-control">
  <div class="label">
- <span class="label-text text-xs">Cron expression</span>
- <span class="label-text-alt text-xs text-base-content/50">e.g. 0 9 * * 1 (Mon 9am)</span>
+ <span class="label-text text-xs">{m['flows.cronExpression']()}</span>
+ <span class="label-text-alt text-xs text-base-content/50">{m['flows.cronHint']()}</span>
  </div>
  <input
  class="input input-sm font-mono"
@@ -340,7 +341,7 @@ function formatRelative(dateStr?: string): string {
 
  <label class="flex items-center gap-2 cursor-pointer">
  <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" bind:checked={isActive} />
- <span class="text-sm">Active immediately</span>
+ <span class="text-sm">{m['flows.activeImmediately']()}</span>
  </label>
 
  {#if formError}
@@ -349,7 +350,7 @@ function formatRelative(dateStr?: string): string {
  </div>
 
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showModal = false)}>Cancel</button>
+ <button class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
  <button class="btn btn-primary" onclick={createFlow} disabled={saving || !name}>
  {#if saving}<LoaderCircle size={16} class="animate-spin" />{/if}
  Create Flow
@@ -360,7 +361,7 @@ function formatRelative(dateStr?: string): string {
  class="modal-backdrop"
  role="button"
  tabindex="0"
- aria-label="Close"
+ aria-label={m['common.close']()}
  onclick={() => (showModal = false)}
  onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }}
  ></div>
