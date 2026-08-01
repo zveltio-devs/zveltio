@@ -191,7 +191,7 @@ async function signOut() {
   <div class="flex h-screen items-center justify-center bg-base-100">
     <div class="flex flex-col items-center gap-3">
       <span class="loading loading-spinner loading-lg text-primary"></span>
-      <p class="text-sm text-base-content/50">Loading…</p>
+      <p class="text-sm text-base-content/50">{m['common.loading']()}</p>
     </div>
   </div>
 

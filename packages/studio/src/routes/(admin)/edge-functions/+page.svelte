@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { Plus, Play, Trash2, Save, Code, CircleCheck } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
@@ -123,9 +124,9 @@ async function createFunction() {
 async function deleteFunction(id: string) {
   confirmState = {
     open: true,
-    title: 'Delete Function',
-    message: 'Delete this edge function? This cannot be undone.',
-    confirmLabel: 'Delete',
+    title: m['edgeFn.deleteTitle'](),
+    message: m['edgeFn.deleteMsg'](),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       await api.fetch(`/ext/developer/edge-functions/${id}`, {
@@ -155,7 +156,7 @@ async function toggleActive(fn: any) {
   <!-- Left sidebar: function list -->
   <div class="w-60 border-r border-base-300 flex flex-col bg-base-100">
     <div class="p-3 border-b border-base-300 flex items-center justify-between">
-      <span class="font-semibold text-sm">Edge Functions</span>
+      <span class="font-semibold text-sm">{m['edgeFn.title']()}</span>
       <button class="btn btn-ghost btn-xs" onclick={() => (showCreateModal = true)}>
         <Plus size={14} />
       </button>
@@ -167,7 +168,7 @@ async function toggleActive(fn: any) {
       {:else if functions.length === 0}
         <div class="p-4 text-center text-sm text-base-content/40">
           <Code size={32} class="mx-auto mb-2 opacity-30" />
-          No functions yet
+          {m['edgeFn.noFunctions']()}
         </div>
       {:else}
         {#each functions as fn}
@@ -195,7 +196,7 @@ async function toggleActive(fn: any) {
           <h2 class="font-semibold">{selected.display_name}</h2>
           <span class="badge badge-outline badge-sm font-mono">{selected.path}</span>
           <label class="label cursor-pointer gap-1">
-            <span class="label-text text-xs">{selected.is_active ? 'Active' : 'Inactive'}</span>
+            <span class="label-text text-xs">{selected.is_active ? m['common.col.active']() : m['edgeFn.inactive']()}</span>
             <input
               type="checkbox"
               class="toggle toggle-xs toggle-success"
@@ -216,7 +217,7 @@ async function toggleActive(fn: any) {
             {:else}
               <Save size={14} />
             {/if}
-            Save
+            {m['common.save']()}
           </button>
         </div>
       </div>
@@ -236,10 +237,10 @@ async function toggleActive(fn: any) {
         <!-- Right: test panel -->
         <div class="w-72 border-l border-base-300 flex flex-col bg-base-100">
           <div class="p-3 border-b border-base-300">
-            <p class="font-medium text-sm">Test Invoke</p>
+            <p class="font-medium text-sm">{m['edgeFn.testInvoke']()}</p>
           </div>
           <div class="p-3 flex-1 flex flex-col">
-            <label class="label" for="invoke-input"><span class="label-text text-xs">Request body (JSON)</span></label>
+            <label class="label" for="invoke-input"><span class="label-text text-xs">{m['edgeFn.requestBody']()}</span></label>
             <textarea
               id="invoke-input"
               bind:value={invokeInput}
@@ -256,20 +257,20 @@ async function toggleActive(fn: any) {
               {:else}
                 <Play size={12} />
               {/if}
-              Run
+              {m['edgeFn.run']()}
             </button>
 
             {#if invokeResult}
               <div class="mt-3">
                 <div class="flex items-center gap-2 mb-1">
-                  <span class="text-xs font-medium">Response</span>
+                  <span class="text-xs font-medium">{m['edgeFn.response']()}</span>
                   <span class="badge badge-xs {invokeResult.status < 400 ? 'badge-success' : 'badge-error'}">{invokeResult.status}</span>
                   <span class="text-xs text-base-content/40">{invokeResult.duration_ms}ms</span>
                 </div>
                 <pre class="text-xs font-mono bg-base-200 rounded p-2 overflow-auto max-h-40">{invokeResult.body}</pre>
                 {#if invokeResult.logs?.length}
                   <div class="mt-2">
-                    <p class="text-xs font-medium mb-1">Console logs</p>
+                    <p class="text-xs font-medium mb-1">{m['edgeFn.consoleLogs']()}</p>
                     {#each invokeResult.logs as log}
                       <p class="text-xs font-mono text-base-content/60">{log}</p>
                     {/each}
@@ -288,10 +289,10 @@ async function toggleActive(fn: any) {
     <div class="flex-1 flex items-center justify-center text-base-content/40">
       <div class="text-center">
         <Code size={64} class="mx-auto mb-4 opacity-20" />
-        <p>Select a function or create one to get started</p>
+        <p>{m['edgeFn.selectOrCreate']()}</p>
         <button class="btn btn-primary btn-sm mt-4" onclick={() => (showCreateModal = true)}>
           <Plus size={14} />
-          New Function
+          {m['edgeFn.newFunction']()}
         </button>
       </div>
     </div>
@@ -301,33 +302,33 @@ async function toggleActive(fn: any) {
 {#if showCreateModal}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">New Edge Function</h3>
+      <h3 class="font-bold text-lg mb-4">{m['edgeFn.newEdgeFunction']()}</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label" for="fn-name"><span class="label-text">Name (URL-safe)</span></label>
+          <label class="label" for="fn-name"><span class="label-text">{m['edgeFn.nameUrlSafe']()}</span></label>
           <input id="fn-name" type="text" bind:value={form.name} placeholder="my-function" class="input font-mono" />
-          <p class="label"><span class="label-text-alt text-xs">Will be mounted at /api/fn/{form.name || '...'}</span></p>
+          <p class="label"><span class="label-text-alt text-xs">{m['edgeFn.mountedAt']({ path: form.name || '…' })}</span></p>
         </div>
         <div class="form-control">
-          <label class="label" for="fn-display-name"><span class="label-text">Display name</span></label>
-          <input id="fn-display-name" type="text" bind:value={form.display_name} placeholder="My Function" class="input" />
+          <label class="label" for="fn-display-name"><span class="label-text">{m['edgeFn.displayName']()}</span></label>
+          <input id="fn-display-name" type="text" bind:value={form.display_name} placeholder={m['edgeFn.egMyFunction']()} class="input" />
         </div>
         <div class="form-control">
-          <label class="label" for="fn-http-method"><span class="label-text">HTTP method</span></label>
+          <label class="label" for="fn-http-method"><span class="label-text">{m['edgeFn.httpMethod']()}</span></label>
           <select id="fn-http-method" bind:value={form.http_method} class="select">
             <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>ANY</option>
           </select>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={createFunction} disabled={creating}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
-          Create
+          {m['common.create']()}
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showCreateModal = false)}></button>
   </dialog>
 {/if}
 
@@ -335,7 +336,7 @@ async function toggleActive(fn: any) {
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -64,10 +65,10 @@ let confirmState = $state<{
 }>({ open: false, title: '', message: '', onconfirm: () => {} });
 
 const tabs = [
-  { key: 'all' as const, label: 'All' },
-  { key: 'pending' as const, label: 'Pending' },
-  { key: 'my_pending' as const, label: 'My Pending' },
-  { key: 'completed' as const, label: 'Completed' },
+  { key: 'all' as const, label: m['common.filter.all'] },
+  { key: 'pending' as const, label: m['approvals.tabPending'] },
+  { key: 'my_pending' as const, label: m['approvals.tabMyPending'] },
+  { key: 'completed' as const, label: m['approvals.tabCompleted'] },
 ];
 
 onMount(loadRequests);
@@ -86,7 +87,7 @@ async function loadRequests() {
     requests = data.requests || [];
     total = data.total || 0;
   } catch (e) {
-    error = e instanceof Error ? e.message : 'Failed to load approval requests';
+    error = e instanceof Error ? e.message : m['approvals.loadFailed']();
   } finally {
     loading = false;
   }
@@ -101,13 +102,13 @@ function setTab(tab: typeof activeTab) {
 function getStatusBadge(status: string) {
   switch (status) {
     case 'pending':
-      return { cls: 'badge-warning', text: 'Pending' };
+      return { cls: 'badge-warning', text: m['approvals.tabPending']() };
     case 'approved':
-      return { cls: 'badge-success', text: 'Approved' };
+      return { cls: 'badge-success', text: m['approvals.statusApproved']() };
     case 'rejected':
-      return { cls: 'badge-error', text: 'Rejected' };
+      return { cls: 'badge-error', text: m['approvals.statusRejected']() };
     case 'cancelled':
-      return { cls: 'badge-ghost', text: 'Cancelled' };
+      return { cls: 'badge-ghost', text: m['approvals.statusCancelled']() };
     default:
       return { cls: 'badge-ghost', text: status };
   }
@@ -142,7 +143,7 @@ async function makeDecision(requestId: string, decision: 'approved' | 'rejected'
     await loadRequests();
     closeDetail();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Failed to submit decision');
+    toast.error(e instanceof Error ? e.message : m['approvals.decisionFailed']());
   } finally {
     deciding = false;
   }
@@ -151,9 +152,9 @@ async function makeDecision(requestId: string, decision: 'approved' | 'rejected'
 async function cancelRequest(requestId: string) {
   confirmState = {
     open: true,
-    title: 'Cancel Request',
-    message: 'Cancel this request?',
-    confirmLabel: 'Cancel Request',
+    title: m['approvals.cancelRequest'](),
+    message: m['approvals.cancelConfirm'](),
+    confirmLabel: m['approvals.cancelRequest'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -161,7 +162,7 @@ async function cancelRequest(requestId: string) {
         await loadRequests();
         closeDetail();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : 'Failed to cancel request');
+        toast.error(e instanceof Error ? e.message : m['approvals.cancelFailed']());
       }
     },
   };
@@ -189,26 +190,26 @@ function formatRelative(dateStr: string): string {
   if (!dateStr) return '—';
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return m['approvals.justNow']();
+  if (mins < 60) return m['approvals.minsAgo']({ n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return m['approvals.hoursAgo']({ n: hours });
+  return m['approvals.daysAgo']({ n: Math.floor(hours / 24) });
 }
 </script>
 
 <div class="space-y-6">
- <PageHeader title="Approvals" subtitle="Review and manage pending requests">
+ <PageHeader title={m['nav.approvals']()} subtitle={m['approvals.subtitle']()}>
   <button class="btn btn-ghost btn-xs gap-1" onclick={() => viewMode = viewMode === 'list' ? 'kanban' : 'list'}>
-   {viewMode === 'list' ? 'Kanban view' : 'List view'}
+   {viewMode === 'list' ? m['approvals.kanbanView']() : m['approvals.listView']()}
   </button>
-  <button class="btn btn-ghost btn-sm" onclick={loadRequests} title="Refresh" aria-label="Refresh approvals"><RefreshCw size={16} /></button>
+  <button class="btn btn-ghost btn-sm" onclick={loadRequests} title={m['common.refresh']()} aria-label={m['approvals.refreshAria']()}><RefreshCw size={16} /></button>
  </PageHeader>
 
  <div class="tabs tabs-boxed bg-base-200 p-1">
  {#each tabs as tab}
  <button class="tab {activeTab === tab.key ? 'tab-active' : ''}" onclick={() => setTab(tab.key)}>
- {tab.label}
+ {tab.label()}
  {#if tab.key === 'my_pending' && activeTab === 'my_pending' && total > 0}
  <span class="badge badge-sm badge-primary ml-2">{total}</span>
  {/if}
@@ -228,7 +229,7 @@ function formatRelative(dateStr: string): string {
    <div>
     <div class="flex items-center gap-2 mb-3">
      <span class="w-2 h-2 rounded-full {status === 'pending' ? 'bg-warning' : status === 'approved' ? 'bg-success' : 'bg-error'}"></span>
-     <span class="text-sm font-medium capitalize">{status}</span>
+     <span class="text-sm font-medium">{getStatusBadge(status).text}</span>
      <span class="badge badge-ghost badge-xs">{requests.filter(r => r.status === status).length}</span>
     </div>
     <div class="space-y-2">
@@ -239,7 +240,7 @@ function formatRelative(dateStr: string): string {
       >
        <div class="font-medium text-sm">{req.workflow_name}</div>
        <div class="text-xs text-base-content/50 mt-1">
-        {req.requester_name ?? 'Unknown'} · {formatRelative(req.requested_at)}
+        {req.requester_name ?? m['approvals.unknown']()} · {formatRelative(req.requested_at)}
        </div>
        {#if req.current_step_name}
         <div class="text-xs text-primary mt-1">{req.current_step_name}</div>
@@ -247,7 +248,7 @@ function formatRelative(dateStr: string): string {
       </button>
      {/each}
      {#if requests.filter(r => r.status === status).length === 0}
-      <div class="text-xs text-base-content/30 text-center py-4">Empty</div>
+      <div class="text-xs text-base-content/30 text-center py-4">{m['approvals.empty']()}</div>
      {/if}
     </div>
    </div>
@@ -258,15 +259,15 @@ function formatRelative(dateStr: string): string {
   {#if requests.length === 0}
   <div class="card-body text-center py-12">
   <CheckCircle size={48} class="mx-auto opacity-30" />
-  <p class="mt-4 opacity-60">No approval requests found.</p>
+  <p class="mt-4 opacity-60">{m['approvals.noneFound']()}</p>
   </div>
   {:else}
   <div class="overflow-x-auto">
   <table class="table table-zebra">
   <thead>
   <tr>
-  <th>Collection</th><th>Record ID</th><th>Workflow</th>
-  <th>Step</th><th>Status</th><th>Requested By</th><th>Requested At</th><th></th>
+  <th>{m['common.col.collection']()}</th><th>{m['approvals.colRecordId']()}</th><th>{m['approvals.colWorkflow']()}</th>
+  <th>{m['approvals.colStep']()}</th><th>{m['common.col.status']()}</th><th>{m['approvals.colRequestedBy']()}</th><th>{m['approvals.colRequestedAt']()}</th><th></th>
   </tr>
   </thead>
   <tbody>
@@ -284,9 +285,9 @@ function formatRelative(dateStr: string): string {
   <td>{request.workflow_name}</td>
   <td>{request.current_step_name || '—'}</td>
   <td><span class="badge {badge.cls} badge-sm">{badge.text}</span></td>
-  <td>{request.requester_name || 'Unknown'}</td>
+  <td>{request.requester_name || m['approvals.unknown']()}</td>
   <td class="text-sm opacity-60">{formatDate(request.requested_at)}</td>
-  <td><button class="btn btn-ghost btn-sm btn-square" title="View details"><Eye size={14} /></button></td>
+  <td><button class="btn btn-ghost btn-sm btn-square" title={m['approvals.viewDetails']()}><Eye size={14} /></button></td>
   </tr>
   {/each}
   </tbody>
@@ -303,24 +304,24 @@ function formatRelative(dateStr: string): string {
  <dialog open aria-modal="true" class="modal modal-open">
  <div class="modal-box max-w-2xl">
  <div class="flex items-center justify-between mb-4">
- <h3 class="font-bold text-lg">Approval Request Details</h3>
+ <h3 class="font-bold text-lg">{m['approvals.detailTitle']()}</h3>
  <button class="btn btn-ghost btn-sm btn-square" onclick={closeDetail}><X size={16} /></button>
  </div>
 
  <div class="bg-base-200 rounded-lg p-4 mb-4 grid grid-cols-2 gap-3 text-sm">
- <div><span class="opacity-60">Collection:</span> <code class="ml-1">{req.collection}</code></div>
- <div><span class="opacity-60">Record:</span> <code class="ml-1">{req.record_id}</code></div>
- <div><span class="opacity-60">Workflow:</span> <span class="ml-1">{req.workflow_name}</span></div>
+ <div><span class="opacity-60">{m['approvals.labelCollection']()}</span> <code class="ml-1">{req.collection}</code></div>
+ <div><span class="opacity-60">{m['approvals.labelRecord']()}</span> <code class="ml-1">{req.record_id}</code></div>
+ <div><span class="opacity-60">{m['approvals.labelWorkflow']()}</span> <span class="ml-1">{req.workflow_name}</span></div>
  <div>
- <span class="opacity-60">Status:</span>
+ <span class="opacity-60">{m['approvals.labelStatus']()}</span>
  <span class="badge {getStatusBadge(req.status).cls} badge-sm ml-2">{getStatusBadge(req.status).text}</span>
  </div>
- <div><span class="opacity-60">Requested By:</span> <span class="ml-1">{req.requester_name || 'Unknown'}</span></div>
- <div><span class="opacity-60">Created:</span> <span class="ml-1">{formatDate(req.requested_at)}</span></div>
+ <div><span class="opacity-60">{m['approvals.labelRequestedBy']()}</span> <span class="ml-1">{req.requester_name || m['approvals.unknown']()}</span></div>
+ <div><span class="opacity-60">{m['approvals.labelCreated']()}</span> <span class="ml-1">{formatDate(req.requested_at)}</span></div>
  </div>
 
  <div class="mb-4">
- <h4 class="font-semibold mb-3 text-sm">Approval Steps</h4>
+ <h4 class="font-semibold mb-3 text-sm">{m['approvals.steps']()}</h4>
  <div class="space-y-2">
  {#each requestSteps as step, i}
  {@const status = getStepStatus(step)}
@@ -341,13 +342,13 @@ function formatRelative(dateStr: string): string {
  {#if step.decision}
  <span class="badge badge-sm {step.decision === 'approved' ? 'badge-success' : step.decision === 'rejected' ? 'badge-error' : 'badge-warning'}">{step.decision}</span>
  {/if}
- {#if step.decider_name}<span class="text-xs opacity-60">by {step.decider_name}</span>{/if}
+ {#if step.decider_name}<span class="text-xs opacity-60">{m['approvals.byUser']({ name: step.decider_name })}</span>{/if}
  </div>
  {#if step.comment}
  <div class="ml-12 text-sm opacity-70 italic border-l-2 border-base-300 pl-3">"{step.comment}"</div>
  {/if}
  {:else}
- <div class="text-center py-4 opacity-60 text-sm">No steps loaded</div>
+ <div class="text-center py-4 opacity-60 text-sm">{m['approvals.noSteps']()}</div>
  {/each}
  </div>
  </div>
@@ -355,28 +356,28 @@ function formatRelative(dateStr: string): string {
  {#if req.status === 'pending'}
  <div class="border-t border-base-300 pt-4 space-y-3">
  <div class="form-control">
- <label class="label" for="decision-comment"><span class="label-text text-sm">Comment (optional)</span></label>
- <textarea id="decision-comment" class="textarea" placeholder="Add a comment..." bind:value={decisionComment} rows="2"></textarea>
+ <label class="label" for="decision-comment"><span class="label-text text-sm">{m['approvals.commentOptional']()}</span></label>
+ <textarea id="decision-comment" class="textarea" placeholder={m['schemaBranches.addComment']()} bind:value={decisionComment} rows="2"></textarea>
  </div>
  <div class="flex gap-2">
  <button class="btn btn-success flex-1 gap-2" onclick={() => makeDecision(req.id, 'approved')} disabled={deciding}>
  {#if deciding}<span class="loading loading-spinner loading-sm"></span>{:else}<Check size={14} />{/if}
- Approve
+ {m['common.approve']()}
  </button>
  <button class="btn btn-error flex-1 gap-2" onclick={() => makeDecision(req.id, 'rejected')} disabled={deciding}>
  {#if deciding}<span class="loading loading-spinner loading-sm"></span>{:else}<X size={14} />{/if}
- Reject
+ {m['common.reject']()}
  </button>
  </div>
  <div class="flex justify-end border-t border-base-300 pt-3">
  <button class="btn btn-ghost btn-sm text-error gap-1" onclick={() => cancelRequest(req.id)}>
- <Ban size={14} /> Cancel Request
+ <Ban size={14} /> {m['approvals.cancelRequest']()}
  </button>
  </div>
  </div>
  {/if}
  </div>
- <button class="modal-backdrop" aria-label="Close" onclick={closeDetail}></button>
+ <button class="modal-backdrop" aria-label={m['common.close']()} onclick={closeDetail}></button>
  </dialog>
 {/if}
 
@@ -384,7 +385,7 @@ function formatRelative(dateStr: string): string {
  open={confirmState.open}
  title={confirmState.title}
  message={confirmState.message}
- confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+ confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
  onconfirm={confirmState.onconfirm}
  oncancel={() => (confirmState.open = false)}
 />

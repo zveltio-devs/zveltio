@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
@@ -61,7 +62,7 @@ async function testConnection() {
   testResult = null;
   try {
     const res = await api.post('/api/data/' + (form.name || '_test_'), {});
-    testResult = { ok: true, message: 'Connection OK', sample: res };
+    testResult = { ok: true, message: m['virtualCollections.connectionOk'](), sample: res };
   } catch {
     // Try a GET instead
     try {
@@ -73,9 +74,16 @@ async function testConnection() {
       const resp = await fetch(url.toString(), { headers });
       if (resp.ok) {
         const json = await resp.json();
-        testResult = { ok: true, message: `Connected — status ${resp.status}`, sample: json };
+        testResult = {
+          ok: true,
+          message: m['virtualCollections.connectedStatus']({ status: resp.status }),
+          sample: json,
+        };
       } else {
-        testResult = { ok: false, message: `Source returned ${resp.status}` };
+        testResult = {
+          ok: false,
+          message: m['virtualCollections.sourceReturned']({ status: resp.status }),
+        };
       }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     } catch (e2: any) {
@@ -137,13 +145,13 @@ onMount(load);
 </script>
 
 <div class="space-y-6">
- <PageHeader title="Virtual Collections" subtitle="External data source integrations">
+ <PageHeader title={m['nav.virtualCollections']()} subtitle={m['virtualCollections.subtitle']()}>
   <div class="flex gap-2">
   <button class="btn btn-ghost btn-sm" onclick={load}>
   <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
   </button>
   <button class="btn btn-primary btn-sm" onclick={() => (showCreate = true)}>
-  <Plus size={14} /> New Virtual Collection
+  <Plus size={14} /> {m['virtualCollections.newVC']()}
   </button>
   </div>
  </PageHeader>
@@ -157,9 +165,9 @@ onMount(load);
  {:else if collections.length === 0}
  <div class="card bg-base-200 text-center py-16">
  <Plug size={40} class="mx-auto mb-4 text-base-content/30" />
- <p class="text-base-content/50 text-lg">No virtual collections yet.</p>
+ <p class="text-base-content/50 text-lg">{m['virtualCollections.noVC']()}</p>
  <p class="text-base-content/40 text-sm mt-1">
- Connect external APIs and browse their data from Studio.
+ {m['virtualCollections.connectDesc']()}
  </p>
  </div>
  {:else}
@@ -179,7 +187,7 @@ onMount(load);
  <a
  href="/collections/{col.name}/data"
  class="btn btn-ghost btn-sm"
- title="Browse data"
+ title={m['virtualCollections.browseData']()}
  >
  <ExternalLink size={14} />
  </a>
@@ -195,32 +203,32 @@ onMount(load);
 {#if showCreate}
  <div class="modal modal-open">
  <div class="modal-box w-11/12 max-w-2xl">
- <h3 class="font-bold text-lg mb-4">New Virtual Collection</h3>
+ <h3 class="font-bold text-lg mb-4">{m['virtualCollections.newVC']()}</h3>
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control">
- <label class="label" for="vc-name"><span class="label-text">Collection name *</span></label>
+ <label class="label" for="vc-name"><span class="label-text">{m['virtualCollections.collectionName']()}</span></label>
  <input
  id="vc-name"
  class="input input-sm"
  placeholder="stripe_customers"
  bind:value={form.name}
  />
- <p class="label"><span class="label-text-alt">lowercase, no spaces</span></p>
+ <p class="label"><span class="label-text-alt">{m['virtualCollections.lowercaseNoSpaces']()}</span></p>
  </div>
  <div class="form-control">
- <label class="label" for="vc-display-name"><span class="label-text">Display name</span></label>
+ <label class="label" for="vc-display-name"><span class="label-text">{m['virtualCollections.displayName']()}</span></label>
  <input
  id="vc-display-name"
  class="input input-sm"
- placeholder="Stripe Customers"
+ placeholder={m['virtualCollections.egStripeCustomers']()}
  bind:value={form.displayName}
  />
  </div>
  </div>
 
  <div class="form-control mb-4">
- <label class="label" for="vc-source-url"><span class="label-text">Source URL *</span></label>
+ <label class="label" for="vc-source-url"><span class="label-text">{m['virtualCollections.sourceUrl']()}</span></label>
  <input
  id="vc-source-url"
  class="input input-sm font-mono"
@@ -231,17 +239,17 @@ onMount(load);
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control">
- <label class="label" for="vc-auth-type"><span class="label-text">Auth type</span></label>
+ <label class="label" for="vc-auth-type"><span class="label-text">{m['virtualCollections.authType']()}</span></label>
  <select id="vc-auth-type" class="select select-sm" bind:value={form.auth_type}>
- <option value="none">None</option>
+ <option value="none">{m['virtualCollections.authNone']()}</option>
  <option value="bearer">Bearer token</option>
- <option value="api_key">API Key header</option>
+ <option value="api_key">{m['virtualCollections.authApiKeyHeader']()}</option>
  <option value="basic">Basic auth</option>
  </select>
  </div>
  {#if form.auth_type !== 'none'}
  <div class="form-control">
- <label class="label" for="vc-auth-value"><span class="label-text">Auth value</span></label>
+ <label class="label" for="vc-auth-value"><span class="label-text">{m['virtualCollections.authValue']()}</span></label>
  <input
  id="vc-auth-value"
  class="input input-sm"
@@ -255,17 +263,17 @@ onMount(load);
 
  <div class="grid grid-cols-2 gap-4 mb-4">
  <div class="form-control">
- <label class="label" for="vc-list-path"><span class="label-text">Items path in response</span></label>
+ <label class="label" for="vc-list-path"><span class="label-text">{m['virtualCollections.itemsPath']()}</span></label>
  <input
  id="vc-list-path"
  class="input input-sm font-mono"
  placeholder="$.data"
  bind:value={form.list_path}
  />
- <p class="label"><span class="label-text-alt">e.g. $.data, $.results, $.items</span></p>
+ <p class="label"><span class="label-text-alt">{m['virtualCollections.egListPath']()}</span></p>
  </div>
  <div class="form-control">
- <label class="label" for="vc-id-field"><span class="label-text">ID field</span></label>
+ <label class="label" for="vc-id-field"><span class="label-text">{m['virtualCollections.idField']()}</span></label>
  <input
  id="vc-id-field"
  class="input input-sm font-mono"
@@ -277,8 +285,8 @@ onMount(load);
 
  <div class="form-control mb-4">
  <label class="label" for="vc-field-mapping">
- <span class="label-text">Field mapping (optional)</span>
- <span class="label-text-alt">zveltio_field=external_field, one per line</span>
+ <span class="label-text">{m['virtualCollections.fieldMappingOpt']()}</span>
+ <span class="label-text-alt">{m['virtualCollections.mappingHint']()}</span>
  </label>
  <textarea
  id="vc-field-mapping"
@@ -296,15 +304,15 @@ onMount(load);
  {/if}
 
  <div class="modal-action">
- <button class="btn btn-ghost btn-sm" onclick={() => (showCreate = false)}>Cancel</button>
+ <button class="btn btn-ghost btn-sm" onclick={() => (showCreate = false)}>{m['common.cancel']()}</button>
  <button class="btn btn-outline btn-sm" onclick={testConnection} disabled={!form.source_url || testing}>
- {testing ? 'Testing…' : 'Test connection'}
+ {testing ? m['virtualCollections.testing']() : m['common.testConnection']()}
  </button>
  <button class="btn btn-primary btn-sm" onclick={create} disabled={!form.name || !form.source_url}>
- Create
+ {m['common.create']()}
  </button>
  </div>
  </div>
- <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreate = false)}></button>
+ <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showCreate = false)}></button>
  </div>
 {/if}

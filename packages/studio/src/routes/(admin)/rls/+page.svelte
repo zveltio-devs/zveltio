@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { Shield, Plus, Trash2, Pencil, Check, X, Info } from '@lucide/svelte';
@@ -20,9 +21,9 @@ interface RlsPolicy {
 
 const FILTER_OPS = ['eq', 'neq', 'in', 'not_in'];
 const VALUE_SOURCES = [
-  { value: 'user_id', label: 'Current user ID' },
-  { value: 'user_email', label: 'Current user email' },
-  { value: 'user_role', label: 'Current user role' },
+  { value: 'user_id', label: m['rls.currentUserId'] },
+  { value: 'user_email', label: m['rls.currentUserEmail'] },
+  { value: 'user_role', label: m['rls.currentUserRole'] },
 ];
 
 let policies = $state<RlsPolicy[]>([]);
@@ -112,10 +113,10 @@ async function save() {
     const body = { ...form, description: form.description || undefined };
     if (editingId) {
       await api.patch(`/api/admin/rls/${editingId}`, body);
-      toast.success('Policy updated');
+      toast.success(m['rls.policyUpdated']());
     } else {
       await api.post('/api/admin/rls', body);
-      toast.success('Policy created');
+      toast.success(m['rls.policyCreated']());
     }
     showForm = false;
     await loadAll();
@@ -129,12 +130,12 @@ async function save() {
 function confirmDelete(p: RlsPolicy) {
   confirmState = {
     open: true,
-    title: 'Delete RLS Policy',
-    message: `Remove the policy for "${p.collection}" / "${p.role}"? Records will no longer be filtered by this rule.`,
+    title: m['rls.deleteTitle'](),
+    message: m['rls.deleteMsg']({ collection: p.collection, role: p.role }),
     onconfirm: async () => {
       try {
         await api.delete(`/api/admin/rls/${p.id}`);
-        toast.success('Policy deleted');
+        toast.success(m['rls.policyDeleted']());
         await loadAll();
       } catch {
         toast.error('Failed to delete policy');
@@ -154,16 +155,16 @@ async function toggleEnabled(p: RlsPolicy) {
 
 function sourceLabel(src: string): string {
   const known = VALUE_SOURCES.find((v) => v.value === src);
-  if (known) return known.label;
+  if (known) return known.label();
   if (src.startsWith('static:')) return `"${src.slice(7)}"`;
   return src;
 }
 </script>
 
-<PageHeader title="Row-Level Security" subtitle="Control which records each role can see per collection.">
+<PageHeader title={m['rls.title']()} subtitle={m['rls.subtitle']()}>
   {#snippet actions()}
     <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
-      <Plus class="h-4 w-4" /> New Policy
+      <Plus class="h-4 w-4" /> {m['rls.newPolicy']()}
     </button>
   {/snippet}
 </PageHeader>
@@ -174,9 +175,9 @@ function sourceLabel(src: string): string {
 <div role="status" class="mx-6 mb-4 alert alert-info alert-soft text-sm">
   <Info class="h-4 w-4 shrink-0" />
   <div>
-    Policies are evaluated <strong>after</strong> Casbin (collection access check).
-    Each matching policy injects a <code class="rounded bg-base-300 px-1 font-mono">WHERE</code> clause into queries for that role.
-    God users and API keys bypass RLS.
+    {m['rls.banner1']()}
+    {m['rls.banner2']()}
+    {m['rls.banner3']()}
   </div>
 </div>
 
@@ -188,10 +189,10 @@ function sourceLabel(src: string): string {
     <div class="mb-4 rounded-full border border-base-content/10 bg-base-200 p-5">
       <Shield class="h-10 w-10 text-base-content/30" />
     </div>
-    <h2 class="text-lg font-semibold">No RLS policies yet</h2>
-    <p class="mt-1 text-sm text-base-content/50">Add a policy to restrict which records each role can see.</p>
+    <h2 class="text-lg font-semibold">{m['rls.emptyTitle']()}</h2>
+    <p class="mt-1 text-sm text-base-content/50">{m['rls.emptyDesc']()}</p>
     <button onclick={openNew} class="btn btn-primary btn-sm mt-4 gap-1">
-      <Plus class="h-4 w-4" /> New Policy
+      <Plus class="h-4 w-4" /> {m['rls.newPolicy']()}
     </button>
   </div>
 {:else}
@@ -200,31 +201,31 @@ function sourceLabel(src: string): string {
     <!-- Policy form -->
     {#if showForm}
       <div class="rounded-xl border border-base-content/10 bg-base-200 p-5 space-y-4">
-        <h3 class="font-semibold">{editingId ? 'Edit Policy' : 'New Policy'}</h3>
+        <h3 class="font-semibold">{editingId ? m['rls.editPolicy']() : m['rls.newPolicy']()}</h3>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div class="form-control">
-            <label class="label label-text text-xs">Collection</label>
+            <label class="label label-text text-xs">{m['common.col.collection']()}</label>
             <select bind:value={form.collection} class="select select-sm select-bordered w-full">
-              <option value="*">* (all collections)</option>
+              <option value="*">{m['rls.allCollectionsOpt']()}</option>
               {#each collections as col}
                 <option value={col}>{col}</option>
               {/each}
             </select>
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">Role</label>
+            <label class="label label-text text-xs">{m['common.col.role']()}</label>
             <select bind:value={form.role} class="select select-sm select-bordered w-full">
               {#each roles as r}
-                <option value={r}>{r === '*' ? '* (all roles)' : r}</option>
+                <option value={r}>{r === '*' ? m['rls.allRolesOpt']() : r}</option>
               {/each}
             </select>
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">Filter field</label>
-            <input bind:value={form.filter_field} type="text" placeholder="e.g. created_by" class="input input-sm input-bordered w-full" />
+            <label class="label label-text text-xs">{m['rls.filterField']()}</label>
+            <input bind:value={form.filter_field} type="text" placeholder={m['rls.egCreatedBy']()} class="input input-sm input-bordered w-full" />
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">Operator</label>
+            <label class="label label-text text-xs">{m['rls.operator']()}</label>
             <select bind:value={form.filter_op} class="select select-sm select-bordered w-full">
               {#each FILTER_OPS as op}
                 <option value={op}>{op}</option>
@@ -232,30 +233,30 @@ function sourceLabel(src: string): string {
             </select>
           </div>
           <div class="form-control">
-            <label class="label label-text text-xs">Value source</label>
+            <label class="label label-text text-xs">{m['rls.valueSource']()}</label>
             <select bind:value={form.filter_value_source} class="select select-sm select-bordered w-full">
               {#each VALUE_SOURCES as vs}
-                <option value={vs.value}>{vs.label}</option>
+                <option value={vs.value}>{vs.label()}</option>
               {/each}
-              <option value="static:">Static value…</option>
+              <option value="static:">{m['rls.staticValue']()}</option>
             </select>
             {#if form.filter_value_source === 'static:' || form.filter_value_source.startsWith('static:')}
               <input
                 value={form.filter_value_source.startsWith('static:') ? form.filter_value_source.slice(7) : ''}
                 oninput={(e) => { form.filter_value_source = `static:${(e.target as HTMLInputElement).value}`; }}
-                type="text" placeholder="literal value" class="input input-sm input-bordered w-full mt-1"
+                type="text" placeholder={m['rls.literalValue']()} class="input input-sm input-bordered w-full mt-1"
               />
             {/if}
           </div>
           <div class="form-control sm:col-span-2 lg:col-span-1">
-            <label class="label label-text text-xs">Description (optional)</label>
-            <input bind:value={form.description} type="text" placeholder="e.g. Users see only their records" class="input input-sm input-bordered w-full" />
+            <label class="label label-text text-xs">{m['rls.descOptional']()}</label>
+            <input bind:value={form.description} type="text" placeholder={m['rls.egUsersOwnRecords']()} class="input input-sm input-bordered w-full" />
           </div>
         </div>
         <div class="flex items-center gap-3">
           <label class="flex items-center gap-2 cursor-pointer text-sm">
             <input type="checkbox" bind:checked={form.is_enabled} class="checkbox checkbox-sm" />
-            Enabled
+            {m['common.col.enabled']()}
           </label>
           <div class="ml-auto flex gap-2">
             <button onclick={() => (showForm = false)} class="btn btn-ghost btn-sm"><X class="h-4 w-4" /></button>
@@ -265,7 +266,7 @@ function sourceLabel(src: string): string {
               {:else}
                 <Check class="h-4 w-4" />
               {/if}
-              {editingId ? 'Update' : 'Create'}
+              {editingId ? m['rls.update']() : m['common.create']()}
             </button>
           </div>
         </div>
@@ -278,11 +279,11 @@ function sourceLabel(src: string): string {
         <table class="table table-sm w-full">
           <thead>
             <tr class="text-xs text-base-content/50">
-              <th>Collection</th>
-              <th>Role</th>
-              <th>Rule</th>
-              <th>Description</th>
-              <th class="text-center">Enabled</th>
+              <th>{m['common.col.collection']()}</th>
+              <th>{m['common.col.role']()}</th>
+              <th>{m['rls.rule']()}</th>
+              <th>{m['common.col.description']()}</th>
+              <th class="text-center">{m['common.col.enabled']()}</th>
               <th></th>
             </tr>
           </thead>

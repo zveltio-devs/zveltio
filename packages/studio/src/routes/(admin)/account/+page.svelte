@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { auth } from '$lib/auth.svelte.js';
 import { toast } from '$lib/stores/toast.svelte.js';
@@ -42,7 +43,7 @@ async function saveProfile(): Promise<void> {
 </script>
 
 <div class="space-y-6 max-w-2xl">
-  <PageHeader title="Account" subtitle="Manage your profile and security settings" />
+  <PageHeader title={m['acct.title']()} subtitle={m['acct.subtitle']()} />
 
   <!-- Profile -->
   <section class="card bg-base-200">
@@ -52,24 +53,24 @@ async function saveProfile(): Promise<void> {
           <UserIcon size={20} class="text-primary" />
         </div>
         <div class="flex-1">
-          <h2 class="card-title text-base">Profile</h2>
-          <p class="text-sm text-base-content/60 mt-0.5">Basic identity. Email is read-only.</p>
+          <h2 class="card-title text-base">{m['acct.profile']()}</h2>
+          <p class="text-sm text-base-content/60 mt-0.5">{m['acct.profileDesc']()}</p>
         </div>
       </div>
 
       <div class="space-y-3 mt-4">
         <div class="form-control">
-          <label class="label" for="acct-name"><span class="label-text">Name</span></label>
+          <label class="label" for="acct-name"><span class="label-text">{m['common.col.name']()}</span></label>
           <input
             id="acct-name"
             type="text"
             class="input input-bordered w-full"
             bind:value={name}
-            placeholder="Your name"
+            placeholder={m['acct.yourNamePh']()}
           />
         </div>
         <div class="form-control">
-          <label class="label" for="acct-email"><span class="label-text">Email</span></label>
+          <label class="label" for="acct-email"><span class="label-text">{m['common.col.email']()}</span></label>
           <input
             id="acct-email"
             type="email"

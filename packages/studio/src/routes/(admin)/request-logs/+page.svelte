@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { fmtTime } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
@@ -75,8 +76,8 @@ function applyFilters() {
   <div class="flex items-center gap-3 mb-6">
     <Activity class="w-6 h-6 text-primary" />
     <div>
-      <h1 class="text-2xl font-bold">Request Logs</h1>
-      <p class="text-base-content/60 text-sm">All API requests — filterable by path, method, status.</p>
+      <h1 class="text-2xl font-bold">{m['rlog.title']()}</h1>
+      <p class="text-base-content/60 text-sm">{m['rlog.subtitle']()}</p>
     </div>
   </div>
 
@@ -84,24 +85,24 @@ function applyFilters() {
   <div class="flex flex-wrap gap-3 mb-4">
     <input
       class="input input-bordered input-sm w-56"
-      placeholder="Filter by path..."
+      placeholder={m['rlog.filterPath']()}
       bind:value={filterPath}
       onkeydown={(e) => e.key === 'Enter' && applyFilters()}
     />
     <select class="select select-bordered select-sm" bind:value={filterMethod} onchange={applyFilters}>
-      <option value="">All methods</option>
+      <option value="">{m['rlog.allMethods']()}</option>
       {#each ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as m}
         <option value={m}>{m}</option>
       {/each}
     </select>
     <select class="select select-bordered select-sm" bind:value={filterStatus} onchange={applyFilters}>
-      <option value="">All statuses</option>
+      <option value="">{m['common.filter.allStatuses']()}</option>
       {#each ['200', '201', '400', '401', '403', '404', '500'] as s}
         <option value={s}>{s}</option>
       {/each}
     </select>
-    <button class="btn btn-sm btn-primary" onclick={applyFilters}>Apply</button>
-    <span class="ml-auto text-sm text-base-content/50 self-center">{total.toLocaleString()} total</span>
+    <button class="btn btn-sm btn-primary" onclick={applyFilters}>{m['rlog.apply']()}</button>
+    <span class="ml-auto text-sm text-base-content/50 self-center">{m['rlog.totalCount']({ count: total.toLocaleString() })}</span>
   </div>
 
   {#if loading}
@@ -109,19 +110,19 @@ function applyFilters() {
   {:else if logs.length === 0}
     <div class="text-center py-16 text-base-content/40">
       <Activity class="w-10 h-10 mx-auto mb-3 opacity-30" />
-      <p>No requests logged yet.</p>
+      <p>{m['rlog.empty']()}</p>
     </div>
   {:else}
     <div class="overflow-x-auto rounded-xl border border-base-300">
       <table class="table table-sm table-zebra w-full">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Method</th>
-            <th>Path</th>
-            <th>Status</th>
-            <th>Duration</th>
-            <th>User</th>
+            <th>{m['rlog.colTime']()}</th>
+            <th>{m['flowEdit.method']()}</th>
+            <th>{m['rlog.colPath']()}</th>
+            <th>{m['common.col.status']()}</th>
+            <th>{m['rlog.colDuration']()}</th>
+            <th>{m['common.col.user']()}</th>
             <th>IP</th>
           </tr>
         </thead>

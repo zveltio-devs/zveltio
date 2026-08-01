@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { Plus, Search, Trash2, Globe, Check, X } from '@lucide/svelte';
@@ -97,9 +98,9 @@ async function addLocale() {
 async function deleteKey(id: string, key: string) {
   confirmState = {
     open: true,
-    title: 'Delete Translation Key',
-    message: `Delete key '${key}' and all its translations?`,
-    confirmLabel: 'Delete',
+    title: m['tr.deleteKeyTitle'](),
+    message: m['tr.deleteKeyMsg']({ key }),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       await api.delete(`/ext/i18n/translations/${id}`);
@@ -172,15 +173,15 @@ async function searchKeys() {
 
 <div class="space-y-6">
  <!-- Header -->
- <PageHeader title="Translations" subtitle="Manage multilingual content">
+ <PageHeader title={m['nav.translations']()} subtitle={m['tr.subtitle']()}>
   <div class="flex gap-2">
   <button class="btn btn-ghost btn-sm" onclick={() => (showAddLocale = !showAddLocale)}>
   <Globe size={16} />
-  Add Locale
+  {m['tr.addLocale']()}
   </button>
   <button class="btn btn-primary btn-sm" onclick={() => (showAddKey = !showAddKey)}>
   <Plus size={16} />
-  Add Key
+  {m['tr.addKey']()}
   </button>
   </div>
  </PageHeader>
@@ -189,26 +190,26 @@ async function searchKeys() {
  {#if showAddLocale}
  <div class="card bg-base-200 border border-primary/30">
  <div class="card-body gap-3">
- <h3 class="font-semibold">Add Locale</h3>
+ <h3 class="font-semibold">{m['tr.addLocale']()}</h3>
  <div class="grid grid-cols-3 gap-3">
  <div class="form-control">
- <label class="label" for="lc_code"><span class="label-text">Code</span></label>
+ <label class="label" for="lc_code"><span class="label-text">{m['tr.code']()}</span></label>
  <input id="lc_code" type="text" bind:value={newLocale.code} placeholder="ro" class="input input-sm" />
  </div>
  <div class="form-control">
- <label class="label" for="lc_name"><span class="label-text">Name</span></label>
+ <label class="label" for="lc_name"><span class="label-text">{m['common.col.name']()}</span></label>
  <input id="lc_name" type="text" bind:value={newLocale.name} placeholder="Română" class="input input-sm" />
  </div>
  <div class="form-control justify-end">
  <label class="flex items-center gap-2 cursor-pointer pb-1">
  <input type="checkbox" bind:checked={newLocale.is_default} class="checkbox checkbox-sm" />
- <span class="label-text">Default</span>
+ <span class="label-text">{m['tr.default']()}</span>
  </label>
  </div>
  </div>
  <div class="flex gap-2">
- <button class="btn btn-primary btn-sm" onclick={addLocale} disabled={saving}>Add</button>
- <button class="btn btn-ghost btn-sm" onclick={() => (showAddLocale = false)}>Cancel</button>
+ <button class="btn btn-primary btn-sm" onclick={addLocale} disabled={saving}>{m['erd.add']()}</button>
+ <button class="btn btn-ghost btn-sm" onclick={() => (showAddLocale = false)}>{m['common.cancel']()}</button>
  </div>
  </div>
  </div>
@@ -218,24 +219,24 @@ async function searchKeys() {
  {#if showAddKey}
  <div class="card bg-base-200 border border-primary/30">
  <div class="card-body gap-3">
- <h3 class="font-semibold">New Translation Key</h3>
+ <h3 class="font-semibold">{m['tr.newKey']()}</h3>
  <div class="grid grid-cols-2 gap-3">
  <div class="form-control">
- <label class="label" for="key_key"><span class="label-text">Key <span class="text-error">*</span></span></label>
+ <label class="label" for="key_key"><span class="label-text">{m['common.col.key']()} <span class="text-error">*</span></span></label>
  <input id="key_key" type="text" bind:value={newKey.key} placeholder="auth.login.title" class="input input-sm font-mono" />
  </div>
  <div class="form-control">
- <label class="label" for="key_ctx"><span class="label-text">Context</span></label>
+ <label class="label" for="key_ctx"><span class="label-text">{m['tr.context']()}</span></label>
  <input id="key_ctx" type="text" bind:value={newKey.context} placeholder="ui / email / content" class="input input-sm" />
  </div>
  <div class="form-control col-span-2">
- <label class="label" for="key_def"><span class="label-text">Default value (English fallback)</span></label>
- <input id="key_def" type="text" bind:value={newKey.default_value} placeholder="Login to your account" class="input input-sm" />
+ <label class="label" for="key_def"><span class="label-text">{m['tr.defaultValue']()}</span></label>
+ <input id="key_def" type="text" bind:value={newKey.default_value} placeholder={m['tr.loginPh']()} class="input input-sm" />
  </div>
  </div>
  <div class="flex gap-2">
- <button class="btn btn-primary btn-sm" onclick={addKey} disabled={saving || !newKey.key}>Add Key</button>
- <button class="btn btn-ghost btn-sm" onclick={() => (showAddKey = false)}>Cancel</button>
+ <button class="btn btn-primary btn-sm" onclick={addKey} disabled={saving || !newKey.key}>{m['tr.addKey']()}</button>
+ <button class="btn btn-ghost btn-sm" onclick={() => (showAddKey = false)}>{m['common.cancel']()}</button>
  </div>
  </div>
  </div>
@@ -251,7 +252,7 @@ async function searchKeys() {
  >
  {locale.name} <span class="font-mono text-xs opacity-60">({locale.code})</span>
  {#if locale.is_default}
- <span class="badge badge-ghost badge-xs ml-1">default</span>
+ <span class="badge badge-ghost badge-xs ml-1">{m['tr.default']()}</span>
  {/if}
  </button>
  {/each}
@@ -266,11 +267,11 @@ async function searchKeys() {
  type="text"
  bind:value={search}
  onkeydown={(e) => e.key === 'Enter' && searchKeys()}
- placeholder="Search keys…"
+ placeholder={m['tr.searchKeys']()}
  class="input input-sm w-full pl-9"
  />
  </div>
- <button class="btn btn-sm" onclick={searchKeys}>Search</button>
+ <button class="btn btn-sm" onclick={searchKeys}>{m['tr.searchBtn']()}</button>
  </div>
 
  {#if loading}
@@ -281,8 +282,8 @@ async function searchKeys() {
  <table class="table table-sm">
  <thead>
  <tr>
- <th class="w-64">Key</th>
- <th>Default</th>
+ <th class="w-64">{m['common.col.key']()}</th>
+ <th>{m['tr.default']()}</th>
  <th class="min-w-48">{locales.find((l) => l.code === activeLocale)?.name || activeLocale}</th>
  <th class="w-8"></th>
  </tr>
@@ -313,15 +314,15 @@ async function searchKeys() {
  if (e.key === 'Escape') cancelEdit();
  }}
  />
- <button class="btn btn-ghost btn-xs text-success" onclick={saveEdit} title="Save" aria-label="Save translation"><Check size={12} /></button>
- <button class="btn btn-ghost btn-xs" onclick={cancelEdit} title="Cancel" aria-label="Cancel edit"><X size={12} /></button>
+ <button class="btn btn-ghost btn-xs text-success" onclick={saveEdit} title={m['common.save']()} aria-label={m['tr.saveTranslation']()}><Check size={12} /></button>
+ <button class="btn btn-ghost btn-xs" onclick={cancelEdit} title={m['common.cancel']()} aria-label={m['tr.cancelEdit']()}><X size={12} /></button>
  </div>
  {:else}
  <button
  class="text-left w-full text-sm {translation ? '' : 'text-base-content/30 italic'} hover:bg-base-300 rounded px-1 py-0.5 transition-colors"
  onclick={() => startEdit(key.id, activeLocale, translation)}
  >
- {translation || 'Click to translate…'}
+ {translation || m['tr.clickToTranslate']()}
  {#if reviewed}
  <Check size={10} class="inline ml-1 text-success" />
  {/if}
@@ -350,7 +351,7 @@ async function searchKeys() {
  disabled={pagination.page <= 1}
  onclick={async () => { pagination.page--; await loadKeys(); }}
  >
- Prev
+ {m['common.prev']()}
  </button>
  <span class="btn btn-sm btn-ghost no-animation">
  {pagination.page} / {Math.ceil(pagination.total / pagination.limit)}
@@ -360,14 +361,14 @@ async function searchKeys() {
  disabled={pagination.page >= Math.ceil(pagination.total / pagination.limit)}
  onclick={async () => { pagination.page++; await loadKeys(); }}
  >
- Next
+ {m['common.next']()}
  </button>
  </div>
  {/if}
 
  {#if keys.length === 0}
  <div class="text-center py-8 text-base-content/40">
- {search ? 'No keys matching your search.' : 'No translation keys yet. Add your first key.'}
+ {search ? m['tr.noMatches']() : m['tr.noKeys']()}
  </div>
  {/if}
  {/if}
