@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -261,8 +262,8 @@ const PLAN_BADGES: Record<string, string> = {
 </script>
 
 <CrudListPage
-  title="Tenants"
-  subtitle="Manage SaaS tenants and their environments"
+  title={m['nav.tenants']()}
+  subtitle={m['tenants.subtitle']()}
   count={tenants.length}
   loading={loading && tenants.length === 0}
   actionLabel="New Tenant"
@@ -278,7 +279,7 @@ const PLAN_BADGES: Record<string, string> = {
 >
   {#snippet headerExtras()}
     <div class="flex justify-end">
-      <button class="btn btn-ghost btn-sm gap-2" onclick={loadTenants} disabled={loading} aria-label="Refresh tenants">
+      <button class="btn btn-ghost btn-sm gap-2" onclick={loadTenants} disabled={loading} aria-label={m['tenants.refresh']()}>
         <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
         Refresh
       </button>
@@ -290,12 +291,12 @@ const PLAN_BADGES: Record<string, string> = {
       <table class="table table-sm w-full">
  <thead>
  <tr>
- <th>Tenant</th>
- <th>Plan</th>
- <th>Records</th>
- <th>API calls today</th>
- <th>Status</th>
- <th class="text-right">Actions</th>
+ <th>{m['tenants.tenant']()}</th>
+ <th>{m['tenants.plan']()}</th>
+ <th>{m['common.col.records']()}</th>
+ <th>{m['tenants.apiCallsToday']()}</th>
+ <th>{m['common.col.status']()}</th>
+ <th class="text-right">{m['common.actions']()}</th>
  </tr>
  </thead>
  <tbody>
@@ -370,7 +371,7 @@ const PLAN_BADGES: Record<string, string> = {
  <tr class="bg-base-200">
  <td colspan="6" class="py-3 px-6">
  <div class="flex items-center justify-between mb-2">
- <span class="text-sm font-semibold opacity-70">Environments</span>
+ <span class="text-sm font-semibold opacity-70">{m['tenants.environments']()}</span>
  <button
  class="btn btn-ghost btn-xs gap-1"
  onclick={() => openCreateEnv(tenant)}
@@ -401,14 +402,14 @@ const PLAN_BADGES: Record<string, string> = {
  </div>
  {/each}
  {#if (envsByTenant[tenant.id] ?? []).length === 0}
- <span class="text-xs opacity-50">No environments yet</span>
+ <span class="text-xs opacity-50">{m['tenants.noEnvironments']()}</span>
  {/if}
  </div>
  {/if}
 
  <!-- Members + per-tenant roles -->
  <div class="divider my-3"></div>
- <span class="text-sm font-semibold opacity-70">Members &amp; roles</span>
+ <span class="text-sm font-semibold opacity-70">{m['tenants.membersRoles']()}</span>
  {#if loadingMembers === tenant.id}
  <span class="loading loading-dots loading-sm"></span>
  {:else}
@@ -422,14 +423,14 @@ const PLAN_BADGES: Record<string, string> = {
  <td class="text-right">
  <button
  class="btn btn-ghost btn-xs text-error"
- title="Remove member"
+ title={m['tenants.removeMember']()}
  onclick={() => removeMember(tenant.id, m.user_id)}
- >Remove</button>
+ >{m['common.remove']()}</button>
  </td>
  </tr>
  {/each}
  {#if (membersByTenant[tenant.id] ?? []).length === 0}
- <tr><td class="text-xs opacity-50">No members yet</td></tr>
+ <tr><td class="text-xs opacity-50">{m['tenants.noMembers']()}</td></tr>
  {/if}
  </tbody>
  </table>
@@ -484,7 +485,7 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="modal modal-open">
  <div class="modal-box max-w-lg">
  <div class="flex items-center justify-between mb-4">
- <h3 class="font-bold text-lg">Create New Tenant</h3>
+ <h3 class="font-bold text-lg">{m['tenants.create']()}</h3>
  <button class="btn btn-ghost btn-sm btn-circle" onclick={() => (showCreateModal = false)}>
  <X size={16} />
  </button>
@@ -497,8 +498,8 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="space-y-3">
  <div class="form-control">
  <label class="label" for="tenant-slug">
- <span class="label-text">Slug <span class="text-error">*</span></span>
- <span class="label-text-alt opacity-60">Lowercase, hyphens only</span>
+ <span class="label-text">{m['common.col.slug']()} <span class="text-error">*</span></span>
+ <span class="label-text-alt opacity-60">{m['tenants.slugHint']()}</span>
  </label>
  <input
  id="tenant-slug"
@@ -511,7 +512,7 @@ const PLAN_BADGES: Record<string, string> = {
 
  <div class="form-control">
  <label class="label" for="tenant-name">
- <span class="label-text">Name <span class="text-error">*</span></span>
+ <span class="label-text">{m['common.col.name']()} <span class="text-error">*</span></span>
  </label>
  <input
  id="tenant-name"
@@ -524,20 +525,20 @@ const PLAN_BADGES: Record<string, string> = {
 
  <div class="form-control">
  <label class="label" for="tenant-plan">
- <span class="label-text">Plan</span>
+ <span class="label-text">{m['tenants.plan']()}</span>
  </label>
  <select id="tenant-plan" class="select" bind:value={createForm.plan}>
- <option value="free">Free</option>
- <option value="pro">Pro</option>
- <option value="enterprise">Enterprise</option>
- <option value="custom">Custom</option>
+ <option value="free">{m['tenants.planFree']()}</option>
+ <option value="pro">{m['tenants.planPro']()}</option>
+ <option value="enterprise">{m['tenants.planEnterprise']()}</option>
+ <option value="custom">{m['tenants.planCustom']()}</option>
  </select>
  </div>
 
  <div class="form-control">
  <label class="label" for="tenant-admin-email">
- <span class="label-text">Admin User Email <span class="text-error">*</span></span>
- <span class="label-text-alt opacity-60">Must already exist</span>
+ <span class="label-text">{m['tenants.adminEmail']()} <span class="text-error">*</span></span>
+ <span class="label-text-alt opacity-60">{m['tenants.mustExist']()}</span>
  </label>
  <input
  id="tenant-admin-email"
@@ -550,8 +551,8 @@ const PLAN_BADGES: Record<string, string> = {
 
  <div class="form-control">
  <label class="label" for="tenant-billing-email">
- <span class="label-text">Billing Email</span>
- <span class="label-text-alt opacity-60">Optional</span>
+ <span class="label-text">{m['tenants.billingEmail']()}</span>
+ <span class="label-text-alt opacity-60">{m['common.optional']()}</span>
  </label>
  <input
  id="tenant-billing-email"
@@ -564,7 +565,7 @@ const PLAN_BADGES: Record<string, string> = {
  </div>
 
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>Cancel</button>
+ <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
  <button
  class="btn btn-primary gap-2"
  onclick={createTenant}
@@ -583,7 +584,7 @@ const PLAN_BADGES: Record<string, string> = {
  class="modal-backdrop"
  role="button"
  tabindex="0"
- aria-label="Close"
+ aria-label={m['common.close']()}
  onclick={() => (showCreateModal = false)}
  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') showCreateModal = false; }}
  ></div>
@@ -604,19 +605,19 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="space-y-3">
  <div class="form-control">
  <label class="label" for="edit-plan">
- <span class="label-text">Plan</span>
+ <span class="label-text">{m['tenants.plan']()}</span>
  </label>
  <select id="edit-plan" class="select" bind:value={editForm.plan}>
- <option value="free">Free</option>
- <option value="pro">Pro</option>
- <option value="enterprise">Enterprise</option>
- <option value="custom">Custom</option>
+ <option value="free">{m['tenants.planFree']()}</option>
+ <option value="pro">{m['tenants.planPro']()}</option>
+ <option value="enterprise">{m['tenants.planEnterprise']()}</option>
+ <option value="custom">{m['tenants.planCustom']()}</option>
  </select>
  </div>
 
  <div class="form-control">
  <label class="label" for="edit-max-records">
- <span class="label-text">Max Records</span>
+ <span class="label-text">{m['tenants.maxRecords']()}</span>
  </label>
  <input
  id="edit-max-records"
@@ -628,7 +629,7 @@ const PLAN_BADGES: Record<string, string> = {
 
  <div class="form-control">
  <label class="label" for="edit-max-storage">
- <span class="label-text">Max Storage (GB)</span>
+ <span class="label-text">{m['tenants.maxStorage']()}</span>
  </label>
  <input
  id="edit-max-storage"
@@ -641,7 +642,7 @@ const PLAN_BADGES: Record<string, string> = {
 
  <div class="form-control">
  <label class="label" for="edit-max-api">
- <span class="label-text">Max API Calls / Day</span>
+ <span class="label-text">{m['tenants.maxApiCalls']()}</span>
  </label>
  <input
  id="edit-max-api"
@@ -653,7 +654,7 @@ const PLAN_BADGES: Record<string, string> = {
 
  <div class="form-control">
  <label class="label" for="edit-max-users">
- <span class="label-text">Max Users</span>
+ <span class="label-text">{m['tenants.maxUsers']()}</span>
  </label>
  <input
  id="edit-max-users"
@@ -665,7 +666,7 @@ const PLAN_BADGES: Record<string, string> = {
  </div>
 
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (editingTenant = null)}>Cancel</button>
+ <button class="btn btn-ghost" onclick={() => (editingTenant = null)}>{m['common.cancel']()}</button>
  <button class="btn btn-primary gap-2" onclick={saveLimits} disabled={saving}>
  {#if saving}
  <span class="loading loading-spinner loading-sm"></span>
@@ -680,7 +681,7 @@ const PLAN_BADGES: Record<string, string> = {
  class="modal-backdrop"
  role="button"
  tabindex="0"
- aria-label="Close"
+ aria-label={m['common.close']()}
  onclick={() => (editingTenant = null)}
  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') editingTenant = null; }}
  ></div>
@@ -692,7 +693,7 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="modal modal-open">
  <div class="modal-box max-w-md">
  <div class="flex items-center justify-between mb-4">
- <h3 class="font-bold text-lg">Add Environment</h3>
+ <h3 class="font-bold text-lg">{m['tenants.addEnvironment']()}</h3>
  <button
  class="btn btn-ghost btn-sm btn-circle"
  onclick={() => (creatingEnvForTenant = null)}
@@ -712,8 +713,8 @@ const PLAN_BADGES: Record<string, string> = {
  <div class="space-y-3">
  <div class="form-control">
  <label class="label" for="env-slug">
- <span class="label-text">Slug <span class="text-error">*</span></span>
- <span class="label-text-alt opacity-60">e.g. staging</span>
+ <span class="label-text">{m['common.col.slug']()} <span class="text-error">*</span></span>
+ <span class="label-text-alt opacity-60">{m['tenants.envHint']()}</span>
  </label>
  <input
  id="env-slug"
@@ -726,7 +727,7 @@ const PLAN_BADGES: Record<string, string> = {
 
  <div class="form-control">
  <label class="label" for="env-name">
- <span class="label-text">Name <span class="text-error">*</span></span>
+ <span class="label-text">{m['common.col.name']()} <span class="text-error">*</span></span>
  </label>
  <input
  id="env-name"
@@ -739,7 +740,7 @@ const PLAN_BADGES: Record<string, string> = {
  </div>
 
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (creatingEnvForTenant = null)}>Cancel</button>
+ <button class="btn btn-ghost" onclick={() => (creatingEnvForTenant = null)}>{m['common.cancel']()}</button>
  <button
  class="btn btn-primary gap-2"
  onclick={createEnvironment}
@@ -758,7 +759,7 @@ const PLAN_BADGES: Record<string, string> = {
  class="modal-backdrop"
  role="button"
  tabindex="0"
- aria-label="Close"
+ aria-label={m['common.close']()}
  onclick={() => (creatingEnvForTenant = null)}
  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') creatingEnvForTenant = null; }}
  ></div>

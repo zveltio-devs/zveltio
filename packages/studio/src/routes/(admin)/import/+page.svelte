@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api, collectionsApi } from '$lib/api.js';
 import { Upload, CheckCircle, AlertCircle, RefreshCw, LoaderCircle } from '@lucide/svelte';
@@ -92,18 +93,18 @@ function fmt(s: string) {
 </script>
 
 <div class="space-y-6">
- <PageHeader title="Import Data" subtitle="Import CSV, Excel, or JSON into any collection" />
+ <PageHeader title={m['nav.import']()} subtitle={m['import.subtitle']()} />
 
  <div class="grid gap-6 lg:grid-cols-2">
  <!-- Import form -->
  <div class="card bg-base-200">
  <div class="card-body space-y-4">
- <h2 class="font-semibold text-base">New Import</h2>
+ <h2 class="font-semibold text-base">{m['import.newImport']()}</h2>
 
  <div class="form-control">
- <label class="label" for="import-collection"><span class="label-text font-medium">Target Collection *</span></label>
+ <label class="label" for="import-collection"><span class="label-text font-medium">{m['import.targetCollection']()}</span></label>
  <select id="import-collection" class="select" bind:value={selectedCollection}>
- <option value="">— Select collection —</option>
+ <option value="">{m['common.selectCollection']()}</option>
  {#each collections as col}
  <option value={col.name}>{col.display_name || col.name}</option>
  {/each}
@@ -111,7 +112,7 @@ function fmt(s: string) {
  </div>
 
  <div class="form-control">
- <label class="label" for="import-file"><span class="label-text font-medium">File *</span></label>
+ <label class="label" for="import-file"><span class="label-text font-medium">{m['import.file']()}</span></label>
  <input id="import-file" type="file" class="file-input file-w-full" accept=".csv,.xlsx,.xls,.json"
  onchange={handleFile} />
  {#if file}
@@ -122,18 +123,18 @@ function fmt(s: string) {
  {#if format === 'csv'}
  <div class="grid grid-cols-2 gap-3">
  <div class="form-control">
- <label class="label" for="import-delimiter"><span class="label-text">Delimiter</span></label>
+ <label class="label" for="import-delimiter"><span class="label-text">{m['import.delimiter']()}</span></label>
  <select id="import-delimiter" class="select select-sm" bind:value={delimiter}>
- <option value=",">, comma</option>
- <option value=";">; semicolon</option>
- <option value="\t">⇥ tab</option>
- <option value="|">| pipe</option>
+ <option value=",">{m['import.comma']()}</option>
+ <option value=";">{m['import.semicolon']()}</option>
+ <option value="\t">{m['import.tab']()}</option>
+ <option value="|">{m['import.pipe']()}</option>
  </select>
  </div>
  <div class="form-control justify-end">
  <label class="label cursor-pointer justify-start gap-2">
  <input type="checkbox" class="checkbox checkbox-sm" bind:checked={skipHeader} />
- <span class="label-text text-sm">Skip header row</span>
+ <span class="label-text text-sm">{m['import.skipHeader']()}</span>
  </label>
  </div>
  </div>
@@ -165,13 +166,13 @@ function fmt(s: string) {
  <div class="card bg-base-200">
  <div class="card-body">
  <div class="flex items-center justify-between mb-4">
- <h2 class="font-semibold text-base">Recent Imports</h2>
- <button class="btn btn-ghost btn-xs" onclick={loadJobs} title="Refresh" aria-label="Refresh import jobs"><RefreshCw size={14} /></button>
+ <h2 class="font-semibold text-base">{m['import.recent']()}</h2>
+ <button class="btn btn-ghost btn-xs" onclick={loadJobs} title={m['common.refresh']()} aria-label={m['import.refreshJobs']()}><RefreshCw size={14} /></button>
  </div>
  {#if jobsLoading}
  <div class="flex justify-center py-10"><LoaderCircle size={24} class="animate-spin text-primary" /></div>
  {:else if jobs.length === 0}
- <p class="text-center text-base-content/40 py-10 text-sm">No imports yet</p>
+ <p class="text-center text-base-content/40 py-10 text-sm">{m['import.none']()}</p>
  {:else}
  <div class="space-y-2 max-h-105 overflow-y-auto pr-1">
  {#each jobs as job}
