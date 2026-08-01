@@ -393,7 +393,7 @@ function statValue(p: Panel): string {
 
 <!-- Modal: New Dashboard -->
 {#if showNewDash}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-md">
       <h3 class="font-bold text-lg mb-4">{m['insights.newDashboard']()}</h3>
       <div class="space-y-3">
@@ -423,7 +423,7 @@ function statValue(p: Panel): string {
 
 <!-- Modal: New Panel -->
 {#if showNewPanel}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-lg">
       <h3 class="font-bold text-lg mb-4">{m['insights.addPanel']()}</h3>
       <div class="space-y-3">

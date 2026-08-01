@@ -753,7 +753,7 @@
 
 <!-- COMPOSE MODAL -->
 {#if showCompose}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-2xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-bold text-lg">{replyToMessageId ? m['communications.mail.ui.reply']() : draftId ? m['common.status.draft']() : m['communications.mail.ui.newMessage']()}</h3>
@@ -825,7 +825,7 @@
 
 <!-- ADD ACCOUNT MODAL -->
 {#if showAddAccount}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-xl max-h-[90vh] overflow-y-auto">
       <h3 class="font-bold text-lg mb-4">{m['communications.mail.ui.add_mail_account']()}</h3>
       <div class="space-y-3">
@@ -908,7 +908,7 @@
 
 <!-- NEW FILTER MODAL -->
 {#if showFilterModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-lg">
       <h3 class="font-bold text-lg mb-4">{m['communications.mail.ui.new_mail_filter']()}</h3>
       <div class="space-y-3">

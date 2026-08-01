@@ -442,7 +442,7 @@ function clearTemplate() {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box w-11/12 max-w-2xl">
       <h3 class="font-bold text-lg mb-5">{m['dashboard.newCollection']()}</h3>
 

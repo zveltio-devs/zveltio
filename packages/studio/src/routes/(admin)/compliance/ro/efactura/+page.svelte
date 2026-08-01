@@ -213,7 +213,7 @@ function invoiceStatusLabel(s: string): string {
 </ExtensionPageShell>
 
 {#if showCreateModal}
-  <dialog class="modal modal-open">
+  <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box w-11/12 max-w-4xl">
       <h3 class="font-bold text-lg mb-4">{m['compliance.ro.efactura.ui.new_invoice']()}</h3>
 
