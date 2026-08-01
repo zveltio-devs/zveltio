@@ -13,7 +13,7 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { getUserRoles } from './permissions.js';
+import { checkPermission, getUserRoles } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
 
 const RLS_CACHE_TTL = 30; // seconds — short TTL so policy changes apply quickly
@@ -106,11 +106,32 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
  */
 export async function getRlsFilters(
   collection: string,
-  user: { id: string; email?: string; role: string },
+  user: { id: string; email?: string; role: string; rlsBypass?: boolean },
   authType: 'session' | 'api_key',
 ): Promise<Array<{ field: string; condition: FilterCondition }>> {
-  // god users and API keys bypass RLS
-  if (user.role === 'god' || authType === 'api_key') return [];
+  // This used to read `user.role === 'god' || authType === 'api_key'`. Both
+  // halves were wrong, in opposite directions.
+  //
+  // The god half was DEAD: `session.user.role` is never populated (not declared
+  // in better-auth's additionalFields), so the branch never fired and gods were
+  // subject to RLS. Restoring a hardcoded role-name check would have brought
+  // back the reason nobody noticed for so long — a string comparison against a
+  // role name is invisible, unauditable and impossible to revoke. The override
+  // is a PERMISSION now: `checkPermission` short-circuits for god users
+  // already, so a god still sees everything, while an operator can also grant
+  // the same power to a named role, or decline to — which matters when someone
+  // must administer an instance without reading every tenant's customer data.
+  //
+  // The api_key half was LIVE, and blanket: every key ignored every policy.
+  // That is now per key (migration 026), defaulting to today's behaviour
+  // because RLS values resolve from `user_id`/`user_email` and a key's identity
+  // is the synthetic `apikey:<uuid>` — enforcing an identity policy against a
+  // key returns zero rows, silently, which is a worse failure than a broad one.
+  if (authType === 'api_key') {
+    if (user.rlsBypass !== false) return [];
+  } else if (await checkPermission(user.id, 'data', 'view_all').catch(() => false)) {
+    return [];
+  }
 
   const policies = await loadPolicies(collection);
   if (policies.length === 0) return [];

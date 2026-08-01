@@ -48,6 +48,10 @@ export async function authenticate(
           role: 'api_key',
           // Pass scopes through so checkAccess() can enforce them per collection/action.
           scopes: apiKey.scopes,
+          // Per-key RLS exemption (migration 026). Defaults true, so this is
+          // today's behaviour — but it is now a property of THIS key rather
+          // than of every key.
+          rlsBypass: (apiKey as { rls_bypass?: boolean }).rls_bypass !== false,
         },
         authType: 'api_key',
       };
