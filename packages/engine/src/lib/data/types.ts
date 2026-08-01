@@ -35,6 +35,12 @@ export interface RequestUser {
   scopes?: unknown;
   /** Email — present for session auth */
   email?: string;
+  /**
+   * API-key auth only: this key is exempt from row-level security.
+   * Per key and visible in the admin UI, rather than a blanket exemption for
+   * every key that nobody chose. See migration 026.
+   */
+  rlsBypass?: boolean;
 }
 
 /** One field in a collection definition (a subset of `FieldConfig`). Dynamic

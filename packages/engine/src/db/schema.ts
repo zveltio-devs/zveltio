@@ -153,6 +153,8 @@ export interface ZvApiKeysTable {
   casbin_subject: string | null;
   request_count: Generated<number>; // DEFAULT 0
   last_ip: string | null;
+  /** When true (default) this key is not constrained by RLS policies. */
+  rls_bypass: Generated<boolean>;
   tenant_id: Generated<string>; // migration 021 — route-level tenant isolation
 }
 
