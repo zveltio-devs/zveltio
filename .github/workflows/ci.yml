@@ -115,6 +115,13 @@ jobs:
         # delete, and the ghost-DDL backfill copied two batches then reported
         # success, swapping in an incomplete table. Count with RETURNING.
         run: bun run scripts/check-affected-rows.ts
+      - name: Core pages stay translated
+        # The Studio ships nine locales with full key parity and a translated
+        # navigation, while ~42 core admin pages were hardcoded English — a
+        # translated menu around an English product, which reads worse than no
+        # translation because it looks finished. The surface is being converted
+        # in tranches; this holds the ground already taken.
+        run: bun run scripts/check-i18n-core.ts
       - name: Format check
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.

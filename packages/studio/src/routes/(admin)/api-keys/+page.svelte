@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
@@ -153,8 +154,8 @@ function formatRelative(dateStr: string): string {
 </script>
 
 <CrudListPage
-  title="API Keys"
-  subtitle="Manage programmatic access to the API"
+  title={m['nav.apiKeys']()}
+  subtitle={m['apiKeys.subtitle']()}
   count={apiKeys.length}
   {loading}
   actionLabel="Create Key"
@@ -174,13 +175,13 @@ function formatRelative(dateStr: string): string {
         <table class="table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Key Prefix</th>
-              <th>Scopes</th>
-              <th>Rate Limit</th>
-              <th>Expires</th>
-              <th>Last Used</th>
-              <th>Status</th>
+              <th>{m['common.col.name']()}</th>
+              <th>{m['apiKeys.keyPrefix']()}</th>
+              <th>{m['apiKeys.scopes']()}</th>
+              <th>{m['apiKeys.rateLimit']()}</th>
+              <th>{m['apiKeys.expires']()}</th>
+              <th>{m['apiKeys.lastUsed']()}</th>
+              <th>{m['common.col.status']()}</th>
               <th></th>
             </tr>
           </thead>
@@ -202,7 +203,7 @@ function formatRelative(dateStr: string): string {
                 </td>
                 <td>
                   {#if key.is_active}
-                    <button class="btn btn-ghost btn-xs text-error" onclick={() => revokeKey(key.id)} title="Revoke">
+                    <button class="btn btn-ghost btn-xs text-error" onclick={() => revokeKey(key.id)} title={m['apiKeys.revoke']()}>
                       <Trash2 size={14} />
                     </button>
                   {/if}
@@ -224,22 +225,22 @@ function formatRelative(dateStr: string): string {
 {#if showCreateModal}
   <dialog class="modal modal-open">
     <div class="modal-box w-11/12 max-w-lg">
-      <h3 class="font-bold text-lg mb-4">Create API Key</h3>
+      <h3 class="font-bold text-lg mb-4">{m['apiKeys.create']()}</h3>
       <div class="space-y-4">
         <div class="form-control">
-          <label class="label" for="api-key-name"><span class="label-text">Key name *</span></label>
-          <input id="api-key-name" type="text" bind:value={form.name} placeholder="Production API Key" class="input" />
+          <label class="label" for="api-key-name"><span class="label-text">{m['apiKeys.nameLabel']()}</span></label>
+          <input id="api-key-name" type="text" bind:value={form.name} placeholder={m['apiKeys.namePlaceholder']()} class="input" />
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div class="form-control">
-            <label class="label" for="api-key-rate-limit"><span class="label-text">Rate limit (req/hour)</span></label>
+            <label class="label" for="api-key-rate-limit"><span class="label-text">{m['apiKeys.rateLimitLabel']()}</span></label>
             <input id="api-key-rate-limit" type="number" bind:value={form.rate_limit} min="1" class="input" />
           </div>
           <div class="form-control">
             <div class="label">
-              <span class="label-text">Expiry date</span>
-              <span class="label-text-alt">Optional</span>
+              <span class="label-text">{m['apiKeys.expiryDate']()}</span>
+              <span class="label-text-alt">{m['common.optional']()}</span>
             </div>
             <input type="date" bind:value={form.expires_at} class="input" />
           </div>
@@ -248,8 +249,8 @@ function formatRelative(dateStr: string): string {
         <!-- Scopes -->
         <div>
           <div class="flex items-center justify-between mb-2">
-            <span class="label-text font-medium">Scopes</span>
-            <button class="btn btn-xs btn-ghost gap-1" onclick={addScope}><Plus size={12} /> Add scope</button>
+            <span class="label-text font-medium">{m['apiKeys.scopes']()}</span>
+            <button class="btn btn-xs btn-ghost gap-1" onclick={addScope}><Plus size={12} /> {m['apiKeys.addScope']()}</button>
           </div>
           <div class="space-y-2">
             {#each form.scopes as scope, i}
@@ -257,7 +258,7 @@ function formatRelative(dateStr: string): string {
                 <input
                   class="input input-xs flex-1"
                   type="text"
-                  placeholder="collection or *"
+                  placeholder={m['apiKeys.scopePlaceholder']()}
                   bind:value={scope.collection}
                 />
                 <div class="flex gap-1">
@@ -283,18 +284,18 @@ function formatRelative(dateStr: string): string {
 
         <div class="alert alert-info text-sm py-2">
           <Key size={16} />
-          <span>The full key will only be shown once immediately after creation. Store it securely.</span>
+          <span>{m['apiKeys.shownOnce']()}</span>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={createKey} disabled={creating || !form.name.trim()}>
           {#if creating}<LoaderCircle size={16} class="animate-spin" />{/if}
           Create
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showCreateModal = false)}></button>
   </dialog>
 {/if}
 
@@ -302,16 +303,16 @@ function formatRelative(dateStr: string): string {
 {#if newlyCreatedKey}
   <dialog class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-2">API Key Created</h3>
-      <p class="text-sm text-base-content/70 mb-4">Copy this key now — it won't be shown again.</p>
+      <h3 class="font-bold text-lg mb-2">{m['apiKeys.created']()}</h3>
+      <p class="text-sm text-base-content/70 mb-4">{m['apiKeys.copyNow']()}</p>
       <div class="flex items-center gap-2">
         <code class="flex-1 bg-base-300 px-3 py-2 rounded text-sm font-mono break-all">{newlyCreatedKey}</code>
-        <button class="btn btn-square btn-sm" onclick={copyKey} title="Copy to clipboard">
+        <button class="btn btn-square btn-sm" onclick={copyKey} title={m['common.copy']()}>
           {#if copied}<Check size={16} class="text-success" />{:else}<Copy size={16} />{/if}
         </button>
       </div>
       <div class="modal-action">
-        <button class="btn btn-primary" onclick={() => { newlyCreatedKey = null; }}>Done</button>
+        <button class="btn btn-primary" onclick={() => { newlyCreatedKey = null; }}>{m['common.done']()}</button>
       </div>
     </div>
   </dialog>
