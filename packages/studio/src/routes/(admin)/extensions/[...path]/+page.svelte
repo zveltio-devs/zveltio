@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { extensions } from '$lib/extensions.svelte.js';
 import { Puzzle, CheckCircle } from '@lucide/svelte';
@@ -33,7 +34,7 @@ const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
     </div>
     <div class="flex items-center justify-center gap-2 text-sm text-success font-medium">
       <CheckCircle size={16} />
-      <span>Extension active</span>
+      <span>{m['extPage.active']()}</span>
     </div>
     {#if extMeta.contributes?.engine}
       <p class="text-sm text-base-content/50">
@@ -44,7 +45,7 @@ const isActive = $derived(extMeta ? extensions.isActive(extMeta.name) : false);
 {:else}
   <div class="flex items-center justify-center h-64">
     <div class="text-center opacity-50">
-      <p class="text-lg font-semibold">Extension not found</p>
+      <p class="text-lg font-semibold">{m['extPage.notFound']()}</p>
       <p class="text-sm mt-2">
         The extension <code class="font-mono">{paramPath}</code> is not installed or active.
       </p>

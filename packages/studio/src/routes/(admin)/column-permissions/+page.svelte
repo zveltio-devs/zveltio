@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { TableProperties, Plus, Trash2, Info, X, Check } from '@lucide/svelte';
@@ -123,10 +124,10 @@ async function save() {
   try {
     if (editingId) {
       await api.put(`/api/admin/column-permissions/${editingId}`, form);
-      toast.success('Permission updated');
+      toast.success(m['colPerms.permUpdated']());
     } else {
       await api.post('/api/admin/column-permissions', form);
-      toast.success('Permission created');
+      toast.success(m['colPerms.permCreated']());
     }
     showForm = false;
     await loadAll();
@@ -153,12 +154,15 @@ async function toggleField(p: ColumnPermission, field: 'can_read' | 'can_write')
 function confirmDelete(p: ColumnPermission) {
   confirmState = {
     open: true,
-    title: 'Delete Column Permission',
-    message: `Remove the rule for "${p.collection_name}.${p.column_name}" / "${p.role}"?`,
+    title: m['colPerms.deleteTitle'](),
+    message: m['colPerms.deleteMsg']({
+      target: `${p.collection_name}.${p.column_name}`,
+      role: p.role,
+    }),
     onconfirm: async () => {
       try {
         await api.delete(`/api/admin/column-permissions/${p.id}`);
-        toast.success('Permission deleted');
+        toast.success(m['colPerms.permDeleted']());
         await loadAll();
       } catch {
         toast.error('Failed to delete permission');
@@ -168,9 +172,9 @@ function confirmDelete(p: ColumnPermission) {
 }
 </script>
 
-<PageHeader title="Column Permissions" subtitle="Control which columns each role can read or write per collection.">
+<PageHeader title={m['colPerms.title']()} subtitle={m['colPerms.subtitle']()}>
     <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
-      <Plus class="h-4 w-4" /> New Rule
+      <Plus class="h-4 w-4" /> {m['colPerms.newRule']()}
     </button>
 </PageHeader>
 
@@ -178,10 +182,10 @@ function confirmDelete(p: ColumnPermission) {
 <div role="status" class="mx-6 mb-4 alert alert-info alert-soft text-sm">
   <Info class="h-4 w-4 shrink-0" />
   <div>
-    Rules are enforced <strong>after</strong> Casbin and RLS.
-    <strong>can_read = off</strong> hides the column from GET responses.
-    <strong>can_write = off</strong> blocks mutations on that column (the value is silently ignored).
-    God users and API keys bypass column permissions.
+    {m['colPerms.banner1']()}
+    {m['colPerms.banner2']()}
+    {m['colPerms.banner3']()}
+    {m['colPerms.banner4']()}
   </div>
 </div>
 
@@ -196,29 +200,29 @@ function confirmDelete(p: ColumnPermission) {
         bind:value={filterCollection}
         class="select select-sm select-bordered"
       >
-        <option value="">All collections</option>
+        <option value="">{m['savedQueries.allCollections']()}</option>
         {#each collections as col}
           <option value={col}>{col}</option>
         {/each}
       </select>
-      <span class="text-xs text-base-content/40">{filtered.length} rule{filtered.length !== 1 ? 's' : ''}</span>
+      <span class="text-xs text-base-content/40">{m['colPerms.ruleCount']({ count: filtered.length })}</span>
     </div>
 
     <!-- Add/Edit form -->
     {#if showForm}
       <div class="rounded-xl border border-base-content/10 bg-base-200 p-5 space-y-4">
-        <h3 class="font-semibold">{editingId ? 'Edit Rule' : 'New Rule'}</h3>
+        <h3 class="font-semibold">{editingId ? m['colPerms.editRule']() : m['colPerms.newRule']()}</h3>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 
           <div class="form-control">
-            <label for="form-collection" class="label label-text text-xs">Collection</label>
+            <label for="form-collection" class="label label-text text-xs">{m['common.col.collection']()}</label>
             <select
               id="form-collection"
               bind:value={form.collection_name}
               onchange={() => { form.column_name = ''; loadFields(form.collection_name); }}
               class="select select-sm select-bordered w-full"
             >
-              <option value="">Select…</option>
+              <option value="">{m['colPerms.selectPh']()}</option>
               {#each collections as col}
                 <option value={col}>{col}</option>
               {/each}
@@ -226,10 +230,10 @@ function confirmDelete(p: ColumnPermission) {
           </div>
 
           <div class="form-control">
-            <label for="form-column" class="label label-text text-xs">Column</label>
+            <label for="form-column" class="label label-text text-xs">{m['common.col.field']()}</label>
             {#if formFields.length > 0}
               <select id="form-column" bind:value={form.column_name} class="select select-sm select-bordered w-full">
-                <option value="">Select…</option>
+                <option value="">{m['colPerms.selectPh']()}</option>
                 {#each formFields as f}
                   <option value={f}>{f}</option>
                 {/each}
@@ -246,24 +250,24 @@ function confirmDelete(p: ColumnPermission) {
           </div>
 
           <div class="form-control">
-            <label for="form-role" class="label label-text text-xs">Role</label>
+            <label for="form-role" class="label label-text text-xs">{m['common.col.role']()}</label>
             <select id="form-role" bind:value={form.role} class="select select-sm select-bordered w-full">
               {#each roles as r}
-                <option value={r}>{r === '*' ? '* (all roles)' : r}</option>
+                <option value={r}>{r === '*' ? m['rls.allRolesOpt']() : r}</option>
               {/each}
             </select>
           </div>
 
           <div class="form-control justify-end pb-1">
-            <span class="label label-text text-xs">Access</span>
+            <span class="label label-text text-xs">{m['colPerms.access']()}</span>
             <div class="flex gap-4">
               <label class="flex items-center gap-1.5 cursor-pointer text-sm">
                 <input type="checkbox" bind:checked={form.can_read} class="checkbox checkbox-sm checkbox-primary" />
-                Read
+                {m['colPerms.read']()}
               </label>
               <label class="flex items-center gap-1.5 cursor-pointer text-sm">
                 <input type="checkbox" bind:checked={form.can_write} class="checkbox checkbox-sm checkbox-primary" />
-                Write
+                {m['colPerms.write']()}
               </label>
             </div>
           </div>
@@ -283,7 +287,7 @@ function confirmDelete(p: ColumnPermission) {
             {:else}
               <Check class="h-4 w-4" />
             {/if}
-            {editingId ? 'Update' : 'Create'}
+            {editingId ? m['rls.update']() : m['common.create']()}
           </button>
         </div>
       </div>
@@ -295,13 +299,13 @@ function confirmDelete(p: ColumnPermission) {
         <div class="mb-4 rounded-full border border-base-content/10 bg-base-200 p-5">
           <TableProperties class="h-10 w-10 text-base-content/30" />
         </div>
-        <h2 class="text-lg font-semibold">No column rules yet</h2>
+        <h2 class="text-lg font-semibold">{m['colPerms.emptyTitle']()}</h2>
         <p class="mt-1 text-sm text-base-content/50">
-          By default all roles can read and write all columns.<br/>
-          Add a rule to restrict access to a specific column.
+          {m['colPerms.emptyDesc1']()}<br/>
+          {m['colPerms.emptyDesc2']()}
         </p>
         <button onclick={openNew} class="btn btn-primary btn-sm mt-4 gap-1">
-          <Plus class="h-4 w-4" /> New Rule
+          <Plus class="h-4 w-4" /> {m['colPerms.newRule']()}
         </button>
       </div>
 
@@ -310,11 +314,11 @@ function confirmDelete(p: ColumnPermission) {
         <table class="table table-sm w-full">
           <thead>
             <tr class="text-xs text-base-content/50">
-              <th>Collection</th>
-              <th>Column</th>
-              <th>Role</th>
-              <th class="text-center">Can Read</th>
-              <th class="text-center">Can Write</th>
+              <th>{m['common.col.collection']()}</th>
+              <th>{m['common.col.field']()}</th>
+              <th>{m['common.col.role']()}</th>
+              <th class="text-center">{m['colPerms.canRead']()}</th>
+              <th class="text-center">{m['colPerms.canWrite']()}</th>
               <th></th>
             </tr>
           </thead>
@@ -345,7 +349,7 @@ function confirmDelete(p: ColumnPermission) {
                 <td class="text-right">
                   <div class="flex justify-end gap-1">
                     <button onclick={() => openEdit(perm)} class="btn btn-ghost btn-xs">
-                      Edit
+                      {m['common.edit']()}
                     </button>
                     <button onclick={() => confirmDelete(perm)} class="btn btn-ghost btn-xs text-error">
                       <Trash2 class="h-3.5 w-3.5" />

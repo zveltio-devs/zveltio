@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { page } from '$app/state';
 import { api } from '$lib/api.js';
@@ -52,7 +53,7 @@ function extractError(e: unknown): string {
     if (typeof o.message === 'string') return o.message;
     if (typeof o.error === 'string') return o.error;
   }
-  return 'An unexpected error occurred.';
+  return m['common.unexpectedError']();
 }
 
 onMount(load);
@@ -92,7 +93,7 @@ async function saveZone() {
     });
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
     zone = (res as any).zone;
-    toast.success('Zone saved.');
+    toast.success(m['zones.zoneSaved']());
   } catch (e) {
     toast.error(extractError(e));
   } finally {
@@ -132,9 +133,9 @@ async function addPage() {
 async function deletePage(slug: string, title: string) {
   confirmState = {
     open: true,
-    title: 'Delete Page',
-    message: `Delete page "${title}"?`,
-    confirmLabel: 'Delete',
+    title: m['zones.deletePageTitle'](),
+    message: m['zones.deletePageMsg']({ title }),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -214,7 +215,7 @@ async function applyTemplate(templateKey: string) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       pages = [...pages, (res as any).page];
     }
-    toast.success('Template applied.');
+    toast.success(m['zones.templateApplied']());
   } catch (e) {
     toast.error(extractError(e));
   } finally {
@@ -226,7 +227,7 @@ async function applyTemplate(templateKey: string) {
 <div class="space-y-6">
   <!-- Breadcrumb -->
   <Breadcrumb crumbs={[
-    { label: 'Zones', href: `${base}/zones` },
+    { label: m['nav.zones'](), href: `${base}/zones` },
     { label: zone?.name || zoneSlug },
   ]} />
   <PageHeader title={zone?.name ?? zoneSlug} subtitle={zone?.base_path}>
@@ -249,33 +250,33 @@ async function applyTemplate(templateKey: string) {
     <!-- Tabs -->
     <div class="tabs tabs-bordered">
       <button class="tab gap-1.5 {tab === 'pages' ? 'tab-active' : ''}" onclick={() => (tab = 'pages')}>
-        <Layout size={14}/> Pages
+        <Layout size={14}/> {m['zones.pagesTab']()}
       </button>
       <button class="tab gap-1.5 {tab === 'access' ? 'tab-active' : ''}" onclick={() => (tab = 'access')}>
-        <Users size={14}/> Access
+        <Users size={14}/> {m['zones.accessTab']()}
       </button>
       <button class="tab gap-1.5 {tab === 'branding' ? 'tab-active' : ''}" onclick={() => (tab = 'branding')}>
-        <Palette size={14}/> Branding
+        <Palette size={14}/> {m['zones.brandingTab']()}
       </button>
     </div>
 
     <!-- Pages Tab -->
     {#if tab === 'pages'}
       <div class="flex items-center justify-between">
-        <p class="text-sm text-base-content/60">{pages.length} page{pages.length !== 1 ? 's' : ''}</p>
+        <p class="text-sm text-base-content/60">{m['zones.pageCount']({ count: pages.length })}</p>
         <button class="btn btn-primary btn-sm gap-1" onclick={() => (showAddPage = !showAddPage)}>
-          <Plus size={14}/> Add Page
+          <Plus size={14}/> {m['zones.addPage']()}
         </button>
       </div>
 
       {#if showAddPage}
         <div class="card bg-base-200 border border-primary/30">
           <div class="card-body p-4 gap-3">
-            <h4 class="font-semibold text-sm">New Page</h4>
+            <h4 class="font-semibold text-sm">{m['zones.newPage']()}</h4>
             <div class="grid grid-cols-2 gap-3">
               <div class="form-control">
-                <label class="label py-0" for="new-page-title"><span class="label-text text-xs">Title *</span></label>
-                <input id="new-page-title" type="text" class="input input-sm" placeholder="e.g. Dashboard"
+                <label class="label py-0" for="new-page-title"><span class="label-text text-xs">{m['zones.titleRequired']()}</span></label>
+                <input id="new-page-title" type="text" class="input input-sm" placeholder={m['zones.egDashboard']()}
                   bind:value={newPage.title}
                   oninput={(e) => {
                     newPage.title = e.currentTarget.value;
@@ -284,7 +285,7 @@ async function applyTemplate(templateKey: string) {
                   }}/>
               </div>
               <div class="form-control">
-                <label class="label py-0" for="new-page-slug"><span class="label-text text-xs">Slug *</span></label>
+                <label class="label py-0" for="new-page-slug"><span class="label-text text-xs">{m['zones.slugRequired']()}</span></label>
                 <input id="new-page-slug" type="text" class="input input-sm font-mono" placeholder="dashboard"
                   bind:value={newPage.slug}/>
               </div>
@@ -292,16 +293,16 @@ async function applyTemplate(templateKey: string) {
             <div class="form-control">
               <label class="label py-0 cursor-pointer justify-start gap-2">
                 <input type="checkbox" class="checkbox checkbox-xs" bind:checked={newPage.auth_required}/>
-                <span class="label-text text-xs">Require authentication</span>
+                <span class="label-text text-xs">{m['zones.requireAuth']()}</span>
               </label>
             </div>
             <div class="flex gap-2">
               <button class="btn btn-primary btn-sm gap-1" onclick={addPage}
                 disabled={!newPage.title.trim() || !newPage.slug.trim() || creatingPage}>
                 {#if creatingPage}<LoaderCircle size={13} class="animate-spin"/>{:else}<Save size={13}/>{/if}
-                Save
+                {m['common.save']()}
               </button>
-              <button class="btn btn-ghost btn-sm" onclick={() => (showAddPage = false)}>Cancel</button>
+              <button class="btn btn-ghost btn-sm" onclick={() => (showAddPage = false)}>{m['common.cancel']()}</button>
             </div>
           </div>
         </div>
@@ -312,11 +313,11 @@ async function applyTemplate(templateKey: string) {
           <div class="card-body items-center text-center py-12 gap-4">
             <Layout size={32} class="text-base-content/20"/>
             <div>
-              <p class="text-base-content/50 font-medium text-sm">No pages yet</p>
-              <p class="text-xs text-base-content/40 mt-1">Start from a template or add pages manually above.</p>
+              <p class="text-base-content/50 font-medium text-sm">{m['zones.noPages']()}</p>
+              <p class="text-xs text-base-content/40 mt-1">{m['zones.startTemplate']()}</p>
             </div>
             <div class="flex flex-wrap gap-2 justify-center">
-              {#each [['intranet', 'Intranet'], ['client-portal', 'Client Portal'], ['generic', 'Generic']] as [key, label]}
+              {#each [['intranet', m['zones.tplIntranet']()], ['client-portal', m['zones.tplClientPortal']()], ['generic', m['zones.tplGeneric']()]] as [key, label]}
                 <button class="btn btn-outline btn-sm gap-1.5"
                   onclick={() => applyTemplate(key)}
                   disabled={applyingTemplate}>
@@ -341,17 +342,17 @@ async function applyTemplate(templateKey: string) {
                   <div class="flex items-center gap-2">
                     <p class="font-medium text-sm truncate">{p.title}</p>
                     {#if p.is_homepage}
-                      <span class="badge badge-primary badge-xs gap-0.5"><Home size={9}/> Home</span>
+                      <span class="badge badge-primary badge-xs gap-0.5"><Home size={9}/> {m['zones.homeBadge']()}</span>
                     {/if}
                     {#if !p.is_active}
-                      <span class="badge badge-ghost badge-xs">Draft</span>
+                      <span class="badge badge-ghost badge-xs">{m['common.status.draft']()}</span>
                     {/if}
                   </div>
                   <p class="text-xs text-base-content/40 font-mono">{p.slug}</p>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <button class="btn btn-ghost btn-xs" onclick={() => togglePageActive(p)}
-                    title={p.is_active ? 'Set as draft' : 'Publish'}>
+                    title={p.is_active ? m['zones.setDraft']() : m['common.publish']()}>
                     {#if p.is_active}
                       <Eye size={13} class="text-success"/>
                     {:else}
@@ -359,7 +360,7 @@ async function applyTemplate(templateKey: string) {
                     {/if}
                   </button>
                   <button class="btn btn-ghost btn-xs" onclick={() => setHomepage(p)}
-                    title="Set as homepage">
+                    title={m['zones.setHomepage']()}>
                     <Home size={13} class={p.is_homepage ? 'text-primary' : 'opacity-30'}/>
                   </button>
                   <button class="btn btn-ghost btn-xs text-error" onclick={() => deletePage(p.slug, p.title)}>
@@ -379,8 +380,8 @@ async function applyTemplate(templateKey: string) {
           <div class="card bg-base-100 border border-base-300">
             <div class="card-body p-4 flex-row items-center justify-between">
               <div>
-                <p class="font-semibold text-sm">Zone active</p>
-                <p class="text-xs text-base-content/50">Enable to make this zone accessible</p>
+                <p class="font-semibold text-sm">{m['zones.zoneActive']()}</p>
+                <p class="text-xs text-base-content/50">{m['zones.zoneActiveDesc']()}</p>
               </div>
               <button onclick={toggleActive} disabled={saving}>
                 {#if zone.is_active}
@@ -393,20 +394,20 @@ async function applyTemplate(templateKey: string) {
           </div>
 
           <div class="form-control">
-            <label class="label" for="zone-access-roles"><span class="label-text text-sm font-medium">Access roles</span>
-              <span class="label-text-alt text-xs text-base-content/40">empty = all roles</span>
+            <label class="label" for="zone-access-roles"><span class="label-text text-sm font-medium">{m['zones.accessRoles']()}</span>
+              <span class="label-text-alt text-xs text-base-content/40">{m['zones.emptyAllRoles']()}</span>
             </label>
             <input id="zone-access-roles" type="text" class="input input-sm"
-              placeholder="employee, manager, client (comma-separated)"
+              placeholder={m['zones.rolesPlaceholder']()}
               value={zone.access_roles?.join(', ') ?? ''}
               oninput={rolesInput}/>
-            <p class="label"><span class="label-text-alt">Leave empty to allow any authenticated user</span></p>
+            <p class="label"><span class="label-text-alt">{m['zones.leaveEmptyAuth']()}</span></p>
           </div>
 
           <div class="flex justify-end">
             <button class="btn btn-primary btn-sm gap-1" onclick={saveZone} disabled={saving}>
               {#if saving}<LoaderCircle size={14} class="animate-spin"/>{:else}<Save size={14}/>{/if}
-              Save Access
+              {m['zones.saveAccess']()}
             </button>
           </div>
         </div>
@@ -418,12 +419,12 @@ async function applyTemplate(templateKey: string) {
         <div class="card-body gap-4">
           <div class="grid sm:grid-cols-2 gap-4">
             <div class="form-control gap-1">
-              <label class="label py-0" for="zone-site-name"><span class="label-text text-xs font-medium">Portal name</span></label>
-              <input id="zone-site-name" type="text" class="input input-sm" placeholder="Client Portal"
+              <label class="label py-0" for="zone-site-name"><span class="label-text text-xs font-medium">{m['zones.portalName']()}</span></label>
+              <input id="zone-site-name" type="text" class="input input-sm" placeholder={m['zones.tplClientPortal']()}
                 bind:value={zone.site_name}/>
             </div>
             <div class="form-control gap-1">
-              <label class="label py-0" for="zone-primary-color"><span class="label-text text-xs font-medium">Primary color</span></label>
+              <label class="label py-0" for="zone-primary-color"><span class="label-text text-xs font-medium">{m['zones.primaryColor']()}</span></label>
               <div class="flex gap-2">
                 <input type="color" bind:value={zone.primary_color}
                   class="w-10 h-8 rounded border border-base-300 cursor-pointer p-0.5"/>
@@ -432,29 +433,29 @@ async function applyTemplate(templateKey: string) {
               </div>
             </div>
             <div class="form-control gap-1 sm:col-span-2">
-              <label class="label py-0" for="zone-logo-url"><span class="label-text text-xs font-medium">Logo URL <span class="text-base-content/40">(optional)</span></span></label>
+              <label class="label py-0" for="zone-logo-url"><span class="label-text text-xs font-medium">{m['zones.logoUrl']()} <span class="text-base-content/40">{m['common.optionalParen']()}</span></span></label>
               <input id="zone-logo-url" type="url" class="input input-sm" placeholder="https://…"
                 bind:value={zone.site_logo_url}/>
             </div>
             <div class="form-control gap-1">
-              <label class="label py-0" for="zone-nav-position"><span class="label-text text-xs font-medium">Navigation</span></label>
+              <label class="label py-0" for="zone-nav-position"><span class="label-text text-xs font-medium">{m['zones.navigation']()}</span></label>
               <select id="zone-nav-position" class="select select-sm" bind:value={zone.nav_position}>
-                <option value="sidebar">Sidebar</option>
-                <option value="topbar">Top bar</option>
-                <option value="both">Both</option>
+                <option value="sidebar">{m['zones.navSidebar']()}</option>
+                <option value="topbar">{m['zones.navTopbar']()}</option>
+                <option value="both">{m['zones.navBoth']()}</option>
               </select>
             </div>
             <div class="form-control gap-1">
               <label class="label py-0 cursor-pointer justify-start gap-2">
                 <input type="checkbox" class="checkbox checkbox-sm" bind:checked={zone.show_breadcrumbs}/>
-                <span class="label-text text-xs font-medium">Show breadcrumbs</span>
+                <span class="label-text text-xs font-medium">{m['zones.showBreadcrumbs']()}</span>
               </label>
             </div>
           </div>
 
           <!-- Live preview -->
           <div class="mt-1">
-            <p class="text-xs text-base-content/40 mb-2">Portal header preview:</p>
+            <p class="text-xs text-base-content/40 mb-2">{m['zones.headerPreview']()}</p>
             <div class="flex items-center gap-3 bg-base-100 rounded-xl px-4 py-3 border border-base-300">
               <div class="w-8 h-8 rounded-lg flex items-center justify-center"
                 style="background-color: {zone.primary_color ?? '#4F46E5'}">
@@ -470,7 +471,7 @@ async function applyTemplate(templateKey: string) {
           </div>
 
           <div class="form-control gap-1">
-            <label class="label py-0" for="zone-custom-css"><span class="label-text text-xs font-medium">Custom CSS <span class="text-base-content/40">(optional)</span></span></label>
+            <label class="label py-0" for="zone-custom-css"><span class="label-text text-xs font-medium">{m['zones.customCss']()} <span class="text-base-content/40">{m['common.optionalParen']()}</span></span></label>
             <textarea id="zone-custom-css" class="textarea textarea-sm font-mono text-xs h-24"
               placeholder="/* e.g. --primary: #3b82f6; */"
               bind:value={zone.custom_css}></textarea>
@@ -479,7 +480,7 @@ async function applyTemplate(templateKey: string) {
           <div class="flex justify-end">
             <button class="btn btn-primary btn-sm gap-1" onclick={saveZone} disabled={saving}>
               {#if saving}<LoaderCircle size={14} class="animate-spin"/>{:else}<Save size={14}/>{/if}
-              Save Branding
+              {m['zones.saveBranding']()}
             </button>
           </div>
         </div>
@@ -492,7 +493,7 @@ async function applyTemplate(templateKey: string) {
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />

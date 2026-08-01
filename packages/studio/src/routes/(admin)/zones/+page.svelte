@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { base } from '$app/paths';
@@ -48,7 +49,7 @@ function extractError(e: unknown): string {
     if (typeof o.message === 'string') return o.message;
     if (typeof o.error === 'string') return o.error;
   }
-  return 'An unexpected error occurred.';
+  return m['common.unexpectedError']();
 }
 
 onMount(load);
@@ -115,9 +116,9 @@ async function createZone() {
 async function deleteZone(slug: string, name: string) {
   confirmState = {
     open: true,
-    title: 'Delete Zone',
-    message: `Delete zone "${name}" and all its pages? This cannot be undone.`,
-    confirmLabel: 'Delete Zone',
+    title: m['zones.deleteZone'](),
+    message: m['zones.deleteZoneMsg']({ name }),
+    confirmLabel: m['zones.deleteZone'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -132,18 +133,18 @@ async function deleteZone(slug: string, name: string) {
 </script>
 
 <CrudListPage
-  title="Zones"
-  subtitle="Each zone is a complete portal with its own pages and access rules"
+  title={m['nav.zones']()}
+  subtitle={m['zones.subtitle']()}
   count={zones.length}
   {loading}
-  actionLabel="New Zone"
+  actionLabel={m['zones.newZone']()}
   onAction={() => (showModal = true)}
   empty={{
     illustration: 'table',
     illustrationColor: 'text-accent',
-    title: 'Shape your first portal',
-    description: 'Zones bundle pages and access rules into named portals — public site, client portal, intranet — each with its own URL.',
-    actionLabel: 'Create zone',
+    title: m['zones.emptyTitle'](),
+    description: m['zones.emptyDesc'](),
+    actionLabel: m['zones.createZone'](),
     onAction: () => (showModal = true),
   }}
 >
@@ -166,7 +167,7 @@ async function deleteZone(slug: string, name: string) {
                 <button
                   class="btn btn-ghost btn-xs text-error"
                   onclick={() => deleteZone(z.slug, z.name)}
-                  title="Delete"
+                  title={m['common.delete']()}
                 >
                   <Trash2 size={13}/>
                 </button>
@@ -175,14 +176,14 @@ async function deleteZone(slug: string, name: string) {
 
             <div class="flex gap-1.5 flex-wrap">
               {#if z.is_active}
-                <span class="badge badge-success badge-xs gap-0.5"><Globe size={9}/> Active</span>
+                <span class="badge badge-success badge-xs gap-0.5"><Globe size={9}/> {m['zones.active']()}</span>
               {:else}
-                <span class="badge badge-ghost badge-xs">Inactive</span>
+                <span class="badge badge-ghost badge-xs">{m['zones.inactive']()}</span>
               {/if}
               {#if z.access_roles?.length > 0}
-                <span class="badge badge-warning badge-xs gap-0.5"><Lock size={9}/> Restricted</span>
+                <span class="badge badge-warning badge-xs gap-0.5"><Lock size={9}/> {m['zones.restricted']()}</span>
               {:else}
-                <span class="badge badge-ghost badge-xs gap-0.5"><Users size={9}/> Public</span>
+                <span class="badge badge-ghost badge-xs gap-0.5"><Users size={9}/> {m['zones.public']()}</span>
               {/if}
             </div>
 
@@ -192,7 +193,7 @@ async function deleteZone(slug: string, name: string) {
 
             <div class="flex justify-end pt-1 border-t border-base-300">
               <a href="{base}/zones/{z.slug}" class="btn btn-ghost btn-xs gap-1 text-primary">
-                Manage <ExternalLink size={11}/>
+                {m['common.manage']()} <ExternalLink size={11}/>
               </a>
             </div>
           </div>
@@ -206,25 +207,25 @@ async function deleteZone(slug: string, name: string) {
 {#if showModal}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">New Zone</h3>
+      <h3 class="font-bold text-lg mb-4">{m['zones.newZone']()}</h3>
 
       <div class="form-control mb-3">
-        <label class="label" for="zn"><span class="label-text">Name *</span></label>
-        <input id="zn" type="text" class="input" placeholder="e.g. Client Portal"
+        <label class="label" for="zn"><span class="label-text">{m['common.nameRequired']()}</span></label>
+        <input id="zn" type="text" class="input" placeholder={m['zones.egClientPortal']()}
           bind:value={form.name}
           oninput={(e) => handleNameInput(e.currentTarget.value)}/>
       </div>
 
       <div class="grid grid-cols-2 gap-3 mb-3">
         <div class="form-control">
-          <label class="label" for="zs"><span class="label-text">Slug *</span></label>
+          <label class="label" for="zs"><span class="label-text">{m['zones.slugRequired']()}</span></label>
           <input id="zs" type="text" class="input font-mono" placeholder="client"
             bind:value={form.slug}/>
         </div>
         <div class="form-control">
           <label class="label" for="zbp">
-            <span class="label-text">Base path</span>
-            <span class="label-text-alt text-base-content/40">Use <code class="font-mono">/</code> for root URLs</span>
+            <span class="label-text">{m['zones.basePath']()}</span>
+            <span class="label-text-alt text-base-content/40">{m['zones.basePathHint']()}</span>
           </label>
           <input id="zbp" type="text" class="input font-mono" placeholder="/client-portal"
             bind:value={form.base_path}/>
@@ -235,33 +236,33 @@ async function deleteZone(slug: string, name: string) {
       </div>
 
       <div class="form-control mb-3">
-        <label class="label" for="znav"><span class="label-text">Navigation position</span></label>
+        <label class="label" for="znav"><span class="label-text">{m['zones.navPosition']()}</span></label>
         <select id="znav" class="select" bind:value={form.nav_position}>
-          <option value="sidebar">Sidebar</option>
-          <option value="topbar">Top bar</option>
-          <option value="both">Both</option>
+          <option value="sidebar">{m['zones.navSidebar']()}</option>
+          <option value="topbar">{m['zones.navTopbar']()}</option>
+          <option value="both">{m['zones.navBoth']()}</option>
         </select>
       </div>
 
       <div class="form-control mb-4">
-        <label class="label" for="zdesc"><span class="label-text">Description</span></label>
-        <input id="zdesc" type="text" class="input" placeholder="Optional description…"
+        <label class="label" for="zdesc"><span class="label-text">{m['common.col.description']()}</span></label>
+        <input id="zdesc" type="text" class="input" placeholder={m['zones.optionalDescription']()}
           bind:value={form.description}/>
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => { showModal = false; }}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => { showModal = false; }}>{m['common.cancel']()}</button>
         <button
           class="btn btn-primary gap-1"
           onclick={createZone}
           disabled={!form.name.trim() || !form.slug.trim() || creating}
         >
           {#if creating}<LoaderCircle size={15} class="animate-spin"/>{/if}
-          Create Zone
+          {m['zones.createZone']()}
         </button>
       </div>
     </div>
-    <div class="modal-backdrop" role="button" tabindex="0" aria-label="Close"
+    <div class="modal-backdrop" role="button" tabindex="0" aria-label={m['common.close']()}
       onclick={() => { showModal = false; }}
       onkeydown={(e) => { if (e.key === 'Escape') { showModal = false; } }}></div>
   </dialog>
@@ -271,7 +272,7 @@ async function deleteZone(slug: string, name: string) {
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />

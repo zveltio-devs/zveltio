@@ -20,8 +20,8 @@
  * Usage: bun scripts/check-i18n-core.ts
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 const STUDIO = join(import.meta.dir, '..', 'packages', 'studio');
 
@@ -41,6 +41,40 @@ const TRANSLATED = [
   'src/routes/(admin)/insights/+page.svelte',
   'src/routes/(admin)/import/+page.svelte',
   'src/routes/(admin)/export/+page.svelte',
+  // tranche 3
+  'src/routes/(admin)/schema-branches/+page.svelte',
+  'src/routes/(admin)/onboarding/+page.svelte',
+  'src/routes/(admin)/saved-queries/+page.svelte',
+  'src/routes/(admin)/zones/+page.svelte',
+  'src/routes/(admin)/zones/[slug]/+page.svelte',
+  'src/routes/(admin)/virtual-collections/+page.svelte',
+  'src/routes/(admin)/rls/+page.svelte',
+  'src/routes/(admin)/marketplace/+page.svelte',
+  'src/routes/(admin)/column-permissions/+page.svelte',
+  'src/routes/(admin)/rpc/+page.svelte',
+  'src/routes/(admin)/edge-functions/+page.svelte',
+  // tranche 4 — this completes the hand-written core surface. Everything left
+  // untranslated under (admin) is generated from the zveltio-extensions repo
+  // and has to be edited there; see biome.json for the generated slugs.
+  'src/routes/(admin)/+layout.svelte',
+  'src/routes/(admin)/[...extPath]/+page.svelte',
+  'src/routes/(admin)/account/+page.svelte',
+  'src/routes/(admin)/approvals/+page.svelte',
+  'src/routes/(admin)/backup/+page.svelte',
+  'src/routes/(admin)/collections/[name]/+page.svelte',
+  'src/routes/(admin)/collections/erd/+page.svelte',
+  'src/routes/(admin)/extensions/[...path]/+page.svelte',
+  'src/routes/(admin)/flows/[id]/+page.svelte',
+  'src/routes/(admin)/introspect/+page.svelte',
+  'src/routes/(admin)/notifications/+page.svelte',
+  'src/routes/(admin)/request-logs/+page.svelte',
+  'src/routes/(admin)/settings/storage/+page.svelte',
+  'src/routes/(admin)/sql/+page.svelte',
+  'src/routes/(admin)/storage/+page.svelte',
+  'src/routes/(admin)/templates/+page.svelte',
+  'src/routes/(admin)/translations/+page.svelte',
+  'src/routes/(admin)/views/+page.svelte',
+  'src/routes/(admin)/webhooks/+page.svelte',
 ];
 
 /**
@@ -84,7 +118,23 @@ const ALLOWED_EXACT: RegExp[] = [
   /^(god|admin|member|employee|manager|client|prod)( → (\*|[a-z]+))?$/,
   /^SELECT /i,
   /^[A-Za-z]+\/[A-Za-z_]+$/, // IANA timezone, e.g. Europe/Bucharest
-  /^(Staging|My Company)$/, // sample values inside placeholders
+  // Sample values inside placeholders. `Română` is a locale endonym — a
+  // locale's name is written in its own language whatever the UI language is,
+  // so translating the example would teach the wrong convention.
+  /^(Staging|My Company|Română)$/,
+  // A list of identifiers, comma- or slash-separated: "id, name, status",
+  // "ui / email / content".
+  /^[a-z_][a-z0-9_]*((,| \/) ?[a-z_][a-z0-9_]*)+$/,
+  /^\/\*[\s\S]*\*\/$/, // a CSS or JS sample shown as code in a placeholder
+  /^(Bearer token|Basic auth)$/, // HTTP auth scheme names (RFC 6750 / 7617)
+  /^(GET|POST|PUT|PATCH|DELETE) \//, // an HTTP method and path, e.g. POST /api/rpc/:function
+  // ERD legend: a relation-type identifier plus its cardinality, e.g.
+  // "m2o / reference (N→1)". Both halves are notation, not prose.
+  /^(m2o|o2m|m2m|reference)( \/ (m2o|o2m|m2m|reference))* \([N1](→|↔)[N1]\)$/,
+  // Code samples shown in placeholders: a JSON object literal (brace-escaped
+  // in the markup) and a comparison expression. Both are read as code.
+  /^&#123;(&quot;|&#123;)/,
+  / === /,
 ];
 
 interface Finding {
@@ -105,6 +155,67 @@ function looksTranslatable(raw: string): boolean {
   if (/^[a-z0-9_.\-/]+$/.test(t)) return false;
   if (t.startsWith('http')) return false;
   return /^[A-Z]/.test(t) || t.split(/\s+/).length > 1;
+}
+
+/**
+ * Every `m['key']()` in the admin routes must resolve in the catalogue.
+ *
+ * Paraglide compiles to JS with no .d.ts, so `m` is `any` and `tsc` cannot see
+ * a typo. A missing key is not a missing translation — `m['nope']` is
+ * `undefined`, and calling it throws a TypeError that blanks the whole page.
+ * The hardcoded-text scan below cannot catch this: the page looks perfectly
+ * translated in the source. That is exactly how `m['nav.insights']()` shipped
+ * on the Insights page and crashed it on render.
+ *
+ * The scan is repo-wide rather than limited to TRANSLATED, because a broken key
+ * crashes a page whether or not that page is finished.
+ */
+function checkKeyReferences(): string[] {
+  const bundle: Record<string, unknown> = JSON.parse(
+    readFileSync(join(STUDIO, 'messages', 'en.json'), 'utf-8'),
+  );
+  const broken: string[] = [];
+
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      if (!entry.name.endsWith('.svelte')) continue;
+
+      const src = readFileSync(p, 'utf-8');
+      src.split('\n').forEach((line, i) => {
+        for (const ref of line.matchAll(/m\[(['"])([^'"]+)\1\](\??)/g)) {
+          const key = ref[2]!;
+          // `m['k']?.()` is a deliberate feature probe with its own fallback.
+          if (ref[3] === '?') continue;
+          if (!(key in bundle)) {
+            broken.push(`${relative(STUDIO, p)}:${i + 1}  m['${key}']`);
+          }
+        }
+      });
+    }
+  };
+
+  walk(join(STUDIO, 'src', 'routes'));
+  return broken;
+}
+
+const brokenRefs = checkKeyReferences();
+if (brokenRefs.length > 0) {
+  console.error(
+    `❌ i18n-core: ${brokenRefs.length} message key(s) referenced but not in the catalogue.\n`,
+  );
+  for (const r of brokenRefs) console.error(`  ${r}`);
+  console.error(
+    `\nThese throw a TypeError at render and blank the page — they are not\n` +
+      `missing translations, they are crashes. Add the key to\n` +
+      `packages/studio/messages/core/*.json (all nine locales) and re-run\n` +
+      `\`bun run i18n:compile\` in packages/studio to regenerate the bundle.\n`,
+  );
+  process.exit(1);
 }
 
 const findings: Finding[] = [];
@@ -138,7 +249,10 @@ for (const rel of TRANSLATED) {
 }
 
 if (findings.length === 0) {
-  console.log(`✅ i18n-core: ${TRANSLATED.length} page(s) free of hardcoded user-visible text.`);
+  console.log(
+    `✅ i18n-core: every message key resolves; ` +
+      `${TRANSLATED.length} page(s) free of hardcoded user-visible text.`,
+  );
   process.exit(0);
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import { Bell, BellOff, CheckCheck, RefreshCw, LoaderCircle } from '@lucide/svelte';
@@ -94,7 +95,7 @@ function fmt(s: string) {
 </script>
 
 <div class="space-y-6">
- <PageHeader title="Notifications" subtitle="{unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}">
+ <PageHeader title={m['nav.notifications']()} subtitle={m['notif.unreadCount']({ count: unreadCount })}>
   <div class="flex gap-2">
   <label class="flex items-center gap-2 text-sm cursor-pointer">
   <input type="checkbox" class="checkbox checkbox-sm" bind:checked={unreadOnly}
@@ -138,10 +139,10 @@ function fmt(s: string) {
  <div class="text-center py-16 text-base-content/40">
  {#if unreadOnly}
  <CheckCheck size={48} class="mx-auto mb-3" />
- <p class="text-sm">All caught up! No unread notifications.</p>
+ <p class="text-sm">{m['notif.allCaughtUp']()}</p>
  {:else}
  <BellOff size={48} class="mx-auto mb-3" />
- <p class="text-sm">No notifications yet.</p>
+ <p class="text-sm">{m['notif.empty']()}</p>
  {/if}
  </div>
  {:else}
@@ -178,6 +179,6 @@ function fmt(s: string) {
  {/if}
 
  {#if activeTab === 'rules'}
- <div class="text-sm text-base-content/50 py-8 text-center">Notification rules coming soon.</div>
+ <div class="text-sm text-base-content/50 py-8 text-center">{m['notif.rulesSoon']()}</div>
  {/if}
 </div>

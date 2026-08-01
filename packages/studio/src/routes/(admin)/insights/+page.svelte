@@ -238,7 +238,7 @@ function statValue(p: Panel): string {
 </script>
 
 <div class="space-y-0">
-<PageHeader title={m['nav.insights']()} subtitle={m['insights.subtitle']()} />
+<PageHeader title={m['insights.title']()} subtitle={m['insights.subtitle']()} />
 <div class="flex h-[calc(100vh-10rem)] gap-0 -mx-4">
   <!-- Sidebar: dashboard list -->
   <div class="w-56 border-r border-base-300 bg-base-200 flex flex-col shrink-0">

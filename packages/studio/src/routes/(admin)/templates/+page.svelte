@@ -9,6 +9,7 @@
  * Optional name prefix lets the user install the same template twice
  * (e.g. one CRM for sales, one for partner relations) without colliding.
  */
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
@@ -211,13 +212,13 @@ onMount(() => {
 });
 </script>
 
-<svelte:head><title>Business templates — Zveltio Studio</title></svelte:head>
+<svelte:head><title>{m['tpl.pageTitle']()}</title></svelte:head>
 
 <div class="max-w-6xl mx-auto p-6">
   <header class="mb-6">
     <div class="flex items-center gap-2 mb-2">
       <Sparkles class="text-primary" size={20} />
-      <h1 class="text-2xl font-bold">Business templates</h1>
+      <h1 class="text-2xl font-bold">{m['tpl.title']()}</h1>
     </div>
     <p class="text-sm text-base-content/60 max-w-2xl">
       Skip the blank-page problem. Install a starter app — collections, fields,
@@ -280,10 +281,10 @@ onMount(() => {
             <h2 class="text-lg font-bold">{preview.name}</h2>
             <p class="text-sm text-base-content/60">{preview.description}</p>
           {:else}
-            <span class="text-sm text-base-content/60">Loading…</span>
+            <span class="text-sm text-base-content/60">{m['common.loading']()}</span>
           {/if}
         </div>
-        <button class="btn btn-ghost btn-sm" onclick={closePreview} disabled={installing} aria-label="Close">
+        <button class="btn btn-ghost btn-sm" onclick={closePreview} disabled={installing} aria-label={m['common.close']()}>
           <X size={16} />
         </button>
       </header>
@@ -324,10 +325,10 @@ onMount(() => {
 
           <!-- Install options -->
           <section class="border-t border-base-300 pt-5">
-            <h3 class="text-sm font-semibold mb-2 text-base-content/70">Install options</h3>
+            <h3 class="text-sm font-semibold mb-2 text-base-content/70">{m['tpl.installOptions']()}</h3>
             <label class="form-control w-full">
               <div class="label py-1">
-                <span class="label-text text-xs">Optional name prefix</span>
+                <span class="label-text text-xs">{m['tpl.prefixLabel']()}</span>
                 <span class="label-text-alt text-[10px] text-base-content/40">
                   e.g. <code>sales</code> → <code>sales_crm_companies</code>
                 </span>
@@ -336,7 +337,7 @@ onMount(() => {
                 class="input input-bordered input-sm"
                 bind:value={prefix}
                 oninput={() => (prefixError = validatePrefix(prefix))}
-                placeholder="(leave empty to use template defaults)"
+                placeholder={m['tpl.prefixPh']()}
                 disabled={installing}
               />
               {#if prefixError}

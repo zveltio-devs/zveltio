@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
@@ -47,7 +48,7 @@ async function load() {
     secretKeySet = cfg.s3.secretKeySet;
     secretKey = '';
   } catch (e) {
-    toast.error(`Failed to load storage config: ${(e as Error).message}`);
+    toast.error(m['stor.loadFailed']({ error: (e as Error).message }));
   } finally {
     loading = false;
   }
@@ -80,11 +81,11 @@ async function save() {
   saving = true;
   try {
     await api.put('/api/admin/storage/config', payload());
-    toast.success('Storage configuration saved');
+    toast.success(m['stor.saved']());
     secretKey = '';
     await load();
   } catch (e) {
-    toast.error(`Save failed: ${(e as Error).message}`);
+    toast.error(m['stor.saveFailed']({ error: (e as Error).message }));
   } finally {
     saving = false;
   }
@@ -93,51 +94,51 @@ async function save() {
 onMount(load);
 </script>
 
-<PageHeader title="Storage" subtitle="Where uploaded files are stored — local disk or an S3-compatible object store (SeaweedFS, AWS, R2, …)." />
+<PageHeader title={m['stor.title']()} subtitle={m['stor.subtitle']()} />
 
 {#if loading}
-  <div class="p-6 text-base-content/60">Loading…</div>
+  <div class="p-6 text-base-content/60">{m['common.loading']()}</div>
 {:else}
   <div class="max-w-2xl space-y-6 p-2">
     <!-- Driver -->
     <div class="form-control">
-      <label class="label" for="storage-driver"><span class="label-text font-medium">Driver</span></label>
+      <label class="label" for="storage-driver"><span class="label-text font-medium">{m['stor.driver']()}</span></label>
       <select id="storage-driver" class="select select-bordered w-full max-w-xs" bind:value={driver}>
-        <option value="local">Local filesystem (default, no external store)</option>
-        <option value="s3">S3-compatible (SeaweedFS / AWS / R2 / …)</option>
+        <option value="local">{m['stor.driverLocal']()}</option>
+        <option value="s3">{m['stor.driverS3']()}</option>
       </select>
     </div>
 
     {#if driver === 'local'}
       <div class="form-control">
-        <label class="label" for="local-dir"><span class="label-text">Storage directory</span></label>
+        <label class="label" for="local-dir"><span class="label-text">{m['stor.directory']()}</span></label>
         <input id="local-dir" class="input input-bordered w-full" bind:value={localDir} placeholder="/var/lib/zveltio/storage" />
-        <span class="label-text-alt mt-1 text-base-content/60">Must be writable + on persistent storage.</span>
+        <span class="label-text-alt mt-1 text-base-content/60">{m['stor.dirHint']()}</span>
       </div>
     {:else}
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div class="form-control sm:col-span-2">
-          <label class="label" for="s3-endpoint"><span class="label-text">Endpoint</span></label>
+          <label class="label" for="s3-endpoint"><span class="label-text">{m['stor.endpoint']()}</span></label>
           <input id="s3-endpoint" class="input input-bordered w-full" bind:value={endpoint} placeholder="http://seaweedfs:8333" />
         </div>
         <div class="form-control">
-          <label class="label" for="s3-bucket"><span class="label-text">Bucket</span></label>
+          <label class="label" for="s3-bucket"><span class="label-text">{m['stor.bucket']()}</span></label>
           <input id="s3-bucket" class="input input-bordered w-full" bind:value={bucket} placeholder="zveltio" />
         </div>
         <div class="form-control">
-          <label class="label" for="s3-region"><span class="label-text">Region</span></label>
+          <label class="label" for="s3-region"><span class="label-text">{m['stor.region']()}</span></label>
           <input id="s3-region" class="input input-bordered w-full" bind:value={region} placeholder="us-east-1" />
         </div>
         <div class="form-control">
-          <label class="label" for="s3-access"><span class="label-text">Access key</span></label>
+          <label class="label" for="s3-access"><span class="label-text">{m['stor.accessKey']()}</span></label>
           <input id="s3-access" class="input input-bordered w-full" bind:value={accessKey} />
         </div>
         <div class="form-control">
-          <label class="label" for="s3-secret"><span class="label-text">Secret key</span></label>
-          <input id="s3-secret" type="password" class="input input-bordered w-full" bind:value={secretKey} placeholder={secretKeySet ? '•••••••• (set — leave blank to keep)' : ''} />
+          <label class="label" for="s3-secret"><span class="label-text">{m['stor.secretKey']()}</span></label>
+          <input id="s3-secret" type="password" class="input input-bordered w-full" bind:value={secretKey} placeholder={secretKeySet ? m['stor.secretSetPh']() : ''} />
         </div>
         <div class="form-control sm:col-span-2">
-          <label class="label" for="s3-public"><span class="label-text">Public URL (optional)</span></label>
+          <label class="label" for="s3-public"><span class="label-text">{m['stor.publicUrl']()}</span></label>
           <input id="s3-public" class="input input-bordered w-full" bind:value={publicUrl} placeholder="https://cdn.example.com/zveltio" />
         </div>
       </div>
@@ -146,10 +147,10 @@ onMount(load);
     <!-- Actions -->
     <div class="flex items-center gap-3">
       <button class="btn btn-outline" onclick={testConnection} disabled={testing}>
-        {testing ? 'Testing…' : 'Test connection'}
+        {testing ? m['stor.testing']() : m['common.testConnection']()}
       </button>
       <button class="btn btn-primary" onclick={save} disabled={saving}>
-        {saving ? 'Saving…' : 'Save'}
+        {saving ? m['erd.saving']() : m['common.save']()}
       </button>
     </div>
 
