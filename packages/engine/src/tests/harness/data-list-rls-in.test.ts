@@ -157,24 +157,18 @@ d('data list RLS in/not_in (in-process)', () => {
     expect(await titlesFor(memberCookie)).toEqual(['beta']);
   });
 
-  it('applies to god too — because session.user.role is undefined (TRIPWIRE)', async () => {
-    // rls.ts:113 reads `if (user.role === 'god' ...) return []`, intending gods
-    // to bypass RLS. That branch never fires: `role` is not declared in
-    // better-auth's `additionalFields`, so `session.user` carries
-    // [name, email, emailVerified, image, createdAt, updatedAt,
-    // twoFactorEnabled, id] and nothing else. `user.role` is always undefined.
+  it('a god sees every row — through a permission, not a role-name check', async () => {
+    // This asserted the opposite until the override was redesigned. It used to
+    // read `user.role === 'god'`, which never fired because `session.user.role`
+    // is not populated, so gods were silently subject to RLS.
     //
-    // The column-permission side of the same defect IS fixed: those sites now
-    // call `resolveUserRole()`, which reads the role from the database the way
-    // `checkPermission` already does. This one is deliberately left alone,
-    // because switching it on WIDENS access — a god currently sees fewer rows
-    // than intended, which is the safe direction to be wrong in.
-    //
-    // Asserted as-is so the change is a decision rather than an accident.
-    // Whoever makes gods bypass RLS will see this test fail and be pointed at
-    // exactly what they are turning on.
+    // The check is now `checkPermission(user.id, 'data', 'view_all')`, which
+    // short-circuits for god users against the DATABASE role. Same outcome for
+    // a god, but the power is now grantable to a named role and withholdable
+    // from an operator who must administer without reading customer data — and
+    // it cannot go stale the way a hardcoded string did.
     await setPolicy('in', 'static:red');
-    expect(await titlesFor(godCookie)).toEqual(['alpha']);
+    expect(await titlesFor(godCookie)).toEqual(['alpha', 'beta', 'gamma']);
   });
 
   it('does not comma-split an `eq` value', async () => {

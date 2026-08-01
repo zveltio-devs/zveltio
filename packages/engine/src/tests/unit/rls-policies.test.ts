@@ -41,17 +41,47 @@ function policy(over: Record<string, unknown> = {}) {
 
 const USER = { id: 'u-1', email: 'u1@x.com', role: 'editor' };
 
-describe('getRlsFilters — bypasses', () => {
-  it('god users bypass RLS without touching the DB', async () => {
+describe('getRlsFilters — overrides', () => {
+  it('a user with the view_all permission sees every row', async () => {
+    // The override is a PERMISSION now, not `user.role === 'god'`. That string
+    // comparison was dead — `session.user.role` is never populated — and a
+    // dead role check is exactly what nobody can audit or revoke.
+    // `checkPermission` short-circuits for god users via isGodUser, so a god
+    // still bypasses; the difference is that the same power can be granted to
+    // a named role, or withheld from an operator who must administer without
+    // reading customer data.
     const db = setup();
-    expect(await getRlsFilters('contacts', { ...USER, role: 'god' }, 'session')).toEqual([]);
+    db.when(/SELECT role FROM "user"/i, [{ role: 'god' }]);
+    expect(await getRlsFilters('contacts', { ...USER, role: 'irrelevant' }, 'session')).toEqual([]);
+  });
+
+  it('a user WITHOUT it is filtered, whatever their session says', async () => {
+    // The session role is attacker-adjacent input in the sense that it is not
+    // authoritative — the database is. Claiming 'god' in the object must not
+    // grant anything.
+    const db = setup();
+    db.when(/SELECT role FROM "user"/i, [{ role: 'member' }]);
+    db.when(/FROM zvd_rls_policies/i, [policy()]);
+    const filters = await getRlsFilters('contacts', { ...USER, role: 'god' }, 'session');
+    expect(filters).toHaveLength(1);
+    expect(filters[0]!.field).toBe('owner_id');
+  });
+
+  it('an API key bypasses only when ITS OWN flag says so', async () => {
+    // Was blanket for every key. Defaults to true (today's behaviour) because
+    // RLS values resolve from user_id/user_email and a key's identity is the
+    // synthetic `apikey:<uuid>` — enforcing an identity policy against a key
+    // returns zero rows silently, which breaks integrations with no error.
+    const db = setup();
+    expect(await getRlsFilters('contacts', { ...USER, rlsBypass: true }, 'api_key')).toEqual([]);
     expect(db.log).toHaveLength(0);
   });
 
-  it('api_key auth bypasses RLS without touching the DB', async () => {
+  it('a key with the flag OFF is filtered like anyone else', async () => {
     const db = setup();
-    expect(await getRlsFilters('contacts', USER, 'api_key')).toEqual([]);
-    expect(db.log).toHaveLength(0);
+    db.when(/FROM zvd_rls_policies/i, [policy()]);
+    const filters = await getRlsFilters('contacts', { ...USER, rlsBypass: false }, 'api_key');
+    expect(filters).toHaveLength(1);
   });
 
   it('no matching policies → no restriction', async () => {

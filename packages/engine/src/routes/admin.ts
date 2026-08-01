@@ -82,6 +82,11 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         'last_used_at',
         'is_active',
         'created_at',
+        // Surfaced so an operator can SEE which keys ignore row-level policies.
+        // It defaulted to on for every key and was invisible — a policy that
+        // reads "users see only their own records" quietly did not apply to
+        // integrations, and nothing in the UI said so.
+        'rls_bypass',
       ])
       .where('tenant_id', '=', getCurrentDomain())
       .orderBy('created_at', 'desc')
@@ -108,11 +113,19 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
           .default([]),
         rate_limit: z.number().int().default(1000),
         expires_at: z.string().optional(),
+        /**
+         * Exempt this key from row-level security. Defaults to true, which is
+         * the behaviour every key already had. Set false for a key whose
+         * collections use identity-independent policies (`static:` /
+         * `user_role`) — an identity policy cannot apply to a machine
+         * credential and would return zero rows.
+         */
+        rls_bypass: z.boolean().default(true),
       }),
     ),
     async (c) => {
       const user = c.get('user') as RequestUser;
-      const { name, scopes, rate_limit, expires_at } = c.req.valid('json');
+      const { name, scopes, rate_limit, expires_at, rls_bypass } = c.req.valid('json');
 
       const rawKey = `zvk_${crypto.randomUUID().replace(/-/g, '')}`;
       const prefix = rawKey.substring(0, 12);
@@ -142,6 +155,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
           key_prefix: prefix,
           scopes: JSON.stringify(scopes),
           rate_limit,
+          rls_bypass,
           expires_at: expires_at ? new Date(expires_at) : null,
           created_by: user.id,
           is_active: true,
