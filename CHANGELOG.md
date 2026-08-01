@@ -4,6 +4,54 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.43] - 2026-08-01
+
+**The Studio speaks nine languages everywhere an operator can reach by hand.**
+Two tranches finish what beta.42's successor started: the hand-written admin
+surface is fully translated, and the gate that protects it learned to catch the
+failure mode that had already shipped.
+
+### Internationalisation
+
+- **feat(studio): the hand-written admin surface is complete.** Tranches 3 and 4
+  convert the remaining 30 core pages — schema branches, onboarding, saved
+  queries, zones, virtual collections, RLS, marketplace, column permissions, RPC,
+  edge functions, the ERD, the flow editor, approvals, translations, BYOD import,
+  webhooks, views, request logs, storage, backup, account, templates,
+  notifications, the SQL editor and the extension hosts. The gate goes from 13
+  pages to 43 and the catalogue from 549 keys to 1209, across all nine locales
+  with parity intact. Toast messages are translated too, which the earlier
+  tranches had left in English.
+
+- **fix(studio): the Insights page was crashing, and nothing could see it.**
+  `insights/+page.svelte` called `m['nav.insights']()` for a key that has never
+  existed. Paraglide compiles to JS with no `.d.ts`, so `m` is `any` and `tsc`
+  cannot see the typo; at runtime `undefined()` throws a TypeError that blanks
+  the whole page. It shipped in the previous tranche and no check could have
+  caught it — a scan that looks for hardcoded English sees a page that is, in
+  the source, perfectly translated.
+
+- **feat(ci): the i18n gate now verifies that every key resolves.**
+  `checkKeyReferences()` sweeps all of `src/routes` rather than the translated
+  list, because a broken key crashes a page whether or not that page is
+  finished. It skips `m['x']?.()`, which is a deliberate feature probe with its
+  own fallback. A missing key is not a missing translation; it is a crash, and
+  the failure message says so.
+
+- **fix(studio): BYOD Import was hardcoded in Romanian.** Not English — Romanian.
+  A French operator got Romanian on that one page. The untranslated surface was
+  never uniformly English, which is worth knowing before the next sweep.
+
+### Notes
+
+Everything still untranslated under `(admin)` is generated from the
+`zveltio-extensions` repository and has to be edited there; the authoritative
+list of those 31 slugs is the set of negations in `biome.json`. Six new
+`ALLOWED_EXACT` patterns cover notation and code samples, each with its reason
+in the file. `Română` deliberately stays untranslated as a placeholder: a
+locale's name is written in its own language whatever the UI language is, so
+translating the example would teach the wrong convention.
+
 ## [3.0.0-beta.42] - 2026-07-31
 
 **The extension trust chain, made real — plus four defects found while building
