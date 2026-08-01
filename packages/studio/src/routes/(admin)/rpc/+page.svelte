@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
@@ -67,7 +68,7 @@ async function save() {
       required_role: form.required_role,
       is_enabled: form.is_enabled,
     });
-    toast.success('Function registered');
+    toast.success(m['rpc.fnRegistered']());
     showForm = false;
     await loadAll();
   } catch {
@@ -89,12 +90,12 @@ async function toggleEnabled(fn: RpcFunction) {
 function confirmDelete(fn: RpcFunction) {
   confirmState = {
     open: true,
-    title: 'Remove RPC Function',
-    message: `Remove "${fn.function_name}" from the whitelist?`,
+    title: m['rpc.removeTitle'](),
+    message: m['rpc.removeMsg']({ name: fn.function_name }),
     onconfirm: async () => {
       try {
         await api.delete(`/api/rpc/${fn.id}`);
-        toast.success('Function removed');
+        toast.success(m['rpc.fnRemoved']());
         await loadAll();
       } catch {
         toast.error('Failed to remove function');
@@ -104,9 +105,9 @@ function confirmDelete(fn: RpcFunction) {
 }
 </script>
 
-<PageHeader title="RPC Functions" subtitle="Whitelist PostgreSQL functions callable via POST /api/rpc/:function.">
+<PageHeader title={m['rpc.title']()} subtitle={m['rpc.subtitle']()}>
     <button onclick={openNew} class="btn btn-primary btn-sm gap-1">
-      <Plus class="h-4 w-4" /> Register Function
+      <Plus class="h-4 w-4" /> {m['rpc.registerFn']()}
     </button>
 </PageHeader>
 
@@ -114,9 +115,10 @@ function confirmDelete(fn: RpcFunction) {
 <div role="status" class="mx-6 mb-4 alert alert-info alert-soft text-sm">
   <Info class="h-4 w-4 shrink-0" />
   <div>
-    Only functions listed here are callable. Call them with
-    <code class="font-mono bg-base-300 px-1 rounded">POST /api/rpc/:function</code> passing a JSON body of named parameters.
-    Equivalent to <code class="font-mono bg-base-300 px-1 rounded">supabase.rpc()</code>.
+    {m['rpc.banner1']()}
+    <code class="font-mono bg-base-300 px-1 rounded">POST /api/rpc/:function</code>
+    {m['rpc.banner2']()}
+    <code class="font-mono bg-base-300 px-1 rounded">supabase.rpc()</code>.
   </div>
 </div>
 
@@ -128,11 +130,11 @@ function confirmDelete(fn: RpcFunction) {
     <!-- Add form -->
     {#if showForm}
       <div class="rounded-xl border border-base-content/10 bg-base-200 p-5 space-y-4">
-        <h3 class="font-semibold">Register Function</h3>
+        <h3 class="font-semibold">{m['rpc.registerFn']()}</h3>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 
           <div class="form-control">
-            <label for="rpc-fn-name" class="label label-text text-xs">Function Name</label>
+            <label for="rpc-fn-name" class="label label-text text-xs">{m['rpc.fnName']()}</label>
             <input
               id="rpc-fn-name"
               bind:value={form.function_name}
@@ -143,30 +145,30 @@ function confirmDelete(fn: RpcFunction) {
           </div>
 
           <div class="form-control">
-            <label for="rpc-fn-desc" class="label label-text text-xs">Description</label>
+            <label for="rpc-fn-desc" class="label label-text text-xs">{m['common.col.description']()}</label>
             <input
               id="rpc-fn-desc"
               bind:value={form.description}
               type="text"
-              placeholder="Optional description"
+              placeholder={m['rpc.optionalDesc']()}
               class="input input-sm input-bordered w-full"
             />
           </div>
 
           <div class="form-control">
-            <label for="rpc-fn-role" class="label label-text text-xs">Required Role</label>
+            <label for="rpc-fn-role" class="label label-text text-xs">{m['rpc.requiredRole']()}</label>
             <select id="rpc-fn-role" bind:value={form.required_role} class="select select-sm select-bordered w-full">
               {#each ROLES as r}
-                <option value={r}>{r === '*' ? '* (all roles)' : r}</option>
+                <option value={r}>{r === '*' ? m['rls.allRolesOpt']() : r}</option>
               {/each}
             </select>
           </div>
 
           <div class="form-control justify-end pb-1">
-            <span class="label label-text text-xs">Enabled</span>
+            <span class="label label-text text-xs">{m['common.col.enabled']()}</span>
             <label class="flex items-center gap-2 cursor-pointer text-sm mt-1">
               <input type="checkbox" bind:checked={form.is_enabled} class="checkbox checkbox-sm checkbox-primary" />
-              Active
+              {m['common.col.active']()}
             </label>
           </div>
         </div>
@@ -185,7 +187,7 @@ function confirmDelete(fn: RpcFunction) {
             {:else}
               <Check class="h-4 w-4" />
             {/if}
-            Register
+            {m['rpc.register']()}
           </button>
         </div>
       </div>
@@ -197,12 +199,12 @@ function confirmDelete(fn: RpcFunction) {
         <div class="mb-4 rounded-full border border-base-content/10 bg-base-200 p-5">
           <Zap class="h-10 w-10 text-base-content/30" />
         </div>
-        <h2 class="text-lg font-semibold">No RPC functions registered</h2>
+        <h2 class="text-lg font-semibold">{m['rpc.emptyTitle']()}</h2>
         <p class="mt-1 text-sm text-base-content/50">
-          Register a PostgreSQL function to make it callable via the RPC API.
+          {m['rpc.emptyDesc']()}
         </p>
         <button onclick={openNew} class="btn btn-primary btn-sm mt-4 gap-1">
-          <Plus class="h-4 w-4" /> Register Function
+          <Plus class="h-4 w-4" /> {m['rpc.registerFn']()}
         </button>
       </div>
 
@@ -211,11 +213,11 @@ function confirmDelete(fn: RpcFunction) {
         <table class="table table-sm w-full">
           <thead>
             <tr class="text-xs text-base-content/50">
-              <th>Function</th>
-              <th>Description</th>
-              <th>Required Role</th>
-              <th class="text-center">Enabled</th>
-              <th>Created</th>
+              <th>{m['rpc.colFunction']()}</th>
+              <th>{m['common.col.description']()}</th>
+              <th>{m['rpc.requiredRole']()}</th>
+              <th class="text-center">{m['common.col.enabled']()}</th>
+              <th>{m['common.col.created']()}</th>
               <th></th>
             </tr>
           </thead>

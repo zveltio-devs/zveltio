@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
@@ -23,13 +24,13 @@ import {
 } from '@lucide/svelte';
 
 const STEP_TYPES = [
-  { value: 'http_request', label: 'HTTP Request', icon: Globe },
-  { value: 'send_email', label: 'Send Email', icon: Mail },
-  { value: 'create_record', label: 'Create Record', icon: Database },
-  { value: 'update_record', label: 'Update Record', icon: Database },
-  { value: 'ai_decision', label: 'AI Decision', icon: Brain },
-  { value: 'webhook', label: 'Webhook', icon: Webhook },
-  { value: 'condition', label: 'Condition', icon: GitBranch },
+  { value: 'http_request', label: m['flowEdit.typeHttp'], icon: Globe },
+  { value: 'send_email', label: m['flowEdit.typeEmail'], icon: Mail },
+  { value: 'create_record', label: m['flowEdit.typeCreate'], icon: Database },
+  { value: 'update_record', label: m['flowEdit.typeUpdate'], icon: Database },
+  { value: 'ai_decision', label: m['flowEdit.typeAi'], icon: Brain },
+  { value: 'webhook', label: m['flowEdit.typeWebhook'], icon: Webhook },
+  { value: 'condition', label: m['flowEdit.typeCondition'], icon: GitBranch },
 ] as const;
 
 type StepType = (typeof STEP_TYPES)[number]['value'];
@@ -75,7 +76,7 @@ async function loadFlow() {
     if (flow && !flow.steps) flow.steps = [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Failed to load flow');
+    toast.error(e.message ?? m['flowEdit.loadFailed']());
   } finally {
     loading = false;
   }
@@ -103,7 +104,7 @@ function addStep(type: StepType) {
   if (!flow) return;
   const newStep: Step = {
     id: crypto.randomUUID(),
-    name: STEP_TYPES.find((s) => s.value === type)?.label ?? type,
+    name: STEP_TYPES.find((s) => s.value === type)?.label() ?? type,
     type,
     config: {},
     order: flow.steps.length,
@@ -169,7 +170,7 @@ function updateStepName(name: string) {
   <!-- Toolbar -->
   <div class="flex items-center gap-3 px-4 py-3 bg-base-200 border-b border-base-300 shrink-0">
     <button class="btn btn-ghost btn-sm gap-1" onclick={() => goto(`${base}/flows`)}>
-      <ArrowLeft size={16} /> Flows
+      <ArrowLeft size={16} /> {m['flowEdit.backToFlows']()}
     </button>
     <div class="divider divider-horizontal m-0 h-6"></div>
     {#if flow}
@@ -178,7 +179,7 @@ function updateStepName(name: string) {
         bind:value={flow.name}
       />
       <span class="badge badge-sm {flow.is_active ? 'badge-success' : 'badge-ghost'}">
-        {flow.is_active ? 'Active' : 'Paused'}
+        {flow.is_active ? m['common.col.active']() : m['flowEdit.paused']()}
       </span>
     {/if}
     <div class="flex-1"></div>
@@ -187,7 +188,7 @@ function updateStepName(name: string) {
     {/if}
     <button class="btn btn-primary btn-sm gap-1" onclick={saveFlow} disabled={saving || !flow}>
       {#if saving}<LoaderCircle size={15} class="animate-spin" />{:else}<Save size={15} />{/if}
-      Save
+      {m['common.save']()}
     </button>
   </div>
 
@@ -201,18 +202,18 @@ function updateStepName(name: string) {
       <!-- Left sidebar: flow meta -->
       <aside class="w-56 shrink-0 border-r border-base-300 bg-base-100 p-4 space-y-4 overflow-y-auto">
         <div>
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-2">Flow</p>
+          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-2">{m['flowEdit.flow']()}</p>
           <div class="form-control">
-            <label class="label py-0" for="sidebar-flow-name"><span class="label-text text-xs">Name</span></label>
+            <label class="label py-0" for="sidebar-flow-name"><span class="label-text text-xs">{m['common.col.name']()}</span></label>
             <input id="sidebar-flow-name" class="input input-xs" bind:value={flow.name} />
           </div>
           <div class="form-control mt-2">
-            <label class="label py-0" for="sidebar-flow-desc"><span class="label-text text-xs">Description</span></label>
+            <label class="label py-0" for="sidebar-flow-desc"><span class="label-text text-xs">{m['common.col.description']()}</span></label>
             <textarea id="sidebar-flow-desc" class="textarea textarea-xs resize-none" rows="2" bind:value={flow.description}></textarea>
           </div>
         </div>
         <div>
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">Trigger</p>
+          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">{m['flowEdit.trigger']()}</p>
           <span class="badge badge-outline badge-sm">{flow.trigger_type}</span>
           {#if flow.trigger_config?.collection}
             <p class="text-xs text-base-content/50 mt-1">{flow.trigger_config.collection}</p>
@@ -222,8 +223,8 @@ function updateStepName(name: string) {
           {/if}
         </div>
         <div>
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">Steps</p>
-          <p class="text-sm">{flow.steps.length} step{flow.steps.length !== 1 ? 's' : ''}</p>
+          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide mb-1">{m['flowEdit.steps']()}</p>
+          <p class="text-sm">{m['flowEdit.stepCount']({ count: flow.steps.length })}</p>
         </div>
       </aside>
 
@@ -236,7 +237,7 @@ function updateStepName(name: string) {
             <div class="card-body p-3 flex-row items-center gap-3">
               <Play size={18} class="text-primary shrink-0" />
               <div class="flex-1 min-w-0">
-                <p class="text-xs font-semibold text-primary uppercase tracking-wide">Trigger</p>
+                <p class="text-xs font-semibold text-primary uppercase tracking-wide">{m['flowEdit.trigger']()}</p>
                 <p class="text-sm font-medium truncate">{flow.trigger_type}</p>
               </div>
             </div>
@@ -278,7 +279,7 @@ function updateStepName(name: string) {
                 <span class="text-xs text-base-content/30 shrink-0">#{i + 1}</span>
                 <button
                   class="btn btn-ghost btn-xs text-error shrink-0"
-                  title="Delete step"
+                  title={m['flowEdit.deleteStep']()}
                   onclick={(e) => { e.stopPropagation(); deleteStep(step.id); }}
                 >
                   <Trash2 size={13} />
@@ -291,7 +292,7 @@ function updateStepName(name: string) {
           <div class="flex justify-center pt-2">
             <div class="relative">
               <button class="btn btn-dashed btn-sm gap-1 border-2 border-dashed" onclick={() => (showAddStep = !showAddStep)}>
-                <Plus size={14} /> Add Step <ChevronDown size={12} />
+                <Plus size={14} /> {m['flowEdit.addStep']()} <ChevronDown size={12} />
               </button>
               {#if showAddStep}
                 <div class="absolute top-full mt-1 left-0 z-10 bg-base-100 border border-base-300 rounded-lg shadow-lg p-1 min-w-45">
@@ -302,7 +303,7 @@ function updateStepName(name: string) {
                       onclick={() => addStep(st.value)}
                     >
                       <StIcon size={14} class="text-base-content/60" />
-                      {st.label}
+                      {st.label()}
                     </button>
                   {/each}
                 </div>
@@ -316,13 +317,13 @@ function updateStepName(name: string) {
       {#if selectedStep}
         <aside class="w-80 shrink-0 border-l border-base-300 bg-base-100 p-4 overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
-            <p class="font-semibold text-sm">Step Config</p>
+            <p class="font-semibold text-sm">{m['flowEdit.stepConfig']()}</p>
             <button class="btn btn-ghost btn-xs" onclick={() => (selectedStep = null)}>✕</button>
           </div>
 
           <div class="space-y-3">
             <div class="form-control">
-              <label class="label py-0" for="step-name"><span class="label-text text-xs">Step name</span></label>
+              <label class="label py-0" for="step-name"><span class="label-text text-xs">{m['flowEdit.stepName']()}</span></label>
               <input
                 id="step-name"
                 class="input input-sm"
@@ -332,7 +333,7 @@ function updateStepName(name: string) {
             </div>
 
             <div class="form-control">
-              <p class="label py-0"><span class="label-text text-xs">Type</span></p>
+              <p class="label py-0"><span class="label-text text-xs">{m['common.col.type']()}</span></p>
               <span class="badge badge-outline">{selectedStep.type}</span>
             </div>
 
@@ -349,7 +350,7 @@ function updateStepName(name: string) {
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0" for="step-method"><span class="label-text text-xs">Method</span></label>
+                <label class="label py-0" for="step-method"><span class="label-text text-xs">{m['flowEdit.method']()}</span></label>
                 <select
                   id="step-method"
                   class="select select-sm"
@@ -360,7 +361,7 @@ function updateStepName(name: string) {
                 </select>
               </div>
               <div class="form-control">
-                <label class="label py-0" for="step-body"><span class="label-text text-xs">Body (JSON)</span></label>
+                <label class="label py-0" for="step-body"><span class="label-text text-xs">{m['flowEdit.bodyJson']()}</span></label>
                 <textarea
                   id="step-body"
                   class="textarea textarea-sm font-mono text-xs resize-none"
@@ -373,7 +374,7 @@ function updateStepName(name: string) {
 
             {:else if selectedStep.type === 'send_email'}
               <div class="form-control">
-                <label class="label py-0" for="step-to"><span class="label-text text-xs">To</span></label>
+                <label class="label py-0" for="step-to"><span class="label-text text-xs">{m['common.col.to']()}</span></label>
                 <input
                   id="step-to"
                   class="input input-sm"
@@ -383,22 +384,22 @@ function updateStepName(name: string) {
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0" for="step-subject"><span class="label-text text-xs">Subject</span></label>
+                <label class="label py-0" for="step-subject"><span class="label-text text-xs">{m['common.col.subject']()}</span></label>
                 <input
                   id="step-subject"
                   class="input input-sm"
-                  placeholder="Welcome!"
+                  placeholder={m['flowEdit.welcomePh']()}
                   value={selectedStep.config.subject ?? ''}
                   oninput={(e) => updateStepConfig('subject', (e.target as HTMLInputElement).value)}
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0" for="step-email-body"><span class="label-text text-xs">Body</span></label>
+                <label class="label py-0" for="step-email-body"><span class="label-text text-xs">{m['flowEdit.body']()}</span></label>
                 <textarea
                   id="step-email-body"
                   class="textarea textarea-sm resize-none"
                   rows="4"
-                  placeholder="Hello &#123;&#123;record.name&#125;&#125;, ..."
+                  placeholder={m['flowEdit.emailBodyPh']({ token: '{{record.name}}' })}
                   value={selectedStep.config.body ?? ''}
                   oninput={(e) => updateStepConfig('body', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
@@ -406,7 +407,7 @@ function updateStepName(name: string) {
 
             {:else if selectedStep.type === 'create_record' || selectedStep.type === 'update_record'}
               <div class="form-control">
-                <label class="label py-0" for="step-collection"><span class="label-text text-xs">Collection</span></label>
+                <label class="label py-0" for="step-collection"><span class="label-text text-xs">{m['common.col.collection']()}</span></label>
                 <input
                   id="step-collection"
                   class="input input-sm"
@@ -416,7 +417,7 @@ function updateStepName(name: string) {
                 />
               </div>
               <div class="form-control">
-                <label class="label py-0" for="step-data"><span class="label-text text-xs">Data (JSON)</span></label>
+                <label class="label py-0" for="step-data"><span class="label-text text-xs">{m['flowEdit.dataJson']()}</span></label>
                 <textarea
                   id="step-data"
                   class="textarea textarea-sm font-mono text-xs resize-none"
@@ -429,18 +430,18 @@ function updateStepName(name: string) {
 
             {:else if selectedStep.type === 'ai_decision'}
               <div class="form-control">
-                <label class="label py-0" for="step-prompt"><span class="label-text text-xs">Prompt</span></label>
+                <label class="label py-0" for="step-prompt"><span class="label-text text-xs">{m['flowEdit.prompt']()}</span></label>
                 <textarea
                   id="step-prompt"
                   class="textarea textarea-sm resize-none"
                   rows="4"
-                  placeholder="Analyze &#123;&#123;record.text&#125;&#125; and return a decision..."
+                  placeholder={m['flowEdit.promptPh']({ token: '{{record.text}}' })}
                   value={selectedStep.config.prompt ?? ''}
                   oninput={(e) => updateStepConfig('prompt', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
               </div>
               <div class="form-control">
-                <label class="label py-0" for="step-model"><span class="label-text text-xs">Model (optional)</span></label>
+                <label class="label py-0" for="step-model"><span class="label-text text-xs">{m['flowEdit.modelOptional']()}</span></label>
                 <input
                   id="step-model"
                   class="input input-sm"
@@ -452,7 +453,7 @@ function updateStepName(name: string) {
 
             {:else if selectedStep.type === 'condition'}
               <div class="form-control">
-                <label class="label py-0" for="step-expression"><span class="label-text text-xs">Condition expression</span></label>
+                <label class="label py-0" for="step-expression"><span class="label-text text-xs">{m['flowEdit.conditionExpr']()}</span></label>
                 <input
                   id="step-expression"
                   class="input input-sm font-mono"
@@ -464,7 +465,7 @@ function updateStepName(name: string) {
 
             {:else if selectedStep.type === 'webhook'}
               <div class="form-control">
-                <label class="label py-0" for="step-webhook-url"><span class="label-text text-xs">Webhook URL</span></label>
+                <label class="label py-0" for="step-webhook-url"><span class="label-text text-xs">{m['flowEdit.webhookUrl']()}</span></label>
                 <input
                   id="step-webhook-url"
                   class="input input-sm font-mono"
@@ -477,7 +478,7 @@ function updateStepName(name: string) {
 
             <!-- Raw config JSON (advanced) -->
             <details class="mt-2">
-              <summary class="text-xs text-base-content/40 cursor-pointer">Advanced (raw JSON)</summary>
+              <summary class="text-xs text-base-content/40 cursor-pointer">{m['flowEdit.advancedRaw']()}</summary>
               <pre class="mt-2 text-xs bg-base-300 p-2 rounded overflow-auto max-h-40">{JSON.stringify(selectedStep.config, null, 2)}</pre>
             </details>
           </div>

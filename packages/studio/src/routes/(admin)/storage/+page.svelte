@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
@@ -143,10 +144,10 @@ function openPreview(file: MediaFile) {
 </script>
 
 <div class="space-y-6">
- <PageHeader title="Storage" subtitle="File storage and asset management" count={files.length}>
+ <PageHeader title={m['stor.title']()} subtitle={m['media.subtitle']()} count={files.length}>
   <label class="btn btn-primary btn-sm cursor-pointer" class:loading={uploading}>
   {#if uploading}<LoaderCircle size={16} class="animate-spin" />{:else}<Upload size={16} />{/if}
-  Upload
+  {m['common.upload']()}
   <input type="file" class="hidden" multiple
   onchange={(e) => upload((e.target as HTMLInputElement).files)}
   disabled={uploading} />
@@ -160,10 +161,10 @@ function openPreview(file: MediaFile) {
  ondragover={(e) => { e.preventDefault(); dragging = true; }}
  ondragleave={() => (dragging = false)}
  ondrop={(e) => { e.preventDefault(); dragging = false; upload(e.dataTransfer?.files || null); }}
- role="region" aria-label="File drop zone"
+ role="region" aria-label={m['media.dropZone']()}
  >
  <HardDrive size={36} class="mx-auto mb-2 opacity-30" />
- <p class="text-sm text-base-content/50">Drop files here to upload</p>
+ <p class="text-sm text-base-content/50">{m['media.dropHere']()}</p>
  </div>
 
  <!-- Filter tabs -->
@@ -207,7 +208,7 @@ function openPreview(file: MediaFile) {
  <button
    class="h-36 w-full bg-base-300 flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
    onclick={() => openPreview(file)}
-   aria-label="Preview {file.original_name}"
+   aria-label={m['media.previewNamed']({ name: file.original_name })}
  >
    {#if isImage(file.mime_type)}
      <img src={file.url} alt={file.original_name} class="w-full h-full object-cover" loading="lazy" />
@@ -256,7 +257,7 @@ function openPreview(file: MediaFile) {
     <div class="modal-box max-w-4xl w-full">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold truncate">{previewFile.original_name}</h3>
-        <button class="btn btn-ghost btn-sm btn-square" onclick={() => previewFile = null} aria-label="Close preview">✕</button>
+        <button class="btn btn-ghost btn-sm btn-square" onclick={() => previewFile = null} aria-label={m['media.closePreview']()}>✕</button>
       </div>
 
       {#if isImage(previewFile.mime_type)}
@@ -265,6 +266,6 @@ function openPreview(file: MediaFile) {
         <iframe src={previewFile.url} title={previewFile.original_name} class="w-full rounded border border-base-300" style="height:70vh"></iframe>
       {/if}
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => previewFile = null}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => previewFile = null}></button>
   </div>
 {/if}

@@ -51,7 +51,7 @@ const resolved = $derived.by(() => {
   <div class="m-6 alert alert-warning">
     <TriangleAlert size={18} />
     <div>
-      <div class="font-semibold text-sm">This extension page could not be rendered</div>
+      <div class="font-semibold text-sm">{m['extPage.renderFailed']()}</div>
       <div class="text-xs opacity-80">{resolved.error}</div>
     </div>
   </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { Bookmark, Play, Trash2, Plus, Share2, X } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
@@ -169,9 +170,9 @@ function resetBuilder() {
 async function deleteQuery(id: string) {
   confirmState = {
     open: true,
-    title: 'Delete Query',
-    message: 'Delete this saved query?',
-    confirmLabel: 'Delete',
+    title: m['savedQueries.deleteTitle'](),
+    message: m['savedQueries.deleteMsg'](),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       await api.fetch(`/api/saved-queries/${id}`, { method: 'DELETE', credentials: 'include' });
@@ -187,7 +188,7 @@ function selectQuery(q: any) {
   queryResults = null;
 }
 function newQuery() {
-  activeQuery = { id: null, name: 'Untitled', sql: '' };
+  activeQuery = { id: null, name: m['savedQueries.untitled'](), sql: '' };
   queryResults = null;
 }
 
@@ -261,10 +262,10 @@ function removeSort(i: number) {
 
 <div class="space-y-6">
   <!-- Header -->
-  <PageHeader title="Saved Queries" subtitle="Reusable SQL query templates">
+  <PageHeader title={m['nav.savedQueries']()} subtitle={m['savedQueries.subtitle']()}>
     <button class="btn btn-primary btn-sm gap-2" onclick={() => (showBuilder = !showBuilder)}>
       <Plus size={16} />
-      New Query
+      {m['savedQueries.newQuery']()}
     </button>
   </PageHeader>
 
@@ -272,42 +273,42 @@ function removeSort(i: number) {
   {#if showBuilder}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body space-y-4">
-        <h2 class="font-semibold text-lg">Query Builder</h2>
+        <h2 class="font-semibold text-lg">{m['savedQueries.builder']()}</h2>
 
         <!-- Collection + Name -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">Collection *</span></div>
+            <div class="label py-0"><span class="label-text text-xs">{m['common.collectionRequired']()}</span></div>
             <select class="select select-sm" bind:value={builderCollection} onchange={previewUrl}>
-              <option value="">Select collection</option>
+              <option value="">{m['common.selectCollection']()}</option>
               {#each collections as c}<option value={c}>{c}</option>{/each}
             </select>
           </div>
           <div class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">Query name *</span></div>
-            <input class="input input-sm" type="text" placeholder="e.g. Active orders" bind:value={builderName} />
+            <div class="label py-0"><span class="label-text text-xs">{m['savedQueries.queryName']()}</span></div>
+            <input class="input input-sm" type="text" placeholder={m['savedQueries.egActiveOrders']()} bind:value={builderName} />
           </div>
           <div class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">Description</span></div>
-            <input class="input input-sm" type="text" placeholder="Optional" bind:value={builderDescription} />
+            <div class="label py-0"><span class="label-text text-xs">{m['common.col.description']()}</span></div>
+            <input class="input input-sm" type="text" placeholder={m['common.optional']()} bind:value={builderDescription} />
           </div>
         </div>
 
         <!-- Columns + Limit + Mode -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">Columns (comma-separated, empty = all)</span></div>
+            <div class="label py-0"><span class="label-text text-xs">{m['savedQueries.columnsLabel']()}</span></div>
             <input class="input input-sm" type="text" placeholder="id, name, status" bind:value={builderColumns} />
           </div>
           <div class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">Limit</span></div>
+            <div class="label py-0"><span class="label-text text-xs">{m['savedQueries.limit']()}</span></div>
             <input class="input input-sm" type="number" min="1" max="1000" bind:value={builderLimit} />
           </div>
           <div class="form-control">
-            <div class="label py-0"><span class="label-text text-xs">Filter mode</span></div>
+            <div class="label py-0"><span class="label-text text-xs">{m['savedQueries.filterMode']()}</span></div>
             <select class="select select-sm" bind:value={builderMode}>
-              <option value="AND">AND (all conditions)</option>
-              <option value="OR">OR (any condition)</option>
+              <option value="AND">{m['savedQueries.andAll']()}</option>
+              <option value="OR">{m['savedQueries.orAny']()}</option>
             </select>
           </div>
         </div>
@@ -315,17 +316,17 @@ function removeSort(i: number) {
         <!-- Filters -->
         <div class="space-y-2">
           <div class="flex items-center justify-between">
-            <span class="text-sm font-medium">Filters</span>
-            <button class="btn btn-xs btn-ghost gap-1" onclick={addFilter}><Plus size={12} /> Add filter</button>
+            <span class="text-sm font-medium">{m['savedQueries.filters']()}</span>
+            <button class="btn btn-xs btn-ghost gap-1" onclick={addFilter}><Plus size={12} /> {m['savedQueries.addFilter']()}</button>
           </div>
           {#each builderFilters as f, i}
             <div class="flex gap-2 items-center">
-              <input class="input input-xs flex-1" type="text" placeholder="field" bind:value={f.field} />
+              <input class="input input-xs flex-1" type="text" placeholder={m['savedQueries.fieldPh']()} bind:value={f.field} />
               <select class="select select-xs" bind:value={f.operator}>
                 {#each OPERATORS as op}<option value={op}>{op}</option>{/each}
               </select>
               {#if !['is_null','is_not_null','is_true','is_false'].includes(f.operator)}
-                <input class="input input-xs flex-1" type="text" placeholder="value" bind:value={f.value} />
+                <input class="input input-xs flex-1" type="text" placeholder={m['savedQueries.valuePh']()} bind:value={f.value} />
               {/if}
               <button class="btn btn-xs btn-ghost btn-error" onclick={() => removeFilter(i)}><X size={12} /></button>
             </div>
@@ -335,12 +336,12 @@ function removeSort(i: number) {
         <!-- Sorts -->
         <div class="space-y-2">
           <div class="flex items-center justify-between">
-            <span class="text-sm font-medium">Sort</span>
-            <button class="btn btn-xs btn-ghost gap-1" onclick={addSort}><Plus size={12} /> Add sort</button>
+            <span class="text-sm font-medium">{m['savedQueries.sort']()}</span>
+            <button class="btn btn-xs btn-ghost gap-1" onclick={addSort}><Plus size={12} /> {m['savedQueries.addSort']()}</button>
           </div>
           {#each builderSorts as s, i}
             <div class="flex gap-2 items-center">
-              <input class="input input-xs flex-1" type="text" placeholder="field" bind:value={s.field} />
+              <input class="input input-xs flex-1" type="text" placeholder={m['savedQueries.fieldPh']()} bind:value={s.field} />
               <select class="select select-xs" bind:value={s.direction}>
                 <option value="asc">ASC</option>
                 <option value="desc">DESC</option>
@@ -368,7 +369,7 @@ function removeSort(i: number) {
                 {/each}
               </tbody>
             </table>
-            <p class="p-2 text-base-content/50">Total: {executeResult.pagination?.total ?? 0}</p>
+            <p class="p-2 text-base-content/50">{m['savedQueries.totalLabel']()} {executeResult.pagination?.total ?? 0}</p>
           </div>
         {/if}
         {#if executeError}<p class="text-error text-xs">{executeError}</p>{/if}
@@ -376,18 +377,18 @@ function removeSort(i: number) {
         <!-- Shared toggle -->
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" class="checkbox checkbox-sm" bind:checked={builderIsShared} />
-          <span class="text-sm"><Share2 size={12} class="inline mr-1" />Share with all users</span>
+          <span class="text-sm"><Share2 size={12} class="inline mr-1" />{m['savedQueries.shareAll']()}</span>
         </label>
 
         <!-- Actions -->
         <div class="flex gap-2 justify-end">
-          <button class="btn btn-ghost btn-sm" onclick={resetBuilder}>Cancel</button>
+          <button class="btn btn-ghost btn-sm" onclick={resetBuilder}>{m['common.cancel']()}</button>
           <button class="btn btn-outline btn-sm gap-1" onclick={executeNow} disabled={!builderCollection || executing}>
             {#if executing}<span class="loading loading-spinner loading-xs"></span>{:else}<Play size={14} />{/if}
-            Test
+            {m['savedQueries.test']()}
           </button>
           <button class="btn btn-primary btn-sm gap-1" onclick={saveQuery} disabled={!builderCollection || !builderName}>
-            <Bookmark size={14} /> Save
+            <Bookmark size={14} /> {m['common.save']()}
           </button>
         </div>
       </div>
@@ -397,16 +398,16 @@ function removeSort(i: number) {
   <!-- Filters bar -->
   <div class="flex flex-wrap gap-3 items-end">
     <div class="form-control">
-      <div class="label py-0"><span class="label-text text-xs">Collection</span></div>
+      <div class="label py-0"><span class="label-text text-xs">{m['common.col.collection']()}</span></div>
       <select class="select select-sm w-40" bind:value={filterCollection} onchange={loadQueries}>
-        <option value="">All collections</option>
+        <option value="">{m['savedQueries.allCollections']()}</option>
         {#each collections as c}<option value={c}>{c}</option>{/each}
       </select>
     </div>
     <div class="join">
       {#each (['all','mine','shared'] as const) as o}
         <button class="join-item btn btn-sm {filterOwner === o ? 'btn-active' : ''}" onclick={() => (filterOwner = o)}>
-          {o === 'all' ? 'All' : o === 'mine' ? 'Mine' : 'Shared'}
+          {o === 'all' ? m['common.filter.all']() : o === 'mine' ? m['savedQueries.mine']() : m['savedQueries.shared']()}
         </button>
       {/each}
     </div>
@@ -420,8 +421,8 @@ function removeSort(i: number) {
       <!-- Query list (left panel) -->
       <div class="w-64 shrink-0 flex flex-col border-r border-base-200">
         <div class="p-3 border-b border-base-200 flex items-center justify-between">
-          <span class="text-sm font-medium">Saved Queries</span>
-          <button class="btn btn-ghost btn-xs" onclick={newQuery} aria-label="New query">+</button>
+          <span class="text-sm font-medium">{m['nav.savedQueries']()}</span>
+          <button class="btn btn-ghost btn-xs" onclick={newQuery} aria-label={m['savedQueries.newQuery']()}>+</button>
         </div>
         <div class="flex-1 overflow-y-auto">
           {#each filtered as q}
@@ -433,7 +434,7 @@ function removeSort(i: number) {
             </button>
           {/each}
           {#if filtered.length === 0}
-            <div class="text-xs text-base-content/30 text-center py-8">No saved queries</div>
+            <div class="text-xs text-base-content/30 text-center py-8">{m['savedQueries.noQueries']()}</div>
           {/if}
         </div>
       </div>
@@ -447,9 +448,9 @@ function removeSort(i: number) {
               <span class="badge badge-ghost badge-xs">{activeQuery.collection}</span>
             {/if}
             <button class="btn btn-ghost btn-sm gap-1" onclick={runActiveQuery} disabled={running}>
-              {#if running}<span class="loading loading-spinner loading-xs"></span>{:else}▶{/if} Run
+              {#if running}<span class="loading loading-spinner loading-xs"></span>{:else}▶{/if} {m['savedQueries.run']()}
             </button>
-            <button class="btn btn-primary btn-sm" onclick={saveActiveQuery}>Save</button>
+            <button class="btn btn-primary btn-sm" onclick={saveActiveQuery}>{m['common.save']()}</button>
             {#if activeQuery.id && activeQuery.is_owner}
               <button class="btn btn-ghost btn-sm btn-error" onclick={() => deleteQuery(activeQuery.id)}>
                 <Trash2 size={14} />
@@ -460,15 +461,15 @@ function removeSort(i: number) {
           <div class="flex-1 overflow-auto p-4 bg-base-50 border-b border-base-200 min-h-0">
             {#if activeQuery.config}
               <div class="space-y-2">
-                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide">Collection</div>
+                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide">{m['common.col.collection']()}</div>
                 <div class="font-mono text-sm">{activeQuery.collection}</div>
-                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide mt-3">Config</div>
+                <div class="text-xs text-base-content/50 font-medium uppercase tracking-wide mt-3">{m['savedQueries.config']()}</div>
                 <pre class="text-xs font-mono bg-base-200 rounded p-3 overflow-auto">{JSON.stringify(activeQuery.config, null, 2)}</pre>
               </div>
             {:else}
               <textarea class="w-full h-full font-mono text-xs resize-none outline-none bg-transparent"
                         bind:value={activeQuery.sql}
-                        placeholder="-- SQL query..."></textarea>
+                        placeholder={m['savedQueries.sqlPlaceholder']()}></textarea>
             {/if}
           </div>
           {#if queryResults}
@@ -479,13 +480,13 @@ function removeSort(i: number) {
                   <tbody>{#each queryResults.rows as row}<tr>{#each queryResults.columns ?? Object.keys(row) as col}<td class="font-mono text-xs">{row[col] ?? '—'}</td>{/each}</tr>{/each}</tbody>
                 </table>
               {:else}
-                <div class="p-3 text-xs text-base-content/50">No results</div>
+                <div class="p-3 text-xs text-base-content/50">{m['common.noResults']()}</div>
               {/if}
             </div>
           {/if}
         {:else}
           <div class="flex-1 flex items-center justify-center text-base-content/30 text-sm">
-            Select a query or create a new one
+            {m['savedQueries.selectOrCreate']()}
           </div>
         {/if}
       </div>
@@ -497,7 +498,7 @@ function removeSort(i: number) {
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />

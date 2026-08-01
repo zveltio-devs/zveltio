@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
 import { collectionsApi, api } from '$lib/api.js';
@@ -128,7 +129,7 @@ async function loadAll(name: string) {
     aiSearchEnabled = Boolean(collection?.ai_search_enabled);
     aiSearchField = (collection?.ai_search_field as string) ?? '';
   } catch (e) {
-    toast.error((e as Error).message || 'Failed to load collection');
+    toast.error((e as Error).message || m['col.loadFailed']());
   } finally {
     loading = false;
   }
@@ -147,7 +148,7 @@ async function reloadSchema() {
     collection = colRes.collection as CollectionSummary;
     relations = relsRes.relations ?? [];
   } catch (e) {
-    toast.error((e as Error).message || 'Failed to reload schema');
+    toast.error((e as Error).message || m['col.reloadFailed']());
   }
 }
 
@@ -176,7 +177,7 @@ async function saveAISettings() {
       aiSearchEnabled,
       aiSearchField: aiSearchField || null,
     });
-    toast.success('Settings saved');
+    toast.success(m['col.settingsSaved']());
   } catch (e) {
     toast.error((e as Error).message);
   } finally {
@@ -304,26 +305,25 @@ const m2oTargetMap = $derived.by(() => {
         <div class="card-body gap-4 p-5">
           <div class="flex items-center gap-2">
             <Sparkles size={16} class="text-primary" />
-            <h2 class="font-semibold text-sm">AI Semantic Search</h2>
+            <h2 class="font-semibold text-sm">{m['col.aiSearch']()}</h2>
           </div>
           <p class="text-sm text-base-content/50 leading-relaxed">
-            Automatically embed records on create/update for semantic search via
-            <code class="text-primary text-xs">POST /ext/ai/search</code>.
-            Requires an AI provider with embedding support.
+            {m['col.aiSearchDesc']()}
+            <code class="text-primary text-xs">POST /ext/ai/search</code>
           </p>
           <label class="flex items-center gap-3 cursor-pointer">
             <input type="checkbox" class="toggle toggle-primary toggle-sm"
               bind:checked={aiSearchEnabled} />
-            <span class="text-sm font-medium">Enable AI Search for this collection</span>
+            <span class="text-sm font-medium">{m['col.enableAiSearch']()}</span>
           </label>
           {#if aiSearchEnabled}
             <div class="form-control">
               <label class="label py-1" for="ai-field">
-                <span class="label-text text-sm">Field to embed</span>
-                <span class="label-text-alt text-xs opacity-50">blank = all text fields</span>
+                <span class="label-text text-sm">{m['col.fieldToEmbed']()}</span>
+                <span class="label-text-alt text-xs opacity-50">{m['col.blankAllText']()}</span>
               </label>
               <select id="ai-field" class="select select-sm" bind:value={aiSearchField}>
-                <option value="">— Auto (all text fields) —</option>
+                <option value="">{m['col.autoAllText']()}</option>
                 {#each customFields.filter(f => ['text', 'textarea', 'richtext'].includes(f.type)) as f}
                   <option value={f.name}>{f.label || f.name} ({f.type})</option>
                 {/each}
@@ -336,7 +336,7 @@ const m2oTargetMap = $derived.by(() => {
             {:else}
               <Save size={13} />
             {/if}
-            Save settings
+            {m['col.saveSettings']()}
           </button>
         </div>
       </div>
@@ -345,19 +345,19 @@ const m2oTargetMap = $derived.by(() => {
       {#if collection}
         <div class="card bg-base-100 border border-base-200">
           <div class="card-body gap-3 p-5">
-            <h2 class="font-semibold text-sm">Collection Info</h2>
+            <h2 class="font-semibold text-sm">{m['col.info']()}</h2>
             <div class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm items-center">
-              <span class="text-base-content/50">Table</span>
+              <span class="text-base-content/50">{m['col.table']()}</span>
               <code class="font-mono text-xs">zvd_{collectionName}</code>
-              <span class="text-base-content/50">Managed</span>
-              <span>{collection.is_managed !== false ? 'Yes — DDL managed by Zveltio' : 'No — BYOD (external table)'}</span>
+              <span class="text-base-content/50">{m['col.managed']()}</span>
+              <span>{collection.is_managed !== false ? m['col.managedYes']() : m['col.managedNo']()}</span>
               {#if collection.description}
-                <span class="text-base-content/50">Description</span>
+                <span class="text-base-content/50">{m['common.col.description']()}</span>
                 <span>{collection.description}</span>
               {/if}
-              <span class="text-base-content/50">Fields</span>
-              <span>{customFields.length} custom + 6 system</span>
-              <span class="text-base-content/50">Relations</span>
+              <span class="text-base-content/50">{m['common.fields']()}</span>
+              <span>{m['col.fieldCounts']({ custom: customFields.length, system: 6 })}</span>
+              <span class="text-base-content/50">{m['col.relations']()}</span>
               <span>{relations.length}</span>
             </div>
           </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -272,18 +273,18 @@ function fmt(d: string | null) {
 </script>
 
 <CrudListPage
-  title="Schema Branches"
-  subtitle="Manage database schema versions"
+  title={m['schemaBranches.title']()}
+  subtitle={m['schemaBranches.subtitle']()}
   count={branches.length}
   {loading}
-  actionLabel="Create Branch"
+  actionLabel={m['schemaBranches.createBranch']()}
   onAction={() => (showCreateModal = true)}
   empty={{
     illustration: 'target',
     illustrationColor: 'text-primary',
-    title: 'Try schema changes safely',
-    description: 'Branches give you an isolated copy of the schema. Make changes, preview the diff, and merge only when you\'re happy.',
-    actionLabel: 'Create branch',
+    title: m['schemaBranches.emptyTitle'](),
+    description: m['schemaBranches.emptyDesc'](),
+    actionLabel: m['schemaBranches.createBranch'](),
     onAction: () => (showCreateModal = true),
   }}
 >
@@ -291,9 +292,9 @@ function fmt(d: string | null) {
     <div class="flex items-center justify-between gap-3 -mt-2">
       <div class="alert alert-info flex-1">
         <AlertCircle size={16} />
-        <span class="text-sm">Branches create an isolated PostgreSQL schema copy. Test schema changes safely, then merge when ready.</span>
+        <span class="text-sm">{m['schemaBranches.infoBanner']()}</span>
       </div>
-      <button class="btn btn-ghost btn-sm shrink-0" onclick={loadBranches} disabled={loading} aria-label="Refresh branches">
+      <button class="btn btn-ghost btn-sm shrink-0" onclick={loadBranches} disabled={loading} aria-label={m['schemaBranches.refresh']()}>
         <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
       </button>
     </div>
@@ -304,13 +305,13 @@ function fmt(d: string | null) {
       <table class="table">
         <thead>
           <tr>
-            <th>Branch</th>
-            <th>Status</th>
-            <th>Review</th>
-            <th>Approval required</th>
-            <th>Changes</th>
-            <th>Created</th>
-            <th class="text-right">Actions</th>
+            <th>{m['schemaBranches.colBranch']()}</th>
+            <th>{m['common.col.status']()}</th>
+            <th>{m['schemaBranches.review']()}</th>
+            <th>{m['schemaBranches.approvalRequired']()}</th>
+            <th>{m['schemaBranches.colChanges']()}</th>
+            <th>{m['common.col.created']()}</th>
+            <th class="text-right">{m['common.actions']()}</th>
           </tr>
         </thead>
         <tbody>
@@ -325,7 +326,7 @@ function fmt(d: string | null) {
                 {#if branch.review_status}
                   <span class="badge badge-sm {reviewBadge(branch.review_status)}">{branch.review_status.replace('_', ' ')}</span>
                 {:else}
-                  <span class="text-xs text-base-content/30">none</span>
+                  <span class="text-xs text-base-content/30">{m['schemaBranches.none']()}</span>
                 {/if}
               </td>
               <td>
@@ -335,7 +336,7 @@ function fmt(d: string | null) {
                     class="toggle toggle-xs toggle-warning"
                     checked={branch.requires_approval}
                     onchange={() => toggleRequiresApproval(branch)}
-                    title="Require approval before merge"
+                    title={m['schemaBranches.requireBeforeMerge']()}
                   />
                 {:else}
                   <span class="text-xs text-base-content/30">—</span>
@@ -345,40 +346,40 @@ function fmt(d: string | null) {
               <td class="text-sm opacity-60">{fmt(branch.created_at)}</td>
               <td>
                 <div class="flex items-center justify-end gap-1">
-                  <button class="btn btn-ghost btn-xs gap-1" onclick={() => viewDiff(branch)} title="View diff">
+                  <button class="btn btn-ghost btn-xs gap-1" onclick={() => viewDiff(branch)} title={m['schemaBranches.viewDiff']()}>
                     <Eye size={12} /> Diff
                   </button>
 
                   {#if branch.status === 'open'}
                     <!-- Preview -->
                     {#if branch.preview_enabled}
-                      <button class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; previewBranch = branch; }} title="Show preview token">
+                      <button class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; previewBranch = branch; }} title={m['schemaBranches.showPreviewToken']()}>
                         <Globe size={12} />
                       </button>
-                      <button class="btn btn-ghost btn-xs text-warning" onclick={() => disablePreview(branch)} title="Disable preview">
+                      <button class="btn btn-ghost btn-xs text-warning" onclick={() => disablePreview(branch)} title={m['schemaBranches.disablePreview']()}>
                         <GlobeLock size={12} />
                       </button>
                     {:else}
-                      <button class="btn btn-ghost btn-xs gap-1" onclick={() => enablePreview(branch)} disabled={enablingPreview} title="Enable preview">
+                      <button class="btn btn-ghost btn-xs gap-1" onclick={() => enablePreview(branch)} disabled={enablingPreview} title={m['schemaBranches.enablePreview']()}>
                         <Globe size={12} />
                       </button>
                     {/if}
 
                     <!-- Review -->
-                    <button class="btn btn-ghost btn-xs gap-1" onclick={() => openReviewModal(branch)} title="Submit review">
-                      <MessageSquare size={12} /> Review
+                    <button class="btn btn-ghost btn-xs gap-1" onclick={() => openReviewModal(branch)} title={m['schemaBranches.submitReview']()}>
+                      <MessageSquare size={12} /> {m['schemaBranches.review']()}
                     </button>
 
                     <!-- Merge -->
                     <button
                       class="btn btn-success btn-xs gap-1"
                       onclick={() => openMergeModal(branch)}
-                      title={branch.requires_approval && branch.review_status !== 'approved' ? 'Approval required before merge' : 'Merge to production'}
+                      title={branch.requires_approval && branch.review_status !== 'approved' ? m['schemaBranches.approvalBeforeMerge']() : m['schemaBranches.mergeToProduction']()}
                     >
-                      <Merge size={12} /> Merge
+                      <Merge size={12} /> {m['schemaBranches.merge']()}
                     </button>
 
-                    <button class="btn btn-ghost btn-xs text-error" onclick={() => (deleteTarget = branch)} title="Close branch">
+                    <button class="btn btn-ghost btn-xs text-error" onclick={() => (deleteTarget = branch)} title={m['schemaBranches.closeBranch']()}>
                       <Trash2 size={12} />
                     </button>
                   {/if}
@@ -396,26 +397,26 @@ function fmt(d: string | null) {
 {#if showCreateModal}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">Create Schema Branch</h3>
+      <h3 class="font-bold text-lg mb-4">{m['schemaBranches.createModalTitle']()}</h3>
       <div class="space-y-3">
         <div class="form-control">
-          <label class="label" for="branch-name"><span class="label-text">Branch Name *</span></label>
+          <label class="label" for="branch-name"><span class="label-text">{m['schemaBranches.branchName']()}</span></label>
           <input id="branch-name" type="text" bind:value={newBranchName} placeholder="add-user-settings" class="input" />
         </div>
         <div class="form-control">
-          <label class="label" for="branch-desc"><span class="label-text">Description</span></label>
-          <textarea id="branch-desc" bind:value={newBranchDesc} rows="2" placeholder="What does this branch change?" class="textarea"></textarea>
+          <label class="label" for="branch-desc"><span class="label-text">{m['common.col.description']()}</span></label>
+          <textarea id="branch-desc" bind:value={newBranchDesc} rows="2" placeholder={m['schemaBranches.branchDescPlaceholder']()} class="textarea"></textarea>
         </div>
       </div>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => (showCreateModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={createBranch} disabled={!newBranchName.trim() || creating}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
-          Create
+          {m['common.create']()}
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showCreateModal = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showCreateModal = false)}></button>
   </dialog>
 {/if}
 
@@ -423,14 +424,14 @@ function fmt(d: string | null) {
 {#if showDiffModal && selectedBranch}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-2xl">
-      <h3 class="font-bold text-lg mb-4">Diff: {selectedBranch.name}</h3>
+      <h3 class="font-bold text-lg mb-4">{m['schemaBranches.diffTitle']({ name: selectedBranch.name })}</h3>
       {#if loadingDiff}
         <div class="flex justify-center py-8"><span class="loading loading-spinner loading-md"></span></div>
       {:else if branchDiff}
         <div class="space-y-4">
           {#if branchDiff.collections_added.length}
             <div>
-              <p class="text-sm font-medium text-success mb-1">Added collections ({branchDiff.collections_added.length})</p>
+              <p class="text-sm font-medium text-success mb-1">{m['schemaBranches.addedCollections']()} ({branchDiff.collections_added.length})</p>
               <ul class="list-disc list-inside text-sm font-mono space-y-0.5">
                 {#each branchDiff.collections_added as c}<li>{c}</li>{/each}
               </ul>
@@ -438,7 +439,7 @@ function fmt(d: string | null) {
           {/if}
           {#if branchDiff.collections_removed.length}
             <div>
-              <p class="text-sm font-medium text-error mb-1">Removed collections ({branchDiff.collections_removed.length})</p>
+              <p class="text-sm font-medium text-error mb-1">{m['schemaBranches.removedCollections']()} ({branchDiff.collections_removed.length})</p>
               <ul class="list-disc list-inside text-sm font-mono space-y-0.5">
                 {#each branchDiff.collections_removed as c}<li>{c}</li>{/each}
               </ul>
@@ -446,22 +447,22 @@ function fmt(d: string | null) {
           {/if}
           {#if branchDiff.fields_modified.length}
             <div>
-              <p class="text-sm font-medium text-warning mb-1">Modified fields ({branchDiff.fields_modified.length})</p>
+              <p class="text-sm font-medium text-warning mb-1">{m['schemaBranches.modifiedFields']()} ({branchDiff.fields_modified.length})</p>
               <ul class="list-disc list-inside text-sm font-mono space-y-0.5">
                 {#each branchDiff.fields_modified as f}<li>{f}</li>{/each}
               </ul>
             </div>
           {/if}
           {#if !branchDiff.collections_added.length && !branchDiff.collections_removed.length && !branchDiff.fields_modified.length}
-            <p class="text-sm opacity-50 text-center py-4">No changes detected.</p>
+            <p class="text-sm opacity-50 text-center py-4">{m['schemaBranches.noChanges']()}</p>
           {/if}
         </div>
       {/if}
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showDiffModal = false)}>Close</button>
+        <button class="btn btn-ghost" onclick={() => (showDiffModal = false)}>{m['common.close']()}</button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showDiffModal = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showDiffModal = false)}></button>
   </dialog>
 {/if}
 
@@ -470,7 +471,7 @@ function fmt(d: string | null) {
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box max-w-lg">
       <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
-        <MessageSquare size={18} /> Review: {reviewBranch.name}
+        <MessageSquare size={18} /> {m['schemaBranches.reviewTitle']({ name: reviewBranch.name })}
       </h3>
 
       <!-- Past reviews -->
@@ -478,7 +479,7 @@ function fmt(d: string | null) {
         <div class="flex justify-center py-4"><span class="loading loading-spinner loading-sm"></span></div>
       {:else if reviews.length > 0}
         <div class="mb-4 space-y-2">
-          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">Review history</p>
+          <p class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">{m['schemaBranches.reviewHistory']()}</p>
           {#each reviews as r}
             <div class="flex items-start gap-2 bg-base-200 rounded p-2 text-sm">
               <span class="badge badge-xs {reviewBadge(r.status)} mt-0.5">{r.status?.replace('_', ' ')}</span>
@@ -494,42 +495,42 @@ function fmt(d: string | null) {
 
       <!-- New review form -->
       <div class="space-y-3">
-        <p class="text-sm font-medium">Submit new review</p>
+        <p class="text-sm font-medium">{m['schemaBranches.submitNewReview']()}</p>
         <div class="flex gap-2">
           <button
             class="btn btn-sm flex-1 gap-1 {reviewStatus === 'approved' ? 'btn-success' : 'btn-ghost'}"
             onclick={() => (reviewStatus = 'approved')}
           >
-            <ShieldCheck size={14} /> Approve
+            <ShieldCheck size={14} /> {m['common.approve']()}
           </button>
           <button
             class="btn btn-sm flex-1 gap-1 {reviewStatus === 'changes_requested' ? 'btn-warning' : 'btn-ghost'}"
             onclick={() => (reviewStatus = 'changes_requested')}
           >
-            <MessageSquare size={14} /> Request Changes
+            <MessageSquare size={14} /> {m['schemaBranches.requestChanges']()}
           </button>
           <button
             class="btn btn-sm flex-1 gap-1 {reviewStatus === 'rejected' ? 'btn-error' : 'btn-ghost'}"
             onclick={() => (reviewStatus = 'rejected')}
           >
-            <ShieldX size={14} /> Reject
+            <ShieldX size={14} /> {m['common.reject']()}
           </button>
         </div>
         <div class="form-control">
-          <label class="label" for="review-note"><span class="label-text text-xs">Note (optional)</span></label>
-          <textarea id="review-note" bind:value={reviewNote} class="textarea textarea-sm" rows="2" placeholder="Add a comment..."></textarea>
+          <label class="label" for="review-note"><span class="label-text text-xs">{m['schemaBranches.noteOptional']()}</span></label>
+          <textarea id="review-note" bind:value={reviewNote} class="textarea textarea-sm" rows="2" placeholder={m['schemaBranches.addComment']()}></textarea>
         </div>
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (showReviewModal = false)}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => (showReviewModal = false)}>{m['common.cancel']()}</button>
         <button class="btn btn-primary" onclick={submitReview} disabled={submittingReview}>
           {#if submittingReview}<span class="loading loading-spinner loading-sm"></span>{/if}
-          Submit Review
+          {m['schemaBranches.submitReview']()}
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showReviewModal = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showReviewModal = false)}></button>
   </dialog>
 {/if}
 
@@ -537,51 +538,51 @@ function fmt(d: string | null) {
 {#if showMergeModal && selectedBranch}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">Merge: {selectedBranch.name}</h3>
+      <h3 class="font-bold text-lg mb-4">{m['schemaBranches.mergeTitle']({ name: selectedBranch.name })}</h3>
       {#if !mergeResult}
         {#if selectedBranch.requires_approval && selectedBranch.review_status !== 'approved'}
           <div class="alert alert-warning mb-4">
             <AlertCircle size={16} />
-            <span class="text-sm">This branch requires an approved review before merging. Current status: <strong>{selectedBranch.review_status ?? 'none'}</strong></span>
+            <span class="text-sm">{m['schemaBranches.requiresApprovedReview']()} <strong>{selectedBranch.review_status ?? m['schemaBranches.none']()}</strong></span>
           </div>
         {:else}
           <div class="alert alert-warning mb-4">
             <AlertCircle size={16} />
-            <span class="text-sm">This will apply all {selectedBranch.changes?.length || 0} changes to the production schema. Cannot be undone.</span>
+            <span class="text-sm">{m['schemaBranches.mergeWarning']({ count: selectedBranch.changes?.length || 0 })}</span>
           </div>
         {/if}
         <div class="modal-action">
-          <button class="btn btn-ghost" onclick={() => (showMergeModal = false)}>Cancel</button>
+          <button class="btn btn-ghost" onclick={() => (showMergeModal = false)}>{m['common.cancel']()}</button>
           <button
             class="btn btn-success gap-1"
             onclick={mergeBranch}
             disabled={merging || (selectedBranch.requires_approval && selectedBranch.review_status !== 'approved')}
           >
             {#if merging}<span class="loading loading-spinner loading-sm"></span>{:else}<Merge size={14} />{/if}
-            Merge to Production
+            {m['schemaBranches.mergeToProduction']()}
           </button>
         </div>
       {:else}
         <div class="space-y-3">
           {#if mergeResult.applied.length}
             <div>
-              <p class="text-sm font-medium text-success mb-1 flex items-center gap-1"><CircleCheck size={14} /> Applied ({mergeResult.applied.length})</p>
+              <p class="text-sm font-medium text-success mb-1 flex items-center gap-1"><CircleCheck size={14} /> {m['schemaBranches.applied']()} ({mergeResult.applied.length})</p>
               <ul class="list-disc list-inside text-sm">{#each mergeResult.applied as c}<li>{c}</li>{/each}</ul>
             </div>
           {/if}
           {#if mergeResult.errors.length}
             <div>
-              <p class="text-sm font-medium text-error mb-1 flex items-center gap-1"><AlertCircle size={14} /> Errors ({mergeResult.errors.length})</p>
+              <p class="text-sm font-medium text-error mb-1 flex items-center gap-1"><AlertCircle size={14} /> {m['schemaBranches.errors']()} ({mergeResult.errors.length})</p>
               <ul class="list-disc list-inside text-sm text-error">{#each mergeResult.errors as e}<li>{e}</li>{/each}</ul>
             </div>
           {/if}
         </div>
         <div class="modal-action">
-          <button class="btn btn-ghost" onclick={() => { showMergeModal = false; mergeResult = null; }}>Close</button>
+          <button class="btn btn-ghost" onclick={() => { showMergeModal = false; mergeResult = null; }}>{m['common.close']()}</button>
         </div>
       {/if}
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (showMergeModal = false)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showMergeModal = false)}></button>
   </dialog>
 {/if}
 
@@ -589,16 +590,16 @@ function fmt(d: string | null) {
 {#if previewToken}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-1 flex items-center gap-2"><Globe size={18} /> Preview Active</h3>
-      <p class="text-sm opacity-70 mb-3">Use this token to query the isolated branch schema.</p>
+      <h3 class="font-bold text-lg mb-1 flex items-center gap-2"><Globe size={18} /> {m['schemaBranches.previewActive']()}</h3>
+      <p class="text-sm opacity-70 mb-3">{m['schemaBranches.previewTokenDesc']()}</p>
       <div class="bg-base-200 rounded p-3 font-mono text-sm break-all select-all mb-2">{previewToken}</div>
-      <p class="text-xs opacity-50 mb-4">Header: <span class="font-mono">X-Preview-Token: {previewToken}</span></p>
+      <p class="text-xs opacity-50 mb-4">{m['schemaBranches.headerLabel']()} <span class="font-mono">X-Preview-Token: {previewToken}</span></p>
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard?.writeText(previewToken ?? '').then(() => toast.success('Copied!'))}>Copy</button>
-        <button class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>Close</button>
+        <button class="btn btn-ghost btn-sm" onclick={() => navigator.clipboard?.writeText(previewToken ?? '').then(() => toast.success('Copied!'))}>{m['common.copyShort']()}</button>
+        <button class="btn btn-ghost" onclick={() => { previewToken = null; previewBranch = null; }}>{m['common.close']()}</button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => { previewToken = null; previewBranch = null; }}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => { previewToken = null; previewBranch = null; }}></button>
   </dialog>
 {/if}
 
@@ -606,13 +607,13 @@ function fmt(d: string | null) {
 {#if deleteTarget}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-2">Close Branch</h3>
-      <p class="text-sm opacity-70">Close "{deleteTarget.name}"? The branch schema and all its data will be deleted.</p>
+      <h3 class="font-bold text-lg mb-2">{m['schemaBranches.closeBranch']()}</h3>
+      <p class="text-sm opacity-70">{m['schemaBranches.closeConfirm']({ name: deleteTarget.name })}</p>
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => (deleteTarget = null)}>Cancel</button>
-        <button class="btn btn-error gap-1" onclick={closeBranch}><Trash2 size={14} /> Close Branch</button>
+        <button class="btn btn-ghost" onclick={() => (deleteTarget = null)}>{m['common.cancel']()}</button>
+        <button class="btn btn-error gap-1" onclick={closeBranch}><Trash2 size={14} /> {m['schemaBranches.closeBranch']()}</button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (deleteTarget = null)}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (deleteTarget = null)}></button>
   </dialog>
 {/if}

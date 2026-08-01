@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api, collectionsApi } from '$lib/api.js';
 import { base } from '$app/paths';
@@ -46,14 +47,14 @@ let form = $state({
 });
 
 const VIEW_TYPES = [
-  { value: 'table', label: 'Table', icon: Table2 },
-  { value: 'kanban', label: 'Kanban', icon: Columns3 },
-  { value: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { value: 'gallery', label: 'Gallery', icon: GalleryHorizontal },
-  { value: 'stats', label: 'Stats', icon: BarChart2 },
-  { value: 'chart', label: 'Chart', icon: BarChart2 },
-  { value: 'list', label: 'List', icon: List },
-  { value: 'timeline', label: 'Timeline', icon: Clock },
+  { value: 'table', label: m['views.typeTable'], icon: Table2 },
+  { value: 'kanban', label: m['views.typeKanban'], icon: Columns3 },
+  { value: 'calendar', label: m['views.typeCalendar'], icon: CalendarDays },
+  { value: 'gallery', label: m['views.typeGallery'], icon: GalleryHorizontal },
+  { value: 'stats', label: m['views.typeStats'], icon: BarChart2 },
+  { value: 'chart', label: m['views.typeChart'], icon: BarChart2 },
+  { value: 'list', label: m['views.typeList'], icon: List },
+  { value: 'timeline', label: m['views.typeTimeline'], icon: Clock },
 ];
 
 const filtered = $derived(
@@ -109,7 +110,7 @@ async function createView() {
     await loadViews();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
-    toast.error(e.message ?? 'Failed to create view');
+    toast.error(e.message ?? m['views.createFailed']());
   } finally {
     creating = false;
   }
@@ -118,9 +119,9 @@ async function createView() {
 async function deleteView(id: string, name: string) {
   confirmState = {
     open: true,
-    title: 'Delete View',
-    message: `Delete view "${name}"? It will be removed from all pages.`,
-    confirmLabel: 'Delete',
+    title: m['views.deleteTitle'](),
+    message: m['views.deleteMsg']({ name }),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       try {
@@ -128,7 +129,7 @@ async function deleteView(id: string, name: string) {
         views = views.filter((v) => v.id !== id);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
-        toast.error(e.message ?? 'Failed to delete view');
+        toast.error(e.message ?? m['views.deleteFailed']());
       }
     },
   };
@@ -140,21 +141,21 @@ function viewTypeIcon(type: string) {
 </script>
 
 <CrudListPage
-  title="Views"
-  subtitle="Reusable data display blocks"
+  title={m['nav.views']()}
+  subtitle={m['views.subtitle']()}
   count={views.length}
   {loading}
   search={searchQuery}
   onSearchChange={(v) => (searchQuery = v)}
-  searchPlaceholder="Filter views..."
-  actionLabel="New View"
+  searchPlaceholder={m['views.filterPh']()}
+  actionLabel={m['views.newView']()}
   onAction={() => (showModal = true)}
   empty={{
     illustration: 'spark',
     illustrationColor: 'text-secondary',
-    title: 'Display your data your way',
-    description: 'Views let you show collection records as tables, kanban boards, calendars, maps — pick the layout that fits the data.',
-    actionLabel: 'Create view',
+    title: m['views.emptyTitle'](),
+    description: m['views.emptyDesc'](),
+    actionLabel: m['views.createView'](),
     onAction: () => (showModal = true),
   }}
   noSearchMatch={viewsSearchNoMatch}
@@ -178,7 +179,7 @@ function viewTypeIcon(type: string) {
               <button
                 class="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                 onclick={() => deleteView(v.id, v.name)}
-                title="Delete"
+                title={m['common.delete']()}
               >
                 <Trash2 size={13}/>
               </button>
@@ -186,9 +187,9 @@ function viewTypeIcon(type: string) {
 
             <div class="flex gap-1.5 flex-wrap">
               <span class="badge badge-outline badge-xs capitalize">{v.view_type}</span>
-              <span class="badge badge-ghost badge-xs">{v.page_size ?? 20} / page</span>
+              <span class="badge badge-ghost badge-xs">{v.page_size ?? 20} {m['views.perPage']()}</span>
               {#if v.is_public}
-                <span class="badge badge-success badge-xs">public</span>
+                <span class="badge badge-success badge-xs">{m['views.publicBadge']()}</span>
               {/if}
             </div>
 
@@ -203,25 +204,25 @@ function viewTypeIcon(type: string) {
 </CrudListPage>
 
 {#snippet viewsSearchNoMatch(q: string)}
-  <p class="text-center text-sm text-base-content/40 py-8">No views match "{q}"</p>
+  <p class="text-center text-sm text-base-content/40 py-8">{m['views.noMatch']({ q })}</p>
 {/snippet}
 
 <!-- Create Modal -->
 {#if showModal}
   <dialog open aria-modal="true" class="modal modal-open">
     <div class="modal-box">
-      <h3 class="font-bold text-lg mb-4">New View</h3>
+      <h3 class="font-bold text-lg mb-4">{m['views.newView']()}</h3>
 
       <div class="form-control mb-3">
-        <label class="label" for="vn"><span class="label-text">Name *</span></label>
-        <input id="vn" type="text" class="input" placeholder="e.g. Recent Orders"
+        <label class="label" for="vn"><span class="label-text">{m['common.nameRequired']()}</span></label>
+        <input id="vn" type="text" class="input" placeholder={m['views.egRecentOrders']()}
           bind:value={form.name}/>
       </div>
 
       <div class="form-control mb-3">
-        <label class="label" for="vc"><span class="label-text">Collection *</span></label>
+        <label class="label" for="vc"><span class="label-text">{m['common.collectionRequired']()}</span></label>
         <select id="vc" class="select" bind:value={form.collection}>
-          <option value="">Select collection…</option>
+          <option value="">{m['views.selectCollection']()}</option>
           {#each collections as col}
             <option value={col.name}>{col.display_name || col.name}</option>
           {/each}
@@ -229,7 +230,7 @@ function viewTypeIcon(type: string) {
       </div>
 
       <div class="mb-3">
-        <p class="label-text text-sm font-medium mb-2">View type</p>
+        <p class="label-text text-sm font-medium mb-2">{m['views.viewType']()}</p>
         <div class="grid grid-cols-4 gap-2">
           {#each VIEW_TYPES as vt}
             {@const VIcon = vt.icon}
@@ -239,36 +240,36 @@ function viewTypeIcon(type: string) {
               onclick={() => (form.view_type = vt.value)}
             >
               <VIcon size={18}/>
-              {vt.label}
+              {vt.label()}
             </button>
           {/each}
         </div>
       </div>
 
       <div class="form-control mb-3">
-        <label class="label" for="vps"><span class="label-text">Rows per page</span></label>
+        <label class="label" for="vps"><span class="label-text">{m['views.rowsPerPage']()}</span></label>
         <input id="vps" type="number" class="input" min="5" max="200" bind:value={form.page_size}/>
       </div>
 
       <div class="form-control mb-4">
-        <label class="label" for="vdesc"><span class="label-text">Description</span></label>
-        <textarea id="vdesc" class="textarea" rows={2} placeholder="Optional description…"
+        <label class="label" for="vdesc"><span class="label-text">{m['common.col.description']()}</span></label>
+        <textarea id="vdesc" class="textarea" rows={2} placeholder={m['zones.optionalDescription']()}
           bind:value={form.description}></textarea>
       </div>
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => { showModal = false; }}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => { showModal = false; }}>{m['common.cancel']()}</button>
         <button
           class="btn btn-primary gap-1"
           onclick={createView}
           disabled={!form.name.trim() || !form.collection || creating}
         >
           {#if creating}<LoaderCircle size={15} class="animate-spin"/>{/if}
-          Create View
+          {m['views.createView']()}
         </button>
       </div>
     </div>
-    <div class="modal-backdrop" role="button" tabindex="0" aria-label="Close"
+    <div class="modal-backdrop" role="button" tabindex="0" aria-label={m['common.close']()}
       onclick={() => { showModal = false; }}
       onkeydown={(e) => { if (e.key === 'Escape') { showModal = false; } }}></div>
   </dialog>

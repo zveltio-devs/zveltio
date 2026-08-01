@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { webhooksApi, collectionsApi } from '$lib/api.js';
 import { Webhook, LoaderCircle, Trash2 } from '@lucide/svelte';
@@ -113,7 +114,7 @@ async function save() {
     showModal = false;
     await load();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Save failed');
+    toast.error(err instanceof Error ? err.message : m['wh.saveFailed']());
   } finally {
     saving = false;
   }
@@ -122,9 +123,9 @@ async function save() {
 async function remove(id: string, name: string) {
   confirmState = {
     open: true,
-    title: 'Delete Webhook',
-    message: `Delete webhook "${name}"?`,
-    confirmLabel: 'Delete',
+    title: m['wh.deleteTitle'](),
+    message: m['wh.deleteMsg']({ name }),
+    confirmLabel: m['common.delete'](),
     onconfirm: async () => {
       confirmState.open = false;
       // Snapshot for the optional Undo — fetched before delete so we
@@ -133,7 +134,7 @@ async function remove(id: string, name: string) {
       try {
         await webhooksApi.delete(id);
         await load();
-        toast.undoable(`Deleted "${name}"`, {
+        toast.undoable(m['wh.deleted']({ name }), {
           onUndo: async () => {
             if (!snapshot) return;
             await webhooksApi.create({
@@ -148,11 +149,11 @@ async function remove(id: string, name: string) {
               timeout: snapshot.timeout,
             });
             await load();
-            toast.success(`Restored "${name}"`);
+            toast.success(m['wh.restored']({ name }));
           },
         });
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Delete failed');
+        toast.error(err instanceof Error ? err.message : m['wh.deleteFailed']());
       }
     },
   };
@@ -175,18 +176,18 @@ async function testWebhook(id: string) {
 </script>
 
 <CrudListPage
-  title="Webhooks"
-  subtitle="HTTP callbacks triggered by data events"
+  title={m['nav.webhooks']()}
+  subtitle={m['wh.subtitle']()}
   count={total || undefined}
   {loading}
-  actionLabel="New Webhook"
+  actionLabel={m['wh.newWebhook']()}
   onAction={openCreate}
   empty={{
     illustration: 'cloud',
     illustrationColor: 'text-accent',
-    title: 'Wire up an external service',
-    description: 'Webhooks fire HTTP POSTs to your services when records change — perfect for syncing to Slack, Stripe, or your own systems.',
-    actionLabel: 'Add webhook',
+    title: m['wh.emptyTitle'](),
+    description: m['wh.emptyDesc'](),
+    actionLabel: m['wh.addWebhook'](),
     onAction: openCreate,
   }}
 >
@@ -195,7 +196,7 @@ async function testWebhook(id: string) {
       <table class="table table-sm w-full">
         <thead>
           <tr>
-            <th>Name</th><th>URL</th><th>Events</th><th>Status</th><th class="text-right">Actions</th>
+            <th>{m['common.col.name']()}</th><th>URL</th><th>{m['wh.colEvents']()}</th><th>{m['common.col.status']()}</th><th class="text-right">{m['common.actions']()}</th>
           </tr>
         </thead>
         <tbody>
@@ -214,13 +215,13 @@ async function testWebhook(id: string) {
                 </div>
                 {#if testResults[wh.id]}
                   <p class="text-xs mt-1 {testResults[wh.id].ok ? 'text-success' : 'text-error'}">
-                    {testResults[wh.id].ok ? '✓ Delivered' : `✗ ${testResults[wh.id].error}`}
+                    {testResults[wh.id].ok ? `✓ ${m['wh.delivered']()}` : `✗ ${testResults[wh.id].error}`}
                   </p>
                 {/if}
               </td>
               <td>
                 <span class="badge badge-sm {wh.active ? 'badge-success' : 'badge-ghost'}">
-                  {wh.active ? 'active' : 'paused'}
+                  {wh.active ? m['wh.active']() : m['wh.paused']()}
                 </span>
               </td>
               <td class="text-right">
@@ -229,15 +230,15 @@ async function testWebhook(id: string) {
                     class="btn btn-ghost btn-xs"
                     onclick={() => testWebhook(wh.id)}
                     disabled={testing === wh.id}
-                    aria-label="Test webhook {wh.name}"
+                    aria-label={m['wh.testNamed']({ name: wh.name })}
                   >
-                    {#if testing === wh.id}<LoaderCircle size={12} class="animate-spin" />{:else}Test{/if}
+                    {#if testing === wh.id}<LoaderCircle size={12} class="animate-spin" />{:else}{m['wh.test']()}{/if}
                   </button>
-                  <button class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)} aria-label="Edit webhook {wh.name}">Edit</button>
+                  <button class="btn btn-ghost btn-xs" onclick={() => openEdit(wh)} aria-label={m['wh.editNamed']({ name: wh.name })}>{m['common.edit']()}</button>
                   <button
                     class="btn btn-ghost btn-xs text-error"
                     onclick={() => remove(wh.id, wh.name)}
-                    aria-label="Delete webhook {wh.name}"
+                    aria-label={m['wh.deleteNamed']({ name: wh.name })}
                   >
                     <Trash2 size={13} />
                   </button>
@@ -260,11 +261,11 @@ async function testWebhook(id: string) {
 {#if showModal}
  <dialog open aria-modal="true" class="modal modal-open">
  <div class="modal-box w-11/12 max-w-2xl">
- <h3 class="font-bold text-lg mb-4">{editTarget ? 'Edit Webhook' : 'New Webhook'}</h3>
+ <h3 class="font-bold text-lg mb-4">{editTarget ? m['wh.editWebhook']() : m['wh.newWebhook']()}</h3>
  <div class="space-y-4">
  <div class="form-control">
- <label class="label" for="webhook-name"><span class="label-text">Name *</span></label>
- <input id="webhook-name" class="input" bind:value={form.name} placeholder="My Webhook" />
+ <label class="label" for="webhook-name"><span class="label-text">{m['common.nameRequired']()}</span></label>
+ <input id="webhook-name" class="input" bind:value={form.name} placeholder={m['wh.myWebhookPh']()} />
  </div>
  <div class="form-control">
  <label class="label" for="webhook-url"><span class="label-text">URL *</span></label>
@@ -272,37 +273,37 @@ async function testWebhook(id: string) {
  </div>
  <div class="grid grid-cols-2 gap-4">
  <div class="form-control">
- <label class="label" for="webhook-method"><span class="label-text">Method</span></label>
+ <label class="label" for="webhook-method"><span class="label-text">{m['flowEdit.method']()}</span></label>
  <select id="webhook-method" class="select" bind:value={form.method}>
  <option>POST</option><option>PUT</option><option>PATCH</option>
  </select>
  </div>
  <div class="form-control">
  <label class="label" for="webhook-secret">
-   <span class="label-text">Secret (optional)</span>
-   <span class="label-text-alt text-base-content/50">HMAC-SHA256 of body</span>
+   <span class="label-text">{m['wh.secretOptional']()}</span>
+   <span class="label-text-alt text-base-content/50">{m['wh.hmacHint']()}</span>
  </label>
- <input id="webhook-secret" class="input font-mono" bind:value={form.secret} placeholder="Signing secret" />
+ <input id="webhook-secret" class="input font-mono" bind:value={form.secret} placeholder={m['wh.signingSecretPh']()} />
  </div>
  </div>
  <div class="grid grid-cols-2 gap-4">
  <div class="form-control">
  <label class="label" for="webhook-retry">
-   <span class="label-text">Retry attempts</span>
+   <span class="label-text">{m['wh.retryAttempts']()}</span>
    <span class="label-text-alt text-base-content/50">0–10</span>
  </label>
  <input id="webhook-retry" type="number" class="input" bind:value={form.retry_attempts} min="0" max="10" />
  </div>
  <div class="form-control">
  <label class="label" for="webhook-timeout">
-   <span class="label-text">Timeout</span>
-   <span class="label-text-alt text-base-content/50">milliseconds (1000–30000)</span>
+   <span class="label-text">{m['wh.timeout']()}</span>
+   <span class="label-text-alt text-base-content/50">{m['wh.timeoutHint']()}</span>
  </label>
  <input id="webhook-timeout" type="number" class="input" bind:value={form.timeout} min="1000" max="30000" step="500" />
  </div>
  </div>
  <div class="form-control">
- <p class="label"><span class="label-text">Events * (select at least one)</span></p>
+ <p class="label"><span class="label-text">{m['wh.eventsRequired']()}</span></p>
  <div class="flex flex-wrap gap-2 p-3 border border-base-300 rounded-lg">
  {#each ALL_EVENTS as ev}
  <label class="flex items-center gap-1.5 cursor-pointer">
@@ -314,7 +315,7 @@ async function testWebhook(id: string) {
  </div>
  {#if collections.length > 0}
  <div class="form-control">
- <p class="label"><span class="label-text">Restrict to collections (empty = all)</span></p>
+ <p class="label"><span class="label-text">{m['wh.restrictCollections']()}</span></p>
  <div class="flex flex-wrap gap-2 p-3 border border-base-300 rounded-lg max-h-28 overflow-y-auto">
  {#each collections as col}
  <label class="flex items-center gap-1.5 cursor-pointer">
@@ -327,19 +328,19 @@ async function testWebhook(id: string) {
  {/if}
  <label class="label cursor-pointer justify-start gap-3">
  <input type="checkbox" class="toggle toggle-success toggle-sm" bind:checked={form.active} />
- <span class="label-text">Active</span>
+ <span class="label-text">{m['common.col.active']()}</span>
  </label>
  </div>
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showModal = false)}>Cancel</button>
+ <button class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
  <button class="btn btn-primary" onclick={save}
  disabled={saving || !form.name || !form.url || form.events.length === 0}>
  {#if saving}<LoaderCircle size={16} class="animate-spin" />{/if}
- {editTarget ? 'Save' : 'Create'}
+ {editTarget ? m['common.save']() : m['common.create']()}
  </button>
  </div>
  </div>
- <button class="modal-backdrop" aria-label="Close" onclick={() => (showModal = false)}></button>
+ <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (showModal = false)}></button>
  </dialog>
 {/if}
 

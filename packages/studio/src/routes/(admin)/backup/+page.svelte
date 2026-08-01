@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { api } from '$lib/api.js';
 import {
@@ -138,26 +139,26 @@ function fmtDate(s: string) {
 </script>
 
 <CrudListPage
-  title="Backup"
-  subtitle="Database snapshots and restore points"
+  title={m['bk.title']()}
+  subtitle={m['bk.subtitle']()}
   count={backups.length}
   {loading}
-  actionLabel="New Backup"
+  actionLabel={m['bk.newBackup']()}
   onAction={() => (showModal = true)}
   empty={{
     illustration: 'table',
     illustrationColor: 'text-info',
-    title: 'Protect your data',
-    description: 'Backups are point-in-time snapshots you can restore from. Schedule them, or trigger one manually before a risky migration.',
-    actionLabel: 'Create backup',
+    title: m['bk.emptyTitle'](),
+    description: m['bk.emptyDesc'](),
+    actionLabel: m['bk.createBackup'](),
     onAction: () => (showModal = true),
   }}
 >
   {#snippet headerExtras()}
     <div class="flex justify-end">
-      <button class="btn btn-ghost btn-sm gap-2" onclick={loadBackups} disabled={loading} aria-label="Refresh backups">
+      <button class="btn btn-ghost btn-sm gap-2" onclick={loadBackups} disabled={loading} aria-label={m['bk.refreshAria']()}>
         <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
-        Refresh
+        {m['common.refresh']()}
       </button>
     </div>
   {/snippet}
@@ -189,7 +190,7 @@ function fmtDate(s: string) {
  </div>
  <div class="flex gap-2 shrink-0">
  {#if backup.status === 'completed'}
- <button class="btn btn-ghost btn-xs" onclick={() => downloadBackup(backup.id)} title="Download">
+ <button class="btn btn-ghost btn-xs" onclick={() => downloadBackup(backup.id)} title={m['common.download']()}>
  <Download size={13} />
  </button>
  {/if}
@@ -207,16 +208,16 @@ function fmtDate(s: string) {
 {#if showModal}
  <div class="modal modal-open">
  <div class="modal-box max-w-md">
- <h3 class="font-bold text-lg mb-4">New Backup</h3>
+ <h3 class="font-bold text-lg mb-4">{m['bk.newBackup']()}</h3>
  <div class="form-control">
- <label class="label" for="backup-notes"><span class="label-text">Notes (optional)</span></label>
- <input id="backup-notes" class="input" bind:value={notes} placeholder="e.g. Before migration" />
+ <label class="label" for="backup-notes"><span class="label-text">{m['bk.notesOptional']()}</span></label>
+ <input id="backup-notes" class="input" bind:value={notes} placeholder={m['bk.notesPh']()} />
  </div>
  <div class="modal-action">
- <button class="btn btn-ghost" onclick={() => (showModal = false)}>Cancel</button>
+ <button class="btn btn-ghost" onclick={() => (showModal = false)}>{m['common.cancel']()}</button>
  <button class="btn btn-primary" onclick={createBackup} disabled={creating}>
  {#if creating}<LoaderCircle size={16} class="animate-spin" />{/if}
- Start Backup
+ {m['bk.startBackup']()}
  </button>
  </div>
  </div>
@@ -224,7 +225,7 @@ function fmtDate(s: string) {
  class="modal-backdrop"
  role="button"
  tabindex="0"
- aria-label="Close"
+ aria-label={m['common.close']()}
  onclick={() => (showModal = false)}
  onkeydown={(e) => { if (e.key === 'Escape') showModal = false; }}
  ></div>

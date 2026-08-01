@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import {
   Package,
@@ -189,7 +190,7 @@ async function api(path: string, opts: RequestInit = {}) {
     headers: { 'Content-Type': 'application/json', ...opts.headers },
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    const err = await res.json().catch(() => ({ error: m['mkt.requestFailed']() }));
     throw new Error(err.error || `HTTP ${res.status}`);
   }
   return res.json();
@@ -213,7 +214,7 @@ async function saveLicense() {
     });
     licenseExt = null;
     await loadCatalog();
-    toast.success('License key saved');
+    toast.success(m['mkt.licenseSaved']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
     licenseError = e.message;
@@ -227,7 +228,7 @@ async function removeLicense(ext: Extension) {
     () => {},
   );
   await loadCatalog();
-  toast.success('License key removed');
+  toast.success(m['mkt.licenseRemoved']());
 }
 
 // ── Catalog actions ────────────────────────────────────────────────────────
@@ -253,7 +254,7 @@ async function install(ext: Extension) {
     await loadCatalog();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
-    toast.error(`Install failed: ${e.message}`);
+    toast.error(m['mkt.installFailed']({ error: e.message }));
   } finally {
     processingId = null;
   }
@@ -275,10 +276,10 @@ async function approveCapabilities(ext: Extension) {
       method: 'POST',
       body: JSON.stringify({ capabilities: ext.declared_capabilities ?? [] }),
     });
-    toast.success(`Approved ${pending.join(', ')} for ${ext.displayName}. Restart to apply.`);
+    toast.success(m['mkt.approved']({ caps: pending.join(', '), name: ext.displayName }));
     await loadCatalog();
   } catch (e) {
-    toast.error(`Approval failed: ${(e as Error).message}`);
+    toast.error(m['mkt.approvalFailed']({ error: (e as Error).message }));
   } finally {
     processingId = null;
   }
@@ -298,7 +299,7 @@ async function enable(ext: Extension) {
     await refreshExtensions();
 
     if (!res.success) {
-      toast.error(res.error_detail ?? `${ext.displayName} could not be loaded — check server logs`);
+      toast.error(res.error_detail ?? m['mkt.couldNotLoad']({ name: ext.displayName }));
       return;
     }
 
@@ -309,23 +310,21 @@ async function enable(ext: Extension) {
       // Engine broadcasts `studio:reloaded` on WS — the (admin) layout
       // shows a refresh prompt with "Refresh now" button. We just
       // confirm the action here.
-      toast.success(`${ext.displayName} active. Studio rebuilt in ${sec}.`);
+      toast.success(m['mkt.activeRebuilt']({ name: ext.displayName, sec }));
     } else if (rebuild === 'failed') {
       // Non-fatal: every bundled extension page ships in the pre-built
       // Studio dist, so the UI is reachable after a refresh regardless.
       // Only genuinely custom pages need a successful rebuild.
-      toast.info(
-        `${ext.displayName} is active. Pages are served from the pre-built Studio — refresh to view. (Custom-page rebuild didn't complete; see server logs.)`,
-      );
+      toast.info(m['mkt.activePrebuilt']({ name: ext.displayName }));
     } else {
       // skipped → in-process rebuild is off (the default). Bundled extension
       // pages already ship in the pre-built Studio dist, so the page is live
       // after a refresh — no rebuild or restart needed.
-      toast.success(`${ext.displayName} active. Refresh to view its pages.`);
+      toast.success(m['mkt.activeRefresh']({ name: ext.displayName }));
     }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
-    toast.error(`Enable failed: ${e.message}`);
+    toast.error(m['mkt.enableFailed']({ error: e.message }));
   } finally {
     processingId = null;
   }
@@ -334,9 +333,9 @@ async function enable(ext: Extension) {
 async function disable(ext: Extension) {
   confirmState = {
     open: true,
-    title: 'Disable Extension',
-    message: `Disable "${ext.displayName}"?`,
-    confirmLabel: 'Disable',
+    title: m['mkt.disableExt'](),
+    message: m['mkt.disableMsg']({ name: ext.displayName }),
+    confirmLabel: m['mkt.disable'](),
     confirmClass: 'btn-warning',
     onconfirm: async () => {
       confirmState.open = false;
@@ -352,21 +351,19 @@ async function disable(ext: Extension) {
         const sec = res?.studio_rebuild_ms ? `${(res.studio_rebuild_ms / 1000).toFixed(1)}s` : '';
 
         if (rebuild === 'success') {
-          toast.success(`${ext.displayName} disabled. Studio rebuilt in ${sec}.`);
+          toast.success(m['mkt.disabledRebuilt']({ name: ext.displayName, sec }));
         } else if (rebuild === 'failed') {
           // Non-fatal — disable already took effect in the engine; the
           // Studio dist just wasn't recompiled. Refresh still reflects it.
-          toast.info(
-            `${ext.displayName} disabled. (Studio recompile didn't complete; the page is removed on next successful rebuild.)`,
-          );
+          toast.info(m['mkt.disabledRecompile']({ name: ext.displayName }));
         } else {
           // skipped → default path. The extension is gone from the engine and
           // its nav entry; the (still-compiled) page just won't be linked.
-          toast.success(`${ext.displayName} disabled.`);
+          toast.success(m['mkt.disabled']({ name: ext.displayName }));
         }
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
-        toast.error(`Disable failed: ${e.message}`);
+        toast.error(m['mkt.disableFailed']({ error: e.message }));
       } finally {
         processingId = null;
       }
@@ -377,9 +374,9 @@ async function disable(ext: Extension) {
 async function uninstall(ext: Extension) {
   confirmState = {
     open: true,
-    title: 'Uninstall Extension',
-    message: `Uninstall "${ext.displayName}"? Configuration will be lost.`,
-    confirmLabel: 'Uninstall',
+    title: m['mkt.uninstallExt'](),
+    message: m['mkt.uninstallMsg']({ name: ext.displayName }),
+    confirmLabel: m['mkt.uninstall'](),
     onconfirm: async () => {
       confirmState.open = false;
       processingId = ext.name;
@@ -388,7 +385,7 @@ async function uninstall(ext: Extension) {
         await loadCatalog();
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
       } catch (e: any) {
-        toast.error(`Uninstall failed: ${e.message}`);
+        toast.error(m['mkt.uninstallFailed']({ error: e.message }));
       } finally {
         processingId = null;
       }
@@ -415,7 +412,7 @@ async function saveConfig() {
     await loadCatalog();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (e: any) {
-    configError = e instanceof SyntaxError ? 'Invalid JSON' : e.message;
+    configError = e instanceof SyntaxError ? m['mkt.invalidJson']() : e.message;
   }
 }
 
@@ -424,10 +421,10 @@ onMount(loadCatalog);
 
 <div class="space-y-6">
 
-  <PageHeader title="Marketplace" subtitle="Browse and install extensions">
+  <PageHeader title={m['nav.marketplace']()} subtitle={m['mkt.subtitle']()}>
     <button class="btn btn-ghost btn-sm gap-1" onclick={loadCatalog} disabled={loading}>
       <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
-      Refresh
+      {m['common.refresh']()}
     </button>
   </PageHeader>
 
@@ -435,8 +432,8 @@ onMount(loadCatalog);
       <div class="alert alert-info py-3 mb-4 gap-3">
         <Hammer size={18} class="shrink-0 animate-bounce" />
         <div class="flex-1">
-          <p class="font-medium text-sm">Studio is rebuilding after enabling <strong>{rebuildingExt}</strong></p>
-          <p class="text-xs opacity-70">This takes ~30 seconds. The sidebar will update automatically when done. ({rebuildElapsed}s elapsed)</p>
+          <p class="font-medium text-sm">{m['mkt.rebuilding']({ name: rebuildingExt })}</p>
+          <p class="text-xs opacity-70">{m['mkt.rebuildTakes']()} {m['mkt.elapsed']({ s: rebuildElapsed })}</p>
         </div>
         <span class="loading loading-spinner loading-sm shrink-0"></span>
       </div>
@@ -444,7 +441,7 @@ onMount(loadCatalog);
 
     {#if restartNeeded}
       <div class="alert alert-warning py-2 mb-4 text-sm">
-        <span>Some extensions require a server restart to take effect.</span>
+        <span>{m['mkt.restartNeeded']()}</span>
       </div>
     {/if}
 
@@ -457,7 +454,7 @@ onMount(loadCatalog);
       <input
         type="text"
         class="input input-sm w-full"
-        placeholder="Search extensions..."
+        placeholder={m['mkt.searchPh']()}
         bind:value={searchQuery}
       />
     </div>
@@ -472,7 +469,7 @@ onMount(loadCatalog);
                  {cat === 'all' ? 'bg-primary/10 text-primary font-medium' : 'text-base-content/60 hover:bg-base-200'}"
           onclick={() => cat = 'all'}
         >
-          All ({extensions.length})
+          {m['common.filter.all']()} ({extensions.length})
         </button>
         {#each CATEGORIES as c}
           <button
@@ -492,7 +489,7 @@ onMount(loadCatalog);
         {:else if filtered.length === 0}
           <div class="text-center py-20 opacity-50">
             <Puzzle size={48} class="mx-auto mb-3" />
-            <p>No extensions found</p>
+            <p>{m['mkt.noneFound']()}</p>
           </div>
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -529,25 +526,25 @@ onMount(loadCatalog);
                     <!-- Status badge -->
                     {#if isRebuilding}
                       <span class="badge badge-info badge-sm shrink-0 gap-1">
-                        <span class="loading loading-spinner loading-xs"></span> Building
+                        <span class="loading loading-spinner loading-xs"></span> {m['mkt.building']()}
                       </span>
                     {:else if ext.is_running}
                       <span class="badge badge-success badge-sm shrink-0 gap-1">
-                        <CheckCircle size={10} /> Running
+                        <CheckCircle size={10} /> {m['mkt.running']()}
                       </span>
                     {:else if ext.is_enabled && !ext.files_on_disk}
-                      <span class="badge badge-error badge-sm shrink-0 gap-1" title="Extension package not deployed on this server">
-                        <AlertTriangle size={10} /> Files missing
+                      <span class="badge badge-error badge-sm shrink-0 gap-1" title={m['mkt.filesMissingTitle']()}>
+                        <AlertTriangle size={10} /> {m['mkt.filesMissing']()}
                       </span>
                     {:else if ext.is_enabled && ext.needs_restart}
                       <span class="badge badge-warning badge-sm shrink-0 gap-1">
-                        <AlertTriangle size={10} /> Restart
+                        <AlertTriangle size={10} /> {m['mkt.restart']()}
                       </span>
                     {:else if ext.is_installed}
-                      <span class="badge badge-ghost badge-sm shrink-0">Installed</span>
+                      <span class="badge badge-ghost badge-sm shrink-0">{m['mkt.installed']()}</span>
                     {:else}
                       <span class="badge badge-ghost badge-sm shrink-0 opacity-50">
-                        <Circle size={10} /> Available
+                        <Circle size={10} /> {m['mkt.available']()}
                       </span>
                     {/if}
                   </div>
@@ -562,7 +559,7 @@ onMount(loadCatalog);
                     {/each}
                     {#if ext.requires_license}
                       <span class="badge badge-xs badge-warning gap-1">
-                        <Key size={8} /> {ext.has_license ? 'Licensed' : 'Paid'}
+                        <Key size={8} /> {ext.has_license ? m['mkt.licensed']() : m['mkt.paid']()}
                       </span>
                     {/if}
                   </div>
@@ -570,12 +567,12 @@ onMount(loadCatalog);
                   <!-- Dependencies -->
                   {#if ext.dependencies && ext.dependencies.length > 0}
                     <div class="flex flex-wrap items-center gap-1 mb-4 text-xs">
-                      <span class="opacity-50">Depends on:</span>
+                      <span class="opacity-50">{m['mkt.dependsOn']()}</span>
                       {#each ext.dependencies as dep}
                         {@const unmet = missingDeps.includes(dep)}
                         <span
                           class="badge badge-xs {unmet ? 'badge-warning' : 'badge-success badge-outline'}"
-                          title={unmet ? 'Not enabled yet — enable this first' : 'Enabled'}
+                          title={unmet ? m['mkt.depNotEnabled']() : m['common.col.enabled']()}
                         >{dep}</span>
                       {/each}
                     </div>
@@ -591,19 +588,19 @@ onMount(loadCatalog);
                     <div class="alert alert-warning py-2 px-3 mb-3 text-xs items-start">
                       <ShieldAlert size={14} class="mt-0.5 shrink-0" />
                       <div class="min-w-0">
-                        <p class="font-semibold">Requests new permissions</p>
+                        <p class="font-semibold">{m['mkt.requestsNewPerms']()}</p>
                         <p class="opacity-80 mb-2">
-                          This version asks for
+                          {m['mkt.asksFor1']()}
                           {#each ext.pending_capabilities ?? [] as cap, i}<code
                             class="font-mono">{cap}</code>{#if i < (ext.pending_capabilities ?? []).length - 1}, {/if}{/each},
-                          which you have not approved. It is running without them.
+                          {m['mkt.asksFor2']()}
                         </p>
                         <button
                           class="btn btn-warning btn-xs gap-1"
                           disabled={isProcessing}
                           onclick={() => approveCapabilities(ext)}
                         >
-                          <ShieldCheck size={12} /> Approve
+                          <ShieldCheck size={12} /> {m['common.approve']()}
                         </button>
                       </div>
                     </div>
@@ -616,7 +613,7 @@ onMount(loadCatalog);
 
                     {:else if ext.requires_license && !ext.has_license}
                       <button class="btn btn-warning btn-sm flex-1 gap-1" onclick={() => openLicense(ext)}>
-                        <Key size={14} /> Enter License Key
+                        <Key size={14} /> {m['mkt.enterLicense']()}
                       </button>
 
                     {:else if !ext.is_installed}
@@ -624,13 +621,13 @@ onMount(loadCatalog);
                         <button
                           class="btn btn-sm flex-1 gap-1"
                           disabled
-                          title={`Enable ${missingDeps.join(', ')} first`}
+                          title={m['mkt.enableFirst']({ deps: missingDeps.join(', ') })}
                         >
-                          <Download size={14} /> Install
+                          <Download size={14} /> {m['mkt.install']()}
                         </button>
                       {:else}
                         <button class="btn btn-primary btn-sm flex-1 gap-1" onclick={() => install(ext)}>
-                          <Download size={14} /> Install
+                          <Download size={14} /> {m['mkt.install']()}
                         </button>
                       {/if}
 
@@ -639,27 +636,27 @@ onMount(loadCatalog);
                         <button
                           class="btn btn-sm flex-1 gap-1"
                           disabled
-                          title={`Enable ${missingDeps.join(', ')} first`}
+                          title={m['mkt.enableFirst']({ deps: missingDeps.join(', ') })}
                         >
-                          <Power size={14} /> Enable
+                          <Power size={14} /> {m['mkt.enable']()}
                         </button>
                       {:else}
                         <button class="btn btn-success btn-sm flex-1 gap-1" onclick={() => enable(ext)}>
-                          <Power size={14} /> Enable
+                          <Power size={14} /> {m['mkt.enable']()}
                         </button>
                       {/if}
-                      <button class="btn btn-ghost btn-sm" onclick={() => openConfig(ext)} title="Configure">
+                      <button class="btn btn-ghost btn-sm" onclick={() => openConfig(ext)} title={m['mkt.configure']()}>
                         <Settings size={14} />
                       </button>
-                      <button class="btn btn-ghost btn-sm text-error" onclick={() => uninstall(ext)} title="Uninstall">
+                      <button class="btn btn-ghost btn-sm text-error" onclick={() => uninstall(ext)} title={m['mkt.uninstall']()}>
                         <Trash2 size={14} />
                       </button>
 
                     {:else}
                       <button class="btn btn-ghost btn-sm flex-1 gap-1 text-error" onclick={() => disable(ext)}>
-                        <PowerOff size={14} /> Disable
+                        <PowerOff size={14} /> {m['mkt.disable']()}
                       </button>
-                      <button class="btn btn-ghost btn-sm" onclick={() => openConfig(ext)} title="Configure">
+                      <button class="btn btn-ghost btn-sm" onclick={() => openConfig(ext)} title={m['mkt.configure']()}>
                         <Settings size={14} />
                       </button>
                     {/if}
@@ -679,10 +676,10 @@ onMount(loadCatalog);
 {#if licenseExt}
   <div class="modal modal-open">
     <div class="modal-box max-w-md">
-      <h3 class="font-bold text-lg mb-1">Enter License Key</h3>
+      <h3 class="font-bold text-lg mb-1">{m['mkt.enterLicense']()}</h3>
       <p class="text-sm opacity-60 mb-4">
-        Enter the license key for <strong>{licenseExt.displayName}</strong>.
-        Purchase it at <a href="https://apps.zveltio.com" target="_blank" rel="noopener" class="link">apps.zveltio.com</a>.
+        {m['mkt.licenseFor']()} <strong>{licenseExt.displayName}</strong>.
+        {m['mkt.purchaseAt']()} <a href="https://apps.zveltio.com" target="_blank" rel="noopener" class="link">apps.zveltio.com</a>.
       </p>
 
       <input
@@ -698,14 +695,14 @@ onMount(loadCatalog);
       {/if}
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => licenseExt = null}>Cancel</button>
+        <button class="btn btn-ghost" onclick={() => licenseExt = null}>{m['common.cancel']()}</button>
         <button class="btn btn-primary gap-1" onclick={saveLicense} disabled={licenseSaving || !licenseKey.trim()}>
           {#if licenseSaving}<span class="loading loading-spinner loading-xs"></span>{:else}<Key size={14} />{/if}
-          Save Key
+          {m['mkt.saveKey']()}
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => licenseExt = null}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => licenseExt = null}></button>
   </div>
 {/if}
 
@@ -713,9 +710,9 @@ onMount(loadCatalog);
 {#if configuringExt}
   <div class="modal modal-open">
     <div class="modal-box max-w-lg">
-      <h3 class="font-bold text-lg mb-1">Configure {configuringExt.displayName}</h3>
+      <h3 class="font-bold text-lg mb-1">{m['mkt.configureName']({ name: configuringExt.displayName })}</h3>
       <p class="text-sm opacity-60 mb-3">
-        JSON configuration for this extension. Changes take effect on next restart.
+        {m['mkt.configDesc']()}
       </p>
 
       <textarea
@@ -729,11 +726,11 @@ onMount(loadCatalog);
       {/if}
 
       <div class="modal-action">
-        <button class="btn btn-ghost" onclick={() => configuringExt = null}>Cancel</button>
-        <button class="btn btn-primary" onclick={saveConfig}>Save Config</button>
+        <button class="btn btn-ghost" onclick={() => configuringExt = null}>{m['common.cancel']()}</button>
+        <button class="btn btn-primary" onclick={saveConfig}>{m['mkt.saveConfig']()}</button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => configuringExt = null}></button>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => configuringExt = null}></button>
   </div>
 {/if}
 
@@ -741,7 +738,7 @@ onMount(loadCatalog);
   open={confirmState.open}
   title={confirmState.title}
   message={confirmState.message}
-  confirmLabel={confirmState.confirmLabel ?? 'Confirm'}
+  confirmLabel={confirmState.confirmLabel ?? m['common.confirm']()}
   onconfirm={confirmState.onconfirm}
   oncancel={() => (confirmState.open = false)}
 />

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { m } from '$lib/i18n.svelte.js';
 import { api } from '$lib/api.js';
 import { Terminal } from '@lucide/svelte';
 
@@ -51,8 +52,8 @@ function handleKeydown(e: KeyboardEvent) {
   <div class="flex items-center gap-3 mb-6">
     <Terminal class="w-6 h-6 text-primary" />
     <div>
-      <h1 class="text-2xl font-bold">SQL Editor</h1>
-      <p class="text-base-content/60 text-sm">Run SQL queries directly against the database. Admin only.</p>
+      <h1 class="text-2xl font-bold">{m['sqled.title']()}</h1>
+      <p class="text-base-content/60 text-sm">{m['sqled.subtitle']()}</p>
     </div>
   </div>
 
@@ -66,7 +67,7 @@ function handleKeydown(e: KeyboardEvent) {
         spellcheck={false}
       ></textarea>
       <div class="flex items-center justify-between mt-2">
-        <span class="text-xs text-base-content/40">Ctrl+Enter to run</span>
+        <span class="text-xs text-base-content/40">{m['sqled.ctrlEnter']()}</span>
         <button class="btn btn-primary btn-sm gap-2" onclick={runQuery} disabled={running}>
           {#if running}
             <span class="loading loading-spinner loading-xs"></span>
@@ -119,7 +120,7 @@ function handleKeydown(e: KeyboardEvent) {
         </table>
       </div>
     {:else}
-      <div class="text-center py-8 text-base-content/40 text-sm">Query executed — no rows returned.</div>
+      <div class="text-center py-8 text-base-content/40 text-sm">{m['sqled.noRows']()}</div>
     {/if}
   {/if}
 </div>

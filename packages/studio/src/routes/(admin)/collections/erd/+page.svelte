@@ -19,6 +19,7 @@
  * teams want shared layouts later, we promote the storage layer behind
  * the same `userPositions` interface.
  */
+import { m } from '$lib/i18n.svelte.js';
 import { onMount, onDestroy, tick } from 'svelte';
 import { goto } from '$app/navigation';
 import { base } from '$app/paths';
@@ -374,7 +375,7 @@ async function resetLayout() {
     /* ignore offline */
   }
   requestAnimationFrame(() => fitToView());
-  toast.success('Layout reset to auto-grid.');
+  toast.success(m['erd.layoutReset']());
 }
 
 // ── Force-directed layout (Fruchterman–Reingold, simplified) ────────────
@@ -453,7 +454,7 @@ async function applyForceLayout() {
   persistPositions();
   await tick();
   requestAnimationFrame(() => fitToView());
-  toast.success('Applied force-directed layout.');
+  toast.success(m['erd.forceApplied']());
 }
 
 // ── Export (SVG + PNG) ──────────────────────────────────────────────────
@@ -527,7 +528,7 @@ function downloadBlob(blob: Blob, filename: string) {
 function exportSvg() {
   const svg = buildExportSvg();
   downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `zveltio-schema-${stamp()}.svg`);
-  toast.success('Downloaded SVG.');
+  toast.success(m['erd.downloadedSvg']());
 }
 
 async function exportPng() {
@@ -550,11 +551,11 @@ async function exportPng() {
     ctx.drawImage(img, 0, 0);
     canvas.toBlob((blob) => {
       if (!blob) {
-        toast.error('Failed to encode PNG');
+        toast.error(m['erd.pngFailed']());
         return;
       }
       downloadBlob(blob, `zveltio-schema-${stamp()}.png`);
-      toast.success('Downloaded PNG (@2×).');
+      toast.success(m['erd.downloadedPng']());
     }, 'image/png');
   } finally {
     URL.revokeObjectURL(url);
@@ -578,11 +579,10 @@ let newCollectionError = $state('');
 let saving = $state(false);
 
 function validateName(n: string): string {
-  if (!n) return 'Name is required';
-  if (n.length > 60) return 'Max 60 characters';
-  if (!/^[a-z][a-z0-9_]*$/.test(n))
-    return 'Lowercase letters, digits, underscore; must start with a letter';
-  if (collections.some((c) => c.name === n)) return 'Collection already exists';
+  if (!n) return m['erd.nameRequired']();
+  if (n.length > 60) return m['erd.max60']();
+  if (!/^[a-z][a-z0-9_]*$/.test(n)) return m['erd.slugRule']();
+  if (collections.some((c) => c.name === n)) return m['erd.alreadyExists']();
   return '';
 }
 
@@ -598,31 +598,31 @@ async function createCollection() {
       name: newCollectionName,
       fields: [{ name: 'title', type: 'text', required: false }],
     });
-    toast.success(`Collection '${newCollectionName}' is being created.`);
+    toast.success(m['erd.beingCreated']({ name: newCollectionName }));
     newCollectionOpen = false;
     newCollectionName = '';
     // Poll briefly so the new collection shows up without a manual reload.
     setTimeout(load, 800);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
-    newCollectionError = err?.message ?? 'Failed to create';
+    newCollectionError = err?.message ?? m['erd.createFailed']();
   } finally {
     saving = false;
   }
 }
 
 async function deleteCollection(name: string) {
-  if (!confirm(`Drop collection "${name}"? This is irreversible.`)) return;
+  if (!confirm(m['erd.dropConfirm']({ name }))) return;
   try {
     await collectionsApi.delete(name);
-    toast.success(`Collection '${name}' deleted.`);
+    toast.success(m['erd.deleted']({ name }));
     delete userPositions[name];
     userPositions = { ...userPositions };
     persistPositions();
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
-    toast.error(err?.message ?? 'Failed to delete collection');
+    toast.error(err?.message ?? m['erd.deleteFailed']());
   }
 }
 
@@ -662,11 +662,11 @@ function closeAddField() {
 
 async function submitAddField(collectionName: string) {
   if (!newFieldName) {
-    newFieldError = 'Field name required';
+    newFieldError = m['erd.fieldNameRequired']();
     return;
   }
   if (!/^[a-z][a-z0-9_]*$/.test(newFieldName)) {
-    newFieldError = 'Lowercase letters, digits, underscore; must start with a letter';
+    newFieldError = m['erd.slugRule']();
     return;
   }
   try {
@@ -675,29 +675,25 @@ async function submitAddField(collectionName: string) {
       type: newFieldType,
       required: newFieldRequired,
     });
-    toast.success(`Added '${newFieldName}' to ${collectionName}.`);
+    toast.success(m['erd.fieldAdded']({ field: newFieldName, collection: collectionName }));
     closeAddField();
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
-    newFieldError = err?.message ?? 'Failed to add field';
+    newFieldError = err?.message ?? m['erd.addFieldFailed']();
   }
 }
 
 async function deleteField(collectionName: string, fieldName: string) {
-  if (
-    !confirm(
-      `Remove field "${fieldName}" from ${collectionName}? Existing data in this column will be lost.`,
-    )
-  )
+  if (!confirm(m['erd.removeFieldConfirm']({ field: fieldName, collection: collectionName })))
     return;
   try {
     await api.delete(`/api/collections/${collectionName}/fields/${fieldName}`);
-    toast.success(`Removed '${fieldName}'.`);
+    toast.success(m['erd.fieldRemoved']({ field: fieldName }));
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
-    toast.error(err?.message ?? 'Failed to remove field');
+    toast.error(err?.message ?? m['erd.removeFieldFailed']());
   }
 }
 
@@ -725,17 +721,17 @@ async function commitRename(collectionName: string, oldName: string) {
     return;
   }
   if (!/^[a-z][a-z0-9_]*$/.test(next)) {
-    renameError = 'Lowercase letters, digits, underscore; must start with a letter';
+    renameError = m['erd.slugRule']();
     return;
   }
   try {
     await api.patch(`/api/collections/${collectionName}/fields/${oldName}`, { new_name: next });
-    toast.success(`Renamed '${oldName}' → '${next}'.`);
+    toast.success(m['erd.renamed']({ from: oldName, to: next }));
     cancelRename();
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
-    renameError = err?.message ?? 'Rename failed';
+    renameError = err?.message ?? m['erd.renameFailed']();
   }
 }
 
@@ -765,7 +761,7 @@ function closeFieldEdit() {
 async function commitFieldEdit(collectionName: string, originalName: string) {
   editError = '';
   if (!/^[a-z][a-z0-9_]*$/.test(editFieldName)) {
-    editError = 'Lowercase letters, digits, underscore; must start with a letter';
+    editError = m['erd.slugRule']();
     return;
   }
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
@@ -786,12 +782,14 @@ async function commitFieldEdit(collectionName: string, originalName: string) {
       `/api/collections/${collectionName}/fields/${originalName}`,
       body,
     );
-    toast.success(`Updated: ${res.actions?.join(', ') ?? 'field updated'}`);
+    toast.success(
+      m['erd.updated']({ actions: res.actions?.join(', ') ?? m['erd.fieldUpdated']() }),
+    );
     closeFieldEdit();
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in docs/HARDENING-9-PLAN.md H-01
   } catch (err: any) {
-    editError = err?.message ?? 'Update failed';
+    editError = err?.message ?? m['erd.updateFailed']();
   } finally {
     editSaving = false;
   }
@@ -853,71 +851,71 @@ function edgeColor(type: string): string {
 
   <!-- Toolbar -->
   <div class="flex items-center gap-2 p-3 border-b border-base-300 bg-base-100 flex-wrap">
-    <a href="{base}/collections" class="btn btn-ghost btn-sm gap-1" aria-label="Back to collections list">
-      <ArrowLeft size={14} /> Collections
+    <a href="{base}/collections" class="btn btn-ghost btn-sm gap-1" aria-label={m['erd.backAria']()}>
+      <ArrowLeft size={14} /> {m['erd.back']()}
     </a>
     <h1 class="text-base font-semibold ml-2 flex items-center gap-2">
-      <Database size={16} /> Schema diagram
+      <Database size={16} /> {m['erd.title']()}
     </h1>
     <span class="text-xs text-base-content/50">
-      {visible.length} {visible.length === 1 ? 'collection' : 'collections'} · {edges.length} {edges.length === 1 ? 'relation' : 'relations'}
+      {m['erd.counts']({ collections: visible.length, relations: edges.length })}
     </span>
 
     <div class="grow"></div>
 
-    <button class="btn btn-primary btn-sm gap-1" onclick={() => (newCollectionOpen = true)} aria-label="New collection">
-      <Database size={14} /> New collection
+    <button class="btn btn-primary btn-sm gap-1" onclick={() => (newCollectionOpen = true)} aria-label={m['erd.newCollection']()}>
+      <Database size={14} /> {m['erd.newCollection']()}
     </button>
 
     <div class="divider divider-horizontal mx-0"></div>
 
-    <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Toggle system collections (zv_*)">
+    <label class="flex items-center gap-1.5 text-xs cursor-pointer" title={m['erd.toggleSystem']()}>
       <input type="checkbox" class="toggle toggle-xs" bind:checked={showSystem} />
       {#if showSystem}<EyeOff size={13} />{:else}<Eye size={13} />{/if}
-      System tables
+      {m['erd.systemTables']()}
     </label>
 
-    <button class="btn btn-ghost btn-sm gap-1" onclick={applyForceLayout} title="Auto-arrange using force-directed layout">
-      <GitFork size={13} /> Auto-arrange
+    <button class="btn btn-ghost btn-sm gap-1" onclick={applyForceLayout} title={m['erd.autoArrangeTitle']()}>
+      <GitFork size={13} /> {m['erd.autoArrange']()}
     </button>
-    <button class="btn btn-ghost btn-sm gap-1" onclick={resetLayout} title="Reset to default grid layout">
-      <RotateCcw size={13} /> Reset
+    <button class="btn btn-ghost btn-sm gap-1" onclick={resetLayout} title={m['erd.resetTitle']()}>
+      <RotateCcw size={13} /> {m['erd.reset']()}
     </button>
 
     <span
       class="text-[10px] tabular-nums {serverSynced ? 'text-success' : 'text-base-content/40'}"
-      title={serverSynced ? 'Layout synced to your account' : 'Layout saved locally only — sign in to sync across devices'}
+      title={serverSynced ? m['erd.syncedTitle']() : m['erd.localOnlyTitle']()}
     >
-      {serverSynced ? '● synced' : '○ local'}
+      {serverSynced ? m['erd.synced']() : m['erd.localOnly']()}
     </span>
 
     <div class="divider divider-horizontal mx-0"></div>
 
-    <button class="btn btn-ghost btn-sm" onclick={() => (zoom = Math.max(0.2, zoom - 0.1))} aria-label="Zoom out"><ZoomOut size={14} /></button>
+    <button class="btn btn-ghost btn-sm" onclick={() => (zoom = Math.max(0.2, zoom - 0.1))} aria-label={m['erd.zoomOut']()}><ZoomOut size={14} /></button>
     <span class="text-xs tabular-nums w-12 text-center">{Math.round(zoom * 100)}%</span>
-    <button class="btn btn-ghost btn-sm" onclick={() => (zoom = Math.min(2.5, zoom + 0.1))} aria-label="Zoom in"><ZoomIn size={14} /></button>
-    <button class="btn btn-ghost btn-sm gap-1" onclick={fitToView} aria-label="Fit to view"><Maximize2 size={14} /> Fit</button>
+    <button class="btn btn-ghost btn-sm" onclick={() => (zoom = Math.min(2.5, zoom + 0.1))} aria-label={m['erd.zoomIn']()}><ZoomIn size={14} /></button>
+    <button class="btn btn-ghost btn-sm gap-1" onclick={fitToView} aria-label={m['erd.fitTitle']()}><Maximize2 size={14} /> {m['erd.fit']()}</button>
 
     <div class="divider divider-horizontal mx-0"></div>
 
     <div class="join">
-      <button class="btn btn-ghost btn-sm gap-1 join-item" onclick={exportSvg} title="Download as SVG">
+      <button class="btn btn-ghost btn-sm gap-1 join-item" onclick={exportSvg} title={m['erd.downloadSvg']()}>
         <Download size={13} /> SVG
       </button>
-      <button class="btn btn-ghost btn-sm gap-1 join-item" onclick={exportPng} title="Download as PNG @2×">
+      <button class="btn btn-ghost btn-sm gap-1 join-item" onclick={exportPng} title={m['erd.downloadPng']()}>
         <ImageIcon size={13} /> PNG
       </button>
     </div>
 
-    <button class="btn btn-ghost btn-sm" onclick={load} aria-label="Reload schema" title="Reload"><RefreshCw size={14} /></button>
+    <button class="btn btn-ghost btn-sm" onclick={load} aria-label={m['erd.reload']()} title={m['common.refresh']()}><RefreshCw size={14} /></button>
   </div>
 
   <!-- New-collection modal -->
   {#if newCollectionOpen}
     <div class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="new-col-title">
       <div class="bg-base-100 rounded-xl shadow-xl border border-base-300 p-6 w-full max-w-md">
-        <h2 id="new-col-title" class="text-lg font-semibold mb-3">New collection</h2>
-        <label class="block text-xs text-base-content/60 mb-1" for="new-col-name">Name (lowercase, snake_case)</label>
+        <h2 id="new-col-title" class="text-lg font-semibold mb-3">{m['erd.newCollection']()}</h2>
+        <label class="block text-xs text-base-content/60 mb-1" for="new-col-name">{m['erd.nameSnakeCase']()}</label>
         <input
           id="new-col-name"
           class="input input-bordered input-sm w-full"
@@ -930,12 +928,12 @@ function edgeColor(type: string): string {
           <p class="text-xs text-error mt-1">{newCollectionError}</p>
         {/if}
         <p class="text-xs text-base-content/50 mt-2">
-          A single <code>title</code> text field is added by default. You can edit fields after creation.
+          {m['erd.titleFieldNote']()}
         </p>
         <div class="flex justify-end gap-2 mt-5">
-          <button class="btn btn-ghost btn-sm" onclick={() => { newCollectionOpen = false; newCollectionName = ''; newCollectionError = ''; }}>Cancel</button>
+          <button class="btn btn-ghost btn-sm" onclick={() => { newCollectionOpen = false; newCollectionName = ''; newCollectionError = ''; }}>{m['common.cancel']()}</button>
           <button class="btn btn-primary btn-sm" onclick={createCollection} disabled={saving}>
-            {saving ? 'Creating…' : 'Create'}
+            {saving ? m['erd.creating']() : m['common.create']()}
           </button>
         </div>
       </div>
@@ -944,11 +942,11 @@ function edgeColor(type: string): string {
 
   <!-- Legend -->
   <div class="flex flex-wrap items-center gap-4 px-3 py-2 text-xs text-base-content/60 border-b border-base-300 bg-base-100">
-    <span class="font-medium">Relation types:</span>
+    <span class="font-medium">{m['erd.relationTypes']()}</span>
     <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-0.5" style="background: #6366f1"></span> m2o / reference (N→1)</span>
     <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-0.5" style="background: #22c55e"></span> o2m (1→N)</span>
     <span class="flex items-center gap-1.5"><span class="inline-block w-4 h-0.5" style="background: #f59e0b"></span> m2m (N↔N)</span>
-    <span class="ml-auto opacity-70">Drag to pan · Ctrl/⌘+Wheel to zoom · Click a table to open · Double-click a field to rename</span>
+    <span class="ml-auto opacity-70">{m['erd.hint']()}</span>
   </div>
 
   <!-- Viewport -->
@@ -959,7 +957,7 @@ function edgeColor(type: string): string {
     onmousedown={onCanvasMouseDown}
     onwheel={onWheel}
     role="application"
-    aria-label="Schema diagram viewport"
+    aria-label={m['erd.viewportAria']()}
   >
     {#if loading}
       <div class="absolute inset-0 flex items-center justify-center">
@@ -968,8 +966,8 @@ function edgeColor(type: string): string {
     {:else if visible.length === 0}
       <div class="absolute inset-0 flex flex-col items-center justify-center text-base-content/50 gap-2">
         <Database size={48} />
-        <p class="text-sm">No collections yet.</p>
-        <a href="{base}/collections" class="btn btn-primary btn-sm mt-2">Create your first collection</a>
+        <p class="text-sm">{m['erd.noCollections']()}</p>
+        <a href="{base}/collections" class="btn btn-primary btn-sm mt-2">{m['erd.createFirst']()}</a>
       </div>
     {:else}
       <!-- World layer — translated + scaled together so HTML cards and SVG edges stay aligned. -->
@@ -1007,7 +1005,7 @@ function edgeColor(type: string): string {
               style="left: {pos.x}px; top: {pos.y}px; width: {NODE_W}px;"
               onmousedown={(e) => onCardMouseDown(e, col.name)}
               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') goto(`${base}/collections/${col.name}`); }}
-              title="Drag to move · click to open"
+              title={m['erd.cardTitle']()}
             >
               <!-- Header -->
               <div class="px-3 py-2 bg-base-200 border-b border-base-300 flex items-center gap-2">
@@ -1021,8 +1019,8 @@ function edgeColor(type: string): string {
                     data-no-drag
                     class="btn btn-ghost btn-xs opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 h-auto min-h-0 text-error"
                     onclick={(e) => { e.stopPropagation(); deleteCollection(col.name); }}
-                    title="Delete collection"
-                    aria-label="Delete {col.name}"
+                    title={m['erd.deleteCollection']()}
+                    aria-label={m['erd.deleteNamed']({ name: col.name })}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -1066,7 +1064,7 @@ function edgeColor(type: string): string {
                           e.stopPropagation();
                           startRename(col.name, field.name);
                         }}
-                        title={isSys ? 'system field' : 'double-click to rename · pencil to edit type/required'}
+                        title={isSys ? m['erd.systemField']() : m['erd.fieldHint']()}
                       >{field.name}</span>
                       <span class="text-base-content/40 shrink-0">{field.type}</span>
                       {#if field.required}<span class="text-error">*</span>{/if}
@@ -1075,15 +1073,15 @@ function edgeColor(type: string): string {
                           data-no-drag
                           class="opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity text-base-content/40 hover:text-primary shrink-0"
                           onclick={(e) => { e.stopPropagation(); openFieldEdit(col.name, field); }}
-                          title="Edit field (type, required)"
-                          aria-label="Edit field {field.name}"
+                          title={m['erd.editField']()}
+                          aria-label={m['erd.editFieldNamed']({ name: field.name })}
                         ><Pencil size={10} /></button>
                         <button
                           data-no-drag
                           class="opacity-0 group-hover/row:opacity-100 focus:opacity-100 transition-opacity text-base-content/40 hover:text-error shrink-0"
                           onclick={(e) => { e.stopPropagation(); deleteField(col.name, field.name); }}
-                          title="Remove field"
-                          aria-label="Remove field {field.name}"
+                          title={m['erd.removeField']()}
+                          aria-label={m['erd.removeFieldNamed']({ name: field.name })}
                         >×</button>
                       {/if}
                     {/if}
@@ -1094,7 +1092,7 @@ function edgeColor(type: string): string {
                         <input
                           class="input input-bordered input-xs grow text-[11px] font-mono"
                           bind:value={editFieldName}
-                          placeholder="field name"
+                          placeholder={m['erd.fieldNamePh']()}
                           onkeydown={(e) => { if (e.key === 'Escape') closeFieldEdit(); }}
                           autocomplete="off"
                         />
@@ -1102,25 +1100,25 @@ function edgeColor(type: string): string {
                           class="select select-bordered select-xs text-[11px]"
                           bind:value={editFieldType}
                           disabled={isRel}
-                          title={isRel ? 'Type change not supported on relation fields' : ''}
+                          title={isRel ? m['erd.typeChangeUnsupported']() : ''}
                         >
                           {#each FIELD_TYPES_QUICK as t}<option value={t}>{t}</option>{/each}
                           {#if isRel}
-                            <option value={editOriginalType}>{editOriginalType} (relation)</option>
+                            <option value={editOriginalType}>{m['erd.relationSuffix']({ type: editOriginalType })}</option>
                           {/if}
                         </select>
                       </div>
                       <label class="flex items-center gap-1.5 text-[10px] text-base-content/70 cursor-pointer">
                         <input type="checkbox" class="checkbox checkbox-xs" bind:checked={editRequired} />
-                        required (NOT NULL)
+                        {m['erd.requiredNotNull']()}
                       </label>
                       {#if editError}
                         <p class="text-[10px] text-error">{editError}</p>
                       {/if}
                       <div class="flex gap-1 justify-end">
-                        <button class="btn btn-ghost btn-xs" onclick={closeFieldEdit} disabled={editSaving}>Cancel</button>
+                        <button class="btn btn-ghost btn-xs" onclick={closeFieldEdit} disabled={editSaving}>{m['common.cancel']()}</button>
                         <button class="btn btn-primary btn-xs" onclick={() => commitFieldEdit(col.name, field.name)} disabled={editSaving}>
-                          {editSaving ? 'Saving…' : 'Save'}
+                          {editSaving ? m['erd.saving']() : m['common.save']()}
                         </button>
                       </div>
                     </div>
@@ -1128,7 +1126,7 @@ function edgeColor(type: string): string {
                 {/each}
                 {#if col.fields.length > 12}
                   <div class="px-3 py-1 text-[10px] text-base-content/40 italic">
-                    + {col.fields.length - 12} more
+                    {m['erd.andMore']({ count: col.fields.length - 12 })}
                   </div>
                 {/if}
 
@@ -1138,7 +1136,7 @@ function edgeColor(type: string): string {
                     <div data-no-drag class="px-3 py-2 border-t border-base-300 bg-base-200/50 flex flex-col gap-1.5">
                       <input
                         class="input input-bordered input-xs text-[11px]"
-                        placeholder="field_name"
+                        placeholder={m['erd.fieldNamePh']()}
                         bind:value={newFieldName}
                         onkeydown={(e) => { if (e.key === 'Enter') submitAddField(col.name); if (e.key === 'Escape') closeAddField(); }}
                         autocomplete="off"
@@ -1149,15 +1147,15 @@ function edgeColor(type: string): string {
                         </select>
                         <label class="flex items-center gap-1 text-[10px] text-base-content/60 cursor-pointer">
                           <input type="checkbox" class="checkbox checkbox-xs" bind:checked={newFieldRequired} />
-                          req
+                          {m['erd.req']()}
                         </label>
                       </div>
                       {#if newFieldError}
                         <p class="text-[10px] text-error">{newFieldError}</p>
                       {/if}
                       <div class="flex gap-1 justify-end">
-                        <button class="btn btn-ghost btn-xs" onclick={closeAddField}>Cancel</button>
-                        <button class="btn btn-primary btn-xs" onclick={() => submitAddField(col.name)}>Add</button>
+                        <button class="btn btn-ghost btn-xs" onclick={closeAddField}>{m['common.cancel']()}</button>
+                        <button class="btn btn-primary btn-xs" onclick={() => submitAddField(col.name)}>{m['erd.add']()}</button>
                       </div>
                     </div>
                   {:else}
@@ -1166,7 +1164,7 @@ function edgeColor(type: string): string {
                       class="w-full text-left px-3 py-1 text-[10px] text-base-content/40 hover:text-primary hover:bg-base-200 transition-colors border-t border-base-300/50 flex items-center gap-1"
                       onclick={(e) => { e.stopPropagation(); openAddField(col.name); }}
                     >
-                      <Plus size={10} /> add field
+                      <Plus size={10} /> {m['erd.addField']()}
                     </button>
                   {/if}
                 {/if}
