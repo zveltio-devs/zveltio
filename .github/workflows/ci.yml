@@ -107,6 +107,14 @@ jobs:
         # out of their own tenant. Each site must pick requireInstanceAdmin or
         # isTenantAdmin explicitly.
         run: bun run scripts/admin-gate-check.ts
+      - name: No driver-reported affected-row counts
+        # This dialect does not report them: numUpdatedRows/numDeletedRows are
+        # 0n whether or not rows changed, and raw `sql` executes omit
+        # numAffectedRows entirely. Four call sites relied on them and each
+        # broke differently — moveToTrash threw "not found" on every successful
+        # delete, and the ghost-DDL backfill copied two batches then reported
+        # success, swapping in an incomplete table. Count with RETURNING.
+        run: bun run scripts/check-affected-rows.ts
       - name: Format check
         # Blocks merges that introduce unformatted code. Run `bun run format`
         # locally before pushing to fix any violations.

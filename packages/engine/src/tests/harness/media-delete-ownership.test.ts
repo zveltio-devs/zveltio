@@ -112,24 +112,18 @@ d('media delete ownership (in-process)', () => {
     expect(await stillThere()).toBe(true);
   });
 
-  it('reaches the ownership gate as an admin (TRIPWIRE: delete itself is broken)', async () => {
-    // The rule is owner-or-admin, and an admin DOES pass `mayDeleteFile` — a
-    // gate that blocked admins would satisfy the refusals above while breaking
-    // moderation, so this must be checked.
+  it('lets an admin delete it', async () => {
+    // The rule is owner-or-admin, not owner-only — a gate that blocked admins
+    // would satisfy the refusals above while breaking moderation.
     //
-    // The request still fails, with `File not found or already deleted` from
-    // moveToTrash, and it failed the same way BEFORE the ownership check was
-    // added — verified by reverting media.ts and re-running. So the DELETE
-    // route does not work for anyone in this configuration; the missing owner
-    // check simply guarded a door that was already stuck.
-    //
-    // Asserted as-is rather than skipped: whoever fixes moveToTrash gets a red
-    // test naming the exact behaviour they changed, instead of a silent pass.
+    // This asserted 404 until the `numUpdatedRows` bug behind it was found:
+    // the write SUCCEEDED and the route reported failure, because the Bun SQL
+    // dialect returns 0n whether or not rows were updated.
     const res = await app.request(`/api/media/files/${OWNER_FILE}`, {
       method: 'DELETE',
       headers: { cookie: godCookie },
     });
-    expect(res.status).not.toBe(403); // the ownership gate let the admin through
-    expect(res.status).toBe(404); // …and then moveToTrash could not find the row
+    expect(res.status).toBe(200);
+    expect(await stillThere()).toBe(false);
   });
 });
